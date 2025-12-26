@@ -1,0 +1,22 @@
+{
+  "447543458292@c.us": {
+    "role": "handyman",
+    "stage": "inbound",
+    "name": "Ibraheim"
+  },
+  "447947837863@c.us": {
+    "role": "handyman",
+    "stage": "inbound",
+    "name": "Dad"
+  },
+  "124932059045902@lid": {
+    "role": "lead",
+    "stage": "inbound",
+    "assignedHandymanId": ""
+  },
+  "84357691573@c.us": {
+    "role": "lead",
+    "stage": "inbound",
+    "assignedHandymanId": "447543458292@c.us"
+  }
+}

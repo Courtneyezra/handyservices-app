@@ -1,0 +1,298 @@
+import { useState, useEffect } from 'react';
+import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Loader2, AlertCircle } from 'lucide-react';
+
+interface PaymentFormProps {
+  amount: number; // Amount in pence (unused - kept for backwards compatibility)
+  customerName: string;
+  customerEmail?: string;
+  quoteId: string;
+  selectedTier: string;
+  selectedTierPrice: number;
+  selectedExtras?: string[]; // Optional extras selected by customer
+  paymentType?: 'full' | 'installments'; // Payment mode: full or 3 monthly payments
+  onSuccess: (paymentIntentId: string) => Promise<void>;
+  onError?: (error: string) => void;
+}
+
+export function PaymentForm({ 
+  amount, 
+  customerName, 
+  customerEmail, 
+  quoteId,
+  selectedTier,
+  selectedTierPrice,
+  selectedExtras,
+  paymentType = 'full',
+  onSuccess,
+  onError 
+}: PaymentFormProps) {
+  const stripe = useStripe();
+  const elements = useElements();
+  
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [serverCalculatedAmount, setServerCalculatedAmount] = useState<number | null>(null);
+  const [depositBreakdown, setDepositBreakdown] = useState<{
+    totalMaterialsCost: number;
+    labourDepositComponent: number;
+  } | null>(null);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
+  const [isLoadingIntent, setIsLoadingIntent] = useState(true);
+  
+  // Create stable reference for selectedExtras to avoid unnecessary re-fetches
+  const extrasKey = JSON.stringify(selectedExtras || []);
+  
+  // Fetch payment intent when tier or extras change (re-calculate deposit)
+  useEffect(() => {
+    const abortController = new AbortController();
+    const requestId = Date.now(); // Track this specific request
+    let isCurrentRequest = true; // Flag to prevent stale updates
+    
+    const fetchPaymentIntent = async () => {
+      try {
+        setIsLoadingIntent(true);
+        setError(null); // Clear any previous errors
+        // Clear stale payment data to prevent submission with outdated intent
+        setClientSecret(null);
+        setPaymentIntentId(null);
+        setServerCalculatedAmount(null);
+        
+        const response = await fetch('/api/create-payment-intent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customerName,
+            customerEmail,
+            quoteId,
+            selectedTier,
+            selectedTierPrice, // For validation only - server uses stored price
+            selectedExtras, // Pass selected extras for deposit calculation
+            paymentType, // Payment mode: 'full' or 'installments'
+          }),
+          signal: abortController.signal,
+        });
+
+        // Only update state if this is still the current request
+        if (!isCurrentRequest) return;
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || `Server error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        if (!data.clientSecret) {
+          throw new Error('Failed to create payment intent');
+        }
+        
+        setClientSecret(data.clientSecret);
+        setPaymentIntentId(data.paymentIntentId);
+        
+        // Set server-calculated amount and breakdown for display
+        if (data.depositBreakdown?.total) {
+          setServerCalculatedAmount(data.depositBreakdown.total);
+          setDepositBreakdown({
+            totalMaterialsCost: data.depositBreakdown.totalMaterialsCost || 0,
+            labourDepositComponent: data.depositBreakdown.labourDepositComponent || 0,
+          });
+        }
+        
+        setIsLoadingIntent(false); // Only set loading false for successful current request
+      } catch (err: any) {
+        // Ignore aborted requests completely - don't update ANY state
+        if (err.name === 'AbortError' || !isCurrentRequest) return;
+        
+        const errorMessage = err.message || 'Failed to initialize payment. Please try again.';
+        setError(errorMessage);
+        setIsLoadingIntent(false); // Only set loading false for actual errors
+        if (onError) {
+          onError(errorMessage);
+        }
+      }
+    };
+    
+    fetchPaymentIntent();
+    
+    // Cleanup: mark this request as stale and abort
+    return () => {
+      isCurrentRequest = false; // Prevent any pending state updates
+      abortController.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerName, customerEmail, quoteId, selectedTier, selectedTierPrice, extrasKey, paymentType]);
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!stripe || !elements || !clientSecret || !paymentIntentId) {
+      return;
+    }
+
+    setIsProcessing(true);
+    setError(null);
+
+    try {
+      // Confirm the payment with the card details
+      const cardElement = elements.getElement(CardElement);
+      if (!cardElement) {
+        throw new Error('Card element not found');
+      }
+
+      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(
+        clientSecret,
+        {
+          payment_method: {
+            card: cardElement,
+            billing_details: {
+              name: customerName,
+              email: customerEmail,
+            },
+          },
+        }
+      );
+
+      if (stripeError) {
+        throw new Error(stripeError.message);
+      }
+
+      if (paymentIntent?.status === 'succeeded') {
+        // Payment succeeded - await booking creation in parent component
+        try {
+          await onSuccess(paymentIntentId);
+          // If we reach here, booking succeeded and parent will show success UI
+        } catch (bookingError: any) {
+          // Payment succeeded but booking failed - show specific error
+          throw new Error(bookingError.message || 'Payment successful but booking failed. Please contact us.');
+        }
+      } else {
+        throw new Error('Payment failed');
+      }
+    } catch (err: any) {
+      const errorMessage = err.message || 'Payment failed. Please try again.';
+      setError(errorMessage);
+      if (onError) {
+        onError(errorMessage);
+      }
+    } finally {
+      // Always reset processing state so form is usable again
+      setIsProcessing(false);
+    }
+  };
+
+  // Show loading state while fetching authoritative deposit amount
+  if (isLoadingIntent) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+        <p className="text-sm text-center text-muted-foreground">
+          Calculating secure deposit amount...
+        </p>
+      </div>
+    );
+  }
+  
+  // Show error if payment intent creation failed
+  if (error && !clientSecret) {
+    return (
+      <Alert variant="destructive">
+        <AlertCircle className="h-4 w-4" />
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    );
+  }
+  
+  // Only render payment form once we have server-calculated amount
+  if (!serverCalculatedAmount) {
+    return (
+      <Alert variant="destructive">
+        <AlertCircle className="h-4 w-4" />
+        <AlertDescription>Failed to load payment details. Please refresh the page.</AlertDescription>
+      </Alert>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Card Details</label>
+        <div className="border rounded-md p-3 bg-white">
+          <CardElement
+            options={{
+              hidePostalCode: false,
+              style: {
+                base: {
+                  fontSize: '16px',
+                  color: '#424770',
+                  '::placeholder': {
+                    color: '#aab7c4',
+                  },
+                },
+                invalid: {
+                  color: '#9e2146',
+                },
+              },
+            }}
+          />
+        </div>
+      </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <Button
+        type="submit"
+        disabled={!stripe || isProcessing || isLoadingIntent || !!error || !clientSecret}
+        className="w-full"
+        size="lg"
+        data-testid="button-submit-payment"
+      >
+        {isProcessing ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Processing...
+          </>
+        ) : isLoadingIntent ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Calculating...
+          </>
+        ) : (
+          `Pay £${Math.round(serverCalculatedAmount / 100)} Deposit`
+        )}
+      </Button>
+
+      {depositBreakdown && (
+        <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3 text-xs space-y-1.5">
+          <div className="font-medium text-gray-700 dark:text-gray-300 mb-2">Deposit breakdown:</div>
+          <div className="flex justify-between">
+            <span className="text-gray-600 dark:text-gray-400">Materials (100% upfront):</span>
+            <span className="font-medium">£{Math.round(depositBreakdown.totalMaterialsCost / 100)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600 dark:text-gray-400">Labour booking fee (30%):</span>
+            <span className="font-medium">£{Math.round(depositBreakdown.labourDepositComponent / 100)}</span>
+          </div>
+          <div className="flex justify-between pt-1.5 border-t border-gray-200 dark:border-gray-600">
+            <span className="font-semibold text-gray-700 dark:text-gray-300">Total deposit:</span>
+            <span className="font-semibold">£{Math.round(serverCalculatedAmount / 100)}</span>
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-center text-muted-foreground">
+        Your payment is secured by Stripe. We'll charge £{Math.round(serverCalculatedAmount / 100)} to reserve your slot.
+      </p>
+    </form>
+  );
+}

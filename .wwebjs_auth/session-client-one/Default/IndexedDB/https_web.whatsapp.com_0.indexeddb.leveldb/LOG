@@ -1,0 +1,31 @@
+2025/12/26-22:58:11.649 8403 Reusing MANIFEST /Users/courtneebonnick/v6-switchboard/.wwebjs_auth/session-client-one/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/12/26-22:58:11.649 8403 Recovering log #537
+2025/12/26-22:58:11.703 8403 Reusing old log /Users/courtneebonnick/v6-switchboard/.wwebjs_auth/session-client-one/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/000537.log 
+2025/12/26-22:58:15.033 12803 Level-0 table #551: started
+2025/12/26-22:58:15.056 12803 Level-0 table #551: 700385 bytes OK
+2025/12/26-22:58:15.063 12803 Delete type=0 #537
+2025/12/26-22:58:15.067 12803 Manual compaction at level-0 from '\x007\x00\x00\x00' @ 72057594037927935 : 1 .. '\x008\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/12/26-22:58:15.195 b003 Compacting 1@1 + 10@2 files
+2025/12/26-22:58:15.267 b003 Generated table #552@1: 85883 keys, 2247837 bytes
+2025/12/26-22:58:15.315 b003 Generated table #553@1: 27678 keys, 2188073 bytes
+2025/12/26-22:58:15.353 b003 Generated table #554@1: 2993 keys, 2153220 bytes
+2025/12/26-22:58:15.393 b003 Generated table #555@1: 2949 keys, 2146779 bytes
+2025/12/26-22:58:15.460 b003 Generated table #556@1: 32660 keys, 2241506 bytes
+2025/12/26-22:58:15.514 b003 Generated table #557@1: 14045 keys, 2149630 bytes
+2025/12/26-22:58:15.579 b003 Generated table #558@1: 71421 keys, 2213695 bytes
+2025/12/26-22:58:15.657 b003 Generated table #559@1: 99003 keys, 2249920 bytes
+2025/12/26-22:58:15.734 b003 Generated table #560@1: 97033 keys, 2246507 bytes
+2025/12/26-22:58:15.748 b003 Generated table #561@1: 17724 keys, 408979 bytes
+2025/12/26-22:58:15.748 b003 Compacted 1@1 + 10@2 files => 20246146 bytes
+2025/12/26-22:58:15.753 b003 compacted to: files[ 0 0 10 0 0 0 0 ]
+2025/12/26-22:58:15.753 b003 Delete type=2 #539
+2025/12/26-22:58:15.753 b003 Delete type=2 #548
+2025/12/26-22:58:15.753 b003 Delete type=2 #544
+2025/12/26-22:58:15.753 b003 Delete type=2 #545
+2025/12/26-22:58:15.753 b003 Delete type=2 #551
+2025/12/26-22:58:15.753 b003 Delete type=2 #547
+2025/12/26-22:58:15.753 b003 Delete type=2 #546
+2025/12/26-22:58:15.753 b003 Delete type=2 #542
+2025/12/26-22:58:15.753 b003 Delete type=2 #543
+2025/12/26-22:58:15.753 b003 Delete type=2 #541
+2025/12/26-22:58:15.753 b003 Delete type=2 #540

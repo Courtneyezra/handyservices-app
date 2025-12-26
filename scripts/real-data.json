@@ -1,0 +1,32 @@
+[
+  {
+    "transcript": "I have a curtain that needs fixed. It's in my daughter's room. I think it's blind. It fell off. The stuff that anchors it to the wall or something fell off.",
+    "category": "Real-UK",
+    "expectedRoute": "INSTANT_PRICE",
+    "notes": "Real customer call. Keywords: curtain, blind, fell off, anchors. Should match 'Blind/Curtain Installation' or 'General Handyman'."
+  },
+  {
+    "transcript": "It's just one side of the curtain that wants to go back on. The other part is still anchored, but the other side went off.",
+    "category": "Real-UK",
+    "expectedRoute": "VIDEO_QUOTE",
+    "notes": "Clarification turn from the same call."
+  },
+  {
+    "transcript": "Can you just come and fix everything that’s broken?",
+    "category": "Real-UK",
+    "expectedRoute": "VIDEO_QUOTE",
+    "notes": "Vague request typical of frustration."
+  },
+  {
+    "transcript": "I was just wondering if we'd be able to get someone out to attend the property in order to inspect a leak. We have a property that's been currently having a leak. They're not sure if it's coming from the roof or the windows.",
+    "category": "Real-UK",
+    "expectedRoute": "SITE_VISIT",
+    "notes": "Diagnostic job. Unknown source (roof vs window). Requires site visit/assessment fee. Should trigger 'leak behind wall' or heuristic for complex/unknown."
+  },
+  {
+    "transcript": "I'm looking for some work to be done around the house. It'll start with blinds need fitting. Skirting board to be fitted. Doors to be fitted. Two doors to be fitted.",
+    "category": "Real-UK",
+    "expectedRoute": "VIDEO_QUOTE",
+    "notes": "Multi-task (Blinds + Skirting + Doors). The VA in the transcript requests a video to quote accurately."
+  }
+]

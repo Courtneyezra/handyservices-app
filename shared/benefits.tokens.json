@@ -1,0 +1,57 @@
+{
+    "benefits": [
+        {
+            "id": "priority_booking",
+            "tiers": [
+                "enhanced",
+                "elite"
+            ],
+            "conditions_any": [
+                "urgent",
+                "segment_pm"
+            ],
+            "requires_capacity": "priority",
+            "copy": {
+                "residential": "Priority booking slots available",
+                "pm": "Guaranteed priority allocation"
+            },
+            "priority": 10,
+            "price_effect": 0
+        },
+        {
+            "id": "same_day",
+            "tiers": [
+                "elite"
+            ],
+            "conditions_any": [
+                "urgent"
+            ],
+            "requires_capacity": "same_day",
+            "copy": {
+                "residential": "Same-day service available",
+                "pm": "Same-day emergency response"
+            },
+            "priority": 5,
+            "price_effect": 0
+        },
+        {
+            "id": "quality_guarantee",
+            "tiers": [
+                "essential",
+                "enhanced",
+                "elite"
+            ],
+            "conditions_any": [
+                "segment_residential",
+                "segment_pm"
+            ],
+            "requires_capacity": null,
+            "copy": {
+                "residential": "12-month workmanship guarantee",
+                "pm": "Commercial grade warranty"
+            },
+            "priority": 20,
+            "price_effect": 0
+        }
+    ]
+}

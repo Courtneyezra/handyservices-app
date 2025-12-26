@@ -1,0 +1,31 @@
+2025/12/26-22:41:53.364 9e03 Reusing MANIFEST /Users/courtneebonnick/v6-switchboard/.wwebjs_auth/session-client-one/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/12/26-22:41:53.364 9e03 Recovering log #524
+2025/12/26-22:41:53.427 9e03 Reusing old log /Users/courtneebonnick/v6-switchboard/.wwebjs_auth/session-client-one/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/000524.log 
+2025/12/26-22:41:57.021 16603 Level-0 table #538: started
+2025/12/26-22:41:57.045 16603 Level-0 table #538: 651544 bytes OK
+2025/12/26-22:41:57.067 16603 Delete type=0 #524
+2025/12/26-22:41:57.075 16603 Manual compaction at level-0 from '\x006\x00\x00\x00' @ 72057594037927935 : 1 .. '\x007\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/12/26-22:41:57.255 1f403 Compacting 1@1 + 10@2 files
+2025/12/26-22:41:57.347 1f403 Generated table #539@1: 84124 keys, 2245435 bytes
+2025/12/26-22:41:57.425 1f403 Generated table #540@1: 25670 keys, 2187693 bytes
+2025/12/26-22:41:57.503 1f403 Generated table #541@1: 2970 keys, 2151379 bytes
+2025/12/26-22:41:57.586 1f403 Generated table #542@1: 2940 keys, 2146929 bytes
+2025/12/26-22:41:57.665 1f403 Generated table #543@1: 34688 keys, 2244042 bytes
+2025/12/26-22:41:57.766 1f403 Generated table #544@1: 12109 keys, 2148280 bytes
+2025/12/26-22:41:57.917 1f403 Generated table #545@1: 74214 keys, 2215248 bytes
+2025/12/26-22:41:58.004 1f403 Generated table #546@1: 98799 keys, 2249243 bytes
+2025/12/26-22:41:58.081 1f403 Generated table #547@1: 97142 keys, 2246651 bytes
+2025/12/26-22:41:58.096 1f403 Generated table #548@1: 14863 keys, 343682 bytes
+2025/12/26-22:41:58.096 1f403 Compacted 1@1 + 10@2 files => 20178582 bytes
+2025/12/26-22:41:58.101 1f403 compacted to: files[ 0 0 10 0 0 0 0 ]
+2025/12/26-22:41:58.102 1f403 Delete type=2 #538
+2025/12/26-22:41:58.102 1f403 Delete type=2 #528
+2025/12/26-22:41:58.102 1f403 Delete type=2 #529
+2025/12/26-22:41:58.102 1f403 Delete type=2 #533
+2025/12/26-22:41:58.102 1f403 Delete type=2 #527
+2025/12/26-22:41:58.102 1f403 Delete type=2 #526
+2025/12/26-22:41:58.102 1f403 Delete type=2 #532
+2025/12/26-22:41:58.102 1f403 Delete type=2 #530
+2025/12/26-22:41:58.102 1f403 Delete type=2 #531
+2025/12/26-22:41:58.102 1f403 Delete type=2 #535
+2025/12/26-22:41:58.102 1f403 Delete type=2 #534

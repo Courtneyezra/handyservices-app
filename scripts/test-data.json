@@ -1,0 +1,122 @@
+[
+  {
+    "transcript": "Hi, I need to replace a light socket in my kitchen.",
+    "category": "Easy",
+    "expectedRoute": "INSTANT_PRICE",
+    "notes": "Straightforward task with a clear scope."
+  },
+  {
+    "transcript": "Can you help me hang a mirror and also paint the wall?",
+    "category": "Multi",
+    "expectedRoute": "SITE_VISIT",
+    "notes": "Multiple tasks require an assessment of the space and materials."
+  },
+  {
+    "transcript": "My faucet is just broken and I don't know why.",
+    "category": "Vague",
+    "expectedRoute": "SITE_VISIT",
+    "notes": "Needs further investigation to identify the actual issue."
+  },
+  {
+    "transcript": "Hello? Are you there?",
+    "category": "Noise",
+    "expectedRoute": "NO_ACTION",
+    "notes": "Unclear query, may need an actual human interaction."
+  },
+  {
+    "transcript": "I smell gas in my house!",
+    "category": "Complex",
+    "expectedRoute": "SITE_VISIT",
+    "notes": "Urgent issue that requires immediate, professional attention."
+  },
+  {
+    "transcript": "Can you fix my squeaky door and also check my window latches?",
+    "category": "Multi",
+    "expectedRoute": "SITE_VISIT",
+    "notes": "Multiple repairs assessed during a site visit."
+  },
+  {
+    "transcript": "There’s a weird noise coming from the basement.",
+    "category": "Vague",
+    "expectedRoute": "SITE_VISIT",
+    "notes": "Vague description but requires a thorough check."
+  },
+  {
+    "transcript": "Is this a real person I'm speaking with?",
+    "category": "Noise",
+    "expectedRoute": "NO_ACTION",
+    "notes": "User's confusion about the AI system."
+  },
+  {
+    "transcript": "I want to rewire my entire house.",
+    "category": "Complex",
+    "expectedRoute": "VIDEO_QUOTE",
+    "notes": "Significant work that requires a detailed analysis."
+  },
+  {
+    "transcript": "Can you just come and fix everything that’s broken?",
+    "category": "Vague",
+    "expectedRoute": "SITE_VISIT",
+    "notes": "Needs precise identification of problems on site."
+  },
+  {
+    "transcript": "I need assistance with a commercial office fit-out.",
+    "category": "Complex",
+    "expectedRoute": "SITE_VISIT",
+    "notes": "Involves multiple aspects requiring an onsite consultation."
+  },
+  {
+    "transcript": "Can you help me with a loose tile?",
+    "category": "Easy",
+    "expectedRoute": "INSTANT_PRICE",
+    "notes": "Simple maintenance task to be quickly quoted."
+  },
+  {
+    "transcript": "Can you hang a picture and fix the shelf that fell?",
+    "category": "Multi",
+    "expectedRoute": "SITE_VISIT",
+    "notes": "Two distinct tasks needing evaluation in person."
+  },
+  {
+    "transcript": "I don't really know what's wrong, something’s just not working.",
+    "category": "Vague",
+    "expectedRoute": "SITE_VISIT",
+    "notes": "Non-specific issue that needs diagnosis."
+  },
+  {
+    "transcript": "Just checking in to see if you're real.",
+    "category": "Noise",
+    "expectedRoute": "NO_ACTION",
+    "notes": "User confusion about AI functionality."
+  },
+  {
+    "transcript": "I have a leak under my sink.",
+    "category": "Easy",
+    "expectedRoute": "INSTANT_PRICE",
+    "notes": "Straight forward request for plumbing issue."
+  },
+  {
+    "transcript": "There’s a lot of stuff broken in my house.",
+    "category": "Vague",
+    "expectedRoute": "SITE_VISIT",
+    "notes": "Needs clarification but requires onsite evaluation."
+  },
+  {
+    "transcript": "I heard a crackling sound from the electrical panel!",
+    "category": "Complex",
+    "expectedRoute": "SITE_VISIT",
+    "notes": "Potentially dangerous and needs urgent professional assessment."
+  },
+  {
+    "transcript": "Can you paint a room and install new blinds?",
+    "category": "Multi",
+    "expectedRoute": "SITE_VISIT",
+    "notes": "Two tasks that require in-person evaluation."
+  },
+  {
+    "transcript": "Can someone come and take a look at my foundation? It seems off.",
+    "category": "Complex",
+    "expectedRoute": "SITE_VISIT",
+    "notes": "Serious concern that requires a professional visit."
+  }
+]
