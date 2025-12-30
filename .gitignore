@@ -1,3 +1,10 @@
+# Environment files (NEVER commit these!)
+.env
+.env.*
+
+# WhatsApp Web session data
+.wwebjs_auth/
+
 # Logs
 logs
 *.log
