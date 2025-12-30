@@ -1,6 +1,6 @@
 import { MessageCircle, CheckCircle, Clock, Shield, Phone, Gift } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import heroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.png";
+import heroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
 
 interface IntakeHeroProps {
   location: string;

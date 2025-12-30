@@ -18,7 +18,7 @@ import { Elements } from '@stripe/react-stripe-js';
 import { stripePromise } from '@/lib/stripe';
 // import handymanPhoto from '@assets/Untitled design (27)_1762913661129.png';
 // import handyServicesLogo from '@assets/Copy of Copy of Add a heading (256 x 256 px)_1764065869316.png';
-import payIn3PromoImage from '@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.png';
+import payIn3PromoImage from '@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.webp';
 import { format, addDays, addWeeks } from 'date-fns';
 
 // Fixed value bullets per tier (hardcoded, not from database)
