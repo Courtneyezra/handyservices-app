@@ -1,17 +1,6 @@
 {
     "version": 2,
     "buildCommand": "npm run build",
-    "outputDirectory": "dist",
-    "installCommand": "npm install",
-    "framework": null,
-    "rewrites": [
-        {
-            "source": "/api/(.*)",
-            "destination": "/index.js"
-        },
-        {
-            "source": "/(.*)",
-            "destination": "/public/index.html"
-        }
-    ]
+    "outputDirectory": "dist/public",
+    "installCommand": "npm install"
 }
