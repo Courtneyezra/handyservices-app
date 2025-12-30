@@ -1,3 +1,59 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Handy Services Dark Theme Design System */
+:root {
+  --handy-gold: #e8b323;
+  --handy-gold-hover: #d1a01f;
+  --handy-bg-primary: rgb(17, 24, 39);
+  --handy-bg-secondary: rgb(31, 41, 55);
+  --handy-surface: rgba(0, 0, 0, 0.4);
+  --handy-border: rgb(55, 65, 81);
+}
+
+/* Dark theme utility classes */
+.handy-card {
+  @apply bg-black/40 border-gray-700 backdrop-blur-sm rounded-xl;
+}
+
+.handy-button-primary {
+  @apply bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold;
+}
+
+.handy-text-primary {
+  @apply text-white;
+}
+
+.handy-text-secondary {
+  @apply text-gray-300;
+}
+
+.handy-text-muted {
+  @apply text-gray-400;
+}
+
+/* Custom Scrollbar for Dark Mode */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Gradient Mask for horizontally scrolling areas */
+.mask-gradient-x {
+  mask-image: linear-gradient(to right, transparent, black 20px, black calc(100% - 20px), transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 20px, black calc(100% - 20px), transparent);
+}

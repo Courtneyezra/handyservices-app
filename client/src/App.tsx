@@ -3,7 +3,7 @@ import { Switch, Route, useLocation } from "wouter";
 import AudioUploadPage from "@/pages/AudioUploadPage";
 import SKUPage from "@/pages/SKUPage";
 import HandymanLanding from "@/pages/HandymanLanding";
-import WhatsAppIntake from "@/pages/WhatsAppIntake";
+import WhatsAppInbox from "@/pages/WhatsAppInbox";
 import HandymanMap from "@/pages/HandymanMap";
 import HandymanDashboard from "@/pages/HandymanDashboard";
 import SidebarLayout from "@/components/layout/SidebarLayout";
@@ -15,8 +15,16 @@ import VideoQuote from "@/pages/VideoQuote";
 import MainDashboard from "@/pages/MainDashboard";
 import VideoReview from "@/pages/VideoReview";
 import PersonalizedQuotePage from "@/pages/PersonalizedQuotePage";
+import CallsPage from "@/pages/CallsPage";
 import TestLab from './pages/TestLab';
 import TrainingCenter from './pages/TrainingCenter';
+import SettingsPage from './pages/SettingsPage';
+import ContractorLogin from './pages/ContractorLogin';
+import ContractorRegister from './pages/ContractorRegister';
+import ContractorPortal from './pages/ContractorPortal';
+import ContractorCalendar from './pages/ContractorCalendar';
+import ContractorProfile from './pages/ContractorProfile';
+import ContractorServiceArea from './pages/ContractorServiceArea';
 import { Toaster } from "@/components/ui/toaster";
 
 function Router() {
@@ -50,7 +58,7 @@ function Router() {
             <Route path="/landing" component={HandymanLanding} />
             <Route path="/whatsapp-intake">
                 <SidebarLayout>
-                    <WhatsAppIntake />
+                    <WhatsAppInbox />
                 </SidebarLayout>
             </Route>
             <Route path="/handymen">
@@ -63,6 +71,11 @@ function Router() {
                     <HandymanDashboard />
                 </SidebarLayout>
             </Route>
+            <Route path="/calls">
+                <SidebarLayout>
+                    <CallsPage />
+                </SidebarLayout>
+            </Route>
 
             {/* Quote Flow Routes */}
             <Route path="/generate-quote">
@@ -73,7 +86,7 @@ function Router() {
 
             {/* Customer facing quote view (Public) */}
             <Route path="/quote-link/:slug">
-                <VideoQuote />
+                <PersonalizedQuotePage />
             </Route>
             <Route path="/video-quote">
                 <VideoQuote />
@@ -91,9 +104,36 @@ function Router() {
                 </SidebarLayout>
             </Route>
 
+            {/* Settings */}
+            <Route path="/settings">
+                <SidebarLayout>
+                    <SettingsPage />
+                </SidebarLayout>
+            </Route>
+
             {/* Add stub routes for future flow */}
             <Route path="/instant-price">
                 <div className="p-10 text-center"><h1>Instant Price Page (Coming Soon)</h1></div>
+            </Route>
+
+            {/* Contractor Portal Routes */}
+            <Route path="/contractor/login">
+                <ContractorLogin />
+            </Route>
+            <Route path="/contractor/register">
+                <ContractorRegister />
+            </Route>
+            <Route path="/contractor">
+                <ContractorPortal />
+            </Route>
+            <Route path="/contractor/calendar">
+                <ContractorCalendar />
+            </Route>
+            <Route path="/contractor/profile">
+                <ContractorProfile />
+            </Route>
+            <Route path="/contractor/service-area">
+                <ContractorServiceArea />
             </Route>
 
             <Route>

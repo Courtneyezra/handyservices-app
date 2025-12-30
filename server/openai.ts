@@ -13,6 +13,7 @@ export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 export interface CallMetadata {
     customerName: string | null;
     address: string | null;
+    postcode: string | null; // B2: UK postcode extraction
     urgency: "Critical" | "High" | "Standard" | "Low";
     leadType: "Homeowner" | "Landlord" | "Property Manager" | "Tenant" | "Unknown";
     roleMapping?: Record<number, "VA" | "Customer">; // Map Speaker ID -> Role
@@ -37,7 +38,27 @@ export async function extractCallMetadata(transcription: string, segments: Segme
                     content: `You are an expert dispatcher analyzing audio transcripts.
 Extract the following fields into JSON:
 - customerName: The caller's name (or null).
-- address: The service location address (or null).
+- address: The FULL service location address in this exact format: "Street Number + Street Name, Flat/Unit (if mentioned), Town/City, Postcode"
+  Examples:
+  * "42 Maple Street, London, SW1A 1AA"
+  * "15B High Street, Flat 3, Manchester, M1 1AA"
+  * "The Old Mill, Church Lane, Bristol, BS1 1AA"
+  
+  IMPORTANT for address:
+  - Include ALL parts mentioned (street number, street name, flat/unit, building name, town, postcode)
+  - If customer says "my address" or "same address", try to extract from earlier context
+  - If only partial address given, extract what's available
+  - Normalize variations: "apartment 2" → "Flat 2", "number 42" → "42"
+  - Keep UK formatting (e.g., "42A" not "42 A")
+  
+  ERROR CORRECTION RULES:
+  - Fix phonetic errors: "M 1" -> "M1", "Tree Road" -> "Tree Road"
+  - Handle spelling: "S for Sugar" -> "S", "B for Bravo" -> "B"
+  - Fix common STT mistakes: "Double U" -> "W", "Bee" -> "B", "Pea" -> "P"
+  - Fix disjointed postcodes: "S W 1 A 1 A A" -> "SW1A 1AA"
+  - Fix number words: "Forty two" -> "42"
+  
+- postcode: UK postcode in standard format (e.g., "SW1A 1AA", "W1A 0AX"). Extract even if spoken as "S W one A one A A" or "SW seventeen 8QT". Return null if not mentioned.
 - urgency: Assess urgency (Critical, High, Standard, Low).
 - leadType: Identify caller role (Homeowner, Landlord, Property Manager, Tenant).
 - roleMapping: Analyze the dialogue to identify which Speaker ID is the "Professional/VA" (answering the phone, asking questions) and which is the "Customer" (calling with a problem).
@@ -61,9 +82,16 @@ Extract the following fields into JSON:
             roleMapping[parseInt(key)] = rawMapping[key];
         }
 
+        // Normalize postcode format (uppercase, proper spacing)
+        let postcode = parsed.postcode || null;
+        if (postcode) {
+            postcode = normalizePostcode(postcode);
+        }
+
         return {
             customerName: parsed.customerName || null,
             address: parsed.address || null,
+            postcode: postcode,
             urgency: parsed.urgency || "Standard",
             leadType: parsed.leadType || "Unknown",
             roleMapping
@@ -73,10 +101,78 @@ Extract the following fields into JSON:
         return {
             customerName: null,
             address: null,
+            postcode: null,
             urgency: "Standard",
             leadType: "Unknown"
         };
     }
+}
+
+/**
+ * B2: Lightweight postcode-only extraction for real-time use
+ * Faster than full metadata extraction
+ */
+export async function extractPostcodeOnly(transcription: string): Promise<string | null> {
+    try {
+        // First try regex pattern matching (fastest)
+        const postcodeRegex = /\b([A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2})\b/gi;
+        const matches = transcription.match(postcodeRegex);
+
+        if (matches && matches.length > 0) {
+            // Return the last mentioned postcode (most likely to be correct)
+            const lastMatch = matches[matches.length - 1];
+            return normalizePostcode(lastMatch);
+        }
+
+        // Fallback to GPT if regex fails (handles spoken formats like "S W one A one A A")
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                {
+                    role: "system",
+                    content: `Extract ONLY the UK postcode from this text. Return it in standard format (e.g., "SW1A 1AA"). If no postcode is mentioned, return "null".`
+                },
+                {
+                    role: "user",
+                    content: transcription
+                }
+            ],
+            max_tokens: 10,
+            temperature: 0
+        });
+
+        const result = response.choices[0].message.content?.trim();
+        if (result && result !== "null" && result.length > 0) {
+            return normalizePostcode(result);
+        }
+
+        return null;
+    } catch (error) {
+        console.error("[extractPostcodeOnly] Error:", error);
+        return null;
+    }
+}
+
+/**
+ * Normalize UK postcode to standard format
+ * "sw1a1aa" -> "SW1A 1AA"
+ * "SW1A1AA" -> "SW1A 1AA"
+ */
+function normalizePostcode(postcode: string): string {
+    // Remove all spaces and convert to uppercase
+    const cleaned = postcode.replace(/\s/g, '').toUpperCase();
+
+    // UK postcodes are 5-7 characters (without space)
+    // Format: AA9A 9AA, A9A 9AA, A9 9AA, A99 9AA, AA9 9AA, AA99 9AA
+    if (cleaned.length < 5 || cleaned.length > 7) {
+        return postcode; // Return as-is if invalid length
+    }
+
+    // Insert space before last 3 characters
+    const outward = cleaned.slice(0, -3);
+    const inward = cleaned.slice(-3);
+
+    return `${outward} ${inward}`;
 }
 
 /**

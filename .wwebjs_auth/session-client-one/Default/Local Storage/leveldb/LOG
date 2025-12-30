@@ -1,3 +1,48 @@
-2025/12/26-22:58:09.618 9c03 Reusing MANIFEST /Users/courtneebonnick/v6-switchboard/.wwebjs_auth/session-client-one/Default/Local Storage/leveldb/MANIFEST-000001
-2025/12/26-22:58:09.630 9c03 Recovering log #20
-2025/12/26-22:58:09.648 9c03 Reusing old log /Users/courtneebonnick/v6-switchboard/.wwebjs_auth/session-client-one/Default/Local Storage/leveldb/000020.log 
+2025/12/28-02:03:35.352 f803 Reusing MANIFEST /Users/courtneebonnick/v6-switchboard/.wwebjs_auth/session-client-one/Default/Local Storage/leveldb/MANIFEST-000001
+2025/12/28-02:03:35.357 f803 Recovering log #42
+2025/12/28-02:03:35.359 f803 Reusing old log /Users/courtneebonnick/v6-switchboard/.wwebjs_auth/session-client-one/Default/Local Storage/leveldb/000042.log 
+2025/12/28-13:05:26.927 1d693 Level-0 table #46: started
+2025/12/28-13:05:26.949 1d693 Level-0 table #46: 15399 bytes OK
+2025/12/28-13:05:26.955 1d693 Delete type=0 #42
+2025/12/28-16:59:39.280 17977 Level-0 table #48: started
+2025/12/28-16:59:39.291 17977 Level-0 table #48: 11977 bytes OK
+2025/12/28-16:59:39.300 17977 Delete type=0 #45
+2025/12/28-22:46:54.402 17377 Level-0 table #50: started
+2025/12/28-22:46:54.410 17377 Level-0 table #50: 13997 bytes OK
+2025/12/28-22:46:54.417 17377 Delete type=0 #47
+2025/12/28-22:46:54.431 1ef27 Compacting 4@0 + 1@1 files
+2025/12/28-22:46:54.437 1ef27 Generated table #51@0: 134 keys, 10050 bytes
+2025/12/28-22:46:54.437 1ef27 Compacted 4@0 + 1@1 files => 10050 bytes
+2025/12/28-22:46:54.442 1ef27 compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/12/28-22:46:54.442 1ef27 Delete type=2 #48
+2025/12/28-22:46:54.442 1ef27 Delete type=2 #43
+2025/12/28-22:46:54.442 1ef27 Delete type=2 #40
+2025/12/28-22:46:54.442 1ef27 Delete type=2 #50
+2025/12/28-22:46:54.442 1ef27 Delete type=2 #46
+2025/12/29-03:06:53.735 a4d3 Level-0 table #53: started
+2025/12/29-03:06:53.748 a4d3 Level-0 table #53: 12214 bytes OK
+2025/12/29-03:06:53.760 a4d3 Delete type=0 #49
+2025/12/29-08:19:59.236 a4d3 Level-0 table #55: started
+2025/12/29-08:19:59.256 a4d3 Level-0 table #55: 13080 bytes OK
+2025/12/29-08:19:59.279 a4d3 Delete type=0 #52
+2025/12/29-12:26:00.884 1739f Level-0 table #57: started
+2025/12/29-12:26:00.889 1739f Level-0 table #57: 12773 bytes OK
+2025/12/29-12:26:00.896 1739f Delete type=0 #54
+2025/12/29-15:52:59.968 1ba4f Level-0 table #59: started
+2025/12/29-15:52:59.983 1ba4f Level-0 table #59: 13012 bytes OK
+2025/12/29-15:52:59.993 1ba4f Delete type=0 #56
+2025/12/29-15:53:00.019 1eb6f Compacting 4@0 + 1@1 files
+2025/12/29-15:53:00.027 1eb6f Generated table #60@0: 134 keys, 10074 bytes
+2025/12/29-15:53:00.027 1eb6f Compacted 4@0 + 1@1 files => 10074 bytes
+2025/12/29-15:53:00.033 1eb6f compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/12/29-15:53:00.033 1eb6f Delete type=2 #59
+2025/12/29-15:53:00.033 1eb6f Delete type=2 #57
+2025/12/29-15:53:00.033 1eb6f Delete type=2 #55
+2025/12/29-15:53:00.033 1eb6f Delete type=2 #51
+2025/12/29-15:53:00.033 1eb6f Delete type=2 #53
+2025/12/29-18:10:33.702 870f Level-0 table #62: started
+2025/12/29-18:10:34.025 870f Level-0 table #62: 14044 bytes OK
+2025/12/29-18:10:34.055 870f Delete type=0 #58
+2025/12/30-15:43:43.413 1606f Level-0 table #64: started
+2025/12/30-15:43:43.421 1606f Level-0 table #64: 12246 bytes OK
+2025/12/30-15:43:43.429 1606f Delete type=0 #61

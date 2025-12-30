@@ -1,0 +1,345 @@
+import express, { type Request, Response } from "express";
+import { db } from "./db";
+import { calls, callSkus, productizedServices, updateCallSchema } from "../shared/schema";
+import { eq, desc, and, or, like, sql, gte, lte } from "drizzle-orm";
+import { z } from "zod";
+import crypto from "crypto";
+
+const router = express.Router();
+
+// Helper function to calculate total price from callSkus
+async function calculateTotalPrice(callId: string): Promise<number> {
+    const skus = await db.select().from(callSkus).where(eq(callSkus.callId, callId));
+    return skus.reduce((total, sku) => total + (sku.pricePence * sku.quantity), 0);
+}
+
+// GET /api/calls - List all calls with filtering and pagination
+router.get("/", async (req: Request, res: Response) => {
+    try {
+        const {
+            page = "1",
+            limit = "25",
+            startDate,
+            endDate,
+            hasSkus,
+            outcome,
+            search
+        } = req.query;
+
+        const pageNum = parseInt(page as string);
+        const limitNum = parseInt(limit as string);
+        const offset = (pageNum - 1) * limitNum;
+
+        // Build where conditions
+        const conditions = [];
+
+        if (startDate) {
+            conditions.push(gte(calls.startTime, new Date(startDate as string)));
+        }
+
+        if (endDate) {
+            conditions.push(lte(calls.startTime, new Date(endDate as string)));
+        }
+
+        if (outcome) {
+            conditions.push(eq(calls.outcome, outcome as string));
+        }
+
+        if (search) {
+            const searchTerm = `%${search}%`;
+            conditions.push(
+                or(
+                    like(calls.customerName, searchTerm),
+                    like(calls.phoneNumber, searchTerm),
+                    like(calls.address, searchTerm)
+                )
+            );
+        }
+
+        // Query calls
+        const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+        const [callsList, totalCount] = await Promise.all([
+            db.select()
+                .from(calls)
+                .where(whereClause)
+                .orderBy(desc(calls.startTime))
+                .limit(limitNum)
+                .offset(offset),
+            db.select({ count: sql<number>`count(*)` })
+                .from(calls)
+                .where(whereClause)
+                .then(result => Number(result[0]?.count || 0))
+        ]);
+
+        // If hasSkus filter is set, filter by calls that have SKUs
+        let filteredCalls = callsList;
+        if (hasSkus === "true") {
+            const callsWithSkus = await db.select({ callId: callSkus.callId })
+                .from(callSkus)
+                .groupBy(callSkus.callId);
+
+            const callIdsWithSkus = new Set(callsWithSkus.map(c => c.callId));
+            filteredCalls = callsList.filter(call => callIdsWithSkus.has(call.id));
+        }
+
+        // Get SKU counts for each call
+        const callIds = filteredCalls.map(c => c.id);
+        const skuCounts = callIds.length > 0
+            ? await db.select({
+                callId: callSkus.callId,
+                count: sql<number>`count(*)`
+            })
+                .from(callSkus)
+                .where(sql`${callSkus.callId} IN ${callIds}`)
+                .groupBy(callSkus.callId)
+            : [];
+
+        const skuCountMap = new Map(skuCounts.map(sc => [sc.callId, Number(sc.count)]));
+
+        // Format response
+        const formattedCalls = filteredCalls.map(call => ({
+            id: call.id,
+            callId: call.callId,
+            customerName: call.customerName || "Unknown",
+            phoneNumber: call.phoneNumber,
+            address: call.address,
+            startTime: call.startTime,
+            duration: call.duration,
+            skuCount: skuCountMap.get(call.id) || 0,
+            totalPricePence: call.totalPricePence || 0,
+            outcome: call.outcome,
+            urgency: call.urgency,
+            status: call.status,
+        }));
+
+        res.json({
+            calls: formattedCalls,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total: totalCount,
+                totalPages: Math.ceil(totalCount / limitNum)
+            }
+        });
+    } catch (error) {
+        console.error("Error fetching calls:", error);
+        res.status(500).json({ error: "Failed to fetch calls" });
+    }
+});
+
+// GET /api/calls/:id - Get detailed call information
+router.get("/:id", async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        // Get call details
+        const [call] = await db.select().from(calls).where(eq(calls.id, id));
+
+        if (!call) {
+            return res.status(404).json({ error: "Call not found" });
+        }
+
+        // Get associated SKUs with full service details
+        const skus = await db.select({
+            id: callSkus.id,
+            callId: callSkus.callId,
+            quantity: callSkus.quantity,
+            pricePence: callSkus.pricePence,
+            source: callSkus.source,
+            confidence: callSkus.confidence,
+            detectionMethod: callSkus.detectionMethod,
+            addedBy: callSkus.addedBy,
+            addedAt: callSkus.addedAt,
+            updatedAt: callSkus.updatedAt,
+            sku: {
+                id: productizedServices.id,
+                skuCode: productizedServices.skuCode,
+                name: productizedServices.name,
+                description: productizedServices.description,
+                category: productizedServices.category,
+                pricePence: productizedServices.pricePence,
+            }
+        })
+            .from(callSkus)
+            .leftJoin(productizedServices, eq(callSkus.skuId, productizedServices.id))
+            .where(eq(callSkus.callId, id));
+
+        // Separate detected and manual SKUs
+        const detectedSkus = skus.filter(s => s.source === 'detected');
+        const manualSkus = skus.filter(s => s.source === 'manual');
+
+        res.json({
+            ...call,
+            detectedSkus,
+            manualSkus,
+            allSkus: skus,
+        });
+    } catch (error) {
+        console.error("Error fetching call details:", error);
+        res.status(500).json({ error: "Failed to fetch call details" });
+    }
+});
+
+// POST /api/calls/:id/skus - Add SKU to call
+router.post("/:id/skus", async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { skuId, quantity = 1 } = req.body;
+
+        if (!skuId) {
+            return res.status(400).json({ error: "skuId is required" });
+        }
+
+        // Verify call exists
+        const [call] = await db.select().from(calls).where(eq(calls.id, id));
+        if (!call) {
+            return res.status(404).json({ error: "Call not found" });
+        }
+
+        // Get SKU details
+        const [sku] = await db.select().from(productizedServices).where(eq(productizedServices.id, skuId));
+        if (!sku) {
+            return res.status(404).json({ error: "SKU not found" });
+        }
+
+        // Create call SKU entry
+        const callSkuId = crypto.randomBytes(16).toString("hex");
+        await db.insert(callSkus).values({
+            id: callSkuId,
+            callId: id,
+            skuId: skuId,
+            quantity: quantity,
+            pricePence: sku.pricePence,
+            source: 'manual',
+            addedBy: 'system', // TODO: Get from session when auth is implemented
+        });
+
+        // Recalculate total price
+        const totalPrice = await calculateTotalPrice(id);
+        await db.update(calls)
+            .set({
+                totalPricePence: totalPrice,
+                lastEditedBy: 'system',
+                lastEditedAt: new Date()
+            })
+            .where(eq(calls.id, id));
+
+        // Return updated call
+        const [updatedCall] = await db.select().from(calls).where(eq(calls.id, id));
+
+        res.json(updatedCall);
+    } catch (error) {
+        console.error("Error adding SKU to call:", error);
+        res.status(500).json({ error: "Failed to add SKU to call" });
+    }
+});
+
+// PATCH /api/calls/:id/skus/:skuId - Update SKU quantity
+router.patch("/:id/skus/:skuId", async (req: Request, res: Response) => {
+    try {
+        const { id, skuId } = req.params;
+        const { quantity } = req.body;
+
+        if (quantity === undefined || quantity < 1) {
+            return res.status(400).json({ error: "Valid quantity is required" });
+        }
+
+        // Update SKU quantity
+        await db.update(callSkus)
+            .set({
+                quantity,
+                updatedAt: new Date()
+            })
+            .where(and(
+                eq(callSkus.callId, id),
+                eq(callSkus.id, skuId)
+            ));
+
+        // Recalculate total price
+        const totalPrice = await calculateTotalPrice(id);
+        await db.update(calls)
+            .set({
+                totalPricePence: totalPrice,
+                lastEditedBy: req.user?.id || 'system',
+                lastEditedAt: new Date()
+            })
+            .where(eq(calls.id, id));
+
+        // Return updated call
+        const [updatedCall] = await db.select().from(calls).where(eq(calls.id, id));
+
+        res.json(updatedCall);
+    } catch (error) {
+        console.error("Error updating SKU quantity:", error);
+        res.status(500).json({ error: "Failed to update SKU quantity" });
+    }
+});
+
+// DELETE /api/calls/:id/skus/:skuId - Remove SKU from call
+router.delete("/:id/skus/:skuId", async (req: Request, res: Response) => {
+    try {
+        const { id, skuId } = req.params;
+
+        // Delete SKU
+        await db.delete(callSkus)
+            .where(and(
+                eq(callSkus.callId, id),
+                eq(callSkus.id, skuId)
+            ));
+
+        // Recalculate total price
+        const totalPrice = await calculateTotalPrice(id);
+        await db.update(calls)
+            .set({
+                totalPricePence: totalPrice,
+                lastEditedBy: req.user?.id || 'system',
+                lastEditedAt: new Date()
+            })
+            .where(eq(calls.id, id));
+
+        // Return updated call
+        const [updatedCall] = await db.select().from(calls).where(eq(calls.id, id));
+
+        res.json(updatedCall);
+    } catch (error) {
+        console.error("Error removing SKU from call:", error);
+        res.status(500).json({ error: "Failed to remove SKU from call" });
+    }
+});
+
+// PATCH /api/calls/:id - Update call metadata
+router.patch("/:id", async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        // Validate request body
+        const validatedData = updateCallSchema.parse(req.body);
+
+        // Update call
+        await db.update(calls)
+            .set({
+                ...validatedData,
+                lastEditedBy: 'system',
+                lastEditedAt: new Date()
+            })
+            .where(eq(calls.id, id));
+
+        // Return updated call
+        const [updatedCall] = await db.select().from(calls).where(eq(calls.id, id));
+
+        if (!updatedCall) {
+            return res.status(404).json({ error: "Call not found" });
+        }
+
+        res.json(updatedCall);
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: "Invalid request data", details: error.errors });
+        }
+        console.error("Error updating call:", error);
+        res.status(500).json({ error: "Failed to update call" });
+    }
+});
+
+export default router;

@@ -15,6 +15,13 @@
       "when": 1766645111119,
       "tag": "0001_steep_rattler",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1766836769272,
+      "tag": "0002_contractor_portal",
+      "breakpoints": true
     }
   ]
 }

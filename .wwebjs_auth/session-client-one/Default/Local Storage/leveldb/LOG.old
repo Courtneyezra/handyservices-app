@@ -1,3 +1,6 @@
-2025/12/26-22:41:51.052 a503 Reusing MANIFEST /Users/courtneebonnick/v6-switchboard/.wwebjs_auth/session-client-one/Default/Local Storage/leveldb/MANIFEST-000001
-2025/12/26-22:41:51.055 a503 Recovering log #20
-2025/12/26-22:41:51.057 a503 Reusing old log /Users/courtneebonnick/v6-switchboard/.wwebjs_auth/session-client-one/Default/Local Storage/leveldb/000020.log 
+2025/12/27-20:58:14.998 9703 Reusing MANIFEST /Users/courtneebonnick/v6-switchboard/.wwebjs_auth/session-client-one/Default/Local Storage/leveldb/MANIFEST-000001
+2025/12/27-20:58:15.004 9703 Recovering log #38
+2025/12/27-20:58:15.007 9703 Reusing old log /Users/courtneebonnick/v6-switchboard/.wwebjs_auth/session-client-one/Default/Local Storage/leveldb/000038.log 
+2025/12/27-23:02:25.329 1772f Level-0 table #43: started
+2025/12/27-23:02:25.381 1772f Level-0 table #43: 12681 bytes OK
+2025/12/27-23:02:25.396 1772f Delete type=0 #38

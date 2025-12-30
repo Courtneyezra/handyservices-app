@@ -61,9 +61,19 @@ export default {
                     border: "hsl(var(--sidebar-border))",
                     ring: "hsl(var(--sidebar-ring))",
                 },
+                // Handy Services Brand Colors
+                handy: {
+                    gold: "#e8b323",
+                    "gold-hover": "#d1a01f",
+                    "gold-light": "#f5d56a",
+                },
+            },
+            // Dark theme background gradient utilities
+            backgroundImage: {
+                'handy-gradient': 'linear-gradient(to bottom, rgb(17, 24, 39), rgb(31, 41, 55))',
             },
             fontFamily: {
-                poppins: ["Poppins", "sans-serif"],
+                sans: ["Poppins", "sans-serif"],
             },
         },
     },

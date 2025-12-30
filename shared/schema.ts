@@ -14,14 +14,28 @@ export const sessions = pgTable(
     (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
-// Users table (Admin/VA access)
+// App Settings table - Key-value store for application configuration
+export const appSettings = pgTable("app_settings", {
+    id: varchar("id").primaryKey().notNull(),
+    key: varchar("key", { length: 100 }).unique().notNull(),
+    value: jsonb("value").notNull(),
+    description: text("description"),
+    updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type AppSetting = typeof appSettings.$inferSelect;
+
+// Users table (Admin/VA/Contractor access)
 export const users = pgTable("users", {
     id: varchar("id").primaryKey().notNull(),
     email: varchar("email").unique().notNull(),
     firstName: varchar("first_name"),
     lastName: varchar("last_name"),
+    phone: varchar("phone", { length: 20 }),
     password: varchar("password", { length: 255 }),
-    role: varchar("role", { length: 20 }).notNull().default('admin'),
+    role: varchar("role", { length: 20 }).notNull().default('admin'), // 'admin' | 'va' | 'contractor'
+    emailVerified: boolean("email_verified").default(false),
+    lastLogin: timestamp("last_login"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
@@ -49,7 +63,8 @@ export const productizedServices = pgTable("productized_services", {
     keywords: text("keywords").array().notNull(),
     negativeKeywords: text("negative_keywords").array(),
     aiPromptHint: text("ai_prompt_hint"),
-    embeddingVector: text("embedding_vector"),
+    embeddingVector: text("embedding_vector"), // Legacy: JSON string format (deprecated)
+    embedding: text("embedding"),               // B10: Native pgvector column (vector(1536))
 
     // Categorization
     category: varchar("category", { length: 50 }),
@@ -76,7 +91,14 @@ export const leads = pgTable("leads", {
     customerName: varchar("customer_name").notNull(),
     phone: varchar("phone").notNull(),
     email: varchar("email"),
-    address: text("address"),
+    address: text("address"), // Legacy field - kept for backwards compatibility
+
+    // Enhanced Address Fields (B5: Address Storage Schema Updates)
+    addressRaw: text("address_raw"), // What customer said verbatim
+    addressCanonical: text("address_canonical"), // Google's formatted version
+    placeId: varchar("place_id", { length: 255 }), // Google's unique identifier
+    postcode: varchar("postcode", { length: 10 }), // Extracted postcode
+    coordinates: jsonb("coordinates"), // { lat: number, lng: number }
 
     // Job Info
     jobDescription: text("job_description"),
@@ -88,21 +110,95 @@ export const leads = pgTable("leads", {
 
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+    index("idx_leads_phone").on(table.phone), // B1: Fast phone lookup
+    index("idx_leads_place_id").on(table.placeId), // B6: Fast duplicate detection by address
+    index("idx_leads_postcode").on(table.postcode), // B6: Postcode-based queries
+]);
 
 // Calls table - Twilio Webhook Log
 export const calls = pgTable("calls", {
     id: varchar("id").primaryKey().notNull(),
     callId: varchar("call_id").unique().notNull(), // Twilio CallSid
     phoneNumber: varchar("phone_number").notNull(),
-    startTime: timestamp("start_time").notNull().defaultNow(), // Added to match DB and fix insert error
+    startTime: timestamp("start_time").notNull().defaultNow(),
     direction: varchar("direction").notNull(),
     status: varchar("status").notNull(),
     recordingUrl: varchar("recording_url"),
     transcription: text("transcription"),
     leadId: varchar("lead_id"),
+
+    // Customer Information
+    customerName: varchar("customer_name"),
+    email: varchar("email"),
+    address: text("address"),
+    postcode: varchar("postcode"),
+
+    // Call Metadata
+    duration: integer("duration"), // in seconds
+    endTime: timestamp("end_time"),
+    outcome: varchar("outcome"), // 'INSTANT_PRICE' | 'VIDEO_QUOTE' | 'SITE_VISIT' | 'NO_ANSWER' | 'VOICEMAIL'
+    urgency: varchar("urgency"), // 'Critical' | 'High' | 'Standard' | 'Low'
+    leadType: varchar("lead_type"), // 'Homeowner' | 'Landlord' | 'Property Manager' | 'Tenant'
+
+    // SKU Detection Results (from AI)
+    detectedSkusJson: jsonb("detected_skus_json"), // Array of detected SKUs with confidence scores
+    skuDetectionMethod: varchar("sku_detection_method"), // 'keyword' | 'embedding' | 'gpt' | 'hybrid'
+
+    // Manual SKU Management
+    manualSkusJson: jsonb("manual_skus_json"), // Array of manually added/edited SKUs
+    totalPricePence: integer("total_price_pence"), // Calculated total from all SKUs
+
+    // Audit Trail
+    lastEditedBy: varchar("last_edited_by"), // User ID who last edited
+    lastEditedAt: timestamp("last_edited_at"),
+
+    // Additional Context
+    notes: text("notes"), // Manual notes from VA
+    segments: jsonb("segments"), // Full transcript segments with timestamps
+
     createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+    index("idx_calls_phone_number").on(table.phoneNumber),
+    index("idx_calls_start_time").on(table.startTime),
+    index("idx_calls_outcome").on(table.outcome),
+    index("idx_calls_customer_name").on(table.customerName),
+]);
+
+// Call SKUs junction table - Many-to-many relationship between calls and SKUs
+export const callSkus = pgTable("call_skus", {
+    id: varchar("id").primaryKey().notNull(),
+    callId: varchar("call_id").references(() => calls.id, { onDelete: 'cascade' }).notNull(),
+    skuId: varchar("sku_id").references(() => productizedServices.id).notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    pricePence: integer("price_pence").notNull(), // Snapshot price at time of call
+    source: varchar("source").notNull(), // 'detected' | 'manual'
+    confidence: integer("confidence"), // For detected SKUs (0-100)
+    detectionMethod: varchar("detection_method"), // For detected SKUs
+    addedBy: varchar("added_by"), // User ID for manual additions
+    addedAt: timestamp("added_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+    index("idx_call_skus_call_id").on(table.callId),
+    index("idx_call_skus_sku_id").on(table.skuId),
+]);
+
+// Relations for calls and callSkus
+export const callsRelations = relations(calls, ({ many }) => ({
+    callSkus: many(callSkus),
+}));
+
+export const callSkusRelations = relations(callSkus, ({ one }) => ({
+    call: one(calls, {
+        fields: [callSkus.callId],
+        references: [calls.id],
+    }),
+    sku: one(productizedServices, {
+        fields: [callSkus.skuId],
+        references: [productizedServices.id],
+    }),
+}));
+
 
 // Handyman Profiles
 export const handymanProfiles = pgTable("handyman_profiles", {
@@ -164,6 +260,60 @@ export const handymanAvailabilityRelations = relations(handymanAvailability, ({ 
     }),
 }));
 
+// Contractor Availability Dates - Date-specific availability (overrides weekly patterns)
+export const contractorAvailabilityDates = pgTable("contractor_availability_dates", {
+    id: varchar("id").primaryKey().notNull(),
+    contractorId: varchar("contractor_id").references(() => handymanProfiles.id).notNull(),
+    date: timestamp("date").notNull(),
+    isAvailable: boolean("is_available").notNull().default(true),
+    startTime: varchar("start_time", { length: 5 }), // "HH:mm"
+    endTime: varchar("end_time", { length: 5 }), // "HH:mm"
+    notes: text("notes"),
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_contractor_availability_date").on(table.contractorId, table.date),
+]);
+
+export const contractorAvailabilityDatesRelations = relations(contractorAvailabilityDates, ({ one }) => ({
+    contractor: one(handymanProfiles, {
+        fields: [contractorAvailabilityDates.contractorId],
+        references: [handymanProfiles.id],
+    }),
+}));
+
+// Contractor Jobs - Job assignments to contractors
+export const contractorJobs = pgTable("contractor_jobs", {
+    id: varchar("id").primaryKey().notNull(),
+    contractorId: varchar("contractor_id").references(() => handymanProfiles.id).notNull(),
+    quoteId: varchar("quote_id"),
+    leadId: varchar("lead_id"),
+    customerName: varchar("customer_name"),
+    customerPhone: varchar("customer_phone"),
+    address: text("address"),
+    postcode: varchar("postcode", { length: 10 }),
+    jobDescription: text("job_description"),
+    status: varchar("status", { length: 20 }).notNull().default('pending'), // 'pending' | 'accepted' | 'declined' | 'in_progress' | 'completed' | 'cancelled'
+    scheduledDate: timestamp("scheduled_date"),
+    scheduledTime: varchar("scheduled_time", { length: 5 }),
+    estimatedDuration: integer("estimated_duration"), // minutes
+    payoutPence: integer("payout_pence"),
+    acceptedAt: timestamp("accepted_at"),
+    completedAt: timestamp("completed_at"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+    index("idx_contractor_jobs_contractor").on(table.contractorId),
+    index("idx_contractor_jobs_status").on(table.status),
+]);
+
+export const contractorJobsRelations = relations(contractorJobs, ({ one }) => ({
+    contractor: one(handymanProfiles, {
+        fields: [contractorJobs.contractorId],
+        references: [handymanProfiles.id],
+    }),
+}));
+
 // Schemas for API validation
 export const insertLeadSchema = createInsertSchema(leads);
 export type InsertLead = z.infer<typeof insertLeadSchema>;
@@ -171,6 +321,23 @@ export type Lead = typeof leads.$inferSelect;
 
 export const insertCallSchema = createInsertSchema(calls);
 export type InsertCall = z.infer<typeof insertCallSchema>;
+export type Call = typeof calls.$inferSelect;
+
+export const insertCallSkuSchema = createInsertSchema(callSkus);
+export type CallSku = typeof callSkus.$inferSelect;
+export type InsertCallSku = z.infer<typeof insertCallSkuSchema>;
+
+// Schema for updating call metadata
+export const updateCallSchema = z.object({
+    customerName: z.string().optional(),
+    email: z.union([z.string().email(), z.literal("")]).optional(),
+    address: z.string().optional(),
+    postcode: z.string().optional(),
+    notes: z.string().optional(),
+    urgency: z.enum(['Critical', 'High', 'Standard', 'Low']).optional(),
+    leadType: z.enum(['Homeowner', 'Landlord', 'Property Manager', 'Tenant', 'Unknown']).optional(),
+    outcome: z.enum(['INSTANT_PRICE', 'VIDEO_QUOTE', 'SITE_VISIT', 'NO_ANSWER', 'VOICEMAIL', 'Unknown']).optional(),
+});
 
 export const insertHandymanProfileSchema = createInsertSchema(handymanProfiles);
 export type HandymanProfile = typeof handymanProfiles.$inferSelect;
@@ -181,6 +348,20 @@ export type HandymanSkill = typeof handymanSkills.$inferSelect;
 
 export const insertHandymanAvailabilitySchema = createInsertSchema(handymanAvailability);
 export type HandymanAvailability = typeof handymanAvailability.$inferSelect;
+
+// User Types
+export type User = typeof users.$inferSelect;
+export type InsertUser = typeof users.$inferInsert;
+
+// Contractor Availability Dates Types
+export const insertContractorAvailabilityDateSchema = createInsertSchema(contractorAvailabilityDates);
+export type ContractorAvailabilityDate = typeof contractorAvailabilityDates.$inferSelect;
+export type InsertContractorAvailabilityDate = z.infer<typeof insertContractorAvailabilityDateSchema>;
+
+// Contractor Jobs Types
+export const insertContractorJobSchema = createInsertSchema(contractorJobs);
+export type ContractorJob = typeof contractorJobs.$inferSelect;
+export type InsertContractorJob = z.infer<typeof insertContractorJobSchema>;
 
 // ==========================================
 // MIGRATED FROM V5 - PERSONALIZED QUOTES
@@ -379,3 +560,91 @@ export const insertPersonalizedQuoteSchema = createInsertSchema(personalizedQuot
 
 export type InsertPersonalizedQuote = z.infer<typeof insertPersonalizedQuoteSchema>;
 export type PersonalizedQuote = typeof personalizedQuotes.$inferSelect;
+
+// ==========================================
+// WHATSAPP CRM SCHEMA
+// ==========================================
+
+// Conversations Table - Represents a unique chat thread with a phone number
+export const conversations = pgTable("conversations", {
+    id: varchar("id").primaryKey().notNull(), // UUID
+    phoneNumber: varchar("phone_number").unique().notNull(), // Format: "447936816338@c.us"
+    contactName: varchar("contact_name"), // Display name from WhatsApp or contact
+    leadId: varchar("lead_id"), // Optional: Link to leads table
+
+    // Status & Metadata
+    status: varchar("status", { length: 20 }).notNull().default('active'), // 'active', 'archived', 'blocked'
+    unreadCount: integer("unread_count").default(0),
+    lastMessageAt: timestamp("last_message_at").defaultNow(),
+    lastMessagePreview: text("last_message_preview"), // Cache last message for list view
+
+    // State Machine Fields (24h window, assignment, lifecycle)
+    lastInboundAt: timestamp("last_inbound_at"), // For 24h window calculation
+    canSendFreeform: boolean("can_send_freeform").default(false), // Computed from lastInboundAt
+    templateRequired: boolean("template_required").default(true), // True if outside 24h window
+    assignedTo: varchar("assigned_to"), // User ID (VA/Contractor)
+    priority: varchar("priority", { length: 10 }).default('normal'), // 'low', 'normal', 'high', 'urgent'
+    stage: varchar("stage", { length: 20 }).default('new'), // 'new', 'active', 'waiting', 'closed'
+    readAt: timestamp("read_at"), // When agent last read the conversation
+    archivedAt: timestamp("archived_at"), // When conversation was archived
+
+    // CRM Fields
+    tags: text("tags").array(), // ['urgent', 'quote_sent']
+    notes: text("notes"), // Internal notes for this conversation
+
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+    index("idx_conversations_phone").on(table.phoneNumber),
+    index("idx_conversations_last_message").on(table.lastMessageAt),
+    index("idx_conversations_assigned").on(table.assignedTo),
+    index("idx_conversations_stage").on(table.stage),
+]);
+
+export const conversationRelations = relations(conversations, ({ many }) => ({
+    messages: many(messages),
+}));
+
+// Messages Table - Individual messages within a conversation
+export const messages = pgTable("messages", {
+    id: varchar("id").primaryKey().notNull(), // Ideally Twilio Message SID or UUID
+    conversationId: varchar("conversation_id").references(() => conversations.id, { onDelete: 'cascade' }).notNull(),
+
+    // Core Message Data
+    direction: varchar("direction", { length: 10 }).notNull(), // 'inbound' | 'outbound'
+    content: text("content"), // Text body
+    type: varchar("type", { length: 20 }).default('text'), // 'text', 'image', 'video', 'audio', 'document', 'template'
+
+    // Media Support
+    mediaUrl: text("media_url"), // URL to stored media
+    mediaType: varchar("media_type"), // MIME type
+
+    // Status Tracking
+    status: varchar("status", { length: 20 }).default('sent'), // 'queued', 'sent', 'delivered', 'read', 'failed'
+    errorCode: varchar("error_code"),
+    errorMessage: text("error_message"),
+
+    // Metadata
+    senderName: varchar("sender_name"), // Display name of sender (e.g., 'John Doe' or 'System')
+    twilioSid: varchar("twilio_sid").unique(), // Store external ID
+
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_messages_conversation").on(table.conversationId),
+    index("idx_messages_created").on(table.createdAt),
+]);
+
+export const messageRelations = relations(messages, ({ one }) => ({
+    conversation: one(conversations, {
+        fields: [messages.conversationId],
+        references: [conversations.id],
+    }),
+}));
+
+export const insertConversationSchema = createInsertSchema(conversations);
+export type Conversation = typeof conversations.$inferSelect;
+export type InsertConversation = z.infer<typeof insertConversationSchema>;
+
+export const insertMessageSchema = createInsertSchema(messages);
+export type Message = typeof messages.$inferSelect;
+export type InsertMessage = z.infer<typeof insertMessageSchema>;

@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, useMemo } from 'react';
+import { queryClient } from "@/lib/queryClient";
 
 interface SkuDetectionResult {
     matched: boolean;
@@ -11,10 +12,15 @@ interface SkuDetectionResult {
         description: string;
     } | null;
     confidence: number;
-    method: string;
+    method: 'keyword' | 'embedding' | 'gpt' | 'hybrid' | 'cached' | 'realtime' | 'none';
     rationale: string;
     nextRoute: 'INSTANT_PRICE' | 'VIDEO_QUOTE' | 'SITE_VISIT' | 'UNKNOWN';
     suggestedScript?: string;
+
+    // Performance & UI Optimizations (F1, F3)
+    isPreliminaryResult?: boolean; // If true, show loading spinner while fetching full result
+    detectionTime?: number;        // Time taken in ms
+    cacheHit?: boolean;            // Was embedding cached?
 
     // Multi-SKU fields
     matchedServices?: Array<{
@@ -47,6 +53,16 @@ interface CallMetadata {
     urgency: "Critical" | "High" | "Standard" | "Low";
     leadType: "Homeowner" | "Landlord" | "Property Manager" | "Tenant" | "Unknown";
     phoneNumber?: string; // Caller ID
+    postcode?: string | null;
+    addressRaw?: string;
+    addressCanonical?: string;
+    coordinates?: { lat: number, lng: number };
+}
+
+interface DuplicateInfo {
+    existingLeadId: string;
+    confidence: number;
+    matchReason: string;
 }
 
 interface UploadResponse {
@@ -69,6 +85,14 @@ interface LiveCallContextType {
     isSimulating: boolean;
     startSimulation: (options?: SimulationOptions) => void;
     clearCall: () => void; // Manual reset function
+    updateMetadata: (metadata: Partial<CallMetadata>) => void;
+    detectedPostcode: string | null;
+    setDetectedPostcode: (postcode: string | null) => void;
+    duplicateWarning: DuplicateInfo | null;
+    setDuplicateWarning: (info: DuplicateInfo | null) => void;
+    addressValidation: any | null;  // AddressValidation from server
+    setAddressValidation: (validation: any | null) => void;
+    audioQuality: 'GOOD' | 'DEGRADED' | 'POOR'; // Clean Mode: Audio quality indicator
 }
 
 const LiveCallContext = createContext<LiveCallContextType | undefined>(undefined);
@@ -78,8 +102,31 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
     const [interimTranscript, setInterimTranscript] = useState<string>("");
     const [isLive, setIsLive] = useState(false);
     const [isSimulating, setIsSimulating] = useState(false);
+    const [detectedPostcode, setDetectedPostcode] = useState<string | null>(null);
+    const [duplicateWarning, setDuplicateWarning] = useState<DuplicateInfo | null>(null);
+    const [addressValidation, setAddressValidation] = useState<any | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
     const isSimulatingRef = useRef(false);
+
+    // Clean Mode: Derive audio quality from transcript patterns
+    const audioQuality = useMemo((): 'GOOD' | 'DEGRADED' | 'POOR' => {
+        if (!liveCallData) return 'GOOD';
+
+        const segmentCount = liveCallData.segments.length;
+        const transcriptionLength = liveCallData.transcription.length;
+        const avgSegmentLength = segmentCount > 0 ? transcriptionLength / segmentCount : 0;
+        const confidence = liveCallData.detection?.confidence || 0;
+
+        // Poor: Many tiny segments (fragmented audio) or very low confidence
+        if (segmentCount > 5 && avgSegmentLength < 15) return 'POOR';
+        if (confidence === 0 && segmentCount > 3) return 'POOR';
+
+        // Degraded: Low confidence with some data
+        if (confidence < 30 && confidence > 0) return 'DEGRADED';
+        if (segmentCount > 3 && avgSegmentLength < 25) return 'DEGRADED';
+
+        return 'GOOD';
+    }, [liveCallData]);
 
     const clearCall = () => {
         console.log('[LiveCall] Manual reset triggered');
@@ -88,6 +135,19 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
         setIsLive(false);
         setLiveCallData(null);
         setInterimTranscript("");
+        setDetectedPostcode(null);
+        setDuplicateWarning(null);
+        setAddressValidation(null);
+    };
+
+    const updateMetadata = (metadata: Partial<CallMetadata>) => {
+        setLiveCallData(prev => {
+            if (!prev) return prev;
+            return {
+                ...prev,
+                metadata: { ...prev.metadata, ...metadata }
+            };
+        });
     };
 
     const startSimulation = (options?: SimulationOptions) => {
@@ -309,7 +369,22 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                 } else if (msg.type === 'voice:analysis_update') {
                     setLiveCallData(prev => {
                         if (!prev) return prev;
-                        return { ...prev, detection: msg.data.analysis };
+                        // Map metadata if present
+                        const metadata = msg.data.metadata ? { ...prev.metadata, ...msg.data.metadata } : prev.metadata;
+                        return { ...prev, detection: msg.data.analysis, metadata };
+                    });
+                } else if (msg.type === 'voice:postcode_detected') {
+                    console.log(`[LiveCall] Postcode detected: ${msg.data.postcode}`);
+                    setDetectedPostcode(msg.data.postcode);
+                } else if (msg.type === 'voice:address_validated') {
+                    console.log(`[LiveCall] Address validated: ${msg.data.validation.confidence}% confidence`);
+                    setAddressValidation(msg.data.validation);
+                } else if (msg.type === 'voice:duplicate_detected') {
+                    console.log(`[LiveCall] Duplicate detected! Confidence: ${msg.data.confidence}%`);
+                    setDuplicateWarning({
+                        existingLeadId: msg.data.existingLeadId,
+                        confidence: msg.data.confidence,
+                        matchReason: msg.data.matchReason
                     });
                 } else if (msg.type === 'voice:call_ended') {
                     setIsLive(false);
@@ -326,6 +401,18 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                             }
                         };
                     });
+                    queryClient.invalidateQueries({ queryKey: ['calls'] }); // Refresh list
+                } else if (msg.type === 'call:created' || msg.type === 'call:updated' || msg.type === 'call:skus_detected') {
+                    // Refresh calls list and specific call details
+                    queryClient.invalidateQueries({ queryKey: ['calls'] });
+                    if (msg.data.id || msg.data.callId) {
+                        // Some events use id, others use callId (record ID vs Twilio CallSid might be mixed, but standardizing on record ID 'id' is best)
+                        // B6 implementation returns 'id' for call record.
+                        const recordId = msg.data.id;
+                        if (recordId) {
+                            queryClient.invalidateQueries({ queryKey: ['call', recordId] });
+                        }
+                    }
                 }
             } catch (e) {
                 console.error("Voice WS Parse Error", e);
@@ -336,7 +423,13 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
     }, [isSimulating]);
 
     return (
-        <LiveCallContext.Provider value={{ isLive, liveCallData, interimTranscript, isSimulating, startSimulation, clearCall }}>
+        <LiveCallContext.Provider value={{
+            isLive, liveCallData, interimTranscript, isSimulating, startSimulation, clearCall, updateMetadata,
+            detectedPostcode, setDetectedPostcode,
+            duplicateWarning, setDuplicateWarning,
+            addressValidation, setAddressValidation,
+            audioQuality
+        }}>
             {children}
         </LiveCallContext.Provider>
     );

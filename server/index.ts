@@ -11,16 +11,26 @@ import { db } from "./db";
 import { productizedServices, skuMatchLogs } from "../shared/schema";
 import { desc, eq } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
-import { detectSku, detectMultipleTasks } from "./skuDetector";
+import { detectSku, detectMultipleTasks, loadAndCacheSkus } from "./skuDetector";
 import { setupTwilioSocket } from "./twilio-realtime";
 import { quotesRouter } from "./quotes";
 import { leadsRouter } from "./leads";
 import { testRouter } from "./test-routes";
 import { dashboardRouter } from "./dashboard";
 import { whatsappRouter } from "./whatsapp-api";
+import { metaWhatsAppRouter, attachMetaWebSocket } from "./meta-whatsapp";
 import { trainingRouter } from './training-routes';
 import handymenRouter from './handymen';
+import callsRouter from './calls';
 import { generateWhatsAppMessage } from './openai';
+import { searchAddresses, validatePostcode } from './google-places'; // B8: Address lookup
+import { devRouter } from './dev-tools';
+import { settingsRouter, getTwilioSettings } from './settings';
+import contractorAuthRouter from './contractor-auth';
+import contractorAvailabilityRouter from './availability-routes';
+import contractorJobsRouter from './job-routes';
+import placesRouter from './places-routes';
+import { stripeRouter } from './stripe-routes';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -32,6 +42,14 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve static files from attached_assets directory if needed
 // app.use('/attached_assets', express.static('attached_assets'));
+
+// Serve WhatsApp Media
+const MEDIA_DIR = path.join(__dirname, 'storage/media');
+if (!fs.existsSync(MEDIA_DIR)) {
+    fs.mkdirSync(MEDIA_DIR, { recursive: true });
+}
+app.use('/api/media', express.static(MEDIA_DIR));
+
 
 // Logging Middleware
 app.use((req, res, next) => {
@@ -59,14 +77,72 @@ app.use((req, res, next) => {
     next();
 });
 
+// Diagnostics Endpoint (Inlined for reliability)
+import { getActiveCallCount } from './twilio-realtime';
+import { sql } from 'drizzle-orm';
+import { getNgrokUrl } from './dev-tools';
+
+app.get('/api/diagnostics', async (req, res) => {
+    console.log('[Diagnostics] Endpoint hit');
+    const checks = {
+        timestamp: new Date().toISOString(),
+        env: {
+            deepgram_key_set: !!process.env.DEEPGRAM_API_KEY,
+            openai_key_set: !!process.env.OPENAI_API_KEY,
+            twilio_account_sid_set: !!process.env.TWILIO_ACCOUNT_SID,
+            twilio_auth_token_set: !!process.env.TWILIO_AUTH_TOKEN,
+            node_env: process.env.NODE_ENV
+        },
+        infrastructure: {
+            database: false,
+            host: req.headers.host,
+            protocol: req.headers['x-forwarded-proto'] || req.protocol,
+            server_uptime: process.uptime(),
+            active_tunnel: await getNgrokUrl('http://127.0.0.1:4040/api/tunnels')
+        },
+        voice_server: {
+            active_calls: getActiveCallCount(),
+        }
+    };
+
+    try {
+        await db.execute(sql`SELECT 1`);
+        checks.infrastructure.database = true;
+    } catch (e) {
+        console.error("Diagnostics: DB Check Failed", e);
+        checks.infrastructure.database = false;
+    }
+
+    res.json(checks);
+});
+
 // Register Quotes Router (Migrated from V5)
 app.use(express.static(path.join(__dirname, '../client/dist')));
 app.use(quotesRouter);
 app.use(leadsRouter);
+app.use('/api/places', placesRouter); // API: Places Search
 app.use('/api', testRouter);
+app.use('/api/whatsapp', whatsappRouter); // Legacy Twilio Webhooks
+app.use('/api/whatsapp', metaWhatsAppRouter); // Meta Cloud API Webhooks
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/handymen', handymenRouter);
+app.use('/api/calls', callsRouter);
+app.use('/api/calls', callsRouter);
 app.use(trainingRouter);
+app.use('/api', devRouter);
+app.use(settingsRouter);
+app.use(stripeRouter); // Stripe payment routes
+
+// Contractor Portal Routes
+app.use('/api/contractor', contractorAuthRouter);
+app.use('/api/contractor/availability', contractorAvailabilityRouter);
+app.use('/api/contractor/jobs', contractorJobsRouter);
+// app.use('/api/places', placesRouter); // API: Places Search (Moved to register before catch-all)
+
+// Serve static assets (for hold music)
+app.use('/assets', express.static(path.join(__dirname, '../public/assets')));
+
+
 
 
 // Audio Upload Endpoint (Deepgram)
@@ -142,6 +218,40 @@ app.post('/api/whatsapp/ai-message', async (req, res) => {
     } catch (e) {
         console.error("AI message error:", e);
         res.status(500).json({ error: "Failed to generate message" });
+    }
+});
+
+// B8: Address Lookup by Postcode
+app.post('/api/addresses/lookup', async (req, res) => {
+    const { postcode } = req.body;
+
+    if (!postcode) {
+        return res.status(400).json({ error: "Postcode is required" });
+    }
+
+    try {
+        // Validate postcode first (free API call)
+        const validation = await validatePostcode(postcode);
+
+        if (!validation.valid) {
+            return res.json({
+                addresses: [],
+                cached: false,
+                error: "Invalid postcode"
+            });
+        }
+
+        // Get addresses from Google Places (with caching)
+        const addresses = await searchAddresses(postcode);
+
+        res.json({
+            addresses,
+            cached: addresses.length > 0, // If we got results, they might be cached
+            postcode: validation.postcode // Return normalized postcode
+        });
+    } catch (e) {
+        console.error("Address lookup error:", e);
+        res.status(500).json({ error: "Failed to lookup addresses" });
     }
 });
 
@@ -236,33 +346,98 @@ app.post('/api/intake/decision', (req, res) => {
     });
 });
 
-// Twilio Voice Webhook
-app.post('/api/twilio/voice', (req, res) => {
+// Twilio Voice Webhook - Dynamic settings-based call routing
+app.post('/api/twilio/voice', async (req, res) => {
     console.log(`[Twilio] Incoming call from ${req.body.From}`);
     const host = req.headers.host;
-    const protocol = req.headers['x-forwarded-proto'] === 'https' ? 'wss' : 'ws';
-    const streamUrl = `${protocol}://${host}/api/twilio/realtime`;
+    const wsProtocol = req.headers['x-forwarded-proto'] === 'https' ? 'wss' : 'ws';
+    const httpProtocol = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+    const streamUrl = `${wsProtocol}://${host}/api/twilio/realtime`;
 
-    const twiml = `
+    // Get dynamic settings
+    const settings = await getTwilioSettings();
+    const welcomeMessage = (settings.welcomeMessage as string).replace('{business_name}', settings.businessName as string);
+    const holdMusicUrl = (settings.holdMusicUrl as string)?.startsWith('http')
+        ? settings.holdMusicUrl as string
+        : `${httpProtocol}://${host}${settings.holdMusicUrl}`;
+
+    let twiml = `<?xml version="1.0" encoding="UTF-8"?>
     <Response>
       <Start>
         <Stream url="${streamUrl}">
             <Parameter name="phoneNumber" value="${req.body.From}" />
         </Stream>
       </Start>
-      <Say voice="Polly.Amy-Neural">Hello! This is the Switchboard. Please describe the plumbing or electrical job you need help with.</Say>
+      <Say voice="${settings.voice}">${welcomeMessage}</Say>`;
+
+    // If forwarding is enabled, dial the forward number
+    if (settings.forwardEnabled && settings.forwardNumber) {
+        // ringTone="gb" makes caller hear UK ring tone, masking international destination
+        // answerOnBridge="false" + ringTone prevents caller hearing destination ring
+        twiml += `
+      <Dial timeout="${settings.maxWaitSeconds}" action="${httpProtocol}://${host}/api/twilio/dial-status" method="POST" answerOnBridge="false" ringTone="gb" callerId="${req.body.To || req.body.Called}">
+        <Number>${settings.forwardNumber}</Number>
+      </Dial>`;
+    } else {
+        // No forwarding - original behavior (for transcription/AI mode)
+        twiml += `
       <Pause length="30" />
-      <Say voice="Polly.Amy-Neural">I'm still listening. Go ahead whenever you're ready.</Say>
+      <Say voice="${settings.voice}">I'm still listening. Go ahead whenever you're ready.</Say>
       <Pause length="30" />
-      <Say voice="Polly.Amy-Neural">Thank you for the details. We are analyzing your request and will be with you shortly.</Say>
-      <Pause length="10" />
-    </Response>
-  `;
+      <Say voice="${settings.voice}">Thank you for the details. We are analyzing your request and will be with you shortly.</Say>
+      <Pause length="10" />`;
+    }
+
+    twiml += `
+    </Response>`;
+
     res.type('text/xml');
     res.send(twiml);
 });
 
-import { whatsAppManager } from './whatsapp';
+// Twilio Dial Status Callback - Handles no-answer fallback to WhatsApp
+app.post('/api/twilio/dial-status', async (req, res) => {
+    const { DialCallStatus, From, CallSid } = req.body;
+    console.log(`[Twilio] Dial status for ${CallSid}: ${DialCallStatus}`);
+
+    const settings = await getTwilioSettings();
+    const host = req.headers.host;
+    const httpProtocol = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+
+    // If call was not answered, trigger fallback
+    if (DialCallStatus !== 'completed' && DialCallStatus !== 'answered') {
+        console.log(`[Twilio] Call not answered, triggering fallback: ${settings.fallbackAction}`);
+
+        // Send WhatsApp if enabled
+        if (settings.fallbackAction === 'whatsapp' && From) {
+            try {
+                const fallbackMessage = (settings.fallbackMessage as string).replace('{business_name}', settings.businessName as string);
+                // Use conversation engine to send message
+                const { conversationEngine } = await import('./conversation-engine');
+                await conversationEngine.sendMessage(From.replace('+', ''), fallbackMessage);
+                console.log(`[Twilio] WhatsApp fallback sent to ${From}`);
+            } catch (error) {
+                console.error('[Twilio] Failed to send WhatsApp fallback:', error);
+            }
+        }
+
+        // Play apology message and hang up
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+        <Response>
+          <Say voice="${settings.voice}">Sorry we missed your call. We'll text you right back.</Say>
+          <Hangup/>
+        </Response>`;
+
+        res.type('text/xml');
+        res.send(twiml);
+    } else {
+        // Call was answered successfully - just end gracefully
+        res.type('text/xml');
+        res.send('<Response></Response>');
+    }
+});
+
+import { conversationEngine } from './conversation-engine';
 
 // Create Server
 const server = createServer(app);
@@ -296,18 +471,7 @@ wssClient.on('connection', (ws, req) => {
 });
 
 setupTwilioSocket(wssTwilio, broadcastToClients);
-whatsAppManager.attachWebSocket(wssClient);
-
-// Startup health check: kill any zombie Chrome processes
-console.log('[V6 Switchboard] Running startup health check...');
-try {
-    execSync('pkill -f "chromium.*session-client-one" 2>/dev/null || true', { stdio: 'ignore' });
-    console.log('[V6 Switchboard] Cleaned up any existing Chrome processes');
-} catch (e) {
-    // Silently ignore
-}
-
-whatsAppManager.initialize();
+conversationEngine.attachWebSocket(wssClient);
 
 server.on('upgrade', (request, socket, head) => {
     const { pathname } = new URL(request.url || '', `http://${request.headers.host}`);
@@ -328,6 +492,8 @@ server.on('upgrade', (request, socket, head) => {
         socket.destroy();
     }
 });
+
+
 
 async function startServer() {
     // Vite Middleware Setup
@@ -376,9 +542,14 @@ async function startServer() {
 
     // Start Listener
     const PORT = process.env.PORT || 5001;
-    server.listen(PORT, () => {
+    server.listen(PORT, async () => {
         console.log(`[V6 Switchboard] Listening on port ${PORT}`);
         console.log(`[V6 Switchboard] WebSocket at ws://localhost:${PORT}/api/twilio/realtime`);
+
+        // B4: Preload SKU cache at startup
+        console.log('[V6 Switchboard] Preloading SKU cache...');
+        await loadAndCacheSkus();
+        console.log('[V6 Switchboard] SKU cache ready');
     });
 }
 
@@ -388,15 +559,47 @@ startServer().catch(err => {
     process.exit(1);
 });
 
+// Handle EADDRINUSE at the process level for better DX
+server.on('error', (e: any) => {
+    if (e.code === 'EADDRINUSE') {
+        console.log(`[V6 Switchboard] Port ${process.env.PORT || 5001} is in use.`);
+        if (process.env.NODE_ENV !== 'production') {
+            console.log('[V6 Switchboard] Dev mode detected: Attempting to kill the process occupying the port...');
+            try {
+                const port = process.env.PORT || 5001;
+                const pid = execSync(`lsof -t -i:${port} -sTCP:LISTEN`).toString().trim();
+                if (pid) {
+                    process.kill(parseInt(pid), 'SIGKILL');
+                    console.log(`[V6 Switchboard] Killed process ${pid}. Restarting server in 1s...`);
+                    setTimeout(() => {
+                        server.close();
+                        server.listen(port);
+                    }, 1000);
+                    return;
+                }
+            } catch (err) {
+                console.error('[V6 Switchboard] Failed to auto-kill process:', err);
+            }
+        }
+        console.error(`[V6 Switchboard] Address in use, retrying...`);
+        setTimeout(() => {
+            server.close();
+            server.listen(process.env.PORT || 5001);
+        }, 1000);
+    } else {
+        console.error('[V6 Switchboard] Server error:', e);
+    }
+});
+
 // Graceful shutdown handlers
 process.on('SIGINT', async () => {
     console.log('\n[V6 Switchboard] Received SIGINT, shutting down gracefully...');
-    await whatsAppManager.destroy();
+    conversationEngine.destroy();
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
     console.log('\n[V6 Switchboard] Received SIGTERM, shutting down gracefully...');
-    await whatsAppManager.destroy();
+    conversationEngine.destroy();
     process.exit(0);
 });

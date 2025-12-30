@@ -17,21 +17,21 @@ interface PaymentFormProps {
   onError?: (error: string) => void;
 }
 
-export function PaymentForm({ 
-  amount, 
-  customerName, 
-  customerEmail, 
+export function PaymentForm({
+  amount,
+  customerName,
+  customerEmail,
   quoteId,
   selectedTier,
   selectedTierPrice,
   selectedExtras,
   paymentType = 'full',
   onSuccess,
-  onError 
+  onError
 }: PaymentFormProps) {
   const stripe = useStripe();
   const elements = useElements();
-  
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [serverCalculatedAmount, setServerCalculatedAmount] = useState<number | null>(null);
@@ -42,16 +42,16 @@ export function PaymentForm({
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [isLoadingIntent, setIsLoadingIntent] = useState(true);
-  
+
   // Create stable reference for selectedExtras to avoid unnecessary re-fetches
   const extrasKey = JSON.stringify(selectedExtras || []);
-  
+
   // Fetch payment intent when tier or extras change (re-calculate deposit)
   useEffect(() => {
     const abortController = new AbortController();
     const requestId = Date.now(); // Track this specific request
     let isCurrentRequest = true; // Flag to prevent stale updates
-    
+
     const fetchPaymentIntent = async () => {
       try {
         setIsLoadingIntent(true);
@@ -60,7 +60,7 @@ export function PaymentForm({
         setClientSecret(null);
         setPaymentIntentId(null);
         setServerCalculatedAmount(null);
-        
+
         const response = await fetch('/api/create-payment-intent', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -85,14 +85,14 @@ export function PaymentForm({
         }
 
         const data = await response.json();
-        
+
         if (!data.clientSecret) {
           throw new Error('Failed to create payment intent');
         }
-        
+
         setClientSecret(data.clientSecret);
         setPaymentIntentId(data.paymentIntentId);
-        
+
         // Set server-calculated amount and breakdown for display
         if (data.depositBreakdown?.total) {
           setServerCalculatedAmount(data.depositBreakdown.total);
@@ -101,12 +101,12 @@ export function PaymentForm({
             labourDepositComponent: data.depositBreakdown.labourDepositComponent || 0,
           });
         }
-        
+
         setIsLoadingIntent(false); // Only set loading false for successful current request
       } catch (err: any) {
         // Ignore aborted requests completely - don't update ANY state
         if (err.name === 'AbortError' || !isCurrentRequest) return;
-        
+
         const errorMessage = err.message || 'Failed to initialize payment. Please try again.';
         setError(errorMessage);
         setIsLoadingIntent(false); // Only set loading false for actual errors
@@ -115,9 +115,9 @@ export function PaymentForm({
         }
       }
     };
-    
+
     fetchPaymentIntent();
-    
+
     // Cleanup: mark this request as stale and abort
     return () => {
       isCurrentRequest = false; // Prevent any pending state updates
@@ -197,7 +197,7 @@ export function PaymentForm({
       </div>
     );
   }
-  
+
   // Show error if payment intent creation failed
   if (error && !clientSecret) {
     return (
@@ -207,7 +207,7 @@ export function PaymentForm({
       </Alert>
     );
   }
-  
+
   // Only render payment form once we have server-calculated amount
   if (!serverCalculatedAmount) {
     return (
@@ -221,30 +221,42 @@ export function PaymentForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <label className="text-sm font-medium">Card Details</label>
-        <div className="border rounded-md p-3 bg-white">
+        <label className="text-sm font-medium text-white">Card Details</label>
+        <div className="border border-gray-600 rounded-lg p-4 bg-gray-800/80 backdrop-blur transition-all focus-within:border-[#e8b323] focus-within:ring-1 focus-within:ring-[#e8b323]">
           <CardElement
             options={{
               hidePostalCode: false,
               style: {
                 base: {
                   fontSize: '16px',
-                  color: '#424770',
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  color: '#ffffff',
+                  backgroundColor: 'transparent',
+                  iconColor: '#e8b323',
                   '::placeholder': {
-                    color: '#aab7c4',
+                    color: '#9ca3af',
+                  },
+                  ':focus': {
+                    color: '#ffffff',
                   },
                 },
                 invalid: {
-                  color: '#9e2146',
+                  color: '#f87171',
+                  iconColor: '#f87171',
+                },
+                complete: {
+                  color: '#4ade80',
+                  iconColor: '#4ade80',
                 },
               },
             }}
           />
         </div>
+        <p className="text-xs text-gray-400">Secure payment powered by Stripe</p>
       </div>
 
       {error && (
-        <Alert variant="destructive">
+        <Alert variant="destructive" className="bg-red-900/30 border-red-600 text-red-200">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
@@ -253,19 +265,19 @@ export function PaymentForm({
       <Button
         type="submit"
         disabled={!stripe || isProcessing || isLoadingIntent || !!error || !clientSecret}
-        className="w-full"
+        className="w-full bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold text-lg py-6 transition-all"
         size="lg"
         data-testid="button-submit-payment"
       >
         {isProcessing ? (
           <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Processing...
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            Processing Payment...
           </>
         ) : isLoadingIntent ? (
           <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Calculating...
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            Loading...
           </>
         ) : (
           `Pay £${Math.round(serverCalculatedAmount / 100)} Deposit`
@@ -273,24 +285,24 @@ export function PaymentForm({
       </Button>
 
       {depositBreakdown && (
-        <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3 text-xs space-y-1.5">
-          <div className="font-medium text-gray-700 dark:text-gray-300 mb-2">Deposit breakdown:</div>
+        <div className="bg-gray-700/50 rounded-lg p-4 text-sm space-y-2 border border-gray-600">
+          <div className="font-medium text-white mb-2">Deposit breakdown:</div>
           <div className="flex justify-between">
-            <span className="text-gray-600 dark:text-gray-400">Materials (100% upfront):</span>
-            <span className="font-medium">£{Math.round(depositBreakdown.totalMaterialsCost / 100)}</span>
+            <span className="text-gray-400">Materials (100% upfront):</span>
+            <span className="font-medium text-white">£{Math.round(depositBreakdown.totalMaterialsCost / 100)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-600 dark:text-gray-400">Labour booking fee (30%):</span>
-            <span className="font-medium">£{Math.round(depositBreakdown.labourDepositComponent / 100)}</span>
+            <span className="text-gray-400">Labour booking fee (30%):</span>
+            <span className="font-medium text-white">£{Math.round(depositBreakdown.labourDepositComponent / 100)}</span>
           </div>
-          <div className="flex justify-between pt-1.5 border-t border-gray-200 dark:border-gray-600">
-            <span className="font-semibold text-gray-700 dark:text-gray-300">Total deposit:</span>
-            <span className="font-semibold">£{Math.round(serverCalculatedAmount / 100)}</span>
+          <div className="flex justify-between pt-2 border-t border-gray-600">
+            <span className="font-semibold text-white">Total deposit:</span>
+            <span className="font-semibold text-[#e8b323]">£{Math.round(serverCalculatedAmount / 100)}</span>
           </div>
         </div>
       )}
 
-      <p className="text-xs text-center text-muted-foreground">
+      <p className="text-xs text-center text-gray-400">
         Your payment is secured by Stripe. We'll charge £{Math.round(serverCalculatedAmount / 100)} to reserve your slot.
       </p>
     </form>
