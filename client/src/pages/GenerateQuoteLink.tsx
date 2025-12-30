@@ -719,7 +719,7 @@ export default function GenerateQuoteLink() {
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'generate' | 'sent' | 'settings')} className="w-full">
             <TabsList className="grid w-full grid-cols-3 mb-6">
               <TabsTrigger value="generate" data-testid="tab-generate">Generate New Quote</TabsTrigger>
-              <TabsTrigger value="sent" data-testid="tab-sent">Sent Quotes</TabsTrigger>
+              <TabsTrigger value="sent" data-testid="tab-sent">Generated Quotes</TabsTrigger>
               <TabsTrigger value="settings" data-testid="tab-settings">Twilio Settings</TabsTrigger>
             </TabsList>
 
@@ -1716,8 +1716,9 @@ export default function GenerateQuoteLink() {
                             <h3 className="font-semibold text-lg">{quote.customerName}</h3>
                             <Badge variant="secondary" className="text-xs">{quote.shortSlug}</Badge>
                             {quote.viewedAt && (
-                              <Badge variant="outline" className="text-green-600 border-green-600 text-xs">
-                                Viewed
+                              <Badge variant="outline" className="text-green-600 border-green-600 text-xs" title={`Opened: ${format(new Date(quote.viewedAt), 'dd MMM yyyy, HH:mm')}`}>
+                                <Eye className="h-3 w-3 mr-1" />
+                                Opened {format(new Date(quote.viewedAt), 'dd MMM, HH:mm')}
                               </Badge>
                             )}
                             {(() => {

@@ -256,7 +256,18 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
             return res.status(404).json({ error: "Quote not found" });
         }
 
-        res.json(quote);
+        // Track first view - update viewedAt if not already set
+        if (!quote.viewedAt) {
+            const now = new Date();
+            await db.update(personalizedQuotes)
+                .set({ viewedAt: now })
+                .where(eq(personalizedQuotes.id, quote.id));
+
+            // Return updated quote with viewedAt
+            res.json({ ...quote, viewedAt: now });
+        } else {
+            res.json(quote);
+        }
 
     } catch (error) {
         console.error("Get quote error:", error);

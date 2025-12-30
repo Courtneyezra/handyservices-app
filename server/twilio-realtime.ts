@@ -318,6 +318,25 @@ export class MediaStreamTranscriber {
         });
 
         const finalText = this.fullTranscript.trim();
+
+        // ALWAYS finalize the call record, even if transcript is short/empty
+        // This prevents calls from getting stuck as "in-progress" forever
+        if (this.callRecordId) {
+            const duration = Math.floor((new Date().getTime() - this.callStartTime.getTime()) / 1000);
+            try {
+                await finalizeCall(this.callRecordId, {
+                    duration,
+                    endTime: new Date(),
+                    outcome: 'UNKNOWN',  // Default for short calls, will be updated if analysis runs
+                    transcription: finalText || undefined,
+                    segments: this.segments,
+                });
+                console.log(`[CallLogger] Finalized call ${this.callRecordId} with duration ${duration}s`);
+            } catch (e) {
+                console.error("[CallLogger] Failed to finalize call:", e);
+            }
+        }
+
         if (finalText.length > 5) {
             try {
                 // Use multi-task detection
@@ -413,26 +432,16 @@ export class MediaStreamTranscriber {
                     console.log(`[Switchboard] Voice lead created: ${leadId} -> ${routing.nextRoute}`);
                 }
 
-                // Update call record with comprehensive data
+                // Update call record with analysis results (outcome will be updated from UNKNOWN)
                 if (this.callRecordId) {
-                    const duration = Math.floor((new Date().getTime() - this.callStartTime.getTime()) / 1000);
-
-                    // Finalize call with all data
-                    await finalizeCall(this.callRecordId, {
-                        duration,
-                        endTime: new Date(),
-                        outcome: routing.nextRoute,
-                        transcription: finalText,
-                        segments: this.segments,
-                    });
-
-                    // Update call with customer metadata
+                    // Update call with customer metadata and proper outcome
                     await updateCall(this.callRecordId, {
                         customerName: mergedMetadata.customerName,
                         address: mergedMetadata.address,
                         postcode: mergedMetadata.postcode,
                         urgency: mergedMetadata.urgency,
                         leadType: mergedMetadata.leadType,
+                        outcome: routing.nextRoute,
                     });
 
                     // Add detected SKUs to call record
