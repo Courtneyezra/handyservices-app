@@ -1,13 +1,15 @@
-import { createClient } from "@deepgram/sdk";
+import { createClient, DeepgramClient } from "@deepgram/sdk";
 import { type PrerecordedSource } from "@deepgram/sdk";
 
-// Initialize Deepgram Client
+// Initialize Deepgram Client - only if API key is present to avoid crash
 const deepgramApiKey = process.env.DEEPGRAM_API_KEY;
-if (!deepgramApiKey) {
-    console.warn("DEEPGRAM_API_KEY is not set. Transcription will fail.");
-}
+let deepgram: DeepgramClient | null = null;
 
-const deepgram = createClient(deepgramApiKey || "");
+if (!deepgramApiKey) {
+    console.warn("DEEPGRAM_API_KEY is not set. Transcription features will be disabled.");
+} else {
+    deepgram = createClient(deepgramApiKey);
+}
 
 interface TranscriptionResult {
     text: string;
@@ -20,8 +22,8 @@ interface TranscriptionResult {
 }
 
 export async function transcribeAudio(audioBuffer: Buffer): Promise<TranscriptionResult> {
-    if (!deepgramApiKey) {
-        throw new Error("DEEPGRAM_API_KEY is missing.");
+    if (!deepgramApiKey || !deepgram) {
+        throw new Error("DEEPGRAM_API_KEY is missing. Transcription is disabled.");
     }
 
     try {
