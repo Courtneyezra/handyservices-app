@@ -46,3 +46,6 @@
 2025/12/30-15:43:43.413 1606f Level-0 table #64: started
 2025/12/30-15:43:43.421 1606f Level-0 table #64: 12246 bytes OK
 2025/12/30-15:43:43.429 1606f Delete type=0 #61
+2025/12/30-19:31:51.880 a40b Level-0 table #66: started
+2025/12/30-19:31:51.913 a40b Level-0 table #66: 11987 bytes OK
+2025/12/30-19:31:51.950 a40b Delete type=0 #63

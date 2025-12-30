@@ -3,6 +3,7 @@ import { Switch, Route, useLocation } from "wouter";
 import AudioUploadPage from "@/pages/AudioUploadPage";
 import SKUPage from "@/pages/SKUPage";
 import HandymanLanding from "@/pages/HandymanLanding";
+import DerbyLanding from "@/pages/DerbyLanding";
 import WhatsAppInbox from "@/pages/WhatsAppInbox";
 import HandymanMap from "@/pages/HandymanMap";
 import HandymanDashboard from "@/pages/HandymanDashboard";
@@ -56,6 +57,7 @@ function Router() {
             <Route path="/test-lab" component={TestLab} />
             <Route path="/training" component={TrainingCenter} />
             <Route path="/landing" component={HandymanLanding} />
+            <Route path="/derby" component={DerbyLanding} />
             <Route path="/whatsapp-intake">
                 <SidebarLayout>
                     <WhatsAppInbox />
