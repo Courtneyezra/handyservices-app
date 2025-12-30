@@ -162,9 +162,10 @@ quotesRouter.post('/api/analyze-job', async (req, res) => {
         const result = JSON.parse(response.choices[0].message.content || "{}");
         res.json(result);
 
-    } catch (error) {
-        console.error("Job analysis error:", error);
-        res.status(500).json({ error: "Analysis failed" });
+    } catch (error: any) {
+        console.error("Job analysis error:", error?.message || error);
+        console.error("Full error:", JSON.stringify(error, null, 2));
+        res.status(500).json({ error: "Analysis failed", details: error?.message || "Unknown error" });
     }
 });
 
