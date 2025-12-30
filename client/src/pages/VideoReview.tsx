@@ -342,7 +342,7 @@ export default function VideoReview() {
             <div className="min-h-screen bg-[#1a2332] p-6 flex flex-col items-center justify-center text-center">
                 <h2 className="text-xl font-bold mb-2 text-white">No Analysis Found</h2>
                 <p className="text-gray-400 mb-4">Please upload a video first.</p>
-                <Button onClick={() => setLocation('/')} className="bg-emerald-500 hover:bg-emerald-600">Go Home</Button>
+                <Button onClick={() => setLocation('/landing')} className="bg-emerald-500 hover:bg-emerald-600">Go Home</Button>
             </div>
         );
     }
@@ -362,7 +362,7 @@ export default function VideoReview() {
                     <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setLocation('/')}
+                        onClick={() => setLocation('/landing')}
                         className="text-white hover:bg-white/10 -ml-2"
                     >
                         <ArrowLeft className="w-4 h-4 mr-1" />

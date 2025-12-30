@@ -202,7 +202,7 @@ export default function AudioUploadPage() {
         // Navigate to WhatsApp CRM with pre-filled message via URL params
         const message = encodeURIComponent(aiMessage);
         const phoneParam = encodeURIComponent(phone);
-        setLocation(`/whatsapp-intake?phone=${phoneParam}&message=${message}`);
+        setLocation(`/admin/whatsapp-intake?phone=${phoneParam}&message=${message}`);
         setShowNumberSelectionModal(false);
     };
 
@@ -216,7 +216,7 @@ export default function AudioUploadPage() {
         // Navigate to WhatsApp CRM with the new number and pre-filled message via URL params
         const message = encodeURIComponent(aiMessage);
         const phoneParam = encodeURIComponent(newNumber);
-        setLocation(`/whatsapp-intake?phone=${phoneParam}&message=${message}`);
+        setLocation(`/admin/whatsapp-intake?phone=${phoneParam}&message=${message}`);
         setShowNumberSelectionModal(false);
     };
 
@@ -505,7 +505,7 @@ export default function AudioUploadPage() {
                                         return;
                                     }
                                     const phoneParam = encodeURIComponent(phone);
-                                    setLocation(`/whatsapp-intake?phone=${phoneParam}`);
+                                    setLocation(`/admin/whatsapp-intake?phone=${phoneParam}`);
                                 }}
                                 className="flex-1 p-3 rounded-lg border-2 border-slate-600 bg-slate-700 hover:border-slate-500 text-center transition-all opacity-60 hover:opacity-100 group"
                             >

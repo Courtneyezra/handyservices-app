@@ -79,7 +79,7 @@ export default function VideoQuote() {
 
       // Redirect to home or confirmation
       setTimeout(() => {
-        setLocation('/');
+        setLocation('/landing');
       }, 2000);
 
     } catch (err) {
@@ -107,7 +107,7 @@ export default function VideoQuote() {
       <div className="min-h-screen bg-[#1a2332] flex flex-col items-center justify-center p-6 text-center">
         <h2 className="text-xl font-bold text-white mb-2">Quote Not Found</h2>
         <p className="text-slate-400 mb-6">This link may be invalid or expired.</p>
-        <Button onClick={() => setLocation('/')} className="bg-emerald-500 hover:bg-emerald-600">
+        <Button onClick={() => setLocation('/landing')} className="bg-emerald-500 hover:bg-emerald-600">
           Return Home
         </Button>
       </div>
@@ -190,7 +190,7 @@ export default function VideoQuote() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setLocation('/')}
+            onClick={() => setLocation('/landing')}
             className="text-white hover:bg-white/10 -ml-2"
           >
             <ArrowLeft className="w-4 h-4 mr-1" />

@@ -54,91 +54,31 @@ function Router() {
     return (
         <Suspense fallback={<LoadingFallback />}>
             <Switch>
-                <Route path="/">
-                    <SidebarLayout>
-                        <MainDashboard />
-                    </SidebarLayout>
-                </Route>
-                <Route path="/audio-upload">
-                    <SidebarLayout>
-                        <AudioUploadPage />
-                    </SidebarLayout>
-                </Route>
-                <Route path="/live-call">
-                    <SidebarLayout>
-                        <AudioUploadPage />
-                    </SidebarLayout>
-                </Route>
-                <Route path="/skus">
-                    <SidebarLayout>
-                        <SKUPage />
-                    </SidebarLayout>
-                </Route>
-                <Route path="/test-lab" component={TestLab} />
-                <Route path="/training" component={TrainingCenter} />
+                {/* ============ PUBLIC ROUTES ============ */}
+                {/* Landing Pages */}
                 <Route path="/landing" component={HandymanLanding} />
                 <Route path="/derby" component={DerbyLanding} />
-                <Route path="/whatsapp-intake">
-                    <SidebarLayout>
-                        <WhatsAppInbox />
-                    </SidebarLayout>
-                </Route>
-                <Route path="/handymen">
-                    <SidebarLayout>
-                        <HandymanMap />
-                    </SidebarLayout>
-                </Route>
-                <Route path="/handyman/dashboard">
-                    <SidebarLayout>
-                        <HandymanDashboard />
-                    </SidebarLayout>
-                </Route>
-                <Route path="/calls">
-                    <SidebarLayout>
-                        <CallsPage />
-                    </SidebarLayout>
-                </Route>
 
-                {/* Quote Flow Routes */}
-                <Route path="/generate-quote">
-                    <SidebarLayout>
-                        <GenerateQuoteLink />
-                    </SidebarLayout>
-                </Route>
-
-                {/* Customer facing quote view (Public) */}
+                {/* Customer-facing quote views */}
                 <Route path="/quote-link/:slug">
                     <PersonalizedQuotePage />
                 </Route>
                 <Route path="/video-quote">
                     <VideoQuote />
                 </Route>
-
-                {/* NEW: Video Review Page */}
                 <Route path="/video-review">
                     <VideoReview />
                 </Route>
 
-                {/* Test Lab */}
-                <Route path="/test-lab">
-                    <SidebarLayout>
-                        <TestLab />
-                    </SidebarLayout>
-                </Route>
-
-                {/* Settings */}
-                <Route path="/settings">
-                    <SidebarLayout>
-                        <SettingsPage />
-                    </SidebarLayout>
-                </Route>
-
-                {/* Add stub routes for future flow */}
+                {/* Coming soon */}
                 <Route path="/instant-price">
                     <div className="p-10 text-center"><h1>Instant Price Page (Coming Soon)</h1></div>
                 </Route>
 
-                {/* Contractor Portal Routes */}
+                {/* Training (public for now) */}
+                <Route path="/training" component={TrainingCenter} />
+
+                {/* Contractor Portal Routes (separate auth) */}
                 <Route path="/contractor/login">
                     <ContractorLogin />
                 </Route>
@@ -156,6 +96,71 @@ function Router() {
                 </Route>
                 <Route path="/contractor/service-area">
                     <ContractorServiceArea />
+                </Route>
+
+                {/* ============ ADMIN ROUTES (Protected by Cloudflare Access) ============ */}
+                <Route path="/admin">
+                    <SidebarLayout>
+                        <MainDashboard />
+                    </SidebarLayout>
+                </Route>
+                <Route path="/admin/audio-upload">
+                    <SidebarLayout>
+                        <AudioUploadPage />
+                    </SidebarLayout>
+                </Route>
+                <Route path="/admin/live-call">
+                    <SidebarLayout>
+                        <AudioUploadPage />
+                    </SidebarLayout>
+                </Route>
+                <Route path="/admin/skus">
+                    <SidebarLayout>
+                        <SKUPage />
+                    </SidebarLayout>
+                </Route>
+                <Route path="/admin/whatsapp-intake">
+                    <SidebarLayout>
+                        <WhatsAppInbox />
+                    </SidebarLayout>
+                </Route>
+                <Route path="/admin/handymen">
+                    <SidebarLayout>
+                        <HandymanMap />
+                    </SidebarLayout>
+                </Route>
+                <Route path="/admin/handyman/dashboard">
+                    <SidebarLayout>
+                        <HandymanDashboard />
+                    </SidebarLayout>
+                </Route>
+                <Route path="/admin/calls">
+                    <SidebarLayout>
+                        <CallsPage />
+                    </SidebarLayout>
+                </Route>
+                <Route path="/admin/generate-quote">
+                    <SidebarLayout>
+                        <GenerateQuoteLink />
+                    </SidebarLayout>
+                </Route>
+                <Route path="/admin/test-lab">
+                    <SidebarLayout>
+                        <TestLab />
+                    </SidebarLayout>
+                </Route>
+                <Route path="/admin/settings">
+                    <SidebarLayout>
+                        <SettingsPage />
+                    </SidebarLayout>
+                </Route>
+
+                {/* Redirect root to admin dashboard */}
+                <Route path="/">
+                    {() => {
+                        window.location.href = '/admin';
+                        return null;
+                    }}
                 </Route>
 
                 <Route>

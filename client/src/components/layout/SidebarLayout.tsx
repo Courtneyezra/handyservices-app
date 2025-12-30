@@ -11,19 +11,19 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     const { isLive } = useLiveCall();
 
     const navItems = [
-        { icon: LayoutDashboard, label: "Dashboard", href: "/" },
+        { icon: LayoutDashboard, label: "Dashboard", href: "/admin" },
         {
             icon: Mic,
             label: "Live Switchboard",
-            href: "/live-call",
+            href: "/admin/live-call",
             badge: isLive ? "LIVE" : null
         },
-        { icon: MessageSquare, label: "WhatsApp CRM", href: "/whatsapp-intake" },
-        { icon: Wrench, label: "Handyman Map", href: "/handymen" },
-        { icon: Package, label: "SKU Manager", href: "/skus" },
-        { icon: DollarSign, label: "Quote Generator", href: "/generate-quote" },
-        { icon: PhoneCall, label: "Call Logs", href: "/calls" },
-        { icon: Settings, label: "Settings", href: "/settings" },
+        { icon: MessageSquare, label: "WhatsApp CRM", href: "/admin/whatsapp-intake" },
+        { icon: Wrench, label: "Handyman Map", href: "/admin/handymen" },
+        { icon: Package, label: "SKU Manager", href: "/admin/skus" },
+        { icon: DollarSign, label: "Quote Generator", href: "/admin/generate-quote" },
+        { icon: PhoneCall, label: "Call Logs", href: "/admin/calls" },
+        { icon: Settings, label: "Settings", href: "/admin/settings" },
     ];
 
     return (
@@ -107,8 +107,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 {/* Scrollable Area - Dark background */}
                 <div className="flex-1 overflow-auto p-8 relative">
                     {/* Live Call Notification Banner */}
-                    {isLive && location !== '/live-call' && (
-                        <Link href="/live-call">
+                    {isLive && location !== '/admin/live-call' && (
+                        <Link href="/admin/live-call">
                             <div className="mb-6 bg-red-600 text-white p-3 rounded-xl flex items-center justify-between shadow-lg shadow-red-900/30 cursor-pointer animate-in slide-in-from-top duration-300">
                                 <div className="flex items-center gap-3">
                                     <div className="bg-white/20 p-2 rounded-lg animate-pulse">

@@ -76,7 +76,7 @@ export function CallListTable({ calls, isLoading, onCallClick }: CallListTablePr
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             const cleanNumber = call.phoneNumber.replace(/\D/g, '');
-                                            setLocation(`/whatsapp-intake?phone=${cleanNumber}`);
+                                            setLocation(`/admin/whatsapp-intake?phone=${cleanNumber}`);
                                         }}
                                         title="Open in WhatsApp CRM"
                                     >
