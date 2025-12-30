@@ -77,6 +77,15 @@ app.use((req, res, next) => {
     next();
 });
 
+// Health Check Endpoint (for Railway and keep-alive pings)
+app.get('/api/health', (req, res) => {
+    res.status(200).json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
+});
+
 // Diagnostics Endpoint (Inlined for reliability)
 import { getActiveCallCount } from './twilio-realtime';
 import { sql } from 'drizzle-orm';
