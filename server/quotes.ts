@@ -2,7 +2,7 @@
 import { Router } from "express";
 import { db } from "./db";
 import { personalizedQuotes, leads, insertPersonalizedQuoteSchema } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { openai } from "./openai";
@@ -91,6 +91,7 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             optionalExtras: input.optionalExtras || null,
 
             createdAt: new Date(),
+            expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes from creation
         };
 
         // Insert into DB
@@ -275,3 +276,158 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
     }
 });
 
+// List all personalized quotes (for admin Generated Quotes tab)
+quotesRouter.get('/api/personalized-quotes', async (req, res) => {
+    try {
+        const allQuotes = await db.select().from(personalizedQuotes)
+            .orderBy(desc(personalizedQuotes.createdAt));
+        res.json(allQuotes);
+    } catch (error) {
+        console.error("List quotes error:", error);
+        res.status(500).json({ error: "Failed to fetch quotes" });
+    }
+});
+
+// Track package selection (when customer clicks a tier)
+quotesRouter.put('/api/personalized-quotes/:id/track-selection', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { selectedPackage } = req.body;
+
+        await db.update(personalizedQuotes)
+            .set({ selectedPackage, selectedAt: new Date() })
+            .where(eq(personalizedQuotes.id, id));
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error("Track selection error:", error);
+        res.status(500).json({ error: "Failed to track selection" });
+    }
+});
+
+// Track booking (when customer completes payment)
+quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { leadId, selectedPackage, selectedExtras, paymentType } = req.body;
+
+        // Calculate selected tier price
+        const [quote] = await db.select().from(personalizedQuotes)
+            .where(eq(personalizedQuotes.id, id));
+
+        if (!quote) {
+            return res.status(404).json({ error: "Quote not found" });
+        }
+
+        let selectedTierPricePence = 0;
+        if (selectedPackage === 'essential') {
+            selectedTierPricePence = quote.essentialPrice || quote.basePrice || 0;
+        } else if (selectedPackage === 'enhanced') {
+            selectedTierPricePence = quote.enhancedPrice || 0;
+        } else if (selectedPackage === 'elite') {
+            selectedTierPricePence = quote.elitePrice || 0;
+        } else if (quote.basePrice) {
+            selectedTierPricePence = quote.basePrice;
+        }
+
+        // Calculate deposit: 100% materials + 30% labor
+        const materialsCost = quote.materialsCostWithMarkupPence || 0;
+        const laborCost = Math.max(0, selectedTierPricePence - materialsCost);
+        const depositAmountPence = materialsCost + Math.round(laborCost * 0.30);
+
+        await db.update(personalizedQuotes)
+            .set({
+                leadId,
+                selectedPackage,
+                selectedExtras: selectedExtras || [],
+                bookedAt: new Date(),
+                paymentType,
+                selectedTierPricePence,
+                depositAmountPence,
+                depositPaidAt: new Date(),
+            })
+            .where(eq(personalizedQuotes.id, id));
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error("Track booking error:", error);
+        res.status(500).json({ error: "Failed to track booking" });
+    }
+});
+
+// Get invoice data for a booked quote
+quotesRouter.get('/api/personalized-quotes/:id/invoice-data', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [quote] = await db.select().from(personalizedQuotes)
+            .where(eq(personalizedQuotes.id, id));
+
+        if (!quote) {
+            return res.status(404).json({ error: "Quote not found" });
+        }
+
+        const totalJobPricePence = quote.selectedTierPricePence || 0;
+        const depositAmountPence = quote.depositAmountPence || 0;
+        const remainingBalancePence = totalJobPricePence - depositAmountPence;
+
+        res.json({
+            ...quote,
+            totalJobPricePence,
+            remainingBalancePence,
+        });
+    } catch (error) {
+        console.error("Invoice data error:", error);
+        res.status(500).json({ error: "Failed to fetch invoice data" });
+    }
+});
+
+// Admin: Manually expire a quote
+quotesRouter.post('/api/admin/personalized-quotes/:id/expire', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        await db.update(personalizedQuotes)
+            .set({ expiresAt: new Date() }) // Set expiry to now = expired
+            .where(eq(personalizedQuotes.id, id));
+
+        res.json({ success: true, expired: true });
+    } catch (error) {
+        console.error("Expire quote error:", error);
+        res.status(500).json({ error: "Failed to expire quote" });
+    }
+});
+
+// Admin: Regenerate an expired quote with price increase and fresh timer
+quotesRouter.post('/api/admin/personalized-quotes/:id/regenerate', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { percentageIncrease = 5 } = req.body;
+
+        // Get original quote
+        const [original] = await db.select().from(personalizedQuotes)
+            .where(eq(personalizedQuotes.id, id));
+
+        if (!original) {
+            return res.status(404).json({ error: "Quote not found" });
+        }
+
+        const multiplier = 1 + (percentageIncrease / 100);
+
+        // Update the quote with new prices and fresh 15-minute timer
+        await db.update(personalizedQuotes)
+            .set({
+                essentialPrice: original.essentialPrice ? Math.round(original.essentialPrice * multiplier) : null,
+                enhancedPrice: original.enhancedPrice ? Math.round(original.enhancedPrice * multiplier) : null,
+                elitePrice: original.elitePrice ? Math.round(original.elitePrice * multiplier) : null,
+                basePrice: original.basePrice ? Math.round(original.basePrice * multiplier) : null,
+                expiresAt: new Date(Date.now() + 15 * 60 * 1000), // Fresh 15 min timer
+                regenerationCount: (original.regenerationCount || 0) + 1,
+            })
+            .where(eq(personalizedQuotes.id, id));
+
+        res.json({ success: true, regenerated: true });
+    } catch (error) {
+        console.error("Regenerate quote error:", error);
+        res.status(500).json({ error: "Failed to regenerate quote" });
+    }
+});

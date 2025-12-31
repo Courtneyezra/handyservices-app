@@ -446,6 +446,73 @@ app.post('/api/twilio/dial-status', async (req, res) => {
     }
 });
 
+// Twilio Recording Status Callback - Fallback transcription for calls with missing transcripts
+import { transcribeFromUrl } from './deepgram';
+import { calls } from '../shared/schema';
+import { findCallByTwilioSid, updateCall } from './call-logger';
+
+app.post('/api/twilio/recording-status', async (req, res) => {
+    const { CallSid, RecordingSid, RecordingUrl, RecordingStatus } = req.body;
+    console.log(`[Twilio] Recording status for ${CallSid}: ${RecordingStatus}`);
+
+    // Respond immediately to Twilio
+    res.status(200).send('OK');
+
+    // Only process completed recordings
+    if (RecordingStatus !== 'completed') {
+        return;
+    }
+
+    try {
+        // Find the call record by Twilio SID
+        const callRecordId = await findCallByTwilioSid(CallSid);
+
+        if (!callRecordId) {
+            console.log(`[Recording] No call record found for ${CallSid}`);
+            return;
+        }
+
+        // Get the call to check if it already has a transcript
+        const [call] = await db.select({
+            id: calls.id,
+            transcription: calls.transcription,
+            recordingUrl: calls.recordingUrl,
+        }).from(calls).where(eq(calls.id, callRecordId));
+
+        if (!call) {
+            console.log(`[Recording] Call record ${callRecordId} not found`);
+            return;
+        }
+
+        // Build the MP3 URL from the recording SID
+        const accountSid = process.env.TWILIO_ACCOUNT_SID;
+        const mp3Url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${RecordingSid}.mp3`;
+
+        // Always update the recording URL
+        await updateCall(callRecordId, { recordingUrl: mp3Url });
+        console.log(`[Recording] Updated call ${callRecordId} with recording URL`);
+
+        // If transcription is missing or very short, trigger fallback transcription
+        if (!call.transcription || call.transcription.length < 10) {
+            console.log(`[Recording] Transcript missing/short for ${CallSid}, triggering fallback transcription...`);
+
+            const transcript = await transcribeFromUrl(mp3Url);
+
+            if (transcript) {
+                await updateCall(callRecordId, { transcription: transcript });
+                console.log(`[Recording] Fallback transcription saved for ${callRecordId} (${transcript.length} chars)`);
+            } else {
+                console.log(`[Recording] Fallback transcription failed for ${callRecordId}`);
+            }
+        } else {
+            console.log(`[Recording] Call ${callRecordId} already has transcript (${call.transcription.length} chars)`);
+        }
+
+    } catch (error) {
+        console.error('[Recording] Error processing recording status:', error);
+    }
+});
+
 import { conversationEngine } from './conversation-engine';
 
 // Create Server

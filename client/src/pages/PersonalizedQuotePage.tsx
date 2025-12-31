@@ -19,6 +19,7 @@ import { stripePromise } from '@/lib/stripe';
 // import handymanPhoto from '@assets/Untitled design (27)_1762913661129.png';
 // import handyServicesLogo from '@assets/Copy of Copy of Add a heading (256 x 256 px)_1764065869316.png';
 import payIn3PromoImage from '@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.webp';
+import mikeProfilePhoto from '@assets/mike-profile-photo.png';
 import { format, addDays, addWeeks } from 'date-fns';
 
 // Fixed value bullets per tier (hardcoded, not from database)
@@ -879,7 +880,7 @@ export default function PersonalizedQuotePage() {
                 {/* Quoted by Section */}
                 <div className="flex items-center gap-3">
                   <img
-                    src={""}
+                    src={mikeProfilePhoto}
                     alt="Mike"
                     className="w-12 h-12 rounded-full border-2 border-[#e8b323]"
                   />
@@ -2146,20 +2147,11 @@ export default function PersonalizedQuotePage() {
                     <div className="text-xs font-medium opacity-80 truncate">
                       {pkg.name}
                     </div>
-                    {showInstallments ? (
-                      <>
-                        <div className="text-sm font-bold">
-                          3× £{Math.round(monthlyInstallment / 100)}
-                        </div>
-                        <div className="text-[10px] opacity-70">
-                          Total £{Math.round(displayPrice / 100)}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="text-sm font-bold">
-                        £{Math.round(displayPrice / 100)}
-                      </div>
-                    )}
+                    <div className="text-sm font-bold">
+                      {showInstallments
+                        ? `3× £${Math.round(monthlyInstallment / 100)}`
+                        : `£${Math.round(displayPrice / 100)}`}
+                    </div>
                   </button>
                 );
               })}

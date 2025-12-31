@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import {
-    Phone, Clock, User, MapPin, Mail, AlertTriangle, FileText, ShoppingBag, Plus, Trash2, Edit2, Save
+    Phone, Clock, User, MapPin, Mail, AlertTriangle, FileText, ShoppingBag, Plus, Trash2, Edit2, Save, Play, Pause, Volume2, VolumeX
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -36,10 +36,24 @@ interface CallDetailsModalProps {
     callId: string | null;
 }
 
+// Helper function to format time in mm:ss
+function formatTime(seconds: number): string {
+    if (!seconds || isNaN(seconds)) return "0:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProps) {
     const { toast } = useToast();
     const queryClient = useQueryClient();
     const [activeTab, setActiveTab] = useState("details");
+    const audioRef = React.useRef<HTMLAudioElement>(null);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
+    const [volume, setVolume] = useState(1);
+    const [isMuted, setIsMuted] = useState(false);
 
     // Fetch call details
     const { data: call, isLoading } = useQuery({
@@ -194,6 +208,7 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
                                 <TabsList>
                                     <TabsTrigger value="details">Details & Notes</TabsTrigger>
                                     <TabsTrigger value="transcript">Transcript</TabsTrigger>
+                                    <TabsTrigger value="recording">Recording</TabsTrigger>
                                     <TabsTrigger value="skus">SKUs & Services</TabsTrigger>
                                 </TabsList>
                             </div>
@@ -318,6 +333,126 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
                                         <div className="bg-muted p-4 rounded-md whitespace-pre-wrap font-mono text-sm leading-relaxed overflow-auto flex-1 border">
                                             {call?.transcription || "No transcription available."}
                                         </div>
+                                    </div>
+                                </TabsContent>
+
+                                <TabsContent value="recording" className="mt-0">
+                                    <div className="space-y-6">
+                                        {call?.recordingUrl ? (
+                                            <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg">
+                                                <audio
+                                                    ref={audioRef}
+                                                    src={`/api/calls/${call.id}/recording`}
+                                                    onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                                                    onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
+                                                    onEnded={() => setIsPlaying(false)}
+                                                    onPlay={() => setIsPlaying(true)}
+                                                    onPause={() => setIsPlaying(false)}
+                                                />
+
+                                                <div className="flex items-center justify-between mb-4">
+                                                    <h3 className="text-white font-semibold flex items-center gap-2">
+                                                        <Volume2 className="h-5 w-5 text-emerald-400" />
+                                                        Call Recording
+                                                    </h3>
+                                                    <span className="text-xs text-slate-400">
+                                                        {format(new Date(call.startTime), "PPP 'at' p")}
+                                                    </span>
+                                                </div>
+
+                                                {/* Progress Bar */}
+                                                <div className="mb-4">
+                                                    <input
+                                                        type="range"
+                                                        min={0}
+                                                        max={duration || 100}
+                                                        value={currentTime}
+                                                        onChange={(e) => {
+                                                            const time = parseFloat(e.target.value);
+                                                            setCurrentTime(time);
+                                                            if (audioRef.current) {
+                                                                audioRef.current.currentTime = time;
+                                                            }
+                                                        }}
+                                                        className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                                                    />
+                                                    <div className="flex justify-between text-xs text-slate-400 mt-1">
+                                                        <span>{formatTime(currentTime)}</span>
+                                                        <span>{formatTime(duration)}</span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Controls */}
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-3">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-12 w-12 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white"
+                                                            onClick={() => {
+                                                                if (audioRef.current) {
+                                                                    if (isPlaying) {
+                                                                        audioRef.current.pause();
+                                                                    } else {
+                                                                        audioRef.current.play();
+                                                                    }
+                                                                }
+                                                            }}
+                                                        >
+                                                            {isPlaying ? (
+                                                                <Pause className="h-6 w-6" />
+                                                            ) : (
+                                                                <Play className="h-6 w-6 ml-0.5" />
+                                                            )}
+                                                        </Button>
+                                                    </div>
+
+                                                    {/* Volume Control */}
+                                                    <div className="flex items-center gap-2">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-8 w-8 text-slate-400 hover:text-white"
+                                                            onClick={() => {
+                                                                setIsMuted(!isMuted);
+                                                                if (audioRef.current) {
+                                                                    audioRef.current.muted = !isMuted;
+                                                                }
+                                                            }}
+                                                        >
+                                                            {isMuted ? (
+                                                                <VolumeX className="h-4 w-4" />
+                                                            ) : (
+                                                                <Volume2 className="h-4 w-4" />
+                                                            )}
+                                                        </Button>
+                                                        <input
+                                                            type="range"
+                                                            min={0}
+                                                            max={1}
+                                                            step={0.1}
+                                                            value={isMuted ? 0 : volume}
+                                                            onChange={(e) => {
+                                                                const vol = parseFloat(e.target.value);
+                                                                setVolume(vol);
+                                                                setIsMuted(vol === 0);
+                                                                if (audioRef.current) {
+                                                                    audioRef.current.volume = vol;
+                                                                    audioRef.current.muted = vol === 0;
+                                                                }
+                                                            }}
+                                                            className="w-20 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg bg-muted/20">
+                                                <Volume2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                                                <p className="text-lg font-medium">No Recording Available</p>
+                                                <p className="text-sm mt-1">This call does not have an associated recording.</p>
+                                            </div>
+                                        )}
                                     </div>
                                 </TabsContent>
 

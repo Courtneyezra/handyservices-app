@@ -43,6 +43,8 @@ export interface UpdateCallData {
     urgency?: string;
     leadType?: string;
     notes?: string;
+    liveAnalysisJson?: any;  // Real-time analysis state for reconnecting clients
+    metadataJson?: any;      // Real-time metadata (customer name, address, etc.)
 }
 
 /**

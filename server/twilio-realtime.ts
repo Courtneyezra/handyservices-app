@@ -268,6 +268,15 @@ export class MediaStreamTranscriber {
                         metadata: this.metadata  // B7: Include metadata in broadcast
                     }
                 });
+
+                // Persist live analysis to DB for reconnecting clients
+                if (this.callRecordId) {
+                    updateCall(this.callRecordId, {
+                        liveAnalysisJson: result,
+                        metadataJson: this.metadata,
+                        transcription: this.fullTranscript.trim()
+                    }).catch(e => console.error('[CallLogger] Failed to persist live analysis:', e));
+                }
             }
         } catch (e) {
             console.error("[Switchboard] Segment analysis error:", e);

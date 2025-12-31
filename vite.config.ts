@@ -9,6 +9,9 @@ export default defineConfig({
   plugins: [
     react(),
   ],
+  server: {
+    host: true, // Expose on network for mobile testing
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "client", "src"),

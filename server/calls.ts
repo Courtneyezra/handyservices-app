@@ -13,6 +13,28 @@ async function calculateTotalPrice(callId: string): Promise<number> {
     return skus.reduce((total, sku) => total + (sku.pricePence * sku.quantity), 0);
 }
 
+// GET /api/calls/active - Fetch any in-progress calls with live analysis (for reconnecting clients)
+router.get("/active", async (req: Request, res: Response) => {
+    try {
+        const activeCalls = await db.select()
+            .from(calls)
+            .where(eq(calls.status, 'in-progress'))
+            .orderBy(desc(calls.startTime))
+            .limit(1);
+
+        if (activeCalls.length === 0) {
+            return res.json({ activeCall: null });
+        }
+
+        // Return the most recent active call with all analysis data
+        const activeCall = activeCalls[0];
+        res.json({ activeCall });
+    } catch (error) {
+        console.error("Error fetching active call:", error);
+        res.status(500).json({ error: "Failed to fetch active call" });
+    }
+});
+
 // GET /api/calls - List all calls with filtering and pagination
 router.get("/", async (req: Request, res: Response) => {
     try {
@@ -342,4 +364,54 @@ router.patch("/:id", async (req: Request, res: Response) => {
     }
 });
 
+// GET /api/calls/:id/recording - Proxy Twilio recording with authentication
+router.get("/:id/recording", async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        // Get call details to find recording URL
+        const [call] = await db.select().from(calls).where(eq(calls.id, id));
+
+        if (!call) {
+            return res.status(404).json({ error: "Call not found" });
+        }
+
+        if (!call.recordingUrl) {
+            return res.status(404).json({ error: "No recording available for this call" });
+        }
+
+        // Fetch recording from Twilio with Basic Auth
+        const accountSid = process.env.TWILIO_ACCOUNT_SID;
+        const authToken = process.env.TWILIO_AUTH_TOKEN;
+
+        if (!accountSid || !authToken) {
+            return res.status(500).json({ error: "Twilio credentials not configured" });
+        }
+
+        const response = await fetch(call.recordingUrl, {
+            headers: {
+                Authorization: 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64')
+            }
+        });
+
+        if (!response.ok) {
+            console.error(`Twilio recording fetch failed: ${response.status}`);
+            return res.status(response.status).json({ error: "Failed to fetch recording from Twilio" });
+        }
+
+        // Stream the audio back to the client
+        res.setHeader('Content-Type', response.headers.get('content-type') || 'audio/mpeg');
+        res.setHeader('Content-Length', response.headers.get('content-length') || '');
+        res.setHeader('Accept-Ranges', 'bytes');
+
+        const arrayBuffer = await response.arrayBuffer();
+        res.send(Buffer.from(arrayBuffer));
+
+    } catch (error) {
+        console.error("Error proxying recording:", error);
+        res.status(500).json({ error: "Failed to proxy recording" });
+    }
+});
+
 export default router;
+

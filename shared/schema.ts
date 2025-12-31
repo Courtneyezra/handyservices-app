@@ -157,6 +157,10 @@ export const calls = pgTable("calls", {
     notes: text("notes"), // Manual notes from VA
     segments: jsonb("segments"), // Full transcript segments with timestamps
 
+    // Real-time State Persistence (for reconnecting clients)
+    liveAnalysisJson: jsonb("live_analysis_json"), // Real-time analysis state
+    metadataJson: jsonb("metadata_json"),          // Real-time metadata (customer name, address, etc.)
+
     createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
     index("idx_calls_phone_number").on(table.phoneNumber),
@@ -499,6 +503,12 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     // Deposit Tracking (for audit trail)
     depositAmountPence: integer("deposit_amount_pence"), // Calculated deposit amount in pence
     selectedTierPricePence: integer("selected_tier_price_pence"), // The tier price at time of selection in pence
+
+    // Legacy columns (kept to preserve existing data)
+    totalJobPricePence: integer("total_job_price_pence"),
+    remainingBalancePence: integer("remaining_balance_pence"),
+    selectedExtrasSnapshot: jsonb("selected_extras_snapshot"),
+    createdBy: varchar("created_by"),
 
     // Creation timestamp
     createdAt: timestamp("created_at").defaultNow(),

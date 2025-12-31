@@ -107,6 +107,19 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
     const [addressValidation, setAddressValidation] = useState<any | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
     const isSimulatingRef = useRef(false);
+    const [isRehydrating, setIsRehydrating] = useState(false);
+
+    // F1: Fetch active call from database for reconnecting clients
+    async function fetchActiveCall() {
+        try {
+            const res = await fetch('/api/calls/active');
+            const data = await res.json();
+            return data.activeCall;
+        } catch (e) {
+            console.error('[LiveCall] Failed to fetch active call:', e);
+            return null;
+        }
+    }
 
     // Clean Mode: Derive audio quality from transcript patterns
     const audioQuality = useMemo((): 'GOOD' | 'DEGRADED' | 'POOR' => {
@@ -307,8 +320,46 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
-        ws.onopen = () => {
+        ws.onopen = async () => {
             console.log('[LiveCall] WebSocket CONNECTED');
+
+            // F2: Rehydrate from any active call in DB
+            if (!isSimulatingRef.current) {
+                setIsRehydrating(true);
+                try {
+                    const activeCall = await fetchActiveCall();
+                    if (activeCall && activeCall.status === 'in-progress') {
+                        console.log('[LiveCall] Rehydrating from active call:', activeCall.id);
+                        setIsLive(true);
+                        setLiveCallData({
+                            transcription: activeCall.transcription || "",
+                            segments: activeCall.segments || [],
+                            detection: activeCall.liveAnalysisJson || {
+                                matched: false,
+                                sku: null,
+                                confidence: 0,
+                                method: "realtime",
+                                rationale: "Call in progress...",
+                                nextRoute: "UNKNOWN"
+                            },
+                            metadata: activeCall.metadataJson || {
+                                customerName: activeCall.customerName || "Incoming Call...",
+                                address: activeCall.address,
+                                urgency: activeCall.urgency || "Standard",
+                                leadType: activeCall.leadType || "Unknown",
+                                phoneNumber: activeCall.phoneNumber
+                            }
+                        });
+                        if (activeCall.metadataJson?.postcode) {
+                            setDetectedPostcode(activeCall.metadataJson.postcode);
+                        }
+                    }
+                } catch (e) {
+                    console.error('[LiveCall] Rehydration failed:', e);
+                } finally {
+                    setIsRehydrating(false);
+                }
+            }
         };
 
         ws.onerror = (error) => {

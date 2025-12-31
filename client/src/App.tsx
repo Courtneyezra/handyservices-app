@@ -11,23 +11,25 @@ import SidebarLayout from "@/components/layout/SidebarLayout";
 import HandymanLanding from "@/pages/HandymanLanding";
 import DerbyLanding from "@/pages/DerbyLanding";
 
-// Lazy load all CRM/admin pages (not needed on initial landing page load)
-const AudioUploadPage = lazy(() => import("@/pages/AudioUploadPage"));
-const SKUPage = lazy(() => import("@/pages/SKUPage"));
-const WhatsAppInbox = lazy(() => import("@/pages/WhatsAppInbox"));
-const HandymanMap = lazy(() => import("@/pages/HandymanMap"));
-const HandymanDashboard = lazy(() => import("@/pages/HandymanDashboard"));
-const GenerateQuoteLink = lazy(() => import("@/pages/GenerateQuoteLink"));
+// Admin/CRM pages - Eager loaded for smooth navigation within CRM
+import AudioUploadPage from "@/pages/AudioUploadPage";
+import SKUPage from "@/pages/SKUPage";
+import WhatsAppInbox from "@/pages/WhatsAppInbox";
+import HandymanMap from "@/pages/HandymanMap";
+import HandymanDashboard from "@/pages/HandymanDashboard";
+import GenerateQuoteLink from "@/pages/GenerateQuoteLink";
+import MainDashboard from "@/pages/MainDashboard";
+import CallsPage from "@/pages/CallsPage";
+import TestLab from "./pages/TestLab";
+import TrainingCenter from "./pages/TrainingCenter";
+import SettingsPage from "./pages/SettingsPage";
+
+// Public customer-facing pages - Lazy loaded (not needed for admin initial load)
 const VideoQuote = lazy(() => import("@/pages/VideoQuote"));
-const MainDashboard = lazy(() => import("@/pages/MainDashboard"));
 const VideoReview = lazy(() => import("@/pages/VideoReview"));
 const PersonalizedQuotePage = lazy(() => import("@/pages/PersonalizedQuotePage"));
-const CallsPage = lazy(() => import("@/pages/CallsPage"));
-const TestLab = lazy(() => import("./pages/TestLab"));
-const TrainingCenter = lazy(() => import("./pages/TrainingCenter"));
-const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 
-// Contractor Portal - lazy loaded
+// Contractor Portal - Lazy loaded (separate user flow)
 const ContractorLogin = lazy(() => import("./pages/ContractorLogin"));
 const ContractorRegister = lazy(() => import("./pages/ContractorRegister"));
 const ContractorPortal = lazy(() => import("./pages/ContractorPortal"));
@@ -38,7 +40,7 @@ const ContractorServiceArea = lazy(() => import("./pages/ContractorServiceArea")
 // Loading fallback for lazy-loaded components
 function LoadingFallback() {
     return (
-        <div className="flex items-center justify-center min-h-[400px]">
+        <div className="flex items-center justify-center min-h-screen bg-gray-900">
             <div className="flex flex-col items-center gap-4">
                 <div className="w-10 h-10 border-4 border-amber-400 border-t-transparent rounded-full animate-spin" />
                 <p className="text-slate-400 text-sm">Loading...</p>
