@@ -731,20 +731,20 @@ export default function GenerateQuoteLink() {
                     <ArrowRight className="h-5 w-5 text-blue-600" />
                     Job & Pricing Details
                   </CardTitle>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-slate-300">
                     Answer 3 simple questions to generate value-based tier pricing
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   {/* Job Description */}
                   <div className="space-y-2">
-                    <Label htmlFor="jobDescription" className="text-base font-semibold text-gray-900 dark:text-white">What needs doing? *</Label>
+                    <Label htmlFor="jobDescription" className="text-base font-semibold text-white">What needs doing? *</Label>
                     <textarea
                       id="jobDescription"
                       value={jobDescription}
                       onChange={(e) => setJobDescription(e.target.value)}
                       placeholder="e.g., Mount 65-inch TV on living room wall"
-                      className="w-full min-h-[80px] px-3 py-2 rounded-md border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full min-h-[80px] px-3 py-2 rounded-md border border-slate-600 bg-slate-800 text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       data-testid="input-job-description"
                     />
                   </div>
@@ -753,8 +753,8 @@ export default function GenerateQuoteLink() {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <Label className="text-base font-semibold text-gray-900 dark:text-white">AI Job Analysis *</Label>
-                        <p className="text-sm text-gray-600">Analyze the job to calculate base pricing</p>
+                        <Label className="text-base font-semibold text-white">AI Job Analysis *</Label>
+                        <p className="text-sm text-slate-300">Analyze the job to calculate base pricing</p>
                       </div>
                       <Button
                         type="button"
@@ -844,17 +844,17 @@ export default function GenerateQuoteLink() {
                               {/* Task List */}
                               <div className="space-y-3 max-h-96 overflow-y-auto">
                                 {editableTasks.map((task, idx) => (
-                                  <Card key={task.id} className="bg-white border-green-200" data-testid={`editable-task-${idx}`}>
+                                  <Card key={task.id} className="bg-slate-800 border-slate-600" data-testid={`editable-task-${idx}`}>
                                     <CardContent className="p-3 space-y-2">
                                       <div className="flex items-start justify-between gap-2">
                                         <div className="flex-1 space-y-2">
                                           {/* Description */}
                                           <div>
-                                            <Label className="text-xs text-gray-900 dark:text-white font-medium">Task Description</Label>
+                                            <Label className="text-xs text-slate-300 font-medium">Task Description</Label>
                                             <Input
                                               value={task.description}
                                               onChange={(e) => handleTaskUpdate(task.id, 'description', e.target.value)}
-                                              className="text-sm bg-white text-gray-900"
+                                              className="text-sm bg-slate-700 text-white border-slate-600"
                                               data-testid={`input-task-description-${idx}`}
                                             />
                                           </div>
@@ -863,57 +863,57 @@ export default function GenerateQuoteLink() {
                                           <div className="grid grid-cols-4 gap-2">
                                             {/* Quantity */}
                                             <div>
-                                              <Label className="text-xs text-gray-900 dark:text-white font-medium">Qty</Label>
+                                              <Label className="text-xs text-slate-300 font-medium">Qty</Label>
                                               <Input
                                                 type="number"
                                                 step="1"
                                                 min="1"
                                                 value={task.quantity}
                                                 onChange={(e) => handleTaskUpdate(task.id, 'quantity', parseFloat(e.target.value) || 1)}
-                                                className="text-sm bg-white text-gray-900"
+                                                className="text-sm bg-slate-700 text-white border-slate-600"
                                                 data-testid={`input-task-quantity-${idx}`}
                                               />
                                             </div>
 
                                             {/* Hours */}
                                             <div>
-                                              <Label className="text-xs text-gray-900 dark:text-white font-medium">Hours</Label>
+                                              <Label className="text-xs text-slate-300 font-medium">Hours</Label>
                                               <Input
                                                 type="number"
                                                 step="0.5"
                                                 min="0.5"
                                                 value={task.hours}
                                                 onChange={(e) => handleTaskUpdate(task.id, 'hours', parseFloat(e.target.value) || 0)}
-                                                className="text-sm bg-white text-gray-900"
+                                                className="text-sm bg-slate-700 text-white border-slate-600"
                                                 data-testid={`input-task-hours-${idx}`}
                                               />
                                             </div>
 
                                             {/* Material Cost */}
                                             <div>
-                                              <Label className="text-xs text-gray-900 dark:text-white font-medium">Materials £</Label>
+                                              <Label className="text-xs text-slate-300 font-medium">Materials £</Label>
                                               <Input
                                                 type="number"
                                                 step="1"
                                                 min="0"
                                                 value={task.materialCost}
                                                 onChange={(e) => handleTaskUpdate(task.id, 'materialCost', parseFloat(e.target.value) || 0)}
-                                                className="text-sm bg-white text-gray-900"
+                                                className="text-sm bg-slate-700 text-white border-slate-600"
                                                 data-testid={`input-task-materials-${idx}`}
                                               />
                                             </div>
 
                                             {/* Complexity */}
                                             <div>
-                                              <Label className="text-xs text-gray-900 dark:text-white font-medium">Complexity</Label>
+                                              <Label className="text-xs text-slate-300 font-medium">Complexity</Label>
                                               <Select
                                                 value={task.complexity}
                                                 onValueChange={(v: any) => handleTaskUpdate(task.id, 'complexity', v)}
                                               >
-                                                <SelectTrigger className="text-sm" data-testid={`select-task-complexity-${idx}`}>
+                                                <SelectTrigger className="text-sm bg-slate-700 text-white border-slate-600" data-testid={`select-task-complexity-${idx}`}>
                                                   <SelectValue />
                                                 </SelectTrigger>
-                                                <SelectContent>
+                                                <SelectContent className="bg-slate-800 border-slate-600">
                                                   <SelectItem value="low">Low</SelectItem>
                                                   <SelectItem value="medium">Medium</SelectItem>
                                                   <SelectItem value="high">High</SelectItem>
@@ -929,7 +929,7 @@ export default function GenerateQuoteLink() {
                                           size="sm"
                                           variant="ghost"
                                           onClick={() => handleRemoveTask(task.id)}
-                                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                          className="text-red-400 hover:text-red-300 hover:bg-red-900/30"
                                           disabled={editableTasks.length === 1}
                                           data-testid={`button-remove-task-${idx}`}
                                         >
@@ -942,11 +942,11 @@ export default function GenerateQuoteLink() {
                               </div>
 
                               {/* Recalculated Totals */}
-                              <Card className="bg-blue-50 border-blue-200 mt-3">
+                              <Card className="bg-slate-800 border-slate-600 mt-3">
                                 <CardContent className="p-3">
                                   <div className="space-y-1.5 text-sm">
                                     <div className="flex justify-between">
-                                      <span className="text-gray-700">Total Hours (with complexity):</span>
+                                      <span className="text-slate-300">Total Hours (with complexity):</span>
                                       <span className="font-semibold">{recalculatedTotals.totalHours.toFixed(1)}h</span>
                                     </div>
                                     <div className="flex justify-between">
@@ -1019,33 +1019,33 @@ export default function GenerateQuoteLink() {
                   </div>
 
                   {/* Quote Mode Toggle */}
-                  <Card className="border-purple-200 bg-purple-50/50">
+                  <Card className="border-purple-400/30 bg-purple-900/20">
                     <CardContent className="pt-4">
                       <div className="space-y-2">
-                        <Label htmlFor="quoteMode" className="text-gray-900 dark:text-white font-semibold flex items-center gap-2">
+                        <Label htmlFor="quoteMode" className="text-white font-semibold flex items-center gap-2">
                           <Shield className="h-4 w-4 text-purple-600" />
                           Quote Presentation Mode
                         </Label>
                         <Select value={quoteMode} onValueChange={(v: 'hhh' | 'simple') => setQuoteMode(v)}>
-                          <SelectTrigger id="quoteMode" data-testid="select-quote-mode" className="bg-white">
+                          <SelectTrigger id="quoteMode" data-testid="select-quote-mode" className="bg-slate-800 text-white border-slate-600">
                             <SelectValue />
                           </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="hhh">
+                          <SelectContent className="bg-slate-800 border-slate-600">
+                            <SelectItem value="hhh" className="text-white focus:bg-slate-700 focus:text-white">
                               <div className="flex flex-col">
                                 <span className="font-medium">Three-Tier Packages (Essential/Enhanced/Elite)</span>
-                                <span className="text-xs text-gray-500">Best for jobs with multiple value levels</span>
+                                <span className="text-xs text-slate-400">Best for jobs with multiple value levels</span>
                               </div>
                             </SelectItem>
-                            <SelectItem value="simple">
+                            <SelectItem value="simple" className="text-white focus:bg-slate-700 focus:text-white">
                               <div className="flex flex-col">
                                 <span className="font-medium">Simple Quote with Optional Extras</span>
-                                <span className="text-xs text-gray-500">Best for straightforward jobs with add-ons</span>
+                                <span className="text-xs text-slate-400">Best for straightforward jobs with add-ons</span>
                               </div>
                             </SelectItem>
                           </SelectContent>
                         </Select>
-                        <p className="text-xs text-gray-600">
+                        <p className="text-xs text-slate-300">
                           {quoteMode === 'hhh'
                             ? 'Customer will see three pricing tiers with different value levels and comparison grid.'
                             : 'Customer will see a single base price with optional extras they can add at checkout.'
@@ -1059,12 +1059,12 @@ export default function GenerateQuoteLink() {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {/* Urgency Reason */}
                     <div className="space-y-2">
-                      <Label htmlFor="urgencyReason" className="text-gray-900 dark:text-white font-medium">How urgent is it? *</Label>
+                      <Label htmlFor="urgencyReason" className="text-white font-medium">How urgent is it? *</Label>
                       <Select value={urgencyReason} onValueChange={(v: any) => setUrgencyReason(v)}>
-                        <SelectTrigger id="urgencyReason" data-testid="select-urgency-reason">
+                        <SelectTrigger id="urgencyReason" data-testid="select-urgency-reason" className="bg-slate-800 text-white border-slate-600">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="bg-slate-800 border-slate-600">
                           <SelectItem value="low">Low (can wait)</SelectItem>
                           <SelectItem value="med">Medium (soon)</SelectItem>
                           <SelectItem value="high">High (urgent)</SelectItem>
@@ -1074,12 +1074,12 @@ export default function GenerateQuoteLink() {
 
                     {/* Ownership Context */}
                     <div className="space-y-2">
-                      <Label htmlFor="ownershipContext" className="text-gray-900 dark:text-white font-medium">Property situation? *</Label>
+                      <Label htmlFor="ownershipContext" className="text-white font-medium">Property situation? *</Label>
                       <Select value={ownershipContext} onValueChange={(v: any) => setOwnershipContext(v)}>
-                        <SelectTrigger id="ownershipContext" data-testid="select-ownership-context">
+                        <SelectTrigger id="ownershipContext" data-testid="select-ownership-context" className="bg-slate-800 text-white border-slate-600">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="bg-slate-800 border-slate-600">
                           <SelectItem value="tenant">Tenant</SelectItem>
                           <SelectItem value="homeowner">Homeowner</SelectItem>
                           <SelectItem value="landlord">Landlord</SelectItem>
@@ -1091,12 +1091,12 @@ export default function GenerateQuoteLink() {
 
                     {/* Desired Timeframe */}
                     <div className="space-y-2">
-                      <Label htmlFor="desiredTimeframe" className="text-gray-900 dark:text-white font-medium">When needed by? *</Label>
+                      <Label htmlFor="desiredTimeframe" className="text-white font-medium">When needed by? *</Label>
                       <Select value={desiredTimeframe} onValueChange={(v: any) => setDesiredTimeframe(v)}>
-                        <SelectTrigger id="desiredTimeframe" data-testid="select-desired-timeframe">
+                        <SelectTrigger id="desiredTimeframe" data-testid="select-desired-timeframe" className="bg-slate-800 text-white border-slate-600">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="bg-slate-800 border-slate-600">
                           <SelectItem value="flex">Flexible</SelectItem>
                           <SelectItem value="week">Within a week</SelectItem>
                           <SelectItem value="asap">ASAP / Next day</SelectItem>
@@ -1107,13 +1107,13 @@ export default function GenerateQuoteLink() {
 
                   {/* Additional Notes */}
                   <div className="space-y-2">
-                    <Label htmlFor="additionalNotes" className="text-gray-900 dark:text-white font-medium">Additional Notes (Optional)</Label>
+                    <Label htmlFor="additionalNotes" className="text-white font-medium">Additional Notes (Optional)</Label>
                     <textarea
                       id="additionalNotes"
                       value={additionalNotes}
                       onChange={(e) => setAdditionalNotes(e.target.value)}
                       placeholder="Any special requirements or context..."
-                      className="w-full min-h-[60px] px-3 py-2 rounded-md border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full min-h-[60px] px-3 py-2 rounded-md border border-slate-600 bg-slate-800 text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       data-testid="input-additional-notes"
                     />
                   </div>
@@ -1131,25 +1131,25 @@ export default function GenerateQuoteLink() {
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="customerName" className="text-gray-900 dark:text-white font-medium">Customer Name *</Label>
+                      <Label htmlFor="customerName" className="text-white font-medium">Customer Name *</Label>
                       <Input
                         id="customerName"
                         value={customerName}
                         onChange={(e) => setCustomerName(e.target.value)}
                         placeholder="John Smith"
-                        className="bg-white text-gray-900"
+                        className="bg-slate-800 text-white border-slate-600"
                         data-testid="input-customer-name"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="phone" className="text-gray-900 dark:text-white font-medium">Phone Number *</Label>
+                      <Label htmlFor="phone" className="text-white font-medium">Phone Number *</Label>
                       <Input
                         id="phone"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         placeholder="07123456789"
-                        className="bg-white text-gray-900"
+                        className="bg-slate-800 text-white border-slate-600"
                         data-testid="input-phone"
                       />
                     </div>
@@ -1157,26 +1157,26 @@ export default function GenerateQuoteLink() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="postcode" className="text-gray-900 dark:text-white font-medium">Postcode *</Label>
+                      <Label htmlFor="postcode" className="text-white font-medium">Postcode *</Label>
                       <Input
                         id="postcode"
                         value={postcode}
                         onChange={(e) => setPostcode(e.target.value)}
                         placeholder="SW1A 1AA"
-                        className="bg-white text-gray-900"
+                        className="bg-slate-800 text-white border-slate-600"
                         data-testid="input-postcode"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="email" className="text-gray-900 dark:text-white font-medium">Email (Optional)</Label>
+                      <Label htmlFor="email" className="text-white font-medium">Email (Optional)</Label>
                       <Input
                         id="email"
                         type="email"
                         value={customerEmail}
                         onChange={(e) => setCustomerEmail(e.target.value)}
                         placeholder="john@example.com"
-                        className="bg-white text-gray-900"
+                        className="bg-slate-800 text-white border-slate-600"
                         data-testid="input-email"
                       />
                     </div>
@@ -1192,14 +1192,14 @@ export default function GenerateQuoteLink() {
                     <Plus className="h-5 w-5 text-purple-600" />
                     Optional Extras (Upsells)
                   </CardTitle>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  <p className="text-sm text-slate-300 mt-1">
                     Add optional extras that customers can select at checkout. These appear after they click "Reserve".
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {/* Input for adding new extra */}
                   <div className="space-y-2">
-                    <Label className="text-gray-900 dark:text-white font-medium">
+                    <Label className="text-white font-medium">
                       Describe the optional extra
                     </Label>
                     <div className="flex gap-2">
@@ -1240,7 +1240,7 @@ export default function GenerateQuoteLink() {
                   {/* List of added extras */}
                   {optionalExtras.length > 0 && (
                     <div className="space-y-2">
-                      <Label className="text-gray-900 dark:text-white font-medium">
+                      <Label className="text-white font-medium">
                         Added Extras ({optionalExtras.length})
                       </Label>
                       <div className="space-y-3 max-h-96 overflow-y-auto">
@@ -1288,10 +1288,10 @@ export default function GenerateQuoteLink() {
                                         recalculateExtraPrice(idx, updatedExtra);
                                       }}
                                     >
-                                      <SelectTrigger className="h-8 bg-white dark:bg-gray-800" data-testid={`select-service-type-${idx}`}>
+                                      <SelectTrigger className="h-8 bg-slate-800 text-white border-slate-600" data-testid={`select-service-type-${idx}`}>
                                         <SelectValue />
                                       </SelectTrigger>
-                                      <SelectContent>
+                                      <SelectContent className="bg-slate-800 border-slate-600">
                                         <SelectItem value="general">General</SelectItem>
                                         <SelectItem value="carpentry">Carpentry</SelectItem>
                                         <SelectItem value="painting">Painting</SelectItem>
@@ -1317,10 +1317,10 @@ export default function GenerateQuoteLink() {
                                         recalculateExtraPrice(idx, updatedExtra);
                                       }}
                                     >
-                                      <SelectTrigger className="h-8 bg-white dark:bg-gray-800" data-testid={`select-complexity-${idx}`}>
+                                      <SelectTrigger className="h-8 bg-slate-800 text-white border-slate-600" data-testid={`select-complexity-${idx}`}>
                                         <SelectValue />
                                       </SelectTrigger>
-                                      <SelectContent>
+                                      <SelectContent className="bg-slate-800 border-slate-600">
                                         <SelectItem value="simple">Simple</SelectItem>
                                         <SelectItem value="moderate">Moderate</SelectItem>
                                         <SelectItem value="complex">Complex</SelectItem>
@@ -1657,7 +1657,7 @@ export default function GenerateQuoteLink() {
                     placeholder="Search by name, phone, or quote ID..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10"
+                    className="pl-10 bg-slate-800 text-white border-slate-600"
                     data-testid="input-search-quotes"
                   />
                 </div>
@@ -1670,7 +1670,7 @@ export default function GenerateQuoteLink() {
                 </div>
               ) : filteredQuotes.length === 0 ? (
                 <Card>
-                  <CardContent className="py-12 text-center text-gray-500">
+                  <CardContent className="py-12 text-center text-slate-400">
                     {searchQuery ? 'No quotes found matching your search.' : 'No quotes sent yet. Generate your first quote!'}
                   </CardContent>
                 </Card>
@@ -1713,7 +1713,7 @@ export default function GenerateQuoteLink() {
                         <CardContent className="p-4">
                           {/* Header - Name and Status Badges */}
                           <div className="flex flex-wrap items-center gap-2 mb-3">
-                            <h3 className="font-semibold text-lg">{quote.customerName}</h3>
+                            <h3 className="font-semibold text-lg text-white">{quote.customerName}</h3>
                             <Badge variant="secondary" className="text-xs">{quote.shortSlug}</Badge>
                             {quote.viewedAt && (
                               <Badge variant="outline" className="text-green-600 border-green-600 text-xs" title={`Opened: ${format(new Date(quote.viewedAt), 'dd MMM yyyy, HH:mm')}`}>
@@ -1746,10 +1746,10 @@ export default function GenerateQuoteLink() {
                           </div>
 
                           {/* Contact Info - Mobile Stacked */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-sm text-gray-600 mb-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-sm text-slate-300 mb-3">
                             <p className="flex items-center gap-1">
                               <Phone className="h-3 w-3" />
-                              <a href={`tel:${quote.phone}`} className="text-blue-600 hover:underline">{quote.phone}</a>
+                              <a href={`tel:${quote.phone}`} className="text-blue-400 hover:underline">{quote.phone}</a>
                             </p>
                             {quote.email && (
                               <p className="truncate">
@@ -1766,8 +1766,8 @@ export default function GenerateQuoteLink() {
 
                           {/* Job Description */}
                           {quote.jobDescription && (
-                            <div className="bg-gray-50 rounded-lg p-3 mb-3">
-                              <p className="text-sm text-gray-700 line-clamp-2">{quote.jobDescription}</p>
+                            <div className="bg-slate-800 rounded-lg p-3 mb-3">
+                              <p className="text-sm text-slate-300 line-clamp-2">{quote.jobDescription}</p>
                             </div>
                           )}
 
@@ -1830,14 +1830,14 @@ export default function GenerateQuoteLink() {
                           {/* Pricing Tiers - Show only if not booked */}
                           {!quote.bookedAt && quote.essentialPrice && (
                             <div className="flex flex-wrap gap-2 text-xs mb-3">
-                              <span className="bg-slate-100 px-2 py-1 rounded">H: £{Math.round(quote.essentialPrice / 100)}</span>
-                              <span className="bg-green-100 px-2 py-1 rounded">HH: £{Math.round((quote.enhancedPrice || 0) / 100)}</span>
-                              <span className="bg-rose-100 px-2 py-1 rounded">HHH: £{Math.round((quote.elitePrice || 0) / 100)}</span>
+                              <span className="bg-slate-700 text-slate-200 px-2 py-1 rounded">H: £{Math.round(quote.essentialPrice / 100)}</span>
+                              <span className="bg-green-900/50 text-green-300 px-2 py-1 rounded">HH: £{Math.round((quote.enhancedPrice || 0) / 100)}</span>
+                              <span className="bg-rose-900/50 text-rose-300 px-2 py-1 rounded">HHH: £{Math.round((quote.elitePrice || 0) / 100)}</span>
                             </div>
                           )}
 
                           {/* Action Buttons */}
-                          <div className="flex flex-wrap gap-2 pt-2 border-t">
+                          <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-700">
                             <Button
                               variant="outline"
                               size="sm"
