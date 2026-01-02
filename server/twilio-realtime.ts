@@ -54,14 +54,16 @@ export class MediaStreamTranscriber {
     private segments: any[] = []; // Store transcript segments
     private recordingPath: string | null = null;
     private recordingStream: fs.WriteStream | null = null;
+    private skipDeepgram: boolean = false; // Flag to skip Deepgram for Eleven Labs calls
 
-    constructor(ws: WebSocket, callSid: string, streamSid: string, phoneNumber: string, broadcast: (message: any) => void) {
+    constructor(ws: WebSocket, callSid: string, streamSid: string, phoneNumber: string, broadcast: (message: any) => void, skipDeepgram: boolean = false) {
         this.ws = ws;
         this.callSid = callSid;
         this.streamSid = streamSid;
         this.phoneNumber = phoneNumber;
         this.broadcast = broadcast;
         this.callStartTime = new Date();
+        this.skipDeepgram = skipDeepgram;
 
         // Setup local recording
         const recordingDir = path.join(process.cwd(), 'storage/recordings');
@@ -75,7 +77,13 @@ export class MediaStreamTranscriber {
 
         // Create call record immediately
         this.createCallRecord();
-        this.initializeDeepgram();
+
+        // Only initialize Deepgram if not skipped (e.g., for Eleven Labs calls)
+        if (!this.skipDeepgram) {
+            this.initializeDeepgram();
+        } else {
+            console.log(`[Deepgram] Skipping initialization for ${this.callSid} (Eleven Labs call)`);
+        }
     }
 
     private async createCallRecord() {
@@ -550,7 +558,8 @@ export function setupTwilioSocket(wss: WebSocketServer, broadcast: (message: any
                     case 'start':
                         console.log(`[Twilio] Stream started: ${msg.start.streamSid} `);
                         const phoneNumber = msg.start.customParameters?.phoneNumber || "Unknown";
-                        transcriber = new MediaStreamTranscriber(ws, msg.start.callSid, msg.start.streamSid, phoneNumber, broadcast);
+                        const skipDeepgram = msg.start.customParameters?.skipDeepgram === 'true';
+                        transcriber = new MediaStreamTranscriber(ws, msg.start.callSid, msg.start.streamSid, phoneNumber, broadcast, skipDeepgram);
                         break;
                     case 'media':
                         if (transcriber) {

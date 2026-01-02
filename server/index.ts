@@ -545,14 +545,15 @@ app.post('/api/twilio/dial-status', async (req, res) => {
             const wsProtocol = httpProtocol === 'https' ? 'wss' : 'ws';
 
             // Return TwiML with Connect to our WebSocket stream (directly, no redirect)
+            // Note: We add a custom header to signal that Deepgram should be skipped
             const twiml = `<?xml version="1.0" encoding="UTF-8"?>
             <Response>
-              <Say voice="${settings.voice}">Connecting you to our assistant.</Say>
               <Connect>
                 <Stream url="${wsProtocol}://${host}/api/twilio/eleven-labs-stream?agentId=${settings.elevenLabsAgentId}&amp;context=${routing.elevenLabsContext}&amp;leadPhoneNumber=${encodeURIComponent(From)}&amp;callSid=${CallSid}">
                   <Parameter name="agentId" value="${settings.elevenLabsAgentId}" />
                   <Parameter name="context" value="${routing.elevenLabsContext}" />
                   <Parameter name="leadPhoneNumber" value="${From}" />
+                  <Parameter name="skipDeepgram" value="true" />
                 </Stream>
               </Connect>
             </Response>`;

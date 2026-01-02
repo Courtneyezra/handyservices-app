@@ -193,9 +193,10 @@ export class ElevenLabsStreamHandler {
             // Convert PCM buffer to base64
             const pcmBase64 = pcmAudio.toString('base64');
 
-            // Wrap in Eleven Labs JSON format
+            // Wrap in Eleven Labs WebSocket protocol format
             const elevenLabsMessage = {
-                user_audio_chunk: pcmBase64
+                event_type: 'user_audio_chunk',
+                audio_data: pcmBase64
             };
 
             // Log first message
@@ -228,26 +229,36 @@ export class ElevenLabsStreamHandler {
 
             // Parse JSON message from Eleven Labs
             const message = JSON.parse(audioData.toString('utf8'));
+            const eventType = message.event_type || message.type; // Support both formats
 
-            // Log first message
-            if (this.metrics.elevenLabsPacketsReceived === 1) {
-                console.log(`[ElevenLabs-Stream] First Eleven Labs message:`, message);
+            // Log first few messages
+            if (this.metrics.elevenLabsPacketsReceived <= 3) {
+                console.log(`[ElevenLabs-Stream] Message #${this.metrics.elevenLabsPacketsReceived}:`, {
+                    event_type: eventType,
+                    keys: Object.keys(message)
+                });
             }
 
             // Handle conversation initiation metadata
-            if (message.type === 'conversation_initiation_metadata') {
-                console.log(`[ElevenLabs-Stream] Conversation initiated:`, message.conversation_initiation_metadata_event);
+            if (eventType === 'conversation_initiation_metadata') {
+                console.log(`[ElevenLabs-Stream] Conversation initiated:`, message.conversation_initiation_metadata_event || message);
                 return;
             }
 
-            // Handle audio messages
-            if (message.type === 'audio' && message.audio_event) {
-                const audioBase64 = message.audio_event.audio_base_64;
+            // Handle audio messages (event_type: "audio")
+            if (eventType === 'audio') {
+                // Audio can be in audio_event.audio_base_64 or directly in audio_data
+                const audioBase64 = message.audio_event?.audio_base_64 || message.audio_data;
+
+                if (!audioBase64) {
+                    console.warn('[ElevenLabs-Stream] Audio message missing audio data');
+                    return;
+                }
 
                 // Convert base64 to PCM buffer
                 const pcmBuffer = Buffer.from(audioBase64, 'base64');
 
-                // Convert Eleven Labs audio (16kHz PCM) to Twilio format (8kHz µ-law)
+                // Convert Eleven Labs audio (16kHz PCM) to Twilio format (8kHz \u00b5-law)
                 const ulawBase64 = convertElevenLabsToTwilio(pcmBuffer);
 
                 // Send to Twilio

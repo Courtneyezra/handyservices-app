@@ -87,7 +87,7 @@ export class ElevenLabsClient {
     }
 
     /**
-     * Send initial context message
+     * Send initial context message with dynamic variables
      */
     sendContextMessage(message: string): void {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -95,24 +95,20 @@ export class ElevenLabsClient {
             return;
         }
 
-        console.log('[ElevenLabs-Client] Context injection disabled for testing');
-        // TEMPORARILY DISABLED - testing if this causes disconnect
-        // The format is unknown and may be causing Eleven Labs to close the connection
+        // Send context injection using proper Eleven Labs WebSocket protocol
+        const contextPayload = {
+            event_type: 'conversation_initiation_client_data',
+            conversation_config_override: {
+                language_code: 'en'
+            },
+            dynamic_variables: {
+                context_message: message,
+                context_type: this.context
+            }
+        };
 
-        // // Send context as initial message to Eleven Labs
-        // // Format depends on Eleven Labs' protocol
-        // const contextPayload = {
-        //     type: 'conversation_initiation_client_data',
-        //     conversation_config_override: {
-        //         agent: {
-        //             prompt: {
-        //                 prompt: message
-        //             }
-        //         }
-        //     }
-        // };
-
-        // this.ws.send(JSON.stringify(contextPayload));
+        console.log('[ElevenLabs-Client] Sending context injection:', this.context);
+        this.ws.send(JSON.stringify(contextPayload));
     }
 
     /**
