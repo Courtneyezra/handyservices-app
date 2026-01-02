@@ -32,6 +32,8 @@ import contractorAvailabilityRouter from './availability-routes';
 import contractorJobsRouter from './job-routes';
 import placesRouter from './places-routes';
 import { stripeRouter } from './stripe-routes';
+import elevenLabsLeadRouter from './eleven-labs/lead-capture';
+
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -147,6 +149,7 @@ app.use(stripeRouter); // Stripe payment routes
 app.use('/api/contractor', contractorAuthRouter);
 app.use('/api/contractor/availability', contractorAvailabilityRouter);
 app.use('/api/contractor/jobs', contractorJobsRouter);
+app.use('/api/eleven-labs', elevenLabsLeadRouter);
 // app.use('/api/places', placesRouter); // API: Places Search (Moved to register before catch-all)
 
 // Serve static assets (for hold music)

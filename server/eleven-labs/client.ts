@@ -90,25 +90,11 @@ export class ElevenLabsClient {
      * Send initial context message with dynamic variables
      */
     sendContextMessage(message: string): void {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            console.warn('[ElevenLabs-Client] Cannot send context, WebSocket not open');
-            return;
-        }
+        console.log('[ElevenLabs-Client] Context injection FULLY DISABLED - testing without any init message');
+        return; // DISABLED - Eleven Labs rejects conversation_initiation_client_data message
 
-        // Send context injection using proper Eleven Labs WebSocket protocol
-        const contextPayload = {
-            event_type: 'conversation_initiation_client_data',
-            conversation_config_override: {
-                language_code: 'en'
-            },
-            dynamic_variables: {
-                context_message: message,
-                context_type: this.context
-            }
-        };
-
-        console.log('[ElevenLabs-Client] Sending context injection:', this.context);
-        this.ws.send(JSON.stringify(contextPayload));
+        // The conversation_initiation_client_data message causes Eleven Labs to not send audio
+        // Need to find alternative approach for context injection
     }
 
     /**

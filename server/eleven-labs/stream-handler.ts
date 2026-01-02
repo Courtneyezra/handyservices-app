@@ -43,19 +43,34 @@ export class ElevenLabsStreamHandler {
     }
 
     /**
-     * Connect to Eleven Labs after receiving parameters from Twilio
+     * Connect to Eleven Labs using the appropriate agent based on context
      */
     private async connectToElevenLabs(): Promise<void> {
-        console.log(`[ElevenLabs-Stream] Connecting to Eleven Labs`);
-        console.log(`[ElevenLabs-Stream] Agent: ${this.config.agentId}, Context: ${this.config.context}`);
+        if (!this.config.agentId) {
+            console.error('[ElevenLabs-Stream] No agent ID configured');
+            return;
+        }
+
+        // Map context to agent ID
+        // out-of-hours → agent_5901kdyw24vwfjvtaetvnq7ns988
+        // missed-call/in-hours → agent_4201ke028gz3fnzr2xkc8b5gqqd6
+        const agentIdMap: Record<string, string> = {
+            'out-of-hours': 'agent_5901kdyw24vwfjvtaetvnq7ns988',
+            'missed-call': 'agent_4201ke028gz3fnzr2xkc8b5gqqd6',
+            'in-hours': 'agent_4201ke028gz3fnzr2xkc8b5gqqd6', // Same as missed-call
+        };
+
+        const selectedAgentId = agentIdMap[this.config.context] || this.config.agentId;
+
+        console.log(`[ElevenLabs-Stream] Agent: ${selectedAgentId}, Context: ${this.config.context}`);
 
         try {
             // Get settings
             const settings = await getTwilioSettings();
 
-            // Create Eleven Labs client
+            // Create Eleven Labs client with the selected agent ID
             this.elevenLabsClient = new ElevenLabsClient({
-                agentId: this.config.agentId,
+                agentId: selectedAgentId,
                 apiKey: settings.elevenLabsApiKey,
                 context: this.config.context,
             });
@@ -231,13 +246,12 @@ export class ElevenLabsStreamHandler {
             const message = JSON.parse(audioData.toString('utf8'));
             const eventType = message.event_type || message.type; // Support both formats
 
-            // Log first few messages
-            if (this.metrics.elevenLabsPacketsReceived <= 3) {
-                console.log(`[ElevenLabs-Stream] Message #${this.metrics.elevenLabsPacketsReceived}:`, {
-                    event_type: eventType,
-                    keys: Object.keys(message)
-                });
-            }
+            // Log ALL messages to debug
+            console.log(`[ElevenLabs-Stream] Message #${this.metrics.elevenLabsPacketsReceived}:`, {
+                event_type: eventType,
+                keys: Object.keys(message),
+                fullMessage: this.metrics.elevenLabsPacketsReceived <= 5 ? message : undefined
+            });
 
             // Handle conversation initiation metadata
             if (eventType === 'conversation_initiation_metadata') {
@@ -251,9 +265,11 @@ export class ElevenLabsStreamHandler {
                 const audioBase64 = message.audio_event?.audio_base_64 || message.audio_data;
 
                 if (!audioBase64) {
-                    console.warn('[ElevenLabs-Stream] Audio message missing audio data');
+                    console.warn('[ElevenLabs-Stream] Audio message missing audio data:', message);
                     return;
                 }
+
+                console.log(`[ElevenLabs-Stream] Received audio chunk, length: ${audioBase64.length}`);
 
                 // Convert base64 to PCM buffer
                 const pcmBuffer = Buffer.from(audioBase64, 'base64');
@@ -272,6 +288,9 @@ export class ElevenLabsStreamHandler {
 
                 this.twilioWs.send(JSON.stringify(twilioMessage));
                 this.metrics.twilioPacketsSent++;
+            } else {
+                // Log all other message types
+                console.log(`[ElevenLabs-Stream] Non-audio message type: ${eventType}`, message);
             }
         } catch (error) {
             console.error('[ElevenLabs-Stream] Error processing Eleven Labs message:', error);
