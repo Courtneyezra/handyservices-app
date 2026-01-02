@@ -76,6 +76,7 @@ interface SimulationOptions {
     phoneNumber?: string;
     customerName?: string;
     jobDescription?: string;
+    complexity?: 'SIMPLE' | 'MESSY' | 'EMERGENCY' | 'LANDLORD' | 'RANDOM';
 }
 
 interface LiveCallContextType {
@@ -170,11 +171,12 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
         setIsSimulating(true);
         setIsLive(true);
 
-        const testNumber = options?.phoneNumber || "+84357691573";
-        const testName = options?.customerName || "Vinh";
-        const jobDesc = options?.jobDescription || "major leak in the kitchen";
+        const complexity = options?.complexity || 'SIMPLE';
+        const testNumber = options?.phoneNumber || (complexity === 'EMERGENCY' ? "+447911123456" : "+447700900123");
+        const testName = options?.customerName || (complexity === 'LANDLORD' ? "James Sterling" : "Mrs. Henderson");
+        const jobDesc = options?.jobDescription || "leaking tap";
 
-        console.log(`[Simulation] Starting dummy call for ${testNumber} with job: ${jobDesc}...`);
+        console.log(`[Simulation] Starting ${complexity} call for ${testNumber}...`);
 
         setInterimTranscript("");
         setLiveCallData({
@@ -185,11 +187,11 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                 sku: null,
                 confidence: 0,
                 method: "realtime",
-                rationale: "Waiting for speech...",
+                rationale: "Scanning voice for intent...",
                 nextRoute: "UNKNOWN"
             },
             metadata: {
-                customerName: "Customer",
+                customerName: "Incoming Call...",
                 address: null,
                 urgency: "Standard",
                 leadType: "Unknown",
@@ -197,66 +199,187 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
             }
         });
 
-        const steps = [
-            { type: 'segment', delay: 1000, text: "Hi, I have a few jobs that need doing.", speaker: 1 },
-            { type: 'segment', delay: 3500, text: "I need my 55 inch TV mounted on the wall in the living room.", speaker: 1 },
-            { type: 'segment', delay: 6000, text: "And also one of the fence panels in the back garden has blown down and needs replacing.", speaker: 1 },
-            {
-                type: 'analysis',
-                delay: 7000,
-                data: {
-                    matched: true,
-                    sku: {
-                        id: 'tv-mount-standard',
-                        skuCode: 'TV-MOUNT-55',
-                        name: 'TV Mounting (Standard)',
-                        category: 'Mounting',
-                        pricePence: 7500,
-                        description: 'Wall mounting for TVs up to 65 inches on standard partial/brick walls.'
-                    },
-                    confidence: 92,
-                    method: 'gpt',
-                    rationale: 'Customer explicitly requested TV mounting and fence repair.',
-                    nextRoute: 'INSTANT_PRICE',
-                    suggestedScript: "I can help with those. The TV mounting is £75 and the fence panel replacement is £120. Total would be £195.",
+        // Generate steps based on complexity
+        let steps: any[] = [];
 
-                    // New Multi-SKU Simulation Data
-                    hasMultiple: true,
-                    totalMatchedPrice: 19500,
-                    matchedServices: [
-                        {
-                            sku: {
-                                id: 'tv-mount-standard',
-                                skuCode: 'TV-MOUNT-55',
-                                name: 'TV Mounting (Standard)',
-                                category: 'Mounting',
-                                pricePence: 7500,
-                                description: 'Wall mounting for TVs up to 65 inches.'
-                            },
-                            confidence: 95,
-                            task: { description: "Mount 55 inch TV", quantity: 1 }
-                        },
-                        {
-                            sku: {
-                                id: 'fence-repair-panel',
-                                skuCode: 'FENCE-PANEL',
-                                name: 'Fence Panel Replacement',
-                                category: 'Outdoor',
-                                pricePence: 12000,
-                                description: 'Supply and fit standard lap panel.'
-                            },
-                            confidence: 88,
-                            task: { description: "Replace fence panel", quantity: 1 }
-                        }
-                    ],
-                    unmatchedTasks: []
+        if (complexity === 'RANDOM') {
+            const randomScenarios = [
+                {
+                    name: "Locked Out",
+                    segments: ["Hi, I'm stuck outside my house, I've left the keys in the lock on the inside!", "Can you get someone to me within 30 minutes? It's freezing."],
+                    metadata: { urgency: 'Critical', customerName: 'David Lee', address: '7 High St' },
+                    analysis: { name: 'Emergency Locksmith', route: 'SITE_VISIT', script: "Don't worry, David. Our locksmith is nearby and can be there in 20 minutes." }
+                },
+                {
+                    name: "Full House Paint",
+                    segments: ["I've just bought a new place and I want the whole interior painted before we move in.", "It's a 3 bedroom semi. Are you guys available next week?"],
+                    metadata: { urgency: 'Standard', customerName: 'Sarah Jenkins', address: '12 Willow Way' },
+                    analysis: { name: 'Full Interior Decorating', route: 'VIDEO_QUOTE', script: "Congratulations on the new place! To give you a precise quote for 3 bedrooms, could you send a video of the rooms?" }
+                },
+                {
+                    name: "Flickering Lights",
+                    segments: ["All the lights in my kitchen are flickering and there's a buzzing sound from the fuse box.", "I'm worried about a fire, can you help?"],
+                    metadata: { urgency: 'Critical', customerName: 'Mr. White', address: 'Room 101, Grand Hotel' },
+                    analysis: { name: 'Emergency Electrical Fix', route: 'SITE_VISIT', script: "Please turn off your main power switch immediately. I am sending an electrician to you now." }
+                },
+                {
+                    name: "Gutter Clearance",
+                    segments: ["My gutters are overflowing and the water is coming down the walls.", "Can you clear them and check for any leaks?"],
+                    metadata: { urgency: 'High', customerName: 'Mrs. Gable', address: 'High View' },
+                    analysis: { name: 'Gutter & Fascia Service', route: 'VIDEO_QUOTE', script: "I can help with that. Could you send a quick video of the gutters from the ground?" }
+                },
+                {
+                    name: "IKEA Assembly",
+                    segments: ["I've got three PAX wardrobes and a MALM bed that need building.", "I'm struggling with the instructions, please help!"],
+                    metadata: { urgency: 'Standard', customerName: 'Ben Foster', address: 'New Flat 4' },
+                    analysis: { name: 'Flat-Pack Assembly (PAX)', route: 'INSTANT_PRICE', script: "We build PAX furniture every week! That will be £150 for the wardrobes and £45 for the bed. Total £195." }
                 }
-            },
-            { delay: 10000, type: 'segment', speaker: 1, text: "I've got that. Can you confirm your address for me?" },
-            { delay: 12000, type: 'segment', speaker: 0, text: "I'm at 42 Maple Street. Please send someone fast!" },
-            { delay: 14000, type: 'metadata', data: { customerName: testName, address: "42 Maple Street", urgency: "Critical", leadType: "Homeowner", phoneNumber: testNumber } },
-            { delay: 16000, type: 'end' }
-        ];
+            ];
+
+            const picked = randomScenarios[Math.floor(Math.random() * randomScenarios.length)];
+            steps = [
+                { type: 'segment', delay: 1000, text: picked.segments[0], speaker: 1 },
+                { type: 'segment', delay: 4000, text: picked.segments[1], speaker: 1 },
+                {
+                    type: 'analysis',
+                    delay: 6000,
+                    data: {
+                        matched: true,
+                        sku: { name: picked.analysis.name, category: 'Surprise', pricePence: 0 },
+                        confidence: 88,
+                        method: 'gpt',
+                        rationale: `Randomized training scenario: ${picked.name}`,
+                        nextRoute: picked.analysis.route,
+                        suggestedScript: picked.analysis.script
+                    }
+                },
+                { delay: 9000, type: 'metadata', data: { ...picked.metadata, leadType: 'Homeowner', phoneNumber: testNumber } },
+                { delay: 11000, type: 'end' }
+            ];
+        } else if (complexity === 'MESSY') {
+            steps = [
+                { type: 'segment', delay: 1000, text: "Hello? Is this the handyman service? I'm calling about a dripping tap.", speaker: 1 },
+                {
+                    type: 'analysis',
+                    delay: 2000,
+                    data: {
+                        matched: true,
+                        sku: { name: 'Tap Washer Fix', category: 'Plumbing', pricePence: 6500 },
+                        confidence: 60,
+                        method: 'gpt',
+                        rationale: 'Initial mention of a dripping tap.',
+                        nextRoute: 'VIDEO_QUOTE',
+                        suggestedScript: "I can help with a dripping tap. I'll need a quick video to see the type of tap."
+                    }
+                },
+                { type: 'segment', delay: 4000, text: "Wait, actually, I just looked and it's not a drip anymore, the whole pipe has burst!", speaker: 1 },
+                { type: 'segment', delay: 6000, text: "The water is starting to fill up the cupboard and I can't reach the valve!", speaker: 1 },
+                {
+                    type: 'analysis',
+                    delay: 8000,
+                    data: {
+                        matched: true,
+                        sku: { name: 'Emergency Leak Response', category: 'Emergency', pricePence: 12000 },
+                        confidence: 98,
+                        method: 'gpt',
+                        rationale: 'Customer escalated from "dripping" to "burst pipe". High risk detected.',
+                        nextRoute: 'SITE_VISIT',
+                        suggestedScript: "I'm upgrading this to an emergency site visit. I'll have someone there in 20 minutes."
+                    }
+                },
+                { type: 'segment', delay: 11000, text: "Please hurry, I'm at 15 Derby Road.", speaker: 1 },
+                { delay: 13000, type: 'metadata', data: { customerName: "Henderson", address: "15 Derby Road, Derby", urgency: "Critical", leadType: "Homeowner", phoneNumber: testNumber } },
+                { delay: 15000, type: 'end' }
+            ];
+        } else if (complexity === 'EMERGENCY') {
+            steps = [
+                { type: 'segment', delay: 1000, text: "HELP! I've got water pouring through the light fixture in the kitchen!", speaker: 1 },
+                { type: 'segment', delay: 3000, text: "I'm terrified to touch anything. Can you send someone immediately?", speaker: 1 },
+                {
+                    type: 'analysis',
+                    delay: 5000,
+                    data: {
+                        matched: true,
+                        sku: {
+                            id: 'emergency-01',
+                            skuCode: 'EMR-01',
+                            name: 'Emergency Investigation',
+                            category: 'Emergency',
+                            pricePence: 12000,
+                            description: 'Immediate dispatch for life/property threat.'
+                        },
+                        confidence: 96,
+                        method: 'realtime',
+                        rationale: 'Keywords: "Water through light", "Immediately", "Terrified".',
+                        nextRoute: 'SITE_VISIT',
+                        suggestedScript: "Stay away from the light fixture. I'm dispatching our emergency engineer to you right now. Do you know where the stopcock is?",
+                    }
+                },
+                { delay: 8000, type: 'metadata', data: { customerName: "URGENT", address: "10 Downing Street, London", urgency: "Critical", leadType: "Homeowner", phoneNumber: testNumber } },
+                { delay: 10000, type: 'end' }
+            ];
+        } else if (complexity === 'LANDLORD') {
+            steps = [
+                { type: 'segment', delay: 1000, text: "Hi, it's James Sterling here. I have four properties that need annual safety inspections and basic maintenance.", speaker: 1 },
+                { type: 'segment', delay: 4000, text: "We're looking for a reliable partner for our portfolio. Can you handle large volumes?", speaker: 1 },
+                {
+                    type: 'analysis',
+                    delay: 6000,
+                    data: {
+                        matched: true,
+                        sku: { name: 'Commercial Portfolio Review', category: 'Contract', pricePence: 0 },
+                        confidence: 90,
+                        method: 'gpt',
+                        rationale: 'High-value recurring lead. Property manager intent.',
+                        nextRoute: 'VIDEO_QUOTE',
+                        suggestedScript: "We specialize in property portfolios. I'll send you our commercial rate card via WhatsApp now.",
+                    }
+                },
+                { delay: 9000, type: 'metadata', data: { customerName: "Sterling properties", leadType: "Property Manager", urgency: "Standard", phoneNumber: testNumber } },
+                { delay: 11000, type: 'end' }
+            ];
+        } else {
+            // SIMPLE default
+            steps = [
+                { type: 'segment', delay: 1000, text: `Hi there, I'm calling because I have a bit of an issue with ${jobDesc}.`, speaker: 1 },
+                { type: 'segment', delay: 3500, text: `It's quite urgent, I was hoping you could get someone out to look at the ${jobDesc.split(' ').pop()} as soon as possible.`, speaker: 1 },
+                {
+                    type: 'analysis',
+                    delay: 5000,
+                    data: {
+                        matched: true,
+                        sku: jobDesc.toLowerCase().includes('leak') ? {
+                            id: 'plumbing-emergency',
+                            skuCode: 'PLUMB-EMR',
+                            name: 'Emergency Plumbing Investigation',
+                            category: 'Plumbing',
+                            pricePence: 9500,
+                            description: 'Emergency investigation and first hour of labor for plumbing leaks.'
+                        } : {
+                            id: 'general-handyman',
+                            skuCode: 'HANDY-GEN',
+                            name: 'Handyman General Service',
+                            category: 'General',
+                            pricePence: 6500,
+                            description: 'General handyman services for various home repairs.'
+                        },
+                        confidence: 85,
+                        method: 'gpt',
+                        rationale: `Customer specifically mentioned: "${jobDesc}". AI identified this as a priority job.`,
+                        nextRoute: jobDesc.toLowerCase().includes('leak') ? 'SITE_VISIT' : 'VIDEO_QUOTE',
+                        suggestedScript: `I understand you're having trouble with ${jobDesc}. I can certainly help. For something like this, we usually recommend ${jobDesc.toLowerCase().includes('leak') ? 'an emergency site visit' : 'a quick video survey'} so we can give you a firm price.`,
+                        hasMultiple: false,
+                        totalMatchedPrice: jobDesc.toLowerCase().includes('leak') ? 9500 : 0,
+                        matchedServices: [],
+                        unmatchedTasks: []
+                    }
+                },
+                { delay: 8000, type: 'segment', speaker: 1, text: "Can you tell me how much that usually costs?" },
+                { delay: 10000, type: 'segment', speaker: 0, text: `For ${jobDesc}, it depends on the exact scope, but I'll send you a link to upload a video now.` },
+                { delay: 12000, type: 'metadata', data: { customerName: testName, address: "10 Downing Street, London", urgency: jobDesc.toLowerCase().includes('leak') ? "Critical" : "Standard", leadType: "Homeowner", phoneNumber: testNumber } },
+                { delay: 14000, type: 'end' }
+            ];
+        }
 
         let currentStep = 0;
         const runNextStep = () => {

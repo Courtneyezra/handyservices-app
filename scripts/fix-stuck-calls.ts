@@ -1,56 +1,31 @@
-import { db } from '../server/db';
-import { calls } from '../shared/schema';
 
-import { eq } from 'drizzle-orm';
+import { db } from "../server/db";
+import { calls } from "../shared/schema";
+import { eq, and, lte } from "drizzle-orm";
 
 async function fixStuckCalls() {
-    console.log('Checking for calls stuck in "in-progress" status...');
+    console.log("Fixing stuck calls...");
 
-    // Find all calls with in-progress status
-    const inProgressCalls = await db.select()
-        .from(calls)
-        .where(eq(calls.status, 'in-progress'));
+    // Find calls that are 'in-progress'
+    const stuckCalls = await db.select().from(calls).where(eq(calls.status, 'in-progress'));
 
-    console.log(`Found ${inProgressCalls.length} calls with "in-progress" status`);
+    if (stuckCalls.length === 0) {
+        console.log("No stuck calls found.");
+    } else {
+        console.log(`Found ${stuckCalls.length} stuck call(s). Updating to 'failed'...`);
 
-    if (inProgressCalls.length === 0) {
-        console.log('No stuck calls found!');
-        return;
+        for (const call of stuckCalls) {
+            await db.update(calls)
+                .set({ status: 'failed', outcome: 'technical_issue', endTime: new Date() })
+                .where(eq(calls.id, call.id));
+            console.log(`Updated call ${call.id} to failed.`);
+        }
     }
 
-    // Display the stuck calls
-    for (const call of inProgressCalls) {
-        console.log(`\nCall ID: ${call.id}`);
-        console.log(`  Twilio CallSid: ${call.callId}`);
-        console.log(`  Customer: ${call.customerName || 'Unknown'}`);
-        console.log(`  Phone: ${call.phoneNumber}`);
-        console.log(`  Start Time: ${call.startTime}`);
-        console.log(`  End Time: ${call.endTime || 'Not set'}`);
-        console.log(`  Duration: ${call.duration || 'Not set'}`);
-        console.log(`  Status: ${call.status}`);
-    }
-
-    // Update all in-progress calls to completed
-    console.log(`\nUpdating ${inProgressCalls.length} calls to "completed" status...`);
-
-    for (const call of inProgressCalls) {
-        await db.update(calls)
-            .set({
-                status: 'completed',
-                endTime: call.endTime || new Date(),
-                lastEditedAt: new Date(),
-            })
-            .where(eq(calls.id, call.id));
-
-        console.log(`✓ Updated call ${call.id}`);
-    }
-
-    console.log('\n✅ All stuck calls have been updated to "completed" status');
+    process.exit(0);
 }
 
-fixStuckCalls()
-    .then(() => process.exit(0))
-    .catch((error) => {
-        console.error('Error fixing stuck calls:', error);
-        process.exit(1);
-    });
+fixStuckCalls().catch(err => {
+    console.error(err);
+    process.exit(1);
+});

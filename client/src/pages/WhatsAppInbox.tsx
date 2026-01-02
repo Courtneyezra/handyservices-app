@@ -9,7 +9,8 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { MessageSquare, Send, Search, Clock, CheckCheck, AlertCircle, Loader2 } from 'lucide-react';
+import { MessageSquare, Send, Search, Clock, CheckCheck, AlertCircle, Loader2, ArrowRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 // Types
 interface Conversation {
@@ -236,9 +237,12 @@ export default function WhatsAppInbox() {
     };
 
     return (
-        <div className="h-screen flex bg-slate-900 text-white">
-            {/* Sidebar */}
-            <div className="w-80 border-r border-slate-700 flex flex-col">
+        <div className="flex-1 flex bg-slate-900 text-white overflow-hidden relative">
+            {/* Sidebar / Conversation List */}
+            <div className={cn(
+                "w-full lg:w-80 border-r border-slate-700 flex flex-col absolute inset-0 z-10 bg-slate-900 transition-transform duration-300 lg:relative lg:translate-x-0",
+                selectedConversation && "translate-x-[-100%] lg:translate-x-0"
+            )}>
                 {/* Header */}
                 <div className="p-4 border-b border-slate-700">
                     <div className="flex items-center justify-between mb-4">
@@ -275,8 +279,8 @@ export default function WhatsAppInbox() {
                                 key={conv.phoneNumber}
                                 onClick={() => selectConversation(conv)}
                                 className={`p-4 border-b border-slate-800 cursor-pointer transition-colors ${selectedConversation?.phoneNumber === conv.phoneNumber
-                                        ? 'bg-slate-800'
-                                        : 'hover:bg-slate-800/50'
+                                    ? 'bg-slate-800'
+                                    : 'hover:bg-slate-800/50'
                                     }`}
                             >
                                 <div className="flex items-start justify-between gap-2">
@@ -313,7 +317,10 @@ export default function WhatsAppInbox() {
             </div>
 
             {/* Chat Area */}
-            <div className="flex-1 flex flex-col">
+            <div className={cn(
+                "flex-1 flex flex-col absolute inset-0 z-0 bg-slate-900 transition-transform duration-300 lg:relative lg:translate-x-0",
+                !selectedConversation && "translate-x-[100%] lg:translate-x-0"
+            )}>
                 {!selectedConversation ? (
                     /* No chat selected */
                     <div className="flex-1 flex items-center justify-center text-slate-500">
@@ -328,13 +335,21 @@ export default function WhatsAppInbox() {
                         {/* Chat Header */}
                         <div className="p-4 border-b border-slate-700 bg-slate-800/50">
                             <div className="flex items-center justify-between">
-                                <div>
-                                    <h2 className="font-semibold">
-                                        {selectedConversation.contactName || selectedConversation.phoneNumber.replace('@c.us', '')}
-                                    </h2>
-                                    <p className="text-sm text-slate-400">
-                                        {selectedConversation.phoneNumber.replace('@c.us', '')}
-                                    </p>
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        onClick={() => setSelectedConversation(null)}
+                                        className="p-2 -ml-2 text-slate-400 hover:text-white lg:hidden"
+                                    >
+                                        <ArrowRight className="w-5 h-5 rotate-180" />
+                                    </button>
+                                    <div>
+                                        <h2 className="font-semibold text-sm lg:text-base truncate max-w-[150px] lg:max-w-none">
+                                            {selectedConversation.contactName || selectedConversation.phoneNumber.replace('@c.us', '')}
+                                        </h2>
+                                        <p className="text-xs text-slate-400">
+                                            {selectedConversation.phoneNumber.replace('@c.us', '')}
+                                        </p>
+                                    </div>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     {selectedConversation.canSendFreeform ? (
@@ -372,8 +387,8 @@ export default function WhatsAppInbox() {
                                         className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
                                     >
                                         <div className={`max-w-[70%] rounded-2xl px-4 py-2 ${msg.direction === 'outbound'
-                                                ? 'bg-green-600 text-white rounded-br-sm'
-                                                : 'bg-slate-700 text-slate-100 rounded-bl-sm'
+                                            ? 'bg-green-600 text-white rounded-br-sm'
+                                            : 'bg-slate-700 text-slate-100 rounded-bl-sm'
                                             }`}>
                                             {msg.mediaUrl && (
                                                 <div className="mb-2">

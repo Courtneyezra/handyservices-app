@@ -37,8 +37,8 @@ export function CallsFilterBar({
     onClearFilters,
 }: CallsFilterBarProps) {
     return (
-        <Card className="mb-6">
-            <CardContent className="p-4 flex flex-col md:flex-row gap-4 items-end">
+        <Card className="mb-4 lg:mb-6">
+            <CardContent className="p-4 flex flex-col lg:flex-row gap-4 items-end">
                 <div className="flex-1 space-y-2 w-full">
                     <Label>Search</Label>
                     <div className="relative">
@@ -59,14 +59,14 @@ export function CallsFilterBar({
                             type="date"
                             value={dateRange?.from ? dateRange.from.toISOString().split('T')[0] : ''}
                             onChange={(e) => setDateRange({ ...dateRange, from: e.target.value ? new Date(e.target.value) : undefined, to: dateRange?.to })}
-                            className="w-[140px]"
+                            className="w-full lg:w-[140px]"
                         />
                         <span className="text-muted-foreground">-</span>
                         <Input
                             type="date"
                             value={dateRange?.to ? dateRange.to.toISOString().split('T')[0] : ''}
                             onChange={(e) => setDateRange({ ...dateRange, from: dateRange?.from, to: e.target.value ? new Date(e.target.value) : undefined })}
-                            className="w-[140px]"
+                            className="w-full lg:w-[140px]"
                         />
                     </div>
                 </div>

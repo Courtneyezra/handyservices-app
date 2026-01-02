@@ -30,7 +30,7 @@ const HHH_FIXED_VALUE_BULLETS = {
     'Basic communication updates',
     'Before/after photos (if needed)',
     'Standard job documentation',
-    'Pay on completion',
+    'Pay on completion (Deposit required)',
     '7-day workmanship guarantee',
   ],
   hassleFree: [
@@ -260,8 +260,9 @@ export default function PersonalizedQuotePage() {
   const [hasBooked, setHasBooked] = useState(false);
   const [isBooking, setIsBooking] = useState(false);
   const [hasReserved, setHasReserved] = useState(false); // Track if user clicked "Book Now"
-  const [showSocialProof, setShowSocialProof] = useState(true); // Social proof overlay on initial load
-  const [expandedTiers, setExpandedTiers] = useState<Set<EEEPackageTier>>(new Set()); // Track which tier's "What's included" is expanded
+
+  const [showSocialProof, setShowSocialProof] = useState(() => !sessionStorage.getItem('socialProofSeen')); // Social proof overlay on initial load
+  const [expandedTiers, setExpandedTiers] = useState<Set<EEEPackageTier>>(new Set<EEEPackageTier>(['enhanced'])); // Track which tier's "What's included" is expanded
   const [bookedLeadId, setBookedLeadId] = useState<string | null>(null); // Store lead ID after booking
   const [datePreferencesSubmitted, setDatePreferencesSubmitted] = useState(false); // Track if date preferences are submitted
   const [showPriceIncreaseNotice, setShowPriceIncreaseNotice] = useState(false); // Show banner when prices increased
@@ -803,7 +804,10 @@ export default function PersonalizedQuotePage() {
 
             {/* CTA Button */}
             <Button
-              onClick={() => setShowSocialProof(false)}
+              onClick={() => {
+                setShowSocialProof(false);
+                sessionStorage.setItem('socialProofSeen', 'true');
+              }}
               className="w-full bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold text-lg h-14 text-base shadow-lg"
               data-testid="button-see-my-quote"
             >
@@ -1000,39 +1004,19 @@ export default function PersonalizedQuotePage() {
                 </h2>
               </div>
 
-              {/* Payment Mode Toggle */}
-              <div className="mb-8">
-                <div className="flex items-center justify-center gap-4 mb-2">
-                  <span className={`text-sm font-medium ${paymentMode === 'full' ? 'text-white' : 'text-gray-500'}`}>
-                    Pay in Full
-                  </span>
-                  <button
-                    onClick={() => setPaymentMode(paymentMode === 'installments' ? 'full' : 'installments')}
-                    className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors ${paymentMode === 'installments' ? 'bg-[#e8b323]' : 'bg-gray-600'
-                      }`}
-                    data-testid="button-payment-toggle"
-                  >
-                    <span
-                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform ${paymentMode === 'installments' ? 'translate-x-8' : 'translate-x-1'
-                        }`}
-                    />
-                  </button>
-                  <span className={`text-sm font-medium ${paymentMode === 'installments' ? 'text-white' : 'text-gray-500'}`}>
-                    3 Monthly Payments
-                  </span>
-                </div>
-                <div className="flex justify-center">
-                  <span className="inline-flex items-center px-3 py-1 rounded-full bg-green-900/40 border border-green-600/50 text-green-400 text-xs font-medium">
-                    Save 10% when you pay in full
-                  </span>
-                </div>
-              </div>
+              {/* Payment Mode Toggle - REMOVED to avoid duplication with sticky footer */}
+              {/* <div className="mb-8">...</div> */}
 
               {packages.map((pkg) => {
-                const features = quote.tierDeliverables?.[pkg.tier === 'essential' ? 'essential' : pkg.tier === 'enhanced' ? 'hassleFree' : 'highStandard'] ||
+                const rawFeatures = quote.tierDeliverables?.[pkg.tier === 'essential' ? 'essential' : pkg.tier === 'enhanced' ? 'hassleFree' : 'highStandard'] ||
                   getPerksForTier(quote, pkg.tier as 'essential' | 'enhanced' | 'elite');
+                // DEBUG: Check for duplication
+                console.log(`[Quote] Tier ${pkg.tier} raw features:`, rawFeatures);
+                const features = Array.from(new Set(rawFeatures.map(f => typeof f === 'string' ? f.trim() : f)));
+                console.log(`[Quote] Tier ${pkg.tier} unique features:`, features);
                 const isExpanded = expandedTiers.has(pkg.tier);
-                const hasMultipleFeatures = features.length > 1;
+                // UX Improvement: Show more features by default (4 instead of 1)
+                const hasMoreFeatures = features.length > 4;
 
                 // Tier 1 (essential) never shows installments, Tier 2/3 can use them
                 const isTier1 = pkg.tier === 'essential';
@@ -1175,16 +1159,16 @@ export default function PersonalizedQuotePage() {
 
                         {/* Feature List with Expandable Toggle */}
                         <div className="space-y-3 mb-6">
-                          {/* Show only first feature when collapsed, all when expanded */}
-                          {(isExpanded ? features : features.slice(0, 1)).map((deliverable, idx) => (
+                          {/* Show first 4 features when collapsed, all when expanded */}
+                          {(isExpanded ? features : features.slice(0, 4)).map((deliverable, idx) => (
                             <div key={idx} className="flex items-start gap-3">
                               <Check className="h-5 w-5 text-white flex-shrink-0 mt-0.5" strokeWidth={3} />
                               <span className="text-gray-200 text-sm leading-relaxed flex-1">{deliverable}</span>
                             </div>
                           ))}
 
-                          {/* Expand/Collapse Button - Only show if multiple features */}
-                          {hasMultipleFeatures && (
+                          {/* Expand/Collapse Button - Only show if more than 4 features */}
+                          {hasMoreFeatures && (
                             <button
                               onClick={() => {
                                 setExpandedTiers(prev => {
@@ -1201,7 +1185,7 @@ export default function PersonalizedQuotePage() {
                               data-testid={`expand-toggle-${pkg.tier}`}
                             >
                               <span className="text-sm font-medium">
-                                {isExpanded ? 'Show less' : `+${features.length - 1} more`}
+                                {isExpanded ? 'Show less' : `+${features.length - 4} more`}
                               </span>
                               <ChevronDown
                                 className={`h-4 w-4 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}

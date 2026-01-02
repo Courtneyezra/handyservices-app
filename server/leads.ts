@@ -1,15 +1,15 @@
-
 import { Router } from "express";
 import { db } from "./db";
-import { leads, insertLeadSchema, personalizedQuotes } from "@shared/schema";
+import { leads, insertLeadSchema } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "nanoid";
+import { getSetting, getTwilioSettings } from "./settings";
 
 export const leadsRouter = Router();
 
 // Create Lead (Quick Capture / Slot Reservation)
-leadsRouter.post('/api/leads', async (req, res) => {
+leadsRouter.post('/leads', async (req, res) => {
     try {
         // Validate input against schema
         // Note: We perform loose validation first to handle diverse frontend payloads
@@ -84,8 +84,130 @@ leadsRouter.post('/api/leads/quick-capture', async (req, res) => {
     }
 });
 
+// Eleven Labs Tool Webhook: Capture Lead
+leadsRouter.post('/eleven-labs/lead', async (req, res) => {
+    try {
+        // Optional security: Validate API key if configured
+        const apiKey = await getSetting('twilio.eleven_labs_api_key');
+        if (apiKey) {
+            const incomingKey = req.headers['x-api-key'];
+            if (incomingKey !== apiKey) {
+                console.warn(`[ElevenLabs] Unauthorized webhook attempt: invalid API key`);
+                return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
+            }
+        }
+
+        const { name, phone, job_description, urgency } = req.body;
+
+        if (!name || !job_description) {
+            return res.status(400).json({ error: 'Missing required fields: name and job_description' });
+        }
+
+        const leadId = `lead_${nanoid()}`;
+        const leadData = {
+            id: leadId,
+            customerName: name,
+            phone: phone || "Unknown",
+            jobDescription: job_description,
+            status: "new",
+            source: "eleven_labs_agent",
+            // Store urgency in transcriptJson or a separate field if we had one
+            transcriptJson: { urgency: urgency || "Standard" },
+        };
+
+        // Validate and insert
+        const validatedLead = insertLeadSchema.parse(leadData);
+        await db.insert(leads).values(validatedLead);
+
+        console.log(`[ElevenLabs] Lead captured: ${leadId} (${name})`);
+
+        // Eleven Labs expects a success response, often just a message
+        res.status(200).json({
+            success: true,
+            message: "Lead information saved successfully. Tell the customer that someone will follow up shortly.",
+            leadId
+        });
+
+    } catch (error: any) {
+        console.error('[ElevenLabs] Error capturing lead:', error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// Eleven Labs Post-Call Webhook: Get summary and recording
+leadsRouter.post('/eleven-labs/post-call', async (req, res) => {
+    try {
+        const settings = await getTwilioSettings();
+        // Optional security: Validate API key if configured
+        const apiKey = settings.elevenLabsApiKey;
+        if (apiKey) {
+            const incomingKey = req.headers['x-api-key'];
+            if (incomingKey !== apiKey) {
+                console.warn(`[ElevenLabs] Unauthorized post-call attempt: invalid API key`);
+                return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
+            }
+        }
+
+        const { conversation_id, analysis, metadata } = req.body;
+        const callerNumber = metadata?.caller_id || metadata?.phone_number;
+
+        console.log(`[ElevenLabs] Post-call analysis received for conversation: ${conversation_id} (Caller: ${callerNumber})`);
+
+        if (callerNumber) {
+            // Find the most recent lead from this number
+            const [lead] = await db.select().from(leads).where(eq(leads.phone, callerNumber)).orderBy(desc(leads.createdAt)).limit(1);
+
+            if (lead) {
+                const updateData: any = {
+                    elevenLabsConversationId: conversation_id,
+                    updatedAt: new Date()
+                };
+
+                if (analysis?.transcript_summary) {
+                    updateData.elevenLabsSummary = analysis.transcript_summary;
+                    // Also update the main jobSummary if it's currently empty
+                    if (!lead.jobSummary || lead.jobSummary === "Pending...") {
+                        updateData.jobSummary = analysis.transcript_summary;
+                    }
+                }
+
+                if (analysis?.call_successful !== undefined) {
+                    // Map success to a score or just store it
+                    updateData.elevenLabsSuccessScore = analysis.call_successful ? 100 : 0;
+                }
+
+                // Fetch recording URL from Eleven Labs API
+                if (settings.elevenLabsApiKey) {
+                    try {
+                        const convRes = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${conversation_id}`, {
+                            method: 'GET',
+                            headers: { 'xi-api-key': settings.elevenLabsApiKey }
+                        });
+                        if (convRes.ok) {
+                            const convData = await convRes.json();
+                            if (convData.audio_url) {
+                                updateData.elevenLabsRecordingUrl = convData.audio_url;
+                            }
+                        }
+                    } catch (convErr) {
+                        console.error(`[ElevenLabs] Failed to fetch recording URL:`, convErr);
+                    }
+                }
+
+                await db.update(leads).set(updateData).where(eq(leads.id, lead.id));
+                console.log(`[ElevenLabs] Updated lead ${lead.id} with post-call analysis.`);
+            }
+        }
+
+        res.status(200).json({ success: true });
+    } catch (error: any) {
+        console.error('[ElevenLabs] Error in post-call webhook:', error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
 // List Leads (Admin)
-leadsRouter.get('/api/leads', async (req, res) => {
+leadsRouter.get('/leads', async (req, res) => {
     try {
         const allLeads = await db.select().from(leads).orderBy(desc(leads.createdAt));
         res.json(allLeads);

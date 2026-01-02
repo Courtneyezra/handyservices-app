@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -7,6 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { Settings, Phone, Volume2, MessageSquare, CheckCircle, XCircle, Loader2, AlertCircle, PhoneForwarded } from 'lucide-react';
 
@@ -23,6 +25,21 @@ interface TwilioSettings {
     'twilio.reassurance_enabled': boolean;
     'twilio.reassurance_interval': number;
     'twilio.reassurance_message': string;
+    'twilio.agent_notify_sms': string;
+    'twilio.agent_missed_sms': string;
+    'twilio.whisper_enabled': boolean;
+    'twilio.welcome_audio_url': string;
+    'twilio.fallback_agent_url': string;
+    'twilio.eleven_labs_agent_id': string;
+    'twilio.eleven_labs_api_key': string;
+    // Agent Modes
+    'twilio.agent_mode': string;
+    'twilio.agent_context_default': string;
+    'twilio.agent_context_out_of_hours': string;
+    'twilio.agent_context_missed': string;
+    'twilio.business_hours_start': string;
+    'twilio.business_hours_end': string;
+    'twilio.business_days': string;
 }
 
 const defaultSettings: TwilioSettings = {
@@ -34,10 +51,25 @@ const defaultSettings: TwilioSettings = {
     'twilio.forward_number': '',
     'twilio.forward_enabled': false,
     'twilio.fallback_action': 'whatsapp',
-    'twilio.fallback_message': "Hi! We missed your call to {business_name}. How can we help? Reply here or we'll call you back shortly.",
+    'twilio.fallback_message': "Sorry we missed your call. We will call you back shortly. In the meantime, you can reach us on WhatsApp here: https://wa.me/447508744402",
     'twilio.reassurance_enabled': true,
     'twilio.reassurance_interval': 15,
     'twilio.reassurance_message': 'Thanks for waiting, just connecting you now.',
+    'twilio.agent_notify_sms': '📞 Incoming call from {lead_number} to {twilio_uk_number}',
+    'twilio.agent_missed_sms': "❌ Missed call from {lead_number}. Lead was sent an auto-SMS.",
+    'twilio.whisper_enabled': false,
+    'twilio.welcome_audio_url': '/assets/handyservices-welcome.mp3',
+    'twilio.fallback_agent_url': '',
+    'twilio.eleven_labs_agent_id': '',
+    'twilio.eleven_labs_api_key': '',
+    // Agent Modes
+    'twilio.agent_mode': 'auto',
+    'twilio.agent_context_default': 'A team member will be with you shortly. I can help answer questions about our services while you wait.',
+    'twilio.agent_context_out_of_hours': 'We are currently closed. Our hours are 8am-6pm Monday to Friday. Please leave a message and we will call you back first thing.',
+    'twilio.agent_context_missed': "Sorry for the wait! Our team couldn't get to the phone. I'm here to help though - what can I do for you?",
+    'twilio.business_hours_start': '08:00',
+    'twilio.business_hours_end': '18:00',
+    'twilio.business_days': '1,2,3,4,5',
 };
 
 interface ForwardStatus {
@@ -51,9 +83,29 @@ interface ForwardStatus {
 export default function SettingsPage() {
     const { toast } = useToast();
     const queryClient = useQueryClient();
+    const [, setLocation] = useLocation();
+
+    // Tab persistence via URL query params
+    const getInitialTab = () => {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        return tab && ['routing', 'experience', 'fallback'].includes(tab) ? tab : 'routing';
+    };
+    const [activeTab, setActiveTab] = useState(getInitialTab);
+
+    const handleTabChange = useCallback((value: string) => {
+        setActiveTab(value);
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', value);
+        window.history.replaceState({}, '', url.toString());
+    }, []);
+
     const [localSettings, setLocalSettings] = useState<TwilioSettings>(defaultSettings);
     const [forwardStatus, setForwardStatus] = useState<ForwardStatus>({ status: 'unconfigured', message: 'Enter a forward number', isValid: false });
+    const [agentStatus, setAgentStatus] = useState<ForwardStatus>({ status: 'unconfigured', message: 'Enter an agent ID', isValid: false });
+    const [apiKeyStatus, setApiKeyStatus] = useState<ForwardStatus>({ status: 'unconfigured', message: 'Enter an API key', isValid: false });
     const [isDirty, setIsDirty] = useState(false);
+
 
     // Fetch settings
     const { data: settingsData, isLoading } = useQuery({
@@ -63,6 +115,8 @@ export default function SettingsPage() {
             if (!res.ok) throw new Error('Failed to fetch settings');
             return res.json();
         },
+        staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
+        refetchOnWindowFocus: false, // Don't refetch when returning to the tab
     });
 
     // Save settings mutation
@@ -133,6 +187,16 @@ export default function SettingsPage() {
             if (forwardNum) {
                 checkForwardStatus(forwardNum);
             }
+            // Check agent ID on load - pass API key directly to avoid race condition
+            const agentId = settingsData.settings['twilio.eleven_labs_agent_id'];
+            const apiKey = settingsData.settings['twilio.eleven_labs_api_key'];
+            if (apiKey) {
+                checkApiKeyStatus(apiKey);
+            }
+            if (agentId && apiKey) {
+                // Verify agent with the API key from settings data
+                checkAgentStatusWithKey(agentId, apiKey);
+            }
         }
     }, [settingsData]);
 
@@ -145,8 +209,8 @@ export default function SettingsPage() {
         saveMutation.mutate(localSettings);
     };
 
-    const getStatusIcon = () => {
-        switch (forwardStatus.status) {
+    const getStatusIcon = (status: ForwardStatus['status']) => {
+        switch (status) {
             case 'valid':
                 return <CheckCircle className="w-5 h-5 text-green-500" />;
             case 'invalid':
@@ -160,16 +224,71 @@ export default function SettingsPage() {
         }
     };
 
-    const getStatusColor = () => {
-        switch (forwardStatus.status) {
+    const getStatusColor = (status: ForwardStatus['status']) => {
+        switch (status) {
             case 'valid':
-                return 'border-green-500 bg-green-50 dark:bg-green-950';
+                return 'border-green-500/50 bg-green-500/10';
             case 'invalid':
-                return 'border-red-500 bg-red-50 dark:bg-red-950';
+                return 'border-red-500/50 bg-red-500/10';
             case 'checking':
-                return 'border-blue-500 bg-blue-50 dark:bg-blue-950';
+                return 'border-blue-500/50 bg-blue-500/10';
             default:
-                return 'border-gray-300';
+                return 'border-white/10 bg-white/5';
+        }
+    };
+
+    const checkAgentStatus = async (agentId: string) => {
+        if (!agentId) {
+            setAgentStatus({ status: 'unconfigured', message: 'Enter an agent ID', isValid: false });
+            return;
+        }
+        const apiKey = localSettings['twilio.eleven_labs_api_key'];
+        checkAgentStatusWithKey(agentId, apiKey);
+    };
+
+    // Separate function that accepts API key directly (for use on initial load)
+    const checkAgentStatusWithKey = async (agentId: string, apiKey: string) => {
+        if (!agentId) {
+            setAgentStatus({ status: 'unconfigured', message: 'Enter an agent ID', isValid: false });
+            return;
+        }
+
+        setAgentStatus(prev => ({ ...prev, status: 'checking', message: 'Verifying...' }));
+        try {
+            const res = await fetch('/api/settings/check-agent-status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ agentId, apiKey }),
+            });
+            const data = await res.json();
+            setAgentStatus(data);
+
+            // AUTO-ASSIGN: If verified successfully, automatically switch fallback behavior
+            if (data.status === 'valid' && data.isValid) {
+                updateSetting('twilio.fallback_action', 'eleven-labs');
+                console.log(`[Settings] Auto-assigned Eleven Labs as fallback based on verified Agent ID: ${agentId}`);
+            }
+        } catch (error) {
+            setAgentStatus({ status: 'unknown', message: 'Failed to verify agent', isValid: false });
+        }
+    };
+
+    const checkApiKeyStatus = async (apiKey: string) => {
+        if (!apiKey) {
+            setApiKeyStatus({ status: 'unconfigured', message: 'Enter an API key', isValid: false });
+            return;
+        }
+        setApiKeyStatus(prev => ({ ...prev, status: 'checking', message: 'Verifying...' }));
+        try {
+            const res = await fetch('/api/settings/check-api-key', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKey }),
+            });
+            const data = await res.json();
+            setApiKeyStatus(data);
+        } catch (error) {
+            setApiKeyStatus({ status: 'unknown', message: 'Failed to verify key', isValid: false });
         }
     };
 
@@ -182,223 +301,482 @@ export default function SettingsPage() {
     }
 
     return (
-        <div className="p-6 max-w-4xl mx-auto space-y-6">
+        <div className="p-6 max-w-4xl mx-auto space-y-6 pb-24">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <Settings className="w-8 h-8 text-blue-600" />
                     <div>
-                        <h1 className="text-2xl font-bold">Call Routing Settings</h1>
-                        <p className="text-gray-500">Configure how incoming calls are handled</p>
+                        <h1 className="text-xl lg:text-2xl font-bold">Settings</h1>
+                        <p className="text-xs lg:text-sm text-gray-500">Manage your call system configuration</p>
                     </div>
                 </div>
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending}>
+                <div className="flex flex-col sm:flex-row gap-2">
+                    <Button variant="outline" onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending} size="sm">
                         {seedMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                         Seed Defaults
                     </Button>
-                    <Button onClick={handleSave} disabled={!isDirty || saveMutation.isPending}>
-                        {saveMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                        Save Changes
+                    <Button onClick={handleSave} disabled={!isDirty || saveMutation.isPending} size="sm">
+                        {saveMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : 'Save Changes'}
                     </Button>
                 </div>
             </div>
 
-            {/* Call Forwarding Section */}
-            <Card className="border-2">
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <PhoneForwarded className="w-5 h-5 text-blue-600" />
-                        Call Forwarding
-                    </CardTitle>
-                    <CardDescription>Route calls to your VA or team member</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border">
-                        <div>
-                            <Label className="text-base font-medium">Enable Call Forwarding</Label>
-                            <p className="text-sm text-gray-500">When enabled, calls will be forwarded to the number below</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <span className={`text-sm font-medium ${localSettings['twilio.forward_enabled'] ? 'text-green-600' : 'text-gray-400'}`}>
-                                {localSettings['twilio.forward_enabled'] ? 'ON' : 'OFF'}
-                            </span>
-                            <Switch
-                                checked={localSettings['twilio.forward_enabled']}
-                                onCheckedChange={(val) => updateSetting('twilio.forward_enabled', val)}
-                                className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-300"
-                            />
-                        </div>
-                    </div>
+            <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+                <TabsList className="grid w-full grid-cols-3 mb-8">
+                    <TabsTrigger value="routing">Call Routing</TabsTrigger>
+                    <TabsTrigger value="experience">Experience</TabsTrigger>
+                    <TabsTrigger value="fallback">Fallback</TabsTrigger>
+                </TabsList>
 
-                    <div className="space-y-2">
-                        <Label htmlFor="forward-number">Forward Number (E.164 format)</Label>
-                        <div className="flex gap-2">
-                            <div className={`flex-1 relative flex items-center rounded-md border-2 ${getStatusColor()}`}>
-                                <Phone className="w-4 h-4 ml-3 text-gray-400" />
-                                <Input
-                                    id="forward-number"
-                                    placeholder="+447700900000"
-                                    value={localSettings['twilio.forward_number']}
-                                    onChange={(e) => updateSetting('twilio.forward_number', e.target.value)}
-                                    className="border-0 focus-visible:ring-0"
-                                />
-                                <div className="pr-3">
-                                    {getStatusIcon()}
+                {/* Call Routing Tab */}
+                <TabsContent value="routing" className="space-y-6 pt-2">
+                    <Card className="border-2">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <PhoneForwarded className="w-5 h-5 text-blue-600" />
+                                Call Forwarding
+                            </CardTitle>
+                            <CardDescription>Route calls to your VA or team member</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-white/10">
+                                <div>
+                                    <Label className="text-base font-medium">Enable Call Forwarding</Label>
+                                    <p className="text-sm text-gray-400">When enabled, calls will be forwarded to the number below</p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <span className={`text-sm font-medium ${localSettings['twilio.forward_enabled'] ? 'text-green-600' : 'text-gray-400'}`}>
+                                        {localSettings['twilio.forward_enabled'] ? 'ON' : 'OFF'}
+                                    </span>
+                                    <Switch
+                                        checked={localSettings['twilio.forward_enabled']}
+                                        onCheckedChange={(val) => updateSetting('twilio.forward_enabled', val)}
+                                        className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-300"
+                                    />
                                 </div>
                             </div>
-                            <Button
-                                variant="outline"
-                                onClick={() => checkForwardStatus(localSettings['twilio.forward_number'])}
-                            >
-                                Verify
+
+                            <div className="space-y-2">
+                                <Label htmlFor="forward-number">Forward Number (E.164 format)</Label>
+                                <div className="flex gap-2">
+                                    <div className={`flex-1 relative flex items-center rounded-md border-2 ${getStatusColor(forwardStatus.status)}`}>
+                                        <Phone className="w-4 h-4 ml-3 text-gray-400" />
+                                        <Input
+                                            id="forward-number"
+                                            placeholder="+447700900000"
+                                            value={localSettings['twilio.forward_number']}
+                                            onChange={(e) => updateSetting('twilio.forward_number', e.target.value)}
+                                            className="border-0 focus-visible:ring-0"
+                                        />
+                                        <div className="pr-3">
+                                            {getStatusIcon(forwardStatus.status)}
+                                        </div>
+                                    </div>
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => checkForwardStatus(localSettings['twilio.forward_number'])}
+                                    >
+                                        Verify
+                                    </Button>
+                                </div>
+                                <p className={`text-sm ${forwardStatus.status === 'valid' ? 'text-green-600' : forwardStatus.status === 'invalid' ? 'text-red-600' : 'text-gray-500'}`}>
+                                    {forwardStatus.message}
+                                    {forwardStatus.nationalFormat && ` • ${forwardStatus.nationalFormat}`}
+                                </p>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label>Ring Timeout: {localSettings['twilio.max_wait_seconds']} seconds</Label>
+                                <input
+                                    type="range"
+                                    min={10}
+                                    max={60}
+                                    step={5}
+                                    value={localSettings['twilio.max_wait_seconds']}
+                                    onChange={(e) => updateSetting('twilio.max_wait_seconds', parseInt(e.target.value))}
+                                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                                />
+                                <p className="text-sm text-gray-500">How long to ring the forward number before triggering fallback</p>
+                            </div>
+
+                            <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-white/10">
+                                <div>
+                                    <Label className="text-base font-medium">Whisper Lead Number</Label>
+                                    <p className="text-sm text-gray-400">Play the lead's number to you before connecting</p>
+                                </div>
+                                <Switch
+                                    checked={localSettings['twilio.whisper_enabled']}
+                                    onCheckedChange={(val) => updateSetting('twilio.whisper_enabled', val)}
+                                />
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                {/* Experience Tab */}
+                <TabsContent value="experience" className="space-y-6 pt-2">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Volume2 className="w-5 h-5 text-green-600" />
+                                Caller Experience
+                            </CardTitle>
+                            <CardDescription>Customize what callers hear</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <Label htmlFor="business-name">Business Name</Label>
+                                    <Input
+                                        id="business-name"
+                                        value={localSettings['twilio.business_name']}
+                                        onChange={(e) => updateSetting('twilio.business_name', e.target.value)}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="voice">Voice</Label>
+                                    <Select
+                                        value={localSettings['twilio.voice']}
+                                        onValueChange={(val) => updateSetting('twilio.voice', val)}
+                                    >
+                                        <SelectTrigger id="voice">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="Polly.Amy-Neural">Amy (UK Female)</SelectItem>
+                                            <SelectItem value="Polly.Brian-Neural">Brian (UK Male)</SelectItem>
+                                            <SelectItem value="Polly.Emma-Neural">Emma (UK Female)</SelectItem>
+                                            <SelectItem value="Polly.Arthur-Neural">Arthur (UK Male)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="welcome-message">Welcome Message</Label>
+                                <Textarea
+                                    id="welcome-message"
+                                    value={localSettings['twilio.welcome_message']}
+                                    onChange={(e) => updateSetting('twilio.welcome_message', e.target.value)}
+                                    placeholder="Use {business_name} to insert the business name"
+                                    rows={3}
+                                />
+                                <p className="text-sm text-gray-500">Use {'{business_name}'} as a placeholder</p>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="welcome-audio">Welcome Audio</Label>
+                                <div className="flex items-center gap-3">
+                                    <Input
+                                        id="welcome-audio"
+                                        value={localSettings['twilio.welcome_audio_url']}
+                                        onChange={(e) => updateSetting('twilio.welcome_audio_url', e.target.value)}
+                                        placeholder="/assets/welcome-audio.mp3"
+                                        className="flex-1"
+                                    />
+                                    <label className="cursor-pointer">
+                                        <input
+                                            type="file"
+                                            accept="audio/mpeg,audio/mp3,audio/wav,audio/ogg"
+                                            className="hidden"
+                                            onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (!file) return;
+
+                                                const formData = new FormData();
+                                                formData.append('audio', file);
+
+                                                try {
+                                                    const response = await fetch('/api/settings/upload-audio', {
+                                                        method: 'POST',
+                                                        body: formData,
+                                                    });
+                                                    const data = await response.json();
+                                                    if (data.success) {
+                                                        updateSetting('twilio.welcome_audio_url', data.audioUrl);
+                                                        alert('Audio uploaded successfully!');
+                                                    } else {
+                                                        alert(data.error || 'Upload failed');
+                                                    }
+                                                } catch (error) {
+                                                    alert('Failed to upload audio');
+                                                }
+                                            }}
+                                        />
+                                        <span className="inline-flex items-center gap-1 px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                            </svg>
+                                            Upload
+                                        </span>
+                                    </label>
+                                </div>
+                                <p className="text-sm text-gray-500">Upload an MP3/WAV file or enter a URL. Plays to callers before connecting.</p>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="hold-music">Hold Music URL</Label>
+                                <Input
+                                    id="hold-music"
+                                    value={localSettings['twilio.hold_music_url']}
+                                    onChange={(e) => updateSetting('twilio.hold_music_url', e.target.value)}
+                                    placeholder="/assets/hold-music.mp3"
+                                />
+                                <p className="text-sm text-gray-500">Audio played while lead is waiting to be connected</p>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                {/* Fallback Tab */}
+                <TabsContent value="fallback" className="space-y-6 pt-2">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <MessageSquare className="w-5 h-5 text-purple-600" />
+                                No-Answer Fallback
+                            </CardTitle>
+                            <CardDescription>What happens when no one answers</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            <div className="space-y-2">
+                                <Label>Fallback Action</Label>
+                                <Select
+                                    value={localSettings['twilio.fallback_action']}
+                                    onValueChange={(val) => updateSetting('twilio.fallback_action', val)}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="whatsapp">Send WhatsApp Message</SelectItem>
+                                        <SelectItem value="voicemail">Take Voicemail</SelectItem>
+                                        <SelectItem value="eleven-labs">Eleven Labs Voice Agent</SelectItem>
+                                        <SelectItem value="none">Hang Up (No Fallback)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            {localSettings['twilio.fallback_action'] === 'eleven-labs' && (
+                                <div className="space-y-4 p-4 bg-slate-900/50 rounded-lg border border-white/10">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="eleven-labs-api-key">Eleven Labs API Key (Required)</Label>
+                                        <div className="flex gap-2">
+                                            <div className={`flex-1 relative flex items-center rounded-md border-2 ${getStatusColor(apiKeyStatus.status)}`}>
+                                                <AlertCircle className="w-4 h-4 ml-3 text-gray-400" />
+                                                <Input
+                                                    id="eleven-labs-api-key"
+                                                    type="password"
+                                                    placeholder="Enter your Eleven Labs API Key"
+                                                    value={localSettings['twilio.eleven_labs_api_key']}
+                                                    onChange={(e) => updateSetting('twilio.eleven_labs_api_key', e.target.value)}
+                                                    className="border-0 focus-visible:ring-0 bg-transparent"
+                                                />
+                                                <div className="pr-3">
+                                                    {getStatusIcon(apiKeyStatus.status)}
+                                                </div>
+                                            </div>
+                                            <Button
+                                                variant="outline"
+                                                onClick={() => checkApiKeyStatus(localSettings['twilio.eleven_labs_api_key'])}
+                                                className="border-white/10"
+                                            >
+                                                Verify Key
+                                            </Button>
+                                        </div>
+                                        <p className={`text-sm ${apiKeyStatus.status === 'valid' ? 'text-green-600' : apiKeyStatus.status === 'invalid' ? 'text-red-600' : 'text-gray-500'}`}>
+                                            {apiKeyStatus.message}
+                                        </p>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label htmlFor="eleven-labs-id">Eleven Labs Agent ID</Label>
+                                        <div className="flex gap-2">
+                                            <div className={`flex-1 relative flex items-center rounded-md border-2 ${getStatusColor(agentStatus.status)}`}>
+                                                <MessageSquare className="w-4 h-4 ml-3 text-gray-400" />
+                                                <Input
+                                                    id="eleven-labs-id"
+                                                    placeholder="e.g. agent_abc123 or 27f64409-..."
+                                                    value={localSettings['twilio.eleven_labs_agent_id']}
+                                                    onChange={(e) => updateSetting('twilio.eleven_labs_agent_id', e.target.value)}
+                                                    className="border-0 focus-visible:ring-0 bg-transparent"
+                                                    disabled={apiKeyStatus.status !== 'valid'}
+                                                />
+                                                <div className="pr-3">
+                                                    {getStatusIcon(agentStatus.status)}
+                                                </div>
+                                            </div>
+                                            <Button
+                                                variant="outline"
+                                                onClick={() => checkAgentStatus(localSettings['twilio.eleven_labs_agent_id'])}
+                                                className="border-white/10"
+                                                disabled={apiKeyStatus.status !== 'valid'}
+                                            >
+                                                Verify
+                                            </Button>
+                                        </div>
+                                        <p className={`text-sm ${agentStatus.status === 'valid' ? 'text-green-600' : agentStatus.status === 'invalid' ? 'text-red-600' : 'text-gray-500'}`}>
+                                            {apiKeyStatus.status !== 'valid'
+                                                ? 'Verify your API key first to enable Agent ID verification'
+                                                : agentStatus.message}
+                                        </p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="fallback-agent">Custom Agent URL (Optional Override)</Label>
+                                        <Input
+                                            id="fallback-agent"
+                                            value={localSettings['twilio.fallback_agent_url']}
+                                            onChange={(e) => updateSetting('twilio.fallback_agent_url', e.target.value)}
+                                            placeholder="https://agent.elevenlabs.io/..."
+                                        />
+                                        <p className="text-sm text-gray-500">
+                                            Only use this if you need to override the standard redirection.
+                                        </p>
+                                    </div>
+
+                                    {/* Agent Modes - Only visible when both API key and Agent ID are verified */}
+                                    {(apiKeyStatus.status === 'valid' && agentStatus.status === 'valid') && (
+                                        <div className="space-y-4 pt-4 border-t border-white/10">
+                                            <div className="flex items-center gap-2">
+                                                <h4 className="text-sm font-semibold text-white">Agent Modes</h4>
+                                                <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded">Unlocked</span>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label>Active Mode</Label>
+                                                <Select
+                                                    value={localSettings['twilio.agent_mode'] || 'auto'}
+                                                    onValueChange={(value) => updateSetting('twilio.agent_mode', value)}
+                                                >
+                                                    <SelectTrigger>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="auto">Auto (UK Business Hours)</SelectItem>
+                                                        <SelectItem value="force-in-hours">Force In-Hours</SelectItem>
+                                                        <SelectItem value="force-out-of-hours">Force Out-of-Hours</SelectItem>
+                                                        <SelectItem value="voicemail-only">Voicemail Only</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            {localSettings['twilio.agent_mode'] === 'auto' && (
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <Label>Business Hours Start</Label>
+                                                        <Input
+                                                            type="time"
+                                                            value={localSettings['twilio.business_hours_start'] || '08:00'}
+                                                            onChange={(e) => updateSetting('twilio.business_hours_start', e.target.value)}
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label>Business Hours End</Label>
+                                                        <Input
+                                                            type="time"
+                                                            value={localSettings['twilio.business_hours_end'] || '18:00'}
+                                                            onChange={(e) => updateSetting('twilio.business_hours_end', e.target.value)}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <div className="space-y-2">
+                                                <Label>In-Hours Context (Injected to Agent)</Label>
+                                                <Textarea
+                                                    value={localSettings['twilio.agent_context_default'] || ''}
+                                                    onChange={(e) => updateSetting('twilio.agent_context_default', e.target.value)}
+                                                    rows={2}
+                                                    placeholder="A team member will be with you shortly..."
+                                                />
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label>Out-of-Hours Context (Injected to Agent)</Label>
+                                                <Textarea
+                                                    value={localSettings['twilio.agent_context_out_of_hours'] || ''}
+                                                    onChange={(e) => updateSetting('twilio.agent_context_out_of_hours', e.target.value)}
+                                                    rows={2}
+                                                    placeholder="We're currently closed. Please leave a message..."
+                                                />
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label>Missed Call Context (When VA Doesn't Answer)</Label>
+                                                <Textarea
+                                                    value={localSettings['twilio.agent_context_missed'] || ''}
+                                                    onChange={(e) => updateSetting('twilio.agent_context_missed', e.target.value)}
+                                                    rows={2}
+                                                    placeholder="Sorry for the wait! Our team couldn't get to the phone..."
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            <div className="space-y-2">
+                                <Label htmlFor="fallback-message">Auto-SMS to Lead (Missed Call)</Label>
+                                <Textarea
+                                    id="fallback-message"
+                                    value={localSettings['twilio.fallback_message']}
+                                    onChange={(e) => updateSetting('twilio.fallback_message', e.target.value)}
+                                    rows={4}
+                                />
+                                <p className="text-sm text-gray-500">Sent to the customer if you miss the call (supports WhatsApp links)</p>
+                            </div>
+
+                            <div className="pt-6 border-t space-y-6">
+                                <div className="space-y-2">
+                                    <Label htmlFor="agent-notify-sms">Agent Notification SMS</Label>
+                                    <Textarea
+                                        id="agent-notify-sms"
+                                        value={localSettings['twilio.agent_notify_sms']}
+                                        onChange={(e) => updateSetting('twilio.agent_notify_sms', e.target.value)}
+                                        rows={2}
+                                    />
+                                    <p className="text-sm text-gray-500">Sent for every incoming call. Use {'{lead_number}'} and {'{twilio_uk_number}'}</p>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="agent-missed-sms">Agent Missed Call SMS</Label>
+                                    <Textarea
+                                        id="agent-missed-sms"
+                                        value={localSettings['twilio.agent_missed_sms']}
+                                        onChange={(e) => updateSetting('twilio.agent_missed_sms', e.target.value)}
+                                        rows={2}
+                                    />
+                                    <p className="text-sm text-gray-500">Sent if you miss the call</p>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+            </Tabs>
+
+            {/* Status Indicator Bar */}
+            <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-md border-t z-50">
+                <div className="max-w-4xl mx-auto flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className={`w-3 h-3 rounded-full ${localSettings['twilio.forward_enabled'] && forwardStatus.status === 'valid' ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                        <span className="text-xs sm:text-sm font-medium">
+                            {localSettings['twilio.forward_enabled'] && forwardStatus.status === 'valid'
+                                ? `Active: Forwarding to ${forwardStatus.nationalFormat || localSettings['twilio.forward_number']}`
+                                : localSettings['twilio.forward_enabled']
+                                    ? 'Forwarding enabled but number needs verification'
+                                    : 'Forwarding disabled (AI transcription mode)'}
+                        </span>
+                    </div>
+                    {isDirty && (
+                        <div className="flex items-center gap-4">
+                            <span className="hidden sm:inline text-sm text-orange-600 font-medium">Unsaved changes</span>
+                            <Button size="sm" onClick={handleSave} disabled={saveMutation.isPending}>
+                                {saveMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : 'Save Changes'}
                             </Button>
                         </div>
-                        <p className={`text-sm ${forwardStatus.status === 'valid' ? 'text-green-600' : forwardStatus.status === 'invalid' ? 'text-red-600' : 'text-gray-500'}`}>
-                            {forwardStatus.message}
-                            {forwardStatus.nationalFormat && ` • ${forwardStatus.nationalFormat}`}
-                        </p>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label>Ring Timeout: {localSettings['twilio.max_wait_seconds']} seconds</Label>
-                        <input
-                            type="range"
-                            min={10}
-                            max={60}
-                            step={5}
-                            value={localSettings['twilio.max_wait_seconds']}
-                            onChange={(e) => updateSetting('twilio.max_wait_seconds', parseInt(e.target.value))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
-                        />
-                        <p className="text-sm text-gray-500">How long to ring the forward number before triggering fallback</p>
-                    </div>
-                </CardContent>
-            </Card>
-
-            {/* Caller Experience Section */}
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <Volume2 className="w-5 h-5 text-green-600" />
-                        Caller Experience
-                    </CardTitle>
-                    <CardDescription>Customize what callers hear</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="business-name">Business Name</Label>
-                            <Input
-                                id="business-name"
-                                value={localSettings['twilio.business_name']}
-                                onChange={(e) => updateSetting('twilio.business_name', e.target.value)}
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="voice">Voice</Label>
-                            <Select
-                                value={localSettings['twilio.voice']}
-                                onValueChange={(val) => updateSetting('twilio.voice', val)}
-                            >
-                                <SelectTrigger id="voice">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="Polly.Amy-Neural">Amy (UK Female)</SelectItem>
-                                    <SelectItem value="Polly.Brian-Neural">Brian (UK Male)</SelectItem>
-                                    <SelectItem value="Polly.Emma-Neural">Emma (UK Female)</SelectItem>
-                                    <SelectItem value="Polly.Arthur-Neural">Arthur (UK Male)</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="welcome-message">Welcome Message</Label>
-                        <Textarea
-                            id="welcome-message"
-                            value={localSettings['twilio.welcome_message']}
-                            onChange={(e) => updateSetting('twilio.welcome_message', e.target.value)}
-                            placeholder="Use {business_name} to insert the business name"
-                            rows={2}
-                        />
-                        <p className="text-sm text-gray-500">Use {'{business_name}'} as a placeholder</p>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="hold-music">Hold Music URL</Label>
-                        <Input
-                            id="hold-music"
-                            value={localSettings['twilio.hold_music_url']}
-                            onChange={(e) => updateSetting('twilio.hold_music_url', e.target.value)}
-                            placeholder="/assets/hold-music.mp3"
-                        />
-                    </div>
-                </CardContent>
-            </Card>
-
-            {/* Fallback Section */}
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <MessageSquare className="w-5 h-5 text-purple-600" />
-                        No-Answer Fallback
-                    </CardTitle>
-                    <CardDescription>What happens when no one answers</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                        <Label>Fallback Action</Label>
-                        <Select
-                            value={localSettings['twilio.fallback_action']}
-                            onValueChange={(val) => updateSetting('twilio.fallback_action', val)}
-                        >
-                            <SelectTrigger>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="whatsapp">Send WhatsApp Message</SelectItem>
-                                <SelectItem value="voicemail">Take Voicemail</SelectItem>
-                                <SelectItem value="none">Hang Up (No Fallback)</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    {localSettings['twilio.fallback_action'] === 'whatsapp' && (
-                        <div className="space-y-2">
-                            <Label htmlFor="fallback-message">WhatsApp Fallback Message</Label>
-                            <Textarea
-                                id="fallback-message"
-                                value={localSettings['twilio.fallback_message']}
-                                onChange={(e) => updateSetting('twilio.fallback_message', e.target.value)}
-                                rows={3}
-                            />
-                            <p className="text-sm text-gray-500">Use {'{business_name}'} as a placeholder</p>
-                        </div>
                     )}
-                </CardContent>
-            </Card>
-
-            {/* Status Indicator */}
-            <Card className="bg-gray-50 dark:bg-gray-900">
-                <CardContent className="pt-6">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className={`w-3 h-3 rounded-full ${localSettings['twilio.forward_enabled'] && forwardStatus.status === 'valid' ? 'bg-green-500' : 'bg-gray-400'}`} />
-                            <span className="text-sm font-medium">
-                                {localSettings['twilio.forward_enabled'] && forwardStatus.status === 'valid'
-                                    ? `Forwarding calls to ${forwardStatus.nationalFormat || localSettings['twilio.forward_number']}`
-                                    : localSettings['twilio.forward_enabled']
-                                        ? 'Forwarding enabled but number needs verification'
-                                        : 'Call forwarding disabled (AI transcription mode)'}
-                            </span>
-                        </div>
-                        {isDirty && (
-                            <span className="text-sm text-orange-600 font-medium">Unsaved changes</span>
-                        )}
-                    </div>
-                </CardContent>
-            </Card>
+                </div>
+            </div>
         </div>
     );
 }

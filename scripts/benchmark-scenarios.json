@@ -1,0 +1,202 @@
+[
+  {
+    "id": "TC001",
+    "label": "Emergency Plumbing (Burst Pipe)",
+    "transcript": "Hello! There's water spraying everywhere in my kitchen from under the sink! I can't find the stopcock, help!",
+    "expectedRoute": "SITE_VISIT",
+    "expectedLingo": [
+      "Stopcock",
+      "Stop Tap"
+    ]
+  },
+  {
+    "id": "TC002",
+    "label": "Standard Mounting (TV)",
+    "transcript": "Hi, I've got a new 65 inch OLED TV that I need wall mounted in the bedroom. It's a plasterboard wall.",
+    "expectedRoute": "INSTANT_PRICE",
+    "expectedLingo": [
+      "Plasterboard",
+      "Wall Mount"
+    ]
+  },
+  {
+    "id": "TC003",
+    "label": "Messy Multi-Task (Garden + Joinery)",
+    "transcript": "Hi, I need someone to clear the weeds in my back garden and also fix a squeaky door in the hallway.",
+    "expectedRoute": "VIDEO_QUOTE",
+    "expectedLingo": [
+      "Clearance",
+      "Joinery"
+    ]
+  },
+  {
+    "id": "TC004",
+    "label": "High-Value Landlord (Portfolio)",
+    "transcript": "Good morning, I'm a property manager for 50 flats in Derby. We need a reliable handyman for ongoing reactive maintenance.",
+    "expectedRoute": "VIDEO_QUOTE",
+    "expectedLingo": [
+      "Reactive Maintenance",
+      "Portfolio"
+    ]
+  },
+  {
+    "id": "TC005",
+    "label": "Electrical Hazard (Flickering)",
+    "transcript": "My lights are flickering and there is a burning smell near the fuse box under the stairs.",
+    "expectedRoute": "SITE_VISIT",
+    "expectedLingo": [
+      "Consumer Unit",
+      "Fuse Box",
+      "Burning Smell"
+    ]
+  },
+  {
+    "id": "TC006",
+    "label": "Furniture Assembly (PAX)",
+    "transcript": "I've got 4 IKEA PAX wardrobes that need building. Can you give me a price for that?",
+    "expectedRoute": "INSTANT_PRICE",
+    "expectedLingo": [
+      "Flat-pack",
+      "PAX"
+    ]
+  },
+  {
+    "id": "TC007",
+    "label": "Ambiguous (Something wrong)",
+    "transcript": "The floor in my bathroom feels soft and I think there might be a leak but I'm not sure.",
+    "expectedRoute": "VIDEO_QUOTE",
+    "expectedLingo": [
+      "Subfloor",
+      "Submerged"
+    ]
+  },
+  {
+    "id": "TC008",
+    "label": "External (Guttering)",
+    "transcript": "My gutters are full of leaves and there is grass growing out of them. It's a two story house.",
+    "expectedRoute": "VIDEO_QUOTE",
+    "expectedLingo": [
+      "Guttering",
+      "Fascia"
+    ]
+  },
+  {
+    "id": "TC009",
+    "label": "Locksmith (Lost Keys)",
+    "transcript": "I've lost my keys and I'm locked out of my shop. It's a roller shutter door.",
+    "expectedRoute": "SITE_VISIT",
+    "expectedLingo": [
+      "Euro Cylinder",
+      "Roller Shutter"
+    ]
+  },
+  {
+    "id": "TC010",
+    "label": "Tiling (Small repair)",
+    "transcript": "A few tiles have fallen off in my shower and I'm worried about water getting behind the wall.",
+    "expectedRoute": "VIDEO_QUOTE",
+    "expectedLingo": [
+      "Grout",
+      "Adhesive"
+    ]
+  },
+  {
+    "id": "TC011",
+    "label": "Fence Repair",
+    "transcript": "The wind has blown down two fence panels. One is snapped at the post.",
+    "expectedRoute": "VIDEO_QUOTE",
+    "expectedLingo": [
+      "Concrete Post",
+      "Lap Panel"
+    ]
+  },
+  {
+    "id": "TC012",
+    "label": "Door Hanging",
+    "transcript": "I have 4 new internal doors that need hanging. I've already bought the hinges.",
+    "expectedRoute": "INSTANT_PRICE",
+    "expectedLingo": [
+      "Hinge",
+      "Architrave"
+    ]
+  },
+  {
+    "id": "TC013",
+    "label": "Kitchen Silicone",
+    "transcript": "The sealant around my kitchen worktop is mouldy and peeling off. Needs replacing.",
+    "expectedRoute": "INSTANT_PRICE",
+    "expectedLingo": [
+      "Sealant",
+      "Silicone"
+    ]
+  },
+  {
+    "id": "TC014",
+    "label": "Dripping Tap",
+    "transcript": "My kitchen tap won't stop dripping. It's a mixer tap.",
+    "expectedRoute": "INSTANT_PRICE",
+    "expectedLingo": [
+      "Washer",
+      "Cartridge"
+    ]
+  },
+  {
+    "id": "TC015",
+    "label": "Shelving",
+    "transcript": "I need 6 floating shelves put up in my alcoves. I have the shelves already.",
+    "expectedRoute": "INSTANT_PRICE",
+    "expectedLingo": [
+      "Alcove",
+      "Spirit Level"
+    ]
+  },
+  {
+    "id": "TC016",
+    "label": "Curtain Rails",
+    "transcript": "I need some heavy duty curtain rails fitted in the lounge. The wall is brick.",
+    "expectedRoute": "INSTANT_PRICE",
+    "expectedLingo": [
+      "Rawlplug",
+      "Masonry"
+    ]
+  },
+  {
+    "id": "TC017",
+    "label": "Loft Boarding",
+    "transcript": "I want to board out my loft for storage. It's about 20 square meters.",
+    "expectedRoute": "VIDEO_QUOTE",
+    "expectedLingo": [
+      "Joists",
+      "Loft Hatch"
+    ]
+  },
+  {
+    "id": "TC018",
+    "label": "Picture Hanging",
+    "transcript": "I have a large collection of art (about 15 pieces) that need mounting securely.",
+    "expectedRoute": "VIDEO_QUOTE",
+    "expectedLingo": [
+      "Laser Level",
+      "Gallon"
+    ]
+  },
+  {
+    "id": "TC019",
+    "label": "Jet Washing",
+    "transcript": "My driveway is covered in moss and is very slippery. Needs a deep clean.",
+    "expectedRoute": "INSTANT_PRICE",
+    "expectedLingo": [
+      "Pressure Washer"
+    ]
+  },
+  {
+    "id": "TC020",
+    "label": "Mirror Mounting",
+    "transcript": "I have a huge heavy mirror for the hallway. Needs proper heavy duty fixings.",
+    "expectedRoute": "INSTANT_PRICE",
+    "expectedLingo": [
+      "Mirror Clip",
+      "Strap Hanger"
+    ]
+  }
+]

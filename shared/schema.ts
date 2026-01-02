@@ -107,6 +107,13 @@ export const leads = pgTable("leads", {
 
     // Origin
     source: varchar("source").default("call"),
+    jobSummary: text("job_summary"),
+
+    // Eleven Labs specific fields (Advanced Features)
+    elevenLabsConversationId: varchar("eleven_labs_conversation_id"),
+    elevenLabsSummary: text("eleven_labs_summary"),
+    elevenLabsRecordingUrl: text("eleven_labs_recording_url"),
+    elevenLabsSuccessScore: integer("eleven_labs_success_score"), // 0-100
 
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
@@ -126,6 +133,7 @@ export const calls = pgTable("calls", {
     status: varchar("status").notNull(),
     recordingUrl: varchar("recording_url"),
     transcription: text("transcription"),
+    localRecordingPath: varchar("local_recording_path"),
     leadId: varchar("lead_id"),
 
     // Customer Information
@@ -140,6 +148,8 @@ export const calls = pgTable("calls", {
     outcome: varchar("outcome"), // 'INSTANT_PRICE' | 'VIDEO_QUOTE' | 'SITE_VISIT' | 'NO_ANSWER' | 'VOICEMAIL'
     urgency: varchar("urgency"), // 'Critical' | 'High' | 'Standard' | 'Low'
     leadType: varchar("lead_type"), // 'Homeowner' | 'Landlord' | 'Property Manager' | 'Tenant'
+    jobSummary: text("job_summary"), // AI-generated short summary of the job
+
 
     // SKU Detection Results (from AI)
     detectedSkusJson: jsonb("detected_skus_json"), // Array of detected SKUs with confidence scores

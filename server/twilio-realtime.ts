@@ -8,7 +8,9 @@ import { extractCallMetadata, extractPostcodeOnly } from './openai'; // B7: Meta
 import { validateExtractedAddress, AddressValidation } from './address-validation'; // Address validation
 import { findDuplicateLead, updateExistingLead } from './lead-deduplication'; // B9: Duplicate detection
 import { normalizePhoneNumber } from './phone-utils'; // B1: Phone normalization
-import { createCall, updateCall, addDetectedSkus, finalizeCall } from './call-logger'; // Call logging integration
+import { createCall, updateCall, addDetectedSkus, finalizeCall, findCallByTwilioSid } from './call-logger'; // Call logging integration
+import fs from 'fs';
+import path from 'path';
 
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY || "");
 
@@ -50,6 +52,8 @@ export class MediaStreamTranscriber {
     private callRecordId: string | null = null; // Track database call record ID
     private callStartTime: Date;
     private segments: any[] = []; // Store transcript segments
+    private recordingPath: string | null = null;
+    private recordingStream: fs.WriteStream | null = null;
 
     constructor(ws: WebSocket, callSid: string, streamSid: string, phoneNumber: string, broadcast: (message: any) => void) {
         this.ws = ws;
@@ -58,6 +62,14 @@ export class MediaStreamTranscriber {
         this.phoneNumber = phoneNumber;
         this.broadcast = broadcast;
         this.callStartTime = new Date();
+
+        // Setup local recording
+        const recordingDir = path.join(process.cwd(), 'storage/recordings');
+        if (!fs.existsSync(recordingDir)) {
+            fs.mkdirSync(recordingDir, { recursive: true });
+        }
+        this.recordingPath = path.join(recordingDir, `call_${callSid}.raw`);
+        this.recordingStream = fs.createWriteStream(this.recordingPath, { flags: 'a' });
 
         activeCallCount++;
 
@@ -68,15 +80,26 @@ export class MediaStreamTranscriber {
 
     private async createCallRecord() {
         try {
-            this.callRecordId = await createCall({
-                callId: this.callSid,
-                phoneNumber: this.phoneNumber,
-                direction: "inbound",
-                status: "in-progress",
-            });
-            console.log(`[CallLogger] Created call record ${this.callRecordId} for ${this.callSid}`);
+            // Check if call was already created by the webhook
+            const existingCallId = await findCallByTwilioSid(this.callSid);
+
+            if (existingCallId) {
+                this.callRecordId = existingCallId;
+                await updateCall(this.callRecordId, {
+                    status: "in-progress"
+                });
+                console.log(`[CallLogger] Attached to existing call ${this.callRecordId} for ${this.callSid}`);
+            } else {
+                this.callRecordId = await createCall({
+                    callId: this.callSid,
+                    phoneNumber: this.phoneNumber,
+                    direction: "inbound",
+                    status: "in-progress",
+                });
+                console.log(`[CallLogger] Created call record ${this.callRecordId} for ${this.callSid}`);
+            }
         } catch (e) {
-            console.error("[CallLogger] Failed to create call record:", e);
+            console.error("[CallLogger] Failed to create/attach call record:", e);
         }
     }
 
@@ -92,6 +115,7 @@ export class MediaStreamTranscriber {
             vad_events: true,
             encoding: "mulaw",
             sample_rate: 8000,
+            diarize: true, // B3: Speaker separation
         });
 
         this.dgLive.on(LiveTranscriptionEvents.Open, () => {
@@ -105,8 +129,19 @@ export class MediaStreamTranscriber {
         this.dgLive.on(LiveTranscriptionEvents.Transcript, (data: any) => {
             const transcript = data.channel.alternatives[0].transcript;
             if (transcript && data.is_final) {
+                // B3: Speaker extraction
+                const word = data.channel.alternatives[0].words?.[0];
+                const speaker = word ? word.speaker : 0;
+
+                // Store segment with speaker ID
+                this.segments.push({
+                    text: transcript,
+                    speaker: speaker,
+                    timestamp: new Date()
+                });
+
                 this.fullTranscript += transcript + " ";
-                console.log(`\n[Deepgram] Final Segment: ${transcript}`);
+                console.log(`\n[Deepgram] Final Segment (Speaker ${speaker}): ${transcript}`);
 
                 // IMMEDIATELY broadcast transcript to UI (no debounce for display)
                 this.broadcast({
@@ -114,6 +149,7 @@ export class MediaStreamTranscriber {
                     data: {
                         callSid: this.callSid,
                         transcript: transcript,
+                        speaker: speaker, // Added speaker ID
                         isFinal: true
                     }
                 });
@@ -189,7 +225,8 @@ export class MediaStreamTranscriber {
                 this.lastMetadataExtraction = now;
 
                 try {
-                    const liveMetadata = await extractCallMetadata(this.fullTranscript);
+                    // Pass segments for better speaker-aware extraction
+                    const liveMetadata = await extractCallMetadata(this.fullTranscript, this.segments);
 
                     // Update metadata if new information is found
                     if (liveMetadata.customerName && !this.metadata.customerName) {
@@ -289,6 +326,11 @@ export class MediaStreamTranscriber {
         try {
             const buffer = Buffer.from(payload, 'base64');
             this.dgLive.send(buffer);
+
+            // Write to local recording
+            if (this.recordingStream) {
+                this.recordingStream.write(buffer);
+            }
         } catch (e) {
             console.error("[Deepgram] Send error:", e);
         }
@@ -339,11 +381,18 @@ export class MediaStreamTranscriber {
                     outcome: 'UNKNOWN',  // Default for short calls, will be updated if analysis runs
                     transcription: finalText || undefined,
                     segments: this.segments,
+                    localRecordingPath: this.recordingPath || undefined
                 });
                 console.log(`[CallLogger] Finalized call ${this.callRecordId} with duration ${duration}s`);
             } catch (e) {
                 console.error("[CallLogger] Failed to finalize call:", e);
             }
+        }
+
+        // Close recording stream
+        if (this.recordingStream) {
+            this.recordingStream.end();
+            console.log(`[Recording] Saved raw audio to ${this.recordingPath}`);
         }
 
         if (finalText.length > 5) {
@@ -385,8 +434,13 @@ export class MediaStreamTranscriber {
                 };
 
                 // B9: Check for duplicate lead before creating
+                // Remove company info from name for cleaner match (e.g. "John (Acme)" -> "John")
+                const cleanNameForCheck = mergedMetadata.customerName
+                    ? mergedMetadata.customerName.replace(/\s*\(.*?\)/, '').trim()
+                    : null;
+
                 const duplicateCheck = await findDuplicateLead(this.phoneNumber, {
-                    customerName: mergedMetadata.customerName,
+                    customerName: cleanNameForCheck,
                     placeId: mergedMetadata.addressValidation?.placeId || null,
                     postcode: mergedMetadata.postcode
                 });
@@ -451,6 +505,7 @@ export class MediaStreamTranscriber {
                         urgency: mergedMetadata.urgency,
                         leadType: mergedMetadata.leadType,
                         outcome: routing.nextRoute,
+                        metadataJson: mergedMetadata
                     });
 
                     // Add detected SKUs to call record

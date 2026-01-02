@@ -1,6 +1,8 @@
-import { LayoutDashboard, PhoneCall, Settings, LogOut, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign } from "lucide-react";
+import { useState } from "react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useLiveCall } from "@/contexts/LiveCallContext";
+import { cn } from "@/lib/utils";
 
 interface SidebarLayoutProps {
     children: React.ReactNode;
@@ -9,6 +11,7 @@ interface SidebarLayoutProps {
 export default function SidebarLayout({ children }: SidebarLayoutProps) {
     const [location] = useLocation();
     const { isLive } = useLiveCall();
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
     const navItems = [
         { icon: LayoutDashboard, label: "Dashboard", href: "/admin" },
@@ -27,9 +30,20 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     ];
 
     return (
-        <div className="flex h-screen bg-gradient-to-b from-gray-900 to-gray-800 font-sans text-white">
-            {/* Sidebar - Keep navy blue */}
-            <aside className="w-64 bg-[#0f172a] text-white flex flex-col flex-shrink-0 transition-all duration-300">
+        <div className="flex h-screen bg-gray-950 font-sans text-white overflow-hidden">
+            {/* Mobile Backdrop */}
+            {isSidebarOpen && (
+                <div
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+                    onClick={() => setIsSidebarOpen(false)}
+                />
+            )}
+
+            {/* Sidebar */}
+            <aside className={cn(
+                "fixed inset-y-0 left-0 w-64 bg-[#0f172a] text-white flex flex-col z-50 transition-transform duration-300 lg:relative lg:translate-x-0",
+                isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+            )}>
                 {/* Logo Area */}
                 <div className="p-6 flex items-center gap-3">
                     <img
@@ -49,10 +63,12 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                         const isActive = location === item.href;
                         return (
                             <Link key={item.href} href={item.href}>
-                                <a className={`flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-colors ${isActive
-                                    ? "bg-handy-gold text-gray-900 shadow-md shadow-yellow-900/20"
-                                    : "text-slate-400 hover:text-white hover:bg-white/5"
-                                    }`}>
+                                <a
+                                    onClick={() => setIsSidebarOpen(false)}
+                                    className={`flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-colors ${isActive
+                                        ? "bg-handy-gold text-gray-900 shadow-md shadow-yellow-900/20"
+                                        : "text-slate-400 hover:text-white hover:bg-white/5"
+                                        }`}>
                                     <div className="flex items-center gap-3">
                                         <item.icon className="w-5 h-5" />
                                         {item.label}
@@ -86,26 +102,34 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 </div>
             </aside>
 
-            {/* Main Content - Dark Theme */}
-            <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                {/* Top Header - Dark styled */}
-                <header className="h-16 bg-gray-900/80 backdrop-blur-lg border-b border-gray-700/50 flex items-center justify-between px-8 shadow-lg z-10">
-                    <h2 className="text-lg font-semibold text-white">
-                        {navItems.find(i => i.href === location)?.label || "Dashboard"}
-                    </h2>
+            {/* Main Content */}
+            <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+                {/* Header */}
+                <header className="h-16 bg-gray-900/80 backdrop-blur-lg border-b border-gray-700/50 flex items-center justify-between px-4 lg:px-8 shadow-lg z-30">
                     <div className="flex items-center gap-4">
-                        <button className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/10 transition-colors relative">
+                        <button
+                            onClick={() => setIsSidebarOpen(true)}
+                            className="p-2 text-slate-400 hover:text-white lg:hidden"
+                        >
+                            <Menu className="w-6 h-6" />
+                        </button>
+                        <h2 className="text-sm lg:text-lg font-semibold text-white truncate max-w-[150px] lg:max-w-none">
+                            {navItems.find(i => i.href === location)?.label || "Dashboard"}
+                        </h2>
+                    </div>
+                    <div className="flex items-center gap-2 lg:gap-4">
+                        <button className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/10 transition-colors relative hidden sm:block">
                             <Bell className="w-5 h-5" />
                             <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-gray-900"></span>
                         </button>
-                        <button className="px-4 py-2 bg-handy-gold text-gray-900 text-sm font-bold rounded-lg hover:bg-handy-gold-hover transition-colors shadow-lg shadow-yellow-900/20">
+                        <button className="px-3 lg:px-4 py-2 bg-handy-gold text-gray-900 text-[10px] lg:text-sm font-bold rounded-lg hover:bg-handy-gold-hover transition-colors shadow-lg shadow-yellow-900/20">
                             + New Call
                         </button>
                     </div>
                 </header>
 
-                {/* Scrollable Area - Dark background */}
-                <div className="flex-1 overflow-auto p-8 relative">
+                {/* Content Area */}
+                <div className="flex-1 overflow-auto p-4 lg:p-8">
                     {/* Live Call Notification Banner */}
                     {isLive && location !== '/admin/live-call' && (
                         <Link href="/admin/live-call">

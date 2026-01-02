@@ -431,3 +431,28 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/regenerate', async (req, r
         res.status(500).json({ error: "Failed to regenerate quote" });
     }
 });
+
+// Delete a quote
+quotesRouter.delete('/api/personalized-quotes/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        console.log(`[DELETE] Attempting to delete quote: ${id}`);
+
+        const result = await db.delete(personalizedQuotes)
+            .where(eq(personalizedQuotes.id, id))
+            .returning();
+
+        console.log(`[DELETE] Result:`, result);
+
+        if (!result.length) {
+            console.log(`[DELETE] Quote not found: ${id}`);
+            return res.status(404).json({ error: "Quote not found" });
+        }
+
+        console.log(`[DELETE] Successfully deleted quote: ${id}`);
+        res.json({ success: true });
+    } catch (error) {
+        console.error("Delete quote error:", error);
+        res.status(500).json({ error: "Failed to delete quote" });
+    }
+});

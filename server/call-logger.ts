@@ -3,6 +3,7 @@ import { calls, callSkus, type InsertCall } from "../shared/schema";
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
 import { broadcastToClients } from "./index";
+import { extractJobSummary } from "./openai";
 
 /**
  * Helper module for call logging operations
@@ -45,6 +46,8 @@ export interface UpdateCallData {
     notes?: string;
     liveAnalysisJson?: any;  // Real-time analysis state for reconnecting clients
     metadataJson?: any;      // Real-time metadata (customer name, address, etc.)
+    localRecordingPath?: string;
+    status?: string;
 }
 
 /**
@@ -168,8 +171,16 @@ export async function finalizeCall(
         outcome?: string;
         transcription?: string;
         segments?: any[];
+        localRecordingPath?: string;
     }
 ): Promise<void> {
+
+    // Extract job summary if transcription is available
+    let jobSummary: string | undefined;
+    if (data.transcription) {
+        jobSummary = await extractJobSummary(data.transcription);
+    }
+
     await db.update(calls)
         .set({
             duration: data.duration,
@@ -177,8 +188,10 @@ export async function finalizeCall(
             recordingUrl: data.recordingUrl,
             outcome: data.outcome,
             transcription: data.transcription,
+            jobSummary: jobSummary,
             segments: data.segments,
             status: 'completed',
+            localRecordingPath: data.localRecordingPath,
             lastEditedAt: new Date(),
         })
         .where(eq(calls.id, callRecordId));

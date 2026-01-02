@@ -140,7 +140,7 @@ export default function SKUPage() {
                 </div>
                 <button
                     onClick={handleAddNew}
-                    className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition shadow-sm"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 bg-green-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-green-700 transition shadow-sm text-sm uppercase tracking-tight"
                 >
                     <Plus className="w-4 h-4" />
                     Add Service
@@ -189,7 +189,7 @@ export default function SKUPage() {
                 {isLoading ? (
                     <div className="text-center py-12 text-slate-400">Loading services...</div>
                 ) : viewMode === 'card' ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
                         {sortedSkus.map((sku) => (
                             <div key={sku.id} className="group bg-slate-800 rounded-xl border border-slate-700 hover:border-slate-600 transition-all duration-300 p-5 flex flex-col relative overflow-hidden">
                                 <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-green-500 to-emerald-600 opacity-0 group-hover:opacity-100 transition-opacity"></div>

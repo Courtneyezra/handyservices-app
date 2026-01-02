@@ -178,12 +178,15 @@ export default function GenerateQuoteLink() {
   // });
 
   // Fetch personalized quotes for Sent Quotes tab
-  const { data: quotes, isLoading: isLoadingQuotes, refetch: refetchQuotes } = useQuery<PersonalizedQuote[]>({
+  const { data: quotes = [], isLoading: isLoadingQuotes, error: quotesError, refetch: refetchQuotes } = useQuery<PersonalizedQuote[]>({
     queryKey: ['/api/personalized-quotes'],
-    // enabled: !!user && activeTab === 'sent',
+    queryFn: async () => {
+      const res = await fetch('/api/personalized-quotes');
+      if (!res.ok) throw new Error('Failed to fetch quotes');
+      return res.json();
+    },
     enabled: activeTab === 'sent',
   });
-
   // Fetch Twilio settings for Settings tab
   interface ForwardingAgentInfo {
     id: string;
@@ -208,7 +211,11 @@ export default function GenerateQuoteLink() {
 
   const { data: twilioSettings } = useQuery<TwilioSettingsData>({
     queryKey: ['/api/admin/twilio-settings'],
-    // enabled: !!user && activeTab === 'settings',
+    queryFn: async () => {
+      const res = await fetch('/api/admin/twilio-settings');
+      if (!res.ok) throw new Error('Failed to fetch twilio settings');
+      return res.json();
+    },
     enabled: activeTab === 'settings',
   });
 
@@ -708,31 +715,31 @@ export default function GenerateQuoteLink() {
 
   return (
     <div className="h-screen flex flex-col bg-slate-900 text-white overflow-hidden">
-      <div className="p-6 border-b border-slate-700 text-center">
-        <h1 className="text-4xl font-bold text-white mb-2">Generate Quote Link</h1>
-        <p className="text-slate-400">Create personalized H/HH/HHH quote links for customers</p>
+      <div className="p-4 lg:p-6 border-b border-slate-700 text-center">
+        <h1 className="text-2xl lg:text-4xl font-bold text-white mb-1 lg:mb-2 italic tracking-tighter uppercase">Quote Master</h1>
+        <p className="text-[10px] lg:text-sm text-slate-400 uppercase font-black tracking-widest opacity-50">Value-Based Pricing Engine</p>
       </div>
 
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-6xl mx-auto">
 
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'generate' | 'sent' | 'settings')} className="w-full">
-            <TabsList className="grid w-full grid-cols-3 mb-6">
-              <TabsTrigger value="generate" data-testid="tab-generate">Generate New Quote</TabsTrigger>
-              <TabsTrigger value="sent" data-testid="tab-sent">Generated Quotes</TabsTrigger>
-              <TabsTrigger value="settings" data-testid="tab-settings">Twilio Settings</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-3 mb-4 lg:mb-6">
+              <TabsTrigger value="generate" data-testid="tab-generate" className="text-[10px] lg:text-sm">Create</TabsTrigger>
+              <TabsTrigger value="sent" data-testid="tab-sent" className="text-[10px] lg:text-sm">History</TabsTrigger>
+              <TabsTrigger value="settings" data-testid="tab-settings" className="text-[10px] lg:text-sm">Config</TabsTrigger>
             </TabsList>
 
             <TabsContent value="generate" className="space-y-6">
               {/* Value Pricing Card */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
+                  <CardTitle className="flex items-center gap-2 text-lg lg:text-xl">
                     <ArrowRight className="h-5 w-5 text-blue-600" />
-                    Job & Pricing Details
+                    Job & Pricing
                   </CardTitle>
-                  <p className="text-sm text-slate-300">
-                    Answer 3 simple questions to generate value-based tier pricing
+                  <p className="text-[10px] lg:text-sm text-slate-300">
+                    Tier pricing logic
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -950,20 +957,20 @@ export default function GenerateQuoteLink() {
                                       <span className="font-semibold">{recalculatedTotals.totalHours.toFixed(1)}h</span>
                                     </div>
                                     <div className="flex justify-between">
-                                      <span className="text-gray-700">Labor Cost:</span>
+                                      <span className="text-slate-300">Labor Cost:</span>
                                       <span className="font-semibold">£{recalculatedTotals.laborCost}</span>
                                     </div>
                                     <div className="flex justify-between">
-                                      <span className="text-gray-700">Materials Cost (raw):</span>
+                                      <span className="text-slate-300">Materials Cost (raw):</span>
                                       <span className="font-semibold">£{recalculatedTotals.totalMaterialCost}</span>
                                     </div>
                                     <div className="flex justify-between">
-                                      <span className="text-gray-700">Materials + 30% Markup:</span>
-                                      <span className="font-semibold text-green-700">£{recalculatedTotals.materialCostWithMarkup}</span>
+                                      <span className="text-slate-300">Materials + 30% Markup:</span>
+                                      <span className="font-semibold text-green-400">£{recalculatedTotals.materialCostWithMarkup}</span>
                                     </div>
-                                    <div className="flex justify-between pt-2 border-t border-blue-300">
-                                      <span className="text-gray-900 font-bold">Recalculated Total:</span>
-                                      <span className="text-blue-700 font-bold text-lg">£{recalculatedTotals.totalPrice}</span>
+                                    <div className="flex justify-between pt-2 border-t border-slate-600">
+                                      <span className="text-white font-bold">Recalculated Total:</span>
+                                      <span className="text-blue-400 font-bold text-lg">£{recalculatedTotals.totalPrice}</span>
                                     </div>
                                   </div>
                                 </CardContent>
@@ -976,16 +983,16 @@ export default function GenerateQuoteLink() {
 
                     {/* Analysis Error */}
                     {analysisStatus === 'error' && (
-                      <Card className="bg-red-50 border-red-200">
+                      <Card className="bg-red-900/20 border-red-800">
                         <CardContent className="pt-4">
-                          <p className="text-sm text-red-700">{analysisError}</p>
+                          <p className="text-sm text-red-300">{analysisError}</p>
                           <div className="flex gap-2 mt-3">
                             <Button
                               type="button"
                               size="sm"
                               onClick={runJobAnalysis}
                               variant="outline"
-                              className="text-red-700 border-red-300"
+                              className="text-red-300 border-red-800 hover:bg-red-900/40"
                               data-testid="button-retry-analysis"
                             >
                               Retry Analysis
@@ -995,7 +1002,7 @@ export default function GenerateQuoteLink() {
                               size="sm"
                               onClick={() => setShowPriceOverride(true)}
                               variant="outline"
-                              className="text-red-700 border-red-300"
+                              className="text-red-300 border-red-800 hover:bg-red-900/40"
                               data-testid="button-manual-entry"
                             >
                               Enter Price Manually
@@ -1400,11 +1407,11 @@ export default function GenerateQuoteLink() {
               </Card>
 
               {/* Action Buttons */}
-              <div className="flex gap-4">
+              <div className="flex flex-col sm:flex-row gap-4">
                 <Button
                   onClick={handleGenerateLink}
                   disabled={isGenerating}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                  className="w-full lg:flex-1 bg-blue-600 hover:bg-blue-700 py-6 lg:py-4 font-bold uppercase tracking-widest"
                   size="lg"
                   data-testid="button-generate-link"
                 >
@@ -1426,6 +1433,7 @@ export default function GenerateQuoteLink() {
                   onClick={handleReset}
                   variant="outline"
                   size="lg"
+                  className="w-full lg:w-auto py-6 lg:py-4 font-bold uppercase tracking-widest opacity-50"
                   data-testid="button-reset"
                 >
                   Reset Form
@@ -1711,38 +1719,93 @@ export default function GenerateQuoteLink() {
                     return (
                       <Card key={quote.id} className={`hover:shadow-md transition-shadow ${quote.bookedAt ? 'border-l-4 border-l-green-500' : ''}`}>
                         <CardContent className="p-4">
-                          {/* Header - Name and Status Badges */}
-                          <div className="flex flex-wrap items-center gap-2 mb-3">
-                            <h3 className="font-semibold text-lg text-white">{quote.customerName}</h3>
-                            <Badge variant="secondary" className="text-xs">{quote.shortSlug}</Badge>
-                            {quote.viewedAt && (
-                              <Badge variant="outline" className="text-green-600 border-green-600 text-xs" title={`Opened: ${format(new Date(quote.viewedAt), 'dd MMM yyyy, HH:mm')}`}>
-                                <Eye className="h-3 w-3 mr-1" />
-                                Opened {format(new Date(quote.viewedAt), 'dd MMM, HH:mm')}
-                              </Badge>
-                            )}
-                            {(() => {
-                              if (!quote.expiresAt) return null;
-                              const isExpired = new Date() > new Date(quote.expiresAt);
-                              if (isExpired && !quote.bookedAt) {
-                                return (
-                                  <Badge variant="outline" className="text-red-600 border-red-600 text-xs">
-                                    Expired
+                          {/* Header - Name, Status Badges, URL, Delete */}
+                          <div className="flex items-start justify-between gap-2 mb-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-2 mb-2">
+                                <h3 className="font-semibold text-lg text-white truncate">{quote.customerName}</h3>
+                                <Badge variant="secondary" className="text-xs">{quote.shortSlug}</Badge>
+                                {quote.viewedAt && (
+                                  <Badge variant="outline" className="text-green-600 border-green-600 text-xs" title={`Opened: ${format(new Date(quote.viewedAt), 'dd MMM yyyy, HH:mm')}`}>
+                                    <Eye className="h-3 w-3 mr-1" />
+                                    Opened {format(new Date(quote.viewedAt), 'dd MMM, HH:mm')}
                                   </Badge>
-                                );
-                              }
-                              return null;
-                            })()}
-                            {quote.bookedAt && (
-                              <Badge className="bg-green-600 text-xs">
-                                Booked
-                              </Badge>
-                            )}
-                            {quote.regenerationCount && quote.regenerationCount > 0 && (
-                              <Badge variant="outline" className="text-orange-600 border-orange-600 text-xs">
-                                Regen ×{quote.regenerationCount}
-                              </Badge>
-                            )}
+                                )}
+                                {(() => {
+                                  if (!quote.expiresAt) return null;
+                                  const isExpired = new Date() > new Date(quote.expiresAt);
+                                  if (isExpired && !quote.bookedAt) {
+                                    return (
+                                      <Badge variant="outline" className="text-red-600 border-red-600 text-xs">
+                                        Expired
+                                      </Badge>
+                                    );
+                                  }
+                                  return null;
+                                })()}
+                                {quote.bookedAt && (
+                                  <Badge className="bg-green-600 text-xs">
+                                    Booked
+                                  </Badge>
+                                )}
+                                {quote.regenerationCount && quote.regenerationCount > 0 && (
+                                  <Badge variant="outline" className="text-orange-600 border-orange-600 text-xs">
+                                    Regen ×{quote.regenerationCount}
+                                  </Badge>
+                                )}
+                              </div>
+
+                              {/* Persistent URL Display */}
+                              <div className="flex items-center gap-2 max-w-full">
+                                <div className="flex-1 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-400 font-mono truncate select-all">
+                                  {`${window.location.origin}/quote-link/${quote.shortSlug}`}
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 text-slate-400 hover:text-white"
+                                  title="Copy Link"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigator.clipboard.writeText(`${window.location.origin}/quote-link/${quote.shortSlug}`);
+                                    toast({ title: 'Copied', description: 'Link copied to clipboard' });
+                                  }}
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </div>
+
+                            {/* Delete Button */}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-slate-500 hover:text-red-400 hover:bg-red-900/20 -mt-1 -mr-2"
+                              title="Delete Quote"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (confirm('Are you sure you want to delete this quote?')) {
+                                  try {
+                                    console.log('Deleting quote:', quote.id);
+                                    const res = await fetch(`/api/personalized-quotes/${quote.id}`, { method: 'DELETE' });
+                                    if (res.ok) {
+                                      console.log('Delete successful, invalidating queries');
+                                      toast({ title: 'Quote Deleted', description: 'The quote has been removed.' });
+                                      // Force a hard refetch by invalidating the query
+                                      await queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
+                                      refetchQuotes();
+                                    } else {
+                                      throw new Error('Failed to delete');
+                                    }
+                                  } catch (err) {
+                                    console.error('Delete failed:', err);
+                                    toast({ title: 'Error', description: 'Failed to delete quote', variant: 'destructive' });
+                                  }
+                                }
+                              }}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
                           </div>
 
                           {/* Contact Info - Mobile Stacked */}

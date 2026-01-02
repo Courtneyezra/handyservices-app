@@ -4,8 +4,43 @@ import { appSettings } from '../shared/schema';
 import { eq } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import Twilio from 'twilio';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
+console.log('[Settings] Module loading...');
 const router = Router();
+console.log('[Settings] Router initialized');
+
+// Configure multer for audio uploads
+const audioStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadDir = path.join(process.cwd(), 'public', 'assets');
+        // Ensure directory exists
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        // Use a fixed name for the welcome audio
+        const ext = path.extname(file.originalname);
+        cb(null, `welcome-audio${ext}`);
+    }
+});
+
+const audioUpload = multer({
+    storage: audioStorage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/ogg'];
+        if (allowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid file type. Only MP3, WAV, and OGG are allowed.'));
+        }
+    }
+});
 
 // Default settings for Twilio call routing
 const DEFAULT_SETTINGS = {
@@ -17,14 +52,29 @@ const DEFAULT_SETTINGS = {
     'twilio.forward_number': { value: '', description: 'Phone number to forward calls to (E.164 format)' },
     'twilio.forward_enabled': { value: false, description: 'Whether call forwarding is enabled' },
     'twilio.fallback_action': { value: 'whatsapp', description: 'Action when no answer: whatsapp, voicemail, none' },
-    'twilio.fallback_message': { value: "Hi! We missed your call to {business_name}. How can we help? Reply here or we'll call you back shortly.", description: 'WhatsApp fallback message' },
+    'twilio.fallback_message': { value: "Sorry we missed your call. We will call you back shortly. In the meantime, you can reach us on WhatsApp here: https://wa.me/447508744402", description: 'SMS sent to lead if call missed' },
+    'twilio.agent_notify_sms': { value: "📞 Incoming call from {lead_number} to {twilio_uk_number}", description: 'SMS sent to agent for new calls' },
+    'twilio.agent_missed_sms': { value: "❌ Missed call from {lead_number}. Lead was sent an auto-SMS.", description: 'SMS sent to agent for missed calls' },
+    'twilio.whisper_enabled': { value: false, description: 'Whether to play the lead number whisper to the agent' },
+    'twilio.welcome_audio_url': { value: '/assets/handyservices-welcome.mp3', description: 'URL to custom welcome audio (replaces TTS)' },
+    'twilio.fallback_agent_url': { value: '', description: 'URL/Number for Eleven Labs or external voice agent (Override)' },
+    'twilio.eleven_labs_agent_id': { value: '', description: 'Eleven Labs Agent ID for TwiML redirection' },
+    'twilio.eleven_labs_api_key': { value: '', description: 'Eleven Labs API Key for security' },
     'twilio.reassurance_enabled': { value: true, description: 'Play reassurance message while waiting' },
     'twilio.reassurance_interval': { value: 15, description: 'Seconds between reassurance messages' },
     'twilio.reassurance_message': { value: "Thanks for waiting, just connecting you now.", description: 'Reassurance message text' },
+    // Agent Modes
+    'twilio.agent_mode': { value: 'auto', description: 'Current agent mode: auto, force-in-hours, force-out-of-hours, voicemail-only' },
+    'twilio.agent_context_default': { value: 'A team member will be with you shortly. I can help answer questions about our services while you wait.', description: 'Context injected for in-hours calls' },
+    'twilio.agent_context_out_of_hours': { value: 'We are currently closed. Our hours are 8am-6pm Monday to Friday. Please leave a message and we will call you back first thing.', description: 'Context injected for out-of-hours calls' },
+    'twilio.agent_context_missed': { value: "Sorry for the wait! Our team couldn't get to the phone. I'm here to help though - what can I do for you?", description: 'Context injected when VA missed the call' },
+    'twilio.business_hours_start': { value: '08:00', description: 'Business hours start time (HH:MM)' },
+    'twilio.business_hours_end': { value: '18:00', description: 'Business hours end time (HH:MM)' },
+    'twilio.business_days': { value: '1,2,3,4,5', description: 'Business days (1=Mon, 7=Sun)' },
 };
 
 // Get all settings
-router.get('/api/settings', async (req, res) => {
+router.get('/', async (req, res) => {
     try {
         const settings = await db.select().from(appSettings);
 
@@ -42,7 +92,7 @@ router.get('/api/settings', async (req, res) => {
 });
 
 // Get single setting by key
-router.get('/api/settings/:key', async (req, res) => {
+router.get('/:key', async (req, res) => {
     try {
         const { key } = req.params;
         const [setting] = await db.select().from(appSettings).where(eq(appSettings.key, key));
@@ -64,7 +114,7 @@ router.get('/api/settings/:key', async (req, res) => {
 });
 
 // Update or create a setting
-router.put('/api/settings/:key', async (req, res) => {
+router.put('/:key', async (req, res) => {
     try {
         const { key } = req.params;
         const { value } = req.body;
@@ -101,7 +151,7 @@ router.put('/api/settings/:key', async (req, res) => {
 });
 
 // Bulk update settings
-router.put('/api/settings', async (req, res) => {
+router.put('/', async (req, res) => {
     try {
         const { settings } = req.body;
 
@@ -139,7 +189,7 @@ router.put('/api/settings', async (req, res) => {
 });
 
 // Seed default settings
-router.post('/api/settings/seed', async (req, res) => {
+router.post('/seed', async (req, res) => {
     try {
         const seeded: string[] = [];
 
@@ -165,8 +215,47 @@ router.post('/api/settings/seed', async (req, res) => {
     }
 });
 
+// Upload welcome audio
+router.post('/upload-audio', audioUpload.single('audio'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No audio file uploaded' });
+        }
+
+        const audioPath = `/assets/${req.file.filename}`;
+        console.log(`[Settings] Audio uploaded: ${audioPath}`);
+
+        // Update the welcome_audio_url setting
+        const key = 'twilio.welcome_audio_url';
+        const [existing] = await db.select().from(appSettings).where(eq(appSettings.key, key));
+
+        if (existing) {
+            await db.update(appSettings)
+                .set({ value: audioPath, updatedAt: new Date() })
+                .where(eq(appSettings.key, key));
+        } else {
+            await db.insert(appSettings).values({
+                id: uuidv4(),
+                key,
+                value: audioPath,
+                description: 'URL to custom welcome audio',
+            });
+        }
+
+        res.json({
+            success: true,
+            audioUrl: audioPath,
+            filename: req.file.filename,
+            message: 'Welcome audio uploaded successfully'
+        });
+    } catch (error) {
+        console.error('[Settings] Failed to upload audio:', error);
+        res.status(500).json({ error: 'Failed to upload audio' });
+    }
+});
+
 // Check forward number status (validates and tests reachability)
-router.post('/api/settings/check-forward-status', async (req, res) => {
+router.post('/check-forward-status', async (req, res) => {
     try {
         const { phoneNumber } = req.body;
 
@@ -227,6 +316,145 @@ router.post('/api/settings/check-forward-status', async (req, res) => {
     }
 });
 
+// Check Eleven Labs agent status
+router.post('/check-agent-status', async (req, res) => {
+    try {
+        const { agentId, apiKey } = req.body;
+        console.log(`[Settings] Verification request for AgentID: ${agentId} (API Key provided: ${!!apiKey})`);
+
+        // Step 1: Require API key first
+        if (!apiKey) {
+            return res.json({
+                status: 'invalid',
+                message: 'Please verify your API key first',
+                isValid: false,
+                requiresApiKey: true
+            });
+        }
+
+        // Step 2: Validate agent ID is provided
+        if (!agentId) {
+            return res.json({
+                status: 'unconfigured',
+                message: 'No agent ID configured',
+                isValid: false
+            });
+        }
+
+        // Step 3: Basic format validation (alphanumeric, underscores, hyphens)
+        const agentIdRegex = /^[a-zA-Z0-9_-]+$/;
+        if (!agentIdRegex.test(agentId)) {
+            return res.json({
+                status: 'invalid',
+                message: 'Invalid Agent ID format. Use letters, numbers, underscores, or hyphens only.',
+                isValid: false
+            });
+        }
+
+        // Step 4: Verify via Eleven Labs API (the ONLY reliable method)
+        console.log(`[Settings] Verifying via Eleven Labs API for AgentID: ${agentId}`);
+        const apiUrl = `https://api.elevenlabs.io/v1/convai/agents/${agentId}`;
+        const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: { 'xi-api-key': apiKey }
+        });
+
+        console.log(`[Settings] Eleven Labs API Response: ${response.status} ${response.statusText}`);
+
+        if (response.ok) {
+            const data = await response.json();
+            return res.json({
+                status: 'valid',
+                message: `Verified: "${data.name || 'Agent'}" is active`,
+                isValid: true,
+                agentName: data.name
+            });
+        } else {
+            const errorData = await response.json().catch(() => ({}));
+            console.log(`[Settings] Eleven Labs API Error Body:`, errorData);
+
+            if (response.status === 401) {
+                return res.json({
+                    status: 'invalid',
+                    message: 'API Key is invalid or expired. Please re-verify your API key.',
+                    isValid: false,
+                    requiresApiKey: true
+                });
+            } else if (response.status === 404) {
+                return res.json({
+                    status: 'invalid',
+                    message: 'Agent ID not found. Check the ID or your Eleven Labs dashboard.',
+                    isValid: false
+                });
+            } else {
+                return res.json({
+                    status: 'invalid',
+                    message: `Verification failed: ${errorData.detail?.message || 'Unknown error'}`,
+                    isValid: false
+                });
+            }
+        }
+    } catch (fetchError) {
+        console.error('[Settings] Failed to fetch agent status:', fetchError);
+        return res.json({
+            status: 'unknown',
+            message: 'Could not connect to Eleven Labs. Check your internet connection.',
+            isValid: false
+        });
+    }
+});
+
+// Check Eleven Labs API key validity
+router.post('/check-api-key', async (req, res) => {
+    try {
+        const { apiKey } = req.body;
+
+        if (!apiKey) {
+            return res.json({
+                status: 'unconfigured',
+                message: 'No API key provided',
+                isValid: false
+            });
+        }
+
+        try {
+            // Test the key against the Eleven Labs User endpoint
+            const response = await fetch('https://api.elevenlabs.io/v1/user', {
+                method: 'GET',
+                headers: { 'xi-api-key': apiKey }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                return res.json({
+                    status: 'valid',
+                    message: `Valid key for ${data.subscription?.tier || 'Subscription'} account`,
+                    isValid: true
+                });
+            } else {
+                const errorText = await response.text();
+                console.error(`[Settings] Eleven Labs API key check failed: ${response.status} ${response.statusText}`, errorText);
+                return res.json({
+                    status: 'invalid',
+                    message: `Invalid API key (${response.status}: ${response.statusText})`,
+                    isValid: false
+                });
+            }
+        } catch (fetchError) {
+            console.error('[Settings] Failed to verify API key:', fetchError);
+            return res.json({
+                status: 'unknown',
+                message: 'Could not connect to Eleven Labs for validation',
+                isValid: true
+            });
+        }
+    } catch (error) {
+        console.error('[Settings] Failed to check API key:', error);
+        res.status(500).json({ error: 'Failed to check API key' });
+    }
+});
+
+
 // Helper function to get a setting value (for use in other parts of the app)
 export async function getSetting(key: string): Promise<any> {
     try {
@@ -249,18 +477,37 @@ export async function getTwilioSettings() {
     const settingsMap = new Map(settings.map(s => [s.key, s.value]));
 
     return {
-        businessName: settingsMap.get('twilio.business_name') ?? DEFAULT_SETTINGS['twilio.business_name'].value,
-        welcomeMessage: settingsMap.get('twilio.welcome_message') ?? DEFAULT_SETTINGS['twilio.welcome_message'].value,
-        voice: settingsMap.get('twilio.voice') ?? DEFAULT_SETTINGS['twilio.voice'].value,
-        holdMusicUrl: settingsMap.get('twilio.hold_music_url') ?? DEFAULT_SETTINGS['twilio.hold_music_url'].value,
-        maxWaitSeconds: settingsMap.get('twilio.max_wait_seconds') ?? DEFAULT_SETTINGS['twilio.max_wait_seconds'].value,
-        forwardNumber: settingsMap.get('twilio.forward_number') ?? DEFAULT_SETTINGS['twilio.forward_number'].value,
-        forwardEnabled: settingsMap.get('twilio.forward_enabled') ?? DEFAULT_SETTINGS['twilio.forward_enabled'].value,
-        fallbackAction: settingsMap.get('twilio.fallback_action') ?? DEFAULT_SETTINGS['twilio.fallback_action'].value,
-        fallbackMessage: settingsMap.get('twilio.fallback_message') ?? DEFAULT_SETTINGS['twilio.fallback_message'].value,
-        reassuranceEnabled: settingsMap.get('twilio.reassurance_enabled') ?? DEFAULT_SETTINGS['twilio.reassurance_enabled'].value,
-        reassuranceInterval: settingsMap.get('twilio.reassurance_interval') ?? DEFAULT_SETTINGS['twilio.reassurance_interval'].value,
-        reassuranceMessage: settingsMap.get('twilio.reassurance_message') ?? DEFAULT_SETTINGS['twilio.reassurance_message'].value,
+        businessName: (settingsMap.get('twilio.business_name') ?? DEFAULT_SETTINGS['twilio.business_name'].value) as string,
+        welcomeMessage: (settingsMap.get('twilio.welcome_message') ?? DEFAULT_SETTINGS['twilio.welcome_message'].value) as string,
+        voice: (settingsMap.get('twilio.voice') ?? DEFAULT_SETTINGS['twilio.voice'].value) as string,
+        holdMusicUrl: (settingsMap.get('twilio.hold_music_url') ?? DEFAULT_SETTINGS['twilio.hold_music_url'].value) as string,
+        maxWaitSeconds: (settingsMap.get('twilio.max_wait_seconds') ?? DEFAULT_SETTINGS['twilio.max_wait_seconds'].value) as number,
+        forwardNumber: (settingsMap.get('twilio.forward_number') ?? DEFAULT_SETTINGS['twilio.forward_number'].value) as string,
+        forwardEnabled: (settingsMap.get('twilio.forward_enabled') ?? DEFAULT_SETTINGS['twilio.forward_enabled'].value) as boolean,
+        fallbackAction: (settingsMap.get('twilio.fallback_action') ?? DEFAULT_SETTINGS['twilio.fallback_action'].value) as string,
+        fallbackMessage: (settingsMap.get('twilio.fallback_message') ?? DEFAULT_SETTINGS['twilio.fallback_message'].value) as string,
+        reassuranceEnabled: (settingsMap.get('twilio.reassurance_enabled') ?? DEFAULT_SETTINGS['twilio.reassurance_enabled'].value) as boolean,
+        reassuranceInterval: (settingsMap.get('twilio.reassurance_interval') ?? DEFAULT_SETTINGS['twilio.reassurance_interval'].value) as number,
+        reassuranceMessage: (settingsMap.get('twilio.reassurance_message') ?? DEFAULT_SETTINGS['twilio.reassurance_message'].value) as string,
+        agentNotifySms: (settingsMap.get('twilio.agent_notify_sms') ?? DEFAULT_SETTINGS['twilio.agent_notify_sms'].value) as string,
+        agentMissedSms: (settingsMap.get('twilio.agent_missed_sms') ?? DEFAULT_SETTINGS['twilio.agent_missed_sms'].value) as string,
+        whisperEnabled: (settingsMap.get('twilio.whisper_enabled') ?? DEFAULT_SETTINGS['twilio.whisper_enabled'].value) as boolean,
+        welcomeAudioUrl: (settingsMap.get('twilio.welcome_audio_url') ?? DEFAULT_SETTINGS['twilio.welcome_audio_url'].value) as string,
+        fallbackAgentUrl: (settingsMap.get('twilio.fallback_agent_url') ?? DEFAULT_SETTINGS['twilio.fallback_agent_url'].value) as string,
+        elevenLabsAgentId: (settingsMap.get('twilio.eleven_labs_agent_id') ?? DEFAULT_SETTINGS['twilio.eleven_labs_agent_id'].value) as string,
+        elevenLabsApiKey: (settingsMap.get('twilio.eleven_labs_api_key') ?? DEFAULT_SETTINGS['twilio.eleven_labs_api_key'].value) as string,
+
+        // Agent Modes
+        agentMode: (settingsMap.get('twilio.agent_mode') ?? DEFAULT_SETTINGS['twilio.agent_mode'].value) as string,
+        agentContextDefault: (settingsMap.get('twilio.agent_context_default') ?? DEFAULT_SETTINGS['twilio.agent_context_default'].value) as string,
+        agentContextOutOfHours: (settingsMap.get('twilio.agent_context_out_of_hours') ?? DEFAULT_SETTINGS['twilio.agent_context_out_of_hours'].value) as string,
+        agentContextMissed: (settingsMap.get('twilio.agent_context_missed') ?? DEFAULT_SETTINGS['twilio.agent_context_missed'].value) as string,
+        businessHoursStart: (settingsMap.get('twilio.business_hours_start') ?? DEFAULT_SETTINGS['twilio.business_hours_start'].value) as string,
+        businessHoursEnd: (settingsMap.get('twilio.business_hours_end') ?? DEFAULT_SETTINGS['twilio.business_hours_end'].value) as string,
+        businessDays: (settingsMap.get('twilio.business_days') ?? DEFAULT_SETTINGS['twilio.business_days'].value) as string,
+
+        // Add environment variable fallbacks
+        twilioPhoneNumber: process.env.TWILIO_PHONE_NUMBER as string,
     };
 }
 

@@ -12,11 +12,17 @@ export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export interface CallMetadata {
     customerName: string | null;
+    companyName?: string | null;
     address: string | null;
     postcode: string | null; // B2: UK postcode extraction
     urgency: "Critical" | "High" | "Standard" | "Low";
     leadType: "Homeowner" | "Landlord" | "Property Manager" | "Tenant" | "Unknown";
     roleMapping?: Record<number, "VA" | "Customer">; // Map Speaker ID -> Role
+    nameCandidates?: Array<{
+        name: string;
+        confidence: number;
+        reasoning: string;
+    }>;
 }
 
 interface Segment {
@@ -26,43 +32,59 @@ interface Segment {
 
 export async function extractCallMetadata(transcription: string, segments: Segment[] = []): Promise<CallMetadata> {
     try {
-        // Prepare segments for prompt (limit to first 10-15 turns to save tokens, usually enough to establish roles)
-        const dialogueSnippet = segments.slice(0, 15).map(s => `Speaker ${s.speaker}: "${s.text}"`).join("\n");
-        const context = dialogueSnippet || transcription; // Fallback to full text if no segments
+        // STATE OF THE ART: Semantic Diarization & Role Analysis
+        // Construct a dialogue snippet with speaker labels if available
+        let context = "";
+
+        if (segments.length > 0) {
+            // Use up to 200 turns to capture names given at the end of calls
+            const dialogueSnippet = segments.slice(0, 200).map(s => `Speaker ${s.speaker}: "${s.text.trim()}"`).join("\n");
+            context = `DIALOGUE TRANSCRIPT:\n${dialogueSnippet}`;
+        } else {
+            context = `RAW TRANSCRIPT:\n${transcription}`;
+        }
 
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
                 {
                     role: "system",
-                    content: `You are an expert dispatcher analyzing audio transcripts.
-Extract the following fields into JSON:
-- customerName: The caller's name (or null).
-- address: The FULL service location address in this exact format: "Street Number + Street Name, Flat/Unit (if mentioned), Town/City, Postcode"
-  Examples:
-  * "42 Maple Street, London, SW1A 1AA"
-  * "15B High Street, Flat 3, Manchester, M1 1AA"
-  * "The Old Mill, Church Lane, Bristol, BS1 1AA"
-  
-  IMPORTANT for address:
-  - Include ALL parts mentioned (street number, street name, flat/unit, building name, town, postcode)
-  - If customer says "my address" or "same address", try to extract from earlier context
-  - If only partial address given, extract what's available
-  - Normalize variations: "apartment 2" → "Flat 2", "number 42" → "42"
-  - Keep UK formatting (e.g., "42A" not "42 A")
-  
-  ERROR CORRECTION RULES:
-  - Fix phonetic errors: "M 1" -> "M1", "Tree Road" -> "Tree Road"
-  - Handle spelling: "S for Sugar" -> "S", "B for Bravo" -> "B"
-  - Fix common STT mistakes: "Double U" -> "W", "Bee" -> "B", "Pea" -> "P"
-  - Fix disjointed postcodes: "S W 1 A 1 A A" -> "SW1A 1AA"
-  - Fix number words: "Forty two" -> "42"
-  
-- postcode: UK postcode in standard format (e.g., "SW1A 1AA", "W1A 0AX"). Extract even if spoken as "S W one A one A A" or "SW seventeen 8QT". Return null if not mentioned.
-- urgency: Assess urgency (Critical, High, Standard, Low).
-- leadType: Identify caller role (Homeowner, Landlord, Property Manager, Tenant).
-- roleMapping: Analyze the dialogue to identify which Speaker ID is the "Professional/VA" (answering the phone, asking questions) and which is the "Customer" (calling with a problem).
-  Format: { "0": "VA", "1": "Customer" } or vice versa.
+                    content: `You are an expert call analyzer. Your goal is to extract structured data about the potential CUSTOMER.
+
+CRITICAL: You must distinguish the "Service Provider/Agent" (answering the phone) from the "Customer" (calling for help).
+
+INSTRUCTIONS:
+1. ANALYZE ROLES:
+   - Identify which speaker is the "Agent" (often says "Hello, [Company Name]", "How can I help?")
+   - Identify which speaker is the "Customer" (explains a problem, asks for service).
+   - Speaker 0 is NOT always the Agent. Use context.
+
+2. EXTRACT CUSTOMER NAME CANDIDATES (TOP 3):
+   - You must identify up to 3 COMPETING hypotheses for the customer's name with a confidence score (0.0 to 1.0).
+   - Top candidate is the most likely.
+   - Low confidence? Still provide a guess but mark it low.
+   - IGNORE names of the Agent (e.g., "This is Sarah speaking").
+   - IF CALLING FOR A COMPANY: If customer says "This is John from Acme Corp", format as: "John (Acme Corp)".
+   - SPELLING: If name is spelled out ("J-O-H-N"), this is VERY HIGH confidence. Reconstruct it.
+   - DISAMBIGUATION: If customer says "I'm calling for Mike", the customer is NOT Mike. Look for "My name is...". If not given, extract "Mike" with reasoning "Caller acting on behalf".
+
+3. EXTRACT ADDRESS:
+   - Full service location with Street, Town, Postcode.
+   - Fix phonetic errors ("M 1" -> "M1").
+
+JSON OUTPUT FIELDS:
+- nameCandidates: Array of objects { "name": string, "confidence": number, "reasoning": string }
+- companyName: string | null (NEW: Extract distinct company name if mentioned)
+- address: string | null
+- postcode: string | null
+- urgency: "Critical" | "High" | "Standard" | "Low"
+- leadType: "Homeowner" | "Landlord" | "Property Manager" | "Tenant" | "Unknown"
+
+Example Candidates:
+[
+  { "name": "Kiki", "confidence": 0.95, "reasoning": "Spelled out K-I-K-I" },
+  { "name": "Craig", "confidence": 0.3, "reasoning": "Mentioned earlier, possibly husband" }
+]
 `
                 },
                 {
@@ -75,26 +97,38 @@ Extract the following fields into JSON:
 
         const parsed = JSON.parse(response.choices[0].message.content || "{}");
 
-        // Convert string keys back to numbers for the mapping
-        const rawMapping = parsed.roleMapping || {};
-        const roleMapping: Record<number, "VA" | "Customer"> = {};
-        for (const key in rawMapping) {
-            roleMapping[parseInt(key)] = rawMapping[key];
-        }
-
         // Normalize postcode format (uppercase, proper spacing)
         let postcode = parsed.postcode || null;
         if (postcode) {
             postcode = normalizePostcode(postcode);
         }
 
+        // Robust Company Name formatting - Apply to all candidates
+        const candidates = (parsed.nameCandidates || []).map((c: any) => {
+            if (parsed.companyName && !c.name.includes("(")) {
+                return { ...c, name: `${c.name} (${parsed.companyName})` };
+            }
+            return c;
+        });
+
+        // Select the best candidate for the main field
+        const bestCandidate = candidates.length > 0 ? candidates[0].name : (parsed.customerName || null);
+
+        // Fallback for legacy behavior if AI fails to return candidates
+        let finalCustomerName = bestCandidate;
+        if (!finalCustomerName && parsed.customerName) {
+            finalCustomerName = parsed.customerName;
+            if (parsed.companyName) finalCustomerName += ` (${parsed.companyName})`;
+        }
+
         return {
-            customerName: parsed.customerName || null,
+            customerName: finalCustomerName,
+            nameCandidates: candidates,
+            companyName: parsed.companyName || null,
             address: parsed.address || null,
             postcode: postcode,
             urgency: parsed.urgency || "Standard",
             leadType: parsed.leadType || "Unknown",
-            roleMapping
         };
     } catch (error) {
         console.error("Metadata extraction error:", error);

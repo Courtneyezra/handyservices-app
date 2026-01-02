@@ -39,7 +39,7 @@ export default function MainDashboard() {
             <h1 className="text-3xl font-bold tracking-tight text-white">Dashboard</h1>
 
             {/* Stats Grid */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
                 <Card className="bg-black/40 border-gray-700 backdrop-blur-sm">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium text-gray-300">Leads Today</CardTitle>
@@ -83,8 +83,8 @@ export default function MainDashboard() {
             </div>
 
             {/* Action Feed */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-                <Card className="col-span-4 bg-black/40 border-gray-700 backdrop-blur-sm">
+            <div className="grid gap-4 grid-cols-1 lg:grid-cols-7">
+                <Card className="col-span-1 lg:col-span-4 bg-black/40 border-gray-700 backdrop-blur-sm">
                     <CardHeader>
                         <CardTitle className="text-white">Action Required</CardTitle>
                     </CardHeader>
@@ -111,7 +111,7 @@ export default function MainDashboard() {
                         </div>
                     </CardContent>
                 </Card>
-                <Card className="col-span-3 bg-black/40 border-gray-700 backdrop-blur-sm">
+                <Card className="col-span-1 lg:col-span-3 bg-black/40 border-gray-700 backdrop-blur-sm">
                     <CardHeader>
                         <CardTitle className="text-white">Recent Activity</CardTitle>
                     </CardHeader>

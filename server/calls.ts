@@ -26,8 +26,28 @@ router.get("/active", async (req: Request, res: Response) => {
             return res.json({ activeCall: null });
         }
 
-        // Return the most recent active call with all analysis data
         const activeCall = activeCalls[0];
+
+        // Safeguard: Check if the call is stale (older than 2 hours)
+        const now = new Date();
+        const callStartTime = new Date(activeCall.startTime);
+        const diffHours = (now.getTime() - callStartTime.getTime()) / (1000 * 60 * 60);
+
+        if (diffHours > 2) {
+            console.log(`[Auto-Cleanup] Call ${activeCall.id} is stale (>2 hours). Updating to failed.`);
+
+            await db.update(calls)
+                .set({
+                    status: 'failed',
+                    outcome: 'technical_issue',
+                    endTime: new Date()
+                })
+                .where(eq(calls.id, activeCall.id));
+
+            return res.json({ activeCall: null });
+        }
+
+        // Return the most recent active call with all analysis data
         res.json({ activeCall });
     } catch (error) {
         console.error("Error fetching active call:", error);
@@ -127,12 +147,13 @@ router.get("/", async (req: Request, res: Response) => {
             phoneNumber: call.phoneNumber,
             address: call.address,
             startTime: call.startTime,
-            duration: call.duration,
+            jobSummary: call.jobSummary,
             skuCount: skuCountMap.get(call.id) || 0,
             totalPricePence: call.totalPricePence || 0,
             outcome: call.outcome,
             urgency: call.urgency,
             status: call.status,
+            metadataJson: call.metadataJson,
         }));
 
         res.json({
@@ -283,7 +304,7 @@ router.patch("/:id/skus/:skuId", async (req: Request, res: Response) => {
         await db.update(calls)
             .set({
                 totalPricePence: totalPrice,
-                lastEditedBy: req.user?.id || 'system',
+                lastEditedBy: (req as any).user?.id || 'system',
                 lastEditedAt: new Date()
             })
             .where(eq(calls.id, id));
@@ -315,7 +336,7 @@ router.delete("/:id/skus/:skuId", async (req: Request, res: Response) => {
         await db.update(calls)
             .set({
                 totalPricePence: totalPrice,
-                lastEditedBy: req.user?.id || 'system',
+                lastEditedBy: (req as any).user?.id || 'system',
                 lastEditedAt: new Date()
             })
             .where(eq(calls.id, id));

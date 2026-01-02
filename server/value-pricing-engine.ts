@@ -449,9 +449,9 @@ export function generateTierDeliverables(
     }
 
     return {
-      essential,
-      hassleFree,
-      highStandard,
+      essential: Array.from(new Set(essential)),
+      hassleFree: Array.from(new Set(hassleFree)),
+      highStandard: Array.from(new Set(highStandard)),
       source: 'ai',
     };
   }

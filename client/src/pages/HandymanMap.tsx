@@ -3,8 +3,9 @@ import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useQuery } from "@tanstack/react-query";
-import { Wrench, MapPin, Search, Filter, Clock, Star } from "lucide-react";
+import { Wrench, MapPin, Search, Filter, Clock, Star, List as ListIcon, Map as MapIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 // Fix Leaflet marker icon issue
 import markerIcon from "leaflet/dist/images/marker-icon.png";
@@ -50,6 +51,7 @@ interface Handyman {
 export default function HandymanMap() {
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedCategory, setSelectedCategory] = useState("All");
+    const [showList, setShowList] = useState(false);
 
     const { data: handymen, isLoading } = useQuery<Handyman[]>({
         queryKey: ["/api/handymen"],
@@ -69,9 +71,12 @@ export default function HandymanMap() {
     const categories = Array.from(new Set(handymen?.flatMap(h => h.skills.map(s => s.service.category)) || [])).filter(Boolean);
 
     return (
-        <div className="h-screen flex bg-slate-900 text-white overflow-hidden">
+        <div className="flex-1 flex bg-slate-900 text-white overflow-hidden relative">
             {/* Sidebar Filters */}
-            <div className="w-80 flex flex-col gap-6 bg-slate-800 p-6 border-r border-slate-700 overflow-hidden">
+            <div className={cn(
+                "w-full lg:w-80 flex flex-col gap-6 bg-slate-800 p-6 border-r border-slate-700 absolute inset-0 z-20 transition-transform duration-300 lg:relative lg:translate-x-0 lg:z-10",
+                showList ? "translate-x-0" : "-translate-x-full"
+            )}>
                 <div>
                     <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-white">
                         <Filter className="w-5 h-5 text-green-500" />
@@ -146,71 +151,80 @@ export default function HandymanMap() {
                 </div>
             </div>
 
-            {/* Map Area */}
-            <div className="flex-1 relative">
-                {isLoading ? (
-                    <div className="absolute inset-0 bg-slate-50 flex items-center justify-center z-[1000]">
-                        <div className="flex flex-col items-center gap-3">
-                            <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                            <p className="text-sm font-medium text-slate-500">Loading map...</p>
-                        </div>
-                    </div>
+            {/* Mobile Toggle Button */}
+            <Button
+                onClick={() => setShowList(!showList)}
+                className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1001] lg:hidden bg-handy-gold text-gray-900 shadow-xl shadow-yellow-900/40 font-bold px-6 py-6 rounded-2xl flex items-center gap-3 active:scale-95 transition-all"
+            >
+                {showList ? (
+                    <><MapIcon className="w-5 h-5" /> View Map</>
                 ) : (
-                    <MapContainer
-                        center={[52.9548, -1.1581]} // Default Nottingham
-                        zoom={11}
-                        style={{ height: "100%", width: "100%" }}
-                    >
-                        <TileLayer
-                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        />
-                        {filteredHandymen?.map(h => (
-                            <div key={h.id}>
-                                <Marker position={[parseFloat(h.latitude), parseFloat(h.longitude)]}>
-                                    <Popup className="handyman-popup">
-                                        <div className="p-1 min-w-[200px]">
-                                            <div className="flex items-center gap-3 mb-3">
-                                                <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold">
-                                                    {h.user.firstName[0]}{h.user.lastName[0]}
-                                                </div>
-                                                <div>
-                                                    <h4 className="font-bold text-slate-800 text-base leading-tight">
-                                                        {h.user.firstName} {h.user.lastName}
-                                                    </h4>
-                                                    <p className="text-xs text-slate-500">Member since 2024</p>
-                                                </div>
-                                            </div>
+                    <><ListIcon className="w-5 h-5" /> View List</>
+                )}
+            </Button>
 
-                                            <div className="space-y-2 mb-4">
-                                                <div className="flex items-center gap-2 text-xs text-slate-600">
-                                                    <MapPin className="w-3.5 h-3.5 text-blue-500" />
-                                                    {h.address}, {h.postcode}
-                                                </div>
-                                                <div className="flex items-center gap-2 text-xs text-slate-600">
-                                                    <Wrench className="w-3.5 h-3.5 text-blue-500" />
-                                                    {h.radiusMiles} mile coverage radius
-                                                </div>
+            {isLoading ? (
+                <div className="absolute inset-0 bg-slate-50 flex items-center justify-center z-[1000]">
+                    <div className="flex flex-col items-center gap-3">
+                        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                        <p className="text-sm font-medium text-slate-500">Loading map...</p>
+                    </div>
+                </div>
+            ) : (
+                <MapContainer
+                    center={[52.9548, -1.1581]} // Default Nottingham
+                    zoom={11}
+                    style={{ height: "100%", width: "100%" }}
+                >
+                    <TileLayer
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
+                    {filteredHandymen?.map(h => (
+                        <div key={h.id}>
+                            <Marker position={[parseFloat(h.latitude), parseFloat(h.longitude)]}>
+                                <Popup className="handyman-popup">
+                                    <div className="p-1 min-w-[200px]">
+                                        <div className="flex items-center gap-3 mb-3">
+                                            <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold">
+                                                {h.user.firstName[0]}{h.user.lastName[0]}
                                             </div>
-
-                                            <div className="border-t border-slate-100 pt-3">
-                                                <Button className="w-full h-8 text-xs bg-blue-600 hover:bg-blue-700">
-                                                    View Dashboard
-                                                </Button>
+                                            <div>
+                                                <h4 className="font-bold text-slate-800 text-base leading-tight">
+                                                    {h.user.firstName} {h.user.lastName}
+                                                </h4>
+                                                <p className="text-xs text-slate-500">Member since 2024</p>
                                             </div>
                                         </div>
-                                    </Popup>
-                                </Marker>
-                                <Circle
-                                    center={[parseFloat(h.latitude), parseFloat(h.longitude)]}
-                                    pathOptions={{ fillColor: 'blue', color: 'blue', fillOpacity: 0.1, weight: 1 }}
-                                    radius={h.radiusMiles * 1609.34} // Convert miles to meters
-                                />
-                            </div>
-                        ))}
-                    </MapContainer>
-                )}
-            </div>
+
+                                        <div className="space-y-2 mb-4">
+                                            <div className="flex items-center gap-2 text-xs text-slate-600">
+                                                <MapPin className="w-3.5 h-3.5 text-blue-500" />
+                                                {h.address}, {h.postcode}
+                                            </div>
+                                            <div className="flex items-center gap-2 text-xs text-slate-600">
+                                                <Wrench className="w-3.5 h-3.5 text-blue-500" />
+                                                {h.radiusMiles} mile coverage radius
+                                            </div>
+                                        </div>
+
+                                        <div className="border-t border-slate-100 pt-3">
+                                            <Button className="w-full h-8 text-xs bg-blue-600 hover:bg-blue-700">
+                                                View Dashboard
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </Popup>
+                            </Marker>
+                            <Circle
+                                center={[parseFloat(h.latitude), parseFloat(h.longitude)]}
+                                pathOptions={{ fillColor: 'blue', color: 'blue', fillOpacity: 0.1, weight: 1 }}
+                                radius={h.radiusMiles * 1609.34} // Convert miles to meters
+                            />
+                        </div>
+                    ))}
+                </MapContainer>
+            )}
         </div>
     );
 }

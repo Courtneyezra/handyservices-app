@@ -113,13 +113,13 @@ export default function HandymanDashboard() {
 
     return (
         <div className="max-w-4xl mx-auto space-y-8 pb-20">
-            <header className="flex justify-between items-center">
+            <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Handyman Profile</h1>
-                    <p className="text-slate-500 mt-1">Manage your public bio, service area, and skills.</p>
+                    <h1 className="text-2xl lg:text-3xl font-bold text-slate-900 tracking-tight">Handyman Profile</h1>
+                    <p className="text-sm text-slate-500 mt-1">Manage public bio & skills.</p>
                 </div>
                 <Button
-                    className="bg-blue-600 hover:bg-blue-700"
+                    className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 py-6 sm:py-2"
                     onClick={() => {
                         updateProfile.mutate({
                             bio: form.bio,
@@ -134,13 +134,13 @@ export default function HandymanDashboard() {
                     }}
                 >
                     <Save className="w-4 h-4 mr-2" />
-                    Save All Changes
+                    Save Changes
                 </Button>
             </header>
 
-            <div className="grid md:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
                 {/* Left Column: Bio & Details */}
-                <div className="md:col-span-2 space-y-6">
+                <div className="lg:col-span-2 space-y-6">
                     <section className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
                         <h3 className="text-lg font-bold flex items-center gap-2 text-slate-800">
                             <User className="w-5 h-5 text-blue-600" />

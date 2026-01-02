@@ -13,6 +13,7 @@ import { desc, eq } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 import { detectSku, detectMultipleTasks, loadAndCacheSkus } from "./skuDetector";
 import { setupTwilioSocket } from "./twilio-realtime";
+import { determineCallRouting, CallRoutingSettings, AgentMode, FallbackAction } from "./call-routing-engine";
 import { quotesRouter } from "./quotes";
 import { leadsRouter } from "./leads";
 import { testRouter } from "./test-routes";
@@ -139,7 +140,7 @@ app.use('/api/calls', callsRouter);
 app.use('/api/calls', callsRouter);
 app.use(trainingRouter);
 app.use('/api', devRouter);
-app.use(settingsRouter);
+app.use('/api/settings', settingsRouter);
 app.use(stripeRouter); // Stripe payment routes
 
 // Contractor Portal Routes
@@ -362,33 +363,95 @@ app.post('/api/twilio/voice', async (req, res) => {
     const wsProtocol = req.headers['x-forwarded-proto'] === 'https' ? 'wss' : 'ws';
     const httpProtocol = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
     const streamUrl = `${wsProtocol}://${host}/api/twilio/realtime`;
+    const leadNumber = req.body.From;
+
+    // Log call to database - TODO: implement this function
+    // try {
+    //     await logCallToDatabase({
+    //         twilioCallSid: req.body.CallSid,
+    //         phoneNumber: req.body.From,
+    //         direction: "inbound",
+    //         status: "ringing",
+    //         customerName: "Unknown Caller",
+    //     });
+    // } catch (e) {
+    //     console.error(`[Twilio] Failed to log initial call ${req.body.CallSid}:`, e);
+    // }
 
     // Get dynamic settings
     const settings = await getTwilioSettings();
-    const welcomeMessage = (settings.welcomeMessage as string).replace('{business_name}', settings.businessName as string);
-    const holdMusicUrl = (settings.holdMusicUrl as string)?.startsWith('http')
-        ? settings.holdMusicUrl as string
-        : `${httpProtocol}://${host}${settings.holdMusicUrl}`;
 
+    // Build routing settings for the engine
+    const routingSettings: CallRoutingSettings = {
+        agentMode: (settings.agentMode || 'auto') as AgentMode,
+        forwardEnabled: settings.forwardEnabled,
+        forwardNumber: settings.forwardNumber,
+        fallbackAction: (settings.fallbackAction || 'voicemail') as FallbackAction,
+        businessHoursStart: settings.businessHoursStart,
+        businessHoursEnd: settings.businessHoursEnd,
+        businessDays: settings.businessDays,
+        elevenLabsAgentId: settings.elevenLabsAgentId,
+        elevenLabsApiKey: settings.elevenLabsApiKey,
+    };
+
+    // Determine call routing
+    const routing = determineCallRouting(routingSettings);
+    console.log(`[Twilio] Routing decision: ${routing.reason} (mode: ${routing.effectiveMode}, destination: ${routing.destination})`);
+
+    const welcomeMessage = (settings.welcomeMessage as string).replace('{business_name}', settings.businessName as string);
+    const holdMusicUrl = `${httpProtocol}://${host}/api/twilio/hold-music`;
+
+    // Start TwiML response
     let twiml = `<?xml version="1.0" encoding="UTF-8"?>
-    <Response>
+    <Response>`;
+
+    // If going to Eleven Labs, skip Deepgram stream
+    if (routing.destination !== 'eleven-labs') {
+        twiml += `
       <Start>
         <Stream url="${streamUrl}">
             <Parameter name="phoneNumber" value="${req.body.From}" />
         </Stream>
-      </Start>
-      <Say voice="${settings.voice}">${welcomeMessage}</Say>`;
+      </Start>`;
+    }
 
-    // If forwarding is enabled, dial the forward number
-    if (settings.forwardEnabled && settings.forwardNumber) {
-        // ringTone="gb" makes caller hear UK ring tone, masking international destination
-        // answerOnBridge="false" + ringTone prevents caller hearing destination ring
+    // Add welcome audio/message based on routing
+    if (routing.playWelcomeAudio) {
+        if (settings.welcomeAudioUrl) {
+            const audioUrl = (settings.welcomeAudioUrl as string).startsWith('http')
+                ? settings.welcomeAudioUrl
+                : `${httpProtocol}://${host}${settings.welcomeAudioUrl}`;
+            twiml += `
+      <Play>${audioUrl}</Play>`;
+        } else {
+            twiml += `
+      <Say voice="${settings.voice}">${welcomeMessage}</Say>`;
+        }
+    }
+
+    // Handle routing destination
+    if (routing.destination === 'va-forward') {
+        // Forward to VA with hold music
+        const holdMusicUrl = settings.holdMusicUrl || `${httpProtocol}://${host}/assets/hold-music.mp3`;
         twiml += `
-      <Dial timeout="${settings.maxWaitSeconds}" action="${httpProtocol}://${host}/api/twilio/dial-status" method="POST" answerOnBridge="false" ringTone="gb" callerId="${req.body.To || req.body.Called}">
-        <Number>${settings.forwardNumber}</Number>
+      <Dial timeout="${settings.maxWaitSeconds || 30}" action="${httpProtocol}://${host}/api/twilio/dial-status" method="POST" answerOnBridge="false" ringTone="gb" callerId="${req.body.To || req.body.Called}">
+        <Number url="${holdMusicUrl}">${settings.forwardNumber}</Number>
       </Dial>`;
+    } else if (routing.destination === 'eleven-labs') {
+        // Redirect to Eleven Labs (with context)
+        const elevenLabsUrl = `${httpProtocol}://${host}/api/twilio/eleven-labs-personal?agentId=${settings.elevenLabsAgentId}&leadPhoneNumber=${encodeURIComponent(leadNumber)}&context=${routing.elevenLabsContext}`;
+        twiml += `
+      <Redirect>${elevenLabsUrl}</Redirect>`;
+    } else if (routing.destination === 'voicemail') {
+        // Go to voicemail
+        twiml += `
+      <Redirect>${httpProtocol}://${host}/api/twilio/voicemail</Redirect>`;
+    } else if (routing.destination === 'hangup') {
+        // Just hangup
+        twiml += `
+      <Hangup/>`;
     } else {
-        // No forwarding - original behavior (for transcription/AI mode)
+        // Fallback: transcription mode
         twiml += `
       <Pause length="30" />
       <Say voice="${settings.voice}">I'm still listening. Go ahead whenever you're ready.</Say>
@@ -404,7 +467,47 @@ app.post('/api/twilio/voice', async (req, res) => {
     res.send(twiml);
 });
 
-// Twilio Dial Status Callback - Handles no-answer fallback to WhatsApp
+// Eleven Labs Personal Endpoint - Returns TwiML to connect to our WebSocket stream
+app.all('/api/twilio/eleven-labs-personal', async (req, res) => {
+    const agentId = req.query.agentId || req.body.agentId;
+    const context = req.query.context || req.body.context || 'in-hours';
+    const leadNumber = req.query.leadPhoneNumber || req.body.From;
+    const callSid = req.body.CallSid || '';
+
+    console.log(`[ElevenLabs-Personal] Redirecting to stream: Agent=${agentId}, Context=${context}, Lead=${leadNumber}`);
+
+    const settings = await getTwilioSettings();
+    const host = req.headers.host;
+    const wsProtocol = req.headers['x-forwarded-proto'] === 'https' ? 'wss' : 'ws';
+
+    if (!settings.elevenLabsApiKey || !agentId) {
+        console.error('[ElevenLabs-Personal] Missing API key or Agent ID');
+        return res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Sorry, voice agent is not configured.</Say><Hangup/></Response>');
+    }
+
+    try {
+        // Return TwiML with Connect to our WebSocket stream
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="${wsProtocol}://${host}/api/twilio/eleven-labs-stream?agentId=${agentId}&amp;context=${context}&amp;leadPhoneNumber=${encodeURIComponent(leadNumber)}&amp;callSid=${callSid}">
+      <Parameter name="agentId" value="${agentId}" />
+      <Parameter name="context" value="${context}" />
+      <Parameter name="leadPhoneNumber" value="${leadNumber}" />
+    </Stream>
+  </Connect>
+</Response>`;
+
+        console.log(`[ElevenLabs-Personal] Returning Stream TwiML for ${callSid}`);
+        return res.type('text/xml').send(twiml);
+
+    } catch (error) {
+        console.error('[ElevenLabs-Personal] Error:', error);
+        return res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Say>Sorry, an error occurred.</Say><Hangup/></Response>');
+    }
+});
+
+// Twilio Dial Status Callback - Handles missed call fallback routing
 app.post('/api/twilio/dial-status', async (req, res) => {
     const { DialCallStatus, From, CallSid } = req.body;
     console.log(`[Twilio] Dial status for ${CallSid}: ${DialCallStatus}`);
@@ -415,9 +518,62 @@ app.post('/api/twilio/dial-status', async (req, res) => {
 
     // If call was not answered, trigger fallback
     if (DialCallStatus !== 'completed' && DialCallStatus !== 'answered') {
-        console.log(`[Twilio] Call not answered, triggering fallback: ${settings.fallbackAction}`);
+        console.log(`[Twilio] Call not answered, determining fallback...`);
 
-        // Send WhatsApp if enabled
+        // Build routing settings for the engine
+        const routingSettings: CallRoutingSettings = {
+            agentMode: (settings.agentMode || 'auto') as AgentMode,
+            forwardEnabled: settings.forwardEnabled,
+            forwardNumber: settings.forwardNumber,
+            fallbackAction: (settings.fallbackAction || 'voicemail') as FallbackAction,
+            businessHoursStart: settings.businessHoursStart,
+            businessHoursEnd: settings.businessHoursEnd,
+            businessDays: settings.businessDays,
+            elevenLabsAgentId: settings.elevenLabsAgentId,
+            elevenLabsApiKey: settings.elevenLabsApiKey,
+        };
+
+        // Determine fallback routing (VA missed call scenario)
+        const routing = determineCallRouting(routingSettings, true); // isVAMissedCall = true
+        console.log(`[Twilio] Fallback routing: ${routing.reason} (destination: ${routing.destination})`);
+
+        // Handle Eleven Labs fallback - return Stream TwiML directly
+        if (routing.destination === 'eleven-labs') {
+            console.log(`[Twilio] Connecting to Eleven Labs with context: ${routing.elevenLabsContext}`);
+
+            // Get WebSocket protocol
+            const wsProtocol = httpProtocol === 'https' ? 'wss' : 'ws';
+
+            // Return TwiML with Connect to our WebSocket stream (directly, no redirect)
+            const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+            <Response>
+              <Say voice="${settings.voice}">Connecting you to our assistant.</Say>
+              <Connect>
+                <Stream url="${wsProtocol}://${host}/api/twilio/eleven-labs-stream?agentId=${settings.elevenLabsAgentId}&amp;context=${routing.elevenLabsContext}&amp;leadPhoneNumber=${encodeURIComponent(From)}&amp;callSid=${CallSid}">
+                  <Parameter name="agentId" value="${settings.elevenLabsAgentId}" />
+                  <Parameter name="context" value="${routing.elevenLabsContext}" />
+                  <Parameter name="leadPhoneNumber" value="${From}" />
+                </Stream>
+              </Connect>
+            </Response>`;
+
+            res.type('text/xml');
+            return res.send(twiml);
+        }
+
+        // Handle voicemail fallback
+        if (routing.destination === 'voicemail') {
+            console.log(`[Twilio] Redirecting to voicemail`);
+            const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+            <Response>
+              <Redirect>${httpProtocol}://${host}/api/twilio/voicemail</Redirect>
+            </Response>`;
+
+            res.type('text/xml');
+            return res.send(twiml);
+        }
+
+        // Handle WhatsApp/hangup fallback
         if (settings.fallbackAction === 'whatsapp' && From) {
             try {
                 const fallbackMessage = (settings.fallbackMessage as string).replace('{business_name}', settings.businessName as string);
@@ -430,10 +586,10 @@ app.post('/api/twilio/dial-status', async (req, res) => {
             }
         }
 
-        // Play apology message and hang up
+        // Default: Play apology message and hang up
         const twiml = `<?xml version="1.0" encoding="UTF-8"?>
         <Response>
-          <Say voice="${settings.voice}">Sorry we missed your call. We'll text you right back.</Say>
+          <Say voice="${settings.voice}">Sorry we missed your call. We'll be in touch shortly.</Say>
           <Hangup/>
         </Response>`;
 
@@ -521,6 +677,7 @@ const server = createServer(app);
 // Setup WebSockets
 const wssTwilio = new WebSocketServer({ noServer: true });
 const wssClient = new WebSocketServer({ noServer: true });
+const wssElevenLabs = new WebSocketServer({ noServer: true });
 
 export function broadcastToClients(message: any) {
     const data = JSON.stringify(message);
@@ -549,6 +706,42 @@ wssClient.on('connection', (ws, req) => {
 setupTwilioSocket(wssTwilio, broadcastToClients);
 conversationEngine.attachWebSocket(wssClient);
 
+// Setup Eleven Labs WebSocket handler
+import { ElevenLabsStreamHandler } from './eleven-labs/stream-handler';
+import { StreamConfig } from './eleven-labs/types';
+
+wssElevenLabs.on('connection', async (ws, req) => {
+    console.log('[ElevenLabs-WS] New WebSocket connection');
+
+    try {
+        // Extract parameters from URL
+        const url = new URL(req.url || '', `http://${req.headers.host}`);
+        console.log(`[ElevenLabs-WS] Full URL: ${req.url}`);
+        console.log(`[ElevenLabs-WS] Query params:`, Object.fromEntries(url.searchParams));
+
+        const agentId = url.searchParams.get('agentId') || '';
+        const context = (url.searchParams.get('context') || 'in-hours') as 'in-hours' | 'out-of-hours' | 'missed-call';
+        const leadNumber = url.searchParams.get('leadPhoneNumber') || '';
+        const callSid = url.searchParams.get('callSid') || '';
+        const streamSid = url.searchParams.get('streamSid') || '';
+
+        const config: StreamConfig = {
+            agentId,
+            context,
+            leadNumber,
+            callSid,
+            streamSid,
+        };
+
+        // Create and initialize stream handler
+        const handler = new ElevenLabsStreamHandler(ws, config);
+        await handler.initialize();
+    } catch (error) {
+        console.error('[ElevenLabs-WS] Failed to initialize stream handler:', error);
+        ws.close();
+    }
+});
+
 server.on('upgrade', (request, socket, head) => {
     const { pathname } = new URL(request.url || '', `http://${request.headers.host}`);
     console.log(`[Server] Upgrade request for ${pathname}`);
@@ -562,6 +755,11 @@ server.on('upgrade', (request, socket, head) => {
         process.stdout.write('[Server] Upgrading to WhatsApp Client WS\n');
         wssClient.handleUpgrade(request, socket, head, (ws) => {
             wssClient.emit('connection', ws, request);
+        });
+    } else if (pathname === '/api/twilio/eleven-labs-stream') {
+        process.stdout.write('[Server] Upgrading to Eleven Labs Stream\n');
+        wssElevenLabs.handleUpgrade(request, socket, head, (ws) => {
+            wssElevenLabs.emit('connection', ws, request);
         });
     } else {
         process.stdout.write(`[Server] Unexpected upgrade for ${pathname} - destroying socket\n`);
