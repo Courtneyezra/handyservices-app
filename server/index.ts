@@ -438,10 +438,17 @@ app.post('/api/twilio/voice', async (req, res) => {
         <Number url="${holdMusicUrl}">${settings.forwardNumber}</Number>
       </Dial>`;
     } else if (routing.destination === 'eleven-labs') {
-        // Redirect to Eleven Labs (with context)
-        const elevenLabsUrl = `${httpProtocol}://${host}/api/twilio/eleven-labs-personal?agentId=${settings.elevenLabsAgentId}&leadPhoneNumber=${encodeURIComponent(leadNumber)}&context=${routing.elevenLabsContext}`;
+        // Connect directly to Eleven Labs WebSocket (no redirect)
+        const wsProtocol = httpProtocol === 'https' ? 'wss' : 'ws';
         twiml += `
-      <Redirect>${elevenLabsUrl}</Redirect>`;
+      <Connect>
+        <Stream url="${wsProtocol}://${host}/api/twilio/eleven-labs-stream?agentId=${settings.elevenLabsAgentId}&amp;context=${routing.elevenLabsContext}&amp;leadPhoneNumber=${encodeURIComponent(leadNumber)}&amp;callSid=${req.body.CallSid}">
+          <Parameter name="agentId" value="${settings.elevenLabsAgentId}" />
+          <Parameter name="context" value="${routing.elevenLabsContext}" />
+          <Parameter name="leadPhoneNumber" value="${leadNumber}" />
+          <Parameter name="skipDeepgram" value="true" />
+        </Stream>
+      </Connect>`;
     } else if (routing.destination === 'voicemail') {
         // Go to voicemail
         twiml += `
