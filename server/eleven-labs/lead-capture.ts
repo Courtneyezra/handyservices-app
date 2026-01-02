@@ -15,32 +15,34 @@ const router = Router();
  */
 router.post('/lead', async (req, res) => {
     try {
-        const { name, phone, service_description, conversation_id } = req.body;
+        const { name, phone, job_description, urgency, conversation_id } = req.body;
 
         console.log('[ElevenLabs-Lead] Capture request:', {
             name,
             phone,
-            service_description,
+            job_description,
+            urgency,
             conversation_id
         });
 
-        // Validate required fields
-        if (!name) {
+        // Validate required fields (phone is required by Eleven Labs tool)
+        if (!phone) {
             return res.status(400).json({
-                error: 'Name is required'
+                error: 'Phone number is required'
             });
         }
+
 
         // Create lead record
         const leadId = `lead_el_${Date.now()}`;
 
         await db.insert(leads).values({
             id: leadId,
-            customerName: name,
-            phone: phone || null,
+            customerName: name || 'Unknown',
+            phone: phone,
             source: 'eleven_labs',
-            jobDescription: service_description || 'Lead captured via Eleven Labs agent',
-            status: 'review',
+            jobDescription: job_description || 'Lead captured via Eleven Labs agent',
+            status: urgency === 'urgent' || urgency === 'immediate' ? 'urgent' : 'review',
             elevenLabsConversationId: conversation_id || null,
         });
 
@@ -50,7 +52,9 @@ router.post('/lead', async (req, res) => {
         res.json({
             success: true,
             lead_id: leadId,
-            message: `Thank you ${name}, I've captured your details. Someone will be in touch soon.`
+            message: name
+                ? `Thank you ${name}, I've captured your details. Someone will be in touch soon.`
+                : `Thank you, I've captured your details. Someone will be in touch soon.`
         });
 
     } catch (error) {
