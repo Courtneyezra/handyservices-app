@@ -43,34 +43,19 @@ export class ElevenLabsStreamHandler {
     }
 
     /**
-     * Connect to Eleven Labs using the appropriate agent based on context
+     * Connect to Eleven Labs after receiving parameters from Twilio
      */
     private async connectToElevenLabs(): Promise<void> {
-        if (!this.config.agentId) {
-            console.error('[ElevenLabs-Stream] No agent ID configured');
-            return;
-        }
-
-        // Map context to agent ID
-        // out-of-hours → agent_5901kdyw24vwfjvtaetvnq7ns988
-        // missed-call/in-hours → agent_4201ke028gz3fnzr2xkc8b5gqqd6
-        const agentIdMap: Record<string, string> = {
-            'out-of-hours': 'agent_5901kdyw24vwfjvtaetvnq7ns988',
-            'missed-call': 'agent_4201ke028gz3fnzr2xkc8b5gqqd6',
-            'in-hours': 'agent_4201ke028gz3fnzr2xkc8b5gqqd6', // Same as missed-call
-        };
-
-        const selectedAgentId = agentIdMap[this.config.context] || this.config.agentId;
-
-        console.log(`[ElevenLabs-Stream] Agent: ${selectedAgentId}, Context: ${this.config.context}`);
+        console.log(`[ElevenLabs-Stream] Connecting to Eleven Labs`);
+        console.log(`[ElevenLabs-Stream] Agent: ${this.config.agentId}, Context: ${this.config.context}`);
 
         try {
             // Get settings
             const settings = await getTwilioSettings();
 
-            // Create Eleven Labs client with the selected agent ID
+            // Create Eleven Labs client
             this.elevenLabsClient = new ElevenLabsClient({
-                agentId: selectedAgentId,
+                agentId: this.config.agentId,
                 apiKey: settings.elevenLabsApiKey,
                 context: this.config.context,
             });

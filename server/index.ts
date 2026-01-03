@@ -32,8 +32,6 @@ import contractorAvailabilityRouter from './availability-routes';
 import contractorJobsRouter from './job-routes';
 import placesRouter from './places-routes';
 import { stripeRouter } from './stripe-routes';
-import elevenLabsLeadRouter from './eleven-labs/lead-capture';
-
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -149,7 +147,6 @@ app.use(stripeRouter); // Stripe payment routes
 app.use('/api/contractor', contractorAuthRouter);
 app.use('/api/contractor/availability', contractorAvailabilityRouter);
 app.use('/api/contractor/jobs', contractorJobsRouter);
-app.use('/api/eleven-labs', elevenLabsLeadRouter);
 // app.use('/api/places', placesRouter); // API: Places Search (Moved to register before catch-all)
 
 // Serve static assets (for hold music)
@@ -441,17 +438,10 @@ app.post('/api/twilio/voice', async (req, res) => {
         <Number url="${holdMusicUrl}">${settings.forwardNumber}</Number>
       </Dial>`;
     } else if (routing.destination === 'eleven-labs') {
-        // Connect directly to Eleven Labs WebSocket (no redirect)
-        const wsProtocol = httpProtocol === 'https' ? 'wss' : 'ws';
+        // Redirect to Eleven Labs Register Call endpoint
+        const registerUrl = `${httpProtocol}://${host}/api/twilio/eleven-labs-register?context=${routing.elevenLabsContext}`;
         twiml += `
-      <Connect>
-        <Stream url="${wsProtocol}://${host}/api/twilio/eleven-labs-stream?agentId=${settings.elevenLabsAgentId}&amp;context=${routing.elevenLabsContext}&amp;leadPhoneNumber=${encodeURIComponent(leadNumber)}&amp;callSid=${req.body.CallSid}">
-          <Parameter name="agentId" value="${settings.elevenLabsAgentId}" />
-          <Parameter name="context" value="${routing.elevenLabsContext}" />
-          <Parameter name="leadPhoneNumber" value="${leadNumber}" />
-          <Parameter name="skipDeepgram" value="true" />
-        </Stream>
-      </Connect>`;
+      <Redirect>${registerUrl}</Redirect>`;
     } else if (routing.destination === 'voicemail') {
         // Go to voicemail
         twiml += `
@@ -475,6 +465,57 @@ app.post('/api/twilio/voice', async (req, res) => {
 
     res.type('text/xml');
     res.send(twiml);
+});
+
+// Eleven Labs Register Call - Uses official Eleven Labs API
+import { registerElevenLabsCall } from './eleven-labs/register-call';
+
+app.post('/api/twilio/eleven-labs-register', async (req, res) => {
+    try {
+        const context = (req.query.context as string) || 'in-hours';
+        const fromNumber = req.body.From;
+        const toNumber = req.body.To || req.body.Called;
+
+        console.log(`[ElevenLabs-Register] Incoming request: From=${fromNumber}, To=${toNumber}, Context=${context}`);
+
+        const settings = await getTwilioSettings();
+
+        // Get context message from settings
+        const contextMessages: Record<string, string> = {
+            'in-hours': settings.agentContextDefault || 'How can I help you today?',
+            'out-of-hours': settings.agentContextOutOfHours || "We're currently closed, but I can help you schedule a service or take a message.",
+            'missed-call': settings.agentContextMissed || "I'm sorry we missed your call. Let me help you with that.",
+        };
+
+        const contextMessage = contextMessages[context] || contextMessages['in-hours'];
+
+        // Register call with Eleven Labs
+        const twiml = await registerElevenLabsCall({
+            agentId: settings.elevenLabsAgentId,
+            apiKey: settings.elevenLabsApiKey,
+            fromNumber,
+            toNumber,
+            context,
+            contextMessage,
+        });
+
+        // Return TwiML directly to Twilio
+        res.type('text/xml');
+        res.send(twiml);
+    } catch (error) {
+        console.error('[ElevenLabs-Register] Error:', error);
+
+        const host = req.headers.host;
+        const httpProtocol = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+
+        // Fallback to voicemail on error
+        res.type('text/xml');
+        res.send(`<?xml version="1.0" encoding="UTF-8"?>
+            <Response>
+                <Say>We're experiencing technical difficulties. Please leave a message.</Say>
+                <Redirect>${httpProtocol}://${host}/api/twilio/voicemail</Redirect>
+            </Response>`);
+    }
 });
 
 // Eleven Labs Personal Endpoint - Returns TwiML to connect to our WebSocket stream
@@ -547,25 +588,15 @@ app.post('/api/twilio/dial-status', async (req, res) => {
         const routing = determineCallRouting(routingSettings, true); // isVAMissedCall = true
         console.log(`[Twilio] Fallback routing: ${routing.reason} (destination: ${routing.destination})`);
 
-        // Handle Eleven Labs fallback - return Stream TwiML directly
+        // Handle Eleven Labs fallback - redirect to register endpoint
         if (routing.destination === 'eleven-labs') {
             console.log(`[Twilio] Connecting to Eleven Labs with context: ${routing.elevenLabsContext}`);
 
-            // Get WebSocket protocol
-            const wsProtocol = httpProtocol === 'https' ? 'wss' : 'ws';
-
-            // Return TwiML with Connect to our WebSocket stream (directly, no redirect)
-            // Note: We add a custom header to signal that Deepgram should be skipped
+            // Redirect to register endpoint
+            const registerUrl = `${httpProtocol}://${host}/api/twilio/eleven-labs-register?context=${routing.elevenLabsContext}`;
             const twiml = `<?xml version="1.0" encoding="UTF-8"?>
             <Response>
-              <Connect>
-                <Stream url="${wsProtocol}://${host}/api/twilio/eleven-labs-stream?agentId=${settings.elevenLabsAgentId}&amp;context=${routing.elevenLabsContext}&amp;leadPhoneNumber=${encodeURIComponent(From)}&amp;callSid=${CallSid}">
-                  <Parameter name="agentId" value="${settings.elevenLabsAgentId}" />
-                  <Parameter name="context" value="${routing.elevenLabsContext}" />
-                  <Parameter name="leadPhoneNumber" value="${From}" />
-                  <Parameter name="skipDeepgram" value="true" />
-                </Stream>
-              </Connect>
+              <Redirect>${registerUrl}</Redirect>
             </Response>`;
 
             res.type('text/xml');
