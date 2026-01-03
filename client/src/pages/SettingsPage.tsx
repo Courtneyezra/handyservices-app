@@ -11,6 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { Settings, Phone, Volume2, MessageSquare, CheckCircle, XCircle, Loader2, AlertCircle, PhoneForwarded } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { DaySelector } from '@/components/ui/day-selector';
+import { LiveSchedulePreview } from '@/components/ui/live-schedule-preview';
 
 interface TwilioSettings {
     'twilio.business_name': string;
@@ -636,79 +639,193 @@ export default function SettingsPage() {
 
                                     {/* Agent Modes - Only visible when both API key and Agent ID are verified */}
                                     {(apiKeyStatus.status === 'valid' && agentStatus.status === 'valid') && (
-                                        <div className="space-y-4 pt-4 border-t border-white/10">
-                                            <div className="flex items-center gap-2">
-                                                <h4 className="text-sm font-semibold text-white">Agent Modes</h4>
-                                                <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded">Unlocked</span>
+                                        <div className="space-y-6 pt-6 border-t border-white/10 mt-6">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className="text-base font-semibold text-white">Agent Availability & Routing</h4>
+                                                    <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded border border-green-500/20">Active</span>
+                                                </div>
                                             </div>
 
-                                            <div className="space-y-2">
-                                                <Label>Active Mode</Label>
-                                                <Select
-                                                    value={localSettings['twilio.agent_mode'] || 'auto'}
-                                                    onValueChange={(value) => updateSetting('twilio.agent_mode', value)}
-                                                >
-                                                    <SelectTrigger>
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="auto">Auto (UK Business Hours)</SelectItem>
-                                                        <SelectItem value="force-in-hours">Force In-Hours</SelectItem>
-                                                        <SelectItem value="force-out-of-hours">Force Out-of-Hours</SelectItem>
-                                                        <SelectItem value="voicemail-only">Voicemail Only</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                                {/* Left Column: Mode Selection & Schedule */}
+                                                <div className="md:col-span-2 space-y-6">
+                                                    <div className="space-y-3">
+                                                        <Label className="text-base">Operating Mode</Label>
+                                                        <Select
+                                                            value={localSettings['twilio.agent_mode'] || 'auto'}
+                                                            onValueChange={(value) => updateSetting('twilio.agent_mode', value)}
+                                                        >
+                                                            <SelectTrigger className="h-12 text-base bg-slate-900/50">
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="auto">
+                                                                    <div className="flex flex-col text-left">
+                                                                        <span className="font-medium">Auto Schedule</span>
+                                                                        <span className="text-xs text-muted-foreground">Follows business hours (UK Time)</span>
+                                                                    </div>
+                                                                </SelectItem>
+                                                                <SelectItem value="force-in-hours">
+                                                                    <div className="flex flex-col text-left">
+                                                                        <span className="font-medium">Always Open</span>
+                                                                        <span className="text-xs text-muted-foreground">Always route to VA/Agent (Override Schedule)</span>
+                                                                    </div>
+                                                                </SelectItem>
+                                                                <SelectItem value="force-out-of-hours">
+                                                                    <div className="flex flex-col text-left">
+                                                                        <span className="font-medium">Always Closed</span>
+                                                                        <span className="text-xs text-muted-foreground">Always route to Eleven Labs OOH / Voicemail</span>
+                                                                    </div>
+                                                                </SelectItem>
+                                                                <SelectItem value="voicemail-only">
+                                                                    <div className="flex flex-col text-left">
+                                                                        <span className="font-medium">Voicemail Only</span>
+                                                                        <span className="text-xs text-muted-foreground">Disable all AI agents</span>
+                                                                    </div>
+                                                                </SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
 
-                                            {localSettings['twilio.agent_mode'] === 'auto' && (
-                                                <div className="grid grid-cols-2 gap-4">
+                                                    {/* Business Hours Configuration */}
+                                                    <div className={cn(
+                                                        "space-y-6 p-5 rounded-lg border transition-all duration-200",
+                                                        localSettings['twilio.agent_mode'] === 'auto'
+                                                            ? "bg-slate-900/30 border-white/10"
+                                                            : "bg-slate-900/10 border-transparent opacity-60 pointer-events-none grayscale"
+                                                    )}>
+                                                        <div className="flex items-center justify-between">
+                                                            <Label className="text-sm font-medium uppercase tracking-wider text-muted-foreground">Business Schedule (UK Time)</Label>
+                                                            {localSettings['twilio.agent_mode'] !== 'auto' && (
+                                                                <span className="text-xs font-medium text-orange-400 bg-orange-400/10 px-2 py-0.5 rounded">
+                                                                    Ignored in current mode
+                                                                </span>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Presets */}
+                                                        <div className="flex flex-wrap gap-2">
+                                                            <Button
+                                                                variant="outline" size="sm" className="h-7 text-xs border-dashed"
+                                                                onClick={() => {
+                                                                    updateSetting('twilio.business_hours_start', '09:00');
+                                                                    updateSetting('twilio.business_hours_end', '17:00');
+                                                                    updateSetting('twilio.business_days', '1,2,3,4,5');
+                                                                }}
+                                                            >
+                                                                Mon-Fri 9-5
+                                                            </Button>
+                                                            <Button
+                                                                variant="outline" size="sm" className="h-7 text-xs border-dashed"
+                                                                onClick={() => {
+                                                                    updateSetting('twilio.business_hours_start', '08:00');
+                                                                    updateSetting('twilio.business_hours_end', '18:00');
+                                                                    updateSetting('twilio.business_days', '1,2,3,4,5');
+                                                                }}
+                                                            >
+                                                                Mon-Fri 8-6
+                                                            </Button>
+                                                            <Button
+                                                                variant="outline" size="sm" className="h-7 text-xs border-dashed"
+                                                                onClick={() => {
+                                                                    updateSetting('twilio.business_hours_start', '09:00');
+                                                                    updateSetting('twilio.business_hours_end', '17:00');
+                                                                    updateSetting('twilio.business_days', '1,2,3,4,5,6');
+                                                                }}
+                                                            >
+                                                                Mon-Sat 9-5
+                                                            </Button>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div className="space-y-2">
+                                                                <Label>Opening Time</Label>
+                                                                <div className="relative">
+                                                                    <Input
+                                                                        type="time"
+                                                                        className="pl-8"
+                                                                        value={localSettings['twilio.business_hours_start'] || '08:00'}
+                                                                        onChange={(e) => updateSetting('twilio.business_hours_start', e.target.value)}
+                                                                    />
+                                                                    <div className="absolute left-2.5 top-2.5 text-gray-400">
+                                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                                                                        </svg>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                <Label>Closing Time</Label>
+                                                                <div className="relative">
+                                                                    <Input
+                                                                        type="time"
+                                                                        className="pl-8"
+                                                                        value={localSettings['twilio.business_hours_end'] || '18:00'}
+                                                                        onChange={(e) => updateSetting('twilio.business_hours_end', e.target.value)}
+                                                                    />
+                                                                    <div className="absolute left-2.5 top-2.5 text-gray-400">
+                                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                                                                        </svg>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="space-y-3">
+                                                            <Label>Operational Days</Label>
+                                                            <DaySelector
+                                                                value={localSettings['twilio.business_days'] || '1,2,3,4,5'}
+                                                                onChange={(value) => updateSetting('twilio.business_days', value)}
+                                                                disabled={localSettings['twilio.agent_mode'] !== 'auto'}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Right Column: Context/Prompt Settings */}
+                                                <div className="space-y-6">
+                                                    <LiveSchedulePreview
+                                                        mode={localSettings['twilio.agent_mode']}
+                                                        start={localSettings['twilio.business_hours_start']}
+                                                        end={localSettings['twilio.business_hours_end']}
+                                                        days={localSettings['twilio.business_days']}
+                                                    />
+
                                                     <div className="space-y-2">
-                                                        <Label>Business Hours Start</Label>
-                                                        <Input
-                                                            type="time"
-                                                            value={localSettings['twilio.business_hours_start'] || '08:00'}
-                                                            onChange={(e) => updateSetting('twilio.business_hours_start', e.target.value)}
+                                                        <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">In-Hours Instructions</Label>
+                                                        <Textarea
+                                                            value={localSettings['twilio.agent_context_default'] || ''}
+                                                            onChange={(e) => updateSetting('twilio.agent_context_default', e.target.value)}
+                                                            rows={3}
+                                                            placeholder="Instructions for the agent when answering during business hours..."
+                                                            className="resize-none bg-slate-900/50"
                                                         />
                                                     </div>
+
                                                     <div className="space-y-2">
-                                                        <Label>Business Hours End</Label>
-                                                        <Input
-                                                            type="time"
-                                                            value={localSettings['twilio.business_hours_end'] || '18:00'}
-                                                            onChange={(e) => updateSetting('twilio.business_hours_end', e.target.value)}
+                                                        <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Out-of-Hours Instructions</Label>
+                                                        <Textarea
+                                                            value={localSettings['twilio.agent_context_out_of_hours'] || ''}
+                                                            onChange={(e) => updateSetting('twilio.agent_context_out_of_hours', e.target.value)}
+                                                            rows={3}
+                                                            placeholder="Instructions for AFTER hours (e.g., take a message)..."
+                                                            className="resize-none bg-slate-900/50"
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Missed Call Instructions</Label>
+                                                        <Textarea
+                                                            value={localSettings['twilio.agent_context_missed'] || ''}
+                                                            onChange={(e) => updateSetting('twilio.agent_context_missed', e.target.value)}
+                                                            rows={3}
+                                                            placeholder="What to say if the human team missed the call..."
+                                                            className="resize-none bg-slate-900/50"
                                                         />
                                                     </div>
                                                 </div>
-                                            )}
-
-                                            <div className="space-y-2">
-                                                <Label>In-Hours Context (Injected to Agent)</Label>
-                                                <Textarea
-                                                    value={localSettings['twilio.agent_context_default'] || ''}
-                                                    onChange={(e) => updateSetting('twilio.agent_context_default', e.target.value)}
-                                                    rows={2}
-                                                    placeholder="A team member will be with you shortly..."
-                                                />
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label>Out-of-Hours Context (Injected to Agent)</Label>
-                                                <Textarea
-                                                    value={localSettings['twilio.agent_context_out_of_hours'] || ''}
-                                                    onChange={(e) => updateSetting('twilio.agent_context_out_of_hours', e.target.value)}
-                                                    rows={2}
-                                                    placeholder="We're currently closed. Please leave a message..."
-                                                />
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label>Missed Call Context (When VA Doesn't Answer)</Label>
-                                                <Textarea
-                                                    value={localSettings['twilio.agent_context_missed'] || ''}
-                                                    onChange={(e) => updateSetting('twilio.agent_context_missed', e.target.value)}
-                                                    rows={2}
-                                                    placeholder="Sorry for the wait! Our team couldn't get to the phone..."
-                                                />
                                             </div>
                                         </div>
                                     )}

@@ -301,6 +301,112 @@ test('Missing context should return empty string', () => {
 });
 
 // ============================================
+// TEST SUITE: Business Days Validation
+// ============================================
+
+import {
+    formatBusinessDays,
+    parseBusinessDays,
+    getDayNames,
+    validateBusinessHours
+} from '../server/call-routing-engine';
+
+console.log('\n📅 Business Days Validation Tests\n' + '='.repeat(40));
+
+test('formatBusinessDays should sort and join days', () => {
+    assertEqual(formatBusinessDays([5, 1, 3, 2, 4]), '1,2,3,4,5');
+});
+
+test('formatBusinessDays should handle single day', () => {
+    assertEqual(formatBusinessDays([6]), '6');
+});
+
+test('parseBusinessDays should parse valid string', () => {
+    const result = parseBusinessDays('1,2,3,4,5');
+    assertEqual(result.length, 5);
+    assertEqual(result[0], 1);
+    assertEqual(result[4], 5);
+});
+
+test('parseBusinessDays should handle empty string', () => {
+    const result = parseBusinessDays('');
+    assertEqual(result.length, 0);
+});
+
+test('parseBusinessDays should filter invalid day numbers', () => {
+    const result = parseBusinessDays('0,1,2,8,9,-1');
+    assertEqual(result.length, 2); // Only 1 and 2 are valid
+    assertEqual(result[0], 1);
+    assertEqual(result[1], 2);
+});
+
+test('parseBusinessDays should handle whitespace', () => {
+    const result = parseBusinessDays(' 1 , 2 , 3 ');
+    assertEqual(result.length, 3);
+});
+
+test('getDayNames should return readable names', () => {
+    assertEqual(getDayNames([1, 2, 3, 4, 5]), 'Monday, Tuesday, Wednesday, Thursday, Friday');
+});
+
+test('getDayNames should handle single day', () => {
+    assertEqual(getDayNames([6]), 'Saturday');
+});
+
+test('getDayNames should sort days', () => {
+    assertEqual(getDayNames([7, 1, 6]), 'Monday, Saturday, Sunday');
+});
+
+test('validateBusinessHours should accept valid configuration', () => {
+    const result = validateBusinessHours('08:00', '18:00', [1, 2, 3, 4, 5]);
+    assertTrue(result.isValid);
+});
+
+test('validateBusinessHours should reject start >= end', () => {
+    const result = validateBusinessHours('18:00', '08:00', [1, 2, 3, 4, 5]);
+    assertEqual(result.isValid, false);
+    assertTrue(result.error?.includes('before') || false);
+});
+
+test('validateBusinessHours should reject equal start and end', () => {
+    const result = validateBusinessHours('09:00', '09:00', [1, 2, 3, 4, 5]);
+    assertEqual(result.isValid, false);
+});
+
+test('validateBusinessHours should reject invalid time format', () => {
+    const result = validateBusinessHours('25:00', '18:00', [1, 2, 3, 4, 5]);
+    assertEqual(result.isValid, false);
+    assertTrue(result.error?.includes('format') || false);
+});
+
+test('validateBusinessHours should reject empty days array', () => {
+    const result = validateBusinessHours('08:00', '18:00', []);
+    assertEqual(result.isValid, false);
+    assertTrue(result.error?.includes('At least one') || false);
+});
+
+test('validateBusinessHours should reject invalid day numbers', () => {
+    const result = validateBusinessHours('08:00', '18:00', [0, 8, 9]);
+    assertEqual(result.isValid, false);
+    assertTrue(result.error?.includes('Invalid day') || false);
+});
+
+test('validateBusinessHours should accept single day business', () => {
+    const result = validateBusinessHours('09:00', '17:00', [6]);
+    assertTrue(result.isValid);
+});
+
+test('validateBusinessHours should accept weekend-only business', () => {
+    const result = validateBusinessHours('10:00', '16:00', [6, 7]);
+    assertTrue(result.isValid);
+});
+
+test('validateBusinessHours should accept 24-hour format edge cases', () => {
+    const result = validateBusinessHours('00:00', '23:59', [1, 2, 3, 4, 5, 6, 7]);
+    assertTrue(result.isValid);
+});
+
+// ============================================
 // Summary
 // ============================================
 

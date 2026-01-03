@@ -437,7 +437,7 @@ app.post('/api/twilio/voice', async (req, res) => {
         // Forward to VA with hold music
         const holdMusicUrl = settings.holdMusicUrl || `${httpProtocol}://${host}/assets/hold-music.mp3`;
         twiml += `
-      <Dial timeout="${settings.maxWaitSeconds || 30}" action="${httpProtocol}://${host}/api/twilio/dial-status" method="POST" answerOnBridge="false" ringTone="gb" callerId="${req.body.To || req.body.Called}">
+      <Dial timeout="${settings.maxWaitSeconds || 30}" action="${httpProtocol}://${host}/api/twilio/dial-status" method="POST" answerOnBridge="false" ringTone="uk" callerId="${req.body.To || req.body.Called}">
         <Number url="${holdMusicUrl}">${settings.forwardNumber}</Number>
       </Dial>`;
     } else if (routing.destination === 'eleven-labs') {

@@ -112,8 +112,18 @@ leadsRouter.post('/api/eleven-labs/lead', async (req, res) => {
         };
 
         // Validate and insert
+        console.log('[ElevenLabs] Validating lead data:', JSON.stringify(leadData));
         const validatedLead = insertLeadSchema.parse(leadData);
-        await db.insert(leads).values(validatedLead);
+        console.log('[ElevenLabs] Validated object keys:', Object.keys(validatedLead));
+
+        try {
+            await db.insert(leads).values(validatedLead);
+        } catch (dbError: any) {
+            console.error('[ElevenLabs] DB Insert Failed!');
+            console.error('[ElevenLabs] Error details:', dbError.message);
+            if (dbError.detail) console.error('[ElevenLabs] Detail:', dbError.detail);
+            throw dbError;
+        }
 
         console.log(`[ElevenLabs] Lead captured: ${leadId} (${name})`);
 
