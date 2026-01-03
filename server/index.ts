@@ -41,6 +41,9 @@ const app = express();
 app.use(express.json({ limit: '10mb' })); // Increased limit for large transcriptions
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+app.get('/health', (req, res) => res.status(200).send('OK'));
+app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() }));
+
 // Serve static files from attached_assets directory if needed
 // app.use('/attached_assets', express.static('attached_assets'));
 
@@ -857,15 +860,19 @@ async function startServer() {
     }
 
     // Start Listener
-    const PORT = process.env.PORT || 5001;
-    server.listen(PORT, async () => {
-        console.log(`[V6 Switchboard] Listening on port ${PORT}`);
-        console.log(`[V6 Switchboard] WebSocket at ws://localhost:${PORT}/api/twilio/realtime`);
+    const PORT = parseInt(process.env.PORT || "5001", 10);
+    server.listen(PORT, '0.0.0.0', async () => {
+        console.log(`[V6 Switchboard] Production server running on port ${PORT}`);
+        console.log(`[V6 Switchboard] Environment: ${process.env.NODE_ENV || 'development'}`);
 
         // B4: Preload SKU cache at startup
         console.log('[V6 Switchboard] Preloading SKU cache...');
-        await loadAndCacheSkus();
-        console.log('[V6 Switchboard] SKU cache ready');
+        try {
+            await loadAndCacheSkus();
+            console.log('[V6 Switchboard] SKU cache ready');
+        } catch (e) {
+            console.error('[V6 Switchboard] SKU cache preload failed:', e);
+        }
     });
 }
 

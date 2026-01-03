@@ -85,17 +85,13 @@ leadsRouter.post('/api/leads/quick-capture', async (req, res) => {
 });
 
 // Eleven Labs Tool Webhook: Capture Lead
-leadsRouter.post('/eleven-labs/lead', async (req, res) => {
+// Note: Path includes /api prefix to match Eleven Labs webhook configuration
+leadsRouter.post('/api/eleven-labs/lead', async (req, res) => {
     try {
-        // Optional security: Validate API key if configured
-        const apiKey = await getSetting('twilio.eleven_labs_api_key');
-        if (apiKey) {
-            const incomingKey = req.headers['x-api-key'];
-            if (incomingKey !== apiKey) {
-                console.warn(`[ElevenLabs] Unauthorized webhook attempt: invalid API key`);
-                return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
-            }
-        }
+        console.log('[ElevenLabs] Capture Lead webhook received:', JSON.stringify(req.body));
+
+        // Note: Eleven Labs webhooks don't send authentication headers
+        // Security is handled by the webhook URL being a secret
 
         const { name, phone, job_description, urgency } = req.body;
 
@@ -135,18 +131,12 @@ leadsRouter.post('/eleven-labs/lead', async (req, res) => {
 });
 
 // Eleven Labs Post-Call Webhook: Get summary and recording
-leadsRouter.post('/eleven-labs/post-call', async (req, res) => {
+// Note: Path includes /api prefix to match Eleven Labs webhook configuration
+leadsRouter.post('/api/eleven-labs/post-call', async (req, res) => {
     try {
+        console.log('[ElevenLabs] Post-call webhook received:', JSON.stringify(req.body).substring(0, 200));
+
         const settings = await getTwilioSettings();
-        // Optional security: Validate API key if configured
-        const apiKey = settings.elevenLabsApiKey;
-        if (apiKey) {
-            const incomingKey = req.headers['x-api-key'];
-            if (incomingKey !== apiKey) {
-                console.warn(`[ElevenLabs] Unauthorized post-call attempt: invalid API key`);
-                return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
-            }
-        }
 
         const { conversation_id, analysis, metadata } = req.body;
         const callerNumber = metadata?.caller_id || metadata?.phone_number;

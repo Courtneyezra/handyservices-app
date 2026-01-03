@@ -23,13 +23,12 @@ export async function registerElevenLabsCall(params: RegisterCallParams): Promis
         from_number: params.fromNumber,
         to_number: params.toNumber,
         direction: 'inbound',
-        // TEMPORARILY DISABLED - testing if dynamic variables cause connection drop
-        // conversation_initiation_client_data: {
-        //     dynamic_variables: {
-        //         context_message: params.contextMessage,
-        //         context_type: params.context,
-        //     },
-        // },
+        conversation_initiation_client_data: {
+            dynamic_variables: {
+                context_message: params.contextMessage,
+                context_type: params.context,
+            },
+        },
     };
 
     const response = await fetch(
