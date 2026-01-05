@@ -1,0 +1,289 @@
+import { Router, Request, Response } from "express";
+import { db } from "./db";
+import { contractorBookingRequests, handymanProfiles, personalizedQuotes, handymanSkills, productizedServices } from "../shared/schema";
+import { eq, desc, and, gte, sql } from "drizzle-orm";
+import { requireContractorAuth } from "./contractor-auth";
+import { AutoSkuGenerator } from "./services";
+import { z } from "zod";
+import { nanoid } from "nanoid";
+import { openai } from "./openai";
+import { generateValuePricingQuote, generateTierDeliverables } from "./value-pricing-engine";
+
+const onboardingSchema = z.object({
+    services: z.array(z.object({
+        trade: z.string(),
+        hourlyRatePence: z.number().int().nonnegative(),
+        dayRatePence: z.number().int().nonnegative()
+    }))
+});
+
+const createQuoteSchema = z.object({
+    customerName: z.string().min(1),
+    customerPhone: z.string().min(1),
+    jobDescription: z.string().min(10),
+});
+
+const router = Router();
+
+// GET /api/contractor/bookings
+// Get all booking requests for the authenticated contractor
+router.get('/bookings', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const contractor = (req as any).contractor;
+
+        // Get contractor profile ID
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id),
+            columns: { id: true }
+        });
+
+        if (!profile) {
+            return res.status(404).json({ error: 'Contractor profile not found' });
+        }
+
+        const bookings = await db.select()
+            .from(contractorBookingRequests)
+            .where(eq(contractorBookingRequests.contractorId, profile.id))
+            .orderBy(desc(contractorBookingRequests.createdAt));
+
+        res.json(bookings);
+    } catch (error) {
+        console.error('[ContractorDashboard] Get bookings error:', error);
+        res.status(500).json({ error: 'Failed to fetch bookings' });
+    }
+});
+
+// POST /api/contractor/bookings/:id/respond
+// Accept or Decline a booking request
+router.post('/bookings/:id/respond', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body; // 'accepted' | 'declined'
+        const contractor = (req as any).contractor;
+
+        if (!['accepted', 'declined'].includes(status)) {
+            return res.status(400).json({ error: 'Invalid status' });
+        }
+
+        // Verify ownership
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id),
+            columns: { id: true }
+        });
+
+        if (!profile) {
+            return res.status(404).json({ error: 'Contractor profile not found' });
+        }
+
+        const booking = await db.query.contractorBookingRequests.findFirst({
+            where: eq(contractorBookingRequests.id, id)
+        });
+
+        if (!booking || booking.contractorId !== profile.id) {
+            return res.status(404).json({ error: 'Booking not found' });
+        }
+
+        // Update status
+        await db.update(contractorBookingRequests)
+            .set({
+                status: status,
+                updatedAt: new Date()
+            })
+            .where(eq(contractorBookingRequests.id, id));
+
+        // TODO: Send email/SMS notification to customer
+
+        res.json({ success: true, status });
+    } catch (error) {
+        console.error('[ContractorDashboard] Respond booking error:', error);
+        res.status(500).json({ error: 'Failed to update booking' });
+    }
+});
+
+// Connection test endpoint
+router.get('/connection-test', requireContractorAuth, (req: Request, res: Response) => {
+    res.json({ status: "ok", message: "Connection successful" });
+});
+
+// POST /api/contractor/onboarding/complete
+
+// Finalize onboarding: Generate SKUs from rates
+router.post('/onboarding/complete', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const validation = onboardingSchema.safeParse(req.body);
+        if (!validation.success) {
+            return res.status(400).json({ error: "Invalid payload", details: validation.error.errors });
+        }
+
+        const { services } = validation.data;
+        const contractor = (req as any).contractor;
+
+        // 1. Get profile
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id),
+            columns: { id: true }
+        });
+
+        if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+        // 2. Generate SKUs
+        // Check if AutoSkuGenerator is working (it should be)
+        const skus = await AutoSkuGenerator.generateForContractor({
+            userId: contractor.id,
+            profileId: profile.id,
+            services: services // [{ trade, hourlyRatePence, dayRatePence }]
+        });
+
+        res.json({ success: true, skusGenerated: skus.length });
+
+    } catch (error) {
+        console.error('[Onboarding] Error:', error);
+        if (error instanceof Error) {
+            console.error('[Onboarding] Stack:', error.stack);
+        }
+        res.status(500).json({ error: "Failed to complete onboarding", details: String(error) });
+    }
+});
+
+// POST /api/contractor/quotes/create
+// Generate a new Private Quote using AI and Contractor Rates
+router.post('/quotes/create', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const validation = createQuoteSchema.safeParse(req.body);
+        if (!validation.success) {
+            return res.status(400).json({ error: "Invalid payload", details: validation.error.errors });
+        }
+
+        const { customerName, customerPhone, jobDescription } = validation.data;
+        const contractor = (req as any).contractor;
+
+        // 0. CHECK USAGE LIMIT (Freemium Gating)
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        const currentMonthQuotes = await db.select({ count: sql<number>`count(*)` })
+            .from(personalizedQuotes)
+            .where(and(
+                eq(personalizedQuotes.contractorId, contractor.id),
+                gte(personalizedQuotes.createdAt, startOfMonth)
+            ));
+
+        const usageCount = Number(currentMonthQuotes[0]?.count || 0);
+        const FREE_LIMIT = 3;
+
+        if (usageCount >= FREE_LIMIT) {
+            return res.status(403).json({
+                error: "Usage limit exceeded",
+                code: "LIMIT_REACHED",
+                details: "You have used your 3 free quotes for this month. Upgrade to Premium for unlimited quotes."
+            });
+        }
+
+        // 1. Analyze Job with AI to get hours and trade
+        const analysisResponse = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+                {
+                    role: "system",
+                    content: `Analyze this handyman job. Return JSON:
+                    {
+                        "estimatedHours": number (minimum 1),
+                        "trade": string (one of: 'plumbing', 'electrical', 'painting', 'carpentry', 'mounting', 'general'),
+                        "complexity": "low" | "medium" | "high",
+                        "summary": string (professional summary),
+                        "tasks": [{ "deliverable": string, "complexity": string }]
+                    }`
+                },
+                { role: "user", content: jobDescription }
+            ],
+            response_format: { type: "json_object" }
+        });
+
+        const analysis = JSON.parse(analysisResponse.choices[0].message.content || "{}");
+        const estimatedHours = Math.max(1, analysis.estimatedHours || 1);
+        const trade = analysis.trade || 'general';
+
+        // 2. Get Contractor's Rate for this trade
+        // First get profile ID
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id),
+            with: { skills: { with: { service: true } } }
+        });
+
+        if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+        // Find matching skill/service or default to highest rate
+        let hourlyRatePence = 5000; // Default £50 fallback
+
+        const matchingSkill = profile.skills.find(s =>
+            s.service.name.toLowerCase().includes(trade) ||
+            s.service.category?.toLowerCase().includes(trade)
+        );
+        if (matchingSkill && matchingSkill.service.pricePence > 0) {
+            hourlyRatePence = matchingSkill.service.pricePence;
+        } else if (profile.skills.length > 0) {
+            // Fallback to their first service rate
+            hourlyRatePence = profile.skills[0].service.pricePence;
+        }
+
+        // 3. Calculate Base Price
+        const baseJobPrice = hourlyRatePence * estimatedHours;
+
+        // 4. Generate Value Pricing Multipliers (HHH)
+        const pricingResult = generateValuePricingQuote({
+            baseJobPrice,
+            urgencyReason: 'med', // Default
+            ownershipContext: 'homeowner', // Default
+            desiredTimeframe: 'week', // Default
+            clientType: 'homeowner',
+            jobComplexity: analysis.complexity || 'low',
+            forcedQuoteStyle: 'hhh'
+        });
+
+        // 5. Generate Deliverables text
+        const tierDeliverables = generateTierDeliverables({ tasks: analysis.tasks }, jobDescription);
+
+        // 6. Create Quote Record
+        const shortSlug = nanoid(8);
+        const id = `quote_${nanoid()}`;
+
+        await db.insert(personalizedQuotes).values({
+            id,
+            shortSlug,
+            contractorId: contractor.id,
+            customerName,
+            phone: customerPhone,
+            jobDescription,
+            quoteMode: 'hhh',
+
+            // Prices
+            essentialPrice: pricingResult.essential.price,
+            enhancedPrice: pricingResult.hassleFree.price,
+            elitePrice: pricingResult.highStandard.price,
+
+            // Metadata
+            urgencyReason: 'med',
+            ownershipContext: 'homeowner',
+            desiredTimeframe: 'week',
+            baseJobPricePence: baseJobPrice,
+            valueMultiplier100: Math.round(pricingResult.valueMultiplier * 100),
+            recommendedTier: pricingResult.recommendedTier,
+            tierDeliverables: {
+                essential: tierDeliverables.essential,
+                hassleFree: tierDeliverables.hassleFree,
+                highStandard: tierDeliverables.highStandard
+            },
+
+            createdAt: new Date(),
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days expiry for private quotes
+        });
+
+        res.json({ success: true, shortSlug, pricingResult });
+
+    } catch (error) {
+        console.error('[QuoteGen] Error:', error);
+        res.status(500).json({ error: "Failed to generate quote" });
+    }
+});
+
+export default router;

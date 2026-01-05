@@ -38,6 +38,15 @@ const ContractorCalendar = lazy(() => import("./pages/ContractorCalendar"));
 const ContractorProfile = lazy(() => import("./pages/ContractorProfile"));
 const ContractorServiceArea = lazy(() => import("./pages/ContractorServiceArea"));
 
+// Contractor Dashboard (Phase 3)
+const ContractorDashboardHome = lazy(() => import("./pages/contractor/dashboard/ContractorDashboardHome"));
+const BookingRequestsPage = lazy(() => import("./pages/contractor/dashboard/BookingRequestsPage"));
+const PrivateQuoteBuilder = lazy(() => import("./pages/contractor/dashboard/PrivateQuoteBuilder"));
+const ContractorOnboarding = lazy(() => import('./pages/ContractorOnboarding'));
+
+// Public Contractor Profiles
+const ContractorPublicProfile = lazy(() => import("@/pages/public/ContractorPublicProfile"));
+
 // Loading fallback for lazy-loaded components
 function LoadingFallback() {
     return (
@@ -82,6 +91,11 @@ function Router() {
                 {/* Training (public for now) */}
                 <Route path="/training" component={TrainingCenter} />
 
+                {/* Public Contractor Profile */}
+                <Route path="/handy/:slug">
+                    <ContractorPublicProfile />
+                </Route>
+
                 {/* Contractor Portal Routes (separate auth) */}
                 <Route path="/contractor/login">
                     <ContractorLogin />
@@ -91,6 +105,21 @@ function Router() {
                 </Route>
                 <Route path="/contractor">
                     <ContractorPortal />
+                </Route>
+                <Route path="/contractor/dashboard">
+                    <ContractorDashboardHome />
+                </Route>
+// ... existing code
+
+                <Route path="/contractor/dashboard/bookings">
+                    <BookingRequestsPage />
+                </Route>
+                <Route path="/contractor/onboarding">
+                    {/* Security: Should check auth inside component */}
+                    <ContractorOnboarding />
+                </Route>
+                <Route path="/contractor/dashboard/quotes/new">
+                    <PrivateQuoteBuilder />
                 </Route>
                 <Route path="/contractor/calendar">
                     <ContractorCalendar />

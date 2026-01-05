@@ -7,6 +7,7 @@ import WebSocket from 'ws';
 import { ElevenLabsClient } from './client';
 import { convertTwilioToElevenLabs, convertElevenLabsToTwilio } from './audio-converter';
 import { TwilioStreamEvent, StreamConfig, StreamMetrics } from './types';
+
 import { getTwilioSettings } from '../settings';
 
 export class ElevenLabsStreamHandler {
@@ -240,7 +241,8 @@ export class ElevenLabsStreamHandler {
 
             // Handle conversation initiation metadata
             if (eventType === 'conversation_initiation_metadata') {
-                console.log(`[ElevenLabs-Stream] Conversation initiated:`, message.conversation_initiation_metadata_event || message);
+                const metadata = message.conversation_initiation_metadata_event || message;
+                console.log(`[ElevenLabs-Stream] Conversation initiated:`, metadata);
                 return;
             }
 

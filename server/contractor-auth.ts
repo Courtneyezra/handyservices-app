@@ -28,7 +28,8 @@ const contractorSessions: Map<string, { userId: string; expiresAt: Date }> = new
 
 // Generate session token
 function generateSessionToken(): string {
-    return uuidv4() + '-' + uuidv4();
+    // Ensure absolutely no invalid header characters
+    return (uuidv4() + '-' + uuidv4()).replace(/[^a-zA-Z0-9-]/g, '');
 }
 
 // Auth middleware for contractor routes
@@ -260,7 +261,7 @@ router.get('/me', requireContractorAuth, async (req: Request, res: Response) => 
 router.put('/profile', requireContractorAuth, async (req: Request, res: Response) => {
     try {
         const contractor = (req as any).contractor;
-        const { firstName, lastName, phone, bio, address, city, postcode, radiusMiles } = req.body;
+        const { firstName, lastName, phone, bio, address, city, postcode, radiusMiles, slug, publicProfileEnabled, heroImageUrl, socialLinks } = req.body;
 
         // Update user info
         if (firstName || lastName || phone) {
@@ -285,6 +286,10 @@ router.put('/profile', requireContractorAuth, async (req: Request, res: Response
                     ...(radiusMiles !== undefined && { radiusMiles }),
                     ...(req.body.latitude !== undefined && { latitude: req.body.latitude.toString() }),
                     ...(req.body.longitude !== undefined && { longitude: req.body.longitude.toString() }),
+                    ...(slug !== undefined && { slug }),
+                    ...(publicProfileEnabled !== undefined && { publicProfileEnabled }),
+                    ...(heroImageUrl !== undefined && { heroImageUrl }),
+                    ...(socialLinks !== undefined && { socialLinks }),
                     updatedAt: new Date(),
                 })
                 .where(eq(handymanProfiles.userId, contractor.id));

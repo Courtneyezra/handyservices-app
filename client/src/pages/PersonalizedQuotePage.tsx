@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar } from 'lucide-react';
 import { SiGoogle, SiVisa, SiMastercard, SiAmericanexpress, SiApplepay, SiStripe } from 'react-icons/si';
 import { FaWhatsapp } from 'react-icons/fa';
 import { useToast } from '@/hooks/use-toast';
@@ -113,6 +113,11 @@ const getAvailabilityLabel = (tier: 'essential' | 'enhanced' | 'elite'): string 
   return `FROM ${format(availableDate, 'd MMM').toUpperCase()}`;
 };
 
+// Import the new component
+import { AvailabilityPreview } from '@/components/AvailabilityPreview';
+import { Dialog, DialogContent, DialogTrigger, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+
+
 // Quote Expired Popup Component (no auto-regeneration)
 function QuoteExpiredPopup() {
   const [, setLocation] = useLocation();
@@ -144,6 +149,23 @@ function QuoteExpiredPopup() {
         </a>
       </div>
     </div>
+  );
+}
+
+// Dialog Wrapper for Availability Check
+function AvailabilityDialog({ tier }: { tier: 'essential' | 'enhanced' | 'elite' }) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-2 text-xs h-8 bg-gray-600/30 border-gray-500 hover:bg-gray-600/50 text-gray-200">
+          <Calendar className="w-3.5 h-3.5" />
+          Check Dates
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-3xl w-full bg-white">
+        <AvailabilityPreview tier={tier} />
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -236,6 +258,12 @@ interface PersonalizedQuote {
   expiresAt?: Date | string;
   createdAt: Date;
   createdBy?: string;
+  contractor?: {
+    name: string;
+    companyName: string;
+    profilePhotoUrl?: string | null;
+    slug?: string | null;
+  };
 }
 
 type EEEPackageTier = 'essential' | 'enhanced' | 'elite';
@@ -253,6 +281,10 @@ export default function PersonalizedQuotePage() {
   const [, params] = useRoute('/quote-link/:slug');
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+
+  // Parse query params for Tenant Mode
+  const searchParams = new URLSearchParams(window.location.search);
+  const isTenantView = searchParams.get('mode') === 'tenant';
 
   const [selectedEEEPackage, setSelectedEEEPackage] = useState<EEEPackageTier>('enhanced');
   const [selectedExtras, setSelectedExtras] = useState<string[]>([]); // Shared: tracks selected extras for both Simple and HHH modes
@@ -884,12 +916,17 @@ export default function PersonalizedQuotePage() {
                 {/* Quoted by Section */}
                 <div className="flex items-center gap-3">
                   <img
-                    src={mikeProfilePhoto}
-                    alt="Mike"
-                    className="w-12 h-12 rounded-full border-2 border-[#e8b323]"
+                    src={quote.contractor?.profilePhotoUrl || mikeProfilePhoto}
+                    alt={quote.contractor?.name || "Mike"}
+                    className="w-12 h-12 rounded-full border-2 border-[#e8b323] object-cover"
                   />
                   <div>
-                    <p className="text-white font-semibold text-sm">Quoted by: Mike</p>
+                    <p className="text-white font-semibold text-sm">
+                      Quoted by: {quote.contractor?.name || "Mike"}
+                    </p>
+                    {quote.contractor?.companyName && quote.contractor.companyName !== quote.contractor.name && (
+                      <p className="text-gray-400 text-xs">{quote.contractor.companyName}</p>
+                    )}
                     <div className="flex items-center gap-1">
                       {[...Array(5)].map((_, i) => (
                         <Star key={i} className="h-3 w-3 fill-[#e8b323] text-[#e8b323]" />
@@ -1387,30 +1424,32 @@ export default function PersonalizedQuotePage() {
                       <SiApplepay className="text-black" size={40} />
                     </div>
                   </div>
-                </div>
 
-                {/* Common Features */}
-                <div className="max-w-xl mx-auto">
-                  <h4 className="text-xl sm:text-2xl font-bold text-white mb-4 text-center">
-                    All packages include
-                  </h4>
-                  <div className="space-y-3">
-                    {[
-                      'Turn up on time guarantee',
-                      'Fully insured handymen',
-                      'Professional workmanship',
-                      'Clear pricing with no hidden fees',
-                      'Pay in full or spread over 3 payments',
-                      'Friendly customer service',
-                    ].map((feature, idx) => (
-                      <div key={idx} className="flex items-center gap-3">
-                        <div className="flex-shrink-0">
-                          <Check className="h-5 w-5 sm:h-6 sm:w-6 text-green-400" strokeWidth={3} />
-                        </div>
-                        <span className="text-white text-sm sm:text-base">{feature}</span>
+                  {/* Common Features - Hide in Tenant Mode */}
+                  {!isTenantView && (
+                    <div className="max-w-xl mx-auto">
+                      <h4 className="text-xl sm:text-2xl font-bold text-white mb-4 text-center">
+                        All packages include
+                      </h4>
+                      <div className="space-y-3">
+                        {[
+                          'Turn up on time guarantee',
+                          'Fully insured handymen',
+                          'Professional workmanship',
+                          'Clear pricing with no hidden fees',
+                          'Pay in full or spread over 3 payments',
+                          'Friendly customer service',
+                        ].map((feature, idx) => (
+                          <div key={idx} className="flex items-center gap-3">
+                            <div className="flex-shrink-0">
+                              <Check className="h-5 w-5 sm:h-6 sm:w-6 text-green-400" strokeWidth={3} />
+                            </div>
+                            <span className="text-white text-sm sm:text-base">{feature}</span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </>
@@ -1486,6 +1525,9 @@ export default function PersonalizedQuotePage() {
                   {/* CTA Button for Simple Mode - BEFORE reservation */}
                   {!hasBooked && !hasReserved && (
                     <div className="mt-6 pt-6 border-t border-gray-700">
+                      <div className="mb-4 flex justify-end">
+                        <AvailabilityDialog tier="essential" />
+                      </div>
                       <Button
                         className="w-full bg-[#e8b323] hover:bg-[#d19b1e] text-black font-bold text-lg py-6"
                         onClick={() => {
@@ -1822,15 +1864,98 @@ export default function PersonalizedQuotePage() {
           )}
 
           {/* Confirm Button or Confirmation */}
-          {hasBooked && !datePreferencesSubmitted && bookedLeadId ? (
+          {hasBooked && !datePreferencesSubmitted && bookedLeadId && !isTenantView ? (
             <div ref={dateSelectionRef}>
               <Card className="mt-8 border-[#e8b323] bg-gray-800 border-2">
                 <CardContent className="p-8">
-                  <h3 className="text-xl font-bold text-[#e8b323] mb-4 text-center">
-                    Payment Successful! Now Select Your Preferred Dates
+                  <h3 className="text-xl font-bold text-[#e8b323] mb-6 text-center">
+                    Payment Successful! What would you like to do next?
                   </h3>
+
+                  <div className="grid md:grid-cols-2 gap-6">
+                    {/* Option 1: Book Now */}
+                    <div className="bg-gray-700/50 rounded-xl p-6 border border-gray-600 hover:border-[#e8b323] transition-colors relative group">
+                      <div className="absolute top-4 right-4 bg-green-500/20 text-green-400 p-2 rounded-full">
+                        <Calendar className="w-6 h-6" />
+                      </div>
+                      <h4 className="text-lg font-bold text-white mb-2">Book Appointment Now</h4>
+                      <p className="text-gray-400 text-sm mb-6">
+                        I know the availability and want to secure a slot immediately.
+                      </p>
+
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button className="w-full bg-[#e8b323] text-black font-bold hover:bg-[#d1a01f]">
+                            Select Date & Time
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-4xl bg-gray-900 border-gray-700 text-white">
+                          <DialogHeader>
+                            <DialogTitle>Select Appointment Slot</DialogTitle>
+                          </DialogHeader>
+                          <DateSelectionForm
+                            tier={mapTierToHHH(selectedEEEPackage)}
+                            onSubmit={handleDatePreferencesSubmit}
+                          />
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+
+                    {/* Option 2: Forward to Tenant */}
+                    <div className="bg-gray-700/50 rounded-xl p-6 border border-gray-600 hover:border-[#e8b323] transition-colors relative group">
+                      <div className="absolute top-4 right-4 bg-blue-500/20 text-blue-400 p-2 rounded-full">
+                        <UserCheck className="w-6 h-6" />
+                      </div>
+                      <Badge className="mb-2 bg-blue-600 text-white hover:bg-blue-700">Recommended</Badge>
+                      <h4 className="text-lg font-bold text-white mb-2">Forward to Tenant</h4>
+                      <p className="text-gray-400 text-sm mb-6">
+                        Send a "Pricing-Hidden" link to your tenant so they can choose a time that suits them.
+                      </p>
+
+                      <div className="flex gap-2 flex-col">
+                        <Button
+                          variant="outline"
+                          className="w-full border-gray-500 text-gray-200 hover:bg-gray-600"
+                          onClick={() => {
+                            const url = `${window.location.origin}/quote-link/${quote.shortSlug}?mode=tenant`;
+                            navigator.clipboard.writeText(url);
+                            toast({ title: "Link Copied", description: "Tenant booking link copied to clipboard." });
+                          }}
+                        >
+                          Copy Link
+                        </Button>
+                        <a
+                          href={`https://wa.me/?text=${encodeURIComponent(`Hi, I've approved the repairs. Please pick a time that works for you using this link (prices are hidden): ${window.location.origin}/quote-link/${quote.shortSlug}?mode=tenant`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full"
+                        >
+                          <Button className="w-full bg-[#25D366] hover:bg-[#128C7E] text-white">
+                            <FaWhatsapp className="w-5 h-5 mr-2" />
+                            Send via WhatsApp
+                          </Button>
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          ) : (hasBooked || (isTenantView && quote.leadId)) && !datePreferencesSubmitted ? (
+            /* Tenant View or Direct Booking flow when leadId exists */
+            <div ref={dateSelectionRef} className="mt-8">
+              <Card className="border-[#e8b323] bg-gray-800 border-2">
+                <CardContent className="p-8">
+                  <h3 className="text-xl font-bold text-[#e8b323] mb-4 text-center">
+                    {isTenantView ? "Schedule the Repair" : "Select Your Preferred Dates"}
+                  </h3>
+                  {isTenantView && (
+                    <p className="text-center text-gray-300 mb-6 max-w-lg mx-auto">
+                      The landlord has approved the repairs. Please select 3 preferred dates for the handyman to visit.
+                    </p>
+                  )}
                   <DateSelectionForm
-                    tier={mapTierToHHH(selectedEEEPackage)}
+                    tier={mapTierToHHH(isTenantView ? 'enhanced' : selectedEEEPackage)} // Default tenant view to Enhanced availability if unknown
                     onSubmit={handleDatePreferencesSubmit}
                   />
                 </CardContent>
@@ -2065,104 +2190,117 @@ export default function PersonalizedQuotePage() {
             </div>
           ) : null}
         </div>
-      </div>
 
-      {/* Sticky Footer - Package Selection Bar (HHH Mode Only) */}
-      {quote.quoteMode !== 'simple' && packages.length > 0 && !hasBooked && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900/98 backdrop-blur-lg border-t border-gray-700 shadow-2xl">
-          <div className="max-w-2xl mx-auto px-3 py-3">
-            {/* Payment Toggle Row */}
-            <div className="flex items-center justify-center gap-3 mb-2">
-              <span className={`text-xs ${paymentMode === 'full' ? 'text-white font-medium' : 'text-gray-500'}`}>
-                Pay in Full
-              </span>
-              <button
-                onClick={() => setPaymentMode(paymentMode === 'installments' ? 'full' : 'installments')}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${paymentMode === 'installments' ? 'bg-[#e8b323]' : 'bg-gray-600'
-                  }`}
-                data-testid="footer-payment-toggle"
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform ${paymentMode === 'installments' ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                />
-              </button>
-              <span className={`text-xs ${paymentMode === 'installments' ? 'text-white font-medium' : 'text-gray-500'}`}>
-                3 Monthly Payments
-              </span>
-            </div>
-
-            {/* Package Selection Row */}
-            <div className="flex gap-2 mb-3">
-              {packages.map((pkg) => {
-                const isSelected = selectedEEEPackage === pkg.tier;
-                const isTier1 = pkg.tier === 'essential';
-                const isDisabledByPaymentMode = isTier1 && paymentMode === 'installments';
-
-                const LENIENCY_FEE_RATE = 0.10; // 10% convenience fee for 3 monthly payments
-                const showInstallments = !isTier1 && paymentMode === 'installments';
-                const convenienceFee = showInstallments ? Math.round(pkg.price * LENIENCY_FEE_RATE) : 0;
-                const displayPrice = pkg.price + convenienceFee;
-
-                // Calculate deposit from base price (without fee), then monthly from total with fee
-                const depositAmount = calculateDeposit(pkg.price);
-                const remainingBalance = Math.max(0, displayPrice - depositAmount);
-                const monthlyInstallment = Math.round(remainingBalance / 3);
-
-                return (
+        {/* Sticky Footer - Package Selection Bar (HHH Mode Only) */}
+        {
+          quote.quoteMode !== 'simple' && packages.length > 0 && !hasBooked && (
+            <div className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900/98 backdrop-blur-lg border-t border-gray-700 shadow-2xl">
+              <div className="max-w-2xl mx-auto px-3 py-3">
+                {/* Payment Toggle Row */}
+                <div className="flex items-center justify-center gap-3 mb-2">
+                  <span className={`text-xs ${paymentMode === 'full' ? 'text-white font-medium' : 'text-gray-500'}`}>
+                    Pay in Full
+                  </span>
                   <button
-                    key={pkg.tier}
-                    onClick={() => {
-                      if (!isDisabledByPaymentMode) {
-                        setSelectedEEEPackage(pkg.tier);
-                      }
-                    }}
-                    disabled={isDisabledByPaymentMode}
-                    tabIndex={isDisabledByPaymentMode ? -1 : 0}
-                    aria-disabled={isDisabledByPaymentMode}
-                    className={`flex-1 py-2 px-2 rounded-lg text-center transition-all ${isDisabledByPaymentMode
-                      ? 'bg-gray-800/50 opacity-40 cursor-not-allowed'
-                      : isSelected
-                        ? 'bg-[#e8b323] text-gray-900 shadow-lg ring-2 ring-[#e8b323]'
-                        : 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-600'
+                    onClick={() => setPaymentMode(paymentMode === 'installments' ? 'full' : 'installments')}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${paymentMode === 'installments' ? 'bg-[#e8b323]' : 'bg-gray-600'
                       }`}
-                    data-testid={`footer-package-${pkg.tier}`}
+                    data-testid="footer-payment-toggle"
                   >
-                    <div className="text-xs font-medium opacity-80 truncate">
-                      {pkg.name}
-                    </div>
-                    <div className="text-sm font-bold">
-                      {showInstallments
-                        ? `3× £${Math.round(monthlyInstallment / 100)}`
-                        : `£${Math.round(displayPrice / 100)}`}
-                    </div>
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform ${paymentMode === 'installments' ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                    />
                   </button>
-                );
-              })}
+                  <span className={`text-xs ${paymentMode === 'installments' ? 'text-white font-medium' : 'text-gray-500'}`}>
+                    3 Monthly Payments
+                  </span>
+                </div>
+
+                {/* Package Selection Row */}
+                <div className="flex gap-2 mb-3">
+                  {packages.map((pkg) => {
+                    const isSelected = selectedEEEPackage === pkg.tier;
+                    const isTier1 = pkg.tier === 'essential';
+                    const isDisabledByPaymentMode = isTier1 && paymentMode === 'installments';
+
+                    const LENIENCY_FEE_RATE = 0.10; // 10% convenience fee for 3 monthly payments
+                    const showInstallments = !isTier1 && paymentMode === 'installments';
+                    const convenienceFee = showInstallments ? Math.round(pkg.price * LENIENCY_FEE_RATE) : 0;
+                    const displayPrice = pkg.price + convenienceFee;
+
+                    // Calculate deposit from base price (without fee), then monthly from total with fee
+                    const depositAmount = calculateDeposit(pkg.price);
+                    const remainingBalance = Math.max(0, displayPrice - depositAmount);
+                    const monthlyInstallment = Math.round(remainingBalance / 3);
+
+                    return (
+                      <button
+                        key={pkg.tier}
+                        onClick={() => {
+                          if (!isDisabledByPaymentMode) {
+                            setSelectedEEEPackage(pkg.tier);
+                          }
+                        }}
+                        disabled={isDisabledByPaymentMode}
+                        tabIndex={isDisabledByPaymentMode ? -1 : 0}
+                        aria-disabled={isDisabledByPaymentMode}
+                        className={`flex-1 py-2 px-2 rounded-lg text-center transition-all ${isDisabledByPaymentMode
+                          ? 'bg-gray-800/50 opacity-40 cursor-not-allowed'
+                          : isSelected
+                            ? 'bg-[#e8b323] text-gray-900 shadow-lg ring-2 ring-[#e8b323]'
+                            : 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-600'
+                          }`}
+                        data-testid={`footer-package-${pkg.tier}`}
+                      >
+                        <div className="text-xs font-medium opacity-80 truncate">
+                          {pkg.name}
+                        </div>
+                        <div className="text-sm font-bold">
+                          {showInstallments ? (
+                            <div className="flex items-center justify-center gap-1">
+                              <span>3× £{Math.round(monthlyInstallment / 100)}</span>
+                              <span className="text-xs opacity-80 font-normal whitespace-nowrap">(Tot £{Math.round(displayPrice / 100)})</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center gap-1">
+                              <span>£{Math.round(displayPrice / 100)}</span>
+                              <span className="text-xs opacity-80 font-normal whitespace-nowrap">(Total)</span>
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Approve Button - With Availability Check */}
+                <div className="flex gap-3">
+                  <AvailabilityDialog tier={selectedEEEPackage} />
+
+                  <Button
+                    onClick={() => {
+                      setHasReserved(true);
+                      setTimeout(() => {
+                        const target = quote.optionalExtras && quote.optionalExtras.length > 0
+                          ? document.getElementById('optional-extras')
+                          : document.getElementById('confirm-button');
+                        target?.scrollIntoView({ behavior: 'smooth' });
+                      }, 100);
+                    }}
+                    className="flex-1 bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold text-sm py-3"
+                    data-testid="button-approve-footer"
+                  >
+                    <Check className="h-4 w-4 mr-2" />
+                    Approve and Pay Deposit
+                  </Button>
+                </div>
+              </div>
             </div>
+          )
+        }
 
-            {/* Approve Button - Full Width */}
-            <Button
-              onClick={() => {
-                setHasReserved(true);
-                setTimeout(() => {
-                  const target = quote.optionalExtras && quote.optionalExtras.length > 0
-                    ? document.getElementById('optional-extras')
-                    : document.getElementById('confirm-button');
-                  target?.scrollIntoView({ behavior: 'smooth' });
-                }, 100);
-              }}
-              className="w-full bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold text-sm py-3"
-              data-testid="button-approve-footer"
-            >
-              <Check className="h-4 w-4 mr-2" />
-              Approve and Pay Deposit
-            </Button>
-          </div>
-        </div>
-      )}
-
-      <style>{`
+        <style>{`
         .scrollbar-hide::-webkit-scrollbar {
           display: none;
         }
@@ -2171,6 +2309,6 @@ export default function PersonalizedQuotePage() {
           scrollbar-width: none;
         }
       `}</style>
-    </div>
-  );
+      </div >
+      );
 }

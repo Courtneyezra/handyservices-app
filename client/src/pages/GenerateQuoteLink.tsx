@@ -1451,9 +1451,9 @@ export default function GenerateQuoteLink() {
 
               {/* Generated Quote Preview */}
               {generatedUrl && (
-                <Card className="border-2 border-green-500 bg-green-50">
+                <Card className="border-2 border-green-500/50 bg-green-950/10">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-green-800">
+                    <CardTitle className="flex items-center gap-2 text-green-400">
                       <Check className="h-5 w-5" />
                       Quote Link Generated Successfully!
                     </CardTitle>
@@ -1461,52 +1461,52 @@ export default function GenerateQuoteLink() {
                   <CardContent className="space-y-4">
                     {/* Pricing Preview */}
                     {generatedPricing && (
-                      <div className="bg-white rounded-lg p-4 space-y-3">
+                      <div className="bg-slate-900 rounded-lg p-4 space-y-3">
                         {generatedQuoteMode === 'hhh' ? (
                           <>
                             <div className="flex items-center justify-between">
-                              <h3 className="font-semibold text-gray-900">Value-Based Tier Pricing:</h3>
-                              <Badge variant="outline">
+                              <h3 className="font-semibold text-white">Value-Based Tier Pricing:</h3>
+                              <Badge variant="outline" className="text-slate-300 border-slate-600">
                                 Multiplier: {generatedPricing.valueMultiplier.toFixed(2)}x
                               </Badge>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                              <div className={`text-center p-3 rounded ${generatedPricing.recommendedTier === 'essential' ? 'bg-blue-50 border-2 border-blue-400' : 'bg-gray-50'}`}>
-                                <div className="text-sm text-gray-600 mb-1">
+                              <div className={`text-center p-3 rounded ${generatedPricing.recommendedTier === 'essential' ? 'bg-blue-900/30 border-2 border-blue-500' : 'bg-slate-800'}`}>
+                                <div className="text-sm text-slate-400 mb-1">
                                   Essential
                                   {generatedPricing.recommendedTier === 'essential' && ' ⭐'}
                                 </div>
-                                <div className="text-2xl font-bold text-gray-900">{formatPrice(generatedPricing.essential)}</div>
+                                <div className="text-2xl font-bold text-white">{formatPrice(generatedPricing.essential)}</div>
                               </div>
-                              <div className={`text-center p-3 rounded ${generatedPricing.recommendedTier === 'hassleFree' ? 'bg-blue-50 border-2 border-blue-400' : 'bg-gray-50'}`}>
-                                <div className="text-sm text-gray-600 mb-1">
+                              <div className={`text-center p-3 rounded ${generatedPricing.recommendedTier === 'hassleFree' ? 'bg-blue-900/30 border-2 border-blue-500' : 'bg-slate-800'}`}>
+                                <div className="text-sm text-slate-400 mb-1">
                                   Hassle-Free
                                   {generatedPricing.recommendedTier === 'hassleFree' && ' ⭐'}
                                 </div>
-                                <div className="text-2xl font-bold text-gray-900">{formatPrice(generatedPricing.hassleFree)}</div>
+                                <div className="text-2xl font-bold text-white">{formatPrice(generatedPricing.hassleFree)}</div>
                               </div>
-                              <div className={`text-center p-3 rounded ${generatedPricing.recommendedTier === 'highStandard' ? 'bg-blue-50 border-2 border-blue-400' : 'bg-gray-50'}`}>
-                                <div className="text-sm text-gray-600 mb-1">
+                              <div className={`text-center p-3 rounded ${generatedPricing.recommendedTier === 'highStandard' ? 'bg-blue-900/30 border-2 border-blue-500' : 'bg-slate-800'}`}>
+                                <div className="text-sm text-slate-400 mb-1">
                                   High Standard
                                   {generatedPricing.recommendedTier === 'highStandard' && ' ⭐'}
                                 </div>
-                                <div className="text-2xl font-bold text-gray-900">{formatPrice(generatedPricing.highStandard)}</div>
+                                <div className="text-2xl font-bold text-white">{formatPrice(generatedPricing.highStandard)}</div>
                               </div>
                             </div>
                           </>
                         ) : (
                           <>
                             <div className="flex items-center justify-between">
-                              <h3 className="font-semibold text-gray-900">Simple Quote Pricing:</h3>
-                              <Badge variant="outline" className="bg-purple-50 text-purple-700">
+                              <h3 className="font-semibold text-white">Simple Quote Pricing:</h3>
+                              <Badge variant="outline" className="bg-purple-900/30 text-purple-300 border-purple-700">
                                 Base Price
                               </Badge>
                             </div>
-                            <div className="text-center p-4 bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg border-2 border-purple-300">
-                              <div className="text-sm text-gray-600 mb-2">Quote Price</div>
-                              <div className="text-4xl font-bold text-purple-900">{formatPrice(generatedPricing.essential)}</div>
+                            <div className="text-center p-4 bg-gradient-to-br from-purple-900/40 to-purple-900/20 rounded-lg border-2 border-purple-500/30">
+                              <div className="text-sm text-slate-300 mb-2">Quote Price</div>
+                              <div className="text-4xl font-bold text-purple-100">{formatPrice(generatedPricing.essential)}</div>
                               {optionalExtras.length > 0 && (
-                                <div className="text-xs text-gray-600 mt-2">+ Optional extras available</div>
+                                <div className="text-xs text-slate-400 mt-2">+ Optional extras available</div>
                               )}
                             </div>
                           </>
@@ -1515,13 +1515,13 @@ export default function GenerateQuoteLink() {
                     )}
 
                     {/* Customer Info Summary */}
-                    <div className="bg-white rounded-lg p-4">
-                      <h3 className="font-semibold text-gray-900 mb-2">Quote Details:</h3>
-                      <div className="space-y-1 text-sm">
-                        <p><span className="font-medium">Customer:</span> {customerName}</p>
-                        <p><span className="font-medium">Phone:</span> {phone}</p>
-                        {customerEmail && <p><span className="font-medium">Email:</span> {customerEmail}</p>}
-                        <p><span className="font-medium">Postcode:</span> {postcode}</p>
+                    <div className="bg-slate-900 rounded-lg p-4">
+                      <h3 className="font-semibold text-white mb-2">Quote Details:</h3>
+                      <div className="space-y-1 text-sm text-slate-300">
+                        <p><span className="font-medium text-slate-200">Customer:</span> {customerName}</p>
+                        <p><span className="font-medium text-slate-200">Phone:</span> {phone}</p>
+                        {customerEmail && <p><span className="font-medium text-slate-200">Email:</span> {customerEmail}</p>}
+                        <p><span className="font-medium text-slate-200">Postcode:</span> {postcode}</p>
                       </div>
                     </div>
 
@@ -1530,12 +1530,13 @@ export default function GenerateQuoteLink() {
                       <Input
                         value={generatedUrl}
                         readOnly
-                        className="flex-1 bg-white"
+                        className="flex-1 bg-slate-900 text-white border-slate-700"
                         data-testid="input-generated-url"
                       />
                       <Button
                         onClick={handleCopyLink}
                         variant="outline"
+                        className="border-slate-700 hover:bg-slate-800 text-slate-300"
                         data-testid="button-copy-link"
                       >
                         {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -1543,34 +1544,34 @@ export default function GenerateQuoteLink() {
                     </div>
 
                     {/* WhatsApp Message Customization */}
-                    <div className="bg-white rounded-lg p-4 space-y-4">
-                      <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                        <FaWhatsapp className="h-5 w-5 text-green-600" />
+                    <div className="bg-slate-900 rounded-lg p-4 space-y-4">
+                      <h3 className="font-semibold text-white flex items-center gap-2">
+                        <FaWhatsapp className="h-5 w-5 text-green-500" />
                         WhatsApp Message Settings
                       </h3>
 
                       {/* Priming Price Range (Auto-calculated) */}
                       {primingPriceRange && (
                         <div className="space-y-2">
-                          <Label className="text-sm font-medium text-gray-700">Priming Price Range</Label>
-                          <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                            <div className="text-2xl font-bold text-blue-900">
+                          <Label className="text-sm font-medium text-slate-300">Priming Price Range</Label>
+                          <div className="flex items-center gap-3 p-3 bg-blue-900/20 rounded-lg border border-blue-800">
+                            <div className="text-2xl font-bold text-blue-100">
                               £{primingPriceRange.low}–£{primingPriceRange.high}
                             </div>
-                            <Badge variant="outline" className="text-blue-600 border-blue-300 text-xs">
+                            <Badge variant="outline" className="text-blue-300 border-blue-700 text-xs">
                               Auto-calculated
                             </Badge>
                           </div>
-                          <p className="text-xs text-gray-500">Based on HHH pricing with behavioral economics (low ↓£10, high ↑£50)</p>
+                          <p className="text-xs text-slate-500">Based on HHH pricing with behavioral economics (low ↓£10, high ↑£50)</p>
                         </div>
                       )}
 
                       {/* Excuse Toggles */}
                       <div className="space-y-2">
-                        <Label className="text-sm font-medium text-gray-700">Delay Apology (optional)</Label>
+                        <Label className="text-sm font-medium text-slate-300">Delay Apology (optional)</Label>
                         <div className="grid grid-cols-2 gap-2">
-                          <div className="flex items-center justify-between p-2 bg-gray-50 rounded border">
-                            <Label htmlFor="christmas-rush" className="text-xs cursor-pointer">Christmas Rush 🎄</Label>
+                          <div className="flex items-center justify-between p-2 bg-slate-800 rounded border border-slate-700">
+                            <Label htmlFor="christmas-rush" className="text-xs cursor-pointer text-slate-300">Christmas Rush 🎄</Label>
                             <Switch
                               id="christmas-rush"
                               checked={excuseToggles.christmasRush}
@@ -1584,8 +1585,8 @@ export default function GenerateQuoteLink() {
                               data-testid="switch-christmas-rush"
                             />
                           </div>
-                          <div className="flex items-center justify-between p-2 bg-gray-50 rounded border">
-                            <Label htmlFor="weekend-delay" className="text-xs cursor-pointer">Weekend Delay</Label>
+                          <div className="flex items-center justify-between p-2 bg-slate-800 rounded border border-slate-700">
+                            <Label htmlFor="weekend-delay" className="text-xs cursor-pointer text-slate-300">Weekend Delay</Label>
                             <Switch
                               id="weekend-delay"
                               checked={excuseToggles.weekendDelay}
@@ -1599,8 +1600,8 @@ export default function GenerateQuoteLink() {
                               data-testid="switch-weekend-delay"
                             />
                           </div>
-                          <div className="flex items-center justify-between p-2 bg-gray-50 rounded border">
-                            <Label htmlFor="high-demand" className="text-xs cursor-pointer">High Demand</Label>
+                          <div className="flex items-center justify-between p-2 bg-slate-800 rounded border border-slate-700">
+                            <Label htmlFor="high-demand" className="text-xs cursor-pointer text-slate-300">High Demand</Label>
                             <Switch
                               id="high-demand"
                               checked={excuseToggles.highDemand}
@@ -1614,8 +1615,8 @@ export default function GenerateQuoteLink() {
                               data-testid="switch-high-demand"
                             />
                           </div>
-                          <div className="flex items-center justify-between p-2 bg-gray-50 rounded border">
-                            <Label htmlFor="staff-holiday" className="text-xs cursor-pointer">Staff Holiday</Label>
+                          <div className="flex items-center justify-between p-2 bg-slate-800 rounded border border-slate-700">
+                            <Label htmlFor="staff-holiday" className="text-xs cursor-pointer text-slate-300">Staff Holiday</Label>
                             <Switch
                               id="staff-holiday"
                               checked={excuseToggles.staffHoliday}
@@ -1634,8 +1635,8 @@ export default function GenerateQuoteLink() {
 
                       {/* Message Preview */}
                       <div className="space-y-2">
-                        <Label className="text-sm font-medium text-gray-700">Message Preview</Label>
-                        <div className="bg-[#dcf8c6] rounded-lg p-3 text-sm whitespace-pre-wrap border border-green-200 max-h-60 overflow-y-auto">
+                        <Label className="text-sm font-medium text-slate-300">Message Preview</Label>
+                        <div className="bg-green-900/20 text-green-100 rounded-lg p-3 text-sm whitespace-pre-wrap border border-green-800/50 max-h-60 overflow-y-auto">
                           {generateWhatsAppMessage()}
                         </div>
                       </div>
@@ -1645,7 +1646,7 @@ export default function GenerateQuoteLink() {
                     <div className="flex gap-2">
                       <Button
                         onClick={handleSendWhatsApp}
-                        className="flex-1 bg-green-600 hover:bg-green-700"
+                        className="flex-1 bg-green-600 hover:bg-green-700 text-white"
                         data-testid="button-send-whatsapp"
                       >
                         <FaWhatsapp className="mr-2 h-5 w-5" />

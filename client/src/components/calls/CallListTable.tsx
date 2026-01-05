@@ -233,31 +233,19 @@ function getStatusIndicator(call: CallSummary) {
 }
 
 function getRouteBadge(call: CallSummary) {
-    // 1. Check for specific Missed Reasons (Highest fidelity)
-    if (call.missedReason === 'busy_agent') {
-        return <Badge className="bg-amber-500 hover:bg-amber-600 border-amber-600 text-black font-medium">Line Busy ➔ Agent</Badge>;
-    }
-    if (call.missedReason === 'out_of_hours') {
-        return <Badge variant="outline" className="text-purple-400 border-purple-500 bg-purple-500/10">Out of Hours</Badge>;
-    }
-    if (call.missedReason === 'no_answer') {
-        return <Badge className="bg-orange-500 hover:bg-orange-600 border-orange-600 text-black">VA Missed ➔ Fallback</Badge>;
+    // 1. Agent (AI/System) - If there was a missed reason (fallback triggered), 
+    // or explicit AI outcome, or recovered status.
+    const isAgent =
+        call.outcome === 'ELEVEN_LABS' ||
+        !!call.missedReason ||
+        call.outcome === 'RECOVERED_FROM_TWILIO';
+
+    if (isAgent) {
+        return <Badge className="bg-blue-600 hover:bg-blue-700 border-blue-500">Agent</Badge>;
     }
 
-    // 2. Check Outcome-based routing
-    if (call.outcome === 'FORWARDED') {
-        return <Badge variant="secondary" className="bg-indigo-900/50 text-indigo-300 border-indigo-700">Forwarded</Badge>;
-    }
-    if (call.outcome === 'ELEVEN_LABS') {
-        return <Badge className="bg-blue-600 hover:bg-blue-700 border-blue-500">AI Agent</Badge>;
-    }
-
-    // 3. Status-based inference
-    if (call.status === 'completed' || call.status === 'in-progress') {
-        return <Badge className="bg-green-600 hover:bg-green-700 border-green-500">Direct Answer</Badge>;
-    }
-
-    return <Badge variant="secondary" className="text-gray-500">Unknown</Badge>;
+    // 2. VA (Human) - Default for direct answers, forwarding, or if it stayed with VA (even if missed/failed without fallback)
+    return <Badge className="bg-green-600 hover:bg-green-700 border-green-500">VA</Badge>;
 }
 
 function getOutcomeBadge(call: CallSummary) {

@@ -31,9 +31,12 @@ import { settingsRouter, getTwilioSettings } from './settings';
 import contractorAuthRouter from './contractor-auth';
 import contractorAvailabilityRouter from './availability-routes';
 import contractorJobsRouter from './job-routes';
+import contractorDashboardRouter from './contractor-dashboard-routes';
 import placesRouter from './places-routes';
 import { stripeRouter } from './stripe-routes';
 
+import publicRoutes from './public-routes';
+import mediaRouter from './media-upload';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,7 +54,7 @@ app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok', timest
 // app.use('/attached_assets', express.static('attached_assets'));
 
 // Serve WhatsApp Media
-const MEDIA_DIR = path.join(__dirname, 'storage/media');
+const MEDIA_DIR = path.join(process.cwd(), 'server/storage/media');
 if (!fs.existsSync(MEDIA_DIR)) {
     fs.mkdirSync(MEDIA_DIR, { recursive: true });
 }
@@ -151,8 +154,11 @@ app.use(stripeRouter); // Stripe payment routes
 
 // Contractor Portal Routes
 app.use('/api/contractor', contractorAuthRouter);
+app.use('/api/contractor', contractorDashboardRouter);
+app.use('/api/contractor/media', mediaRouter);
 app.use('/api/contractor/availability', contractorAvailabilityRouter);
 app.use('/api/contractor/jobs', contractorJobsRouter);
+app.use('/api/public', publicRoutes); // Public API Routes
 // app.use('/api/places', placesRouter); // API: Places Search (Moved to register before catch-all)
 
 // Serve static assets (for hold music)
@@ -432,15 +438,13 @@ app.post('/api/twilio/voice', async (req, res) => {
     let twiml = `<?xml version="1.0" encoding="UTF-8"?>
     <Response>`;
 
-    // If going to Eleven Labs, skip Deepgram stream
-    if (routing.destination !== 'eleven-labs') {
-        twiml += `
+    // REAL-TIME TRANSCRIPTION: Always stream to Deepgram (even for Eleven Labs calls)
+    twiml += `
       <Start>
         <Stream url="${streamUrl}">
             <Parameter name="phoneNumber" value="${req.body.From}" />
         </Stream>
       </Start>`;
-    }
 
     // Add welcome audio/message based on routing
     if (routing.playWelcomeAudio) {
@@ -465,8 +469,11 @@ app.post('/api/twilio/voice', async (req, res) => {
         <Number url="${holdMusicUrl}">${settings.forwardNumber}</Number>
       </Dial>`;
     } else if (routing.destination === 'eleven-labs' || routing.destination === 'busy-agent') {
-        // Redirect to Eleven Labs Register Call endpoint
-        const registerUrl = `${httpProtocol}://${host}/api/twilio/eleven-labs-register?context=${routing.elevenLabsContext}`;
+        // Redirect to Eleven Labs Register Call endpoint (DIRECT MODE)
+        const context = routing.elevenLabsContext || 'in-hours';
+        // We pass context via query param to the register endpoint
+        const registerUrl = `${httpProtocol}://${host}/api/twilio/eleven-labs-register?context=${context}`;
+
         twiml += `
       <Redirect>${registerUrl}</Redirect>`;
     } else if (routing.destination === 'voicemail') {

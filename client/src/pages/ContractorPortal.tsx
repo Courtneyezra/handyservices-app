@@ -14,7 +14,9 @@ import {
     CheckCircle2,
     AlertCircle,
     Wrench,
-    MapPin
+    MapPin,
+    Globe,
+    ArrowRight
 } from 'lucide-react';
 
 interface ContractorUser {
@@ -110,6 +112,34 @@ export default function ContractorPortal() {
         enabled: !!user,
     });
 
+    // Check public profile status
+    const { data: profileStatus } = useQuery({
+        queryKey: ['contractor-profile-status'],
+        queryFn: async () => {
+            const token = localStorage.getItem('contractorToken');
+            const res = await fetch('/api/contractor/me', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            return res.json();
+        },
+        enabled: !!user,
+    });
+
+
+    // Fetch booking requests (New Feature)
+    const { data: bookingRequests } = useQuery({
+        queryKey: ['contractor-booking-requests'],
+        queryFn: async () => {
+            const token = localStorage.getItem('contractorToken');
+            const res = await fetch('/api/contractor/bookings', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (!res.ok) throw new Error('Failed to fetch bookings');
+            return res.json();
+        },
+        enabled: !!user,
+    });
+
     const handleLogout = () => {
         const token = localStorage.getItem('contractorToken');
         if (token) {
@@ -196,6 +226,89 @@ export default function ContractorPortal() {
                         Welcome back, {user.firstName}!
                     </h1>
                     <p className="text-slate-400 mt-1">Here's what's happening with your jobs.</p>
+                </div>
+
+                {/* Public Profile Onboarding Teaser */}
+                {profileStatus && !profileStatus.profile?.publicProfileEnabled && (
+                    <div className="mb-8 bg-gradient-to-r from-emerald-900/50 to-slate-800 border border-emerald-500/30 rounded-2xl p-6 relative overflow-hidden group hover:border-emerald-500/50 transition-all">
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+
+                        <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between gap-6">
+                            <div className="flex items-start gap-4">
+                                <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                                    <Globe className="w-6 h-6 text-emerald-400" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold text-white mb-1">Set up your Public Business Page</h3>
+                                    <p className="text-emerald-100/80 max-w-xl">
+                                        Get a professional "Digital Business Card" to share with your own clients.
+                                        Showcase your skills, bio, and service area.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={() => setLocation('/contractor/profile')}
+                                className="w-full sm:w-auto px-6 py-3 bg-white text-emerald-900 font-semibold rounded-xl hover:bg-emerald-50 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-black/20"
+                            >
+                                Get Started
+                                <ArrowRight className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Booking Requests (New Feature: Integrated) */}
+                <div className="mb-8 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center">
+                                <User className="w-5 h-5 text-amber-400" />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-bold text-white">Booking Requests</h2>
+                                <p className="text-slate-400 text-sm">Direct requests from your profile</p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setLocation('/contractor/dashboard/bookings')}
+                            className="text-amber-400 hover:text-amber-300 text-sm font-medium flex items-center gap-1"
+                        >
+                            View All <ArrowRight className="w-4 h-4" />
+                        </button>
+                    </div>
+
+                    {bookingRequests && bookingRequests.length > 0 ? (
+                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {bookingRequests.slice(0, 3).map((req: any) => (
+                                <div key={req.id} className="bg-white/5 rounded-xl p-4 border border-white/5 hover:border-amber-500/30 transition-all">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <h3 className="font-semibold text-white">{req.customerName}</h3>
+                                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${req.status === 'pending' ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-500/20 text-slate-400'
+                                            }`}>
+                                            {req.status}
+                                        </span>
+                                    </div>
+                                    <p className="text-sm text-slate-400 flex items-center gap-2 mb-1">
+                                        <Calendar className="w-3 h-3" /> {new Date(req.requestedDate).toLocaleDateString()}
+                                    </p>
+                                    <p className="text-sm text-slate-400 flex items-center gap-2 mb-3">
+                                        <Clock className="w-3 h-3" /> {req.requestedSlot}
+                                    </p>
+                                    <button
+                                        onClick={() => setLocation('/contractor/dashboard/bookings')}
+                                        className="w-full py-2 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 rounded-lg text-sm font-medium transition-colors border border-indigo-500/20"
+                                    >
+                                        Review Request
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="text-center py-6 border border-dashed border-white/10 rounded-xl">
+                            <p className="text-slate-500 text-sm">No active booking requests</p>
+                        </div>
+                    )}
                 </div>
 
                 {/* Stats Grid */}

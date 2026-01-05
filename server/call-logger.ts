@@ -47,7 +47,6 @@ export interface UpdateCallData {
     liveAnalysisJson?: any;  // Real-time analysis state for reconnecting clients
     metadataJson?: any;      // Real-time metadata (customer name, address, etc.)
     localRecordingPath?: string;
-    localRecordingPath?: string;
     status?: string;
 
     // Action Center Updates
@@ -98,11 +97,16 @@ export async function createCall(data: CreateCallData): Promise<string> {
  * Update an existing call record
  */
 export async function updateCall(callRecordId: string, data: UpdateCallData): Promise<void> {
-    await db.update(calls)
-        .set({
+    // Filter out undefined values
+    const dataToUpdate = Object.fromEntries(
+        Object.entries({
             ...data,
             lastEditedAt: new Date(),
-        })
+        }).filter(([_, v]) => v !== undefined)
+    );
+
+    await db.update(calls)
+        .set(dataToUpdate)
         .where(eq(calls.id, callRecordId));
 
     // Broadcast to connected clients
@@ -116,6 +120,8 @@ export async function updateCall(callRecordId: string, data: UpdateCallData): Pr
 
     console.log(`[CallLogger] Updated call record ${callRecordId}`);
 }
+
+
 
 /**
  * Add detected SKUs to a call
@@ -188,8 +194,9 @@ export async function finalizeCall(
         jobSummary = await extractJobSummary(data.transcription);
     }
 
-    await db.update(calls)
-        .set({
+    // Filter out undefined values to prevent overwriting existing data with NULL
+    const dataToUpdate = Object.fromEntries(
+        Object.entries({
             duration: data.duration,
             endTime: data.endTime || new Date(),
             recordingUrl: data.recordingUrl,
@@ -200,7 +207,11 @@ export async function finalizeCall(
             status: 'completed',
             localRecordingPath: data.localRecordingPath,
             lastEditedAt: new Date(),
-        })
+        }).filter(([_, v]) => v !== undefined)
+    );
+
+    await db.update(calls)
+        .set(dataToUpdate)
         .where(eq(calls.id, callRecordId));
 
     // Broadcast to connected clients

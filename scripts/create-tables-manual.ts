@@ -32,10 +32,12 @@ async function main() {
         console.log("Created leads table");
 
         // Create PERSONALIZED QUOTES table
+        await sql`DROP TABLE IF EXISTS "personalized_quotes" CASCADE;`;
         await sql`
-        CREATE TABLE IF NOT EXISTS "personalized_quotes" (
+        CREATE TABLE "personalized_quotes" (
             "id" varchar PRIMARY KEY NOT NULL,
             "short_slug" varchar(8) NOT NULL,
+            "contractor_id" varchar,
             "customer_name" varchar NOT NULL,
             "phone" varchar NOT NULL,
             "email" varchar,
@@ -105,6 +107,78 @@ async function main() {
         );
         `;
         console.log("Created personalized_quotes table");
+
+        // Create HANDYMAN PROFILES table
+        await sql`DROP TABLE IF EXISTS "handyman_skills" CASCADE;`;
+        await sql`DROP TABLE IF EXISTS "handyman_availability" CASCADE;`;
+        await sql`DROP TABLE IF EXISTS "productized_services" CASCADE;`;
+        await sql`DROP TABLE IF EXISTS "handyman_profiles" CASCADE;`;
+
+        await sql`
+        CREATE TABLE "handyman_profiles" (
+            "id" varchar PRIMARY KEY NOT NULL,
+            "user_id" varchar NOT NULL,
+            "bio" text,
+            "address" text,
+            "city" varchar(100),
+            "postcode" varchar(20),
+            "latitude" text,
+            "longitude" text,
+            "radius_miles" integer NOT NULL DEFAULT 10,
+            "calendar_sync_token" text,
+            "slug" varchar(100) UNIQUE,
+            "public_profile_enabled" boolean DEFAULT false,
+            "hero_image_url" text,
+            "social_links" jsonb,
+            "created_at" timestamp DEFAULT now(),
+            "updated_at" timestamp DEFAULT now()
+        );
+        `;
+        console.log("Created handyman_profiles table");
+
+        // Create PRODUCTIZED SERVICES (SKUs) table
+        await sql`
+        CREATE TABLE "productized_services" (
+            "id" varchar PRIMARY KEY NOT NULL,
+            "sku_code" varchar(50) UNIQUE NOT NULL,
+            "name" varchar(200) NOT NULL,
+            "description" text NOT NULL,
+            "price_pence" integer NOT NULL,
+            "time_estimate_minutes" integer NOT NULL,
+            "keywords" text[] NOT NULL,
+            "negative_keywords" text[],
+            "ai_prompt_hint" text,
+            "embedding_vector" text,
+            "embedding" text,
+            "category" varchar(50),
+            "is_active" boolean DEFAULT true
+        );
+        `;
+        console.log("Created productized_services table");
+
+        // Create HANDYMAN SKILLS table
+        await sql`
+        CREATE TABLE "handyman_skills" (
+            "id" varchar PRIMARY KEY NOT NULL,
+            "handyman_id" varchar NOT NULL,
+            "service_id" varchar NOT NULL
+        );
+        `;
+        console.log("Created handyman_skills table");
+
+        // Create HANDYMAN AVAILABILITY table
+        await sql`
+        CREATE TABLE "handyman_availability" (
+            "id" varchar PRIMARY KEY NOT NULL,
+            "handyman_id" varchar NOT NULL,
+            "day_of_week" integer,
+            "start_time" varchar(5),
+            "end_time" varchar(5),
+            "is_active" boolean NOT NULL DEFAULT true
+        );
+        `;
+        console.log("Created handyman_availability table");
+
 
         console.log("Tables created successfully.");
     } catch (error) {

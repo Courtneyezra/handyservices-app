@@ -1,7 +1,7 @@
 
 import { Router } from "express";
 import { db } from "./db";
-import { personalizedQuotes, leads, insertPersonalizedQuoteSchema } from "@shared/schema";
+import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -264,12 +264,28 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
             await db.update(personalizedQuotes)
                 .set({ viewedAt: now })
                 .where(eq(personalizedQuotes.id, quote.id));
-
-            // Return updated quote with viewedAt
-            res.json({ ...quote, viewedAt: now });
-        } else {
-            res.json(quote);
+            quote.viewedAt = now;
         }
+
+        // Fetch Contractor Details if configured
+        let contractorDetails = undefined;
+        if (quote.contractorId) {
+            const profile = await db.query.handymanProfiles.findFirst({
+                where: eq(handymanProfiles.userId, quote.contractorId),
+                with: { user: true }
+            });
+
+            if (profile) {
+                contractorDetails = {
+                    name: `${profile.user.firstName} ${profile.user.lastName}`,
+                    companyName: `${profile.user.firstName} ${profile.user.lastName}`, // Fallback since no companyName in profile
+                    profilePhotoUrl: profile.heroImageUrl, // Use hero image as profile photo for now
+                    slug: profile.slug
+                };
+            }
+        }
+
+        res.json({ ...quote, contractor: contractorDetails });
 
     } catch (error) {
         console.error("Get quote error:", error);
