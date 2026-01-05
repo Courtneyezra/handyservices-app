@@ -639,8 +639,9 @@ export default function GenerateQuoteLink() {
     // Add priming price range (auto-calculated from HHH pricing)
     // Use AI-polished summary if available, otherwise fall back to raw job description
     if (primingPriceRange) {
-      const jobSummary = (analyzedJob?.summary || jobDescription).toLowerCase();
-      message += `Before I send the official quote link — ${jobSummary} normally falls in the £${primingPriceRange.low}–£${primingPriceRange.high} range, depending on the specifics.\n\n`;
+      const jobSummary = analyzedJob?.summary || jobDescription;
+      message += `Before I send the official quote link — regarding: "${jobSummary}"\n\n`;
+      message += `This normally falls in the £${primingPriceRange.low}–£${primingPriceRange.high} range, depending on the specifics.\n\n`;
     }
 
     // Pay-in-3 with WhatsApp bold formatting
