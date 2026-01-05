@@ -2195,30 +2195,30 @@ export default function PersonalizedQuotePage() {
         {
           quote.quoteMode !== 'simple' && packages.length > 0 && !hasBooked && (
             <div className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900/98 backdrop-blur-lg border-t border-gray-700 shadow-2xl">
-              <div className="max-w-2xl mx-auto px-3 py-3">
+              <div className="max-w-2xl mx-auto px-2 py-2">
                 {/* Payment Toggle Row */}
-                <div className="flex items-center justify-center gap-3 mb-2">
-                  <span className={`text-xs ${paymentMode === 'full' ? 'text-white font-medium' : 'text-gray-500'}`}>
+                <div className="flex items-center justify-center gap-2 mb-1.5">
+                  <span className={`text-[10px] uppercase tracking-wider ${paymentMode === 'full' ? 'text-white font-medium' : 'text-gray-500'}`}>
                     Pay in Full
                   </span>
                   <button
                     onClick={() => setPaymentMode(paymentMode === 'installments' ? 'full' : 'installments')}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${paymentMode === 'installments' ? 'bg-[#e8b323]' : 'bg-gray-600'
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${paymentMode === 'installments' ? 'bg-[#e8b323]' : 'bg-gray-600'
                       }`}
                     data-testid="footer-payment-toggle"
                   >
                     <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform ${paymentMode === 'installments' ? 'translate-x-6' : 'translate-x-1'
+                      className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-md transition-transform ${paymentMode === 'installments' ? 'translate-x-5' : 'translate-x-0.5'
                         }`}
                     />
                   </button>
-                  <span className={`text-xs ${paymentMode === 'installments' ? 'text-white font-medium' : 'text-gray-500'}`}>
-                    3 Monthly Payments
+                  <span className={`text-[10px] uppercase tracking-wider ${paymentMode === 'installments' ? 'text-white font-medium' : 'text-gray-500'}`}>
+                    Pay Monthly
                   </span>
                 </div>
 
                 {/* Package Selection Row */}
-                <div className="flex gap-2 mb-3">
+                <div className="flex gap-1.5 mb-2">
                   {packages.map((pkg) => {
                     const isSelected = selectedEEEPackage === pkg.tier;
                     const isTier1 = pkg.tier === 'essential';
@@ -2245,27 +2245,25 @@ export default function PersonalizedQuotePage() {
                         disabled={isDisabledByPaymentMode}
                         tabIndex={isDisabledByPaymentMode ? -1 : 0}
                         aria-disabled={isDisabledByPaymentMode}
-                        className={`flex-1 py-2 px-2 rounded-lg text-center transition-all ${isDisabledByPaymentMode
+                        className={`flex-1 py-1.5 px-1 rounded-md text-center transition-all ${isDisabledByPaymentMode
                           ? 'bg-gray-800/50 opacity-40 cursor-not-allowed'
                           : isSelected
-                            ? 'bg-[#e8b323] text-gray-900 shadow-lg ring-2 ring-[#e8b323]'
+                            ? 'bg-[#e8b323] text-gray-900 shadow-lg ring-1 ring-[#e8b323]'
                             : 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-600'
                           }`}
                         data-testid={`footer-package-${pkg.tier}`}
                       >
-                        <div className="text-xs font-medium opacity-80 truncate">
+                        <div className="text-[10px] font-medium opacity-80 truncate uppercase tracking-tight">
                           {pkg.name}
                         </div>
-                        <div className="text-sm font-bold">
+                        <div className="text-xs font-bold leading-tight">
                           {showInstallments ? (
-                            <div className="flex items-center justify-center gap-1">
+                            <div className="flex flex-col items-center justify-center -space-y-0.5">
                               <span>3× £{Math.round(monthlyInstallment / 100)}</span>
-                              <span className="text-xs opacity-80 font-normal whitespace-nowrap">(Tot £{Math.round(displayPrice / 100)})</span>
                             </div>
                           ) : (
                             <div className="flex items-center justify-center gap-1">
                               <span>£{Math.round(displayPrice / 100)}</span>
-                              <span className="text-xs opacity-80 font-normal whitespace-nowrap">(Total)</span>
                             </div>
                           )}
                         </div>
@@ -2275,7 +2273,7 @@ export default function PersonalizedQuotePage() {
                 </div>
 
                 {/* Approve Button - With Availability Check */}
-                <div className="flex gap-3">
+                <div className="flex gap-2">
                   <AvailabilityDialog tier={selectedEEEPackage} />
 
                   <Button
@@ -2288,11 +2286,11 @@ export default function PersonalizedQuotePage() {
                         target?.scrollIntoView({ behavior: 'smooth' });
                       }, 100);
                     }}
-                    className="flex-1 bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold text-sm py-3"
+                    className="flex-1 bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold text-sm py-2.5 h-auto shadow-lg"
                     data-testid="button-approve-footer"
                   >
-                    <Check className="h-4 w-4 mr-2" />
-                    Approve and Pay Deposit
+                    <Check className="h-4 w-4 mr-1.5" />
+                    Approve & Pay Deposit
                   </Button>
                 </div>
               </div>
@@ -2309,6 +2307,7 @@ export default function PersonalizedQuotePage() {
           scrollbar-width: none;
         }
       `}</style>
-      </div >
-      );
+      </div>
+    </div>
+  );
 }

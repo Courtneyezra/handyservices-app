@@ -119,7 +119,7 @@ export class MediaStreamTranscriber {
             language: "en-GB", // Default to UK English since localized
             smart_format: true,
             interim_results: true,
-            utterance_end_ms: parseInt(process.env.DEEPGRAM_UTTERANCE_MS || "700"),
+
             vad_events: true,
             encoding: "mulaw",
             sample_rate: 8000,

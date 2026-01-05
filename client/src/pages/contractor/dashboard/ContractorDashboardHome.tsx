@@ -1,15 +1,28 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
-import { Calendar, Clock, DollarSign, ArrowRight, CheckCircle2, Sparkles } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import {
+    Calendar, Clock, DollarSign, ArrowRight, CheckCircle2, Sparkles,
+    Plus, Home, User, Settings, Zap, ChevronRight, BarChart3
+} from "lucide-react";
 import ContractorDashboardLayout from "../ContractorDashboardLayout";
+import { useState } from "react";
+import { format, addDays, isSameDay } from "date-fns";
 
 export default function ContractorDashboardHome() {
-    // Stub data for now
-    const stats = [
-        { label: "Pending Requests", value: "3", icon: Calendar, color: "text-amber-600", bg: "bg-amber-100" },
-        { label: "Active Jobs", value: "1", icon: Clock, color: "text-blue-600", bg: "bg-blue-100" },
-        { label: "Revenue (mtd)", value: "£450", icon: DollarSign, color: "text-emerald-600", bg: "bg-emerald-100" },
-    ];
+    const [, setLocation] = useLocation();
+    const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+
+    // Mock Data for "Trojan Horse" Availability Harvesting
+    const next14Days = Array.from({ length: 14 }, (_, i) => addDays(new Date(), i));
+    const [unavailableDates, setUnavailableDates] = useState<Date[]>([]);
+
+    const toggleAvailability = (date: Date) => {
+        if (unavailableDates.some(d => isSameDay(d, date))) {
+            setUnavailableDates(prev => prev.filter(d => !isSameDay(d, date)));
+        } else {
+            setUnavailableDates(prev => [...prev, date]);
+        }
+    };
 
     return (
         <ContractorDashboardLayout>
