@@ -8,11 +8,12 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 import { db } from "./db";
-import { productizedServices, skuMatchLogs } from "../shared/schema";
-import { desc, eq } from "drizzle-orm";
+import { productizedServices, skuMatchLogs, calls, callSkus, handymanProfiles, conversations } from "../shared/schema";
+import { desc, eq, and, ne, or, asc } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 import { detectSku, detectMultipleTasks, loadAndCacheSkus } from "./skuDetector";
 import { setupTwilioSocket } from "./twilio-realtime";
+import { createCall, findCallByTwilioSid, updateCall, finalizeCall } from './call-logger';
 import { determineCallRouting, CallRoutingSettings, AgentMode, FallbackAction } from "./call-routing-engine";
 import { quotesRouter } from "./quotes";
 import { leadsRouter } from "./leads";
@@ -40,6 +41,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(express.json({ limit: '10mb' })); // Increased limit for large transcriptions
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// DEBUG: Global Logger removed
 
 app.get('/health', (req, res) => res.status(200).send('OK'));
 app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() }));
@@ -368,18 +371,25 @@ app.post('/api/twilio/voice', async (req, res) => {
     const streamUrl = `${wsProtocol}://${host}/api/twilio/realtime`;
     const leadNumber = req.body.From;
 
-    // Log call to database - TODO: implement this function
-    // try {
-    //     await logCallToDatabase({
-    //         twilioCallSid: req.body.CallSid,
-    //         phoneNumber: req.body.From,
-    //         direction: "inbound",
-    //         status: "ringing",
-    //         customerName: "Unknown Caller",
-    //     });
-    // } catch (e) {
-    //     console.error(`[Twilio] Failed to log initial call ${req.body.CallSid}:`, e);
-    // }
+    // Log call to database
+    let callRecordId: string | null = null;
+    try {
+        const existingCallId = await findCallByTwilioSid(req.body.CallSid);
+        if (existingCallId) {
+            callRecordId = existingCallId;
+        } else {
+            callRecordId = await createCall({
+                callId: req.body.CallSid,
+                phoneNumber: req.body.From,
+                direction: "inbound",
+                status: "ringing",
+                customerName: "Unknown Caller",
+            });
+            console.log(`[Twilio] Initial call logged for ${req.body.CallSid}`);
+        }
+    } catch (e) {
+        console.error(`[Twilio] Failed to log initial call ${req.body.CallSid}:`, e);
+    }
 
     // Get dynamic settings
     const settings = await getTwilioSettings();
@@ -394,12 +404,26 @@ app.post('/api/twilio/voice', async (req, res) => {
         businessHoursEnd: settings.businessHoursEnd,
         businessDays: settings.businessDays,
         elevenLabsAgentId: settings.elevenLabsAgentId,
+        elevenLabsBusyAgentId: settings.elevenLabsBusyAgentId,
         elevenLabsApiKey: settings.elevenLabsApiKey,
     };
 
     // Determine call routing
-    const routing = determineCallRouting(routingSettings);
+    const routing = determineCallRouting(routingSettings, false, getActiveCallCount());
     console.log(`[Twilio] Routing decision: ${routing.reason} (mode: ${routing.effectiveMode}, destination: ${routing.destination})`);
+
+    // Update call record with routing info
+    if (callRecordId) {
+        let initialOutcome = 'UNKNOWN';
+        if (routing.destination === 'eleven-labs' || routing.destination === 'busy-agent') initialOutcome = 'ELEVEN_LABS';
+        else if (routing.destination === 'va-forward') initialOutcome = 'FORWARDED';
+        else if (routing.destination === 'voicemail') initialOutcome = 'VOICEMAIL';
+
+        // Only update outcome if we have a meaningful one
+        if (initialOutcome !== 'UNKNOWN') {
+            await updateCall(callRecordId, { outcome: initialOutcome });
+        }
+    }
 
     const welcomeMessage = (settings.welcomeMessage as string).replace('{business_name}', settings.businessName as string);
     const holdMusicUrl = `${httpProtocol}://${host}/api/twilio/hold-music`;
@@ -440,7 +464,7 @@ app.post('/api/twilio/voice', async (req, res) => {
       <Dial timeout="${settings.maxWaitSeconds || 30}" action="${httpProtocol}://${host}/api/twilio/dial-status" method="POST" answerOnBridge="false" ringTone="uk" callerId="${req.body.To || req.body.Called}">
         <Number url="${holdMusicUrl}">${settings.forwardNumber}</Number>
       </Dial>`;
-    } else if (routing.destination === 'eleven-labs') {
+    } else if (routing.destination === 'eleven-labs' || routing.destination === 'busy-agent') {
         // Redirect to Eleven Labs Register Call endpoint
         const registerUrl = `${httpProtocol}://${host}/api/twilio/eleven-labs-register?context=${routing.elevenLabsContext}`;
         twiml += `
@@ -488,13 +512,17 @@ app.post('/api/twilio/eleven-labs-register', async (req, res) => {
             'in-hours': settings.agentContextDefault || 'How can I help you today?',
             'out-of-hours': settings.agentContextOutOfHours || "We're currently closed, but I can help you schedule a service or take a message.",
             'missed-call': settings.agentContextMissed || "I'm sorry we missed your call. Let me help you with that.",
+            'busy': 'I am currently on another line, but I can help you with your request while you wait.',
         };
 
         const contextMessage = contextMessages[context] || contextMessages['in-hours'];
+        const agentId = (context === 'busy' && settings.elevenLabsBusyAgentId)
+            ? settings.elevenLabsBusyAgentId
+            : settings.elevenLabsAgentId;
 
         // Register call with Eleven Labs
         const twiml = await registerElevenLabsCall({
-            agentId: settings.elevenLabsAgentId,
+            agentId,
             apiKey: settings.elevenLabsApiKey,
             fromNumber,
             toNumber,
@@ -584,26 +612,80 @@ app.post('/api/twilio/dial-status', async (req, res) => {
             businessHoursEnd: settings.businessHoursEnd,
             businessDays: settings.businessDays,
             elevenLabsAgentId: settings.elevenLabsAgentId,
+            elevenLabsBusyAgentId: settings.elevenLabsBusyAgentId,
             elevenLabsApiKey: settings.elevenLabsApiKey,
         };
 
         // Determine fallback routing (VA missed call scenario)
-        const routing = determineCallRouting(routingSettings, true); // isVAMissedCall = true
+        const routing = determineCallRouting(routingSettings, true, getActiveCallCount()); // isVAMissedCall = true, pass active call count
         console.log(`[Twilio] Fallback routing: ${routing.reason} (destination: ${routing.destination})`);
 
-        // Handle Eleven Labs fallback - redirect to register endpoint
-        if (routing.destination === 'eleven-labs') {
-            console.log(`[Twilio] Connecting to Eleven Labs with context: ${routing.elevenLabsContext}`);
+        // Action Center: Mark as Missed Call (Critical) immediately
+        // We do this BEFORE fallback handling to ensure even if fallback fails, the call is flagged
+        try {
+            // Find call record ID
+            const callRecordId = await findCallByTwilioSid(CallSid);
+            if (callRecordId) {
+                await updateCall(callRecordId, {
+                    outcome: 'MISSED_CALL', // Explicitly mark as missed
+                    actionStatus: 'pending',
+                    actionUrgency: 1, // Critical - immediate callback required
+                    missedReason: 'no_answer',
+                    tags: ['missed_call', 'va_no_answer']
+                });
+                console.log(`[ActionCenter] Call ${callRecordId} flagged as MISSED_CALL (Critical).`);
+            }
+        } catch (e) {
+            console.warn("[ActionCenter] Failed to flag missed call:", e);
+        }
 
-            // Redirect to register endpoint
-            const registerUrl = `${httpProtocol}://${host}/api/twilio/eleven-labs-register?context=${routing.elevenLabsContext}`;
-            const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-            <Response>
-              <Redirect>${registerUrl}</Redirect>
-            </Response>`;
+        // Handle Eleven Labs fallback - direct registration (no redirect)
+        if (routing.destination === 'eleven-labs' || routing.destination === 'busy-agent') {
+            const context = routing.elevenLabsContext || 'missed-call';
+            console.log(`[Twilio] Connecting to Eleven Labs with context: ${context} (Direct, Dest: ${routing.destination})`);
 
-            res.type('text/xml');
-            return res.send(twiml);
+            // Get context message from settings
+            const contextMessages: Record<string, string> = {
+                'in-hours': settings.agentContextDefault || 'How can I help you today?',
+                'out-of-hours': settings.agentContextOutOfHours || "We're currently closed, but I can help you schedule a service or take a message.",
+                'missed-call': settings.agentContextMissed || "I'm sorry we missed your call. Let me help you with that.",
+                'busy': 'I am currently on another line, but I can help you with your request while you wait.',
+            };
+
+            const contextMessage = contextMessages[context] || contextMessages['in-hours'];
+
+            // Determine correct Agent ID (Normal vs Busy)
+            const agentId = (routing.destination === 'busy-agent' && settings.elevenLabsBusyAgentId)
+                ? settings.elevenLabsBusyAgentId
+                : settings.elevenLabsAgentId;
+
+            try {
+                // Register call with Eleven Labs directly
+                // We append the redirect to call-ended here as well for consistency, although registerElevenLabsCall already does it!
+                // Wait, registerElevenLabsCall was modified to always append the redirect.
+                // So we just call it.
+                const twiml = await registerElevenLabsCall({
+                    agentId: agentId,
+                    apiKey: settings.elevenLabsApiKey,
+                    fromNumber: From,
+                    toNumber: req.body.To || req.body.Called,
+                    context,
+                    contextMessage,
+                });
+
+                res.type('text/xml');
+                return res.send(twiml);
+            } catch (error) {
+                console.error('[Twilio] Eleven Labs direct registration failed:', error);
+                // Fallback to voicemail unique to this failure
+                const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+                <Response>
+                    <Say>We're having trouble connecting you. Please leave a message.</Say>
+                    <Redirect>${httpProtocol}://${host}/api/twilio/voicemail</Redirect>
+                </Response>`;
+                res.type('text/xml');
+                return res.send(twiml);
+            }
         }
 
         // Handle voicemail fallback
@@ -647,10 +729,69 @@ app.post('/api/twilio/dial-status', async (req, res) => {
     }
 });
 
+// Twilio Status Callback - Reliable call completion signal
+app.post('/api/twilio/status-callback', async (req, res) => {
+    const { CallSid, CallStatus, Duration, SequenceNumber } = req.body;
+    console.log(`[Twilio] Status callback for ${CallSid}: ${CallStatus} (Duration: ${Duration}s, Seq: ${SequenceNumber})`);
+
+    // DEBUG: Write to file removed
+
+    // We only care about final states
+    const terminalStates = ['completed', 'busy', 'no-answer', 'failed', 'canceled'];
+    if (!terminalStates.includes(CallStatus)) {
+        return res.status(200).send('OK');
+    }
+
+    try {
+        const callRecordId = await findCallByTwilioSid(CallSid);
+
+        if (callRecordId) {
+            // Finalize the call with the accurate duration from Twilio
+            // We pass undefined for outcome to avoid overwriting existing specific outcomes like 'ELEVEN_LABS'
+            await finalizeCall(callRecordId, {
+                duration: Duration ? parseInt(Duration) : undefined,
+                endTime: new Date(),
+                // Only set outcome if we don't have one, or if it's a "bad" outcome
+                outcome: (CallStatus === 'busy' || CallStatus === 'no-answer') ? 'MISSED_CALL' : undefined
+            });
+            console.log(`[Twilio] Finalized call ${callRecordId} via StatusCallback`);
+        } else {
+            console.log(`[Twilio] No call record found for ${CallSid} in status callback`);
+        }
+    } catch (e) {
+        console.error(`[Twilio] Error processing status callback:`, e);
+    }
+
+    res.status(200).send('OK');
+});
+
+// Explicit Call Ended Endpoint - For TwiML Redirects (Eleven Labs fallback)
+app.all('/api/twilio/call-ended', async (req, res) => {
+    const { CallSid, CallStatus } = req.body;
+    console.log(`[Twilio] Call ended redirect for ${CallSid}: ${CallStatus}`);
+
+    try {
+        const callRecordId = await findCallByTwilioSid(CallSid);
+
+        if (callRecordId) {
+            await finalizeCall(callRecordId, {
+                endTime: new Date(),
+                // If we hit this, it means the flow finished (e.g. AI hung up)
+                outcome: 'COMPLETED'
+            });
+            console.log(`[Twilio] Finalized call ${callRecordId} via CallEnded redirect`);
+        }
+    } catch (e) {
+        console.error(`[Twilio] Error processing call ended redirect:`, e);
+    }
+
+    res.type('text/xml');
+    res.send('<Response><Hangup/></Response>');
+});
+
 // Twilio Recording Status Callback - Fallback transcription for calls with missing transcripts
 import { transcribeFromUrl } from './deepgram';
-import { calls } from '../shared/schema';
-import { findCallByTwilioSid, updateCall } from './call-logger';
+
 
 app.post('/api/twilio/recording-status', async (req, res) => {
     const { CallSid, RecordingSid, RecordingUrl, RecordingStatus } = req.body;
@@ -715,6 +856,41 @@ app.post('/api/twilio/recording-status', async (req, res) => {
 });
 
 import { conversationEngine } from './conversation-engine';
+
+// Action Center API: Get Calls Requiring Action
+app.get('/api/calls/actions', async (req, res) => {
+    try {
+        const actionItems = await db.select()
+            .from(calls)
+            .where(
+                or(
+                    eq(calls.actionStatus, 'pending'),
+                    eq(calls.actionStatus, 'attempting')
+                )
+            )
+            .orderBy(asc(calls.actionUrgency), desc(calls.startTime)) // Highest urgency (1) first, then newest
+            .limit(50);
+
+        res.json(actionItems);
+    } catch (error) {
+        console.error('Failed to fetch action center items:', error);
+        res.status(500).json({ error: 'Failed to fetch items' });
+    }
+});
+
+// Action Center API: Update Action Status (Resolve/Dismiss)
+app.patch('/api/calls/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { actionStatus } = req.body;
+
+        await updateCall(id, { actionStatus });
+        res.json({ success: true });
+    } catch (error) {
+        console.error(`Failed to update call ${req.params.id}:`, error);
+        res.status(500).json({ error: 'Failed to update call' });
+    }
+});
 
 // Create Server
 const server = createServer(app);

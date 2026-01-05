@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
     Table,
     TableBody,
@@ -9,10 +9,26 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Phone, Clock, Calendar, ChevronRight, PoundSterling } from "lucide-react";
+import {
+    Phone,
+    Play,
+    FileText,
+    PhoneMissed,
+    User,
+    ArrowRight,
+    Loader2
+} from "lucide-react";
 import { FaWhatsapp } from "react-icons/fa";
 import { format } from "date-fns";
 import { useLocation } from "wouter";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 import { NameCorrection } from "@/components/NameCorrection";
 
@@ -29,7 +45,10 @@ export interface CallSummary {
     outcome: string | null;
     urgency: string | null;
     status: string;
-    metadataJson: any; // Added metadataJson
+    metadataJson: any;
+    missedReason?: string;
+    recordingUrl?: string;
+    transcription?: string;
 }
 
 interface CallListTableProps {
@@ -40,9 +59,16 @@ interface CallListTableProps {
 
 export function CallListTable({ calls, isLoading, onCallClick }: CallListTableProps) {
     const [, setLocation] = useLocation();
+    const [playingId, setPlayingId] = useState<string | null>(null);
+
+    const handlePlayRecording = async (e: React.MouseEvent, call: CallSummary) => {
+        e.stopPropagation();
+        if (!call.recordingUrl) return;
+        window.open(`/api/calls/${call.id}/recording`, '_blank');
+    };
 
     if (isLoading) {
-        return <div className="p-8 text-center">Loading calls...</div>;
+        return <div className="p-8 text-center flex justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div>;
     }
 
     if (calls.length === 0) {
@@ -50,92 +76,123 @@ export function CallListTable({ calls, isLoading, onCallClick }: CallListTablePr
     }
 
     return (
-        <div className="rounded-md border">
+        <div className="rounded-md border bg-black/20 backdrop-blur-sm">
             <Table>
                 <TableHeader>
-                    <TableRow>
-                        <TableHead>Customer</TableHead>
-                        <TableHead className="hidden sm:table-cell">Date & Time</TableHead>
-                        <TableHead className="hidden md:table-cell">Job</TableHead>
+                    <TableRow className="hover:bg-transparent border-gray-800">
+                        <TableHead className="w-[50px]">Status</TableHead>
+                        <TableHead className="w-[200px]">Route Path</TableHead>
+                        <TableHead>Lead Info</TableHead>
                         <TableHead>Outcome</TableHead>
-                        <TableHead className="hidden lg:table-cell">SKUs</TableHead>
-                        <TableHead className="text-right">Total Value</TableHead>
-                        <TableHead className="w-[40px]"></TableHead>
+                        <TableHead className="text-right">Time</TableHead>
+                        <TableHead className="w-[120px] text-right">Actions</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
                     {calls.map((call) => (
                         <TableRow
                             key={call.id}
-                            className="cursor-pointer hover:bg-muted/50"
+                            className="cursor-pointer hover:bg-white/5 border-gray-800 transition-colors"
                             onClick={() => onCallClick(call.id)}
                         >
+                            {/* 1. Status Dot */}
                             <TableCell>
-                                <div onClick={(e) => e.stopPropagation()}>
-                                    <NameCorrection
-                                        callId={call.id}
-                                        currentName={call.customerName}
-                                        metadataJson={call.metadataJson}
-                                    />
+                                <div className="flex items-center justify-center">
+                                    {getStatusIndicator(call)}
                                 </div>
-                                <div className="text-sm text-muted-foreground flex items-center gap-1">
-                                    <Phone className="h-3 w-3" />
-                                    <span
-                                        className="hover:text-green-600 hover:underline cursor-pointer flex items-center gap-1 transition-colors"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
+                            </TableCell>
+
+                            {/* 2. Route Path (Badge) */}
+                            <TableCell>
+                                {getRouteBadge(call)}
+                            </TableCell>
+
+                            {/* 3. Lead Info (Name + Job) */}
+                            <TableCell>
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                        <NameCorrection
+                                            callId={call.id}
+                                            currentName={call.customerName}
+                                            metadataJson={call.metadataJson}
+                                        />
+                                    </div>
+                                    <div className="flex items-center text-xs text-muted-foreground gap-2">
+                                        <span className="flex items-center gap-1">
+                                            <Phone className="h-3 w-3" />
+                                            {call.phoneNumber}
+                                        </span>
+                                        {call.jobSummary && (
+                                            <span className="text-gray-400 truncate max-w-[200px]" title={call.jobSummary}>
+                                                • {call.jobSummary}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </TableCell>
+
+                            {/* 4. Outcome */}
+                            <TableCell>
+                                {getOutcomeBadge(call)}
+                            </TableCell>
+
+                            {/* 5. Time */}
+                            <TableCell className="text-right text-sm text-gray-400">
+                                <div>{format(new Date(call.startTime), "MMM d")}</div>
+                                <div className="text-xs text-muted-foreground">{format(new Date(call.startTime), "HH:mm")}</div>
+                            </TableCell>
+
+                            {/* 6. Actions */}
+                            <TableCell className="text-right">
+                                <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                    {/* WhatsApp Action */}
+                                    <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-8 w-8 hover:text-green-500 hover:bg-green-500/10"
+                                        onClick={() => {
                                             const cleanNumber = call.phoneNumber.replace(/\D/g, '');
                                             setLocation(`/admin/whatsapp-intake?phone=${cleanNumber}`);
                                         }}
-                                        title="Open in WhatsApp CRM"
+                                        title="Open in WhatsApp"
                                     >
-                                        {call.phoneNumber} <FaWhatsapp className="h-3 w-3" />
-                                    </span>
+                                        <FaWhatsapp className="h-4 w-4" />
+                                    </Button>
+
+                                    {/* Play Recording */}
+                                    {call.recordingUrl && (
+                                        <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="h-8 w-8 hover:text-handy-gold hover:bg-amber-500/10"
+                                            onClick={(e) => handlePlayRecording(e, call)}
+                                            title="Play Recording"
+                                        >
+                                            <Play className="h-4 w-4" />
+                                        </Button>
+                                    )}
+
+                                    {/* View Transcript */}
+                                    {call.transcription && (
+                                        <Dialog>
+                                            <DialogTrigger asChild>
+                                                <Button size="icon" variant="ghost" className="h-8 w-8 hover:text-blue-400 hover:bg-blue-500/10" title="View Transcript">
+                                                    <FileText className="h-4 w-4" />
+                                                </Button>
+                                            </DialogTrigger>
+                                            <DialogContent className="max-w-xl bg-gray-900 border-gray-700 text-gray-100" onClick={(e) => e.stopPropagation()}>
+                                                <DialogHeader>
+                                                    <DialogTitle>Call Transcript</DialogTitle>
+                                                </DialogHeader>
+                                                <ScrollArea className="h-[400px] mt-4 p-4 rounded-md border border-gray-800 bg-black/20">
+                                                    <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-300 font-mono">
+                                                        {call.transcription}
+                                                    </div>
+                                                </ScrollArea>
+                                            </DialogContent>
+                                        </Dialog>
+                                    )}
                                 </div>
-                                {call.address && (
-                                    <div className="text-xs text-muted-foreground truncate max-w-[200px]">
-                                        {call.address}
-                                    </div>
-                                )}
-                            </TableCell>
-                            <TableCell className="hidden sm:table-cell">
-                                <div className="flex flex-col">
-                                    <span className="text-sm">
-                                        {format(new Date(call.startTime), "MMM d, yyyy")}
-                                    </span>
-                                    <span className="text-xs text-muted-foreground">
-                                        {format(new Date(call.startTime), "h:mm a")}
-                                    </span>
-                                </div>
-                            </TableCell>
-                            <TableCell className="hidden md:table-cell">
-                                <div className="text-sm truncate max-w-[150px]" title={call.jobSummary || "No summary"}>
-                                    {call.jobSummary || <span className="text-muted-foreground italic">Pending...</span>}
-                                </div>
-                            </TableCell>
-                            <TableCell>
-                                {getOutcomeBadge(call.outcome, call.status, call.startTime)}
-                            </TableCell>
-                            <TableCell className="hidden lg:table-cell">
-                                {call.skuCount > 0 ? (
-                                    <Badge variant="secondary">
-                                        {call.skuCount} SKU{call.skuCount !== 1 ? 's' : ''}
-                                    </Badge>
-                                ) : (
-                                    <span className="text-muted-foreground text-sm">-</span>
-                                )}
-                            </TableCell>
-                            <TableCell className="text-right font-medium">
-                                {call.totalPricePence > 0 ? (
-                                    <span className="text-emerald-600">
-                                        £{(call.totalPricePence / 100).toFixed(2)}
-                                    </span>
-                                ) : (
-                                    <span className="text-muted-foreground">-</span>
-                                )}
-                            </TableCell>
-                            <TableCell>
-                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
                             </TableCell>
                         </TableRow>
                     ))}
@@ -145,48 +202,93 @@ export function CallListTable({ calls, isLoading, onCallClick }: CallListTablePr
     );
 }
 
-function getOutcomeBadge(outcome: string | null, status: string, startTime: string) {
-    // Normalise to uppercase for comparison
-    const upperOutcome = outcome?.toUpperCase();
+// --- Helper Functions ---
 
-    // 1. Check explicit outcomes first
-    switch (upperOutcome) {
-        case 'INSTANT_PRICE':
-            return <Badge className="bg-emerald-500">Instant Price</Badge>;
-        case 'VIDEO_QUOTE':
-            return <Badge className="bg-blue-500">Video Quote</Badge>;
+function getStatusIndicator(call: CallSummary) {
+    if (call.status === 'in-progress' || call.status === 'ringing') {
+        return <span className="flex h-3 w-3 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" title="Live Call" />;
+    }
+
+    // Recovered: Missed by VA but handled by AI or Recovered
+    const isRecovered = (call.missedReason && call.outcome !== 'no-answer' && call.outcome !== 'voicemail') ||
+        call.outcome === 'RECOVERED_FROM_TWILIO';
+
+    if (isRecovered) {
+        return <span className="flex h-3 w-3 rounded-full bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.3)]" title="Recovered by AI/System" />;
+    }
+
+    // Lost: Explicit failure states
+    const isLost = call.outcome === 'NO_ANSWER' ||
+        call.outcome === 'VOICEMAIL' ||
+        call.outcome === 'FAILED' ||
+        call.outcome === 'DROPPED_EARLY' ||
+        (!call.outcome && call.status === 'failed'); // e.g. stale calls
+
+    if (isLost) {
+        return <span className="flex h-3 w-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.3)]" title="Lost / Voicemail" />;
+    }
+
+    // Success (Direct Answer or Completed successfully)
+    return <span className="flex h-3 w-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]" title="Success / Completed" />;
+}
+
+function getRouteBadge(call: CallSummary) {
+    // 1. Check for specific Missed Reasons (Highest fidelity)
+    if (call.missedReason === 'busy_agent') {
+        return <Badge className="bg-amber-500 hover:bg-amber-600 border-amber-600 text-black font-medium">Line Busy ➔ Agent</Badge>;
+    }
+    if (call.missedReason === 'out_of_hours') {
+        return <Badge variant="outline" className="text-purple-400 border-purple-500 bg-purple-500/10">Out of Hours</Badge>;
+    }
+    if (call.missedReason === 'no_answer') {
+        return <Badge className="bg-orange-500 hover:bg-orange-600 border-orange-600 text-black">VA Missed ➔ Fallback</Badge>;
+    }
+
+    // 2. Check Outcome-based routing
+    if (call.outcome === 'FORWARDED') {
+        return <Badge variant="secondary" className="bg-indigo-900/50 text-indigo-300 border-indigo-700">Forwarded</Badge>;
+    }
+    if (call.outcome === 'ELEVEN_LABS') {
+        return <Badge className="bg-blue-600 hover:bg-blue-700 border-blue-500">AI Agent</Badge>;
+    }
+
+    // 3. Status-based inference
+    if (call.status === 'completed' || call.status === 'in-progress') {
+        return <Badge className="bg-green-600 hover:bg-green-700 border-green-500">Direct Answer</Badge>;
+    }
+
+    return <Badge variant="secondary" className="text-gray-500">Unknown</Badge>;
+}
+
+function getOutcomeBadge(call: CallSummary) {
+    const outcome = call.outcome?.toUpperCase();
+
+    switch (outcome) {
         case 'SITE_VISIT':
-            return <Badge className="bg-purple-500">Site Visit</Badge>;
+        case 'SITE_VISIT_BOOKED':
+            return <Badge className="bg-emerald-500 text-white border-emerald-400 font-bold">Site Visit</Badge>;
 
-        // Missed / Dropped cases
-        case 'NO_ANSWER':
-        case 'NO-ANSWER':
+        case 'QUOTE_REQUESTED':
+        case 'VIDEO_QUOTE':
+            return <Badge className="bg-blue-500 text-white border-blue-400 font-bold">Quote Requested</Badge>;
+
+        case 'INSTANT_PRICE':
+        case 'INSTANT_PRICE_GIVEN':
+            return <Badge className="bg-purple-500 text-white border-purple-400">Instant Price</Badge>;
+
+        case 'MSG_TAKEN':
+        case 'MESSAGE_TAKEN':
+            return <Badge variant="secondary" className="bg-slate-700 text-white">Message Taken</Badge>;
+
         case 'VOICEMAIL':
-        case 'BUSY':
-        case 'FAILED':
-        case 'CANCELED':
-            return <Badge variant="outline" className="text-red-500 border-red-500 bg-red-50">Missed Call</Badge>;
+        case 'VOICEMAIL_LEFT':
+            return <Badge variant="outline" className="text-red-400 border-red-500/50 bg-red-500/10">Voicemail</Badge>;
 
-        case 'DROPPED_EARLY':
-            return <Badge variant="outline" className="text-orange-500 border-orange-500 bg-orange-50">Dropped Early</Badge>;
+        case 'NO_ANSWER':
+        case 'MISSED_CALL':
+            return <Badge variant="outline" className="text-red-500 border-red-500 bg-red-500/10 font-bold">Missed</Badge>;
 
-        case 'RECOVERED_FROM_TWILIO':
-        case 'COMPLETED_BUT_MISSING':
-            return <Badge variant="outline" className="text-slate-500 border-slate-500">Recovered</Badge>;
+        default:
+            return <span className="text-sm text-gray-500">{call.outcome ? call.outcome.replace(/_/g, ' ') : '-'}</span>;
     }
-
-    // 2. Handle cases where outcome is null/unknown (e.g. freshly created calls)
-    if (status === 'ringing' || status === 'in-progress') {
-        // Check if it's stale (older than 5 minutes)
-        const isStale = new Date().getTime() - new Date(startTime).getTime() > 5 * 60 * 1000;
-
-        if (isStale) {
-            return <Badge variant="outline" className="text-orange-500 border-orange-500 bg-orange-50">Dropped Early</Badge>;
-        }
-
-        // Active call
-        return <Badge className="bg-green-500 animate-pulse">Ringing...</Badge>;
-    }
-
-    return <Badge variant="secondary">{outcome || "Unknown"}</Badge>;
 }

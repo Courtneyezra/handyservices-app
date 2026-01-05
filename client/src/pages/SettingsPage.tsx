@@ -34,6 +34,7 @@ interface TwilioSettings {
     'twilio.welcome_audio_url': string;
     'twilio.fallback_agent_url': string;
     'twilio.eleven_labs_agent_id': string;
+    'twilio.eleven_labs_busy_agent_id': string;
     'twilio.eleven_labs_api_key': string;
     // Agent Modes
     'twilio.agent_mode': string;
@@ -64,6 +65,7 @@ const defaultSettings: TwilioSettings = {
     'twilio.welcome_audio_url': '/assets/handyservices-welcome.mp3',
     'twilio.fallback_agent_url': '',
     'twilio.eleven_labs_agent_id': '',
+    'twilio.eleven_labs_busy_agent_id': '',
     'twilio.eleven_labs_api_key': '',
     // Agent Modes
     'twilio.agent_mode': 'auto',
@@ -106,6 +108,7 @@ export default function SettingsPage() {
     const [localSettings, setLocalSettings] = useState<TwilioSettings>(defaultSettings);
     const [forwardStatus, setForwardStatus] = useState<ForwardStatus>({ status: 'unconfigured', message: 'Enter a forward number', isValid: false });
     const [agentStatus, setAgentStatus] = useState<ForwardStatus>({ status: 'unconfigured', message: 'Enter an agent ID', isValid: false });
+    const [busyAgentStatus, setBusyAgentStatus] = useState<ForwardStatus>({ status: 'unconfigured', message: 'Enter an agent ID', isValid: false });
     const [apiKeyStatus, setApiKeyStatus] = useState<ForwardStatus>({ status: 'unconfigured', message: 'Enter an API key', isValid: false });
     const [isDirty, setIsDirty] = useState(false);
 
@@ -200,6 +203,11 @@ export default function SettingsPage() {
                 // Verify agent with the API key from settings data
                 checkAgentStatusWithKey(agentId, apiKey);
             }
+            // Check busy agent ID on load
+            const busyAgentId = settingsData.settings['twilio.eleven_labs_busy_agent_id'];
+            if (busyAgentId && apiKey) {
+                checkBusyAgentStatusWithKey(busyAgentId, apiKey);
+            }
         }
     }, [settingsData]);
 
@@ -273,6 +281,35 @@ export default function SettingsPage() {
             }
         } catch (error) {
             setAgentStatus({ status: 'unknown', message: 'Failed to verify agent', isValid: false });
+        }
+    };
+
+    const checkBusyAgentStatus = async (agentId: string) => {
+        if (!agentId) {
+            setBusyAgentStatus({ status: 'unconfigured', message: 'Enter an agent ID', isValid: false });
+            return;
+        }
+        const apiKey = localSettings['twilio.eleven_labs_api_key'];
+        checkBusyAgentStatusWithKey(agentId, apiKey);
+    };
+
+    const checkBusyAgentStatusWithKey = async (agentId: string, apiKey: string) => {
+        if (!agentId) {
+            setBusyAgentStatus({ status: 'unconfigured', message: 'Enter an agent ID', isValid: false });
+            return;
+        }
+
+        setBusyAgentStatus(prev => ({ ...prev, status: 'checking', message: 'Verifying...' }));
+        try {
+            const res = await fetch('/api/settings/check-agent-status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ agentId, apiKey }),
+            });
+            const data = await res.json();
+            setBusyAgentStatus(data);
+        } catch (error) {
+            setBusyAgentStatus({ status: 'unknown', message: 'Failed to verify agent', isValid: false });
         }
     };
 
@@ -624,6 +661,44 @@ export default function SettingsPage() {
                                                 : agentStatus.message}
                                         </p>
                                     </div>
+
+                                    <div className="space-y-2">
+                                        <Label htmlFor="eleven-labs-busy-id">Busy Agent ID (Optional)</Label>
+                                        <div className="flex gap-2">
+                                            <div className={`flex-1 relative flex items-center rounded-md border-2 ${getStatusColor(busyAgentStatus.status)}`}>
+                                                <MessageSquare className="w-4 h-4 ml-3 text-gray-400" />
+                                                <Input
+                                                    id="eleven-labs-busy-id"
+                                                    placeholder="e.g. agent_xyz789"
+                                                    value={localSettings['twilio.eleven_labs_busy_agent_id']}
+                                                    onChange={(e) => updateSetting('twilio.eleven_labs_busy_agent_id', e.target.value)}
+                                                    className="border-0 focus-visible:ring-0 bg-transparent"
+                                                    disabled={apiKeyStatus.status !== 'valid'}
+                                                />
+                                                <div className="pr-3">
+                                                    {getStatusIcon(busyAgentStatus.status)}
+                                                </div>
+                                            </div>
+                                            <Button
+                                                variant="outline"
+                                                onClick={() => checkBusyAgentStatus(localSettings['twilio.eleven_labs_busy_agent_id'])}
+                                                className="border-white/10"
+                                                disabled={apiKeyStatus.status !== 'valid'}
+                                            >
+                                                Verify
+                                            </Button>
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <p className={`text-sm ${busyAgentStatus.status === 'valid' ? 'text-green-600' : busyAgentStatus.status === 'invalid' ? 'text-red-600' : 'text-gray-500'}`}>
+                                                {apiKeyStatus.status !== 'valid'
+                                                    ? 'Verify your API key first to enable Agent ID verification'
+                                                    : busyAgentStatus.message}
+                                            </p>
+                                            <p className="text-sm text-gray-500">
+                                                Agent to handle calls when the main line is busy. Leave empty to use default.
+                                            </p>
+                                        </div>
+                                    </div>
                                     <div className="space-y-2">
                                         <Label htmlFor="fallback-agent">Custom Agent URL (Optional Override)</Label>
                                         <Input
@@ -894,6 +969,6 @@ export default function SettingsPage() {
                     )}
                 </div>
             </div>
-        </div>
+        </div >
     );
 }

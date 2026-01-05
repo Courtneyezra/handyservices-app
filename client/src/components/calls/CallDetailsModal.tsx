@@ -156,8 +156,8 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
 
     return (
         <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-            <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 bg-white dark:bg-slate-950 text-foreground border shadow-xl sm:rounded-xl overflow-hidden">
-                <DialogHeader className="px-6 py-4 border-b">
+            <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 bg-slate-950 text-slate-50 border border-slate-800 shadow-xl sm:rounded-xl overflow-hidden">
+                <DialogHeader className="px-6 py-4 border-b border-slate-800">
                     <div className="flex justify-between items-center pr-8">
                         <div>
                             <DialogTitle className="text-xl flex items-center gap-2">
@@ -198,13 +198,13 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
                     {isLoading ? (
                         <div className="p-12 text-center text-muted-foreground">Loading call details...</div>
                     ) : !call ? (
-                        <div className="p-12 text-center text-muted-foreground bg-white dark:bg-slate-950">
+                        <div className="p-12 text-center text-muted-foreground bg-slate-950">
                             <p className="text-lg font-semibold mb-2">Call not found</p>
                             <p className="text-sm">Unable to load call details. The call may have been deleted.</p>
                         </div>
                     ) : (
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-                            <div className="px-6 py-2 border-b bg-muted/30">
+                            <div className="px-6 py-2 border-b border-slate-800 bg-slate-900/50">
                                 <TabsList>
                                     <TabsTrigger value="details">Details & Notes</TabsTrigger>
                                     <TabsTrigger value="transcript">Transcript</TabsTrigger>

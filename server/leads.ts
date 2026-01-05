@@ -5,6 +5,8 @@ import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { getSetting, getTwilioSettings } from "./settings";
+import { createCall, updateCall } from "./call-logger"; // Import call logger function
+import { calls } from "@shared/schema"; // Import calls schema
 
 export const leadsRouter = Router();
 
@@ -157,7 +159,48 @@ leadsRouter.post('/api/eleven-labs/post-call', async (req, res) => {
             // Find the most recent lead from this number
             const [lead] = await db.select().from(leads).where(eq(leads.phone, callerNumber)).orderBy(desc(leads.createdAt)).limit(1);
 
+            // Find the most recent Call record (Action Center Integration)
+            // We search for calls from this number in the last hour to link this analysis to
+            const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+            const [recentCall] = await db.select()
+                .from(calls)
+                .where(eq(calls.phoneNumber, callerNumber)) // Note: Ensure number format matches (e.g. +44 vs 07)
+                .orderBy(desc(calls.startTime))
+                .limit(1);
+
+            // Data to update on the call record
+            const callUpdates: any = {
+                recordingUrl: undefined,
+                transcription: undefined,
+                lastEditedAt: new Date()
+            };
+
+            // Fetch recording URL from Eleven Labs API
+            if (settings.elevenLabsApiKey) {
+                try {
+                    const convRes = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${conversation_id}`, {
+                        method: 'GET',
+                        headers: { 'xi-api-key': settings.elevenLabsApiKey }
+                    });
+                    if (convRes.ok) {
+                        const convData = await convRes.json();
+                        if (convData.audio_url) {
+                            callUpdates.recordingUrl = convData.audio_url;
+                        }
+                    }
+                } catch (convErr) {
+                    console.error(`[ElevenLabs] Failed to fetch recording URL:`, convErr);
+                }
+            }
+
+            if (analysis?.transcript_summary) {
+                callUpdates.transcription = analysis.transcript_summary; // Use summary as main transcript for now
+                callUpdates.jobSummary = analysis.transcript_summary;
+            }
+
+
             if (lead) {
+                // Scenario A: Lead Captured - Update Lead & Link Call
                 const updateData: any = {
                     elevenLabsConversationId: conversation_id,
                     updatedAt: new Date()
@@ -165,37 +208,53 @@ leadsRouter.post('/api/eleven-labs/post-call', async (req, res) => {
 
                 if (analysis?.transcript_summary) {
                     updateData.elevenLabsSummary = analysis.transcript_summary;
-                    // Also update the main jobSummary if it's currently empty
                     if (!lead.jobSummary || lead.jobSummary === "Pending...") {
                         updateData.jobSummary = analysis.transcript_summary;
                     }
                 }
 
                 if (analysis?.call_successful !== undefined) {
-                    // Map success to a score or just store it
                     updateData.elevenLabsSuccessScore = analysis.call_successful ? 100 : 0;
                 }
 
-                // Fetch recording URL from Eleven Labs API
-                if (settings.elevenLabsApiKey) {
-                    try {
-                        const convRes = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${conversation_id}`, {
-                            method: 'GET',
-                            headers: { 'xi-api-key': settings.elevenLabsApiKey }
-                        });
-                        if (convRes.ok) {
-                            const convData = await convRes.json();
-                            if (convData.audio_url) {
-                                updateData.elevenLabsRecordingUrl = convData.audio_url;
-                            }
-                        }
-                    } catch (convErr) {
-                        console.error(`[ElevenLabs] Failed to fetch recording URL:`, convErr);
-                    }
+                // If we fetched recording for call, also save to lead
+                if (callUpdates.recordingUrl) {
+                    updateData.elevenLabsRecordingUrl = callUpdates.recordingUrl;
                 }
 
                 await db.update(leads).set(updateData).where(eq(leads.id, lead.id));
                 console.log(`[ElevenLabs] Updated lead ${lead.id} with post-call analysis.`);
+
+                // Update Call to reflect success
+                if (recentCall) {
+                    await updateCall(recentCall.id, {
+                        ...callUpdates,
+                        outcome: 'LEAD_CAPTURED',
+                        actionStatus: 'pending',
+                        actionUrgency: 3, // Normal urgency
+                        tags: ['lead_captured', 'eleven_labs'],
+                        leadId: lead.id
+                    });
+                }
+
+            } else {
+                // Scenario B: No Lead Found (AI Incomplete/Missed Opportunity)
+                console.log(`[ElevenLabs] No lead found for ${callerNumber}. Flagging as AI_INCOMPLETE.`);
+
+                if (recentCall) {
+                    await updateCall(recentCall.id, {
+                        ...callUpdates,
+                        outcome: 'AI_INCOMPLETE', // New critical status
+                        actionStatus: 'pending',
+                        actionUrgency: 1, // Critical!
+                        missedReason: 'user_hangup', // Assumption: User hung up on AI or AI failed to convert
+                        tags: ['ai_incomplete', 'needs_callback', 'no_lead_info'],
+                        notes: 'AI spoke to caller but NO lead captured. Verify recording.'
+                    });
+                    console.log(`[ActionCenter] Call ${recentCall.id} flagged as CRITICAL (AI_INCOMPLETE).`);
+                } else {
+                    console.warn(`[ElevenLabs] Could not find recent call to flag for ${callerNumber}`);
+                }
             }
         }
 

@@ -1,9 +1,14 @@
-
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Activity, Users, PhoneCall, PoundSterling, AlertCircle, ArrowRight, Loader2 } from "lucide-react";
+import { Activity, Users, PhoneCall, PoundSterling, Loader2, ArrowRight } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import ActionCenter from "@/components/ActionCenter";
+import { CallListTable, CallSummary } from "@/components/calls/CallListTable";
+import { Button } from "@/components/ui/button";
+import { useLocation } from "wouter";
 
 export default function MainDashboard() {
+    const [, setLocation] = useLocation();
+
     // 1. Fetch Stats
     const { data: stats, isLoading: statsLoading } = useQuery({
         queryKey: ['dashboard-stats'],
@@ -15,24 +20,23 @@ export default function MainDashboard() {
         refetchInterval: 5000 // Poll every 5s for "live" feel
     });
 
-    // 2. Fetch Actions
-    const { data: actionItems, isLoading: actionsLoading } = useQuery({
-        queryKey: ['dashboard-actions'],
+    // 2. Fetch Recent Activity (Limit 5)
+    const { data: recentCallsData, isLoading: recentCallsLoading } = useQuery({
+        queryKey: ['recent-calls-dashboard'],
         queryFn: async () => {
-            const res = await fetch('/api/dashboard/actions');
-            if (!res.ok) throw new Error('Failed to fetch actions');
-            return res.json();
+            const res = await fetch('/api/calls?limit=5');
+            if (!res.ok) throw new Error('Failed to fetch recent calls');
+            return res.json() as Promise<{ calls: CallSummary[], pagination: any }>;
         },
         refetchInterval: 10000
     });
 
-    if (statsLoading || actionsLoading) {
+    if (statsLoading) {
         return <div className="flex h-64 items-center justify-center"><Loader2 className="animate-spin text-gray-400" /></div>;
     }
 
     // Default fallbacks
     const safeStats = stats || { leadsToday: 0, activeCalls: 0, pendingQuotes: 0, revenueWtd: 0 };
-    const safeActions = actionItems || [];
 
     return (
         <div className="space-y-6">
@@ -82,41 +86,24 @@ export default function MainDashboard() {
                 </Card>
             </div>
 
-            {/* Action Feed */}
+            {/* Action Center - Full Width of Main Column */}
+            <ActionCenter />
+
+            {/* Recent Activity Grid */}
             <div className="grid gap-4 grid-cols-1 lg:grid-cols-7">
-                <Card className="col-span-1 lg:col-span-4 bg-black/40 border-gray-700 backdrop-blur-sm">
-                    <CardHeader>
-                        <CardTitle className="text-white">Action Required</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="space-y-4">
-                            {safeActions.length === 0 ? (
-                                <p className="text-sm text-gray-400 italic">No urgent actions required.</p>
-                            ) : (
-                                safeActions.map((item: any) => (
-                                    <div key={item.id} className="flex items-center justify-between p-4 border border-gray-700 rounded-lg hover:bg-white/5 transition-colors cursor-pointer">
-                                        <div className="flex items-center gap-4">
-                                            <div className={`p-2 rounded-full ${item.type === 'Urgent' ? 'bg-red-500/20 text-red-400' : 'bg-handy-gold/20 text-handy-gold'}`}>
-                                                <AlertCircle className="w-4 h-4" />
-                                            </div>
-                                            <div>
-                                                <p className="font-medium text-sm text-white">{item.message}</p>
-                                                <p className="text-xs text-gray-400">{item.time}</p>
-                                            </div>
-                                        </div>
-                                        <ArrowRight className="w-4 h-4 text-gray-500" />
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </CardContent>
-                </Card>
-                <Card className="col-span-1 lg:col-span-3 bg-black/40 border-gray-700 backdrop-blur-sm">
-                    <CardHeader>
+                <Card className="col-span-1 lg:col-span-7 bg-black/40 border-gray-700 backdrop-blur-sm">
+                    <CardHeader className="flex flex-row items-center justify-between">
                         <CardTitle className="text-white">Recent Activity</CardTitle>
+                        <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white gap-1" onClick={() => setLocation('/calls')}>
+                            View All <ArrowRight className="h-4 w-4" />
+                        </Button>
                     </CardHeader>
-                    <CardContent>
-                        <p className="text-sm text-gray-400">No recent activity recorded.</p>
+                    <CardContent className="p-0 sm:p-6 pt-0">
+                        <CallListTable
+                            calls={recentCallsData?.calls || []}
+                            isLoading={recentCallsLoading}
+                            onCallClick={(id) => setLocation(`/calls?id=${id}`)} // Or open modal? For dash, redirect to calls page is safer/simpler for now
+                        />
                     </CardContent>
                 </Card>
             </div>

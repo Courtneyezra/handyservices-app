@@ -1,165 +1,121 @@
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode, useMemo } from 'react';
-import { queryClient } from "@/lib/queryClient";
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useToast } from "@/hooks/use-toast";
 
-interface SkuDetectionResult {
+// --- Types ---
+
+export interface LiveAnalysisJson {
     matched: boolean;
     sku: {
-        id: string;
-        skuCode: string;
         name: string;
-        category: string;
         pricePence: number;
-        description: string;
+        category?: string;
     } | null;
     confidence: number;
-    method: 'keyword' | 'embedding' | 'gpt' | 'hybrid' | 'cached' | 'realtime' | 'none';
+    method: "realtime" | "detailed" | "gpt";
     rationale: string;
-    nextRoute: 'INSTANT_PRICE' | 'VIDEO_QUOTE' | 'SITE_VISIT' | 'UNKNOWN';
+    nextRoute: string;
     suggestedScript?: string;
-
-    // Performance & UI Optimizations (F1, F3)
-    isPreliminaryResult?: boolean; // If true, show loading spinner while fetching full result
-    detectionTime?: number;        // Time taken in ms
-    cacheHit?: boolean;            // Was embedding cached?
-
-    // Multi-SKU fields
-    matchedServices?: Array<{
-        sku: {
-            id: string;
-            skuCode: string;
-            name: string;
-            category: string;
-            pricePence: number;
-            description: string;
-        };
-        confidence: number;
-        task: { description: string; quantity: number };
-    }>;
-    unmatchedTasks?: Array<{ description: string; quantity: number }>;
-    totalMatchedPrice?: number;
-    hasMultiple?: boolean;
 }
 
-interface Segment {
-    speaker: number;
+export interface LiveMetadataJson {
+    customerName: string | null;
+    address: string | null;
+    urgency: "Emergency" | "High" | "Standard" | "Low" | "Critical";
+    leadType: "Landlord" | "Homeowner" | "Tenant" | "Commercial" | "Unknown";
+    phoneNumber: string | null;
+    postcode?: string | null;
+}
+
+export interface Segment {
+    speaker: 0 | 1; // 0 = caller, 1 = agent
     text: string;
     start: number;
     end: number;
 }
 
-interface CallMetadata {
-    customerName: string | null;
-    address: string | null;
-    urgency: "Critical" | "High" | "Standard" | "Low";
-    leadType: "Homeowner" | "Landlord" | "Property Manager" | "Tenant" | "Unknown";
-    phoneNumber?: string; // Caller ID
-    postcode?: string | null;
-    addressRaw?: string;
-    addressCanonical?: string;
-    coordinates?: { lat: number, lng: number };
-}
-
-interface DuplicateInfo {
-    existingLeadId: string;
-    confidence: number;
-    matchReason: string;
-}
-
-interface UploadResponse {
+export interface LiveCallData {
     transcription: string;
     segments: Segment[];
-    detection: SkuDetectionResult;
-    metadata: CallMetadata;
+    detection: LiveAnalysisJson;
+    metadata: LiveMetadataJson;
 }
 
+
 interface SimulationOptions {
+    complexity?: 'SIMPLE' | 'COMPLEX' | 'EMERGENCY' | 'LANDLORD' | 'RANDOM' | 'MESSY';
     phoneNumber?: string;
     customerName?: string;
     jobDescription?: string;
-    complexity?: 'SIMPLE' | 'MESSY' | 'EMERGENCY' | 'LANDLORD' | 'RANDOM';
+}
+
+interface AddressValidationResult {
+    isValid: boolean;
+    standardizedAddress?: string;
+    confidence: number;
+    details?: any; // google maps result
 }
 
 interface LiveCallContextType {
-    isLive: boolean;
-    liveCallData: UploadResponse | null;
+    isLive: boolean; // Derived: if liveCallData !== null
+    liveCallData: LiveCallData | null;
     interimTranscript: string;
     isSimulating: boolean;
     startSimulation: (options?: SimulationOptions) => void;
-    clearCall: () => void; // Manual reset function
-    updateMetadata: (metadata: Partial<CallMetadata>) => void;
+    clearCall: () => void;
+    updateMetadata: (updates: Partial<LiveMetadataJson>) => void;
     detectedPostcode: string | null;
-    setDetectedPostcode: (postcode: string | null) => void;
-    duplicateWarning: DuplicateInfo | null;
-    setDuplicateWarning: (info: DuplicateInfo | null) => void;
-    addressValidation: any | null;  // AddressValidation from server
-    setAddressValidation: (validation: any | null) => void;
-    audioQuality: 'GOOD' | 'DEGRADED' | 'POOR'; // Clean Mode: Audio quality indicator
+    duplicateWarning: string | null;
+    addressValidation: AddressValidationResult | null;
+    audioQuality: "GOOD" | "POOR" | "DROPOUT";
 }
 
 const LiveCallContext = createContext<LiveCallContextType | undefined>(undefined);
 
-export function LiveCallProvider({ children }: { children: ReactNode }) {
-    const [liveCallData, setLiveCallData] = useState<UploadResponse | null>(null);
-    const [interimTranscript, setInterimTranscript] = useState<string>("");
-    const [isLive, setIsLive] = useState(false);
-    const [isSimulating, setIsSimulating] = useState(false);
-    const [detectedPostcode, setDetectedPostcode] = useState<string | null>(null);
-    const [duplicateWarning, setDuplicateWarning] = useState<DuplicateInfo | null>(null);
-    const [addressValidation, setAddressValidation] = useState<any | null>(null);
-    const wsRef = useRef<WebSocket | null>(null);
-    const isSimulatingRef = useRef(false);
-    const [isRehydrating, setIsRehydrating] = useState(false);
-
-    // F1: Fetch active call from database for reconnecting clients
-    async function fetchActiveCall() {
-        try {
-            const res = await fetch('/api/calls/active');
-            const data = await res.json();
-            return data.activeCall;
-        } catch (e) {
-            console.error('[LiveCall] Failed to fetch active call:', e);
-            return null;
-        }
+async function fetchActiveCall(): Promise<any> {
+    const res = await fetch('/api/calls/active');
+    if (!res.ok) {
+        if (res.status === 404) return null;
+        throw new Error('Failed to fetch active call');
     }
+    return res.json();
+}
 
-    // Clean Mode: Derive audio quality from transcript patterns
-    const audioQuality = useMemo((): 'GOOD' | 'DEGRADED' | 'POOR' => {
-        if (!liveCallData) return 'GOOD';
+export function LiveCallProvider({ children }: { children: ReactNode }) {
+    const [liveCallData, setLiveCallData] = useState<LiveCallData | null>(null);
+    const [interimTranscript, setInterimTranscript] = useState<string>("");
+    const [isSimulating, setIsSimulating] = useState(false);
+    const [isRehydrating, setIsRehydrating] = useState(true);
 
-        const segmentCount = liveCallData.segments.length;
-        const transcriptionLength = liveCallData.transcription.length;
-        const avgSegmentLength = segmentCount > 0 ? transcriptionLength / segmentCount : 0;
-        const confidence = liveCallData.detection?.confidence || 0;
+    // Singleton context extras
+    const [detectedPostcode, setDetectedPostcode] = useState<string | null>(null);
+    const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+    const [addressValidation, setAddressValidation] = useState<AddressValidationResult | null>(null);
+    const [audioQuality, setAudioQuality] = useState<"GOOD" | "POOR" | "DROPOUT">("GOOD");
 
-        // Poor: Many tiny segments (fragmented audio) or very low confidence
-        if (segmentCount > 5 && avgSegmentLength < 15) return 'POOR';
-        if (confidence === 0 && segmentCount > 3) return 'POOR';
+    const isSimulatingRef = useRef(false);
+    const wsRef = useRef<WebSocket | null>(null);
+    const queryClient = useQueryClient();
+    const { toast } = useToast();
 
-        // Degraded: Low confidence with some data
-        if (confidence < 30 && confidence > 0) return 'DEGRADED';
-        if (segmentCount > 3 && avgSegmentLength < 25) return 'DEGRADED';
-
-        return 'GOOD';
-    }, [liveCallData]);
+    // Derived state
+    const isLive = liveCallData !== null;
 
     const clearCall = () => {
-        console.log('[LiveCall] Manual reset triggered');
-        isSimulatingRef.current = false;
-        setIsSimulating(false);
-        setIsLive(false);
         setLiveCallData(null);
         setInterimTranscript("");
         setDetectedPostcode(null);
         setDuplicateWarning(null);
         setAddressValidation(null);
+        setAudioQuality("GOOD");
     };
 
-    const updateMetadata = (metadata: Partial<CallMetadata>) => {
+    const updateMetadata = (updates: Partial<LiveMetadataJson>) => {
         setLiveCallData(prev => {
             if (!prev) return prev;
             return {
                 ...prev,
-                metadata: { ...prev.metadata, ...metadata }
+                metadata: { ...prev.metadata, ...updates }
             };
         });
     };
@@ -169,7 +125,6 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
 
         isSimulatingRef.current = true;
         setIsSimulating(true);
-        setIsLive(true);
 
         const complexity = options?.complexity || 'SIMPLE';
         const testNumber = options?.phoneNumber || (complexity === 'EMERGENCY' ? "+447911123456" : "+447700900123");
@@ -207,39 +162,21 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                 {
                     name: "Locked Out",
                     segments: ["Hi, I'm stuck outside my house, I've left the keys in the lock on the inside!", "Can you get someone to me within 30 minutes? It's freezing."],
-                    metadata: { urgency: 'Critical', customerName: 'David Lee', address: '7 High St' },
+                    metadata: { urgency: 'Critical' as const, customerName: 'David Lee', address: '7 High St' },
                     analysis: { name: 'Emergency Locksmith', route: 'SITE_VISIT', script: "Don't worry, David. Our locksmith is nearby and can be there in 20 minutes." }
                 },
                 {
                     name: "Full House Paint",
                     segments: ["I've just bought a new place and I want the whole interior painted before we move in.", "It's a 3 bedroom semi. Are you guys available next week?"],
-                    metadata: { urgency: 'Standard', customerName: 'Sarah Jenkins', address: '12 Willow Way' },
+                    metadata: { urgency: 'Standard' as const, customerName: 'Sarah Jenkins', address: '12 Willow Way' },
                     analysis: { name: 'Full Interior Decorating', route: 'VIDEO_QUOTE', script: "Congratulations on the new place! To give you a precise quote for 3 bedrooms, could you send a video of the rooms?" }
-                },
-                {
-                    name: "Flickering Lights",
-                    segments: ["All the lights in my kitchen are flickering and there's a buzzing sound from the fuse box.", "I'm worried about a fire, can you help?"],
-                    metadata: { urgency: 'Critical', customerName: 'Mr. White', address: 'Room 101, Grand Hotel' },
-                    analysis: { name: 'Emergency Electrical Fix', route: 'SITE_VISIT', script: "Please turn off your main power switch immediately. I am sending an electrician to you now." }
-                },
-                {
-                    name: "Gutter Clearance",
-                    segments: ["My gutters are overflowing and the water is coming down the walls.", "Can you clear them and check for any leaks?"],
-                    metadata: { urgency: 'High', customerName: 'Mrs. Gable', address: 'High View' },
-                    analysis: { name: 'Gutter & Fascia Service', route: 'VIDEO_QUOTE', script: "I can help with that. Could you send a quick video of the gutters from the ground?" }
-                },
-                {
-                    name: "IKEA Assembly",
-                    segments: ["I've got three PAX wardrobes and a MALM bed that need building.", "I'm struggling with the instructions, please help!"],
-                    metadata: { urgency: 'Standard', customerName: 'Ben Foster', address: 'New Flat 4' },
-                    analysis: { name: 'Flat-Pack Assembly (PAX)', route: 'INSTANT_PRICE', script: "We build PAX furniture every week! That will be £150 for the wardrobes and £45 for the bed. Total £195." }
                 }
             ];
 
             const picked = randomScenarios[Math.floor(Math.random() * randomScenarios.length)];
             steps = [
-                { type: 'segment', delay: 1000, text: picked.segments[0], speaker: 1 },
-                { type: 'segment', delay: 4000, text: picked.segments[1], speaker: 1 },
+                { type: 'segment', delay: 1000, text: picked.segments[0] },
+                { type: 'segment', delay: 4000, text: picked.segments[1] },
                 {
                     type: 'analysis',
                     delay: 6000,
@@ -256,179 +193,73 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                 { delay: 9000, type: 'metadata', data: { ...picked.metadata, leadType: 'Homeowner', phoneNumber: testNumber } },
                 { delay: 11000, type: 'end' }
             ];
-        } else if (complexity === 'MESSY') {
-            steps = [
-                { type: 'segment', delay: 1000, text: "Hello? Is this the handyman service? I'm calling about a dripping tap.", speaker: 1 },
-                {
-                    type: 'analysis',
-                    delay: 2000,
-                    data: {
-                        matched: true,
-                        sku: { name: 'Tap Washer Fix', category: 'Plumbing', pricePence: 6500 },
-                        confidence: 60,
-                        method: 'gpt',
-                        rationale: 'Initial mention of a dripping tap.',
-                        nextRoute: 'VIDEO_QUOTE',
-                        suggestedScript: "I can help with a dripping tap. I'll need a quick video to see the type of tap."
-                    }
-                },
-                { type: 'segment', delay: 4000, text: "Wait, actually, I just looked and it's not a drip anymore, the whole pipe has burst!", speaker: 1 },
-                { type: 'segment', delay: 6000, text: "The water is starting to fill up the cupboard and I can't reach the valve!", speaker: 1 },
-                {
-                    type: 'analysis',
-                    delay: 8000,
-                    data: {
-                        matched: true,
-                        sku: { name: 'Emergency Leak Response', category: 'Emergency', pricePence: 12000 },
-                        confidence: 98,
-                        method: 'gpt',
-                        rationale: 'Customer escalated from "dripping" to "burst pipe". High risk detected.',
-                        nextRoute: 'SITE_VISIT',
-                        suggestedScript: "I'm upgrading this to an emergency site visit. I'll have someone there in 20 minutes."
-                    }
-                },
-                { type: 'segment', delay: 11000, text: "Please hurry, I'm at 15 Derby Road.", speaker: 1 },
-                { delay: 13000, type: 'metadata', data: { customerName: "Henderson", address: "15 Derby Road, Derby", urgency: "Critical", leadType: "Homeowner", phoneNumber: testNumber } },
-                { delay: 15000, type: 'end' }
-            ];
-        } else if (complexity === 'EMERGENCY') {
-            steps = [
-                { type: 'segment', delay: 1000, text: "HELP! I've got water pouring through the light fixture in the kitchen!", speaker: 1 },
-                { type: 'segment', delay: 3000, text: "I'm terrified to touch anything. Can you send someone immediately?", speaker: 1 },
-                {
-                    type: 'analysis',
-                    delay: 5000,
-                    data: {
-                        matched: true,
-                        sku: {
-                            id: 'emergency-01',
-                            skuCode: 'EMR-01',
-                            name: 'Emergency Investigation',
-                            category: 'Emergency',
-                            pricePence: 12000,
-                            description: 'Immediate dispatch for life/property threat.'
-                        },
-                        confidence: 96,
-                        method: 'realtime',
-                        rationale: 'Keywords: "Water through light", "Immediately", "Terrified".',
-                        nextRoute: 'SITE_VISIT',
-                        suggestedScript: "Stay away from the light fixture. I'm dispatching our emergency engineer to you right now. Do you know where the stopcock is?",
-                    }
-                },
-                { delay: 8000, type: 'metadata', data: { customerName: "URGENT", address: "10 Downing Street, London", urgency: "Critical", leadType: "Homeowner", phoneNumber: testNumber } },
-                { delay: 10000, type: 'end' }
-            ];
-        } else if (complexity === 'LANDLORD') {
-            steps = [
-                { type: 'segment', delay: 1000, text: "Hi, it's James Sterling here. I have four properties that need annual safety inspections and basic maintenance.", speaker: 1 },
-                { type: 'segment', delay: 4000, text: "We're looking for a reliable partner for our portfolio. Can you handle large volumes?", speaker: 1 },
-                {
-                    type: 'analysis',
-                    delay: 6000,
-                    data: {
-                        matched: true,
-                        sku: { name: 'Commercial Portfolio Review', category: 'Contract', pricePence: 0 },
-                        confidence: 90,
-                        method: 'gpt',
-                        rationale: 'High-value recurring lead. Property manager intent.',
-                        nextRoute: 'VIDEO_QUOTE',
-                        suggestedScript: "We specialize in property portfolios. I'll send you our commercial rate card via WhatsApp now.",
-                    }
-                },
-                { delay: 9000, type: 'metadata', data: { customerName: "Sterling properties", leadType: "Property Manager", urgency: "Standard", phoneNumber: testNumber } },
-                { delay: 11000, type: 'end' }
-            ];
         } else {
-            // SIMPLE default
             steps = [
-                { type: 'segment', delay: 1000, text: `Hi there, I'm calling because I have a bit of an issue with ${jobDesc}.`, speaker: 1 },
-                { type: 'segment', delay: 3500, text: `It's quite urgent, I was hoping you could get someone out to look at the ${jobDesc.split(' ').pop()} as soon as possible.`, speaker: 1 },
+                { type: 'metadata', delay: 1000, data: { customerName: testName } },
+                { type: 'segment', delay: 2000, text: "Hello, I have a problem with..." },
+                { type: 'segment', delay: 1500, text: `my ${jobDesc}` },
+                { type: 'transcription', delay: 500, text: `Hello, I have a problem with my ${jobDesc}` },
                 {
-                    type: 'analysis',
-                    delay: 5000,
-                    data: {
+                    type: 'analysis', delay: 1000, data: {
                         matched: true,
-                        sku: jobDesc.toLowerCase().includes('leak') ? {
-                            id: 'plumbing-emergency',
-                            skuCode: 'PLUMB-EMR',
-                            name: 'Emergency Plumbing Investigation',
-                            category: 'Plumbing',
-                            pricePence: 9500,
-                            description: 'Emergency investigation and first hour of labor for plumbing leaks.'
-                        } : {
-                            id: 'general-handyman',
-                            skuCode: 'HANDY-GEN',
-                            name: 'Handyman General Service',
-                            category: 'General',
-                            pricePence: 6500,
-                            description: 'General handyman services for various home repairs.'
-                        },
                         confidence: 85,
                         method: 'gpt',
-                        rationale: `Customer specifically mentioned: "${jobDesc}". AI identified this as a priority job.`,
-                        nextRoute: jobDesc.toLowerCase().includes('leak') ? 'SITE_VISIT' : 'VIDEO_QUOTE',
-                        suggestedScript: `I understand you're having trouble with ${jobDesc}. I can certainly help. For something like this, we usually recommend ${jobDesc.toLowerCase().includes('leak') ? 'an emergency site visit' : 'a quick video survey'} so we can give you a firm price.`,
-                        hasMultiple: false,
-                        totalMatchedPrice: jobDesc.toLowerCase().includes('leak') ? 9500 : 0,
-                        matchedServices: [],
-                        unmatchedTasks: []
+                        rationale: 'Customer described a clear maintenance issue.',
+                        nextRoute: 'INSTANT_PRICE',
+                        sku: { name: 'Standard Callout', pricePence: 8500 }
                     }
                 },
-                { delay: 8000, type: 'segment', speaker: 1, text: "Can you tell me how much that usually costs?" },
-                { delay: 10000, type: 'segment', speaker: 0, text: `For ${jobDesc}, it depends on the exact scope, but I'll send you a link to upload a video now.` },
-                { delay: 12000, type: 'metadata', data: { customerName: testName, address: "10 Downing Street, London", urgency: jobDesc.toLowerCase().includes('leak') ? "Critical" : "Standard", leadType: "Homeowner", phoneNumber: testNumber } },
-                { delay: 14000, type: 'end' }
+                { type: 'end', delay: 3000 }
             ];
         }
 
         let currentStep = 0;
-        const runNextStep = () => {
-            if (currentStep >= steps.length || !isSimulatingRef.current) return;
-            const step = steps[currentStep];
 
-            const waitTime = currentStep === 0 ? step.delay : (steps[currentStep].delay - steps[currentStep - 1].delay);
+        const runNextStep = () => {
+            if (!isSimulatingRef.current || currentStep >= steps.length) {
+                isSimulatingRef.current = false;
+                setIsSimulating(false);
+                return;
+            }
+
+            const step = steps[currentStep];
+            const waitTime = step.delay || 1000;
 
             setTimeout(() => {
                 if (!isSimulatingRef.current) return;
 
                 switch (step.type) {
+                    case 'metadata':
+                        setLiveCallData(prev => prev ? ({ ...prev, metadata: { ...prev.metadata, ...step.data } }) : prev);
+                        break;
                     case 'segment':
-                        console.log(`[Simulation] Step ${currentStep + 1}: Speaker ${step.speaker} says "${step.text}"`);
-                        setLiveCallData(prev => {
-                            if (!prev) return prev;
-                            const text = step.text as string;
-                            return {
-                                ...prev,
-                                transcription: prev.transcription + text + " ",
-                                segments: [...prev.segments, {
-                                    speaker: (step as any).speaker || 0,
-                                    text: text,
-                                    start: Date.now(),
-                                    end: Date.now()
-                                }]
-                            };
-                        });
+                        setLiveCallData(prev => prev ? ({
+                            ...prev,
+                            segments: [...prev.segments, {
+                                speaker: 0,
+                                text: step.text!,
+                                start: Date.now(),
+                                end: Date.now()
+                            }]
+                        }) : prev);
+                        break;
+                    case 'transcription':
+                        setInterimTranscript(step.text!);
+                        setLiveCallData(prev => prev ? ({ ...prev, transcription: step.text! }) : prev);
                         break;
                     case 'analysis':
-                        console.log(`[Simulation] Step ${currentStep + 1}: Triggering analysis result`);
-                        setLiveCallData(prev => prev ? { ...prev, detection: step.data as any } : null);
-                        break;
-                    case 'metadata':
-                        console.log(`[Simulation] Step ${currentStep + 1}: Updating call metadata`);
-                        setLiveCallData(prev => prev ? { ...prev, metadata: step.data as any } : null);
+                        setLiveCallData(prev => prev ? ({ ...prev, detection: step.data as any }) : prev);
                         break;
                     case 'end':
-                        console.log(`[Simulation] Step ${currentStep + 1}: Simulation finished`);
+                        setLiveCallData(null);
+                        setInterimTranscript("");
                         isSimulatingRef.current = false;
-                        setIsLive(false);
                         setIsSimulating(false);
                         break;
                 }
 
                 currentStep++;
-                if (currentStep < steps.length && isSimulatingRef.current) {
-                    runNextStep();
-                }
+                runNextStep();
             }, waitTime);
         };
 
@@ -453,7 +284,7 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                     const activeCall = await fetchActiveCall();
                     if (activeCall && activeCall.status === 'in-progress') {
                         console.log('[LiveCall] Rehydrating from active call:', activeCall.id);
-                        setIsLive(true);
+                        setInterimTranscript("");
                         setLiveCallData({
                             transcription: activeCall.transcription || "",
                             segments: activeCall.segments || [],
@@ -485,21 +316,18 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
             }
         };
 
-        ws.onerror = (error) => {
-            console.error('[LiveCall] WebSocket ERROR:', error);
-        };
-
         ws.onmessage = (event) => {
-            console.log('[LiveCall] Message received:', event.data.substring(0, 100));
-            if (isSimulating) {
-                console.log('[LiveCall] Ignoring - simulation active');
-                return; // Ignore real events during simulation
-            }
+            if (isSimulatingRef.current) return;
+
             try {
                 const msg = JSON.parse(event.data);
-                console.log('[LiveCall] Parsed message type:', msg.type);
+                const callSid = msg.data?.callSid;
+
+                // Handle both 'call_*' (legacy/simulation) and 'voice:*' (real backend) types if needed
+                // But primarily we expect 'voice:*' from the backend now.
+
                 if (msg.type === 'voice:call_started') {
-                    setIsLive(true);
+                    console.log('[LiveCall] Call started:', callSid);
                     setInterimTranscript("");
                     setLiveCallData({
                         transcription: "",
@@ -528,9 +356,9 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                             if (!prev) return prev;
                             return {
                                 ...prev,
-                                transcription: prev.transcription + transcript + " ",
+                                transcription: prev.transcription + " " + transcript,
                                 segments: [...prev.segments, {
-                                    speaker: 0,
+                                    speaker: 0, // Assume caller for now, or use msg.data.speaker if available
                                     text: transcript,
                                     start: Date.now(),
                                     end: Date.now()
@@ -543,7 +371,6 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                 } else if (msg.type === 'voice:analysis_update') {
                     setLiveCallData(prev => {
                         if (!prev) return prev;
-                        // Map metadata if present
                         const metadata = msg.data.metadata ? { ...prev.metadata, ...msg.data.metadata } : prev.metadata;
                         return { ...prev, detection: msg.data.analysis, metadata };
                     });
@@ -553,39 +380,26 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                 } else if (msg.type === 'voice:address_validated') {
                     console.log(`[LiveCall] Address validated: ${msg.data.validation.confidence}% confidence`);
                     setAddressValidation(msg.data.validation);
-                } else if (msg.type === 'voice:duplicate_detected') {
-                    console.log(`[LiveCall] Duplicate detected! Confidence: ${msg.data.confidence}%`);
-                    setDuplicateWarning({
-                        existingLeadId: msg.data.existingLeadId,
-                        confidence: msg.data.confidence,
-                        matchReason: msg.data.matchReason
-                    });
+                } else if (msg.type === 'voice:duplicate_check') {
+                    console.log(`[LiveCall] Duplicate check warning: ${msg.data.warning}`);
+                    setDuplicateWarning(msg.data.warning);
+                } else if (msg.type === 'voice:audio_quality') {
+                    setAudioQuality(msg.data.status); // GOOD, POOR, DROPOUT
+                    if (msg.data.status === 'POOR') {
+                        toast({ title: "Network Unstable", description: "Audio quality is degrading due to network conditions.", variant: "destructive" });
+                    }
                 } else if (msg.type === 'voice:call_ended') {
-                    setIsLive(false);
-                    setInterimTranscript("");
-                    setLiveCallData(prev => {
-                        if (!prev) return prev;
-                        return {
-                            ...prev,
-                            transcription: msg.data.finalTranscript,
-                            detection: msg.data.analysis,
-                            metadata: {
-                                ...prev.metadata,
-                                customerName: "Recent Voice Lead"
-                            }
-                        };
-                    });
-                    queryClient.invalidateQueries({ queryKey: ['calls'] }); // Refresh list
-                } else if (msg.type === 'call:created' || msg.type === 'call:updated' || msg.type === 'call:skus_detected') {
-                    // Refresh calls list and specific call details
+                    console.log('[LiveCall] Call ended:', callSid);
+                    // Clear after a delay to show summary
+                    setTimeout(() => {
+                        setLiveCallData(null);
+                        setInterimTranscript("");
+                    }, 5000);
                     queryClient.invalidateQueries({ queryKey: ['calls'] });
-                    if (msg.data.id || msg.data.callId) {
-                        // Some events use id, others use callId (record ID vs Twilio CallSid might be mixed, but standardizing on record ID 'id' is best)
-                        // B6 implementation returns 'id' for call record.
-                        const recordId = msg.data.id;
-                        if (recordId) {
-                            queryClient.invalidateQueries({ queryKey: ['call', recordId] });
-                        }
+                } else if (msg.type === 'call:created' || msg.type === 'call:updated' || msg.type === 'call:skus_detected') {
+                    queryClient.invalidateQueries({ queryKey: ['calls'] });
+                    if (msg.data.id) {
+                        queryClient.invalidateQueries({ queryKey: ['call', msg.data.id] });
                     }
                 }
             } catch (e) {
@@ -594,14 +408,20 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
         };
 
         return () => ws.close();
-    }, [isSimulating]);
+    }, []);
 
     return (
         <LiveCallContext.Provider value={{
-            isLive, liveCallData, interimTranscript, isSimulating, startSimulation, clearCall, updateMetadata,
-            detectedPostcode, setDetectedPostcode,
-            duplicateWarning, setDuplicateWarning,
-            addressValidation, setAddressValidation,
+            isLive,
+            liveCallData,
+            interimTranscript,
+            isSimulating,
+            startSimulation,
+            clearCall,
+            updateMetadata,
+            detectedPostcode,
+            duplicateWarning,
+            addressValidation,
             audioQuality
         }}>
             {children}

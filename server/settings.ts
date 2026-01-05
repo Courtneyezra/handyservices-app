@@ -68,6 +68,7 @@ const DEFAULT_SETTINGS = {
     'twilio.agent_context_default': { value: 'A team member will be with you shortly. I can help answer questions about our services while you wait.', description: 'Context injected for in-hours calls' },
     'twilio.agent_context_out_of_hours': { value: 'We are currently closed. Our hours are 8am-6pm Monday to Friday. Please leave a message and we will call you back first thing.', description: 'Context injected for out-of-hours calls' },
     'twilio.agent_context_missed': { value: "Sorry for the wait! Our team couldn't get to the phone. I'm here to help though - what can I do for you?", description: 'Context injected when VA missed the call' },
+    'twilio.eleven_labs_busy_agent_id': { value: '', description: 'Eleven Labs Agent ID for busy state' },
     'twilio.business_hours_start': { value: '08:00', description: 'Business hours start time (HH:MM)' },
     'twilio.business_hours_end': { value: '18:00', description: 'Business hours end time (HH:MM)' },
     'twilio.business_days': { value: '1,2,3,4,5', description: 'Business days (1=Mon, 7=Sun)' },
@@ -495,6 +496,7 @@ export async function getTwilioSettings() {
         welcomeAudioUrl: (settingsMap.get('twilio.welcome_audio_url') ?? DEFAULT_SETTINGS['twilio.welcome_audio_url'].value) as string,
         fallbackAgentUrl: (settingsMap.get('twilio.fallback_agent_url') ?? DEFAULT_SETTINGS['twilio.fallback_agent_url'].value) as string,
         elevenLabsAgentId: (settingsMap.get('twilio.eleven_labs_agent_id') ?? DEFAULT_SETTINGS['twilio.eleven_labs_agent_id'].value) as string,
+        elevenLabsBusyAgentId: (settingsMap.get('twilio.eleven_labs_busy_agent_id') ?? DEFAULT_SETTINGS['twilio.eleven_labs_busy_agent_id'].value) as string,
         elevenLabsApiKey: (settingsMap.get('twilio.eleven_labs_api_key') ?? DEFAULT_SETTINGS['twilio.eleven_labs_api_key'].value) as string,
 
         // Agent Modes

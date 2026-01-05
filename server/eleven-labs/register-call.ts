@@ -52,5 +52,11 @@ export async function registerElevenLabsCall(params: RegisterCallParams): Promis
     const twiml = await response.text();
     console.log(`[ElevenLabs-RegisterCall] Successfully registered, TwiML preview:`, twiml.substring(0, 200));
 
-    return twiml;
+    // INJECT REDIRECT FOR CLEANUP
+    // Eleven Labs returns a simple <Response><Connect>...</Connect></Response>
+    // We append a Redirect to our call-ended endpoint so we know when the AI finishes
+    const cleanupRedirect = `<Redirect>/api/twilio/call-ended</Redirect>`;
+    const modifiedTwiml = twiml.replace('</Response>', `  ${cleanupRedirect}\n</Response>`);
+
+    return modifiedTwiml;
 }

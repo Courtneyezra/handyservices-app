@@ -139,7 +139,9 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                         <Mic className="w-5 h-5" />
                                     </div>
                                     <div>
-                                        <p className="font-bold text-sm">Active Voice Call in Progress</p>
+                                        <p className="font-bold text-sm">
+                                            Active Voice Call in Progress
+                                        </p>
                                         <p className="text-xs text-white/80">Transcription and analysis happening live...</p>
                                     </div>
                                 </div>

@@ -47,6 +47,7 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             baseJobPrice: input.baseJobPrice,
             clientType: input.clientType,
             jobComplexity: input.jobComplexity,
+            forcedQuoteStyle: input.quoteMode === 'hhh' ? 'hhh' : undefined,
         });
 
         // Generate tier deliverables

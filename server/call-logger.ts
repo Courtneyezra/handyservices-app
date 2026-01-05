@@ -47,7 +47,14 @@ export interface UpdateCallData {
     liveAnalysisJson?: any;  // Real-time analysis state for reconnecting clients
     metadataJson?: any;      // Real-time metadata (customer name, address, etc.)
     localRecordingPath?: string;
+    localRecordingPath?: string;
     status?: string;
+
+    // Action Center Updates
+    actionStatus?: string;
+    actionUrgency?: number;
+    missedReason?: string;
+    tags?: string[];
 }
 
 /**

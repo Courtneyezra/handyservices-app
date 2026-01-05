@@ -15,6 +15,7 @@ export default function AudioUploadPage() {
     const {
         isLive, liveCallData, interimTranscript, startSimulation, clearCall, audioQuality
     } = useLiveCall();
+
     const { toast } = useToast();
     const [, setLocation] = useLocation();
     const [simPrompt, setSimPrompt] = useState("");
@@ -74,17 +75,18 @@ export default function AudioUploadPage() {
     return (
         <div className="flex-1 flex flex-col min-h-screen lg:h-screen overflow-y-auto lg:overflow-hidden pb-20 lg:pb-0">
 
-            <header className="flex h-16 items-center px-4 sticky top-0 bg-background/80 backdrop-blur-lg z-20 border-b border-white/5">
+            <header className="flex h-16 items-center px-4 sticky top-0 bg-background/80 backdrop-blur-lg z-20 border-b border-white/5 space-x-4">
                 <div className="flex items-center space-x-2 mr-auto">
                     <div className={cn("w-2.5 h-2.5 rounded-full", isLive ? "bg-green-500 animate-pulse shadow-[0_0_10px_rgba(34,197,94,0.5)]" : "bg-white/20")} />
-                    <span className="text-[10px] uppercase font-black text-white/40 tracking-widest">
-                        {isLive ? 'Active Call Session' : 'Standby Mode'}
+                    <span className="text-[10px] uppercase font-black text-white/40 tracking-widest hidden sm:block">
+                        {isLive ? 'Active Call Sessions' : 'Standby Mode'}
                     </span>
                 </div>
 
+
                 {isLive && (
                     <Button variant="ghost" size="sm" onClick={clearCall} className="bg-red-500/10 text-red-500 rounded-xl hover:bg-red-500/20">
-                        End Session
+                        End All
                     </Button>
                 )}
             </header>

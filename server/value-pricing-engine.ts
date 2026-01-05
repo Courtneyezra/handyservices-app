@@ -245,6 +245,11 @@ export interface PricingResult {
 // ============================================================================
 
 export function determineQuoteStyle(inputs: ValuePricingInputs): 'hhh' | 'direct' | 'rate_card' {
+  // 0. Forced Override (e.g. user requested specific mode)
+  if (inputs.forcedQuoteStyle) {
+    return inputs.forcedQuoteStyle;
+  }
+
   // 1. Property Manager -> Rate Card
   // Note: 'commercial' in schema maps to Property Manager context here
   if (inputs.clientType === 'commercial') {

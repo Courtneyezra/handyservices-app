@@ -119,11 +119,17 @@ export class MediaStreamTranscriber {
             language: "en-GB", // Default to UK English since localized
             smart_format: true,
             interim_results: true,
-            utterance_end_ms: parseInt(process.env.DEEPGRAM_UTTERANCE_MS || "1000"),
+            utterance_end_ms: parseInt(process.env.DEEPGRAM_UTTERANCE_MS || "700"),
             vad_events: true,
             encoding: "mulaw",
             sample_rate: 8000,
             diarize: true, // B3: Speaker separation
+            keywords: [
+                "plumbing", "electrician", "handyman",
+                "socket", "tap", "leak", "boiler",
+                "sink", "switch", "fuse", "quote",
+                "price", "call out", "emergency"
+            ],
         });
 
         this.dgLive.on(LiveTranscriptionEvents.Open, () => {

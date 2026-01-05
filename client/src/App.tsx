@@ -28,6 +28,7 @@ import SettingsPage from "./pages/SettingsPage";
 const VideoQuote = lazy(() => import("@/pages/VideoQuote"));
 const VideoReview = lazy(() => import("@/pages/VideoReview"));
 const PersonalizedQuotePage = lazy(() => import("@/pages/PersonalizedQuotePage"));
+const SeasonalMenu = lazy(() => import("@/pages/SeasonalMenu"));
 
 // Contractor Portal - Lazy loaded (separate user flow)
 const ContractorLogin = lazy(() => import("./pages/ContractorLogin"));
@@ -60,6 +61,7 @@ function Router() {
                 {/* Landing Pages */}
                 <Route path="/landing" component={HandymanLanding} />
                 <Route path="/derby" component={DerbyLanding} />
+                <Route path="/seasonal-guide" component={SeasonalMenu} />
 
                 {/* Customer-facing quote views */}
                 <Route path="/quote-link/:slug">

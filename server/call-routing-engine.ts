@@ -8,8 +8,8 @@
 // Types
 export type AgentMode = 'auto' | 'force-in-hours' | 'force-out-of-hours' | 'voicemail-only';
 export type FallbackAction = 'eleven-labs' | 'voicemail' | 'whatsapp' | 'none';
-export type ElevenLabsContext = 'in-hours' | 'out-of-hours' | 'missed-call' | null;
-export type Destination = 'va-forward' | 'eleven-labs' | 'voicemail' | 'hangup';
+export type ElevenLabsContext = 'in-hours' | 'out-of-hours' | 'missed-call' | 'busy' | null;
+export type Destination = 'va-forward' | 'eleven-labs' | 'busy-agent' | 'voicemail' | 'hangup';
 
 export interface CallRoutingSettings {
     agentMode: AgentMode;
@@ -19,8 +19,9 @@ export interface CallRoutingSettings {
     businessHoursStart: string; // "HH:MM" format
     businessHoursEnd: string;   // "HH:MM" format
     businessDays: string;       // "1,2,3,4,5" (1=Mon, 7=Sun)
-    elevenLabsAgentId: string;
-    elevenLabsApiKey: string;
+    elevenLabsAgentId?: string;
+    elevenLabsBusyAgentId?: string;
+    elevenLabsApiKey?: string;
 }
 
 export interface CallRoutingDecision {
@@ -119,9 +120,28 @@ export function getEffectiveMode(
 export function determineCallRouting(
     settings: CallRoutingSettings,
     isVAMissedCall: boolean = false,
+    activeCallCount: number = 0,
     overrideDate?: Date
 ): CallRoutingDecision {
     const effectiveMode = getEffectiveMode(settings, overrideDate);
+
+    // Check for "Busy" scenario first if we are in-hours and trying to forward
+    // Only if there's at least one active call
+    const isBusy = effectiveMode === 'in-hours' && !isVAMissedCall && activeCallCount > 0;
+
+    if (isBusy) {
+        if (settings.elevenLabsBusyAgentId && settings.elevenLabsApiKey) {
+            return {
+                playWelcomeAudio: true,
+                attemptVAForward: false,
+                sendVASms: false,
+                destination: 'busy-agent',
+                elevenLabsContext: 'busy',
+                effectiveMode: 'in-hours',
+                reason: `Primary line busy (${activeCallCount} active), routing to dedicated busy agent`
+            };
+        }
+    }
 
     // Voicemail-only mode: bypass everything
     if (effectiveMode === 'voicemail-only') {
@@ -160,6 +180,20 @@ export function determineCallRouting(
 
     // If this is a missed call scenario (VA didn't answer)
     if (isVAMissedCall) {
+        // [MODIFIED] Prioritize Busy Agent for missed calls per user request
+        // "if call is missed by a VA it should point to Busy Agent just like if a VA is on a call"
+        if (settings.elevenLabsBusyAgentId && settings.elevenLabsApiKey) {
+            return {
+                playWelcomeAudio: false,
+                attemptVAForward: false,
+                sendVASms: false,
+                destination: 'busy-agent',
+                elevenLabsContext: 'busy',
+                effectiveMode: 'in-hours',
+                reason: 'VA missed call: routing to Busy Agent'
+            };
+        }
+
         // Determine fallback destination
         if (settings.fallbackAction === 'eleven-labs' && hasElevenLabs) {
             return {
@@ -258,11 +292,81 @@ export function getElevenLabsContextMessage(
             return '';
     }
 }
+/**
+ * Format an array of business days into a comma-separated string
+ */
+export function formatBusinessDays(days: number[]): string {
+    return [...days].sort((a, b) => a - b).join(',');
+}
+
+/**
+ * Parse a business days string into an array of numbers
+ */
+export function parseBusinessDays(daysStr: string): number[] {
+    if (!daysStr) return [];
+    return daysStr
+        .split(',')
+        .map(d => parseInt(d.trim()))
+        .filter(d => !isNaN(d) && d >= 1 && d <= 7);
+}
+
+/**
+ * Get readable day names for an array of day numbers
+ */
+export function getDayNames(days: number[]): string {
+    const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    return [...days]
+        .sort((a, b) => a - b)
+        .map(d => dayNames[d - 1])
+        .join(', ');
+}
+
+/**
+ * Validate business hours configuration
+ */
+export function validateBusinessHours(
+    start: string,
+    end: string,
+    days: number[]
+): { isValid: boolean; error?: string } {
+    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+    if (!timeRegex.test(start)) {
+        return { isValid: false, error: 'Start time must be in HH:MM format' };
+    }
+    if (!timeRegex.test(end)) {
+        return { isValid: false, error: 'End time must be in HH:MM format' };
+    }
+
+    const [startH, startM] = start.split(':').map(Number);
+    const [endH, endM] = end.split(':').map(Number);
+    const startTotal = startH * 60 + startM;
+    const endTotal = endH * 60 + endM;
+
+    if (startTotal >= endTotal) {
+        return { isValid: false, error: 'Start time must be before end time' };
+    }
+
+    if (!days || days.length === 0) {
+        return { isValid: false, error: 'At least one business day must be selected' };
+    }
+
+    const invalidDays = days.filter(d => d < 1 || d > 7);
+    if (invalidDays.length > 0) {
+        return { isValid: false, error: `Invalid day numbers: ${invalidDays.join(',')}` };
+    }
+
+    return { isValid: true };
+}
 
 // Export for testing
 export const _testing = {
     isWithinUKBusinessHours,
     getEffectiveMode,
     determineCallRouting,
-    getElevenLabsContextMessage
+    getElevenLabsContextMessage,
+    formatBusinessDays,
+    parseBusinessDays,
+    getDayNames,
+    validateBusinessHours
 };

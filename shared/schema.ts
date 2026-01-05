@@ -171,6 +171,12 @@ export const calls = pgTable("calls", {
     liveAnalysisJson: jsonb("live_analysis_json"), // Real-time analysis state
     metadataJson: jsonb("metadata_json"),          // Real-time metadata (customer name, address, etc.)
 
+    // Action Center Fields
+    actionStatus: varchar("action_status").default('pending'), // 'pending', 'attempting', 'resolved', 'dismissed'
+    actionUrgency: integer("action_urgency").default(3), // 1=Critical, 2=High, 3=Normal, 4=Low
+    missedReason: varchar("missed_reason"), // 'out_of_hours', 'busy_agent', 'no_answer', 'user_hangup'
+    tags: text("tags").array(), // ['ai_incomplete', 'no_lead_info']
+
     createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
     index("idx_calls_phone_number").on(table.phoneNumber),
@@ -348,9 +354,12 @@ export const updateCallSchema = z.object({
     address: z.string().optional(),
     postcode: z.string().optional(),
     notes: z.string().optional(),
-    urgency: z.enum(['Critical', 'High', 'Standard', 'Low']).optional(),
     leadType: z.enum(['Homeowner', 'Landlord', 'Property Manager', 'Tenant', 'Unknown']).optional(),
-    outcome: z.enum(['INSTANT_PRICE', 'VIDEO_QUOTE', 'SITE_VISIT', 'NO_ANSWER', 'VOICEMAIL', 'Unknown']).optional(),
+    outcome: z.enum(['INSTANT_PRICE', 'VIDEO_QUOTE', 'SITE_VISIT', 'NO_ANSWER', 'VOICEMAIL', 'ELEVEN_LABS', 'MISSED_OPPORTUNITY', 'CALLBACK_URGENT', 'LEAD_CAPTURED', 'Unknown']).optional(),
+    actionStatus: z.enum(['pending', 'attempting', 'resolved', 'dismissed']).optional(),
+    actionUrgency: z.number().int().min(1).max(5).optional(),
+    missedReason: z.string().optional(),
+    tags: z.array(z.string()).optional(),
 });
 
 export const insertHandymanProfileSchema = createInsertSchema(handymanProfiles);
@@ -542,6 +551,7 @@ export interface ValuePricingInputs {
     baseJobPrice: number; // in pence
     clientType: ClientType; // New: Who is asking?
     jobComplexity: JobComplexityType; // New: How hard is it?
+    forcedQuoteStyle?: 'hhh' | 'direct' | 'rate_card'; // Override auto-detection
 }
 
 export interface HHHStructuredInputs {
