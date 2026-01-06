@@ -143,10 +143,10 @@ export default function ContractorCalendar() {
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6">
+        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-4 sm:p-6 pb-24 lg:pb-6">
             <main className="max-w-5xl mx-auto">
                 {/* Header */}
-                <div className="flex items-center justify-between mb-8">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8">
                     <div className="flex items-center gap-4">
                         <button
                             onClick={() => setLocation('/contractor')}
@@ -155,16 +155,16 @@ export default function ContractorCalendar() {
                             <ArrowLeft className="w-5 h-5 text-slate-400" />
                         </button>
                         <div>
-                            <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-                                <CalendarIcon className="w-8 h-8 text-amber-500" />
-                                Availability Calendar
+                            <h1 className="text-2xl sm:text-3xl font-bold text-white flex items-center gap-3">
+                                <CalendarIcon className="w-6 h-6 sm:w-8 sm:h-8 text-amber-500" />
+                                Availability
                             </h1>
-                            <p className="text-slate-400 mt-1">Manage your work schedule</p>
+                            <p className="text-slate-400 text-sm mt-1">Manage your work schedule</p>
                         </div>
                     </div>
                     <button
                         onClick={() => setLocation('/contractor')}
-                        className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 rounded-xl text-sm transition-all flex items-center gap-2"
+                        className="hidden sm:flex px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 rounded-xl text-sm transition-all items-center gap-2"
                     >
                         <LogOut className="w-4 h-4" />
                         Back to Dashboard
@@ -172,11 +172,11 @@ export default function ContractorCalendar() {
                 </div>
 
                 {/* Controls */}
-                <div className="flex items-center gap-4 mb-6 flex-wrap">
-                    <div className="flex items-center gap-2 bg-white/5 rounded-xl p-1">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 mb-6">
+                    <div className="flex items-center gap-2 bg-white/5 rounded-xl p-1 self-start sm:self-auto">
                         <button
                             onClick={() => setSelectionMode('available')}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectionMode === 'available'
+                            className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectionMode === 'available'
                                 ? 'bg-emerald-500 text-white'
                                 : 'text-slate-400 hover:text-white'
                                 }`}
@@ -186,7 +186,7 @@ export default function ContractorCalendar() {
                         </button>
                         <button
                             onClick={() => setSelectionMode('blocked')}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectionMode === 'blocked'
+                            className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectionMode === 'blocked'
                                 ? 'bg-red-500 text-white'
                                 : 'text-slate-400 hover:text-white'
                                 }`}
@@ -196,28 +196,30 @@ export default function ContractorCalendar() {
                         </button>
                     </div>
 
-                    <button
-                        onClick={() => setShowWeeklyModal(true)}
-                        className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 rounded-xl text-sm transition-all"
-                    >
-                        <Clock className="w-4 h-4 inline-block mr-1" />
-                        Weekly Pattern
-                    </button>
-
-                    {selectedDates.size > 0 && (
+                    <div className="flex gap-2">
                         <button
-                            onClick={handleSave}
-                            disabled={saveDatesMutation.isPending}
-                            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white rounded-xl text-sm font-medium flex items-center gap-2 transition-all ml-auto"
+                            onClick={() => setShowWeeklyModal(true)}
+                            className="flex-1 sm:flex-none px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 rounded-xl text-sm transition-all whitespace-nowrap"
                         >
-                            {saveDatesMutation.isPending ? (
-                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            ) : (
-                                <Save className="w-4 h-4" />
-                            )}
-                            Save {selectedDates.size} date{selectedDates.size > 1 ? 's' : ''}
+                            <Clock className="w-4 h-4 inline-block mr-1" />
+                            Weekly Pattern
                         </button>
-                    )}
+
+                        {selectedDates.size > 0 && (
+                            <button
+                                onClick={handleSave}
+                                disabled={saveDatesMutation.isPending}
+                                className="flex-1 sm:flex-none px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all ml-auto"
+                            >
+                                {saveDatesMutation.isPending ? (
+                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                ) : (
+                                    <Save className="w-4 h-4" />
+                                )}
+                                Save {selectedDates.size}
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Calendar Card */}

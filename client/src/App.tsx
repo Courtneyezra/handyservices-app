@@ -16,7 +16,8 @@ import AudioUploadPage from "@/pages/AudioUploadPage";
 import SKUPage from "@/pages/SKUPage";
 import WhatsAppInbox from "@/pages/WhatsAppInbox";
 import HandymanMap from "@/pages/HandymanMap";
-import HandymanDashboard from "@/pages/HandymanDashboard";
+import HandymanDashboard from "@/pages/HandymanDashboard"; // Legacy
+import ContractorFleetDashboard from "@/pages/ContractorFleetDashboard";
 import GenerateQuoteLink from "@/pages/GenerateQuoteLink";
 import MainDashboard from "@/pages/MainDashboard";
 import CallsPage from "@/pages/CallsPage";
@@ -41,8 +42,14 @@ const ContractorServiceArea = lazy(() => import("./pages/ContractorServiceArea")
 // Contractor Dashboard (Phase 3)
 const ContractorDashboardHome = lazy(() => import("./pages/contractor/dashboard/ContractorDashboardHome"));
 const BookingRequestsPage = lazy(() => import("./pages/contractor/dashboard/BookingRequestsPage"));
-const PrivateQuoteBuilder = lazy(() => import("./pages/contractor/dashboard/PrivateQuoteBuilder"));
+const NewQuotePage = lazy(() => import("./pages/contractor/dashboard/quotes/NewQuotePage"));
+const QuotesListPage = lazy(() => import("./pages/contractor/dashboard/quotes/QuotesListPage"));
+const JobsPage = lazy(() => import("./pages/contractor/dashboard/JobsPage"));
+const QuoteDetailsPage = lazy(() => import("./pages/contractor/dashboard/quotes/QuoteDetailsPage"));
 const ContractorOnboarding = lazy(() => import('./pages/ContractorOnboarding'));
+const ContractorSettingsPage = lazy(() => import('./pages/contractor/dashboard/ContractorSettingsPage'));
+
+
 
 // Public Contractor Profiles
 const ContractorPublicProfile = lazy(() => import("@/pages/public/ContractorPublicProfile"));
@@ -61,6 +68,46 @@ function LoadingFallback() {
 
 function Router() {
     const [location] = useLocation();
+    // Domain Routing Logic
+    // If we are on a subdomain (e.g. richard.handy.contractors), we hijack the routing
+    // and ONLY show the public profile for that slug.
+
+    const host = window.location.host;
+    const parts = host.split('.');
+    let contractorSlug: string | null = null;
+
+    // Check for dev (richard.localhost:5173) or prod (richard.handy.contractors)
+    if (parts.length > 1) {
+        const subdomain = parts[0];
+        const reserved = ['www', 'api', 'app', 'admin', 'switchboard', 'localhost']; // localhost is reserved if it's just "localhost:5173"
+
+        // If parts[1] is localhost, then parts[0] is the subdomain
+        // If host is "localhost:5173", parts=['localhost:5173'], length=1 (split by dot might imply port separation? No, host includes port but split('.') splits IP usually)
+        // Actually host "richard.localhost:5173" -> split('.') -> ["richard", "localhost:5173"]
+
+        if (!reserved.includes(subdomain) && !host.startsWith('localhost') && !host.startsWith('127.0.0.1')) {
+            contractorSlug = subdomain;
+        } else if (host.includes('localhost') && parts.length > 1 && parts[0] !== 'localhost') {
+            // Local dev case: richard.localhost
+            contractorSlug = parts[0];
+        }
+    }
+
+    // DEBUG OVERRIDE for testing without modifying /etc/hosts each time
+    // if (location.startsWith('/_test_domain/')) {
+    //    contractorSlug = location.split('/')[2];
+    // }
+
+    if (contractorSlug) {
+        console.log(`[App] Detected Contractor Domain: ${contractorSlug}`);
+        return (
+            <Suspense fallback={<LoadingFallback />}>
+                {/* We verify the slug exists by just rendering the component, which handles 404s internally */}
+                <ContractorPublicProfile forcedSlug={contractorSlug} />
+            </Suspense>
+        );
+    }
+
     console.log("Current routed path:", location);
 
     return (
@@ -104,7 +151,10 @@ function Router() {
                     <ContractorRegister />
                 </Route>
                 <Route path="/contractor">
-                    <ContractorPortal />
+                    {() => {
+                        window.location.href = '/contractor/dashboard';
+                        return null;
+                    }}
                 </Route>
                 <Route path="/contractor/dashboard">
                     <ContractorDashboardHome />
@@ -119,7 +169,16 @@ function Router() {
                     <ContractorOnboarding />
                 </Route>
                 <Route path="/contractor/dashboard/quotes/new">
-                    <PrivateQuoteBuilder />
+                    <NewQuotePage />
+                </Route>
+                <Route path="/contractor/dashboard/quotes">
+                    <QuotesListPage />
+                </Route>
+                <Route path="/contractor/dashboard/quotes/:id">
+                    <QuoteDetailsPage />
+                </Route>
+                <Route path="/contractor/dashboard/jobs">
+                    <JobsPage />
                 </Route>
                 <Route path="/contractor/calendar">
                     <ContractorCalendar />
@@ -129,6 +188,9 @@ function Router() {
                 </Route>
                 <Route path="/contractor/service-area">
                     <ContractorServiceArea />
+                </Route>
+                <Route path="/contractor/dashboard/settings">
+                    <ContractorSettingsPage />
                 </Route>
 
                 {/* ============ ADMIN ROUTES (Protected by Cloudflare Access) ============ */}
@@ -164,7 +226,7 @@ function Router() {
                 </Route>
                 <Route path="/admin/handyman/dashboard">
                     <SidebarLayout>
-                        <HandymanDashboard />
+                        <ContractorFleetDashboard />
                     </SidebarLayout>
                 </Route>
                 <Route path="/admin/calls">

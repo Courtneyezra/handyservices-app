@@ -1,7 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { db } from './db';
-import { users, handymanProfiles } from '../shared/schema';
-import { eq, and } from 'drizzle-orm';
+import { users, handymanProfiles, contractorSessions, productizedServices, handymanSkills } from '../shared/schema';
+import { eq, and, or } from 'drizzle-orm';
+
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
@@ -24,7 +25,8 @@ const loginSchema = z.object({
 });
 
 // Simple session store (in production, use Redis or database sessions)
-const contractorSessions: Map<string, { userId: string; expiresAt: Date }> = new Map();
+// const contractorSessions: Map<string, { userId: string; expiresAt: Date }> = new Map();
+
 
 // Generate session token
 function generateSessionToken(): string {
@@ -41,11 +43,16 @@ export async function requireContractorAuth(req: Request, res: Response, next: N
         return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const session = contractorSessions.get(sessionToken);
+    const sessionResult = await db.select().from(contractorSessions).where(eq(contractorSessions.sessionToken, sessionToken)).limit(1);
+    const session = sessionResult[0];
+
     if (!session || session.expiresAt < new Date()) {
-        contractorSessions.delete(sessionToken);
+        if (session) {
+            await db.delete(contractorSessions).where(eq(contractorSessions.sessionToken, sessionToken));
+        }
         return res.status(401).json({ error: 'Session expired' });
     }
+
 
     // Attach user to request
     const user = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
@@ -57,6 +64,61 @@ export async function requireContractorAuth(req: Request, res: Response, next: N
     (req as any).sessionToken = sessionToken;
     next();
 }
+
+// Update Contractor Skills & Rates
+router.put('/skills', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const contractor = (req as any).contractor;
+        const { services } = req.body; // Array of { trade: string, hourlyRatePence: number }
+
+        if (!Array.isArray(services)) {
+            return res.status(400).json({ error: "Invalid format" });
+        }
+
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id)
+        });
+
+        if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+        // Transaction to update skills
+        await db.transaction(async (tx) => {
+            // Remove existing skills
+            await tx.delete(handymanSkills).where(eq(handymanSkills.handymanId, profile.id));
+
+            // Re-add selected skills with new rates
+            for (const s of services) {
+                // Find service ID by SKU/Category
+                // Note: In a real app we might want a stricter lookup, but for now we search by name/sku
+                // We assume 'trade' maps to a serviceSku or category. 
+                // Let's search by 'category' or 'skuCode' matching the trade ID (e.g. 'plumbing')
+
+                const service = await tx.select().from(productizedServices)
+                    .where(
+                        or(
+                            eq(productizedServices.skuCode, s.trade.toUpperCase()), // Try SKU
+                            eq(productizedServices.category, s.trade.toLowerCase()) // Try Category
+                        )
+                    )
+                    .limit(1);
+
+                if (service.length > 0) {
+                    await tx.insert(handymanSkills).values({
+                        id: uuidv4(),
+                        handymanId: profile.id,
+                        serviceId: service[0].id,
+                        hourlyRate: Math.round(s.hourlyRatePence / 100)
+                    });
+                }
+            }
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error updating skills:', error);
+        res.status(500).json({ error: "Failed to update skills" });
+    }
+});
 
 // POST /api/contractor/register - Create new contractor account
 router.post('/register', async (req: Request, res: Response) => {
@@ -78,55 +140,70 @@ router.post('/register', async (req: Request, res: Response) => {
             return res.status(409).json({ error: 'Email already registered' });
         }
 
-        // Hash password
-        const saltRounds = 12;
-        const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-        // Create user
-        const userId = uuidv4();
-        await db.insert(users).values({
-            id: userId,
-            email: email.toLowerCase(),
-            firstName,
-            lastName,
-            phone,
-            password: hashedPassword,
-            role: 'contractor',
-            isActive: true,
-            emailVerified: false,
+        // Transaction to ensure atomic registration
+        const result = await db.transaction(async (tx) => {
+            // Hash password
+            const saltRounds = 12;
+            const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+            // Create user
+            const userId = uuidv4();
+            await tx.insert(users).values({
+                id: userId,
+                email: email.toLowerCase(),
+                firstName,
+                lastName,
+                phone,
+                password: hashedPassword,
+                role: 'contractor',
+                isActive: true,
+                emailVerified: false,
+            });
+
+            // Create handyman profile (linked to user)
+            const profileId = uuidv4();
+            await tx.insert(handymanProfiles).values({
+                id: profileId,
+                userId,
+                postcode,
+                radiusMiles: 10, // Default radius
+            });
+
+            // Create session
+            const sessionToken = generateSessionToken();
+            const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+            await tx.insert(contractorSessions).values({
+                sessionToken,
+                userId,
+                expiresAt
+            });
+
+            // Update last login
+            await tx.update(users)
+                .set({ lastLogin: new Date() })
+                .where(eq(users.id, userId));
+
+            return {
+                userId,
+                sessionToken,
+                profileId
+            };
         });
-
-        // Create handyman profile (linked to user)
-        const profileId = uuidv4();
-        await db.insert(handymanProfiles).values({
-            id: profileId,
-            userId,
-            postcode,
-            radiusMiles: 10, // Default radius
-        });
-
-        // Create session
-        const sessionToken = generateSessionToken();
-        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-        contractorSessions.set(sessionToken, { userId, expiresAt });
-
-        // Update last login
-        await db.update(users)
-            .set({ lastLogin: new Date() })
-            .where(eq(users.id, userId));
 
         res.status(201).json({
             success: true,
-            token: sessionToken,
+            token: result.sessionToken,
             user: {
-                id: userId,
+                id: result.userId,
                 email: email.toLowerCase(),
                 firstName,
                 lastName,
                 role: 'contractor',
             },
-            profileId,
+            profileId: result.profileId,
         });
+
     } catch (error) {
         console.error('[ContractorAuth] Registration error:', error);
         res.status(500).json({ error: 'Failed to register' });
@@ -184,7 +261,12 @@ router.post('/login', async (req: Request, res: Response) => {
         // Create session
         const sessionToken = generateSessionToken();
         const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-        contractorSessions.set(sessionToken, { userId: user.id, expiresAt });
+        await db.insert(contractorSessions).values({
+            sessionToken,
+            userId: user.id,
+            expiresAt
+        });
+
 
         // Update last login
         await db.update(users)
@@ -215,8 +297,9 @@ router.post('/logout', async (req: Request, res: Response) => {
     const sessionToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
     if (sessionToken) {
-        contractorSessions.delete(sessionToken);
+        await db.delete(contractorSessions).where(eq(contractorSessions.sessionToken, sessionToken));
     }
+
 
     res.json({ success: true });
 });
@@ -261,7 +344,8 @@ router.get('/me', requireContractorAuth, async (req: Request, res: Response) => 
 router.put('/profile', requireContractorAuth, async (req: Request, res: Response) => {
     try {
         const contractor = (req as any).contractor;
-        const { firstName, lastName, phone, bio, address, city, postcode, radiusMiles, slug, publicProfileEnabled, heroImageUrl, socialLinks } = req.body;
+        const { firstName, lastName, phone, bio, address, city, postcode, radiusMiles, hourlyRate, slug, publicProfileEnabled, heroImageUrl, socialLinks, skills,
+            trustBadges, availabilityStatus, introVideoUrl, aiRules, mediaGallery, beforeAfterGallery } = req.body;
 
         // Update user info
         if (firstName || lastName || phone) {
@@ -277,6 +361,32 @@ router.put('/profile', requireContractorAuth, async (req: Request, res: Response
 
         // Update profile info
         if (contractor.role === 'contractor') {
+            const profile = await db.query.handymanProfiles.findFirst({
+                where: eq(handymanProfiles.userId, contractor.id),
+            });
+
+            if (!profile) {
+                return res.status(404).json({ error: 'Contractor profile not found' });
+            }
+
+            // Handle skills update/insertion
+            if (skills && Array.isArray(skills)) {
+                // First, delete existing skills for this handyman
+                await db.delete(handymanSkills).where(eq(handymanSkills.handymanId, profile.id));
+
+                // Then, insert new skills
+                for (const s of skills) {
+                    // Assuming s has serviceId and hourlyRatePence
+                    // You might need to validate serviceId exists
+                    await db.insert(handymanSkills).values({
+                        id: uuidv4(),
+                        handymanId: profile.id,
+                        serviceId: s.serviceId, // Assuming s.serviceId is provided
+                        hourlyRate: Math.round(s.hourlyRatePence / 100) // Convert back to pounds for storage or keep consistent
+                    });
+                }
+            }
+
             await db.update(handymanProfiles)
                 .set({
                     bio: bio || undefined,
@@ -284,12 +394,22 @@ router.put('/profile', requireContractorAuth, async (req: Request, res: Response
                     city: city || undefined,
                     postcode: postcode || undefined,
                     ...(radiusMiles !== undefined && { radiusMiles }),
+                    ...(hourlyRate !== undefined && { hourlyRate }),
                     ...(req.body.latitude !== undefined && { latitude: req.body.latitude.toString() }),
                     ...(req.body.longitude !== undefined && { longitude: req.body.longitude.toString() }),
                     ...(slug !== undefined && { slug }),
                     ...(publicProfileEnabled !== undefined && { publicProfileEnabled }),
                     ...(heroImageUrl !== undefined && { heroImageUrl }),
+                    ...(req.body.profileImageUrl !== undefined && { profileImageUrl: req.body.profileImageUrl }),
+
                     ...(socialLinks !== undefined && { socialLinks }),
+                    ...(mediaGallery !== undefined && { mediaGallery }),
+                    ...(trustBadges !== undefined && { trustBadges }),
+                    ...(availabilityStatus !== undefined && { availabilityStatus }),
+                    ...(introVideoUrl !== undefined && { introVideoUrl }),
+                    ...(aiRules !== undefined && { aiRules }),
+                    ...(beforeAfterGallery !== undefined && { beforeAfterGallery }),
+
                     updatedAt: new Date(),
                 })
                 .where(eq(handymanProfiles.userId, contractor.id));

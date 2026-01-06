@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowRight, Check, Coins, Wrench, Loader2, Sparkles } from 'lucide-react';
+import { ArrowRight, Check, Coins, Wrench, Loader2, Sparkles, MapPin } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 
 export default function ContractorOnboarding() {
     const [, setLocation] = useLocation();
     const { toast } = useToast();
     const [step, setStep] = useState(1);
+    const [city, setCity] = useState('');
 
     // Form State
     const [rates, setRates] = useState<Record<string, { hourly: string, day: string }>>({});
@@ -20,6 +21,61 @@ export default function ContractorOnboarding() {
         { id: 'painting', label: 'Painting', icon: '🎨' },
         { id: 'carpentry', label: 'Carpentry', icon: '🪚' }
     ];
+
+    const CITY_RATES: Record<string, Record<string, { hourly: string, day: string }>> = {
+        'Derby': {
+            'plumbing': { 'hourly': '50', 'day': '320' },
+            'electrical': { 'hourly': '55', 'day': '360' },
+            'handyman': { 'hourly': '35', 'day': '250' },
+            'painting': { 'hourly': '30', 'day': '240' },
+            'carpentry': { 'hourly': '45', 'day': '300' },
+            'heating': { 'hourly': '60', 'day': '400' },
+            'default': { 'hourly': '35', 'day': '250' }
+        },
+        'Leicester': {
+            'plumbing': { 'hourly': '45', 'day': '300' },
+            'electrical': { 'hourly': '50', 'day': '340' },
+            'handyman': { 'hourly': '30', 'day': '240' },
+            'painting': { 'hourly': '28', 'day': '220' },
+            'carpentry': { 'hourly': '40', 'day': '280' },
+            'default': { 'hourly': '30', 'day': '240' }
+        },
+        'Nottingham': {
+            'plumbing': { 'hourly': '48', 'day': '310' },
+            'electrical': { 'hourly': '52', 'day': '350' },
+            'handyman': { 'hourly': '32', 'day': '240' },
+            'painting': { 'hourly': '30', 'day': '220' },
+            'carpentry': { 'hourly': '42', 'day': '280' },
+            'default': { 'hourly': '32', 'day': '240' }
+        }
+    };
+
+    const DEFAULT_RATES = { hourly: '50', day: '350' };
+
+    const getRecommendedRate = (tradeId: string) => {
+        const cityData = CITY_RATES[city];
+        if (!cityData) return DEFAULT_RATES;
+        return cityData[tradeId] || cityData['default'] || DEFAULT_RATES;
+    };
+
+    // Auto-populate rates when city changes or trades selected if not set
+    useEffect(() => {
+        if (city) {
+            const newRates = { ...rates };
+            let changed = false;
+
+            selectedTrades.forEach(t => {
+                if (!newRates[t]) {
+                    newRates[t] = getRecommendedRate(t);
+                    changed = true;
+                }
+            });
+
+            if (changed) {
+                setRates(newRates);
+            }
+        }
+    }, [city, selectedTrades]);
 
     const toggleTrade = (id: string) => {
         if (selectedTrades.includes(id)) {
@@ -42,12 +98,22 @@ export default function ContractorOnboarding() {
             const cleanToken = token.trim().replace(/[^a-zA-Z0-9._-]/g, '');
             console.log("[Onboarding] Cleaned token:", cleanToken.substring(0, 10) + "...");
 
+            // First update profile location
+            await fetch('/api/contractor/profile', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${cleanToken}`
+                },
+                body: JSON.stringify({ city })
+            });
+
             const servicesData = selectedTrades.map(tradeId => {
-                const r = rates[tradeId] || { hourly: '60', day: '400' };
+                const r = rates[tradeId] || getRecommendedRate(tradeId);
                 return {
                     trade: tradeId,
-                    hourlyRatePence: (parseFloat(r.hourly) || 60) * 100,
-                    dayRatePence: (parseFloat(r.day) || 400) * 100
+                    hourlyRatePence: (parseFloat(r.hourly) || 0) * 100,
+                    dayRatePence: (parseFloat(r.day) || 0) * 100
                 };
             });
 
@@ -96,7 +162,7 @@ export default function ContractorOnboarding() {
                 title: "Setup Complete!",
                 description: "Your services have been created.",
             });
-            setLocation('/contractor');
+            setLocation('/contractor/dashboard?welcome=true');
         },
         onError: (error: Error) => {
             console.error('[Onboarding] Caught Error in onError:', error);
@@ -119,29 +185,82 @@ export default function ContractorOnboarding() {
     });
 
     return (
-        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
+        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col items-center justify-center p-4 relative overflow-hidden">
+            {/* Background Pattern */}
+            <div className="absolute inset-0 opacity-5 pointer-events-none">
+                <div className="absolute inset-0" style={{
+                    backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)',
+                    backgroundSize: '40px 40px'
+                }} />
+            </div>
+
             {/* Progress */}
-            <div className="w-full max-w-2xl mb-8">
+            <div className="w-full max-w-2xl mb-8 relative z-10">
                 <div className="flex items-center justify-between mb-2">
-                    <span className={`text-sm font-medium ${step >= 1 ? 'text-amber-400' : 'text-slate-600'}`}>Services</span>
-                    <span className={`text-sm font-medium ${step >= 2 ? 'text-amber-400' : 'text-slate-600'}`}>Rates</span>
-                    <span className={`text-sm font-medium ${step >= 3 ? 'text-amber-400' : 'text-slate-600'}`}>Review</span>
+                    <span className={`text-sm font-medium ${step >= 1 ? 'text-amber-400' : 'text-slate-600'}`}>Location</span>
+                    <span className={`text-sm font-medium ${step >= 2 ? 'text-amber-400' : 'text-slate-600'}`}>Services</span>
+                    <span className={`text-sm font-medium ${step >= 3 ? 'text-amber-400' : 'text-slate-600'}`}>Rates</span>
+                    <span className={`text-sm font-medium ${step >= 4 ? 'text-amber-400' : 'text-slate-600'}`}>Review</span>
                 </div>
                 <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
                     <div
                         className="h-full bg-amber-500 transition-all duration-500 ease-out"
-                        style={{ width: `${(step / 3) * 100}%` }}
+                        style={{ width: `${(step / 4) * 100}%` }}
                     />
                 </div>
             </div>
 
-            <div className="bg-slate-900 border border-white/10 rounded-2xl w-full max-w-2xl p-8 shadow-2xl relative overflow-hidden">
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl w-full max-w-2xl p-8 shadow-2xl relative overflow-hidden z-10">
 
                 {/* Background Decor */}
                 <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
 
-                {/* STEP 1: SERVICES */}
+                {/* STEP 1: LOCATION */}
                 {step === 1 && (
+                    <div className="animate-in fade-in slide-in-from-right-8 duration-500">
+                        <div className="text-center mb-8">
+                            <div className="w-16 h-16 bg-blue-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                                <MapPin className="w-8 h-8 text-blue-400" />
+                            </div>
+                            <h1 className="text-2xl font-bold text-white mb-2">Where are you based?</h1>
+                            <p className="text-slate-400">We'll recommend rates based on your area.</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                            {['Derby', 'Leicester', 'Nottingham'].map(c => (
+                                <button
+                                    key={c}
+                                    onClick={() => setCity(c)}
+                                    className={`p-6 rounded-xl border transition-all text-center group relative overflow-hidden ${city === c
+                                        ? 'bg-amber-500 border-amber-500 text-slate-900 shadow-lg shadow-amber-500/20'
+                                        : 'bg-slate-900/50 border-white/10 text-slate-400 hover:bg-slate-800/50 hover:border-white/20'
+                                        }`}
+                                >
+                                    <span className="font-bold text-lg block">{c}</span>
+                                    {city === c && (
+                                        <div className="absolute top-2 right-2">
+                                            <div className="w-5 h-5 bg-slate-900/20 rounded-full flex items-center justify-center">
+                                                <Check className="w-3 h-3 text-slate-900" />
+                                            </div>
+                                        </div>
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="flex justify-center">
+                            <button
+                                onClick={() => setStep(2)}
+                                disabled={!city}
+                                className="px-8 py-3 bg-white text-slate-900 font-bold rounded-xl hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                            >
+                                Next: Select Services <ArrowRight className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
+                )}
+                {/* STEP 2: SERVICES */}
+                {step === 2 && (
                     <div className="animate-in fade-in slide-in-from-right-8 duration-500">
                         <div className="text-center mb-8">
                             <div className="w-16 h-16 bg-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -158,7 +277,7 @@ export default function ContractorOnboarding() {
                                     onClick={() => toggleTrade(trade.id)}
                                     className={`p-4 rounded-xl border transition-all text-left group relative overflow-hidden ${selectedTrades.includes(trade.id)
                                         ? 'bg-amber-500 border-amber-500 text-slate-900 shadow-lg shadow-amber-500/20'
-                                        : 'bg-slate-900/50 border-white/10 text-slate-400 hover:bg-slate-800'
+                                        : 'bg-slate-900/50 border-white/10 text-slate-400 hover:bg-slate-800/50'
                                         }`}
                                 >
                                     <span className="text-2xl mb-2 block">{trade.icon}</span>
@@ -176,9 +295,10 @@ export default function ContractorOnboarding() {
                             ))}
                         </div>
 
-                        <div className="flex justify-center">
+                        <div className="flex justify-between items-center">
+                            <button onClick={() => setStep(1)} className="text-slate-400 hover:text-white px-4">Back</button>
                             <button
-                                onClick={() => setStep(2)}
+                                onClick={() => setStep(3)}
                                 disabled={selectedTrades.length === 0}
                                 className="px-8 py-3 bg-white text-slate-900 font-bold rounded-xl hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                             >
@@ -188,15 +308,21 @@ export default function ContractorOnboarding() {
                     </div>
                 )}
 
-                {/* STEP 2: RATES */}
-                {step === 2 && (
+                {/* STEP 3: RATES */}
+                {step === 3 && (
                     <div className="animate-in fade-in slide-in-from-right-8 duration-500">
                         <div className="text-center mb-8">
                             <div className="w-16 h-16 bg-amber-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
                                 <Coins className="w-8 h-8 text-amber-400" />
                             </div>
                             <h1 className="text-2xl font-bold text-white mb-2">Set your rates</h1>
-                            <p className="text-slate-400">Configure pricing for each service.</p>
+                            <p className="text-slate-400 mb-4">Configure pricing for each service.</p>
+                            <div className="flex justify-center">
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-xs font-medium text-blue-300">
+                                    <Sparkles className="w-3 h-3" />
+                                    Market rates recommended by Perplexity
+                                </span>
+                            </div>
                         </div>
 
                         <div className="space-y-6 mb-8 max-h-[50vh] overflow-y-auto pr-2">
@@ -205,7 +331,7 @@ export default function ContractorOnboarding() {
                                 const rate = rates[tradeId] || { hourly: '60', day: '400' };
 
                                 return (
-                                    <div key={tradeId} className="bg-slate-900/80 rounded-xl border border-white/10 p-5">
+                                    <div key={tradeId} className="bg-slate-900/50 rounded-xl border border-white/10 p-5">
                                         <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
                                             {trade?.icon} {trade?.label}
                                         </h3>
@@ -217,11 +343,12 @@ export default function ContractorOnboarding() {
                                                     <input
                                                         type="number"
                                                         value={rate.hourly}
+                                                        placeholder={getRecommendedRate(tradeId).hourly}
                                                         onChange={(e) => setRates(prev => ({
                                                             ...prev,
                                                             [tradeId]: { ...rate, hourly: e.target.value }
                                                         }))}
-                                                        className="w-full bg-slate-800 rounded-lg py-2 pl-7 pr-3 text-white font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                                        className="w-full bg-slate-800 rounded-lg py-2 pl-7 pr-3 text-white font-bold focus:outline-none focus:ring-1 focus:ring-amber-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                     />
                                                 </div>
                                             </div>
@@ -232,11 +359,12 @@ export default function ContractorOnboarding() {
                                                     <input
                                                         type="number"
                                                         value={rate.day}
+                                                        placeholder={getRecommendedRate(tradeId).day}
                                                         onChange={(e) => setRates(prev => ({
                                                             ...prev,
                                                             [tradeId]: { ...rate, day: e.target.value }
                                                         }))}
-                                                        className="w-full bg-slate-800 rounded-lg py-2 pl-7 pr-3 text-white font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                                        className="w-full bg-slate-800 rounded-lg py-2 pl-7 pr-3 text-white font-bold focus:outline-none focus:ring-1 focus:ring-amber-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                     />
                                                 </div>
                                             </div>
@@ -247,9 +375,9 @@ export default function ContractorOnboarding() {
                         </div>
 
                         <div className="flex justify-between items-center">
-                            <button onClick={() => setStep(1)} className="text-slate-400 hover:text-white px-4">Back</button>
+                            <button onClick={() => setStep(2)} className="text-slate-400 hover:text-white px-4">Back</button>
                             <button
-                                onClick={() => setStep(3)}
+                                onClick={() => setStep(4)}
                                 className="px-8 py-3 bg-white text-slate-900 font-bold rounded-xl hover:bg-slate-200 transition-colors flex items-center gap-2"
                             >
                                 Review <ArrowRight className="w-4 h-4" />
@@ -258,8 +386,8 @@ export default function ContractorOnboarding() {
                     </div>
                 )}
 
-                {/* STEP 3: REVIEW */}
-                {step === 3 && (
+                {/* STEP 4: REVIEW */}
+                {step === 4 && (
                     <div className="animate-in fade-in slide-in-from-right-8 duration-500 text-center">
                         <div className="inline-flex w-16 h-16 bg-amber-500/20 rounded-2xl items-center justify-center mb-4">
                             <Sparkles className="w-8 h-8 text-amber-400" />
@@ -289,7 +417,7 @@ export default function ContractorOnboarding() {
                         </div>
 
                         <div className="flex justify-between items-center">
-                            <button onClick={() => setStep(2)} className="text-slate-400 hover:text-white px-4 shrink-0" disabled={finishMutation.isPending}>Back</button>
+                            <button onClick={() => setStep(3)} className="text-slate-400 hover:text-white px-4 shrink-0" disabled={finishMutation.isPending}>Back</button>
                             <button
                                 onClick={() => finishMutation.mutate()}
                                 disabled={finishMutation.isPending}
@@ -298,7 +426,7 @@ export default function ContractorOnboarding() {
                                 {finishMutation.isPending ? (
                                     <>
                                         <Loader2 className="w-5 h-5 animate-spin" />
-                                        Creating SKUs...
+                                        Preparing your dashboard...
                                     </>
                                 ) : (
                                     <>Launch Dashboard <ArrowRight className="w-4 h-4" /></>
@@ -317,7 +445,7 @@ export default function ContractorOnboarding() {
                             localStorage.removeItem('contractorToken');
                             localStorage.removeItem('contractorUser');
                             localStorage.removeItem('contractorProfileId');
-                            setLocation('/contractor');
+                            setLocation('/contractor/login');
                         }
                     }}
                     className="text-xs text-slate-600 hover:text-white underline transition-colors"

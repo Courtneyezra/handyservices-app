@@ -618,6 +618,69 @@ export default function ContractorProfile() {
                         </form>
                     </section>
 
+                    {/* Services & Rates */}
+                    <section className="bg-slate-800/50 border border-white/10 rounded-2xl overflow-hidden">
+                        <div className="p-6 border-b border-white/10 flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-500">
+                                <CheckCircle2 className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-semibold text-white">Services & Rates</h2>
+                                <p className="text-sm text-slate-400">Manage your skills and pricing</p>
+                            </div>
+                        </div>
+                        <div className="p-8 text-center">
+                            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-slate-800 mb-4">
+                                <CheckCircle2 className="w-8 h-8 text-slate-600" />
+                            </div>
+                            <h3 className="text-white font-medium mb-2">Rate Cards Coming Soon</h3>
+                            <p className="text-slate-400 max-w-md mx-auto">
+                                We are building a dedicated editor for you to manage your hourly rates, day rates, and specific service pricing.
+                            </p>
+                            <button className="mt-6 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm font-medium transition-colors">
+                                View Current Rate Card
+                            </button>
+                        </div>
+                    </section>
+
+                    {/* Media Gallery */}
+                    <section className="bg-slate-800/50 border border-white/10 rounded-2xl overflow-hidden">
+                        <div className="p-6 border-b border-white/10 flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center text-purple-500">
+                                <Upload className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-semibold text-white">Work Gallery</h2>
+                                <p className="text-sm text-slate-400">Showcase your best work</p>
+                            </div>
+                        </div>
+                        <div className="p-6">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                                {[1, 2, 3].map((i) => (
+                                    <div key={i} className="aspect-square bg-slate-800 rounded-xl border border-white/5 flex items-center justify-center">
+                                        <div className="w-full h-full bg-slate-900/50 flex items-center justify-center text-slate-600">
+                                            <Upload className="w-6 h-6 opacity-20" />
+                                        </div>
+                                    </div>
+                                ))}
+                                <button className="aspect-square bg-slate-800/50 hover:bg-slate-800 rounded-xl border-2 border-dashed border-slate-700 hover:border-purple-500/50 transition-colors flex flex-col items-center justify-center gap-2 group">
+                                    <div className="p-2 bg-slate-900 rounded-full group-hover:bg-purple-500/20 transition-colors">
+                                        <Upload className="w-4 h-4 text-slate-400 group-hover:text-purple-400" />
+                                    </div>
+                                    <span className="text-xs font-medium text-slate-400 group-hover:text-purple-400">Add Media</span>
+                                </button>
+                            </div>
+                            <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-4 flex gap-3">
+                                <AlertCircle className="w-5 h-5 text-purple-400 shrink-0" />
+                                <div>
+                                    <h4 className="text-sm font-medium text-purple-200">Pro Tip</h4>
+                                    <p className="text-xs text-purple-300/80 mt-1">
+                                        Contractors with at least 3 photos of their past work get 2x more booking requests.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
                     {/* Change Password */}
                     <section className="bg-slate-800/50 border border-white/10 rounded-2xl overflow-hidden">
                         <div className="p-6 border-b border-white/10 flex items-center gap-3">
@@ -684,7 +747,7 @@ export default function ContractorProfile() {
                         </form>
                     </section>
                 </div>
-            </main>
-        </div>
+            </main >
+        </div >
     );
 }

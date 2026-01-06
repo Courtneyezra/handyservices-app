@@ -96,6 +96,55 @@ app.get('/api/health', (req, res) => {
     });
 });
 
+// ==========================================
+// DOMAIN ROUTING MIDDLEWARE
+// ==========================================
+app.use((req, res, next) => {
+    const host = req.headers.host || '';
+
+    // Check if we are on the "Contractors" domain (e.g., richard.handy.contractors or richard.localhost:5001)
+    // Production: *.handy.contractors
+    // Dev: *.localhost:5001 or *.ngrok-free.app (if configured via wildcard tunnel, usually tough locally)
+
+    // Simple logic: If host starts with a subdomain that IS NOT 'www', 'api', or 'app'
+    // AND the domain part matches our known contractor domain.
+
+    // For local dev, let's assume we test with: http://richard.localhost:5001
+    // (Note: /etc/hosts needs to map richard.localhost to 127.0.0.1)
+
+    const isLocalhost = host.includes('localhost');
+    const isContractorDomain = host.includes('handy.contractors');
+
+    if (isLocalhost || isContractorDomain) {
+        const parts = host.split('.');
+
+        // Handling "richard.localhost:5001" -> parts = ['richard', 'localhost:5001']
+        // Handling "richard.handy.contractors" -> parts = ['richard', 'handy', 'contractors']
+
+        if (parts.length > 1) {
+            const subdomain = parts[0];
+
+            // Exclude reserved subdomains
+            const reserved = ['www', 'api', 'app', 'admin', 'switchboard'];
+
+            if (!reserved.includes(subdomain) && !req.path.startsWith('/api')) {
+                // It's a contractor profile request!
+                console.log(`[DomainRouting] Detected contractor subdomain: ${subdomain}`);
+
+                // Rewrite the request to serve the SPA, but we need the Frontend to know the slug.
+                // We can't easily Rewrite the SPA routing on the fly without SSR.
+                // STRATEGY: We serve the main SPA index.html, but we inject a global window variable 
+                // OR relies on the frontend to parse window.location.host
+
+                // For now, let's just log it. The capabilities of "Rewrite" in Express + CSR (Client Side Rendering) 
+                // are limited to serving the index.html. The React Router needs to handle the logic.
+            }
+        }
+    }
+
+    next();
+});
+
 // Diagnostics Endpoint (Inlined for reliability)
 import { getActiveCallCount } from './twilio-realtime';
 import { sql } from 'drizzle-orm';

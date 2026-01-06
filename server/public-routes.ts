@@ -40,20 +40,28 @@ router.get('/contractor/:slug', async (req: Request, res: Response) => {
             return res.status(403).json({ error: 'Profile is not public' });
         }
 
-        // Construct safe public response (Exclude sensitive data like phone, email for now)
+        // Construct safe public response
         const response = {
             id: profileWithUser.id,
             firstName: profileWithUser.user.firstName,
-            lastName: profileWithUser.user.lastName ? profileWithUser.user.lastName[0] + '.' : '', // Initial only for privacy? Or full name? Let's go full name for "Business Card" feel.
+            lastName: profileWithUser.user.lastName ? profileWithUser.user.lastName[0] + '.' : '',
             fullName: `${profileWithUser.user.firstName} ${profileWithUser.user.lastName}`,
             bio: profileWithUser.bio,
             city: profileWithUser.city,
-            postcode: profileWithUser.postcode, // Maybe just outer code?
+            postcode: profileWithUser.postcode,
+            phone: profileWithUser.user.phone, // Expose phone for WhatsApp
             heroImageUrl: profileWithUser.heroImageUrl,
+            mediaGallery: profileWithUser.mediaGallery, // ARRAY of {type, url, caption}
             socialLinks: profileWithUser.socialLinks,
             skills: profileWithUser.skills.map(s => s.service.name),
+            services: profileWithUser.skills.map(s => ({
+                id: s.service.id,
+                name: s.service.name,
+                description: s.service.description,
+                pricePence: s.hourlyRate ? (s.hourlyRate * 100) : s.service.pricePence, // Use override (pounds -> pence) or default
+                category: s.service.category
+            })),
             radiusMiles: profileWithUser.radiusMiles,
-            // Add availability summary later
         };
 
         res.json(response);

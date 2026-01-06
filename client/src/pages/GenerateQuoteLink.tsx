@@ -88,7 +88,7 @@ export default function GenerateQuoteLink() {
 
   // Value pricing inputs
   const [jobDescription, setJobDescription] = useState('');
-  const [quoteMode, setQuoteMode] = useState<'hhh' | 'simple'>('hhh'); // Quote mode toggle
+  const [quoteMode, setQuoteMode] = useState<'hhh' | 'simple' | 'pick_and_mix'>('hhh'); // Quote mode toggle
   const [urgencyReason, setUrgencyReason] = useState<'low' | 'med' | 'high'>('med');
   const [ownershipContext, setOwnershipContext] = useState<'tenant' | 'homeowner' | 'landlord' | 'airbnb' | 'selling'>('homeowner');
   const [desiredTimeframe, setDesiredTimeframe] = useState<'flex' | 'week' | 'asap'>('flex');
@@ -127,7 +127,7 @@ export default function GenerateQuoteLink() {
     valueMultiplier: number;
     recommendedTier: string;
   } | null>(null);
-  const [generatedQuoteMode, setGeneratedQuoteMode] = useState<'hhh' | 'simple'>('hhh'); // Actual mode from response
+  const [generatedQuoteMode, setGeneratedQuoteMode] = useState<'hhh' | 'simple' | 'pick_and_mix'>('hhh'); // Actual mode from response
 
   // Optional extras state (typed for validation)
   const [optionalExtras, setOptionalExtras] = useState<Array<{
@@ -543,10 +543,35 @@ export default function GenerateQuoteLink() {
         phone,
         email: customerEmail || undefined,
         postcode,
-        quoteMode, // Force quote mode: 'hhh' (three-tier) or 'simple' (single quote with extras)
+        quoteMode, // Force quote mode: 'hhh' (three-tier) or 'simple' (single quote with extras) or 'pick_and_mix'
         analyzedJobData: analyzedJob || null, // Pass AI analysis data for tier deliverables generation
         materialsCostWithMarkupPence: recalculatedTotals.materialCostWithMarkup, // Materials cost with 30% markup applied
-        optionalExtras: optionalExtras.length > 0 ? optionalExtras : undefined, // Optional upsells for customer selection
+        optionalExtras: quoteMode === 'pick_and_mix'
+          ? editableTasks.map(task => {
+            // Calculate individual task price
+            const complexityMultipliers = { low: 0.85, medium: 1.0, high: 1.2 };
+            const multiplier = complexityMultipliers[task.complexity as keyof typeof complexityMultipliers] || 1.0;
+
+            // Base hourly rate calculation (same as useMemo)
+            const baseHourlyRate = (analyzedJob && analyzedJob.totalEstimatedHours > 0)
+              ? (analyzedJob.basePricePounds / analyzedJob.totalEstimatedHours)
+              : 50;
+
+            const taskLabor = (task.hours || 0) * (task.quantity || 1) * multiplier * baseHourlyRate;
+            const taskMaterialsRaw = (task.materialCost || 0) * (task.quantity || 1);
+            const taskMaterialsMarkup = taskMaterialsRaw * 1.3;
+            const taskTotal = Math.round(taskLabor + taskMaterialsMarkup);
+
+            return {
+              label: task.description,
+              description: `${task.quantity > 1 ? `${task.quantity}x ` : ''}${task.hours}h est. • ${task.complexity} complexity`,
+              priceInPence: taskTotal * 100, // Convert to pence
+              materialsCostInPence: Math.round(taskMaterialsMarkup * 100),
+              estimatedHours: task.hours,
+              isRecommended: true // Default to checked/recommended? Maybe true for anchoring.
+            };
+          })
+          : (optionalExtras.length > 0 ? optionalExtras : undefined), // Optional upsells for customer selection
       };
 
       const fetchResponse = await fetch('/api/personalized-quotes/value', {
@@ -575,9 +600,21 @@ export default function GenerateQuoteLink() {
           recommendedTier: response.recommendedTier,
         });
       } else if (response.basePrice) {
-        // Simple mode: only base price matters
+        // Simple or Pick & Mix mode
         setGeneratedPricing({
-          essential: response.basePrice / 100, // Use basePrice for display in 'essential' field
+          essential: response.basePrice / 100, // Use basePrice for display
+          hassleFree: 0,
+          highStandard: 0,
+          valueMultiplier: response.valueMultiplier || 1.0,
+          recommendedTier: 'essential',
+        });
+      } else if (response.quoteMode === 'pick_and_mix') {
+        // Pick & Mix mode might have 0 base price but we want to show something?
+        // Actually the backend might set basePrice if provided.
+        // If basePrice is null/0, we can sum the optionalExtras for a "Total Potential Value" or just show 0.
+        // Let's rely on standard response parsing.
+        setGeneratedPricing({
+          essential: (response.basePrice || 0) / 100,
           hassleFree: 0,
           highStandard: 0,
           valueMultiplier: response.valueMultiplier || 1.0,
@@ -1051,12 +1088,20 @@ export default function GenerateQuoteLink() {
                                 <span className="text-xs text-slate-400">Best for straightforward jobs with add-ons</span>
                               </div>
                             </SelectItem>
+                            <SelectItem value="pick_and_mix" className="text-white focus:bg-slate-700 focus:text-white">
+                              <div className="flex flex-col">
+                                <span className="font-medium">Pick & Mix (A La Carte)</span>
+                                <span className="text-xs text-slate-400">Customer builds their own quote from line items</span>
+                              </div>
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                         <p className="text-xs text-slate-300">
                           {quoteMode === 'hhh'
                             ? 'Customer will see three pricing tiers with different value levels and comparison grid.'
-                            : 'Customer will see a single base price with optional extras they can add at checkout.'
+                            : quoteMode === 'simple'
+                              ? 'Customer will see a single base price with optional extras they can add at checkout.'
+                              : 'Customer will see a list of individual items and can choose which ones to include.'
                           }
                         </p>
                       </div>
@@ -1492,6 +1537,24 @@ export default function GenerateQuoteLink() {
                                 </div>
                                 <div className="text-2xl font-bold text-white">{formatPrice(generatedPricing.highStandard)}</div>
                               </div>
+                            </div>
+                          </>
+                        ) : generatedQuoteMode === 'pick_and_mix' ? (
+                          <>
+                            <div className="flex items-center justify-between">
+                              <h3 className="font-semibold text-white">Pick & Mix Quote:</h3>
+                              <Badge variant="outline" className="bg-blue-900/30 text-blue-300 border-blue-700">
+                                A La Carte
+                              </Badge>
+                            </div>
+                            <div className="text-center p-4 bg-gradient-to-br from-blue-900/40 to-blue-900/20 rounded-lg border-2 border-blue-500/30">
+                              <div className="text-sm text-slate-300 mb-2">Total Potential Value</div>
+                              {/* Calculate sum of extras for display since base price might be 0 */}
+                              <div className="text-4xl font-bold text-blue-100">
+                                {/* We don't have the extras list in generatedPricing, so just show what we have or a specific message */}
+                                View Link for Details
+                              </div>
+                              <div className="text-xs text-slate-400 mt-2">Customer builds their own package</div>
                             </div>
                           </>
                         ) : (

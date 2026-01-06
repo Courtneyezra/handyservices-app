@@ -12,7 +12,14 @@ import { createCall, updateCall, addDetectedSkus, finalizeCall, findCallByTwilio
 import fs from 'fs';
 import path from 'path';
 
-const deepgram = createClient(process.env.DEEPGRAM_API_KEY || "");
+// Initialize Deepgram with logging
+const apiKey = process.env.DEEPGRAM_API_KEY || "";
+if (!apiKey) {
+    console.warn("[Deepgram] Warning: DEEPGRAM_API_KEY is not set");
+} else {
+    console.log(`[Deepgram] Client initialized (Key length: ${apiKey.length}, starts with: ${apiKey.substring(0, 4)}...)`);
+}
+const deepgram = createClient(apiKey);
 
 // Active Call Tracking
 let activeCallCount = 0;
@@ -120,7 +127,11 @@ export class MediaStreamTranscriber {
             smart_format: true,
             interim_results: true,
 
+            // VAD and utterance settings
             vad_events: true,
+            utterance_end_ms: 1000, // Explicitly set to 1s (default is often too short/varied)
+            endpointing: 300,       // Help with endpointing silence
+
             encoding: "mulaw",
             sample_rate: 8000,
             diarize: true, // B3: Speaker separation

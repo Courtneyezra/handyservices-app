@@ -212,7 +212,7 @@ interface PersonalizedQuote {
   postcode?: string;
   jobDescription: string;
   completionDate: string;
-  quoteMode: 'simple' | 'hhh';
+  quoteMode: 'simple' | 'hhh' | 'pick_and_mix';
   jobs?: Job[]; // Job data including tasks with deliverables
   // HHH mode fields
   essentialPrice?: number;
@@ -559,8 +559,8 @@ export default function PersonalizedQuotePage() {
         email: quote.email || undefined,
         jobDescription: quote.jobDescription,
         outcome: 'phone_quote',
-        eeePackage: quote.quoteMode === 'simple' ? 'simple' : selectedEEEPackage,
-        quoteAmount: quote.quoteMode === 'simple' ? calculateSimpleTotal() : (quote[`${selectedEEEPackage}Price` as keyof PersonalizedQuote] as number),
+        eeePackage: (quote.quoteMode === 'simple' || quote.quoteMode === 'pick_and_mix') ? 'simple' : selectedEEEPackage,
+        quoteAmount: (quote.quoteMode === 'simple' || quote.quoteMode === 'pick_and_mix') ? calculateSimpleTotal() : (quote[`${selectedEEEPackage}Price` as keyof PersonalizedQuote] as number),
         source: 'personalized_quote',
         stripePaymentId: paymentIntentId,
       };
@@ -593,7 +593,7 @@ export default function PersonalizedQuotePage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             leadId: lead.id,
-            selectedPackage: quote.quoteMode === 'simple' ? undefined : selectedEEEPackage,
+            selectedPackage: (quote.quoteMode === 'simple' || quote.quoteMode === 'pick_and_mix') ? undefined : selectedEEEPackage,
             selectedExtras: selectedExtras.length > 0 ? selectedExtras : undefined,
             paymentType: effectivePaymentType,
           }),
@@ -1455,6 +1455,98 @@ export default function PersonalizedQuotePage() {
             </>
           )}
 
+          {/* PICK & MIX MODE: Checklist of Items */}
+          {quote.quoteMode === 'pick_and_mix' && quote.optionalExtras && (
+            <div className="mb-8">
+              <div className="text-center mb-6">
+                <h3 className="text-3xl font-bold text-white mb-2">Build Your Package</h3>
+                <p className="text-gray-300 max-w-xl mx-auto">
+                  Select the items you'd like to include. The price updates automatically.
+                </p>
+              </div>
+
+              <Card className="bg-gray-800 border-gray-700">
+                <CardContent className="p-4 sm:p-6">
+                  <div className="space-y-3">
+                    {quote.optionalExtras.map((extra: any, idx: number) => (
+                      <label
+                        key={idx}
+                        className={`flex items-start gap-4 p-4 rounded-xl cursor-pointer transition-all duration-200 border-2 ${selectedExtras.includes(extra.label)
+                          ? 'bg-[#e8b323]/10 border-[#e8b323]'
+                          : 'bg-gray-750 border-gray-700 hover:border-gray-600'
+                          }`}
+                        data-testid={`pm-item-${idx}`}
+                      >
+                        <div className="pt-1">
+                          <input
+                            type="checkbox"
+                            checked={selectedExtras.includes(extra.label)}
+                            onChange={() => toggleExtra(extra.label)}
+                            className="w-6 h-6 rounded border-gray-500 text-[#e8b323] focus:ring-[#e8b323] transition-colors"
+                            data-testid={`pm-checkbox-${idx}`}
+                          />
+                        </div>
+
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+                            <span className={`font-bold text-lg ${selectedExtras.includes(extra.label) ? 'text-white' : 'text-gray-300'}`}>
+                              {extra.label}
+                            </span>
+                            <span className="text-[#e8b323] font-bold text-xl">
+                              £{formatPrice(extra.priceInPence)}
+                            </span>
+                          </div>
+
+                          <p className="text-gray-400 text-sm leading-relaxed">
+                            {extra.description}
+                          </p>
+
+                          {extra.estimatedHours && (
+                            <div className="mt-2 text-xs text-gray-500 flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              <span>Est. {extra.estimatedHours}h</span>
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* Total Summary Inline (Optional, mainly for mobile if footer is hidden) */}
+                  <div className="mt-8 pt-6 border-t border-gray-700 flex flex-col items-center">
+                    <p className="text-gray-400 text-sm mb-1">Total Estimated Price</p>
+                    <div className="text-5xl font-bold text-white mb-6">
+                      £{formatPrice(calculateSimpleTotal())}
+                    </div>
+
+                    {!hasBooked && !hasReserved && (
+                      <div className="w-full max-w-sm space-y-3">
+                        <Button
+                          className="w-full bg-[#e8b323] hover:bg-[#d19b1e] text-black font-bold text-lg py-6 shadow-lg transform active:scale-95 transition-transform"
+                          onClick={() => {
+                            setHasReserved(true);
+                            setTimeout(() => {
+                              // Scroll to confirm button area logic if needed
+                              const target = document.getElementById('confirm-button');
+                              target?.scrollIntoView({ behavior: 'smooth' });
+                            }, 100);
+                          }}
+                          disabled={calculateSimpleTotal() === 0}
+                          data-testid="button-book-pm-inline"
+                        >
+                          {calculateSimpleTotal() === 0 ? 'Select items to continue' : 'Proceed with Selection'}
+                        </Button>
+                        <p className="text-center text-xs text-gray-500">
+                          Secure your booking with a deposit
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {/* Quote Display - Simple mode */}
           {quote.quoteMode === 'simple' && quote.basePrice && quote.optionalExtras && (
             /* SIMPLE MODE: Single Quote with Optional Extras */
@@ -2297,6 +2389,36 @@ export default function PersonalizedQuotePage() {
             </div>
           )
         }
+
+        {/* Sticky Footer - Pick & Mix Mode */}
+        {quote.quoteMode === 'pick_and_mix' && !hasBooked && !hasReserved && (
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900/98 backdrop-blur-lg border-t border-gray-700 shadow-2xl safe-area-bottom">
+            <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Total</p>
+                <p className="text-2xl font-bold text-white leading-none">
+                  £{formatPrice(calculateSimpleTotal())}
+                </p>
+              </div>
+
+              <Button
+                onClick={() => {
+                  setHasReserved(true);
+                  setTimeout(() => {
+                    const target = document.getElementById('confirm-button');
+                    target?.scrollIntoView({ behavior: 'smooth' });
+                  }, 100);
+                }}
+                disabled={calculateSimpleTotal() === 0}
+                className="flex-1 bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold shadow-lg"
+                data-testid="button-book-pm-footer"
+              >
+                {calculateSimpleTotal() === 0 ? 'Select Items' : 'Book Now'}
+                <ChevronRight className="ml-1 h-5 w-5" />
+              </Button>
+            </div>
+          </div>
+        )}
 
         <style>{`
         .scrollbar-hide::-webkit-scrollbar {

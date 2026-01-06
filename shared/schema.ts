@@ -14,6 +14,17 @@ export const sessions = pgTable(
     (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
+// Contractor Session storage (Persistent)
+export const contractorSessions = pgTable("contractor_sessions", {
+    sessionToken: varchar("session_token").primaryKey().notNull(),
+    userId: varchar("user_id").references(() => users.id).notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_contractor_sessions_user").on(table.userId),
+    index("idx_contractor_sessions_expires").on(table.expiresAt),
+]);
+
 // App Settings table - Key-value store for application configuration
 export const appSettings = pgTable("app_settings", {
     id: varchar("id").primaryKey().notNull(),
@@ -231,13 +242,23 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     latitude: text("latitude"),
     longitude: text("longitude"),
     radiusMiles: integer("radius_miles").notNull().default(10),
+    hourlyRate: integer("hourly_rate").default(50), // Standard hourly rate in pounds
     calendarSyncToken: text("calendar_sync_token"),
 
     // Public Profile Fields
     slug: varchar("slug", { length: 100 }).unique(),
     publicProfileEnabled: boolean("public_profile_enabled").default(false),
     heroImageUrl: text("hero_image_url"),
+    profileImageUrl: text("profile_image_url"), // Profile avatar
     socialLinks: jsonb("social_links"), // { instagram, linkedin, website }
+    mediaGallery: jsonb("media_gallery"), // Array of { type: 'image'|'video', url: string, caption?: string }
+
+    // New "Smart Widget" Fields
+    trustBadges: jsonb("trust_badges"), // Array of strings e.g. ['dbs', 'insured', 'dog_friendly']
+    availabilityStatus: varchar("availability_status", { length: 20 }).default('available'), // 'available', 'busy', 'holiday'
+    introVideoUrl: text("intro_video_url"),
+    aiRules: jsonb("ai_rules"), // { removeRubbish, supplyMaterials, ... }
+    beforeAfterGallery: jsonb("before_after_gallery"), // Array of { before: string, after: string, caption: string }
 
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
@@ -257,6 +278,7 @@ export const handymanSkills = pgTable("handyman_skills", {
     id: varchar("id").primaryKey().notNull(),
     handymanId: varchar("handyman_id").references(() => handymanProfiles.id).notNull(),
     serviceId: varchar("service_id").references(() => productizedServices.id).notNull(),
+    hourlyRate: integer("hourly_rate"), // Override standard rate for this specific skill
 });
 
 export const handymanSkillRelations = relations(handymanSkills, ({ one }) => ({
@@ -475,7 +497,7 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     anchorPrice: integer("anchor_price"), // Base cost × value multiplier (in pence)
 
     // Quote Mode - determines if we show simple quote or HHH packages
-    quoteMode: varchar("quote_mode", { length: 10 }).notNull().default("hhh"), // 'simple' | 'hhh'
+    quoteMode: varchar("quote_mode", { length: 20 }).notNull().default("hhh"), // 'simple' | 'hhh' | 'pick_and_mix'
 
     // EEE Pricing (in pence) - for HHH mode
     essentialPrice: integer("essential_price"),
@@ -553,7 +575,7 @@ export interface ValuePricingInputs {
     baseJobPrice: number; // in pence
     clientType: ClientType; // New: Who is asking?
     jobComplexity: JobComplexityType; // New: How hard is it?
-    forcedQuoteStyle?: 'hhh' | 'direct' | 'rate_card'; // Override auto-detection
+    forcedQuoteStyle?: 'hhh' | 'direct' | 'rate_card' | 'pick_and_mix'; // Override auto-detection
 }
 
 export interface HHHStructuredInputs {

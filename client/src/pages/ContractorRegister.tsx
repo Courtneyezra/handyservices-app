@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
-import { Mail, Lock, Eye, EyeOff, ArrowRight, User, Phone, MapPin, Globe, Upload, Check, Loader2, X, Sparkles, FileText, CalendarClock } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, User, Phone, MapPin, Globe, Upload, Check, Loader2, X, Sparkles, FileText, CalendarClock, Smartphone, Monitor } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 
 export default function ContractorRegister() {
@@ -13,6 +13,7 @@ export default function ContractorRegister() {
     const [error, setError] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [isMobileView, setIsMobileView] = useState(false);
 
     // Form Data
     const [formData, setFormData] = useState({
@@ -32,6 +33,8 @@ export default function ContractorRegister() {
         postcode: '',
         heroImage: null as File | null,
         heroImageUrl: '', // For preview
+        profileImage: null as File | null,
+        profileImageUrl: '', // For preview
         website: ''
     });
 
@@ -46,15 +49,17 @@ export default function ContractorRegister() {
         setError('');
     };
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileChange = (field: 'heroImage' | 'profileImage') => (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
             // Create preview URL
             const previewUrl = URL.createObjectURL(file);
+            const urlField = field === 'heroImage' ? 'heroImageUrl' : 'profileImageUrl';
+
             setFormData({
                 ...formData,
-                heroImage: file,
-                heroImageUrl: previewUrl
+                [field]: file,
+                [urlField]: previewUrl
             });
         }
     };
@@ -118,8 +123,10 @@ export default function ContractorRegister() {
             localStorage.setItem('contractorUser', JSON.stringify(authData.user));
             localStorage.setItem('contractorProfileId', authData.profileId);
 
-            // 2. Upload Image (if exists)
-            let uploadedImageUrl = '';
+            // 2. Upload Images (if exists)
+            let uploadedHeroUrl = '';
+            let uploadedProfileUrl = '';
+
             if (formData.heroImage) {
                 const imageFormData = new FormData();
                 imageFormData.append('heroImage', formData.heroImage);
@@ -132,7 +139,23 @@ export default function ContractorRegister() {
 
                 if (uploadRes.ok) {
                     const uploadData = await uploadRes.json();
-                    uploadedImageUrl = uploadData.url;
+                    uploadedHeroUrl = uploadData.url;
+                }
+            }
+
+            if (formData.profileImage) {
+                const imageFormData = new FormData();
+                imageFormData.append('profileImage', formData.profileImage);
+
+                const uploadRes = await fetch('/api/contractor/media/profile-upload', {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                    body: imageFormData,
+                });
+
+                if (uploadRes.ok) {
+                    const uploadData = await uploadRes.json();
+                    uploadedProfileUrl = uploadData.url;
                 }
             }
 
@@ -146,7 +169,8 @@ export default function ContractorRegister() {
                 body: JSON.stringify({
                     slug: formData.slug,
                     bio: formData.bio,
-                    heroImageUrl: uploadedImageUrl || undefined,
+                    heroImageUrl: uploadedHeroUrl || undefined,
+                    profileImageUrl: uploadedProfileUrl || undefined,
                     publicProfileEnabled: true, // Enable automatically!
                     postcode: formData.postcode || undefined,
                     socialLinks: formData.website ? { website: formData.website } : undefined
@@ -197,13 +221,36 @@ export default function ContractorRegister() {
             <div className="relative w-full max-w-5xl grid md:grid-cols-2 gap-8 items-center">
 
                 {/* Left Side: The "Product" Preview */}
-                <div className="hidden md:block">
+                <div className="block">
                     <div className="relative">
+                        {/* View Toggle */}
+                        <div className="absolute -top-12 left-0 flex items-center gap-1 bg-slate-800/50 p-1 rounded-lg border border-white/10 backdrop-blur-sm z-10 transition-all duration-300">
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileView(false)}
+                                className={`p-2 rounded-md transition-all ${!isMobileView ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                                title="Desktop View"
+                            >
+                                <Monitor className="w-4 h-4" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileView(true)}
+                                className={`p-2 rounded-md transition-all ${isMobileView ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                                title="Mobile View"
+                            >
+                                <Smartphone className="w-4 h-4" />
+                            </button>
+                        </div>
+
                         {/* Blob */}
                         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-amber-500/20 rounded-full blur-3xl" />
 
                         {/* Mockup Card */}
-                        <div className={`relative bg-slate-900 rounded-2xl border border-white/10 shadow-2xl overflow-hidden transition-all duration-700 ${step === 0 ? 'scale-100 rotate-0' : 'scale-95 rotate-[-2deg]'}`}>
+                        <div className={`relative bg-slate-900 border border-white/10 shadow-2xl overflow-hidden transition-all duration-700 ease-in-out
+                            ${isMobileView ? 'w-[320px] mx-auto rounded-[2.5rem] border-[8px] border-slate-900 ring-1 ring-white/10' : 'w-full rounded-2xl'} 
+                            ${step === 0 ? 'scale-100 rotate-0' : 'scale-95 rotate-[-2deg]'}
+                        `}>
                             {/* Fake Browser Header */}
                             <div className="bg-slate-800 p-3 border-b border-white/5 flex items-center gap-2">
                                 <div className="flex gap-1.5">
@@ -234,8 +281,12 @@ export default function ContractorRegister() {
                                     </div>
                                 )}
                                 <div className="absolute -bottom-10 left-6">
-                                    <div className="w-20 h-20 rounded-xl bg-slate-800 border-4 border-slate-900 flex items-center justify-center text-slate-500">
-                                        <User className="w-10 h-10" />
+                                    <div className="w-20 h-20 rounded-xl bg-slate-800 border-4 border-slate-900 flex items-center justify-center text-slate-500 overflow-hidden">
+                                        {formData.profileImageUrl ? (
+                                            <img src={formData.profileImageUrl} className="w-full h-full object-cover" alt="Profile" />
+                                        ) : (
+                                            <User className="w-10 h-10" />
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -406,7 +457,7 @@ export default function ContractorRegister() {
                                         onClick={nextStep}
                                         className="py-3 px-4 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2"
                                     >
-                                        Claim & Continue <ArrowRight className="w-4 h-4" />
+                                        Continue <ArrowRight className="w-4 h-4" />
                                     </button>
                                 </div>
                             </div>
@@ -519,7 +570,25 @@ export default function ContractorRegister() {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-300 mb-2">Hero Image</label>
+                                    <label className="block text-sm font-medium text-slate-300 mb-2">Profile Picture</label>
+                                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/10 rounded-xl hover:border-amber-500/50 hover:bg-white/5 transition-all cursor-pointer group">
+                                        {formData.profileImageUrl ? (
+                                            <div className="flex items-center gap-2">
+                                                <img src={formData.profileImageUrl} className="w-12 h-12 rounded-full object-cover" />
+                                                <span className="text-emerald-400 text-sm font-medium">Image Selected</span>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <User className="w-8 h-8 text-slate-500 group-hover:text-amber-500 mb-2 transition-colors" />
+                                                <p className="text-sm text-slate-400">Click to upload profile picture</p>
+                                            </>
+                                        )}
+                                        <input type="file" className="hidden" accept="image/*" onChange={handleFileChange('profileImage')} />
+                                    </label>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-300 mb-2">Cover Image</label>
                                     <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/10 rounded-xl hover:border-amber-500/50 hover:bg-white/5 transition-all cursor-pointer group">
                                         {formData.heroImageUrl ? (
                                             <div className="flex items-center gap-2">
@@ -532,7 +601,7 @@ export default function ContractorRegister() {
                                                 <p className="text-sm text-slate-400">Click to upload cover photo</p>
                                             </>
                                         )}
-                                        <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
+                                        <input type="file" className="hidden" accept="image/*" onChange={handleFileChange('heroImage')} />
                                     </label>
                                 </div>
 

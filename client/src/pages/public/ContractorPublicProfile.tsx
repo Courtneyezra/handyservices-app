@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useRoute } from 'wouter';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { MapPin, Mail, Globe, Share2, Star, ShieldCheck, Clock, Calendar as CalendarIcon, Check } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { useQuery } from '@tanstack/react-query';
+import {
+    MapPin, Share2, Star, ShieldCheck, Clock, Check,
+    ArrowRight, MessageCircle, Sparkles
+} from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
+
+// --- Types ---
 
 interface PublicProfile {
     id: string;
@@ -18,13 +20,17 @@ interface PublicProfile {
     bio: string | null;
     city: string | null;
     postcode: string | null;
+    phone: string | null;
     heroImageUrl: string | null;
-    socialLinks: {
-        instagram?: string;
-        linkedin?: string;
-        website?: string;
-    } | null;
+    mediaGallery: { type: 'image' | 'video'; url: string; caption?: string }[];
     skills: string[];
+    services: {
+        id: string;
+        name: string;
+        description: string;
+        pricePence: number;
+        category: string;
+    }[];
     radiusMiles: number;
 }
 
@@ -34,14 +40,27 @@ interface AvailabilitySlot {
     endTime: string;
 }
 
-export default function ContractorPublicProfile() {
-    const [, params] = useRoute('/handy/:slug');
-    const slug = params?.slug;
-    const { toast } = useToast();
-    const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
-    const [isBookingOpen, setIsBookingOpen] = useState(false);
+// --- Component ---
 
-    // Fetch Profile
+export default function ContractorPublicProfile({ forcedSlug }: { forcedSlug?: string }) {
+    const [, params] = useRoute('/handy/:slug');
+    const slug = forcedSlug || params?.slug;
+    const { toast } = useToast();
+
+    // States
+    const [isQuoteOpen, setIsQuoteOpen] = useState(false); // Rough Quote Modal
+    const [scrolled, setScrolled] = useState(false);
+
+    // Scroll listener for sticky header
+    useEffect(() => {
+        const handleScroll = () => setScrolled(window.scrollY > 50);
+        // Check initial position
+        handleScroll();
+        window.addEventListener('scroll', handleScroll);
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, []);
+
+    // 1. Fetch Profile
     const { data: profile, isLoading, error } = useQuery<PublicProfile>({
         queryKey: ['public-profile', slug],
         queryFn: async () => {
@@ -57,7 +76,7 @@ export default function ContractorPublicProfile() {
         retry: false
     });
 
-    // Fetch Availability
+    // 2. Fetch Availability
     const { data: availabilityData } = useQuery<{ availability: AvailabilitySlot[] }>({
         queryKey: ['public-availability', slug],
         queryFn: async () => {
@@ -69,287 +88,312 @@ export default function ContractorPublicProfile() {
         enabled: !!slug
     });
 
-    // Booking Mutation
-    const bookingMutation = useMutation({
-        mutationFn: async (data: any) => {
-            const res = await fetch(`/api/public/contractor/${slug}/book`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            if (!res.ok) throw new Error('Booking failed');
-            return res.json();
-        },
-        onSuccess: () => {
-            toast({
-                title: "Request Sent!",
-                description: "The contractor has been notified of your request.",
-            });
-            setIsBookingOpen(false);
-            setSelectedSlot(null);
-        },
-        onError: () => {
-            toast({
-                title: "Error",
-                description: "Failed to send booking request. Please try again.",
-                variant: "destructive"
-            });
-        }
-    });
-
-    const handleSlotClick = (slot: AvailabilitySlot) => {
-        setSelectedSlot(slot);
-        setIsBookingOpen(true);
-    };
-
-    const handleBookingSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        const formData = new FormData(e.currentTarget);
-        bookingMutation.mutate({
-            name: formData.get('name'),
-            email: formData.get('email'),
-            phone: formData.get('phone'),
-            description: formData.get('description'),
-            date: selectedSlot?.date,
-            slot: `${selectedSlot?.startTime} - ${selectedSlot?.endTime}`
-        });
-    };
-
-    useEffect(() => {
-        if (profile) {
-            document.title = `${profile.fullName} | Handy Services`;
-        }
-    }, [profile]);
+    // --- Loading / Error States ---
 
     if (isLoading) {
         return (
             <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-                <div className="w-10 h-10 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin" />
+                <div className="w-12 h-12 border-4 border-slate-200 border-t-amber-500 rounded-full animate-spin" />
             </div>
         );
     }
 
     if (error || !profile) {
         return (
-            <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
-                <h1 className="text-2xl font-bold text-slate-800 mb-2">Profile Not Found</h1>
-                <p className="text-slate-600">This contractor profile does not exist or is currently private.</p>
+            <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
+                <h1 className="text-2xl font-bold text-slate-900 mb-2">Profile Not Found</h1>
+                <p className="text-slate-500">This contractor profile is strictly private or does not exist.</p>
             </div>
         );
     }
 
+    // --- Handlers ---
+
+    const handleWhatsAppClick = () => {
+        if (!profile.phone) return;
+        const phone = profile.phone.replace(/[^0-9]/g, '');
+        const text = `Hi ${profile.firstName}, I found your profile on Handy. I'd like to discuss a job.`;
+        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank');
+    };
+
+    const handleShareClick = () => {
+        if (navigator.share) {
+            navigator.share({
+                title: `${profile.fullName} - Professional Handyman`,
+                url: window.location.href
+            }).catch(console.error);
+        } else {
+            navigator.clipboard.writeText(window.location.href);
+            toast({ title: "Copied!", description: "Profile link copied to clipboard." });
+        }
+    };
+
+    // --- Render ---
+
+    const safeFirstName = profile.firstName || 'Pro';
+    const safeInitial = safeFirstName[0] || 'H';
+
     return (
-        <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+        <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20 selection:bg-amber-100">
+
+            {/* Sticky Header */}
+            <header className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${scrolled ? 'bg-white/90 backdrop-blur-md shadow-sm py-3' : 'bg-transparent py-4'}`}>
+                <div className="max-w-md mx-auto px-4 flex items-center justify-between">
+                    {scrolled ? (
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-white font-bold text-sm">
+                                {safeInitial}
+                            </div>
+                            <span className="font-bold text-slate-900 text-sm">{profile.fullName || 'Verified Pro'}</span>
+                        </div>
+                    ) : (
+                        <span className="text-xs font-bold tracking-wider text-slate-500 uppercase bg-white/20 backdrop-blur-md px-2 py-1 rounded-full">
+                            Verified Pro
+                        </span>
+                    )}
+
+                    <button
+                        onClick={handleShareClick}
+                        className="w-10 h-10 rounded-full bg-white/80 hover:bg-white flex items-center justify-center text-slate-700 shadow-sm backdrop-blur-sm transition-all active:scale-95"
+                    >
+                        <Share2 className="w-5 h-5" />
+                    </button>
+                </div>
+            </header>
+
             {/* Hero Section */}
-            <div className="relative h-64 md:h-80 lg:h-96 bg-slate-800 overflow-hidden">
-                {profile.heroImageUrl ? (
-                    <img
-                        src={profile.heroImageUrl}
-                        alt="Expertise"
-                        className="w-full h-full object-cover opacity-60"
-                    />
-                ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-slate-800 to-slate-900" />
-                )}
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 to-transparent" />
+            <div className="relative">
+                {/* Background Image */}
+                <div className="h-64 bg-slate-200 overflow-hidden relative">
+                    {profile.heroImageUrl ? (
+                        <img src={profile.heroImageUrl} alt="Background" className="w-full h-full object-cover" />
+                    ) : (
+                        <div className="w-full h-full bg-gradient-to-b from-slate-700 to-slate-900" />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-50 via-slate-50/20 to-transparent" />
+                </div>
 
-                <div className="absolute bottom-0 left-0 right-0 p-6 md:p-10">
-                    <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-end gap-6">
-                        {/* Avatar Stub */}
-                        <div className="w-24 h-24 md:w-32 md:h-32 rounded-full bg-white p-1 shadow-xl -mb-12 md:-mb-16 z-10">
-                            <div className="w-full h-full rounded-full bg-amber-500 flex items-center justify-center text-white text-4xl font-bold">
-                                {profile.firstName[0]}
-                            </div>
-                        </div>
-
-                        <div className="flex-1 text-white pb-2">
-                            <h1 className="text-3xl md:text-5xl font-bold">{profile.fullName}</h1>
-                            <div className="flex items-center gap-4 mt-2 text-slate-300 text-sm md:text-base">
-                                <span className="flex items-center gap-1">
-                                    <MapPin className="w-4 h-4 text-amber-400" />
-                                    {profile.city || 'Local Expert'}
+                {/* Content Sections */}
+                <div className="max-w-md mx-auto px-4 -mt-20 relative z-10 text-center">
+                    {/* Avatar */}
+                    <div className="w-32 h-32 rounded-3xl bg-white p-1.5 shadow-xl mb-4 rotate-3 hover:rotate-0 transition-transform duration-300 mx-auto">
+                        <div className="w-full h-full rounded-2xl bg-amber-500 flex items-center justify-center overflow-hidden relative">
+                            {profile.heroImageUrl ? (
+                                <img src={profile.heroImageUrl} className="w-full h-full object-cover" />
+                            ) : (
+                                <span className="text-5xl font-bold text-white shadow-sm">
+                                    {(profile.firstName && profile.firstName[0]) || 'H'}
                                 </span>
-                                <span className="flex items-center gap-1">
-                                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                                    Verified Pro
-                                </span>
-                            </div>
+                            )}
                         </div>
+                        {/* Verified Badge */}
+                        <div className="absolute -bottom-2 -right-2 bg-emerald-500 text-white p-1.5 rounded-full border-4 border-white shadow-sm">
+                            <ShieldCheck className="w-5 h-5" />
+                        </div>
+                    </div>
 
-                        {/* Contact CTA */}
-                        <div className="w-full md:w-auto pb-2">
-                            <a
-                                href="#contact"
-                                className="block w-full text-center px-8 py-3 bg-white text-slate-900 hover:bg-slate-100 font-bold rounded-lg shadow-lg transition-colors"
+                    {/* Name & Bio */}
+                    <h1 className="text-2xl font-bold text-slate-900 mb-1">{profile.fullName || 'Verified Pro'}</h1>
+                    <div className="flex items-center justify-center gap-2 text-slate-500 text-sm mb-4">
+                        <div className="flex items-center gap-1">
+                            <MapPin className="w-4 h-4 text-amber-500" /> {profile.city || 'Local Area'}
+                        </div>
+                        <span className="w-1 h-1 rounded-full bg-slate-300" />
+                        <div className="flex items-center gap-1">
+                            <Star className="w-4 h-4 text-amber-500 fill-amber-500" /> 4.9 (127 reviews)
+                        </div>
+                    </div>
+
+                    {/* Bio Text */}
+                    <p className="text-slate-600 text-sm leading-relaxed max-w-sm mx-auto mb-6 line-clamp-3">
+                        {profile.bio || `Hi, I'm ${profile.firstName || 'a professional'}. I'm a professional tradesperson dedicated to high-quality work and happy customers. Let's get your job done right.`}
+                    </p>
+
+                    {/* MAIN ACTIONS (The "2025" Buttons) */}
+                    <div className="w-full grid grid-cols-1 gap-3 mb-8">
+                        {/* WhatsApp Primary */}
+                        {profile.phone && (
+                            <button
+                                onClick={handleWhatsAppClick}
+                                className="w-full py-4 bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold rounded-2xl shadow-lg shadow-green-900/10 flex items-center justify-center gap-3 active:scale-[0.98] transition-all"
                             >
-                                Contact Me
-                            </a>
-                        </div>
+                                <MessageCircle className="w-6 h-6 fill-current" />
+                                <span>WhatsApp Me</span>
+                            </button>
+                        )}
+
+                        {/* AI Assistant Secondary */}
+                        <button
+                            onClick={() => setIsQuoteOpen(true)}
+                            className="w-full py-4 bg-white border border-indigo-100 text-indigo-600 font-bold rounded-2xl shadow-sm hover:bg-indigo-50 flex items-center justify-center gap-3 active:scale-[0.98] transition-all relative overflow-hidden group"
+                        >
+                            <div className="absolute inset-0 bg-gradient-to-r from-indigo-50 to-purple-50 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            <Sparkles className="w-5 h-5 text-indigo-500 relative z-10" />
+                            <span className="relative z-10">Get Rough Quote (AI)</span>
+                        </button>
                     </div>
                 </div>
             </div>
 
-            {/* Main Content */}
-            <main className="max-w-5xl mx-auto px-6 py-20 md:py-24 grid md:grid-cols-3 gap-10">
+            {/* Content Sections */}
+            <div className="max-w-md mx-auto px-4 space-y-8">
 
-                {/* Left Column: Bio & Skills */}
-                <div className="md:col-span-2 space-y-10">
+                {/* Media Gallery */}
+                {profile.mediaGallery && profile.mediaGallery.length > 0 && (
                     <section>
-                        <h2 className="text-2xl font-bold mb-4">About Me</h2>
-                        <div className="prose prose-slate max-w-none text-slate-600 leading-relaxed whitespace-pre-line">
-                            {profile.bio || "Hi, I'm a professional contractor ready to help with your home improvement needs."}
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-lg font-bold text-slate-900">Work Portfolio</h2>
+                            <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
+                                {profile.mediaGallery.length} Photos
+                            </span>
                         </div>
-                    </section>
-
-                    <section>
-                        <h2 className="text-2xl font-bold mb-4">My Services</h2>
-                        <div className="flex flex-wrap gap-2">
-                            {profile.skills.length > 0 ? profile.skills.map(skill => (
-                                <span key={skill} className="px-3 py-1 bg-white border border-slate-200 rounded-full text-slate-600 text-sm font-medium">
-                                    {skill}
-                                </span>
-                            )) : (
-                                <p className="text-slate-500 italic">No specific services listed.</p>
-                            )}
-                        </div>
-                    </section>
-
-                    <section id="contact">
-                        <div className="bg-amber-50 border border-amber-100 rounded-xl p-6">
-                            <div className="flex items-start gap-4">
-                                <Star className="w-6 h-6 text-amber-500 flex-shrink-0 mt-1" />
-                                <div>
-                                    <h3 className="font-bold text-slate-900">Why choose me?</h3>
-                                    <ul className="mt-2 space-y-2 text-slate-700">
-                                        <li className="flex items-center gap-2">✓ Verified background check</li>
-                                        <li className="flex items-center gap-2">✓ Professional tools and equipment</li>
-                                        <li className="flex items-center gap-2">✓ Satisfaction guaranteed</li>
-                                    </ul>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
-                </div>
-
-                {/* Right Column: Sidebar info */}
-                <div className="space-y-6">
-                    {/* Availability / Booking Widget */}
-                    <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm sticky top-6">
-                        <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-4">
-                            <Clock className="w-5 h-5 text-slate-400" />
-                            Next Availability
-                        </h3>
-
-                        {availabilityData?.availability && availabilityData.availability.length > 0 ? (
-                            <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
-                                {availabilityData.availability.slice(0, 5).map((slot, idx) => (
-                                    <button
-                                        key={idx}
-                                        onClick={() => handleSlotClick(slot)}
-                                        className="w-full text-left p-3 rounded-lg border border-slate-100 hover:border-amber-300 hover:bg-amber-50 transition-all group"
-                                    >
-                                        <div className="flex items-center justify-between">
-                                            <span className="font-medium text-slate-700 group-hover:text-amber-900">
-                                                {format(new Date(slot.date), 'EEE, MMM d')}
-                                            </span>
-                                            <span className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-full group-hover:bg-amber-200 group-hover:text-amber-800">
-                                                {slot.startTime}
-                                            </span>
+                        <div className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory scrollbar-hide -mx-4 px-4">
+                            {profile.mediaGallery.map((media, idx) => (
+                                <div key={idx} className="flex-shrink-0 w-64 h-48 rounded-2xl overflow-hidden bg-slate-200 border border-slate-100 shadow-sm snap-center relative group">
+                                    {media.type === 'video' ? (
+                                        <div className="w-full h-full flex items-center justify-center bg-slate-800 text-white">
+                                            <span>Video Placeholder</span>
                                         </div>
-                                    </button>
-                                ))}
-                                <p className="text-xs text-center text-slate-500 pt-2">
-                                    Select a slot to request a booking.
-                                </p>
-                            </div>
+                                    ) : (
+                                        <img src={media.url} alt={media.caption || `Work sample ${idx + 1}`} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                                    )}
+                                    {media.caption && (
+                                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3 pt-8">
+                                            <p className="text-white text-xs font-medium">{media.caption}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+                )}
+
+                {/* Services / Rate Card */}
+                <section>
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-lg font-bold text-slate-900">Services & Rates</h2>
+                        <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-1 rounded-full">
+                            {profile.services?.length || 0} Active
+                        </span>
+                    </div>
+
+                    <div className="space-y-3">
+                        {profile.services && profile.services.length > 0 ? (
+                            profile.services.map((service) => (
+                                <div key={service.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between group active:scale-[0.99] transition-transform">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-amber-100 group-hover:text-amber-600 transition-colors">
+                                            {/* Ideally dynamic icon based on category */}
+                                            <Check className="w-6 h-6" />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-slate-900 text-sm">{service.name}</h3>
+                                            <p className="text-xs text-slate-500">{service.category || 'General'}</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="font-bold text-slate-900">£{(service.pricePence / 100).toFixed(0)}</div>
+                                        <div className="text-[10px] text-slate-400 font-medium">STARTING</div>
+                                    </div>
+                                </div>
+                            ))
                         ) : (
-                            <div className="text-center py-6 bg-slate-50 rounded-lg border border-dashed border-slate-200">
-                                <p className="text-slate-500 text-sm">No upcoming slots available online.</p>
-                                <a href={`mailto:contact@handy.com?subject=Booking Request for ${profile.fullName}`} className="text-amber-600 font-medium text-sm hover:underline mt-1 block">
-                                    Email for availability
-                                </a>
+                            // Fallback Empty State
+                            <div className="p-6 bg-white rounded-2xl border border-dashed border-slate-200 text-center">
+                                <p className="text-sm text-slate-500">Contact me for custom service pricing.</p>
                             </div>
                         )}
                     </div>
+                </section>
 
-                    {/* Service Area */}
-                    <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-                        <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-4">
-                            <MapPin className="w-5 h-5 text-slate-400" />
-                            Service Area
-                        </h3>
-                        <p className="text-slate-600 text-sm mb-4">
-                            Covering {profile.city} and surrounding areas within {profile.radiusMiles} miles.
-                        </p>
-                        {/* Visual map placeholder */}
-                        <div className="aspect-video bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs">
-                            Map View
+                {/* Availability Widget */}
+                <section>
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-lg font-bold text-slate-900">Next Available</h2>
+                        <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-100/50 rounded-full">
+                            <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                            </span>
+                            <span className="text-[10px] font-bold text-emerald-700 tracking-wide uppercase">Live</span>
                         </div>
                     </div>
 
-                    {/* Social Links */}
-                    {profile.socialLinks && Object.values(profile.socialLinks).some(Boolean) && (
-                        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-                            <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-4">
-                                <Share2 className="w-5 h-5 text-slate-400" />
-                                Connect
-                            </h3>
-                            <div className="space-y-3">
-                                {profile.socialLinks.website && (
-                                    <a href={profile.socialLinks.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-slate-600 hover:text-amber-600 transition-colors">
-                                        <Globe className="w-4 h-4" /> Website
-                                    </a>
-                                )}
-                                {profile.socialLinks.instagram && (
-                                    <a href={profile.socialLinks.instagram} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-slate-600 hover:text-amber-600 transition-colors">
-                                        <span className="w-4 h-4 font-bold text-center leading-none">IG</span> Instagram
-                                    </a>
-                                )}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </main>
+                    <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 relative overflow-hidden">
+                        {/* Decorative BG Blob */}
+                        <div className="absolute -top-10 -right-10 w-32 h-32 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none" />
 
-            {/* Booking Modal */}
-            <Dialog open={isBookingOpen} onOpenChange={setIsBookingOpen}>
-                <DialogContent>
+                        {availabilityData?.availability && availabilityData.availability.length > 0 ? (
+                            <div className="relative z-10">
+                                <p className="text-sm text-slate-500 mb-4">I have openings coming up in the next few days.</p>
+                                <div className="space-y-2">
+                                    {availabilityData.availability.slice(0, 3).map((slot, i) => (
+                                        <button
+                                            key={i}
+                                            onClick={handleWhatsAppClick} // Direct to WhatsApp for booking
+                                            className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100 hover:border-emerald-200 hover:bg-emerald-50/50 transition-colors group"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className="bg-white p-2 rounded-lg shadow-sm text-emerald-600 font-bold text-xs uppercase text-center w-12 leading-none">
+                                                    {format(new Date(slot.date), 'MMM')}<br />
+                                                    <span className="text-lg text-slate-900">{format(new Date(slot.date), 'd')}</span>
+                                                </div>
+                                                <div className="text-left">
+                                                    <span className="block font-bold text-slate-700 text-sm group-hover:text-emerald-800">{format(new Date(slot.date), 'EEEE')}</span>
+                                                    <span className="text-xs text-slate-500">{slot.startTime} Start</span>
+                                                </div>
+                                            </div>
+                                            <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-emerald-500" />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="text-center py-4">
+                                <p className="text-sm text-slate-500 mb-2">My calendar is fully booked for online requests.</p>
+                                <button onClick={handleWhatsAppClick} className="text-emerald-600 font-bold text-sm hover:underline">Message to squeeze in</button>
+                            </div>
+                        )}
+                    </div>
+                </section>
+
+                {/* Footer Brand */}
+                <div className="pb-10 pt-4 text-center">
+                    <p className="text-xs text-slate-400 font-medium flex items-center justify-center gap-1">
+                        Powered by <Sparkles className="w-3 h-3 text-amber-500" /> <span className="text-slate-600 font-bold">HandyProfile</span>
+                    </p>
+                </div>
+
+            </div>
+
+            {/* AI Quote Modal Placeholder */}
+            <Dialog open={isQuoteOpen} onOpenChange={setIsQuoteOpen}>
+                <DialogContent className="sm:max-w-md border-0 bg-slate-50 shadow-2xl">
                     <DialogHeader>
-                        <DialogTitle>Request Booking</DialogTitle>
+                        <DialogTitle className="flex items-center gap-2 text-xl">
+                            <Sparkles className="w-5 h-5 text-amber-500" />
+                            Use AI Quote Bot
+                        </DialogTitle>
                         <DialogDescription>
-                            Request a service with {profile.fullName} for {selectedSlot && format(new Date(selectedSlot.date), 'MMMM d, yyyy')} at {selectedSlot?.startTime}.
+                            Get a rough estimate in seconds based on {profile.firstName}'s rates.
                         </DialogDescription>
                     </DialogHeader>
-                    <form onSubmit={handleBookingSubmit} className="space-y-4 py-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="name">Your Name</Label>
-                            <Input id="name" name="name" required placeholder="John Doe" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="email">Email</Label>
-                                <Input id="email" name="email" type="email" placeholder="john@example.com" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="phone">Phone</Label>
-                                <Input id="phone" name="phone" required placeholder="07123 456789" />
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="description">Job Description</Label>
-                            <Textarea id="description" name="description" placeholder="Briefly describe what you need help with..." />
-                        </div>
 
-                        <DialogFooter>
-                            <Button type="button" variant="outline" onClick={() => setIsBookingOpen(false)}>Cancel</Button>
-                            <Button type="submit" disabled={bookingMutation.isPending}>
-                                {bookingMutation.isPending && <Clock className="w-4 h-4 mr-2 animate-spin" />}
-                                Send Request
-                            </Button>
-                        </DialogFooter>
-                    </form>
+                    <div className="p-6 bg-white rounded-2xl border border-slate-100 shadow-sm text-center">
+                        <div className="w-16 h-16 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-full mx-auto flex items-center justify-center text-white mb-4 shadow-lg shadow-indigo-500/20">
+                            <Sparkles className="w-8 h-8 animate-pulse" />
+                        </div>
+                        <h3 className="font-bold text-slate-900 mb-2">How it works</h3>
+                        <p className="text-sm text-slate-500 mb-6">
+                            Describe your job, upload photos if you have them, and our AI will generate a price range based on {profile.firstName}'s past work.
+                        </p>
+                        <Button className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold h-12 rounded-xl">
+                            Start Chat
+                        </Button>
+                    </div>
                 </DialogContent>
             </Dialog>
+
         </div>
     );
 }

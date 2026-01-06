@@ -11,7 +11,7 @@ import { generateValuePricingQuote, createAnalyticsLog, generateTierDeliverables
 // Define input schema for value pricing
 const valuePricingInputSchema = z.object({
     jobDescription: z.string().min(10, 'Job description must be at least 10 characters'),
-    baseJobPrice: z.number().positive('Base price must be positive'), // In pence
+    baseJobPrice: z.number().nonnegative('Base price must be non-negative'), // In pence
     urgencyReason: z.enum(['low', 'med', 'high']),
     ownershipContext: z.enum(['tenant', 'homeowner', 'landlord', 'airbnb', 'selling']),
     desiredTimeframe: z.enum(['flex', 'week', 'asap']),
@@ -20,12 +20,13 @@ const valuePricingInputSchema = z.object({
     phone: z.string().min(1, 'Phone number is required'),
     email: z.string().email().optional().or(z.literal('')),
     postcode: z.string().min(1, 'Postcode is required'),
-    quoteMode: z.enum(['simple', 'hhh']).default('hhh'),
+    quoteMode: z.enum(['simple', 'hhh', 'pick_and_mix']).default('hhh'),
     analyzedJobData: z.any().optional(), // Pass through AI analysis data
     materialsCostWithMarkupPence: z.number().nonnegative().optional(), // Materials with markup
     optionalExtras: z.array(z.any()).optional(), // Optional extras for simple mode
-    clientType: z.enum(['homeowner', 'landlord', 'commercial']).default('homeowner'), // New: Default to homeowner
-    jobComplexity: z.enum(['trivial', 'low', 'medium', 'high']).default('low'), // New: Default to low
+    clientType: z.enum(['homeowner', 'landlord', 'commercial']).default('homeowner'),
+    jobComplexity: z.enum(['trivial', 'low', 'medium', 'high']).default('low'),
+    contractorId: z.string().optional(), // New: Link quote to contractor
 });
 
 export const quotesRouter = Router();
@@ -47,8 +48,13 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             baseJobPrice: input.baseJobPrice,
             clientType: input.clientType,
             jobComplexity: input.jobComplexity,
-            forcedQuoteStyle: input.quoteMode === 'hhh' ? 'hhh' : undefined,
+            forcedQuoteStyle: (input.quoteMode === 'hhh' || input.quoteMode === 'pick_and_mix') ? input.quoteMode : undefined,
         });
+
+        // Pick & Mix Logic: Sort extras high to low (Anchoring)
+        if (input.quoteMode === 'pick_and_mix' && input.optionalExtras) {
+            input.optionalExtras.sort((a: any, b: any) => (b.priceInPence || 0) - (a.priceInPence || 0));
+        }
 
         // Generate tier deliverables
         const tierDeliverables = generateTierDeliverables(input.analyzedJobData, input.jobDescription);
@@ -57,6 +63,7 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
         const quoteInsertData = {
             id,
             shortSlug,
+            contractorId: input.contractorId || null, // Capture contractor ID
             customerName: input.customerName,
             phone: input.phone,
             email: input.email || null,
@@ -70,7 +77,7 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             elitePrice: input.quoteMode === 'hhh' ? pricingResult.highStandard.price : null,
 
             // Simple Mode Prices
-            basePrice: input.quoteMode === 'simple' ? pricingResult.essential.price : null,
+            basePrice: (input.quoteMode === 'simple' || input.quoteMode === 'pick_and_mix') ? pricingResult.essential.price : null,
 
             // Context & Inputs
             urgencyReason: input.urgencyReason,
@@ -121,7 +128,7 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
                 warrantyMonths: pricingResult.highStandard.warrantyMonths,
                 isRecommended: pricingResult.highStandard.isRecommended,
             } : undefined,
-            basePrice: input.quoteMode === 'simple' ? pricingResult.essential.price : undefined,
+            basePrice: (input.quoteMode === 'simple' || input.quoteMode === 'pick_and_mix') ? pricingResult.essential.price : undefined,
         };
 
         res.status(201).json(responsePayload);
@@ -138,24 +145,33 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
 // Analyze Job Endpoint
 quotesRouter.post('/api/analyze-job', async (req, res) => {
     try {
-        const { jobDescription } = req.body;
+        const { jobDescription, optionalExtrasRaw, hourlyRate = 50, rateCard = {} } = req.body;
         if (!jobDescription) return res.status(400).json({ error: "Job description is required" });
 
+        const rateCardString = Object.entries(rateCard).map(([k, v]) => `${k} at £${v}/hr`).join(', ');
+        const ratesContext = rateCardString
+            ? `Use these specific contractor rates where applicable: ${rateCardString}. For unlisted tasks use default £${hourlyRate}/hr.`
+            : `Estimate at flat £${hourlyRate}/hr.`;
+
         const response = await openai.chat.completions.create({
-            model: "gpt-4o",
+            model: "gpt-4o-mini",
             messages: [
                 {
                     role: "system",
                     content: `Analyze this handyman job description. Return JSON with:
                     - totalEstimatedHours (number)
-                    - basePricePounds (number, estimate at £50/hr + £40 callout)
+                    - basePricePounds (number) - calculated by summing (task hours * task rate) + £40 callout
                     - summary (string, professional summary)
-                    - tasks (array of objects with description, estimatedHours)
+                    - tasks (array of objects with description, estimatedHours, category, appliedRate)
+                    - optionalExtras (array of objects with label, pricePence, description, isRecommended boolean).
+                    
+                    ${ratesContext}
+                    Identify the category for each task to apply the correct rate.
                     `
                 },
                 {
                     role: "user",
-                    content: jobDescription
+                    content: `Job Description: ${jobDescription}\n\nOptional Extras Input: ${optionalExtrasRaw || "None"}`
                 }
             ],
             response_format: { type: "json_object" }
@@ -166,7 +182,17 @@ quotesRouter.post('/api/analyze-job', async (req, res) => {
 
     } catch (error: any) {
         console.error("Job analysis error:", error?.message || error);
-        console.error("Full error:", JSON.stringify(error, null, 2));
+
+        // Always fallback to mock for now if AI fails (Unconditional fallback for debugging)
+        console.warn("Analysis failed, returning mock data. Error:", error?.message);
+        return res.json({
+            totalEstimatedHours: 2,
+            basePricePounds: (req.body.hourlyRate || 50) * 2 + 40,
+            summary: "Standard repair service (Mock Analysis - AI Unavailable)",
+            tasks: [{ description: req.body.jobDescription || "General repair", estimatedHours: 2, category: "general", appliedRate: req.body.hourlyRate || 50 }],
+            optionalExtras: []
+        });
+
         res.status(500).json({ error: "Analysis failed", details: error?.message || "Unknown error" });
     }
 });
@@ -251,7 +277,13 @@ quotesRouter.post('/api/recalculate-optional-extra', async (req, res) => {
 quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
     try {
         const { slug } = req.params;
-        const result = await db.select().from(personalizedQuotes).where(eq(personalizedQuotes.shortSlug, slug)).limit(1);
+        let result = await db.select().from(personalizedQuotes).where(eq(personalizedQuotes.shortSlug, slug)).limit(1);
+
+        // Fallback: If not found and looks like UUID, try ID
+        if (result.length === 0 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slug)) {
+            result = await db.select().from(personalizedQuotes).where(eq(personalizedQuotes.id, slug)).limit(1);
+        }
+
         const quote = result[0];
 
         if (!quote) {

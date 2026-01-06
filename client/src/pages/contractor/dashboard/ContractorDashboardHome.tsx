@@ -1,123 +1,329 @@
 import { useQuery } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import { AvailabilityHarvester } from "@/components/dashboard/AvailabilityHarvester";
+import { ConfettiTools } from "@/components/dashboard/ConfettiTools";
+import { QuoteTemplatesSlider } from "@/components/dashboard/QuoteTemplatesSlider";
 import { Link, useLocation } from "wouter";
 import {
     Calendar, Clock, DollarSign, ArrowRight, CheckCircle2, Sparkles,
-    Plus, Home, User, Settings, Zap, ChevronRight, BarChart3
+    Plus, Home, User, Settings, Zap, ChevronRight, BarChart3, FileText, Briefcase
 } from "lucide-react";
-import ContractorDashboardLayout from "../ContractorDashboardLayout";
-import { useState } from "react";
-import { format, addDays, isSameDay } from "date-fns";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
+import { useState, useEffect } from "react";
+import { format } from "date-fns";
+
+import { SmartSetupModal } from '@/components/dashboard/SmartSetupModal';
 
 export default function ContractorDashboardHome() {
-    const [, setLocation] = useLocation();
+    const [location, setLocation] = useLocation();
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+    const [showConfetti, setShowConfetti] = useState(false);
 
-    // Mock Data for "Trojan Horse" Availability Harvesting
-    const next14Days = Array.from({ length: 14 }, (_, i) => addDays(new Date(), i));
-    const [unavailableDates, setUnavailableDates] = useState<Date[]>([]);
+    // Nudge State
+    const [showNudge, setShowNudge] = useState(false);
+    const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
 
-    const toggleAvailability = (date: Date) => {
-        if (unavailableDates.some(d => isSameDay(d, date))) {
-            setUnavailableDates(prev => prev.filter(d => !isSameDay(d, date)));
-        } else {
-            setUnavailableDates(prev => [...prev, date]);
+    // Fetch profile for slug and name
+    const { data: profileData } = useQuery({
+        queryKey: ['contractor-profile'],
+        queryFn: async () => {
+            const token = localStorage.getItem('contractorToken');
+            const res = await fetch('/api/contractor/me', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (!res.ok) throw new Error('Failed to fetch profile');
+            return res.json();
+        },
+    });
+
+    const firstName = profileData?.user?.firstName || 'Contractor';
+    const profile = profileData?.profile;
+    const slug = profile?.slug;
+
+    // Check completeness
+    const completeness = [
+        profile?.slug ? 20 : 0,
+        profile?.bio ? 20 : 0,
+        profile?.heroImageUrl ? 20 : 0,
+        profile?.profileImageUrl ? 20 : 0,
+        (profile?.skills?.length > 0) ? 20 : 0
+    ].reduce((a, b) => a + b, 0);
+
+    const missingItems = [];
+    if (!profile?.slug) missingItems.push('Choose your public handle');
+    if (!profile?.heroImageUrl) missingItems.push('Add a cover photo');
+    if (!profile?.bio) missingItems.push('Write a short bio');
+
+    // Trigger Nudge on Load if incomplete and not dismissed recently
+    useEffect(() => {
+        if (profileData && !profile?.publicProfileEnabled) {
+            const hasSeenNudge = sessionStorage.getItem('hasSeenProfileNudge');
+            if (!hasSeenNudge) {
+                setShowNudge(true);
+                sessionStorage.setItem('hasSeenProfileNudge', 'true');
+            }
         }
-    };
+    }, [profileData, profile]);
+
+    // Check for welcome param
+    if (typeof window !== 'undefined' && !showConfetti) {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('welcome') === 'true') {
+            setShowConfetti(true);
+            // Clean URL without reload
+            window.history.replaceState({}, '', '/contractor/dashboard');
+        }
+    }
 
     return (
-        <ContractorDashboardLayout>
-            <div className="max-w-5xl mx-auto space-y-8">
+        <div className="min-h-screen bg-slate-950 pb-24 text-slate-100 font-sans selection:bg-amber-500/30">
+            {showConfetti && <ConfettiTools />}
 
-                {/* Welcome Section */}
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-900">Welcome back!</h1>
-                    <p className="text-slate-500">Here's what's happening today.</p>
-                </div>
+            <SmartSetupModal
+                isOpen={showNudge}
+                onClose={() => setShowNudge(false)}
+                profileStrength={completeness}
+                missingItems={missingItems}
+            />
 
-                {/* Stats Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {stats.map((stat) => (
-                        <div key={stat.label} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                            <div className={`w-12 h-12 rounded-full ${stat.bg} flex items-center justify-center`}>
-                                <stat.icon className={`w-6 h-6 ${stat.color}`} />
-                            </div>
-                            <div>
-                                <p className="text-sm font-medium text-slate-500">{stat.label}</p>
-                                <p className="text-2xl font-bold text-slate-900">{stat.value}</p>
-                            </div>
-                        </div>
-                    ))}
-                </div>
 
-                {/* Action Cards */}
-                <div className="grid md:grid-cols-2 gap-6">
-                    {/* Booking Requests */}
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                        <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-lg font-bold text-slate-900">Recent Requests</h2>
-                            <Link href="/contractor/dashboard/bookings">
-                                <a className="text-sm font-medium text-amber-600 hover:text-amber-700 flex items-center gap-1">
-                                    View All <ArrowRight className="w-4 h-4" />
-                                </a>
-                            </Link>
-                        </div>
 
-                        <div className="space-y-4">
-                            {[1].map((i) => (
-                                <div key={i} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-100">
-                                    <div>
-                                        <p className="font-bold text-slate-800">New Booking Inquiry</p>
-                                        <p className="text-sm text-slate-500">Mon, 12th Jan • 09:00</p>
-                                    </div>
-                                    <span className="px-2 py-1 bg-amber-100 text-amber-700 text-xs font-bold rounded-full">
-                                        Pending
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
+            {/* Mobile Header */}
+            <div className="lg:hidden sticky top-0 z-30 bg-slate-950/80 backdrop-blur-md border-b border-slate-800 px-4 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-400 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-900/20">
+                        <span className="font-bold text-white text-lg">{firstName.charAt(0)}</span>
                     </div>
+                    <div>
+                        <h1 className="font-bold text-base leading-tight">Hello, {firstName}</h1>
+                        <p className="text-xs text-slate-400">Business Dashboard</p>
+                    </div>
+                </div>
+                <div className="flex gap-2">
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <button className="p-2 rounded-full bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-colors">
+                                <Settings className="w-5 h-5" />
+                            </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-56 bg-slate-900 border-slate-800 p-2 mr-4">
+                            <div className="flex flex-col space-y-1">
+                                <Link href="/contractor/profile">
+                                    <button className="flex items-center gap-3 w-full px-3 py-2.5 text-sm md:text-base text-slate-300 hover:bg-slate-800 hover:text-white rounded-lg transition-colors text-left">
+                                        <User className="w-4 h-4" />
+                                        <span>Profile</span>
+                                    </button>
+                                </Link>
+                                <Link href="/contractor/dashboard/settings">
+                                    <button className="flex items-center gap-3 w-full px-3 py-2.5 text-sm md:text-base text-slate-300 hover:bg-slate-800 hover:text-white rounded-lg transition-colors text-left">
+                                        <Settings className="w-4 h-4" />
+                                        <span>Settings</span>
+                                    </button>
+                                </Link>
+                            </div>
+                        </PopoverContent>
+                    </Popover>
+                </div>
+            </div>
 
-                    {/* Smart Tools (New) */}
-                    <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl border border-slate-700 shadow-sm p-6 text-white">
-                        <div className="flex items-start justify-between mb-4">
-                            <div>
-                                <h2 className="text-lg font-bold flex items-center gap-2">
-                                    <Sparkles className="w-5 h-5 text-amber-400" />
-                                    Smart Quoting
+            <div className="max-w-5xl mx-auto px-4 lg:px-0 py-6 space-y-8">
+
+                {/* Desktop Welcome (Hidden on Mobile) */}
+                <div className="hidden lg:block">
+                    <h1 className="text-3xl font-bold text-white">Dashboard</h1>
+                    <p className="text-slate-400 mt-1">Manage your business, quotes, and availability.</p>
+                </div>
+
+                {/* HERO: Smart Quote Generator (The Hook) */}
+                <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-900 via-slate-900 to-slate-900 border border-indigo-500/30 shadow-2xl shadow-indigo-900/20 group">
+                    <div className="absolute top-0 right-0 p-32 bg-indigo-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+
+                    <div className="relative p-6 sm:p-8">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+                            <div className="space-y-4 max-w-lg">
+                                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 backdrop-blur-sm">
+                                    <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
+                                    <span className="text-xs font-semibold text-indigo-200 tracking-wide uppercase">New AI Feature</span>
+                                </div>
+
+                                <h2 className="text-2xl sm:text-3xl font-bold text-white leading-tight">
+                                    Create a <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-200 to-amber-500">Magic Quote</span> in seconds.
                                 </h2>
-                                <p className="text-sm text-slate-400 mt-1">
-                                    Generate professional "Good / Better / Best" options for your private jobs in seconds.
+                                <p className="text-slate-300 text-sm sm:text-base leading-relaxed">
+                                    Stop writing quotes at night. Our AI builds "Good, Better, Best" options instantly—helping you win 3x more jobs.
                                 </p>
                             </div>
-                        </div>
 
-                        <Link href="/contractor/dashboard/quotes/new">
-                            <button className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold transition-all shadow-lg hover:shadow-amber-500/20 flex items-center justify-center gap-2">
-                                <Sparkles className="w-4 h-4" />
-                                Create "Magic" Quote
-                            </button>
-                        </Link>
-                    </div>
-
-                    {/* Quick Profile Status */}
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-                        <h2 className="text-lg font-bold text-slate-900 mb-6">Profile Status</h2>
-                        <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-lg border border-emerald-100 mb-4">
-                            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                            <div>
-                                <p className="font-bold text-emerald-900">Your profile is live</p>
-                                <p className="text-sm text-emerald-700">Service area: 10 miles</p>
-                            </div>
+                            <Link href="/contractor/dashboard/quotes/new">
+                                <button className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold rounded-xl shadow-lg shadow-amber-900/40 transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3 group-hover:shadow-amber-500/25">
+                                    <Zap className="w-5 h-5 fill-current" />
+                                    <span>Build Quote Now</span>
+                                    <ChevronRight className="w-4 h-4 opacity-70" />
+                                </button>
+                            </Link>
                         </div>
-                        <Link href="/contractor/profile">
-                            <button className="w-full py-2 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition-colors">
-                                Edit Profile
-                            </button>
-                        </Link>
                     </div>
                 </div>
 
+                {/* Quick Templates Slider */}
+                <QuoteTemplatesSlider />
+
+                {/* "TROJAN HORSE": Availability Widget (The Harvest) */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2 space-y-6">
+
+                        {/* THE HARVESTER WIDGET */}
+                        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden backdrop-blur-sm">
+                            <AvailabilityHarvester />
+                        </div>
+
+                        {/* Recent Activity / Stats Grid */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm">
+                                <div className="flex items-start justify-between mb-4">
+                                    <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
+                                        <Clock className="w-5 h-5" />
+                                    </div>
+                                    <span className="text-xs font-bold bg-slate-800 text-slate-400 px-2 py-1 rounded">Month</span>
+                                </div>
+                                <p className="text-3xl font-bold text-white mb-1">0</p>
+                                <p className="text-sm text-slate-400">Active Jobs</p>
+                            </div>
+                            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm">
+                                <div className="flex items-start justify-between mb-4">
+                                    <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                                        <BarChart3 className="w-5 h-5" />
+                                    </div>
+                                    <span className="text-xs font-bold bg-slate-800 text-slate-400 px-2 py-1 rounded">Month</span>
+                                </div>
+                                <p className="text-3xl font-bold text-white mb-1">£0</p>
+                                <p className="text-sm text-slate-400">Revenue</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Right Column: "Get More Jobs" / Profile Status */}
+                    <div className="space-y-6">
+                        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 h-full relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 blur-3xl rounded-full pointer-events-none"></div>
+                            <h3 className="text-lg font-bold text-white mb-2">Profile Status</h3>
+                            <div className="flex items-center gap-2 text-emerald-400 mb-6 bg-emerald-500/10 px-3 py-2 rounded-lg border border-emerald-500/20 w-fit">
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span className="text-sm font-semibold">Active & Live</span>
+                            </div>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <div className="flex justify-between text-sm mb-2">
+                                        <span className="text-slate-400">Profile Strength</span>
+                                        <span className="text-amber-400 font-bold">85%</span>
+                                    </div>
+                                    <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                                        <div className="h-full w-[85%] bg-gradient-to-r from-amber-600 to-amber-400 rounded-full"></div>
+                                    </div>
+                                </div>
+
+                                <div className="pt-4 border-t border-slate-800">
+                                    {slug ? (
+                                        <a href={`/handy/${slug}`} target="_blank" rel="noopener noreferrer">
+                                            <button className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium rounded-xl transition-colors flex items-center justify-center gap-2">
+                                                View Public Profile
+                                                <ArrowRight className="w-4 h-4" />
+                                            </button>
+                                        </a>
+                                    ) : (
+                                        <Link href="/contractor/profile">
+                                            <button className="w-full py-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/50 text-sm font-medium rounded-xl transition-colors flex items-center justify-center">
+                                                Setup Public Profile
+                                            </button>
+                                        </Link>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </ContractorDashboardLayout>
+
+            {/* STICKY MOBILE BOTTOM MENU (The App Feel) */}
+            <div className="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-lg border-t border-slate-800 lg:hidden pb-safe">
+                <div className="grid grid-cols-5 h-16 items-center px-2">
+                    <Link href="/contractor/dashboard">
+                        <a className={`flex flex-col items-center justify-center gap-1 h-full text-amber-500`}>
+                            <Home className="w-5 h-5" />
+                            <span className="text-[10px] font-medium">Home</span>
+                        </a>
+                    </Link>
+                    <Link href="/contractor/calendar">
+                        <button className="flex flex-col items-center justify-center gap-1 h-full text-slate-500 hover:text-slate-300">
+                            <Calendar className="w-5 h-5" />
+                            <span className="text-[10px] font-medium">Schedule</span>
+                        </button>
+                    </Link>
+
+                    {/* CENTER FAB - CREATE QUOTE */}
+                    <div className="relative -top-5 flex flex-col justify-end items-center">
+                        <AnimatePresence>
+                            {isPlusMenuOpen && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: 20, scale: 0.8 }}
+                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                    exit={{ opacity: 0, y: 20, scale: 0.8 }}
+                                    className="absolute bottom-20 mb-2 flex flex-col items-center gap-3 z-50 min-w-[max-content]"
+                                >
+                                    {/* Magic Quote */}
+                                    <Link href="/contractor/dashboard/quotes/new?mode=hhh">
+                                        <button className="flex items-center gap-3 bg-slate-900 border border-amber-500/30 text-white px-5 py-3 rounded-full shadow-xl shadow-black/50 whitespace-nowrap backdrop-blur-md hover:bg-slate-800 transition-colors w-48">
+                                            <Sparkles className="w-4 h-4 text-amber-500" />
+                                            <span className="font-bold text-sm">Magic Quote</span>
+                                        </button>
+                                    </Link>
+
+                                    {/* Manual Quote */}
+                                    <Link href="/contractor/dashboard/quotes/new?mode=simple">
+                                        <button className="flex items-center gap-3 bg-slate-900 border border-slate-700 text-slate-300 px-5 py-3 rounded-full shadow-xl shadow-black/50 whitespace-nowrap backdrop-blur-md hover:bg-slate-800 hover:text-white transition-colors w-48">
+                                            <FileText className="w-4 h-4" />
+                                            <span className="font-bold text-sm">Create Quote</span>
+                                        </button>
+                                    </Link>
+
+                                    {/* Pick & Mix Quote */}
+                                    <Link href="/contractor/dashboard/quotes/new?mode=pick_and_mix">
+                                        <button className="flex items-center gap-3 bg-slate-900 border border-slate-700 text-slate-300 px-5 py-3 rounded-full shadow-xl shadow-black/50 whitespace-nowrap backdrop-blur-md hover:bg-slate-800 hover:text-white transition-colors w-48">
+                                            <Sparkles className="w-4 h-4 text-emerald-400" />
+                                            <span className="font-bold text-sm">Pick & Mix Quote</span>
+                                        </button>
+                                    </Link>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+
+                        <button
+                            onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
+                            className={`w-14 h-14 rounded-full shadow-xl shadow-amber-500/30 flex items-center justify-center text-white transform active:scale-95 transition-all border-4 border-slate-950 z-40 ${isPlusMenuOpen ? 'bg-slate-800 rotate-45' : 'bg-gradient-to-tr from-amber-500 to-orange-600'}`}
+                        >
+                            <Plus className={`w-7 h-7 transition-transform duration-200 ${isPlusMenuOpen ? 'text-slate-400' : 'text-white'}`} />
+                        </button>
+                    </div>
+
+                    <Link href="/contractor/dashboard/quotes">
+                        <button className="flex flex-col items-center justify-center gap-1 h-full text-slate-500 hover:text-slate-300">
+                            <FileText className="w-5 h-5" />
+                            <span className="text-[10px] font-medium">Quotes</span>
+                        </button>
+                    </Link>
+                    <Link href="/contractor/dashboard/jobs">
+                        <a className="flex flex-col items-center justify-center gap-1 h-full text-slate-500 hover:text-slate-300">
+                            <Briefcase className="w-5 h-5" />
+                            <span className="text-[10px] font-medium">Jobs</span>
+                        </a>
+                    </Link>
+                </div>
+            </div>
+        </div>
     );
 }

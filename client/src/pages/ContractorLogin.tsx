@@ -34,7 +34,7 @@ export default function ContractorLogin() {
             localStorage.setItem('contractorProfileId', data.profileId);
 
             // Redirect to dashboard
-            setLocation('/contractor');
+            setLocation('/contractor/dashboard');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Login failed');
         } finally {

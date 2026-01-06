@@ -236,7 +236,7 @@ export interface PricingResult {
   highStandard: TierPackage;
 
   // New Quote Topology Fields
-  quoteStyle: 'hhh' | 'direct' | 'rate_card';
+  quoteStyle: 'hhh' | 'direct' | 'rate_card' | 'pick_and_mix';
   isMultiOption: boolean;
 }
 
@@ -244,7 +244,7 @@ export interface PricingResult {
 // QUOTE STYLE LOGIC (The 3 Commandments)
 // ============================================================================
 
-export function determineQuoteStyle(inputs: ValuePricingInputs): 'hhh' | 'direct' | 'rate_card' {
+export function determineQuoteStyle(inputs: ValuePricingInputs): 'hhh' | 'direct' | 'rate_card' | 'pick_and_mix' {
   // 0. Forced Override (e.g. user requested specific mode)
   if (inputs.forcedQuoteStyle) {
     return inputs.forcedQuoteStyle;
@@ -275,8 +275,8 @@ export function generateValuePricingQuote(inputs: ValuePricingInputs): PricingRe
   // 1. Determine Style
   const style = determineQuoteStyle(inputs);
 
-  // 2. Handle Single-Option Styles (Direct / Rate Card)
-  if (style === 'direct' || style === 'rate_card') {
+  // 2. Handle Single-Option Styles (Direct / Rate Card / Pick & Mix)
+  if (style === 'direct' || style === 'rate_card' || style === 'pick_and_mix') {
     // No multipliers for direct fix (efficiency)
     // For Rate Card, we'd normally look up a contract price, but for now we use base price
     const finalPrice = inputs.baseJobPrice;
@@ -284,8 +284,8 @@ export function generateValuePricingQuote(inputs: ValuePricingInputs): PricingRe
     // Create a single tier package
     const singleTier: TierPackage = {
       ...TIER_CORE_DEFINITIONS.hassleFree, // Use 'Hassle Free' as the base template
-      name: style === 'rate_card' ? 'Standard Rate' : 'Fixed Price',
-      coreDescription: style === 'rate_card' ? 'Per agreed rate card' : 'Total for job',
+      name: style === 'rate_card' ? 'Standard Rate' : style === 'pick_and_mix' ? 'Base Charge' : 'Fixed Price',
+      coreDescription: style === 'rate_card' ? 'Per agreed rate card' : style === 'pick_and_mix' ? 'Base fee + selected items' : 'Total for job',
       price: ensurePriceEndsInNine(finalPrice),
       perks: [PERK_LIBRARY.basic_tidy], // Minimal perks
       isRecommended: true,
