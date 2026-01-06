@@ -6,7 +6,7 @@ import { QuoteTemplatesSlider } from "@/components/dashboard/QuoteTemplatesSlide
 import { Link, useLocation } from "wouter";
 import {
     Calendar, Clock, DollarSign, ArrowRight, CheckCircle2, Sparkles,
-    Plus, Home, User, Settings, Zap, ChevronRight, BarChart3, FileText, Briefcase
+    Plus, Home, User, Settings, Zap, ChevronRight, BarChart3, FileText, Briefcase, AlertCircle
 } from "lucide-react";
 import {
     Popover,
@@ -46,17 +46,19 @@ export default function ContractorDashboardHome() {
 
     // Check completeness
     const completeness = [
-        profile?.slug ? 20 : 0,
-        profile?.bio ? 20 : 0,
-        profile?.heroImageUrl ? 20 : 0,
-        profile?.profileImageUrl ? 20 : 0,
-        (profile?.skills?.length > 0) ? 20 : 0
+        profile?.slug ? 15 : 0,
+        profile?.bio ? 15 : 0,
+        profile?.heroImageUrl ? 15 : 0,
+        profile?.profileImageUrl ? 15 : 0,
+        (profile?.skills?.length > 0) ? 15 : 0,
+        (profile?.verificationStatus === 'verified') ? 25 : 0
     ].reduce((a, b) => a + b, 0);
 
     const missingItems = [];
     if (!profile?.slug) missingItems.push('Choose your public handle');
     if (!profile?.heroImageUrl) missingItems.push('Add a cover photo');
     if (!profile?.bio) missingItems.push('Write a short bio');
+    if (profile?.verificationStatus !== 'verified') missingItems.push('Complete verification to get your badge');
 
     // Trigger Nudge on Load if incomplete and not dismissed recently
     useEffect(() => {
@@ -211,10 +213,43 @@ export default function ContractorDashboardHome() {
                         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 h-full relative overflow-hidden">
                             <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 blur-3xl rounded-full pointer-events-none"></div>
                             <h3 className="text-lg font-bold text-white mb-2">Profile Status</h3>
-                            <div className="flex items-center gap-2 text-emerald-400 mb-6 bg-emerald-500/10 px-3 py-2 rounded-lg border border-emerald-500/20 w-fit">
-                                <CheckCircle2 className="w-4 h-4" />
-                                <span className="text-sm font-semibold">Active & Live</span>
-                            </div>
+
+                            {profile?.verificationStatus === 'verified' ? (
+                                <div className="flex items-center gap-2 text-sky-400 mb-6 bg-sky-500/10 px-3 py-2 rounded-lg border border-sky-500/20 w-fit">
+                                    <Sparkles className="w-4 h-4 fill-sky-400/20" />
+                                    <span className="text-sm font-bold uppercase tracking-wide">Handy Verified</span>
+                                </div>
+                            ) : (
+                                <div className="space-y-3 mb-6">
+                                    <div className="flex items-center gap-2 text-amber-400 bg-amber-500/10 px-3 py-2 rounded-lg border border-amber-500/20 w-fit">
+                                        <AlertCircle className="w-4 h-4" />
+                                        <span className="text-sm font-semibold capitalize">{profile?.verificationStatus === 'pending' ? 'Verification Pending' : 'Unverified'}</span>
+                                    </div>
+
+                                    {/* Insurance Grace Period Alert */}
+                                    {!profile?.publicLiabilityInsuranceUrl && profile?.createdAt && (() => {
+                                        const daysSinceSignup = Math.floor((new Date().getTime() - new Date(profile.createdAt).getTime()) / (1000 * 60 * 60 * 24));
+                                        const gracePeriod = 7;
+                                        const daysLeft = gracePeriod - daysSinceSignup;
+
+                                        if (daysLeft > 0) {
+                                            return (
+                                                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-xs text-blue-200">
+                                                    <span className="font-bold block mb-1">⚠️ Insurance Needed</span>
+                                                    You have <span className="text-white font-bold">{daysLeft} days</span> left in your grace period to upload Public Liability Insurance.
+                                                </div>
+                                            );
+                                        } else {
+                                            return (
+                                                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-xs text-red-200">
+                                                    <span className="font-bold block mb-1">⛔ Insurance Overdue</span>
+                                                    Your grace period has ended. Please upload your Public Liability Insurance immediately to continue accepting jobs.
+                                                </div>
+                                            );
+                                        }
+                                    })()}
+                                </div>
+                            )}
 
                             <div className="space-y-4">
                                 <div>

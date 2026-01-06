@@ -262,6 +262,7 @@ interface PersonalizedQuote {
     name: string;
     companyName: string;
     profilePhotoUrl?: string | null;
+    coverPhotoUrl?: string | null;
     slug?: string | null;
   };
 }
@@ -901,12 +902,17 @@ export default function PersonalizedQuotePage() {
       <div className="flex-1 px-4 py-3 pb-24 overflow-auto">
         <div className="max-w-2xl mx-auto">
           {/* Promotional Banner Image - Top of Page */}
-          <div className="mb-6 rounded-xl overflow-hidden" data-testid="promo-banner">
+          <div className="mb-6 rounded-xl overflow-hidden shadow-lg h-48 md:h-64 relative" data-testid="promo-banner">
             <img
-              src={payIn3PromoImage}
-              alt="Handy Services - Pay in 3 interest-free payments"
-              className="w-full h-auto object-contain"
+              src={quote.contractor?.coverPhotoUrl || payIn3PromoImage}
+              alt={quote.contractor?.coverPhotoUrl ? `Cover image for ${quote.contractor.name}` : "Handy Services - Pay in 3 interest-free payments"}
+              className="w-full h-full object-cover"
             />
+            {quote.contractor?.coverPhotoUrl && (
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-4">
+                {/* Optional: Add text overlay if needed, currently just darkening bottom for contrast */}
+              </div>
+            )}
           </div>
 
           {/* Customer Information - Top of Page */}

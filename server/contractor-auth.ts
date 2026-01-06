@@ -141,55 +141,53 @@ router.post('/register', async (req: Request, res: Response) => {
         }
 
 
-        // Transaction to ensure atomic registration
-        const result = await db.transaction(async (tx) => {
-            // Hash password
-            const saltRounds = 12;
-            const hashedPassword = await bcrypt.hash(password, saltRounds);
+        // Transaction removed as neon-http driver doesn't support them
+        // Hash password
+        const saltRounds = 12;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-            // Create user
-            const userId = uuidv4();
-            await tx.insert(users).values({
-                id: userId,
-                email: email.toLowerCase(),
-                firstName,
-                lastName,
-                phone,
-                password: hashedPassword,
-                role: 'contractor',
-                isActive: true,
-                emailVerified: false,
-            });
-
-            // Create handyman profile (linked to user)
-            const profileId = uuidv4();
-            await tx.insert(handymanProfiles).values({
-                id: profileId,
-                userId,
-                postcode,
-                radiusMiles: 10, // Default radius
-            });
-
-            // Create session
-            const sessionToken = generateSessionToken();
-            const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-            await tx.insert(contractorSessions).values({
-                sessionToken,
-                userId,
-                expiresAt
-            });
-
-            // Update last login
-            await tx.update(users)
-                .set({ lastLogin: new Date() })
-                .where(eq(users.id, userId));
-
-            return {
-                userId,
-                sessionToken,
-                profileId
-            };
+        // Create user
+        const userId = uuidv4();
+        await db.insert(users).values({
+            id: userId,
+            email: email.toLowerCase(),
+            firstName,
+            lastName,
+            phone,
+            password: hashedPassword,
+            role: 'contractor',
+            isActive: true,
+            emailVerified: false,
         });
+
+        // Create handyman profile (linked to user)
+        const profileId = uuidv4();
+        await db.insert(handymanProfiles).values({
+            id: profileId,
+            userId,
+            postcode,
+            radiusMiles: 10, // Default radius
+        });
+
+        // Create session
+        const sessionToken = generateSessionToken();
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+        await db.insert(contractorSessions).values({
+            sessionToken,
+            userId,
+            expiresAt
+        });
+
+        // Update last login
+        await db.update(users)
+            .set({ lastLogin: new Date() })
+            .where(eq(users.id, userId));
+
+        const result = {
+            userId,
+            sessionToken,
+            profileId
+        };
 
         res.status(201).json({
             success: true,
@@ -209,6 +207,7 @@ router.post('/register', async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Failed to register' });
     }
 });
+
 
 // POST /api/contractor/login - Authenticate contractor
 router.post('/login', async (req: Request, res: Response) => {
@@ -345,7 +344,8 @@ router.put('/profile', requireContractorAuth, async (req: Request, res: Response
     try {
         const contractor = (req as any).contractor;
         const { firstName, lastName, phone, bio, address, city, postcode, radiusMiles, hourlyRate, slug, publicProfileEnabled, heroImageUrl, socialLinks, skills,
-            trustBadges, availabilityStatus, introVideoUrl, aiRules, mediaGallery, beforeAfterGallery } = req.body;
+            trustBadges, availabilityStatus, introVideoUrl, aiRules, mediaGallery, beforeAfterGallery,
+            dbsCertificateUrl, identityDocumentUrl, publicLiabilityInsuranceUrl, publicLiabilityExpiryDate, verificationStatus } = req.body;
 
         // Update user info
         if (firstName || lastName || phone) {
@@ -409,6 +409,11 @@ router.put('/profile', requireContractorAuth, async (req: Request, res: Response
                     ...(introVideoUrl !== undefined && { introVideoUrl }),
                     ...(aiRules !== undefined && { aiRules }),
                     ...(beforeAfterGallery !== undefined && { beforeAfterGallery }),
+                    ...(dbsCertificateUrl !== undefined && { dbsCertificateUrl }),
+                    ...(identityDocumentUrl !== undefined && { identityDocumentUrl }),
+                    ...(publicLiabilityInsuranceUrl !== undefined && { publicLiabilityInsuranceUrl }),
+                    ...(publicLiabilityExpiryDate !== undefined && { publicLiabilityExpiryDate: publicLiabilityExpiryDate ? new Date(publicLiabilityExpiryDate) : null }),
+                    ...(verificationStatus !== undefined && { verificationStatus }),
 
                     updatedAt: new Date(),
                 })

@@ -364,4 +364,94 @@ router.post('/quotes/create', requireContractorAuth, async (req: Request, res: R
     }
 });
 
+// GET /api/contractor/skills
+// Get all skills with their specific rates for the authenticated contractor
+router.get('/skills', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const contractor = (req as any).contractor;
+
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id),
+            with: {
+                skills: {
+                    with: {
+                        service: true
+                    }
+                }
+            }
+        });
+
+        if (!profile) {
+            return res.status(404).json({ error: 'Contractor profile not found' });
+        }
+
+        // Transform to cleaner format
+        const skills = profile.skills.map(skill => ({
+            id: skill.id,
+            serviceId: skill.serviceId,
+            name: skill.service.name,
+            description: skill.service.description,
+            hourlyRate: skill.hourlyRate || skill.service.pricePence // Use override or default
+        }));
+
+        res.json(skills);
+    } catch (error) {
+        console.error('[ContractorDashboard] Get skills error:', error);
+        res.status(500).json({ error: 'Failed to fetch skills' });
+    }
+});
+
+// POST /api/contractor/skills
+// Update rates for specific skills
+router.post('/skills', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        // Schema for bulk update
+        const updateSchema = z.object({
+            updates: z.array(z.object({
+                id: z.string(), // HandymanSkill ID
+                hourlyRate: z.number().int().nonnegative() // New rate in pence
+            }))
+        });
+
+        const validation = updateSchema.safeParse(req.body);
+        if (!validation.success) {
+            return res.status(400).json({ error: "Invalid payload", details: validation.error.errors });
+        }
+
+        const { updates } = validation.data;
+        const contractor = (req as any).contractor;
+
+        // Verify ownership for all skills
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id),
+            with: { skills: true }
+        });
+
+        if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+        const ownSkillIds = new Set(profile.skills.map(s => s.id));
+
+        const invalidIds = updates.filter(u => !ownSkillIds.has(u.id));
+        if (invalidIds.length > 0) {
+            return res.status(403).json({ error: "Unauthorized access to some skills" });
+        }
+
+        // Perform updates
+        // Since we have multiple updates, we do them in a loop or transaction
+        // Drizzle doesn't have a simple bulk update for different values yet, so loop is fine for small numbers
+        await db.transaction(async (tx) => {
+            for (const update of updates) {
+                await tx.update(handymanSkills)
+                    .set({ hourlyRate: update.hourlyRate })
+                    .where(eq(handymanSkills.id, update.id));
+            }
+        });
+
+        res.json({ success: true, updatedCount: updates.length });
+    } catch (error) {
+        console.error('[ContractorDashboard] Update skills error:', error);
+        res.status(500).json({ error: 'Failed to update skills' });
+    }
+});
+
 export default router;

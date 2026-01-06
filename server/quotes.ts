@@ -311,7 +311,8 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
                 contractorDetails = {
                     name: `${profile.user.firstName} ${profile.user.lastName}`,
                     companyName: `${profile.user.firstName} ${profile.user.lastName}`, // Fallback since no companyName in profile
-                    profilePhotoUrl: profile.heroImageUrl, // Use hero image as profile photo for now
+                    profilePhotoUrl: profile.profileImageUrl, // Correctly use profile image
+                    coverPhotoUrl: profile.heroImageUrl, // Add cover photo
                     slug: profile.slug
                 };
             }

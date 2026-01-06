@@ -62,6 +62,9 @@ router.get('/contractor/:slug', async (req: Request, res: Response) => {
                 category: s.service.category
             })),
             radiusMiles: profileWithUser.radiusMiles,
+            trustBadges: profileWithUser.trustBadges, // Added
+            availabilityStatus: profileWithUser.availabilityStatus, // Added
+            beforeAfterGallery: profileWithUser.beforeAfterGallery, // Added
         };
 
         res.json(response);

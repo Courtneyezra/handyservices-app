@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowRight, Check, Coins, Wrench, Loader2, Sparkles, MapPin } from 'lucide-react';
+import { ArrowRight, Check, Coins, Wrench, Loader2, Sparkles, MapPin, Upload, FileText, ShieldCheck } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 
 export default function ContractorOnboarding() {
@@ -13,6 +13,14 @@ export default function ContractorOnboarding() {
     // Form State
     const [rates, setRates] = useState<Record<string, { hourly: string, day: string }>>({});
     const [selectedTrades, setSelectedTrades] = useState<string[]>([]);
+
+    // Verification State
+    const [insuranceFile, setInsuranceFile] = useState<File | null>(null);
+    const [insuranceExpiry, setInsuranceExpiry] = useState('');
+    const [dbsFile, setDbsFile] = useState<File | null>(null);
+    const [idFile, setIdFile] = useState<File | null>(null);
+    const [verificationSkipped, setVerificationSkipped] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
 
     const tradesList = [
         { id: 'plumbing', label: 'Plumbing', icon: '💧' },
@@ -146,6 +154,53 @@ export default function ContractorOnboarding() {
 
                 const data = await res.json();
                 console.log("[Onboarding] Success response:", data);
+
+                // Upload verification docs if present
+                if ((insuranceFile || dbsFile || idFile) && !verificationSkipped) {
+                    try {
+                        const uploadDoc = async (file: File, type: string) => {
+                            const formData = new FormData();
+                            formData.append('document', file);
+                            const uploadRes = await fetch('/api/contractor/media/verification-upload', {
+                                method: 'POST',
+                                headers: { 'Authorization': `Bearer ${cleanToken}` },
+                                body: formData
+                            });
+                            if (!uploadRes.ok) throw new Error(`Failed to upload ${type}`);
+                            return (await uploadRes.json()).url;
+                        };
+
+                        const updates: any = {};
+                        if (insuranceFile) {
+                            updates.publicLiabilityInsuranceUrl = await uploadDoc(insuranceFile, 'insurance');
+                            if (insuranceExpiry) updates.publicLiabilityExpiryDate = new Date(insuranceExpiry).toISOString();
+                        }
+                        if (dbsFile) updates.dbsCertificateUrl = await uploadDoc(dbsFile, 'DBS');
+                        if (idFile) updates.identityDocumentUrl = await uploadDoc(idFile, 'ID');
+
+                        updates.verificationStatus = (insuranceFile && dbsFile && idFile) ? 'pending' : 'unverified';
+
+                        // Save document URLs to profile
+                        await fetch('/api/contractor/profile', {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${cleanToken}`
+                            },
+                            body: JSON.stringify(updates)
+                        });
+
+                    } catch (uploadError) {
+                        console.error("[Onboarding] Document upload failed:", uploadError);
+                        // Don't block success, just log error - user can retry in dashboard
+                        toast({
+                            title: "Document Upload Failed",
+                            description: "Your account is created but some documents failed to upload. Please try again in your dashboard.",
+                            variant: "destructive"
+                        });
+                    }
+                }
+
                 return data;
             } catch (err: any) {
                 console.error("[Onboarding] Detailed Fetch Error:", {
@@ -158,10 +213,7 @@ export default function ContractorOnboarding() {
             }
         },
         onSuccess: () => {
-            toast({
-                title: "Setup Complete!",
-                description: "Your services have been created.",
-            });
+
             setLocation('/contractor/dashboard?welcome=true');
         },
         onError: (error: Error) => {
@@ -200,12 +252,13 @@ export default function ContractorOnboarding() {
                     <span className={`text-sm font-medium ${step >= 1 ? 'text-amber-400' : 'text-slate-600'}`}>Location</span>
                     <span className={`text-sm font-medium ${step >= 2 ? 'text-amber-400' : 'text-slate-600'}`}>Services</span>
                     <span className={`text-sm font-medium ${step >= 3 ? 'text-amber-400' : 'text-slate-600'}`}>Rates</span>
-                    <span className={`text-sm font-medium ${step >= 4 ? 'text-amber-400' : 'text-slate-600'}`}>Review</span>
+                    <span className={`text-sm font-medium ${step >= 4 ? 'text-amber-400' : 'text-slate-600'}`}>Verify</span>
+                    <span className={`text-sm font-medium ${step >= 5 ? 'text-amber-400' : 'text-slate-600'}`}>Review</span>
                 </div>
                 <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
                     <div
                         className="h-full bg-amber-500 transition-all duration-500 ease-out"
-                        style={{ width: `${(step / 4) * 100}%` }}
+                        style={{ width: `${(step / 5) * 100}%` }}
                     />
                 </div>
             </div>
@@ -386,14 +439,151 @@ export default function ContractorOnboarding() {
                     </div>
                 )}
 
-                {/* STEP 4: REVIEW */}
+                {/* STEP 4: VERIFICATION */}
                 {step === 4 && (
+                    <div className="animate-in fade-in slide-in-from-right-8 duration-500">
+                        <div className="text-center mb-8">
+                            <div className="w-16 h-16 bg-blue-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                                <ShieldCheck className="w-8 h-8 text-blue-400" />
+                            </div>
+                            <h1 className="text-2xl font-bold text-white mb-2">Get Verified</h1>
+                            <p className="text-slate-400 mb-4">Upload your documents to get the "Handy Verified" badge.</p>
+                            <div className="flex justify-center">
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-xs font-medium text-amber-300">
+                                    <Sparkles className="w-3 h-3" />
+                                    Verified pros get 3x more jobs
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="space-y-6 mb-8 max-h-[50vh] overflow-y-auto pr-2">
+                            {/* Public Liability Insurance */}
+                            <div className="bg-slate-900/50 rounded-xl border border-white/10 p-5">
+                                <div className="flex justify-between items-start mb-4">
+                                    <div>
+                                        <h3 className="text-white font-bold text-lg flex items-center gap-2">
+                                            Public Liability Insurance
+                                        </h3>
+                                        <p className="text-xs text-slate-400">Required: Certificate of Insurance</p>
+                                    </div>
+                                    {insuranceFile && <Check className="w-5 h-5 text-green-500" />}
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-slate-400 text-xs uppercase font-bold tracking-wider mb-2">Expiry Date</label>
+                                        <input
+                                            type="date"
+                                            value={insuranceExpiry}
+                                            onChange={(e) => setInsuranceExpiry(e.target.value)}
+                                            className="w-full bg-slate-800 rounded-lg py-2 px-3 text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-slate-400 text-xs uppercase font-bold tracking-wider mb-2">Upload Document</label>
+                                        <div className="relative">
+                                            <input
+                                                type="file"
+                                                accept=".pdf,.jpg,.jpeg,.png"
+                                                onChange={(e) => setInsuranceFile(e.target.files?.[0] || null)}
+                                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                            />
+                                            <div className="w-full bg-slate-800 rounded-lg py-2 px-3 text-white flex items-center justify-between border border-dashed border-slate-600 hover:border-amber-500 transition-colors">
+                                                <span className="truncate text-sm">{insuranceFile ? insuranceFile.name : "Select PDF or Image..."}</span>
+                                                <Upload className="w-4 h-4 text-slate-400" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* DBS & ID */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="bg-slate-900/50 rounded-xl border border-white/10 p-5">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <h3 className="text-white font-bold">DBS Check</h3>
+                                        {dbsFile && <Check className="w-4 h-4 text-green-500" />}
+                                    </div>
+                                    <div className="relative mt-4">
+                                        <input
+                                            type="file"
+                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            onChange={(e) => setDbsFile(e.target.files?.[0] || null)}
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                        />
+                                        <div className="w-full bg-slate-800 rounded-lg py-3 px-3 text-white flex items-center justify-center gap-2 border border-dashed border-slate-600 hover:border-amber-500 transition-colors cursor-pointer">
+                                            <FileText className="w-4 h-4 text-slate-400" />
+                                            <span className="truncate text-sm font-medium">{dbsFile ? "Change File" : "Upload Check"}</span>
+                                        </div>
+                                        {dbsFile && <p className="text-center text-xs text-slate-400 mt-2 truncate">{dbsFile.name}</p>}
+                                    </div>
+                                </div>
+
+                                <div className="bg-slate-900/50 rounded-xl border border-white/10 p-5">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <h3 className="text-white font-bold">Photo ID</h3>
+                                        {idFile && <Check className="w-4 h-4 text-green-500" />}
+                                    </div>
+                                    <div className="relative mt-4">
+                                        <input
+                                            type="file"
+                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            onChange={(e) => setIdFile(e.target.files?.[0] || null)}
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                        />
+                                        <div className="w-full bg-slate-800 rounded-lg py-3 px-3 text-white flex items-center justify-center gap-2 border border-dashed border-slate-600 hover:border-amber-500 transition-colors cursor-pointer">
+                                            <FileText className="w-4 h-4 text-slate-400" />
+                                            <span className="truncate text-sm font-medium">{idFile ? "Change File" : "Upload ID"}</span>
+                                        </div>
+                                        {idFile && <p className="text-center text-xs text-slate-400 mt-2 truncate">{idFile.name}</p>}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-between items-center">
+                            <button onClick={() => setStep(3)} className="text-slate-400 hover:text-white px-4">Back</button>
+                            <div className="flex items-center gap-4">
+                                <button
+                                    onClick={() => {
+                                        setVerificationSkipped(true);
+                                        setStep(5);
+                                    }}
+                                    className="text-slate-400 hover:text-white text-sm"
+                                >
+                                    Skip for now
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setVerificationSkipped(false);
+                                        setStep(5);
+                                    }}
+                                    className="px-8 py-3 bg-white text-slate-900 font-bold rounded-xl hover:bg-slate-200 transition-colors flex items-center gap-2"
+                                >
+                                    Review <ArrowRight className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+
+                {/* STEP 5: REVIEW */}
+                {step === 5 && (
                     <div className="animate-in fade-in slide-in-from-right-8 duration-500 text-center">
                         <div className="inline-flex w-16 h-16 bg-amber-500/20 rounded-2xl items-center justify-center mb-4">
                             <Sparkles className="w-8 h-8 text-amber-400" />
                         </div>
                         <h1 className="text-2xl font-bold text-white mb-2">Ready to launch?</h1>
                         <p className="text-slate-400 mb-8">We'll generate your services and open your dashboard.</p>
+
+                        {/* Toolbox Animation Reinstated */}
+                        <div className="w-48 h-32 mx-auto mb-6 bg-slate-800 rounded-lg flex items-center justify-center relative shadow-lg overflow-hidden border border-slate-700">
+                            <div className="absolute inset-0 bg-gradient-to-tr from-slate-900 via-slate-800 to-amber-900/20" />
+                            <Wrench className="w-12 h-12 text-amber-500 animate-bounce relative z-10" />
+                            <div className="absolute bottom-2 left-2 right-2 h-1 bg-slate-700 rounded-full overflow-hidden">
+                                <div className="h-full bg-amber-500 animate-accordion-up w-full" />
+                            </div>
+                        </div>
 
                         <div className="bg-slate-900/50 rounded-xl border border-white/5 p-6 mb-8 text-left max-h-[300px] overflow-y-auto">
                             <h3 className="text-white font-bold uppercase text-xs tracking-widest mb-4 opacity-50">Summary</h3>
@@ -417,7 +607,7 @@ export default function ContractorOnboarding() {
                         </div>
 
                         <div className="flex justify-between items-center">
-                            <button onClick={() => setStep(3)} className="text-slate-400 hover:text-white px-4 shrink-0" disabled={finishMutation.isPending}>Back</button>
+                            <button onClick={() => setStep(4)} className="text-slate-400 hover:text-white px-4 shrink-0" disabled={finishMutation.isPending}>Back</button>
                             <button
                                 onClick={() => finishMutation.mutate()}
                                 disabled={finishMutation.isPending}

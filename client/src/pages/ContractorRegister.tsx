@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { Mail, Lock, Eye, EyeOff, ArrowRight, User, Phone, MapPin, Globe, Upload, Check, Loader2, X, Sparkles, FileText, CalendarClock, Smartphone, Monitor } from 'lucide-react';
-import { useToast } from "@/hooks/use-toast";
+
 
 export default function ContractorRegister() {
     const [, setLocation] = useLocation();
-    const { toast } = useToast();
+
 
     // Steps: 0=Intro, 1=Claim URL, 2=Account Detail, 3=Branding
     const [step, setStep] = useState(0); // Start at 0 now
@@ -180,10 +180,7 @@ export default function ContractorRegister() {
             if (!updateRes.ok) throw new Error('Failed to set up profile');
 
             // Success! Redirect to onboarding wizard
-            toast({
-                title: "Welcome aboard!",
-                description: "Let's set up your services.",
-            });
+
             setLocation('/contractor/onboarding');
 
         } catch (err: any) {
@@ -221,7 +218,7 @@ export default function ContractorRegister() {
             <div className="relative w-full max-w-5xl grid md:grid-cols-2 gap-8 items-center">
 
                 {/* Left Side: The "Product" Preview */}
-                <div className="block">
+                <div className={step === 0 ? "hidden md:block" : "block"}>
                     <div className="relative">
                         {/* View Toggle */}
                         <div className="absolute -top-12 left-0 flex items-center gap-1 bg-slate-800/50 p-1 rounded-lg border border-white/10 backdrop-blur-sm z-10 transition-all duration-300">
@@ -246,78 +243,242 @@ export default function ContractorRegister() {
                         {/* Blob */}
                         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-amber-500/20 rounded-full blur-3xl" />
 
-                        {/* Mockup Card */}
+                        {/* DYNAMIC MOCKUP CARD */}
                         <div className={`relative bg-slate-900 border border-white/10 shadow-2xl overflow-hidden transition-all duration-700 ease-in-out
                             ${isMobileView ? 'w-[320px] mx-auto rounded-[2.5rem] border-[8px] border-slate-900 ring-1 ring-white/10' : 'w-full rounded-2xl'} 
-                            ${step === 0 ? 'scale-100 rotate-0' : 'scale-95 rotate-[-2deg]'}
+                            ${step === 0 ? 'scale-100 rotate-0' : 'scale-95 rotate-[-1deg]'}
                         `}>
-                            {/* Fake Browser Header */}
-                            <div className="bg-slate-800 p-3 border-b border-white/5 flex items-center gap-2">
-                                <div className="flex gap-1.5">
-                                    <div className="w-2.5 h-2.5 rounded-full bg-red-500/50" />
-                                    <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
-                                    <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
-                                </div>
-                                <div className="flex-1 text-center">
-                                    <div className="bg-slate-900/50 rounded-md px-3 py-1 text-[10px] text-slate-400 font-mono inline-block">
-                                        handy.com/handy/<span className="text-amber-400">{formData.slug || 'your-name'}</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Hero Image Area */}
-                            <div className="h-40 bg-slate-800/50 relative">
-                                {formData.heroImageUrl ? (
-                                    <img src={formData.heroImageUrl} className="w-full h-full object-cover" alt="Cover" />
-                                ) : (
-                                    <div className="w-full h-full flex items-center justify-center text-slate-600">
-                                        {step === 0 ? (
-                                            <div className="text-center">
-                                                <Globe className="w-12 h-12 mx-auto mb-2 text-amber-500/50" />
+                            {/* --- STEP 0: HANDYMAN PROFILE (Original) --- */}
+                            {(step === 0 || step === 1) && (
+                                <div className="animate-in fade-in duration-700">
+                                    <div className="bg-slate-800 p-3 border-b border-white/5 flex items-center gap-2">
+                                        <div className="flex gap-1.5">
+                                            <div className="w-2.5 h-2.5 rounded-full bg-red-500/50" />
+                                            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
+                                            <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
+                                        </div>
+                                        <div className="flex-1 text-center">
+                                            <div className="bg-slate-900/50 rounded-md px-3 py-1 text-[10px] text-slate-400 font-mono inline-block">
+                                                handy.com/handy/<span className="text-amber-400">james-handy</span>
                                             </div>
-                                        ) : (
-                                            <Upload className="w-8 h-8 opacity-50" />
-                                        )}
+                                        </div>
                                     </div>
-                                )}
-                                <div className="absolute -bottom-10 left-6">
-                                    <div className="w-20 h-20 rounded-xl bg-slate-800 border-4 border-slate-900 flex items-center justify-center text-slate-500 overflow-hidden">
-                                        {formData.profileImageUrl ? (
-                                            <img src={formData.profileImageUrl} className="w-full h-full object-cover" alt="Profile" />
-                                        ) : (
-                                            <User className="w-10 h-10" />
-                                        )}
+                                    <div className="h-40 bg-slate-800/50 relative">
+                                        <img src="/demo-cover.png" className="w-full h-full object-cover" alt="Cover" />
+                                        <div className="absolute -bottom-10 left-6">
+                                            <div className="w-20 h-20 rounded-xl bg-slate-800 border-4 border-slate-900 flex items-center justify-center text-slate-500 overflow-hidden">
+                                                <img src="/demo-profile.png" className="w-full h-full object-cover" alt="Profile" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="pt-12 px-6 pb-6">
+                                        <h1 className="text-xl font-bold text-white mb-1">James Turner</h1>
+                                        <p className="text-slate-400 text-sm mb-4">
+                                            Professional handyman serving Greater London. Fully insured and experienced in plumbing, carpentry, and general repairs.
+                                        </p>
+                                        <div className="flex gap-2">
+                                            <div className="px-3 py-1.5 bg-emerald-500/10 text-emerald-400 text-xs rounded-lg border border-emerald-500/20">
+                                                Verified Pro
+                                            </div>
+                                            <div className="px-3 py-1.5 bg-amber-500/10 text-amber-400 text-xs rounded-lg border border-amber-500/20">
+                                                Available Today
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
+                            )}
 
-                            {/* Content */}
-                            <div className="pt-12 px-6 pb-6">
-                                <h1 className="text-xl font-bold text-white mb-1">
-                                    {formData.firstName || 'Your Name'} {formData.lastName || ''}
-                                </h1>
-                                <p className="text-slate-400 text-sm mb-4">
-                                    {formData.bio || (step === 0 ? 'Accept bookings, manage quotes, and grow your skilled trade business automatically.' : 'Your professional bio will appear here to attract new clients.')}
-                                </p>
-                                <div className="flex gap-2">
-                                    <div className="px-3 py-1.5 bg-emerald-500/10 text-emerald-400 text-xs rounded-lg border border-emerald-500/20">
-                                        Verified Pro
+                            {/* --- STEP 1: Using Step 0 Visual --- */}
+                            {false && step === 1 && (
+                                <div className="bg-white h-full min-h-[400px] animate-in slide-in-from-right-8 duration-500">
+                                    <div className="bg-slate-50 p-6 border-b border-slate-100 flex justify-between items-center">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center text-white shadow-lg shadow-green-500/30">
+                                                <Check className="w-6 h-6" />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-slate-900">Payment Received</h3>
+                                                <p className="text-xs text-slate-500">Just now</p>
+                                            </div>
+                                        </div>
+                                        <span className="text-lg font-bold text-green-600">+£150.00</span>
                                     </div>
-                                    <div className="px-3 py-1.5 bg-amber-500/10 text-amber-400 text-xs rounded-lg border border-amber-500/20">
-                                        Available Today
+
+                                    <div className="p-6 space-y-4">
+                                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Recent Transactions</h4>
+                                        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600 font-bold">JD</div>
+                                                <div>
+                                                    <p className="text-sm font-bold text-slate-900">John Doe</p>
+                                                    <p className="text-xs text-slate-500">Tap Repair</p>
+                                                </div>
+                                            </div>
+                                            <span className="text-sm font-bold text-slate-900">£85.00</span>
+                                        </div>
+                                        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center text-purple-600 font-bold">SM</div>
+                                                <div>
+                                                    <p className="text-sm font-bold text-slate-900">Sarah M.</p>
+                                                    <p className="text-xs text-slate-500">Shelf Installation</p>
+                                                </div>
+                                            </div>
+                                            <span className="text-sm font-bold text-slate-900">£120.00</span>
+                                        </div>
+                                        <div className="mt-6 pt-6 border-t border-slate-100">
+                                            <div className="flex justify-between items-end">
+                                                <div>
+                                                    <p className="text-sm text-slate-500 mb-1">Total Balance</p>
+                                                    <h2 className="text-3xl font-bold text-slate-900">£2,450.50</h2>
+                                                </div>
+                                                <div className="w-24 h-12 bg-slate-100 rounded-lg relative overflow-hidden">
+                                                    <div className="absolute bottom-0 left-0 right-0 h-8 bg-green-500/20" />
+                                                    <svg className="absolute bottom-0 left-0 right-0 text-green-500" viewBox="0 0 100 40" preserveAspectRatio="none">
+                                                        <path d="M0 40 L0 25 L20 30 L40 15 L60 25 L80 10 L100 20 L100 40 Z" fill="currentColor" opacity="0.4" />
+                                                        <path d="M0 40 L0 30 L20 35 L40 20 L60 30 L80 15 L100 25 L100 40 Z" fill="currentColor" opacity="0.3" />
+                                                    </svg>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
+                            )}
+
+                            {/* --- STEP 2: QUOTE OPTIONS (HHH Style) --- */}
+                            {step === 2 && (
+                                <div className="bg-white h-full min-h-[400px] animate-in slide-in-from-right-8 duration-500 flex flex-col">
+                                    <div className="bg-slate-50 p-6 border-b border-slate-100 mb-auto">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center text-white font-bold uppercase">JT</div>
+                                            <span className="font-bold text-slate-900">James Turner</span>
+                                        </div>
+                                        <h3 className="text-lg font-bold text-slate-900">Bathroom Renovation</h3>
+                                        <p className="text-xs text-slate-500">Select an option to proceed</p>
+                                    </div>
+
+                                    <div className="p-6 space-y-3">
+                                        {/* Option 1 */}
+                                        <div className="p-4 rounded-xl border border-slate-100 bg-white shadow-sm hover:border-amber-500/50 hover:bg-amber-50 transition-colors cursor-pointer group">
+                                            <div className="flex justify-between items-center mb-1">
+                                                <span className="font-bold text-slate-900 group-hover:text-amber-700">Basic Fix</span>
+                                                <span className="font-bold text-slate-900">£1,200</span>
+                                            </div>
+                                            <p className="text-xs text-slate-500">Labor and basic materials only.</p>
+                                        </div>
+
+                                        {/* Option 2 (Selected) */}
+                                        <div className="p-4 rounded-xl border-2 border-amber-500 bg-amber-50 shadow-md relative overflow-hidden cursor-pointer">
+                                            <div className="absolute top-0 right-0 bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg">RECOMMENDED</div>
+                                            <div className="flex justify-between items-center mb-1">
+                                                <span className="font-bold text-amber-900">Standard</span>
+                                                <span className="font-bold text-amber-900">£1,800</span>
+                                            </div>
+                                            <p className="text-xs text-amber-800/80">Includes waste removal and premium adhesive.</p>
+                                        </div>
+
+                                        {/* Option 3 */}
+                                        <div className="p-4 rounded-xl border border-slate-100 bg-white shadow-sm hover:border-amber-500/50 hover:bg-amber-50 transition-colors cursor-pointer group">
+                                            <div className="flex justify-between items-center mb-1">
+                                                <span className="font-bold text-slate-900 group-hover:text-amber-700">Premium Finish</span>
+                                                <span className="font-bold text-slate-900">£2,400</span>
+                                            </div>
+                                            <p className="text-xs text-slate-500">All inclusive + 2 year guarantee.</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 bg-slate-50 border-t border-slate-100 mt-auto">
+                                        <div className="w-full py-2 bg-slate-900 text-white text-xs font-bold rounded-lg text-center opacity-50">
+                                            Select Package
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* --- STEP 3: CALENDAR (Run Business at Glance) --- */}
+                            {step === 3 && (
+                                <div className="bg-white h-full min-h-[400px] animate-in slide-in-from-right-8 duration-500 relative">
+                                    <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                                        <h3 className="font-bold text-slate-900">October 2025</h3>
+                                        <div className="flex gap-1">
+                                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600"><span className="sr-only">Prev</span>←</div>
+                                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600"><span className="sr-only">Next</span>→</div>
+                                        </div>
+                                    </div>
+                                    <div className="p-4 grid grid-cols-7 gap-2 text-center text-sm mb-2">
+                                        {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => <div key={i} className="text-slate-400 font-medium">{d}</div>)}
+                                        {/* Fake Calendar Days */}
+                                        {Array.from({ length: 14 }).map((_, i) => {
+                                            const day = i + 12;
+                                            const hasJob = [14, 15, 18, 20].includes(day);
+                                            const isSelected = day === 15;
+                                            return (
+                                                <div key={i} className={`aspect-square rounded-lg flex items-center justify-center text-xs relative
+                                                    ${isSelected ? 'bg-amber-500 text-white font-bold shadow-md' : 'text-slate-700 hover:bg-slate-50'}
+                                                `}>
+                                                    {day}
+                                                    {hasJob && !isSelected && <div className="absolute bottom-1 w-1 h-1 bg-amber-500 rounded-full"></div>}
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+
+                                    <div className="px-4 pb-4">
+                                        <div className="text-xs font-bold text-slate-400 uppercase mb-3">Upcoming Jobs</div>
+
+                                        <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 flex gap-3 mb-2 animate-in slide-in-from-bottom-4 delay-100">
+                                            <div className="w-12 h-12 bg-blue-100 rounded-lg flex flex-col items-center justify-center text-blue-700 shrink-0">
+                                                <span className="text-xs font-bold">OCT</span>
+                                                <span className="text-lg font-bold leading-none">15</span>
+                                            </div>
+                                            <div>
+                                                <h4 className="font-bold text-slate-900 text-sm">Kitchen Tiling</h4>
+                                                <p className="text-xs text-slate-500">09:00 AM - 4:00 PM</p>
+                                                <p className="text-xs text-blue-600 font-medium mt-0.5">88 Road, London</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 flex gap-3 animate-in slide-in-from-bottom-4 delay-200 opacity-50">
+                                            <div className="w-12 h-12 bg-slate-200 rounded-lg flex flex-col items-center justify-center text-slate-500 shrink-0">
+                                                <span className="text-xs font-bold">OCT</span>
+                                                <span className="text-lg font-bold leading-none">16</span>
+                                            </div>
+                                            <div>
+                                                <h4 className="font-bold text-slate-900 text-sm">Radiator Fix</h4>
+                                                <p className="text-xs text-slate-500">10:00 AM - 11:30 AM</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
-                        {/* Caption */}
-                        <div className="text-center mt-8">
-                            <h2 className="text-2xl font-bold text-white mb-2">
-                                {step === 0 ? "Everything you need to grow" : "Build your digital presence"}
-                            </h2>
-                            <p className="text-slate-400">
-                                {step === 0 ? "Stop chasing invoices and missed calls." : "Claim your professional URL and start accepting bookings today."}
-                            </p>
+                        {/* CAPTION TEXT */}
+                        <div className="text-center mt-8 px-4 transition-all duration-300">
+                            {step === 0 && (
+                                <>
+                                    <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Everything you need to grow</h2>
+                                    <p className="text-slate-400">Stop chasing invoices and missed calls.</p>
+                                </>
+                            )}
+                            {step === 1 && (
+                                <>
+                                    <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Build your digital presence</h2>
+                                    <p className="text-slate-400">Claim your professional URL and start accepting bookings today.</p>
+                                </>
+                            )}
+                            {step === 2 && (
+                                <>
+                                    <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Give customers choice</h2>
+                                    <p className="text-slate-400">Clients trust transparent, professional quotes.</p>
+                                </>
+                            )}
+                            {step === 3 && (
+                                <>
+                                    <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Run your business at a glance</h2>
+                                    <p className="text-slate-400">Manage availability and never miss a job.</p>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>

@@ -3,7 +3,7 @@ import { useRoute } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import {
     MapPin, Share2, Star, ShieldCheck, Clock, Check,
-    ArrowRight, MessageCircle, Sparkles
+    ArrowRight, MessageCircle, Sparkles, LayoutTemplate
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,9 @@ interface PublicProfile {
         category: string;
     }[];
     radiusMiles: number;
+    trustBadges?: string[];
+    availabilityStatus?: 'available' | 'busy' | 'holiday';
+    beforeAfterGallery?: { before: string; after: string; caption: string }[];
 }
 
 interface AvailabilitySlot {
@@ -209,6 +212,18 @@ export default function ContractorPublicProfile({ forcedSlug }: { forcedSlug?: s
                         {profile.bio || `Hi, I'm ${profile.firstName || 'a professional'}. I'm a professional tradesperson dedicated to high-quality work and happy customers. Let's get your job done right.`}
                     </p>
 
+                    {/* Trust Badges */}
+                    {profile.trustBadges && profile.trustBadges.length > 0 && (
+                        <div className="flex flex-wrap items-center justify-center gap-2 mb-6">
+                            {profile.trustBadges.map((badge) => (
+                                <div key={badge} className="flex items-center gap-1.5 px-3 py-1.5 bg-white/80 backdrop-blur-sm rounded-full border border-slate-200 shadow-sm">
+                                    <Check className="w-3 h-3 text-emerald-500 stroke-[3]" />
+                                    <span className="text-xs font-semibold text-slate-700">{badge}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
                     {/* MAIN ACTIONS (The "2025" Buttons) */}
                     <div className="w-full grid grid-cols-1 gap-3 mb-8">
                         {/* WhatsApp Primary */}
@@ -237,6 +252,42 @@ export default function ContractorPublicProfile({ forcedSlug }: { forcedSlug?: s
 
             {/* Content Sections */}
             <div className="max-w-md mx-auto px-4 space-y-8">
+
+                {/* Before & After Transformations */}
+                {profile.beforeAfterGallery && profile.beforeAfterGallery.length > 0 && (
+                    <section>
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                <LayoutTemplate className="w-5 h-5 text-indigo-500" />
+                                Transformations
+                            </h2>
+                            <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full">
+                                {profile.beforeAfterGallery.length} Projects
+                            </span>
+                        </div>
+                        <div className="space-y-4">
+                            {profile.beforeAfterGallery.map((pair, idx) => (
+                                <div key={idx} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100">
+                                    <div className="grid grid-cols-2 gap-0.5">
+                                        <div className="relative h-48 bg-slate-100 group">
+                                            <img src={pair.before} alt="Before" className="w-full h-full object-cover" />
+                                            <div className="absolute top-2 left-2 bg-black/50 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded-md">BEFORE</div>
+                                        </div>
+                                        <div className="relative h-48 bg-slate-100 group">
+                                            <img src={pair.after} alt="After" className="w-full h-full object-cover" />
+                                            <div className="absolute top-2 right-2 bg-emerald-500/90 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded-md shadow-sm">AFTER</div>
+                                        </div>
+                                    </div>
+                                    {pair.caption && (
+                                        <div className="p-4 bg-white">
+                                            <p className="text-sm font-medium text-slate-700">{pair.caption}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+                )}
 
                 {/* Media Gallery */}
                 {profile.mediaGallery && profile.mediaGallery.length > 0 && (

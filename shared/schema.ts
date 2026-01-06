@@ -260,6 +260,13 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     aiRules: jsonb("ai_rules"), // { removeRubbish, supplyMaterials, ... }
     beforeAfterGallery: jsonb("before_after_gallery"), // Array of { before: string, after: string, caption: string }
 
+    // Verification Documents & Status
+    dbsCertificateUrl: text("dbs_certificate_url"),
+    identityDocumentUrl: text("identity_document_url"),
+    publicLiabilityInsuranceUrl: text("public_liability_insurance_url"),
+    publicLiabilityExpiryDate: timestamp("public_liability_expiry_date"),
+    verificationStatus: varchar("verification_status", { length: 20 }).default('unverified'), // 'unverified' | 'pending' | 'verified' | 'rejected'
+
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
 });
