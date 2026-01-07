@@ -109,8 +109,44 @@ router.post('/toggle', requireContractorAuth, async (req: Request, res: Response
         const contractorId = await getContractorId(userId);
         if (!contractorId) return res.status(404).json({ error: 'Contractor profile not found' });
 
-        const { date, isAvailable } = req.body;
+        const { date, isAvailable, mode } = req.body;
         if (!date) return res.status(400).json({ error: 'Date required' });
+
+        // Determine Start/End times based on mode
+        let finalIsAvailable = isAvailable; // Fallback to old boolean if mode not sent
+        let startTime: string | null = null;
+        let endTime: string | null = null;
+
+        if (mode) {
+            switch (mode) {
+                case 'am':
+                    finalIsAvailable = true;
+                    startTime = '08:00';
+                    endTime = '12:00';
+                    break;
+                case 'pm':
+                    finalIsAvailable = true;
+                    startTime = '13:00';
+                    endTime = '17:00';
+                    break;
+                case 'full':
+                    finalIsAvailable = true;
+                    startTime = '08:00';
+                    endTime = '17:00';
+                    break;
+                case 'off':
+                    finalIsAvailable = false;
+                    startTime = null;
+                    endTime = null;
+                    break;
+            }
+        } else {
+            // Legacy handling (simple on/off defaults to full day)
+            if (isAvailable) {
+                startTime = '09:00';
+                endTime = '17:00';
+            }
+        }
 
         const targetDate = new Date(date);
         targetDate.setHours(0, 0, 0, 0); // Normalize
@@ -128,11 +164,9 @@ router.post('/toggle', requireContractorAuth, async (req: Request, res: Response
             // Update
             await db.update(contractorAvailabilityDates)
                 .set({
-                    isAvailable: isAvailable,
-                    // Reset times to default 9-5 if becoming available, or null if unavailable?
-                    // For simple toggle, keeping it simple. 
-                    startTime: isAvailable ? '09:00' : null,
-                    endTime: isAvailable ? '17:00' : null
+                    isAvailable: finalIsAvailable,
+                    startTime,
+                    endTime
                 })
                 .where(eq(contractorAvailabilityDates.id, existing[0].id));
         } else {
@@ -141,13 +175,13 @@ router.post('/toggle', requireContractorAuth, async (req: Request, res: Response
                 id: uuidv4(),
                 contractorId,
                 date: targetDate,
-                isAvailable: isAvailable,
-                startTime: isAvailable ? '09:00' : null,
-                endTime: isAvailable ? '17:00' : null
+                isAvailable: finalIsAvailable,
+                startTime,
+                endTime
             });
         }
 
-        res.json({ success: true, date, isAvailable });
+        res.json({ success: true, date, isAvailable: finalIsAvailable, mode });
 
     } catch (error) {
         console.error('Failed to toggle availability:', error);

@@ -105,7 +105,7 @@ export function ConnectionStatus() {
                     {statusText}
                 </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px] bg-white dark:bg-slate-950">
+            <DialogContent className="sm:max-w-[600px] bg-background">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         System Diagnostics
@@ -209,7 +209,7 @@ function StatusItem({ icon: Icon, label, value, status, action }: any) {
         neutral: "text-muted-foreground"
     };
     return (
-        <div className="flex items-center space-x-3 p-3 border rounded-lg bg-white dark:bg-slate-950">
+        <div className="flex items-center space-x-3 p-3 border rounded-lg bg-card border-border">
             <div className={`p-2 rounded-full bg-muted`}>
                 <Icon className={`h-4 w-4 ${colors[status as keyof typeof colors]}`} />
             </div>

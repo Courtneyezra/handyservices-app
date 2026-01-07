@@ -58,12 +58,12 @@ export default function CallsPage() {
     };
 
     return (
-        <div className="h-screen flex flex-col bg-slate-900 text-white overflow-hidden">
-            <div className="p-6 border-b border-slate-700">
+        <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden font-sans transition-colors duration-300">
+            <div className="p-6 border-b border-border bg-muted/30 backdrop-blur-sm transition-colors duration-300">
                 <div className="flex justify-between items-center">
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight text-white">Call Logs</h1>
-                        <p className="text-slate-400 mt-1">
+                        <h1 className="text-3xl font-bold tracking-tight text-foreground">Call Logs</h1>
+                        <p className="text-muted-foreground mt-1">
                             View and manage inbound calls, transcripts, and detected SKUs.
                         </p>
                     </div>
@@ -71,7 +71,7 @@ export default function CallsPage() {
                 </div>
             </div>
 
-            <div className="p-6 border-b border-slate-700">
+            <div className="p-6 border-b border-border">
                 <CallsFilterBar
                     dateRange={dateRange}
                     setDateRange={setDateRange}
@@ -95,22 +95,22 @@ export default function CallsPage() {
 
             {/* Pagination controls */}
             {data?.pagination && (
-                <div className="p-6 border-t border-slate-700 flex justify-between items-center">
-                    <div className="text-sm text-slate-400">
+                <div className="p-6 border-t border-border flex justify-between items-center bg-muted/20 backdrop-blur-sm">
+                    <div className="text-sm text-muted-foreground">
                         Page {data.pagination.page} of {data.pagination.totalPages} ({data.pagination.total} total)
                     </div>
                     <div className="space-x-2">
                         <button
                             disabled={page <= 1}
                             onClick={() => setPage(p => p - 1)}
-                            className="px-3 py-1 border border-slate-600 rounded bg-slate-800 text-white disabled:opacity-50 hover:bg-slate-700 transition-colors"
+                            className="px-3 py-1 border border-border rounded bg-card text-card-foreground disabled:opacity-50 hover:bg-muted transition-colors"
                         >
                             Previous
                         </button>
                         <button
                             disabled={page >= data.pagination.totalPages}
                             onClick={() => setPage(p => p + 1)}
-                            className="px-3 py-1 border border-slate-600 rounded bg-slate-800 text-white disabled:opacity-50 hover:bg-slate-700 transition-colors"
+                            className="px-3 py-1 border border-border rounded bg-card text-card-foreground disabled:opacity-50 hover:bg-muted transition-colors"
                         >
                             Next
                         </button>

@@ -407,6 +407,8 @@ router.put('/profile', requireContractorAuth, async (req: Request, res: Response
                     ...(trustBadges !== undefined && { trustBadges }),
                     ...(availabilityStatus !== undefined && { availabilityStatus }),
                     ...(introVideoUrl !== undefined && { introVideoUrl }),
+                    ...(req.body.whatsappNumber !== undefined && { whatsappNumber: req.body.whatsappNumber }),
+                    ...(req.body.reviews !== undefined && { reviews: req.body.reviews }),
                     ...(aiRules !== undefined && { aiRules }),
                     ...(beforeAfterGallery !== undefined && { beforeAfterGallery }),
                     ...(dbsCertificateUrl !== undefined && { dbsCertificateUrl }),

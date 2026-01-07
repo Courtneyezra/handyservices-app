@@ -6,6 +6,7 @@ interface DaySelectorProps {
     value: string; // "1,2,3,4,5"
     onChange: (value: string) => void;
     disabled?: boolean;
+    className?: string;
 }
 
 const DAYS = [
@@ -18,7 +19,7 @@ const DAYS = [
     { id: 7, label: "Sun", fullLabel: "Sunday" },
 ];
 
-export function DaySelector({ value, onChange, disabled = false }: DaySelectorProps) {
+export function DaySelector({ value, onChange, disabled = false, className }: DaySelectorProps) {
     const selectedDays = value ? value.split(',').map(Number) : [];
 
     const toggleDay = (dayId: number) => {
@@ -44,7 +45,7 @@ export function DaySelector({ value, onChange, disabled = false }: DaySelectorPr
     const isAllDays = selectedDays.length === 7;
 
     return (
-        <div className="space-y-3">
+        <div className={cn("space-y-3", className)}>
             <div className="flex flex-wrap gap-2">
                 {DAYS.map((day) => {
                     const isSelected = selectedDays.includes(day.id);

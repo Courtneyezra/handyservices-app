@@ -61,19 +61,19 @@ export default function ActionCenter() {
 
     const getUrgencyColor = (urgency: number) => {
         switch (urgency) {
-            case 1: return "border-l-4 border-l-red-500 bg-red-50/10"; // Critical
-            case 2: return "border-l-4 border-l-orange-500"; // High
-            case 3: return "border-l-4 border-l-green-500"; // Normal
-            default: return "border-l-4 border-l-slate-200";
+            case 1: return "border-l-4 border-l-destructive bg-destructive/10"; // Critical
+            case 2: return "border-l-4 border-l-amber-500 bg-amber-500/10"; // High
+            case 3: return "border-l-4 border-l-green-500 bg-green-500/10"; // Normal
+            default: return "border-l-4 border-l-border bg-card";
         }
     };
 
     if (isLoading) return <div className="h-48 flex items-center justify-center">Loading Action Center...</div>;
 
     return (
-        <Card className="col-span-1 md:col-span-2 lg:col-span-3 border-l-4 border-l-amber-500 bg-amber-500/5">
+        <Card className="col-span-1 md:col-span-2 lg:col-span-3 border border-border border-l-4 border-l-amber-500 bg-card backdrop-blur-sm shadow-sm transition-colors duration-300">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-xl font-bold flex items-center gap-2 text-white">
+                <CardTitle className="text-xl font-bold flex items-center gap-2 text-foreground">
                     <AlertTriangle className="h-5 w-5 text-amber-500 animate-pulse" />
                     Action Required
                     {actions.length > 0 && (
@@ -87,33 +87,33 @@ export default function ActionCenter() {
                 <ScrollArea className="h-[300px] pr-4">
                     <div className="space-y-3">
                         {actions.length === 0 ? (
-                            <div className="text-center py-10 text-slate-500">
-                                <CheckCircle className="h-10 w-10 mx-auto mb-2 text-green-500/20" />
+                            <div className="text-center py-10 text-muted-foreground">
+                                <CheckCircle className="h-10 w-10 mx-auto mb-2 text-green-500/80" />
                                 <p>All caught up! No urgent actions.</p>
                             </div>
                         ) : (
                             actions.map(action => (
-                                <div key={action.id} className={`p-3 rounded-lg border bg-black/40 flex flex-col sm:flex-row justify-between gap-4 ${getUrgencyColor(action.actionUrgency)}`}>
+                                <div key={action.id} className={`p-3 rounded-lg border border-border flex flex-col sm:flex-row justify-between gap-4 transition-colors ${getUrgencyColor(action.actionUrgency)}`}>
                                     <div className="space-y-1">
                                         <div className="flex items-center gap-2">
-                                            <h3 className="font-bold text-lg text-white">
+                                            <h3 className="font-bold text-lg text-foreground">
                                                 {action.customerName || action.phoneNumber}
                                             </h3>
                                             {action.outcome === 'MISSED_CALL' && <Badge variant="destructive" className="uppercase text-[10px]">Missed Call</Badge>}
-                                            <span className="text-xs text-slate-400 flex items-center gap-1">
+                                            <span className="text-xs text-muted-foreground flex items-center gap-1">
                                                 <Clock className="h-3 w-3" />
                                                 {formatDistanceToNow(new Date(action.startTime), { addSuffix: true })}
                                             </span>
                                         </div>
-                                        <p className="text-sm text-slate-300 line-clamp-2">
+                                        <p className="text-sm text-muted-foreground line-clamp-2">
                                             {action.jobSummary || action.transcription || (
-                                                <span className="italic text-slate-500">No details available.</span>
+                                                <span className="italic text-muted-foreground">No details available.</span>
                                             )}
                                         </p>
                                     </div>
 
                                     <div className="flex items-center gap-2 min-w-[240px]">
-                                        <Button className="flex-1 gap-2 bg-green-600 hover:bg-green-700 text-white font-bold" onClick={() => handleCallback(action.phoneNumber)}>
+                                        <Button className="flex-1 gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-bold" onClick={() => handleCallback(action.phoneNumber)}>
                                             <Phone className="h-4 w-4" /> Call Back
                                         </Button>
                                         <Button variant="secondary" className="gap-2" size="sm" onClick={() => markResolved(action.id)}>

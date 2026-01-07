@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Settings, Phone, Volume2, MessageSquare, CheckCircle, XCircle, Loader2, AlertCircle, PhoneForwarded } from 'lucide-react';
+import { Settings, Phone, Volume2, MessageSquare, CheckCircle, XCircle, Loader2, AlertCircle, PhoneForwarded, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DaySelector } from '@/components/ui/day-selector';
 import { LiveSchedulePreview } from '@/components/ui/live-schedule-preview';
@@ -159,6 +159,17 @@ export default function SettingsPage() {
         },
     });
 
+    // Fetch Twilio Balance
+    const { data: balanceData } = useQuery({
+        queryKey: ['twilio-balance'],
+        queryFn: async () => {
+            const res = await fetch('/api/settings/balance');
+            if (!res.ok) return null;
+            return res.json();
+        },
+        refetchInterval: 30000, // Refresh every 30s
+    });
+
     // Check forward number status
     const checkForwardStatus = async (phoneNumber: string) => {
         if (!phoneNumber) {
@@ -223,15 +234,15 @@ export default function SettingsPage() {
     const getStatusIcon = (status: ForwardStatus['status']) => {
         switch (status) {
             case 'valid':
-                return <CheckCircle className="w-5 h-5 text-green-500" />;
+                return <CheckCircle className="w-5 h-5 text-green-600" />;
             case 'invalid':
-                return <XCircle className="w-5 h-5 text-red-500" />;
+                return <XCircle className="w-5 h-5 text-red-600" />;
             case 'checking':
-                return <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />;
+                return <Loader2 className="w-5 h-5 text-primary animate-spin" />;
             case 'unconfigured':
-                return <AlertCircle className="w-5 h-5 text-gray-400" />;
+                return <AlertCircle className="w-5 h-5 text-muted-foreground" />;
             default:
-                return <AlertCircle className="w-5 h-5 text-yellow-500" />;
+                return <AlertCircle className="w-5 h-5 text-amber-500" />;
         }
     };
 
@@ -242,9 +253,9 @@ export default function SettingsPage() {
             case 'invalid':
                 return 'border-red-500/50 bg-red-500/10';
             case 'checking':
-                return 'border-blue-500/50 bg-blue-500/10';
+                return 'border-primary/50 bg-primary/10';
             default:
-                return 'border-white/10 bg-white/5';
+                return 'border-input bg-muted/50';
         }
     };
 
@@ -335,22 +346,28 @@ export default function SettingsPage() {
     if (isLoading) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
-                <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
         );
     }
 
     return (
-        <div className="p-6 max-w-4xl mx-auto space-y-6 pb-24">
+        <div className="p-6 max-w-4xl mx-auto space-y-6 pb-24 bg-background min-h-screen">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                    <Settings className="w-8 h-8 text-blue-600" />
+                    <Settings className="w-8 h-8 text-primary" />
                     <div>
-                        <h1 className="text-xl lg:text-2xl font-bold">Settings</h1>
-                        <p className="text-xs lg:text-sm text-gray-500">Manage your call system configuration</p>
+                        <h1 className="text-xl lg:text-2xl font-bold text-secondary">Settings</h1>
+                        <p className="text-xs lg:text-sm text-muted-foreground">Manage your call system configuration</p>
                     </div>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-2">
+                <div className="flex flex-col sm:flex-row gap-2 items-center">
+                    {balanceData?.balance && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 text-green-600 rounded-md border border-green-500/20 mr-2">
+                            <span className="text-xs font-medium">Twilio Credit:</span>
+                            <span className="font-bold text-sm">{typeof balanceData.balance === 'number' ? Number(balanceData.balance).toFixed(2) : balanceData.balance} {balanceData.currency}</span>
+                        </div>
+                    )}
                     <Button variant="outline" onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending} size="sm">
                         {seedMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                         Seed Defaults
@@ -362,7 +379,7 @@ export default function SettingsPage() {
             </div>
 
             <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-                <TabsList className="grid w-full grid-cols-3 mb-8">
+                <TabsList className="grid w-full grid-cols-3 mb-8 bg-muted border border-border">
                     <TabsTrigger value="routing">Call Routing</TabsTrigger>
                     <TabsTrigger value="experience">Experience</TabsTrigger>
                     <TabsTrigger value="fallback">Fallback</TabsTrigger>
@@ -370,7 +387,7 @@ export default function SettingsPage() {
 
                 {/* Call Routing Tab */}
                 <TabsContent value="routing" className="space-y-6 pt-2">
-                    <Card className="border-2">
+                    <Card className="jobber-card shadow-sm">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                                 <PhoneForwarded className="w-5 h-5 text-blue-600" />
@@ -379,34 +396,34 @@ export default function SettingsPage() {
                             <CardDescription>Route calls to your VA or team member</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-white/10">
+                            <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg border border-border">
                                 <div>
-                                    <Label className="text-base font-medium">Enable Call Forwarding</Label>
-                                    <p className="text-sm text-gray-400">When enabled, calls will be forwarded to the number below</p>
+                                    <Label className="text-base font-medium text-foreground">Enable Call Forwarding</Label>
+                                    <p className="text-sm text-muted-foreground">When enabled, calls will be forwarded to the number below</p>
                                 </div>
                                 <div className="flex items-center gap-3">
-                                    <span className={`text-sm font-medium ${localSettings['twilio.forward_enabled'] ? 'text-green-600' : 'text-gray-400'}`}>
+                                    <span className={`text-sm font-medium ${localSettings['twilio.forward_enabled'] ? 'text-primary' : 'text-muted-foreground'}`}>
                                         {localSettings['twilio.forward_enabled'] ? 'ON' : 'OFF'}
                                     </span>
                                     <Switch
                                         checked={localSettings['twilio.forward_enabled']}
                                         onCheckedChange={(val) => updateSetting('twilio.forward_enabled', val)}
-                                        className="data-[state=checked]:bg-green-600 data-[state=unchecked]:bg-gray-300"
+                                        className="data-[state=checked]:bg-primary data-[state=unchecked]:bg-input"
                                     />
                                 </div>
                             </div>
 
                             <div className="space-y-2">
-                                <Label htmlFor="forward-number">Forward Number (E.164 format)</Label>
+                                <Label htmlFor="forward-number" className="text-foreground">Forward Number (E.164 format)</Label>
                                 <div className="flex gap-2">
-                                    <div className={`flex-1 relative flex items-center rounded-md border-2 ${getStatusColor(forwardStatus.status)}`}>
-                                        <Phone className="w-4 h-4 ml-3 text-gray-400" />
+                                    <div className={`flex-1 relative flex items-center rounded-md border-2 border-input bg-background ${getStatusColor(forwardStatus.status)}`}>
+                                        <Phone className="w-4 h-4 ml-3 text-muted-foreground" />
                                         <Input
                                             id="forward-number"
                                             placeholder="+447700900000"
                                             value={localSettings['twilio.forward_number']}
                                             onChange={(e) => updateSetting('twilio.forward_number', e.target.value)}
-                                            className="border-0 focus-visible:ring-0"
+                                            className="bg-transparent border-0 focus-visible:ring-0 text-foreground placeholder:text-muted-foreground"
                                         />
                                         <div className="pr-3">
                                             {getStatusIcon(forwardStatus.status)}
@@ -426,7 +443,7 @@ export default function SettingsPage() {
                             </div>
 
                             <div className="space-y-2">
-                                <Label>Ring Timeout: {localSettings['twilio.max_wait_seconds']} seconds</Label>
+                                <Label className="text-foreground">Ring Timeout: {localSettings['twilio.max_wait_seconds']} seconds</Label>
                                 <input
                                     type="range"
                                     min={10}
@@ -434,15 +451,15 @@ export default function SettingsPage() {
                                     step={5}
                                     value={localSettings['twilio.max_wait_seconds']}
                                     onChange={(e) => updateSetting('twilio.max_wait_seconds', parseInt(e.target.value))}
-                                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                                    className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer"
                                 />
-                                <p className="text-sm text-gray-500">How long to ring the forward number before triggering fallback</p>
+                                <p className="text-sm text-muted-foreground">How long to ring the forward number before triggering fallback</p>
                             </div>
 
-                            <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg border border-white/10">
+                            <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg border border-border">
                                 <div>
-                                    <Label className="text-base font-medium">Whisper Lead Number</Label>
-                                    <p className="text-sm text-gray-400">Play the lead's number to you before connecting</p>
+                                    <Label className="text-base font-medium text-foreground">Whisper Lead Number</Label>
+                                    <p className="text-sm text-muted-foreground">Play the lead's number to you before connecting</p>
                                 </div>
                                 <Switch
                                     checked={localSettings['twilio.whisper_enabled']}
@@ -455,7 +472,7 @@ export default function SettingsPage() {
 
                 {/* Experience Tab */}
                 <TabsContent value="experience" className="space-y-6 pt-2">
-                    <Card>
+                    <Card className="jobber-card shadow-sm">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                                 <Volume2 className="w-5 h-5 text-green-600" />
@@ -466,20 +483,21 @@ export default function SettingsPage() {
                         <CardContent className="space-y-6">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-2">
-                                    <Label htmlFor="business-name">Business Name</Label>
+                                    <Label htmlFor="business-name" className="text-foreground">Business Name</Label>
                                     <Input
                                         id="business-name"
                                         value={localSettings['twilio.business_name']}
                                         onChange={(e) => updateSetting('twilio.business_name', e.target.value)}
+                                        className="bg-background border-input text-foreground"
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="voice">Voice</Label>
+                                    <Label htmlFor="voice" className="text-foreground">Voice</Label>
                                     <Select
                                         value={localSettings['twilio.voice']}
                                         onValueChange={(val) => updateSetting('twilio.voice', val)}
                                     >
-                                        <SelectTrigger id="voice">
+                                        <SelectTrigger id="voice" className="bg-background border-input text-foreground">
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -493,26 +511,27 @@ export default function SettingsPage() {
                             </div>
 
                             <div className="space-y-2">
-                                <Label htmlFor="welcome-message">Welcome Message</Label>
+                                <Label htmlFor="welcome-message" className="text-foreground">Welcome Message</Label>
                                 <Textarea
                                     id="welcome-message"
                                     value={localSettings['twilio.welcome_message']}
                                     onChange={(e) => updateSetting('twilio.welcome_message', e.target.value)}
                                     placeholder="Use {business_name} to insert the business name"
                                     rows={3}
+                                    className="bg-background border-input text-foreground"
                                 />
-                                <p className="text-sm text-gray-500">Use {'{business_name}'} as a placeholder</p>
+                                <p className="text-sm text-muted-foreground">Use {'{business_name}'} as a placeholder</p>
                             </div>
 
                             <div className="space-y-2">
-                                <Label htmlFor="welcome-audio">Welcome Audio</Label>
+                                <Label htmlFor="welcome-audio" className="text-foreground">Welcome Audio</Label>
                                 <div className="flex items-center gap-3">
                                     <Input
                                         id="welcome-audio"
                                         value={localSettings['twilio.welcome_audio_url']}
                                         onChange={(e) => updateSetting('twilio.welcome_audio_url', e.target.value)}
                                         placeholder="/assets/welcome-audio.mp3"
-                                        className="flex-1"
+                                        className="flex-1 bg-background border-input text-foreground"
                                     />
                                     <label className="cursor-pointer">
                                         <input
@@ -543,7 +562,7 @@ export default function SettingsPage() {
                                                 }
                                             }}
                                         />
-                                        <span className="inline-flex items-center gap-1 px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm">
+                                        <span className="inline-flex items-center gap-1 px-3 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 text-sm">
                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                                             </svg>
@@ -551,18 +570,19 @@ export default function SettingsPage() {
                                         </span>
                                     </label>
                                 </div>
-                                <p className="text-sm text-gray-500">Upload an MP3/WAV file or enter a URL. Plays to callers before connecting.</p>
+                                <p className="text-sm text-muted-foreground">Upload an MP3/WAV file or enter a URL. Plays to callers before connecting.</p>
                             </div>
 
                             <div className="space-y-2">
-                                <Label htmlFor="hold-music">Hold Music URL</Label>
+                                <Label htmlFor="hold-music" className="text-foreground">Hold Music URL</Label>
                                 <Input
                                     id="hold-music"
                                     value={localSettings['twilio.hold_music_url']}
                                     onChange={(e) => updateSetting('twilio.hold_music_url', e.target.value)}
                                     placeholder="/assets/hold-music.mp3"
+                                    className="bg-background border-input text-foreground"
                                 />
-                                <p className="text-sm text-gray-500">Audio played while lead is waiting to be connected</p>
+                                <p className="text-sm text-muted-foreground">Audio played while lead is waiting to be connected</p>
                             </div>
                         </CardContent>
                     </Card>
@@ -570,7 +590,7 @@ export default function SettingsPage() {
 
                 {/* Fallback Tab */}
                 <TabsContent value="fallback" className="space-y-6 pt-2">
-                    <Card>
+                    <Card className="jobber-card shadow-sm">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                                 <MessageSquare className="w-5 h-5 text-purple-600" />
@@ -580,12 +600,12 @@ export default function SettingsPage() {
                         </CardHeader>
                         <CardContent className="space-y-6">
                             <div className="space-y-2">
-                                <Label>Fallback Action</Label>
+                                <Label className="text-foreground">Fallback Action</Label>
                                 <Select
                                     value={localSettings['twilio.fallback_action']}
                                     onValueChange={(val) => updateSetting('twilio.fallback_action', val)}
                                 >
-                                    <SelectTrigger>
+                                    <SelectTrigger className="bg-background border-input text-foreground">
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -598,19 +618,19 @@ export default function SettingsPage() {
                             </div>
 
                             {localSettings['twilio.fallback_action'] === 'eleven-labs' && (
-                                <div className="space-y-4 p-4 bg-slate-900/50 rounded-lg border border-white/10">
+                                <div className="space-y-4 p-4 bg-muted/30 rounded-lg border border-border">
                                     <div className="space-y-2">
-                                        <Label htmlFor="eleven-labs-api-key">Eleven Labs API Key (Required)</Label>
+                                        <Label htmlFor="eleven-labs-api-key" className="text-foreground">Eleven Labs API Key (Required)</Label>
                                         <div className="flex gap-2">
-                                            <div className={`flex-1 relative flex items-center rounded-md border-2 ${getStatusColor(apiKeyStatus.status)}`}>
-                                                <AlertCircle className="w-4 h-4 ml-3 text-gray-400" />
+                                            <div className={`flex-1 relative flex items-center rounded-md border text-foreground bg-background border-input ${getStatusColor(apiKeyStatus.status)}`}>
+                                                <AlertCircle className="w-4 h-4 ml-3 text-muted-foreground" />
                                                 <Input
                                                     id="eleven-labs-api-key"
                                                     type="password"
                                                     placeholder="Enter your Eleven Labs API Key"
                                                     value={localSettings['twilio.eleven_labs_api_key']}
                                                     onChange={(e) => updateSetting('twilio.eleven_labs_api_key', e.target.value)}
-                                                    className="border-0 focus-visible:ring-0 bg-transparent"
+                                                    className="bg-transparent border-0 focus-visible:ring-0 text-foreground placeholder:text-muted-foreground"
                                                 />
                                                 <div className="pr-3">
                                                     {getStatusIcon(apiKeyStatus.status)}
@@ -619,27 +639,27 @@ export default function SettingsPage() {
                                             <Button
                                                 variant="outline"
                                                 onClick={() => checkApiKeyStatus(localSettings['twilio.eleven_labs_api_key'])}
-                                                className="border-white/10"
+                                                className="border-input hover:bg-muted"
                                             >
                                                 Verify Key
                                             </Button>
                                         </div>
-                                        <p className={`text-sm ${apiKeyStatus.status === 'valid' ? 'text-green-600' : apiKeyStatus.status === 'invalid' ? 'text-red-600' : 'text-gray-500'}`}>
+                                        <p className={`text-sm ${apiKeyStatus.status === 'valid' ? 'text-green-600' : apiKeyStatus.status === 'invalid' ? 'text-red-500' : 'text-muted-foreground'}`}>
                                             {apiKeyStatus.message}
                                         </p>
                                     </div>
 
                                     <div className="space-y-2">
-                                        <Label htmlFor="eleven-labs-id">Eleven Labs Agent ID</Label>
+                                        <Label htmlFor="eleven-labs-id" className="text-foreground">Eleven Labs Agent ID</Label>
                                         <div className="flex gap-2">
-                                            <div className={`flex-1 relative flex items-center rounded-md border-2 ${getStatusColor(agentStatus.status)}`}>
-                                                <MessageSquare className="w-4 h-4 ml-3 text-gray-400" />
+                                            <div className={`flex-1 relative flex items-center rounded-md border text-foreground bg-background border-input ${getStatusColor(agentStatus.status)}`}>
+                                                <MessageSquare className="w-4 h-4 ml-3 text-muted-foreground" />
                                                 <Input
                                                     id="eleven-labs-id"
                                                     placeholder="e.g. agent_abc123 or 27f64409-..."
                                                     value={localSettings['twilio.eleven_labs_agent_id']}
                                                     onChange={(e) => updateSetting('twilio.eleven_labs_agent_id', e.target.value)}
-                                                    className="border-0 focus-visible:ring-0 bg-transparent"
+                                                    className="bg-transparent border-0 focus-visible:ring-0 text-foreground placeholder:text-muted-foreground"
                                                     disabled={apiKeyStatus.status !== 'valid'}
                                                 />
                                                 <div className="pr-3">
@@ -649,13 +669,13 @@ export default function SettingsPage() {
                                             <Button
                                                 variant="outline"
                                                 onClick={() => checkAgentStatus(localSettings['twilio.eleven_labs_agent_id'])}
-                                                className="border-white/10"
+                                                className="border-input hover:bg-muted"
                                                 disabled={apiKeyStatus.status !== 'valid'}
                                             >
                                                 Verify
                                             </Button>
                                         </div>
-                                        <p className={`text-sm ${agentStatus.status === 'valid' ? 'text-green-600' : agentStatus.status === 'invalid' ? 'text-red-600' : 'text-gray-500'}`}>
+                                        <p className={`text-sm ${agentStatus.status === 'valid' ? 'text-green-600' : agentStatus.status === 'invalid' ? 'text-red-500' : 'text-muted-foreground'}`}>
                                             {apiKeyStatus.status !== 'valid'
                                                 ? 'Verify your API key first to enable Agent ID verification'
                                                 : agentStatus.message}
@@ -663,16 +683,16 @@ export default function SettingsPage() {
                                     </div>
 
                                     <div className="space-y-2">
-                                        <Label htmlFor="eleven-labs-busy-id">Busy Agent ID (Optional)</Label>
+                                        <Label htmlFor="eleven-labs-busy-id" className="text-foreground">Busy Agent ID (Optional)</Label>
                                         <div className="flex gap-2">
-                                            <div className={`flex-1 relative flex items-center rounded-md border-2 ${getStatusColor(busyAgentStatus.status)}`}>
-                                                <MessageSquare className="w-4 h-4 ml-3 text-gray-400" />
+                                            <div className={`flex-1 relative flex items-center rounded-md border text-foreground bg-background border-input ${getStatusColor(busyAgentStatus.status)}`}>
+                                                <MessageSquare className="w-4 h-4 ml-3 text-muted-foreground" />
                                                 <Input
                                                     id="eleven-labs-busy-id"
                                                     placeholder="e.g. agent_xyz789"
                                                     value={localSettings['twilio.eleven_labs_busy_agent_id']}
                                                     onChange={(e) => updateSetting('twilio.eleven_labs_busy_agent_id', e.target.value)}
-                                                    className="border-0 focus-visible:ring-0 bg-transparent"
+                                                    className="bg-transparent border-0 focus-visible:ring-0 text-foreground placeholder:text-muted-foreground"
                                                     disabled={apiKeyStatus.status !== 'valid'}
                                                 />
                                                 <div className="pr-3">
@@ -682,43 +702,44 @@ export default function SettingsPage() {
                                             <Button
                                                 variant="outline"
                                                 onClick={() => checkBusyAgentStatus(localSettings['twilio.eleven_labs_busy_agent_id'])}
-                                                className="border-white/10"
+                                                className="border-input hover:bg-muted"
                                                 disabled={apiKeyStatus.status !== 'valid'}
                                             >
                                                 Verify
                                             </Button>
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <p className={`text-sm ${busyAgentStatus.status === 'valid' ? 'text-green-600' : busyAgentStatus.status === 'invalid' ? 'text-red-600' : 'text-gray-500'}`}>
+                                            <p className={`text-sm ${busyAgentStatus.status === 'valid' ? 'text-green-600' : busyAgentStatus.status === 'invalid' ? 'text-red-500' : 'text-muted-foreground'}`}>
                                                 {apiKeyStatus.status !== 'valid'
                                                     ? 'Verify your API key first to enable Agent ID verification'
                                                     : busyAgentStatus.message}
                                             </p>
-                                            <p className="text-sm text-gray-500">
+                                            <p className="text-sm text-muted-foreground">
                                                 Agent to handle calls when the main line is busy. Leave empty to use default.
                                             </p>
                                         </div>
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="fallback-agent">Custom Agent URL (Optional Override)</Label>
+                                        <Label htmlFor="fallback-agent" className="text-foreground">Custom Agent URL (Optional Override)</Label>
                                         <Input
                                             id="fallback-agent"
                                             value={localSettings['twilio.fallback_agent_url']}
                                             onChange={(e) => updateSetting('twilio.fallback_agent_url', e.target.value)}
                                             placeholder="https://agent.elevenlabs.io/..."
+                                            className="bg-background border-input text-foreground"
                                         />
-                                        <p className="text-sm text-gray-500">
+                                        <p className="text-sm text-muted-foreground">
                                             Only use this if you need to override the standard redirection.
                                         </p>
                                     </div>
 
                                     {/* Agent Modes - Only visible when both API key and Agent ID are verified */}
                                     {(apiKeyStatus.status === 'valid' && agentStatus.status === 'valid') && (
-                                        <div className="space-y-6 pt-6 border-t border-white/10 mt-6">
+                                        <div className="space-y-6 pt-6 border-t border-border mt-6">
                                             <div className="flex items-center justify-between">
                                                 <div className="flex items-center gap-2">
-                                                    <h4 className="text-base font-semibold text-white">Agent Availability & Routing</h4>
-                                                    <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded border border-green-500/20">Active</span>
+                                                    <h4 className="text-base font-semibold text-foreground">Agent Availability & Routing</h4>
+                                                    <span className="text-xs bg-green-500/10 text-green-600 px-2 py-0.5 rounded border border-green-500/20">Active</span>
                                                 </div>
                                             </div>
 
@@ -726,12 +747,12 @@ export default function SettingsPage() {
                                                 {/* Left Column: Mode Selection & Schedule */}
                                                 <div className="md:col-span-2 space-y-6">
                                                     <div className="space-y-3">
-                                                        <Label className="text-base">Operating Mode</Label>
+                                                        <Label className="text-base text-foreground">Operating Mode</Label>
                                                         <Select
                                                             value={localSettings['twilio.agent_mode'] || 'auto'}
                                                             onValueChange={(value) => updateSetting('twilio.agent_mode', value)}
                                                         >
-                                                            <SelectTrigger className="h-12 text-base bg-slate-900/50">
+                                                            <SelectTrigger className="h-12 text-base bg-background border-input text-foreground">
                                                                 <SelectValue />
                                                             </SelectTrigger>
                                                             <SelectContent>
@@ -767,8 +788,8 @@ export default function SettingsPage() {
                                                     <div className={cn(
                                                         "space-y-6 p-5 rounded-lg border transition-all duration-200",
                                                         localSettings['twilio.agent_mode'] === 'auto'
-                                                            ? "bg-slate-900/30 border-white/10"
-                                                            : "bg-slate-900/10 border-transparent opacity-60 pointer-events-none grayscale"
+                                                            ? "bg-muted/30 border-border"
+                                                            : "bg-muted/50 border-transparent opacity-60 pointer-events-none grayscale"
                                                     )}>
                                                         <div className="flex items-center justify-between">
                                                             <Label className="text-sm font-medium uppercase tracking-wider text-muted-foreground">Business Schedule (UK Time)</Label>
@@ -782,7 +803,7 @@ export default function SettingsPage() {
                                                         {/* Presets */}
                                                         <div className="flex flex-wrap gap-2">
                                                             <Button
-                                                                variant="outline" size="sm" className="h-7 text-xs border-dashed"
+                                                                variant="outline" size="sm" className="h-7 text-xs border-dashed text-foreground hover:bg-muted"
                                                                 onClick={() => {
                                                                     updateSetting('twilio.business_hours_start', '09:00');
                                                                     updateSetting('twilio.business_hours_end', '17:00');
@@ -792,7 +813,7 @@ export default function SettingsPage() {
                                                                 Mon-Fri 9-5
                                                             </Button>
                                                             <Button
-                                                                variant="outline" size="sm" className="h-7 text-xs border-dashed"
+                                                                variant="outline" size="sm" className="h-7 text-xs border-dashed text-foreground hover:bg-muted"
                                                                 onClick={() => {
                                                                     updateSetting('twilio.business_hours_start', '08:00');
                                                                     updateSetting('twilio.business_hours_end', '18:00');
@@ -802,7 +823,7 @@ export default function SettingsPage() {
                                                                 Mon-Fri 8-6
                                                             </Button>
                                                             <Button
-                                                                variant="outline" size="sm" className="h-7 text-xs border-dashed"
+                                                                variant="outline" size="sm" className="h-7 text-xs border-dashed text-foreground hover:bg-muted"
                                                                 onClick={() => {
                                                                     updateSetting('twilio.business_hours_start', '09:00');
                                                                     updateSetting('twilio.business_hours_end', '17:00');
@@ -815,45 +836,42 @@ export default function SettingsPage() {
 
                                                         <div className="grid grid-cols-2 gap-4">
                                                             <div className="space-y-2">
-                                                                <Label>Opening Time</Label>
+                                                                <Label className="text-foreground">Opening Time</Label>
                                                                 <div className="relative">
                                                                     <Input
                                                                         type="time"
-                                                                        className="pl-8"
+                                                                        className="pl-8 bg-background border-input text-foreground"
                                                                         value={localSettings['twilio.business_hours_start'] || '08:00'}
                                                                         onChange={(e) => updateSetting('twilio.business_hours_start', e.target.value)}
                                                                     />
-                                                                    <div className="absolute left-2.5 top-2.5 text-gray-400">
-                                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-                                                                        </svg>
+                                                                    <div className="absolute left-2.5 top-2.5 text-muted-foreground">
+                                                                        <Clock className="w-4 h-4" />
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                             <div className="space-y-2">
-                                                                <Label>Closing Time</Label>
+                                                                <Label className="text-foreground">Closing Time</Label>
                                                                 <div className="relative">
                                                                     <Input
                                                                         type="time"
-                                                                        className="pl-8"
+                                                                        className="pl-8 bg-background border-input text-foreground"
                                                                         value={localSettings['twilio.business_hours_end'] || '18:00'}
                                                                         onChange={(e) => updateSetting('twilio.business_hours_end', e.target.value)}
                                                                     />
-                                                                    <div className="absolute left-2.5 top-2.5 text-gray-400">
-                                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                                                                        </svg>
+                                                                    <div className="absolute left-2.5 top-2.5 text-muted-foreground">
+                                                                        <Clock className="w-4 h-4" />
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                         </div>
 
                                                         <div className="space-y-3">
-                                                            <Label>Operational Days</Label>
+                                                            <Label className="text-foreground">Operational Days</Label>
                                                             <DaySelector
                                                                 value={localSettings['twilio.business_days'] || '1,2,3,4,5'}
                                                                 onChange={(value) => updateSetting('twilio.business_days', value)}
                                                                 disabled={localSettings['twilio.agent_mode'] !== 'auto'}
+                                                                className="bg-background border-input"
                                                             />
                                                         </div>
                                                     </div>
@@ -866,6 +884,7 @@ export default function SettingsPage() {
                                                         start={localSettings['twilio.business_hours_start']}
                                                         end={localSettings['twilio.business_hours_end']}
                                                         days={localSettings['twilio.business_days']}
+                                                        className="bg-background border-input text-foreground"
                                                     />
 
                                                     <div className="space-y-2">
@@ -875,7 +894,7 @@ export default function SettingsPage() {
                                                             onChange={(e) => updateSetting('twilio.agent_context_default', e.target.value)}
                                                             rows={3}
                                                             placeholder="Instructions for the agent when answering during business hours..."
-                                                            className="resize-none bg-slate-900/50"
+                                                            className="resize-none bg-background border-input text-foreground"
                                                         />
                                                     </div>
 
@@ -886,7 +905,7 @@ export default function SettingsPage() {
                                                             onChange={(e) => updateSetting('twilio.agent_context_out_of_hours', e.target.value)}
                                                             rows={3}
                                                             placeholder="Instructions for AFTER hours (e.g., take a message)..."
-                                                            className="resize-none bg-slate-900/50"
+                                                            className="resize-none bg-background border-input text-foreground"
                                                         />
                                                     </div>
 
@@ -897,7 +916,7 @@ export default function SettingsPage() {
                                                             onChange={(e) => updateSetting('twilio.agent_context_missed', e.target.value)}
                                                             rows={3}
                                                             placeholder="What to say if the human team missed the call..."
-                                                            className="resize-none bg-slate-900/50"
+                                                            className="resize-none bg-background border-input text-foreground"
                                                         />
                                                     </div>
                                                 </div>
@@ -908,37 +927,40 @@ export default function SettingsPage() {
                             )}
 
                             <div className="space-y-2">
-                                <Label htmlFor="fallback-message">Auto-SMS to Lead (Missed Call)</Label>
+                                <Label htmlFor="fallback-message" className="text-foreground">Auto-SMS to Lead (Missed Call)</Label>
                                 <Textarea
                                     id="fallback-message"
                                     value={localSettings['twilio.fallback_message']}
                                     onChange={(e) => updateSetting('twilio.fallback_message', e.target.value)}
                                     rows={4}
+                                    className="bg-background border-input text-foreground"
                                 />
-                                <p className="text-sm text-gray-500">Sent to the customer if you miss the call (supports WhatsApp links)</p>
+                                <p className="text-sm text-muted-foreground">Sent to the customer if you miss the call (supports WhatsApp links)</p>
                             </div>
 
-                            <div className="pt-6 border-t space-y-6">
+                            <div className="pt-6 border-t border-border space-y-6">
                                 <div className="space-y-2">
-                                    <Label htmlFor="agent-notify-sms">Agent Notification SMS</Label>
+                                    <Label htmlFor="agent-notify-sms" className="text-foreground">Agent Notification SMS</Label>
                                     <Textarea
                                         id="agent-notify-sms"
                                         value={localSettings['twilio.agent_notify_sms']}
                                         onChange={(e) => updateSetting('twilio.agent_notify_sms', e.target.value)}
                                         rows={2}
+                                        className="bg-background border-input text-foreground"
                                     />
-                                    <p className="text-sm text-gray-500">Sent for every incoming call. Use {'{lead_number}'} and {'{twilio_uk_number}'}</p>
+                                    <p className="text-sm text-muted-foreground">Sent for every incoming call. Use {'{lead_number}'} and {'{twilio_uk_number}'}</p>
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="agent-missed-sms">Agent Missed Call SMS</Label>
+                                    <Label htmlFor="agent-missed-sms" className="text-foreground">Agent Missed Call SMS</Label>
                                     <Textarea
                                         id="agent-missed-sms"
                                         value={localSettings['twilio.agent_missed_sms']}
                                         onChange={(e) => updateSetting('twilio.agent_missed_sms', e.target.value)}
                                         rows={2}
+                                        className="bg-background border-input text-foreground"
                                     />
-                                    <p className="text-sm text-gray-500">Sent if you miss the call</p>
+                                    <p className="text-sm text-muted-foreground">Sent if you miss the call</p>
                                 </div>
                             </div>
                         </CardContent>
@@ -947,11 +969,11 @@ export default function SettingsPage() {
             </Tabs>
 
             {/* Status Indicator Bar */}
-            <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-md border-t z-50">
+            <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-md border-t border-border z-50">
                 <div className="max-w-4xl mx-auto flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className={`w-3 h-3 rounded-full ${localSettings['twilio.forward_enabled'] && forwardStatus.status === 'valid' ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
-                        <span className="text-xs sm:text-sm font-medium">
+                        <div className={`w-3 h-3 rounded-full ${localSettings['twilio.forward_enabled'] && forwardStatus.status === 'valid' ? 'bg-green-500 animate-pulse' : 'bg-muted-foreground'}`} />
+                        <span className="text-xs sm:text-sm font-medium text-foreground">
                             {localSettings['twilio.forward_enabled'] && forwardStatus.status === 'valid'
                                 ? `Active: Forwarding to ${forwardStatus.nationalFormat || localSettings['twilio.forward_number']}`
                                 : localSettings['twilio.forward_enabled']

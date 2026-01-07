@@ -17,6 +17,7 @@ import SKUPage from "@/pages/SKUPage";
 import WhatsAppInbox from "@/pages/WhatsAppInbox";
 import HandymanMap from "@/pages/HandymanMap";
 import HandymanDashboard from "@/pages/HandymanDashboard"; // Legacy
+import { ThemeProvider } from "@/components/theme-provider";
 import ContractorFleetDashboard from "@/pages/ContractorFleetDashboard";
 import GenerateQuoteLink from "@/pages/GenerateQuoteLink";
 import MainDashboard from "@/pages/MainDashboard";
@@ -46,6 +47,7 @@ const NewQuotePage = lazy(() => import("./pages/contractor/dashboard/quotes/NewQ
 const QuotesListPage = lazy(() => import("./pages/contractor/dashboard/quotes/QuotesListPage"));
 const JobsPage = lazy(() => import("./pages/contractor/dashboard/JobsPage"));
 const QuoteDetailsPage = lazy(() => import("./pages/contractor/dashboard/quotes/QuoteDetailsPage"));
+const JobDetailsPage = lazy(() => import("./pages/contractor/dashboard/JobDetailsPage"));
 const ContractorOnboarding = lazy(() => import('./pages/ContractorOnboarding'));
 const ContractorSettingsPage = lazy(() => import('./pages/contractor/dashboard/ContractorSettingsPage'));
 
@@ -159,8 +161,6 @@ function Router() {
                 <Route path="/contractor/dashboard">
                     <ContractorDashboardHome />
                 </Route>
-// ... existing code
-
                 <Route path="/contractor/dashboard/bookings">
                     <BookingRequestsPage />
                 </Route>
@@ -180,11 +180,17 @@ function Router() {
                 <Route path="/contractor/dashboard/jobs">
                     <JobsPage />
                 </Route>
+                <Route path="/contractor/dashboard/jobs/:id">
+                    <JobDetailsPage />
+                </Route>
                 <Route path="/contractor/calendar">
                     <ContractorCalendar />
                 </Route>
                 <Route path="/contractor/profile">
-                    <ContractorProfile />
+                    {() => {
+                        window.location.href = '/contractor/dashboard/settings';
+                        return null;
+                    }}
                 </Route>
                 <Route path="/contractor/service-area">
                     <ContractorServiceArea />
@@ -272,10 +278,12 @@ function Router() {
 function App() {
     return (
         <QueryClientProvider client={queryClient}>
-            <LiveCallProvider>
-                <Router />
-                <Toaster />
-            </LiveCallProvider>
+            <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
+                <LiveCallProvider>
+                    <Router />
+                    <Toaster />
+                </LiveCallProvider>
+            </ThemeProvider>
         </QueryClientProvider>
     );
 }

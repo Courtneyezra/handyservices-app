@@ -2,126 +2,121 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Handy Services Dark Theme Design System */
-:root {
-  --handy-gold: #e8b323;
-  --handy-gold-hover: #d1a01f;
-  --handy-bg-primary: rgb(17, 24, 39);
-  --handy-bg-secondary: rgb(31, 41, 55);
-  --handy-surface: rgba(0, 0, 0, 0.4);
-  --handy-border: rgb(55, 65, 81);
+@layer base {
+  :root {
+    /* Jobber Color Palette */
+    /* Primary (Jobber Green): #7DB00E -> HSL 79 85% 37% */
+    /* Secondary (Navy): #1D2D3D -> HSL 210 36% 18% */
+    /* Background (Light Gray): #F3F4F6 -> 210 20% 96% */
+    /* Card (White): #FFFFFF */
 
-  /* Theme CSS Variables for shadcn/ui components */
-  --background: 222 47% 11%;
-  --foreground: 210 40% 98%;
-  --card: 222 47% 11%;
-  --card-foreground: 210 40% 98%;
-  --popover: 222 47% 15%;
-  --popover-foreground: 210 40% 98%;
-  --primary: 210 40% 98%;
-  --primary-foreground: 222 47% 11%;
-  --secondary: 217 33% 17%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 217 33% 17%;
-  --muted-foreground: 215 20% 65%;
-  --accent: 217 33% 17%;
-  --accent-foreground: 210 40% 98%;
-  --destructive: 0 62% 30%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 217 33% 17%;
-  --input: 217 33% 17%;
-  --ring: 212 95% 50%;
-  --radius: 0.5rem;
-}
+    --background: 0 0% 100%;
+    /* White background by default for a clean look, or 210 40% 98% */
+    --foreground: 222.2 84% 4.9%;
 
-/* Dark theme utility classes */
-.handy-card {
-  @apply bg-black/40 border-gray-700 backdrop-blur-sm rounded-xl;
-}
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
 
-.handy-button-primary {
-  @apply bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold;
-}
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
 
-.handy-text-primary {
-  @apply text-white;
-}
+    /* Updated Primary to Jobber Green */
+    --primary: 79 85% 37%;
+    --primary-foreground: 0 0% 100%;
 
-.handy-text-secondary {
-  @apply text-gray-300;
-}
+    /* Updated Secondary to Navy */
+    --secondary: 210 36% 18%;
+    --secondary-foreground: 0 0% 100%;
 
-.handy-text-muted {
-  @apply text-gray-400;
-}
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
 
-/* Custom Scrollbar for Dark Mode */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
 
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
 
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-}
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 79 85% 37%;
 
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-/* Gradient Mask for horizontally scrolling areas */
-.mask-gradient-x {
-  mask-image: linear-gradient(to right, transparent, black 20px, black calc(100% - 20px), transparent);
-  -webkit-mask-image: linear-gradient(to right, transparent, black 20px, black calc(100% - 20px), transparent);
-}
-
-/* 2025 Next-Gen UI Tokens */
-.bento-grid {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: 1.5rem;
-}
-
-.bento-card {
-  @apply bg-black/40 border border-white/10 backdrop-blur-md rounded-2xl overflow-hidden shadow-2xl transition-all duration-300;
-}
-
-.glass-morphism {
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.glow-green {
-  box-shadow: 0 0 40px -10px rgba(34, 197, 94, 0.3);
-}
-
-.glow-blue {
-  box-shadow: 0 0 40px -10px rgba(59, 130, 246, 0.3);
-}
-
-.glow-purple {
-  box-shadow: 0 0 40px -10px rgba(168, 85, 247, 0.3);
-}
-
-.pulse-glow {
-  animation: pulse-glow 3s infinite ease-in-out;
-}
-
-@keyframes pulse-glow {
-
-  0%,
-  100% {
-    opacity: 0.6;
+    --radius: 0.5rem;
   }
 
-  50% {
-    opacity: 1;
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 79 85% 37%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 79 85% 37%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .animate-gradient-x {
+    background-size: 200% 200%;
+    animation: gradient-x 3s ease infinite;
+  }
+
+  @keyframes gradient-x {
+    0% {
+      background-position: 0% 50%;
+    }
+
+    50% {
+      background-position: 100% 50%;
+    }
+
+    100% {
+      background-position: 0% 50%;
+    }
+  }
+}
+
+/* Jobber Style Utilities */
+@layer components {
+  .jobber-card {
+    @apply bg-card border border-border rounded-lg shadow-sm;
+  }
+
+  .jobber-header {
+    @apply text-secondary font-bold tracking-tight;
+  }
+
+  .jobber-button {
+    @apply bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-sm transition-colors;
   }
 }

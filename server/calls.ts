@@ -13,6 +13,19 @@ async function calculateTotalPrice(callId: string): Promise<number> {
     return skus.reduce((total, sku) => total + (sku.pricePence * sku.quantity), 0);
 }
 
+// GET /api/calls/actions - Fetch required actions for the contractor
+router.get("/actions", async (req: Request, res: Response) => {
+    try {
+        // TODO: Implement actual action logic (e.g., missed calls, high priority items)
+        // For now, return an empty list or mock data to prevent 404
+        const actions: any[] = [];
+        res.json(actions);
+    } catch (error) {
+        console.error("Error fetching call actions:", error);
+        res.status(500).json({ error: "Failed to fetch actions" });
+    }
+});
+
 // GET /api/calls/active - Fetch any in-progress calls with live analysis (for reconnecting clients)
 router.get("/active", async (req: Request, res: Response) => {
     try {

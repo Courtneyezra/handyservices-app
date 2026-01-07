@@ -109,8 +109,14 @@ export default function NewQuotePage() {
     // Create Quote Mutation
     const createQuoteMutation = useMutation({
         mutationFn: async () => {
+            console.log('Creating quote with contractor:', contractor);
+            if (!contractor?.user?.id) {
+                console.error('Missing Contractor ID before creating quote! Contractor object:', contractor);
+                throw new Error("Contractor ID missing - please refresh");
+            }
+
             const payload = {
-                contractorId: contractor?.id,
+                contractorId: contractor.user.id,
                 customerName: customerName || 'Valued Customer',
                 postcode: postcode || 'UK',
                 phone: phoneNumber || '00000000000',

@@ -72,14 +72,14 @@ export default function ContractorDashboardHome() {
     }, [profileData, profile]);
 
     // Check for welcome param
-    if (typeof window !== 'undefined' && !showConfetti) {
+    useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         if (params.get('welcome') === 'true') {
             setShowConfetti(true);
             // Clean URL without reload
             window.history.replaceState({}, '', '/contractor/dashboard');
         }
-    }
+    }, []);
 
     return (
         <div className="min-h-screen bg-slate-950 pb-24 text-slate-100 font-sans selection:bg-amber-500/30">
@@ -179,8 +179,17 @@ export default function ContractorDashboardHome() {
                     <div className="lg:col-span-2 space-y-6">
 
                         {/* THE HARVESTER WIDGET */}
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden backdrop-blur-sm">
-                            <AvailabilityHarvester />
+                        <div className="relative group rounded-2xl">
+                            {/* Animated Aura - Outer Glow */}
+                            <div className="absolute -inset-1 bg-gradient-to-r from-amber-500 via-emerald-500 to-amber-500 rounded-2xl blur-lg opacity-40 group-hover:opacity-70 transition duration-1000 group-hover:duration-200 animate-gradient-x"></div>
+
+                            {/* Neon Tint Edge - Inner Border */}
+                            <div className="absolute -inset-[1px] bg-gradient-to-r from-amber-400 via-emerald-400 to-amber-400 rounded-2xl opacity-50 group-hover:opacity-100 transition duration-500"></div>
+
+                            {/* Content Widget */}
+                            <div className="relative bg-slate-950/90 border border-slate-800 rounded-2xl overflow-hidden backdrop-blur-sm h-full shadow-2xl">
+                                <AvailabilityHarvester />
+                            </div>
                         </div>
 
                         {/* Recent Activity / Stats Grid */}
@@ -262,17 +271,26 @@ export default function ContractorDashboardHome() {
                                     </div>
                                 </div>
 
-                                <div className="pt-4 border-t border-slate-800">
+                                <div className="pt-4 border-t border-slate-800 space-y-3">
                                     {slug ? (
-                                        <a href={`/handy/${slug}`} target="_blank" rel="noopener noreferrer">
-                                            <button className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium rounded-xl transition-colors flex items-center justify-center gap-2">
-                                                View Public Profile
-                                                <ArrowRight className="w-4 h-4" />
-                                            </button>
-                                        </a>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <a href={`/handy/${slug}`} target="_blank" rel="noopener noreferrer">
+                                                <button className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium rounded-xl transition-colors flex items-center justify-center gap-2">
+                                                    View Profile
+                                                    <ArrowRight className="w-4 h-4" />
+                                                </button>
+                                            </a>
+                                            <Link href="/contractor/dashboard/settings?tab=profile">
+                                                <button className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium rounded-xl transition-colors flex items-center justify-center gap-2">
+                                                    <User className="w-4 h-4" />
+                                                    Edit
+                                                </button>
+                                            </Link>
+                                        </div>
                                     ) : (
-                                        <Link href="/contractor/profile">
-                                            <button className="w-full py-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/50 text-sm font-medium rounded-xl transition-colors flex items-center justify-center">
+                                        <Link href="/contractor/dashboard/settings?tab=profile">
+                                            <button className="w-full py-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/50 text-sm font-medium rounded-xl transition-colors flex items-center justify-center gap-2">
+                                                <User className="w-4 h-4" />
                                                 Setup Public Profile
                                             </button>
                                         </Link>
@@ -288,20 +306,20 @@ export default function ContractorDashboardHome() {
             <div className="fixed bottom-0 left-0 right-0 z-50 bg-slate-950/90 backdrop-blur-lg border-t border-slate-800 lg:hidden pb-safe">
                 <div className="grid grid-cols-5 h-16 items-center px-2">
                     <Link href="/contractor/dashboard">
-                        <a className={`flex flex-col items-center justify-center gap-1 h-full text-amber-500`}>
+                        <a className={`flex flex-col items-center justify-center gap-1 h-full w-full text-amber-500`}>
                             <Home className="w-5 h-5" />
                             <span className="text-[10px] font-medium">Home</span>
                         </a>
                     </Link>
                     <Link href="/contractor/calendar">
-                        <button className="flex flex-col items-center justify-center gap-1 h-full text-slate-500 hover:text-slate-300">
+                        <a className="flex flex-col items-center justify-center gap-1 h-full w-full text-slate-500 hover:text-slate-300">
                             <Calendar className="w-5 h-5" />
                             <span className="text-[10px] font-medium">Schedule</span>
-                        </button>
+                        </a>
                     </Link>
 
                     {/* CENTER FAB - CREATE QUOTE */}
-                    <div className="relative -top-5 flex flex-col justify-end items-center">
+                    <div className="relative -top-5 flex flex-col justify-end items-center w-full">
                         <AnimatePresence>
                             {isPlusMenuOpen && (
                                 <motion.div
@@ -346,13 +364,13 @@ export default function ContractorDashboardHome() {
                     </div>
 
                     <Link href="/contractor/dashboard/quotes">
-                        <button className="flex flex-col items-center justify-center gap-1 h-full text-slate-500 hover:text-slate-300">
+                        <a className="flex flex-col items-center justify-center gap-1 h-full w-full text-slate-500 hover:text-slate-300">
                             <FileText className="w-5 h-5" />
                             <span className="text-[10px] font-medium">Quotes</span>
-                        </button>
+                        </a>
                     </Link>
                     <Link href="/contractor/dashboard/jobs">
-                        <a className="flex flex-col items-center justify-center gap-1 h-full text-slate-500 hover:text-slate-300">
+                        <a className="flex flex-col items-center justify-center gap-1 h-full w-full text-slate-500 hover:text-slate-300">
                             <Briefcase className="w-5 h-5" />
                             <span className="text-[10px] font-medium">Jobs</span>
                         </a>

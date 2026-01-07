@@ -12,6 +12,15 @@ console.log('[Settings] Module loading...');
 const router = Router();
 console.log('[Settings] Router initialized');
 
+// Check critical keys on startup
+getTwilioSettings().then(s => {
+    if (!s.elevenLabsApiKey || !s.elevenLabsAgentId) {
+        console.warn('⚠️  [Settings] WARNING: ElevenLabs configuration missing. Voice AI will not work.');
+        console.warn('   - API Key set:', !!s.elevenLabsApiKey);
+        console.warn('   - Agent ID set:', !!s.elevenLabsAgentId);
+    }
+});
+
 // Configure multer for audio uploads
 const audioStorage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -41,6 +50,27 @@ const audioUpload = multer({
         }
     }
 });
+
+import { twilioClient } from './twilio-client';
+
+// Get Twilio Account Balance
+router.get('/balance', async (req, res) => {
+    try {
+        // Fetch balance from Twilio
+        // Note: twilioClient is initialized with accountSid and authToken from env
+        const balanceData = await twilioClient.balance.fetch();
+
+        res.json({
+            balance: balanceData.balance,
+            currency: balanceData.currency
+        });
+    } catch (error) {
+        console.error('[Settings] Failed to fetch Twilio balance:', error);
+        // Don't fail the whole request, just return null balance
+        res.status(500).json({ error: 'Failed to fetch balance', details: error instanceof Error ? error.message : String(error) });
+    }
+});
+
 
 // Default settings for Twilio call routing
 const DEFAULT_SETTINGS = {
@@ -495,9 +525,9 @@ export async function getTwilioSettings() {
         whisperEnabled: (settingsMap.get('twilio.whisper_enabled') ?? DEFAULT_SETTINGS['twilio.whisper_enabled'].value) as boolean,
         welcomeAudioUrl: (settingsMap.get('twilio.welcome_audio_url') ?? DEFAULT_SETTINGS['twilio.welcome_audio_url'].value) as string,
         fallbackAgentUrl: (settingsMap.get('twilio.fallback_agent_url') ?? DEFAULT_SETTINGS['twilio.fallback_agent_url'].value) as string,
-        elevenLabsAgentId: (settingsMap.get('twilio.eleven_labs_agent_id') ?? DEFAULT_SETTINGS['twilio.eleven_labs_agent_id'].value) as string,
+        elevenLabsAgentId: (settingsMap.get('twilio.eleven_labs_agent_id') ?? process.env.ELEVEN_LABS_AGENT_ID ?? DEFAULT_SETTINGS['twilio.eleven_labs_agent_id'].value) as string,
         elevenLabsBusyAgentId: (settingsMap.get('twilio.eleven_labs_busy_agent_id') ?? DEFAULT_SETTINGS['twilio.eleven_labs_busy_agent_id'].value) as string,
-        elevenLabsApiKey: (settingsMap.get('twilio.eleven_labs_api_key') ?? DEFAULT_SETTINGS['twilio.eleven_labs_api_key'].value) as string,
+        elevenLabsApiKey: (settingsMap.get('twilio.eleven_labs_api_key') ?? process.env.ELEVEN_LABS_API_KEY ?? DEFAULT_SETTINGS['twilio.eleven_labs_api_key'].value) as string,
 
         // Agent Modes
         agentMode: (settingsMap.get('twilio.agent_mode') ?? DEFAULT_SETTINGS['twilio.agent_mode'].value) as string,

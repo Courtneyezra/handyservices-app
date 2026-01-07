@@ -2,11 +2,16 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 
 export interface ContractorProfile {
-    id: string;
-    userId: string;
-    slug: string;
-    profile?: any; // The actual profile data including skills
-    user?: any; // The user data
+    user: {
+        id: string;
+        email: string;
+        firstName: string;
+        lastName: string;
+        role: string;
+        phone?: string;
+        emailVerified?: boolean;
+    };
+    profile?: any;
 }
 
 export function useContractorAuth() {

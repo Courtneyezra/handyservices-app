@@ -110,24 +110,24 @@ export default function TestLab() {
     };
 
     return (
-        <div className="h-[calc(100vh-4rem)] -m-8 flex flex-col md:flex-row bg-slate-50">
+        <div className="h-[calc(100vh-4rem)] -m-8 flex flex-col md:flex-row bg-background text-foreground font-sans transition-colors duration-300">
 
             {/* Left Panel: Chat Interface */}
-            <div className="w-full md:w-1/2 flex flex-col border-r border-slate-200 bg-white">
-                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-white">
+            <div className="w-full md:w-1/2 flex flex-col border-r border-border bg-background">
+                <div className="p-4 border-b border-border flex justify-between items-center bg-muted/30">
                     <div>
-                        <h2 className="font-bold text-slate-800">Interactive Chat Lab</h2>
-                        <p className="text-xs text-slate-500">Test the conversational memory</p>
+                        <h2 className="font-bold text-secondary">Interactive Chat Lab</h2>
+                        <p className="text-xs text-muted-foreground">Test the conversational memory</p>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={handleReset} className="text-slate-400 hover:text-red-500">
+                    <Button variant="ghost" size="sm" onClick={handleReset} className="text-muted-foreground hover:text-red-500">
                         <Trash2 className="w-4 h-4 mr-2" /> Reset
                     </Button>
                 </div>
 
                 {/* Messages Area */}
-                <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-50/50">
+                <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-secondary/5">
                     {messages.length === 0 && (
-                        <div className="text-center text-slate-400 mt-20">
+                        <div className="text-center text-muted-foreground mt-20">
                             <Bot className="w-12 h-12 mx-auto mb-3 opacity-20" />
                             <p className="text-sm">Type a message to start the simulation.</p>
                             <p className="text-xs mt-2 opacity-60">Try: "I have a leak" then "It's the tap"</p>
@@ -138,16 +138,16 @@ export default function TestLab() {
                         <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                             {msg.role === 'user' ? (
                                 <>
-                                    <div className="max-w-[80%] bg-blue-600 text-white px-4 py-2.5 rounded-2xl rounded-tr-none shadow-sm text-sm">
+                                    <div className="max-w-[80%] bg-primary text-primary-foreground px-4 py-2.5 rounded-2xl rounded-tr-none shadow-sm text-sm">
                                         {msg.content}
                                     </div>
-                                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                        <User className="w-4 h-4 text-blue-600" />
+                                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                        <User className="w-4 h-4 text-primary" />
                                     </div>
                                 </>
                             ) : (
                                 // If we ever put bot responses back in chat
-                                <div className="max-w-[80%] bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-2xl rounded-tl-none shadow-sm text-sm">
+                                <div className="max-w-[80%] bg-card border border-border text-foreground px-4 py-2 rounded-2xl rounded-tl-none shadow-sm text-sm">
                                     {msg.content}
                                 </div>
                             )}
@@ -157,13 +157,13 @@ export default function TestLab() {
                 </div>
 
                 {/* Input Area */}
-                <div className="p-4 bg-white border-t border-slate-100">
+                <div className="p-4 bg-background/50 border-t border-border">
                     <form onSubmit={handleSendMessage} className="flex gap-2">
                         <Input
                             value={inputText}
                             onChange={(e) => setInputText(e.target.value)}
                             placeholder="Type a customer message..."
-                            className="flex-1"
+                            className="flex-1 bg-background border-border text-foreground placeholder:text-muted-foreground"
                             autoFocus
                         />
                         <Button type="submit" disabled={isLoading || !inputText.trim()}>
@@ -174,12 +174,11 @@ export default function TestLab() {
             </div>
 
             {/* Right Panel: Live Intelligence Dashboard */}
-            <div className="w-full md:w-1/2 bg-slate-100/50 p-6 overflow-y-auto">
+            <div className="w-full md:w-1/2 bg-muted/20 p-6 overflow-y-auto">
                 <div className="max-w-md mx-auto space-y-6">
-
                     {/* 1. The Output Gauge */}
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col items-center">
-                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 w-full text-center">Live Forecast</h3>
+                    <div className="jobber-card p-6 flex flex-col items-center">
+                        <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 w-full text-center">Live Forecast</h3>
                         <OutcomeGauge
                             value={lastAnalysis?.confidence || 0}
                             outcome={(lastAnalysis?.nextRoute || 'UNKNOWN') as any}
@@ -188,11 +187,11 @@ export default function TestLab() {
                     </div>
 
                     {/* 2. Suggested Script (The VA Helper) */}
-                    <div className="bg-indigo-600 rounded-xl shadow-lg shadow-indigo-200 p-6 text-white relative overflow-hidden transition-all duration-300">
+                    <div className="bg-primary rounded-xl shadow-lg shadow-primary/20 p-6 text-primary-foreground relative overflow-hidden transition-all duration-300">
                         <div className="absolute top-0 right-0 p-3 opacity-10">
                             <Mic className="w-16 h-16" />
                         </div>
-                        <h3 className="text-xs font-bold text-indigo-200 uppercase tracking-wider mb-3 flex items-center gap-2">
+                        <h3 className="text-xs font-bold text-primary-foreground/80 uppercase tracking-wider mb-3 flex items-center gap-2">
                             <Mic className="w-4 h-4" /> AI Suggestion
                         </h3>
                         <div className="text-lg font-medium leading-relaxed">
@@ -201,56 +200,56 @@ export default function TestLab() {
                     </div>
 
                     {/* 3. Debug / Rationale */}
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                        <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
-                            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Analysis Logic</h3>
+                    <div className="jobber-card overflow-hidden">
+                        <div className="px-5 py-3 border-b border-border bg-muted/30">
+                            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Analysis Logic</h3>
                         </div>
                         <div className="p-5 space-y-4">
                             <div>
-                                <span className="text-xs text-slate-400 uppercase font-bold">Method</span>
+                                <span className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold">Method</span>
                                 <div className="mt-1">
-                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-200 dark:bg-slate-100 text-slate-800">
                                         {lastAnalysis?.method || "N/A"}
                                     </span>
                                 </div>
                             </div>
                             <div>
-                                <span className="text-xs text-slate-400 uppercase font-bold">Rationale</span>
-                                <p className="mt-1 text-sm text-slate-600 leading-relaxed">
+                                <span className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold">Rationale</span>
+                                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
                                     {lastAnalysis?.rationale || "No analysis yet."}
                                 </p>
                             </div>
 
                             {/* SKU Match Details */}
                             {lastAnalysis?.matched && (
-                                <div className="mt-4 pt-4 border-t border-slate-100">
+                                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
                                     <span className="text-xs text-green-600 font-bold uppercase flex items-center gap-1 mb-2">
                                         <div className="w-2 h-2 rounded-full bg-green-500" /> Matched SKU
                                     </span>
-                                    <div className="text-sm font-semibold text-slate-900">{lastAnalysis.sku.name}</div>
-                                    <div className="text-xs text-slate-500">{lastAnalysis.sku.description}</div>
-                                    <div className="mt-2 text-sm font-bold text-slate-800">£{(lastAnalysis.sku.pricePence / 100).toFixed(2)}</div>
+                                    <div className="text-sm font-semibold text-slate-900 dark:text-white">{lastAnalysis.sku.name}</div>
+                                    <div className="text-xs text-slate-500 dark:text-slate-400">{lastAnalysis.sku.description}</div>
+                                    <div className="mt-2 text-sm font-bold text-slate-800 dark:text-slate-200">£{(lastAnalysis.sku.pricePence / 100).toFixed(2)}</div>
                                 </div>
                             )}
 
 
                             {/* Multi-Task Breakdown */}
                             {lastAnalysis?.tasks && lastAnalysis.tasks.length > 0 && (
-                                <div className="mt-4 pt-4 border-t border-slate-100">
-                                    <span className="text-xs text-slate-400 uppercase font-bold block mb-2">Intent Breakdown</span>
+                                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
+                                    <span className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold block mb-2">Intent Breakdown</span>
                                     <div className="space-y-2">
                                         {lastAnalysis.tasks.map((task: any, idx: number) => {
                                             const match = lastAnalysis.matchedServices?.find((m: any) => m.task.originalIndex === task.originalIndex);
                                             return (
-                                                <div key={idx} className="flex justify-between items-center text-xs bg-slate-50 p-2 rounded border border-slate-100">
-                                                    <span className="font-medium text-slate-700">{task.description}</span>
+                                                <div key={idx} className="flex justify-between items-center text-xs bg-slate-50 dark:bg-slate-900/50 p-2 rounded border border-slate-200 dark:border-slate-800">
+                                                    <span className="font-medium text-slate-700 dark:text-slate-300">{task.description}</span>
                                                     {match ? (
-                                                        <span className="text-green-600 font-bold flex items-center gap-1">
+                                                        <span className="text-green-600 dark:text-green-400 font-bold flex items-center gap-1">
                                                             <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
                                                             £{(match.sku.pricePence / 100).toFixed(0)}
                                                         </span>
                                                     ) : (
-                                                        <span className="text-orange-500 font-bold flex items-center gap-1">
+                                                        <span className="text-orange-500 dark:text-orange-400 font-bold flex items-center gap-1">
                                                             <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
                                                             Video Req.
                                                         </span>
@@ -263,11 +262,11 @@ export default function TestLab() {
                             )}
 
                             {/* Context Memory Visualizer (Single Task Only) */}
-                            {/* <div className="mt-4 pt-4 border-t border-slate-100">
+                            {/* <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
                                 <span className="text-xs text-slate-400 uppercase font-bold block mb-2">Memory Window ({history.length})</span>
                                 <div className="space-y-1">
                                     {history.map((h, i) => (
-                                        <div key={i} className="text-[10px] text-slate-500 bg-slate-50 px-2 py-1 rounded truncate">
+                                        <div key={i} className="text-[10px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 px-2 py-1 rounded truncate">
                                             {h}
                                         </div>
                                     ))}

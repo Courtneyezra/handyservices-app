@@ -8,7 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar, Sun } from 'lucide-react';
 import { SiGoogle, SiVisa, SiMastercard, SiAmericanexpress, SiApplepay, SiStripe } from 'react-icons/si';
 import { FaWhatsapp } from 'react-icons/fa';
 import { useToast } from '@/hooks/use-toast';
@@ -20,6 +21,7 @@ import { stripePromise } from '@/lib/stripe';
 // import handyServicesLogo from '@assets/Copy of Copy of Add a heading (256 x 256 px)_1764065869316.png';
 import payIn3PromoImage from '@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.webp';
 import mikeProfilePhoto from '@assets/mike-profile-photo.png';
+import { NeonBadge } from '@/components/ui/neon-badge';
 import { format, addDays, addWeeks } from 'date-fns';
 
 // Fixed value bullets per tier (hardcoded, not from database)
@@ -31,30 +33,31 @@ const HHH_FIXED_VALUE_BULLETS = {
     'Before/after photos (if needed)',
     'Standard job documentation',
     'Pay on completion (Deposit required)',
-    '7-day workmanship guarantee',
+    '30-day workmanship guarantee',
   ],
   hassleFree: [
-    'Automated SMS/WhatsApp reminders',
+    'Any Time Arrival',
     'Photo updates on arrival + completion',
     'Better-quality materials where needed',
     'Cleaner, neater finish',
-    'Priority job assignment',
-    'Optional add-ons included (alignment checks, tidying edges)',
+    // "15-Min Odd Job Time" is now a Neon Badge
+    'Optional add-ons included',
     'Job documentation sent to client',
-    'Pay on completion (optional deposit for larger jobs)',
-    '14-day workmanship + minor adjustments',
+    'Pay on completion (optional deposit)',
+    '6-Month workmanship guarantee',
   ],
   highStandard: [
-    'Priority two-way messaging',
-    'Highest-grade materials',
-    'Premium workmanship',
+    // "Guaranteed 8am" is now a Neon Badge
+    // "Sparkle Clean" is now a Neon Badge
+    "15-Min 'While I'm There' Task Buffer", // Keeping this as secondary list item? No, let's badge it or standardise.
+    // Actually, Elite gets the 15m buffer in text? Or should I badge it too? 
+    // Let's keep "Material Sourcing" as the top text item.
+    'Material Sourcing & Concierge',
     'Detailed before/after photo report',
-    'White-glove cleanup standard',
-    'Assigned senior technician',
+    'Assigned Senior Technician',
     'Priority aftercare support',
-    'Professional finish (alignment, caulking, sanding)',
-    'Split payment: 30% to book, 40% on day, 30% completion',
-    '30-90 day workmanship + priority revisit',
+    'Split payment: Pay in 3 Interest-Free',
+    '1-Year Ironclad Warranty',
   ],
 } as const;
 
@@ -81,41 +84,11 @@ const getPerksForTier = (quote: PersonalizedQuote | undefined, tier: 'essential'
   return staticMap[tier] as unknown as string[];
 };
 
-// Helper: Get availability label with dynamic date for all tiers
-const getAvailabilityLabel = (tier: 'essential' | 'enhanced' | 'elite'): string => {
-  const now = new Date();
 
-  if (tier === 'elite') {
-    // High Standard: "Today" or "Tomorrow" based on current time
-    // If before 2pm, show "Today", otherwise "Tomorrow"
-    const cutoffHour = 14; // 2pm
-    if (now.getHours() < cutoffHour) {
-      return 'TODAY';
-    } else {
-      return 'TOMORROW';
-    }
-  }
 
-  if (tier === 'enhanced') {
-    // Hassle Free: Show next weekday like "From Monday"
-    // Find the next business day (skip weekends)
-    let nextDay = addDays(now, 1);
-    // Keep advancing until we hit a weekday (Mon=1 to Fri=5)
-    while (nextDay.getDay() === 0 || nextDay.getDay() === 6) {
-      nextDay = addDays(nextDay, 1);
-    }
-    const dayName = format(nextDay, 'EEEE').toUpperCase();
-    return `FROM ${dayName}`;
-  }
-
-  // Essential: 2 weeks out
-  const availableDate = addDays(now, 14);
-  return `FROM ${format(availableDate, 'd MMM').toUpperCase()}`;
-};
 
 // Import the new component
-import { AvailabilityPreview } from '@/components/AvailabilityPreview';
-import { Dialog, DialogContent, DialogTrigger, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+
 
 
 // Quote Expired Popup Component (no auto-regeneration)
@@ -152,22 +125,7 @@ function QuoteExpiredPopup() {
   );
 }
 
-// Dialog Wrapper for Availability Check
-function AvailabilityDialog({ tier }: { tier: 'essential' | 'enhanced' | 'elite' }) {
-  return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-2 text-xs h-8 bg-gray-600/30 border-gray-500 hover:bg-gray-600/50 text-gray-200">
-          <Calendar className="w-3.5 h-3.5" />
-          Check Dates
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-3xl w-full bg-white">
-        <AvailabilityPreview tier={tier} />
-      </DialogContent>
-    </Dialog>
-  );
-}
+
 
 interface OptionalExtra {
   id?: string;
@@ -265,7 +223,85 @@ interface PersonalizedQuote {
     coverPhotoUrl?: string | null;
     slug?: string | null;
   };
+  availability?: {
+    hasContractors: boolean;
+    availableDates: string[];
+    matchCount: number;
+  };
 }
+
+// Date Strip Component for HHH Cards
+const DateStrip = ({ tier, availableDates }: { tier: 'essential' | 'enhanced' | 'elite', availableDates: string[] }) => {
+  if (!availableDates || availableDates.length === 0) return null;
+
+  // "Teaser" Logic: Show mix of locked (FOMO) and available (Actual) dates
+  const today = new Date();
+
+  const allDates = availableDates.map(dateStr => {
+    const date = new Date(dateStr);
+    const diffTime = date.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    let isLocked = false;
+    if (tier === 'enhanced' && diffDays < 3) isLocked = true;
+    if (tier === 'essential' && diffDays < 7) isLocked = true;
+    return { dateStr, isLocked, diffDays };
+  });
+
+  let datesToShow;
+  if (tier === 'elite') {
+    // Elite sees everything linear
+    datesToShow = allDates.slice(0, 5);
+  } else {
+    // Others see: First 2 dates (likely locked) + First 3 UNLOCKED dates
+    const lockedDates = allDates.filter(d => d.isLocked);
+    const unlockedDates = allDates.filter(d => !d.isLocked);
+
+    // Take up to 2 locked dates to show "what you are missing"
+    const teaserLocked = lockedDates.slice(0, 2);
+    // Take remaining slots (up to 5 total) from unlocked dates
+    const slotsRemaining = 5 - teaserLocked.length;
+    const teaserUnlocked = unlockedDates.slice(0, slotsRemaining);
+
+    datesToShow = [...teaserLocked, ...teaserUnlocked];
+  }
+
+  if (datesToShow.length === 0) return (
+    <div className="text-xs text-muted-foreground mt-2 italic">Check calendar for dates</div>
+  );
+
+  return (
+    <div className="flex flex-col mt-3 -mx-2 px-2 mask-fade-right">
+      {tier === 'elite' && (
+        <div className="flex items-center gap-1 mb-1.5 pl-1">
+          <span className="text-[9px] font-bold text-emerald-400 bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-500/30 uppercase tracking-wider">
+            Fast Track
+          </span>
+          <span className="text-[9px] text-gray-400">Next-Day Access</span>
+        </div>
+      )}
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 px-1 scrollbar-hide">
+        {datesToShow.map(({ dateStr, isLocked }, i) => {
+          const date = new Date(dateStr);
+          const label = format(date, 'EEE d');
+
+          return (
+            <div
+              key={i}
+              className={`flex-shrink-0 border rounded-md px-2 py-1 text-xs font-medium whitespace-nowrap flex items-center gap-1.5 transition-all
+                ${isLocked
+                  ? 'bg-zinc-900 border-zinc-800 text-zinc-600 cursor-not-allowed'
+                  : 'bg-white/10 border-white/20 text-white'
+                }`}
+            >
+              {isLocked && <Lock className="w-3 h-3 text-zinc-700" />}
+              {label}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 type EEEPackageTier = 'essential' | 'enhanced' | 'elite';
 
@@ -284,8 +320,9 @@ export default function PersonalizedQuotePage() {
   const { toast } = useToast();
 
   // Parse query params for Tenant Mode
-  const searchParams = new URLSearchParams(window.location.search);
-  const isTenantView = searchParams.get('mode') === 'tenant';
+  // const searchParams = new URLSearchParams(window.location.search);
+  // const isTenantView = searchParams.get('mode') === 'tenant';
+
 
   const [selectedEEEPackage, setSelectedEEEPackage] = useState<EEEPackageTier>('enhanced');
   const [selectedExtras, setSelectedExtras] = useState<string[]>([]); // Shared: tracks selected extras for both Simple and HHH modes
@@ -1143,6 +1180,48 @@ export default function PersonalizedQuotePage() {
                           <h3 className="text-2xl font-bold text-white">
                             {pkg.name}
                           </h3>
+                          {
+                            pkg.tier === 'enhanced' && (
+                              <div className="flex flex-wrap gap-2 mt-2">
+                                <TooltipProvider>
+                                  <Tooltip delayDuration={0}>
+                                    <TooltipTrigger asChild>
+                                      <div><NeonBadge text="Free 15m Extra Time" color="green" icon={Clock} /></div>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" className="bg-green-950 border-green-800 text-green-100 max-w-[200px]">
+                                      <p>We'll stay 15 mins extra <strong>for free</strong> to tackle any small odd jobs you need doing.</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              </div>
+                            )
+                          }
+                          {
+                            pkg.tier === 'elite' && (
+                              <div className="flex flex-wrap gap-2 mt-2">
+                                <TooltipProvider>
+                                  <Tooltip delayDuration={0}>
+                                    <TooltipTrigger asChild>
+                                      <div><NeonBadge text="Guaranteed 8am" color="pink" icon={Sun} /></div>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" className="bg-pink-950 border-pink-800 text-pink-100 max-w-[200px]">
+                                      <p>The "Golden Slot". We arrive at 8am sharp. No traffic excuses, no waiting in.</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                                <TooltipProvider>
+                                  <Tooltip delayDuration={0}>
+                                    <TooltipTrigger asChild>
+                                      <div><NeonBadge text="Sparkle Clean" color="blue" icon={Wrench} /></div>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" className="bg-blue-950 border-blue-800 text-blue-100 max-w-[200px]">
+                                      <p>We bring a Dyson and disinfectant. We leave your home cleaner than we found it.</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              </div>
+                            )
+                          }
                         </div>
 
                         {/* Pricing Section */}
@@ -1247,15 +1326,13 @@ export default function PersonalizedQuotePage() {
                             </span>
                           </div>
 
-                          {/* Availability with badge */}
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
+                          {/* Availability Strip */}
+                          <div className="mt-3 border-t border-white/10 pt-3">
+                            <div className="flex items-center gap-2 mb-2">
                               <Clock className="h-4 w-4 text-gray-300" />
-                              <span className="text-gray-300 text-sm">Available</span>
+                              <span className="text-gray-300 text-sm">Earliest Availability</span>
                             </div>
-                            <span className="bg-blue-400 text-black text-xs font-bold px-3 py-1 rounded-full">
-                              {getAvailabilityLabel(pkg.tier as 'essential' | 'enhanced' | 'elite')}
-                            </span>
+                            <DateStrip tier={pkg.tier as 'essential' | 'enhanced' | 'elite'} availableDates={quote.availability?.availableDates || []} />
                           </div>
                         </div>
 
@@ -1431,31 +1508,31 @@ export default function PersonalizedQuotePage() {
                     </div>
                   </div>
 
-                  {/* Common Features - Hide in Tenant Mode */}
-                  {!isTenantView && (
-                    <div className="max-w-xl mx-auto">
-                      <h4 className="text-xl sm:text-2xl font-bold text-white mb-4 text-center">
-                        All packages include
-                      </h4>
-                      <div className="space-y-3">
-                        {[
-                          'Turn up on time guarantee',
-                          'Fully insured handymen',
-                          'Professional workmanship',
-                          'Clear pricing with no hidden fees',
-                          'Pay in full or spread over 3 payments',
-                          'Friendly customer service',
-                        ].map((feature, idx) => (
-                          <div key={idx} className="flex items-center gap-3">
-                            <div className="flex-shrink-0">
-                              <Check className="h-5 w-5 sm:h-6 sm:w-6 text-green-400" strokeWidth={3} />
-                            </div>
-                            <span className="text-white text-sm sm:text-base">{feature}</span>
+                  {/* Common Features */}
+                  <div className="max-w-xl mx-auto">
+
+                    <h4 className="text-xl sm:text-2xl font-bold text-white mb-4 text-center">
+                      All packages include
+                    </h4>
+                    <div className="space-y-3">
+                      {[
+                        'Turn up on time guarantee',
+                        'Fully insured handymen',
+                        'Professional workmanship',
+                        'Clear pricing with no hidden fees',
+                        'Pay in full or spread over 3 payments',
+                        'Friendly customer service',
+                      ].map((feature, idx) => (
+                        <div key={idx} className="flex items-center gap-3">
+                          <div className="flex-shrink-0">
+                            <Check className="h-5 w-5 sm:h-6 sm:w-6 text-green-400" strokeWidth={3} />
                           </div>
-                        ))}
-                      </div>
+                          <span className="text-white text-sm sm:text-base">{feature}</span>
+                        </div>
+                      ))}
                     </div>
-                  )}
+                  </div>
+
                 </div>
               </div>
             </>
@@ -1623,9 +1700,6 @@ export default function PersonalizedQuotePage() {
                   {/* CTA Button for Simple Mode - BEFORE reservation */}
                   {!hasBooked && !hasReserved && (
                     <div className="mt-6 pt-6 border-t border-gray-700">
-                      <div className="mb-4 flex justify-end">
-                        <AvailabilityDialog tier="essential" />
-                      </div>
                       <Button
                         className="w-full bg-[#e8b323] hover:bg-[#d19b1e] text-black font-bold text-lg py-6"
                         onClick={() => {
@@ -1880,6 +1954,66 @@ export default function PersonalizedQuotePage() {
                 </div>
 
                 <Accordion type="single" collapsible className="space-y-2">
+                  {/* Detailed Comparison Table */}
+                  <AccordionItem value="comparison-table" className="border-b border-gray-700">
+                    <AccordionTrigger className="text-white hover:text-[#e8b323] text-left font-medium py-4 text-base">
+                      <div className="flex items-center gap-2">
+                        <Crown className="w-4 h-4 text-[#e8b323]" />
+                        <span>Compare Tiers: What's Included?</span>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="text-gray-300 pb-4">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                          <thead>
+                            <tr className="border-b border-gray-700 text-gray-400">
+                              <th className="py-2 pr-4 font-normal w-1/4">Feature</th>
+                              <th className="py-2 px-2 font-normal text-center w-1/4">Basic</th>
+                              <th className="py-2 px-2 font-normal text-center w-1/4 text-green-400">Hassle-Free</th>
+                              <th className="py-2 px-2 font-bold text-center w-1/4 text-[#e8b323]">Elite</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-800">
+                            {/* Warranty */}
+                            <tr>
+                              <td className="py-3 pr-4 font-medium text-white">Warranty</td>
+                              <td className="py-3 px-2 text-center text-gray-500">30 Days</td>
+                              <td className="py-3 px-2 text-center text-gray-400">6 Months</td>
+                              <td className="py-3 px-2 text-center font-bold text-[#e8b323]">1 Year</td>
+                            </tr>
+                            {/* Arrival */}
+                            <tr>
+                              <td className="py-3 pr-4 font-medium text-white">Arrival</td>
+                              <td className="py-3 px-2 text-center text-gray-500">Day Window</td>
+                              <td className="py-3 px-2 text-center text-gray-400">Priority</td>
+                              <td className="py-3 px-2 text-center font-bold text-pink-400">8am Guaranteed</td>
+                            </tr>
+                            {/* Materials */}
+                            <tr>
+                              <td className="py-3 pr-4 font-medium text-white">Materials</td>
+                              <td className="py-3 px-2 text-center text-gray-500">Standard</td>
+                              <td className="py-3 px-2 text-center text-gray-400">Better</td>
+                              <td className="py-3 px-2 text-center font-bold text-white">We Source & Buy</td>
+                            </tr>
+                            {/* Extras */}
+                            <tr>
+                              <td className="py-3 pr-4 font-medium text-white">"While-I'm-There"</td>
+                              <td className="py-3 px-2 text-center text-gray-600">-</td>
+                              <td className="py-3 px-2 text-center text-green-400 font-bold">15 Mins</td>
+                              <td className="py-3 px-2 text-center text-green-400 font-bold">15 Mins</td>
+                            </tr>
+                            {/* Cleanup */}
+                            <tr>
+                              <td className="py-3 pr-4 font-medium text-white">Cleanup</td>
+                              <td className="py-3 px-2 text-center text-gray-500">Broom Swept</td>
+                              <td className="py-3 px-2 text-center text-gray-400">Tidy</td>
+                              <td className="py-3 px-2 text-center font-bold text-blue-400">Sparkle Finish</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
                   <AccordionItem value="item-1" className="border-b border-gray-700">
                     <AccordionTrigger className="text-white hover:text-[#e8b323] text-left font-medium py-4 text-base">
                       What happens after I book?
@@ -1962,98 +2096,16 @@ export default function PersonalizedQuotePage() {
           )}
 
           {/* Confirm Button or Confirmation */}
-          {hasBooked && !datePreferencesSubmitted && bookedLeadId && !isTenantView ? (
-            <div ref={dateSelectionRef}>
-              <Card className="mt-8 border-[#e8b323] bg-gray-800 border-2">
-                <CardContent className="p-8">
-                  <h3 className="text-xl font-bold text-[#e8b323] mb-6 text-center">
-                    Payment Successful! What would you like to do next?
-                  </h3>
-
-                  <div className="grid md:grid-cols-2 gap-6">
-                    {/* Option 1: Book Now */}
-                    <div className="bg-gray-700/50 rounded-xl p-6 border border-gray-600 hover:border-[#e8b323] transition-colors relative group">
-                      <div className="absolute top-4 right-4 bg-green-500/20 text-green-400 p-2 rounded-full">
-                        <Calendar className="w-6 h-6" />
-                      </div>
-                      <h4 className="text-lg font-bold text-white mb-2">Book Appointment Now</h4>
-                      <p className="text-gray-400 text-sm mb-6">
-                        I know the availability and want to secure a slot immediately.
-                      </p>
-
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <Button className="w-full bg-[#e8b323] text-black font-bold hover:bg-[#d1a01f]">
-                            Select Date & Time
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-4xl bg-gray-900 border-gray-700 text-white">
-                          <DialogHeader>
-                            <DialogTitle>Select Appointment Slot</DialogTitle>
-                          </DialogHeader>
-                          <DateSelectionForm
-                            tier={mapTierToHHH(selectedEEEPackage)}
-                            onSubmit={handleDatePreferencesSubmit}
-                          />
-                        </DialogContent>
-                      </Dialog>
-                    </div>
-
-                    {/* Option 2: Forward to Tenant */}
-                    <div className="bg-gray-700/50 rounded-xl p-6 border border-gray-600 hover:border-[#e8b323] transition-colors relative group">
-                      <div className="absolute top-4 right-4 bg-blue-500/20 text-blue-400 p-2 rounded-full">
-                        <UserCheck className="w-6 h-6" />
-                      </div>
-                      <Badge className="mb-2 bg-blue-600 text-white hover:bg-blue-700">Recommended</Badge>
-                      <h4 className="text-lg font-bold text-white mb-2">Forward to Tenant</h4>
-                      <p className="text-gray-400 text-sm mb-6">
-                        Send a "Pricing-Hidden" link to your tenant so they can choose a time that suits them.
-                      </p>
-
-                      <div className="flex gap-2 flex-col">
-                        <Button
-                          variant="outline"
-                          className="w-full border-gray-500 text-gray-200 hover:bg-gray-600"
-                          onClick={() => {
-                            const url = `${window.location.origin}/quote-link/${quote.shortSlug}?mode=tenant`;
-                            navigator.clipboard.writeText(url);
-                            toast({ title: "Link Copied", description: "Tenant booking link copied to clipboard." });
-                          }}
-                        >
-                          Copy Link
-                        </Button>
-                        <a
-                          href={`https://wa.me/?text=${encodeURIComponent(`Hi, I've approved the repairs. Please pick a time that works for you using this link (prices are hidden): ${window.location.origin}/quote-link/${quote.shortSlug}?mode=tenant`)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="w-full"
-                        >
-                          <Button className="w-full bg-[#25D366] hover:bg-[#128C7E] text-white">
-                            <FaWhatsapp className="w-5 h-5 mr-2" />
-                            Send via WhatsApp
-                          </Button>
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          ) : (hasBooked || (isTenantView && quote.leadId)) && !datePreferencesSubmitted ? (
+          {hasBooked && !datePreferencesSubmitted ? (
             /* Tenant View or Direct Booking flow when leadId exists */
             <div ref={dateSelectionRef} className="mt-8">
               <Card className="border-[#e8b323] bg-gray-800 border-2">
                 <CardContent className="p-8">
                   <h3 className="text-xl font-bold text-[#e8b323] mb-4 text-center">
-                    {isTenantView ? "Schedule the Repair" : "Select Your Preferred Dates"}
+                    Schedule the Repair
                   </h3>
-                  {isTenantView && (
-                    <p className="text-center text-gray-300 mb-6 max-w-lg mx-auto">
-                      The landlord has approved the repairs. Please select 3 preferred dates for the handyman to visit.
-                    </p>
-                  )}
                   <DateSelectionForm
-                    tier={mapTierToHHH(isTenantView ? 'enhanced' : selectedEEEPackage)} // Default tenant view to Enhanced availability if unknown
+                    tier={mapTierToHHH(selectedEEEPackage)}
                     onSubmit={handleDatePreferencesSubmit}
                   />
                 </CardContent>
@@ -2123,134 +2175,134 @@ export default function PersonalizedQuotePage() {
                       return (
                         <>
                           <div className="text-center mb-6">
-                            <div className="text-gray-300">
-                              <div className="mb-4">
-                                <h4 className="text-lg font-semibold text-white mb-2">Payment Breakdown</h4>
-                                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-700 text-sm mb-2">
-                                  <span className="text-gray-400">Payment method:</span>
-                                  <span className="font-semibold text-white">
-                                    {isInstallmentsMode ? '3 Monthly Payments' : 'Pay in Full'}
-                                  </span>
-                                </div>
-                                <p className="text-sm text-gray-400">
-                                  {isInstallmentsMode
-                                    ? 'Pay a deposit today, then 3 easy monthly payments.'
-                                    : 'To reserve your slot, we require a deposit to confirm your booking.'}
-                                </p>
+                            <div className="mb-4">
+                              <h4 className="text-lg font-semibold text-white mb-2">Payment Breakdown</h4>
+                              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-700 text-sm mb-2">
+                                <span className="text-gray-400">Payment method:</span>
+                                <span className="font-semibold text-white">
+                                  {isInstallmentsMode ? '3 Monthly Payments' : 'Pay in Full'}
+                                </span>
                               </div>
-                              <div className="bg-gray-700/50 rounded-lg p-5 inline-block text-left border border-gray-600 w-full max-w-sm">
-                                <div className="space-y-2 mb-3 pb-3 border-b-2 border-gray-600">
-                                  {extrasTotal > 0 ? (
-                                    <>
-                                      <div className="flex justify-between gap-4">
-                                        <span className="text-gray-300">{quote.quoteMode === 'simple' ? 'Job price' : getPackageDisplayName(selectedEEEPackage)}:</span>
-                                        <span className="text-white">£{Math.round(baseTierPrice / 100)}</span>
-                                      </div>
-                                      <div className="flex justify-between gap-4">
-                                        <span className="text-gray-300">+ Optional extras ({selectedExtras.length}):</span>
-                                        <span className="text-white">£{Math.round(extrasTotal / 100)}</span>
-                                      </div>
-                                      <div className="flex justify-between gap-4 pt-2 border-t border-gray-500">
-                                        <span className="font-semibold text-gray-200">Total:</span>
-                                        <span className="font-semibold text-white">£{Math.round(totalWithFee / 100)}</span>
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <div className="flex justify-between gap-4">
-                                      <span className="font-semibold text-gray-200">{quote.quoteMode === 'simple' ? 'Job price' : getPackageDisplayName(selectedEEEPackage)}:</span>
-                                      <span className="font-semibold text-white">£{Math.round(totalWithFee / 100)}</span>
-                                    </div>
-                                  )}
-                                </div>
-
-                                {isInstallmentsMode ? (
+                              <p className="text-sm text-gray-400">
+                                {isInstallmentsMode
+                                  ? 'Pay a deposit today, then 3 easy monthly payments.'
+                                  : 'To reserve your slot, we require a deposit to confirm your booking.'}
+                              </p>
+                            </div>
+                            <div className="bg-gray-700/50 rounded-lg p-5 inline-block text-left border border-gray-600 w-full max-w-sm">
+                              <div className="space-y-2 mb-3 pb-3 border-b-2 border-gray-600">
+                                {extrasTotal > 0 ? (
                                   <>
-                                    <div className="space-y-2 mb-3 pb-3 border-b border-gray-600">
-                                      <div className="text-xs text-gray-400 mb-2">Deposit breakdown:</div>
-                                      <div className="flex justify-between gap-4 text-sm">
-                                        <span className="text-gray-300">Materials (100% upfront):</span>
-                                        <span className="text-white">£{Math.round(materialsCost / 100)}</span>
-                                      </div>
-                                      <div className="flex justify-between gap-4 text-sm">
-                                        <span className="text-gray-300">Labour booking fee (30%):</span>
-                                        <span className="text-white">£{Math.round((jobCostExcludingMaterials * 0.30) / 100)}</span>
-                                      </div>
-                                      <div className="flex justify-between gap-4 bg-[#e8b323]/10 -mx-2 px-2 py-2 rounded mt-2">
-                                        <span className="font-bold text-white">Total deposit today:</span>
-                                        <span className="font-bold text-[#e8b323] text-lg">£{Math.round(totalDeposit / 100)}</span>
-                                      </div>
+                                    <div className="flex justify-between gap-4">
+                                      <span className="text-gray-300">{quote.quoteMode === 'simple' ? 'Job price' : getPackageDisplayName(selectedEEEPackage)}:</span>
+                                      <span className="text-white">£{Math.round(baseTierPrice / 100)}</span>
                                     </div>
-                                    <div className="space-y-2">
-                                      <div className="text-sm text-gray-400 mb-1">Then 3 monthly payments of:</div>
-                                      <div className="flex justify-between gap-4 bg-gray-600/50 -mx-2 px-2 py-2 rounded">
-                                        <span className="font-semibold text-white">Monthly payment:</span>
-                                        <span className="font-semibold text-white text-lg">£{Math.round(monthlyInstallment / 100)}</span>
-                                      </div>
-                                      <div className="text-xs text-gray-500 text-right">
-                                        (3 × £{Math.round(monthlyInstallment / 100)} = £{Math.round(remainingBalance / 100)})
-                                      </div>
+                                    <div className="flex justify-between gap-4">
+                                      <span className="text-gray-300">+ Optional extras ({selectedExtras.length}):</span>
+                                      <span className="text-white">£{Math.round(extrasTotal / 100)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 pt-2 border-t border-gray-500">
+                                      <span className="font-semibold text-gray-200">Total:</span>
+                                      <span className="font-semibold text-white">£{Math.round(totalWithFee / 100)}</span>
                                     </div>
                                   </>
                                 ) : (
-                                  <>
-                                    <div className="space-y-2 mb-3">
-                                      <div className="text-xs text-gray-400 mb-2">Deposit breakdown:</div>
-                                      <div className="flex justify-between gap-4 text-sm">
-                                        <span className="text-gray-300">Materials (100% upfront):</span>
-                                        <span className="text-white">£{Math.round(materialsCost / 100)}</span>
-                                      </div>
-                                      <div className="flex justify-between gap-4 text-sm">
-                                        <span className="text-gray-300">Labour booking fee (30%):</span>
-                                        <span className="text-white">£{Math.round((jobCostExcludingMaterials * 0.30) / 100)}</span>
-                                      </div>
-                                    </div>
-                                    <div className="flex justify-between gap-4 bg-[#e8b323]/10 -mx-2 px-2 py-2 rounded">
-                                      <span className="font-bold text-white">Total deposit today:</span>
-                                      <span className="font-bold text-[#e8b323] text-xl">£{Math.round(totalDeposit / 100)}</span>
-                                    </div>
-                                  </>
+                                  <div className="flex justify-between gap-4">
+                                    <span className="font-semibold text-gray-200">{quote.quoteMode === 'simple' ? 'Job price' : getPackageDisplayName(selectedEEEPackage)}:</span>
+                                    <span className="font-semibold text-white">£{Math.round(totalWithFee / 100)}</span>
+                                  </div>
                                 )}
                               </div>
-                              <div className="mt-4 bg-blue-900/20 border border-blue-700/30 rounded-lg p-3 inline-block max-w-sm">
-                                <p className="text-sm text-blue-200">
-                                  {isInstallmentsMode ? (
-                                    <>💡 <strong>How it works:</strong> Pay your £{Math.round(totalDeposit / 100)} deposit now, then 3 monthly payments of £{Math.round(monthlyInstallment / 100)} will be charged automatically.</>
-                                  ) : (
-                                    <>💡 <strong>Important:</strong> Your £{Math.round(totalDeposit / 100)} deposit will be deducted from the final bill. You'll only pay the remaining balance after the job is complete.</>
-                                  )}
-                                </p>
-                              </div>
+
+                              {isInstallmentsMode ? (
+                                <>
+                                  <div className="space-y-2 mb-3 pb-3 border-b border-gray-600">
+                                    <div className="text-xs text-gray-400 mb-2">Deposit breakdown:</div>
+                                    <div className="flex justify-between gap-4 text-sm">
+                                      <span className="text-gray-300">Materials (100% upfront):</span>
+                                      <span className="text-white">£{Math.round(materialsCost / 100)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-sm">
+                                      <span className="text-gray-300">Labour booking fee (30%):</span>
+                                      <span className="text-white">£{Math.round((jobCostExcludingMaterials * 0.30) / 100)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 bg-[#e8b323]/10 -mx-2 px-2 py-2 rounded mt-2">
+                                      <span className="font-bold text-white">Total deposit today:</span>
+                                      <span className="font-bold text-[#e8b323] text-lg">£{Math.round(totalDeposit / 100)}</span>
+                                    </div>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <div className="text-sm text-gray-400 mb-1">Then 3 monthly payments of:</div>
+                                    <div className="flex justify-between gap-4 bg-gray-600/50 -mx-2 px-2 py-2 rounded">
+                                      <span className="font-semibold text-white">Monthly payment:</span>
+                                      <span className="font-semibold text-white text-lg">£{Math.round(monthlyInstallment / 100)}</span>
+                                    </div>
+                                    <div className="text-xs text-gray-500 text-right">
+                                      (3 × £{Math.round(monthlyInstallment / 100)} = £{Math.round(remainingBalance / 100)})
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="space-y-2 mb-3">
+                                    <div className="text-xs text-gray-400 mb-2">Deposit breakdown:</div>
+                                    <div className="flex justify-between gap-4 text-sm">
+                                      <span className="text-gray-300">Materials (100% upfront):</span>
+                                      <span className="text-white">£{Math.round(materialsCost / 100)}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4 text-sm">
+                                      <span className="text-gray-300">Labour booking fee (30%):</span>
+                                      <span className="text-white">£{Math.round((jobCostExcludingMaterials * 0.30) / 100)}</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex justify-between gap-4 bg-[#e8b323]/10 -mx-2 px-2 py-2 rounded">
+                                    <span className="font-bold text-white">Total deposit today:</span>
+                                    <span className="font-bold text-[#e8b323] text-xl">£{Math.round(totalDeposit / 100)}</span>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                            <div className="mt-4 bg-blue-900/20 border border-blue-700/30 rounded-lg p-3 inline-block max-w-sm">
+                              <p className="text-sm text-blue-200">
+                                {isInstallmentsMode ? (
+                                  <>💡 <strong>How it works:</strong> Pay your £{Math.round(totalDeposit / 100)} deposit now, then 3 monthly payments of £{Math.round(monthlyInstallment / 100)} will be charged automatically.</>
+                                ) : (
+                                  <>💡 <strong>Important:</strong> Your £{Math.round(totalDeposit / 100)} deposit will be deducted from the final bill. You'll only pay the remaining balance after the job is complete.</>
+                                )}
+                              </p>
                             </div>
                           </div>
-                          {stripePromise ? (
-                            <Elements
-                              stripe={stripePromise}
-                              key={`${selectedEEEPackage}-${isInstallmentsMode ? 'installments' : 'full'}-${selectedExtras.join(',')}`}
-                            >
-                              <PaymentForm
-                                amount={totalDeposit}
-                                customerName={quote.customerName}
-                                customerEmail={quote.email}
-                                quoteId={quote.id}
-                                selectedTier={quote.quoteMode === 'simple' ? 'simple' : selectedEEEPackage}
-                                selectedTierPrice={totalWithFee}
-                                selectedExtras={selectedExtras}
-                                paymentType={isInstallmentsMode ? 'installments' : 'full'}
-                                onSuccess={handleBooking}
-                                onError={(error) => {
-                                  toast({
-                                    title: 'Payment Failed',
-                                    description: error,
-                                    variant: 'destructive',
-                                  });
-                                }}
-                              />
-                            </Elements>
-                          ) : (
-                            <div className="text-center p-4 bg-red-900/20 border border-red-500 rounded-lg">
-                              <p className="text-red-400">Payment system is not configured. Please contact support.</p>
-                            </div>
-                          )}
+
+                          {
+                            stripePromise ? (
+                              <Elements
+                                stripe={stripePromise}
+                                key={`${selectedEEEPackage}-${isInstallmentsMode ? 'installments' : 'full'}-${selectedExtras.join(',')}`}
+                              >
+                                <PaymentForm
+                                  amount={totalDeposit}
+                                  customerName={quote.customerName}
+                                  customerEmail={quote.email}
+                                  quoteId={quote.id}
+                                  selectedTier={quote.quoteMode === 'simple' ? 'simple' : selectedEEEPackage}
+                                  selectedTierPrice={totalWithFee}
+                                  selectedExtras={selectedExtras}
+                                  paymentType={isInstallmentsMode ? 'installments' : 'full'}
+                                  onSuccess={handleBooking}
+                                  onError={(error) => {
+                                    toast({
+                                      title: 'Payment Failed',
+                                      description: error,
+                                      variant: 'destructive',
+                                    });
+                                  }}
+                                />
+                              </Elements>
+                            ) : (
+                              <div className="text-center p-4 bg-red-900/20 border border-red-500 rounded-lg">
+                                <p className="text-red-400">Payment system is not configured. Please contact support.</p>
+                              </div>
+                            )}
                         </>
                       );
                     })()}
@@ -2286,8 +2338,9 @@ export default function PersonalizedQuotePage() {
                 </div>
               </div>
             </div>
-          ) : null}
-        </div>
+          ) : null
+          }
+        </div >
 
         {/* Sticky Footer - Package Selection Bar (HHH Mode Only) */}
         {
@@ -2356,8 +2409,13 @@ export default function PersonalizedQuotePage() {
                         </div>
                         <div className="text-xs font-bold leading-tight">
                           {showInstallments ? (
-                            <div className="flex flex-col items-center justify-center -space-y-0.5">
-                              <span>3× £{Math.round(monthlyInstallment / 100)}</span>
+                            <div className="flex flex-col items-center justify-center leading-none">
+                              <span className={`font-black tracking-tight text-[11px] ${isSelected ? 'text-gray-900' : 'text-lime-400'}`}>
+                                £{Math.round(depositAmount / 100)} Today
+                              </span>
+                              <span className={`text-[9px] font-medium mt-0.5 ${isSelected ? 'text-gray-800/80' : 'text-gray-400'}`}>
+                                then 3x £{Math.round(monthlyInstallment / 100)}
+                              </span>
                             </div>
                           ) : (
                             <div className="flex items-center justify-center gap-1">
@@ -2370,10 +2428,8 @@ export default function PersonalizedQuotePage() {
                   })}
                 </div>
 
-                {/* Approve Button - With Availability Check */}
+                {/* Approve Button */}
                 <div className="flex gap-2">
-                  <AvailabilityDialog tier={selectedEEEPackage} />
-
                   <Button
                     onClick={() => {
                       setHasReserved(true);
@@ -2396,35 +2452,39 @@ export default function PersonalizedQuotePage() {
           )
         }
 
-        {/* Sticky Footer - Pick & Mix Mode */}
-        {quote.quoteMode === 'pick_and_mix' && !hasBooked && !hasReserved && (
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900/98 backdrop-blur-lg border-t border-gray-700 shadow-2xl safe-area-bottom">
-            <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-              <div>
-                <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Total</p>
-                <p className="text-2xl font-bold text-white leading-none">
-                  £{formatPrice(calculateSimpleTotal())}
-                </p>
-              </div>
 
-              <Button
-                onClick={() => {
-                  setHasReserved(true);
-                  setTimeout(() => {
-                    const target = document.getElementById('confirm-button');
-                    target?.scrollIntoView({ behavior: 'smooth' });
-                  }, 100);
-                }}
-                disabled={calculateSimpleTotal() === 0}
-                className="flex-1 bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold shadow-lg"
-                data-testid="button-book-pm-footer"
-              >
-                {calculateSimpleTotal() === 0 ? 'Select Items' : 'Book Now'}
-                <ChevronRight className="ml-1 h-5 w-5" />
-              </Button>
+
+        {/* Sticky Footer - Pick & Mix Mode */}
+        {
+          quote.quoteMode === 'pick_and_mix' && !hasBooked && !hasReserved && (
+            <div className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900/98 backdrop-blur-lg border-t border-gray-700 shadow-2xl safe-area-bottom">
+              <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Total</p>
+                  <p className="text-2xl font-bold text-white leading-none">
+                    £{formatPrice(calculateSimpleTotal())}
+                  </p>
+                </div>
+
+                <Button
+                  onClick={() => {
+                    setHasReserved(true);
+                    setTimeout(() => {
+                      const target = document.getElementById('confirm-button');
+                      target?.scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                  }}
+                  disabled={calculateSimpleTotal() === 0}
+                  className="flex-1 bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold shadow-lg"
+                  data-testid="button-book-pm-footer"
+                >
+                  {calculateSimpleTotal() === 0 ? 'Select Items' : 'Book Now'}
+                  <ChevronRight className="ml-1 h-5 w-5" />
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
+          )
+        }
 
         <style>{`
         .scrollbar-hide::-webkit-scrollbar {
@@ -2435,7 +2495,8 @@ export default function PersonalizedQuotePage() {
           scrollbar-width: none;
         }
       `}</style>
+
       </div>
-    </div>
+    </div >
   );
 }

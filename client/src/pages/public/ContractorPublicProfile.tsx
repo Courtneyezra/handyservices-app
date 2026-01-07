@@ -35,6 +35,8 @@ interface PublicProfile {
     trustBadges?: string[];
     availabilityStatus?: 'available' | 'busy' | 'holiday';
     beforeAfterGallery?: { before: string; after: string; caption: string }[];
+    whatsappNumber?: string | null;
+    reviews?: { id: string; author: string; rating: number; date: string; text: string }[];
 }
 
 interface AvailabilitySlot {
@@ -113,8 +115,9 @@ export default function ContractorPublicProfile({ forcedSlug }: { forcedSlug?: s
     // --- Handlers ---
 
     const handleWhatsAppClick = () => {
-        if (!profile.phone) return;
-        const phone = profile.phone.replace(/[^0-9]/g, '');
+        const targetNumber = profile.whatsappNumber || profile.phone;
+        if (!targetNumber) return;
+        const phone = targetNumber.replace(/[^0-9]/g, '');
         const text = `Hi ${profile.firstName}, I found your profile on Handy. I'd like to discuss a job.`;
         window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank');
     };
@@ -135,6 +138,12 @@ export default function ContractorPublicProfile({ forcedSlug }: { forcedSlug?: s
 
     const safeFirstName = profile.firstName || 'Pro';
     const safeInitial = safeFirstName[0] || 'H';
+
+    const reviews = profile.reviews || [];
+    const reviewCount = reviews.length;
+    const averageRating = reviewCount > 0
+        ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviewCount).toFixed(1)
+        : 'New';
 
     return (
         <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20 selection:bg-amber-100">
@@ -203,7 +212,7 @@ export default function ContractorPublicProfile({ forcedSlug }: { forcedSlug?: s
                         </div>
                         <span className="w-1 h-1 rounded-full bg-slate-300" />
                         <div className="flex items-center gap-1">
-                            <Star className="w-4 h-4 text-amber-500 fill-amber-500" /> 4.9 (127 reviews)
+                            <Star className="w-4 h-4 text-amber-500 fill-amber-500" /> {averageRating} ({reviewCount} reviews)
                         </div>
                     </div>
 
@@ -407,6 +416,40 @@ export default function ContractorPublicProfile({ forcedSlug }: { forcedSlug?: s
                         )}
                     </div>
                 </section>
+
+                {/* Reviews List Section */}
+                {reviewCount > 0 && (
+                    <section>
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-lg font-bold text-slate-900">Recent Reviews</h2>
+                            <div className="flex items-center gap-1">
+                                <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+                                <span className="font-bold text-slate-900">{averageRating}</span>
+                                <span className="text-slate-400 text-sm">({reviewCount})</span>
+                            </div>
+                        </div>
+                        <div className="space-y-4">
+                            {reviews.map((review, idx) => (
+                                <div key={review.id || idx} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div className="font-bold text-slate-900 text-sm">{review.author}</div>
+                                        <span className="text-xs text-slate-400">{review.date ? format(new Date(review.date), 'MMM d, yyyy') : ''}</span>
+                                    </div>
+                                    <div className="flex gap-0.5 mb-2">
+                                        {[1, 2, 3, 4, 5].map((star) => (
+                                            <Star
+                                                key={star}
+                                                className={`w-3 h-3 ${star <= review.rating ? 'text-amber-500 fill-amber-500' : 'text-slate-200 fill-slate-200'}`}
+                                            />
+                                        ))}
+                                    </div>
+                                    <p className="text-sm text-slate-600 leading-relaxed">{review.text}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+                )}
+
 
                 {/* Footer Brand */}
                 <div className="pb-10 pt-4 text-center">

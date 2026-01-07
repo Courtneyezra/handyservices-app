@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { db } from "./db";
-import { contractorBookingRequests, handymanProfiles, personalizedQuotes, handymanSkills, productizedServices } from "../shared/schema";
+import { contractorBookingRequests, handymanProfiles, personalizedQuotes, handymanSkills, productizedServices, contractorJobs } from "../shared/schema";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
 import { requireContractorAuth } from "./contractor-auth";
 import { AutoSkuGenerator } from "./services";
@@ -297,11 +297,16 @@ router.post('/quotes/create', requireContractorAuth, async (req: Request, res: R
             s.service.name.toLowerCase().includes(trade) ||
             s.service.category?.toLowerCase().includes(trade)
         );
-        if (matchingSkill && matchingSkill.service.pricePence > 0) {
-            hourlyRatePence = matchingSkill.service.pricePence;
+        if (matchingSkill) {
+            if (matchingSkill.hourlyRate) {
+                hourlyRatePence = matchingSkill.hourlyRate;
+            } else if (matchingSkill.service.pricePence > 0) {
+                hourlyRatePence = matchingSkill.service.pricePence;
+            }
         } else if (profile.skills.length > 0) {
-            // Fallback to their first service rate
-            hourlyRatePence = profile.skills[0].service.pricePence;
+            // Fallback to their first service rate, checking for override there too
+            const firstSkill = profile.skills[0];
+            hourlyRatePence = firstSkill.hourlyRate || firstSkill.service.pricePence;
         }
 
         // 3. Calculate Base Price
@@ -451,6 +456,221 @@ router.post('/skills', requireContractorAuth, async (req: Request, res: Response
     } catch (error) {
         console.error('[ContractorDashboard] Update skills error:', error);
         res.status(500).json({ error: 'Failed to update skills' });
+    }
+});
+
+// PATCH /api/contractor/jobs/:id/status
+// Update job status (e.g. pending -> in_progress -> completed)
+router.patch('/jobs/:id/status', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+        const validStatuses = ['pending', 'accepted', 'in_progress', 'completed', 'cancelled'];
+
+        if (!validStatuses.includes(status)) {
+            return res.status(400).json({ error: "Invalid status" });
+        }
+
+        const contractor = (req as any).contractor;
+
+        // Verify ownership and existence
+        const job = await db.query.contractorJobs.findFirst({
+            where: and(
+                eq(contractorJobs.id, id),
+                eq(contractorJobs.contractorId, contractor.profileId || "") // Assuming profileId is available or we join user
+            ),
+            // Note: contractor object usually has user info. We need to check how contractorJobs links to user vs profile.
+            // schema: contractorJobs.contractorId references handymanProfiles.id
+        });
+
+        // Wait, 'contractor' in req is likely the User. logic above needs checking.
+        // Let's look at previous routes. 
+        // In get('/services'), we did:
+        /* 
+           const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id)
+           });
+        */
+
+        // So we need to fetch profile first or join.
+        // Let's do a reliable ownership check.
+
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id)
+        });
+
+        if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+        const targetJob = await db.query.contractorJobs.findFirst({
+            where: and(
+                eq(contractorJobs.id, id),
+                eq(contractorJobs.contractorId, profile.id)
+            )
+        });
+
+        if (!targetJob) {
+            return res.status(404).json({ error: "Job not found" });
+        }
+
+        // Prepare updates
+        const updates: any = { status, updatedAt: new Date() };
+
+        if (status === 'completed') {
+            updates.completedAt = new Date();
+        }
+
+        await db.update(contractorJobs)
+            .set(updates)
+            .where(eq(contractorJobs.id, id));
+
+        res.json({ success: true, status, completedAt: updates.completedAt });
+    } catch (error) {
+        console.error('[ContractorDashboard] Update job status error:', error);
+        res.status(500).json({ error: 'Failed to update job status' });
+    }
+});
+
+// POST /api/contractor/jobs/:id/payment
+// Manually record a payment (e.g. Cash / Bank Transfer)
+router.post('/jobs/:id/payment', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { amountPence, method } = req.body; // Expecting full amount for now
+
+        const contractor = (req as any).contractor;
+
+        // Verify ownership
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id)
+        });
+        if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+        const job = await db.query.contractorJobs.findFirst({
+            where: and(
+                eq(contractorJobs.id, id),
+                eq(contractorJobs.contractorId, profile.id)
+            )
+        });
+
+        if (!job) return res.status(404).json({ error: "Job not found" });
+
+        // Update payment status
+        await db.update(contractorJobs)
+            .set({
+                paymentStatus: 'paid',
+                paymentMethod: method || 'cash',
+                paidAt: new Date(),
+                updatedAt: new Date()
+            })
+            .where(eq(contractorJobs.id, id));
+
+        res.json({ success: true, paymentStatus: 'paid', paidAt: new Date() });
+    } catch (error) {
+        console.error('[ContractorDashboard] Record payment error:', error);
+        res.status(500).json({ error: 'Failed to record payment' });
+    }
+});
+
+// GET /api/contractor/jobs/:id/invoice
+// Generate an invoice for a specific job
+router.get('/jobs/:id/invoice', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const contractor = (req as any).contractor;
+
+        // Verify ownership
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id),
+            with: { user: true }
+        });
+        if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+        const job = await db.query.contractorJobs.findFirst({
+            where: and(
+                eq(contractorJobs.id, id),
+                eq(contractorJobs.contractorId, profile.id)
+            )
+        });
+
+        if (!job) return res.status(404).json({ error: "Job not found" });
+
+        // Generate simple Invoice HTML (mocking a PDF generator)
+        // In real app, we'd use 'jspdf' or 'puppeteer'
+        const invoiceNumber = `INV-${job.id.substring(0, 8).toUpperCase()}`;
+        const date = new Date().toLocaleDateString('en-GB');
+        const amount = (job.payoutPence || 0) / 100;
+
+        const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { font-family: sans-serif; padding: 40px; color: #1e293b; }
+                .header { display: flex; justify-content: space-between; margin-bottom: 40px; }
+                .title { font-size: 32px; font-weight: bold; color: #0f172a; }
+                .meta { text-align: right; color: #64748b; }
+                .bill-to { margin-bottom: 40px; }
+                .table { width: 100%; border-collapse: collapse; margin-bottom: 40px; }
+                .table th { text-align: left; padding: 12px; border-bottom: 2px solid #e2e8f0; }
+                .table td { padding: 12px; border-bottom: 1px solid #e2e8f0; }
+                .total { text-align: right; font-size: 24px; font-weight: bold; }
+                .footer { margin-top: 60px; text-align: center; color: #94a3b8; font-size: 12px; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <div>
+                    <div class="title">INVOICE</div>
+                    <div>${profile.user?.firstName} ${profile.user?.lastName}</div>
+                    <div>${profile.city || ''}</div>
+                </div>
+                <div class="meta">
+                    <div><strong>Invoice #:</strong> ${invoiceNumber}</div>
+                    <div><strong>Date:</strong> ${date}</div>
+                    <div><strong>Due Date:</strong> ${date}</div>
+                </div>
+            </div>
+
+            <div class="bill-to">
+                <strong>Bill To:</strong><br>
+                ${job.customerName || 'Customer'}<br>
+                ${job.address || ''}<br>
+                ${job.postcode || ''}
+            </div>
+
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Description</th>
+                        <th style="text-align: right">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>${job.jobDescription || 'Handyman Services'}</td>
+                        <td style="text-align: right">£${amount.toFixed(2)}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="total">
+                Total: £${amount.toFixed(2)}
+            </div>
+            
+            <div class="footer">
+                Thank you for your business!
+            </div>
+        </body>
+        </html>
+        `;
+
+        // Send content
+        res.setHeader('Content-Type', 'text/html');
+        res.send(html);
+
+    } catch (error) {
+        console.error('[ContractorDashboard] Invoice error:', error);
+        res.status(500).json({ error: 'Failed to generate invoice' });
     }
 });
 

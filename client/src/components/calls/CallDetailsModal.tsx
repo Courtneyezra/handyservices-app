@@ -156,8 +156,8 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
 
     return (
         <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-            <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 bg-slate-950 text-slate-50 border border-slate-800 shadow-xl sm:rounded-xl overflow-hidden">
-                <DialogHeader className="px-6 py-4 border-b border-slate-800">
+            <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-50 border border-slate-200 dark:border-slate-800 shadow-xl sm:rounded-xl overflow-hidden transition-colors duration-300">
+                <DialogHeader className="px-6 py-4 border-b border-slate-200 dark:border-slate-800">
                     <div className="flex justify-between items-center pr-8">
                         <div>
                             <DialogTitle className="text-xl flex items-center gap-2">
@@ -204,7 +204,7 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
                         </div>
                     ) : (
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-                            <div className="px-6 py-2 border-b border-slate-800 bg-slate-900/50">
+                            <div className="px-6 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
                                 <TabsList>
                                     <TabsTrigger value="details">Details & Notes</TabsTrigger>
                                     <TabsTrigger value="transcript">Transcript</TabsTrigger>
@@ -318,10 +318,10 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
                                             <Textarea
                                                 value={editForm.notes}
                                                 onChange={e => setEditForm({ ...editForm, notes: e.target.value })}
-                                                className="min-h-[100px]"
+                                                className="min-h-[100px] bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 focus:bg-white dark:focus:bg-slate-950"
                                             />
                                         ) : (
-                                            <div className="bg-muted/30 p-4 rounded-md min-h-[100px] text-sm whitespace-pre-wrap">
+                                            <div className="bg-slate-100 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 p-4 rounded-md min-h-[100px] text-sm whitespace-pre-wrap">
                                                 {call?.notes || "No notes added."}
                                             </div>
                                         )}
@@ -330,7 +330,7 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
 
                                 <TabsContent value="transcript" className="mt-0 h-full">
                                     <div className="space-y-4 h-full flex flex-col">
-                                        <div className="bg-muted p-4 rounded-md whitespace-pre-wrap font-mono text-sm leading-relaxed overflow-auto flex-1 border">
+                                        <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-4 rounded-md whitespace-pre-wrap font-mono text-sm leading-relaxed overflow-auto flex-1">
                                             {call?.transcription || "No transcription available."}
                                         </div>
                                     </div>
@@ -447,7 +447,7 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg bg-muted/20">
+                                            <div className="text-center py-12 text-muted-foreground border-2 border-dashed border-slate-800 rounded-lg bg-slate-900/20">
                                                 <Volume2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
                                                 <p className="text-lg font-medium">No Recording Available</p>
                                                 <p className="text-sm mt-1">This call does not have an associated recording.</p>
@@ -457,7 +457,7 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
                                 </TabsContent>
 
                                 <TabsContent value="skus" className="mt-0 space-y-6">
-                                    <div className="flex justify-between items-center bg-muted/30 p-4 rounded-lg border">
+                                    <div className="flex justify-between items-center bg-slate-900/50 p-4 rounded-lg border border-slate-800">
                                         <div>
                                             <h3 className="font-semibold text-lg">Detected Services</h3>
                                             <p className="text-sm text-muted-foreground">
@@ -473,9 +473,9 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
                                         {call?.allSkus && call.allSkus.length > 0 ? (
                                             <div className="grid grid-cols-1 gap-3">
                                                 {call.allSkus.map((item: any) => (
-                                                    <div key={item.id} className="flex items-center justify-between p-3 border rounded-lg bg-card hover:bg-muted/20 transition-colors">
+                                                    <div key={item.id} className="flex items-center justify-between p-3 border border-slate-800 rounded-lg bg-slate-900/50 hover:bg-slate-800/50 transition-colors">
                                                         <div className="flex items-start gap-3">
-                                                            <div className={cn("p-2 rounded-full", item.source === 'detected' ? "bg-purple-100 text-purple-600" : "bg-blue-100 text-blue-600")}>
+                                                            <div className={cn("p-2 rounded-full", item.source === 'detected' ? "bg-purple-500/10 text-purple-400" : "bg-blue-500/10 text-blue-400")}>
                                                                 <ShoppingBag className="h-4 w-4" />
                                                             </div>
                                                             <div>

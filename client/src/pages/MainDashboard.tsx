@@ -32,7 +32,7 @@ export default function MainDashboard() {
     });
 
     if (statsLoading) {
-        return <div className="flex h-64 items-center justify-center"><Loader2 className="animate-spin text-gray-400" /></div>;
+        return <div className="flex h-64 items-center justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div>;
     }
 
     // Default fallbacks
@@ -40,48 +40,48 @@ export default function MainDashboard() {
 
     return (
         <div className="space-y-6">
-            <h1 className="text-3xl font-bold tracking-tight text-white">Dashboard</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-secondary">Dashboard</h1>
 
             {/* Stats Grid */}
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-                <Card className="bg-black/40 border-gray-700 backdrop-blur-sm">
+                <Card className="jobber-card backdrop-blur-sm">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-gray-300">Leads Today</CardTitle>
-                        <Users className="h-4 w-4 text-handy-gold" />
+                        <CardTitle className="text-sm font-medium text-muted-foreground">Leads Today</CardTitle>
+                        <Users className="h-4 w-4 text-primary" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-white">{safeStats.leadsToday}</div>
-                        <p className="text-xs text-gray-400">Total leads in database</p>
+                        <div className="text-2xl font-bold text-foreground">{safeStats.leadsToday}</div>
+                        <p className="text-xs text-muted-foreground">Total leads in database</p>
                     </CardContent>
                 </Card>
-                <Card className="bg-black/40 border-gray-700 backdrop-blur-sm">
+                <Card className="bg-card border-border shadow-sm backdrop-blur-sm">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-gray-300">Active Calls</CardTitle>
-                        <PhoneCall className="h-4 w-4 text-handy-gold" />
+                        <CardTitle className="text-sm font-medium text-muted-foreground">Active Calls</CardTitle>
+                        <PhoneCall className="h-4 w-4 text-primary" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-white">{safeStats.activeCalls}</div>
-                        <p className="text-xs text-gray-400">Currently live</p>
+                        <div className="text-2xl font-bold text-foreground">{safeStats.activeCalls}</div>
+                        <p className="text-xs text-muted-foreground">Currently live</p>
                     </CardContent>
                 </Card>
-                <Card className="bg-black/40 border-gray-700 backdrop-blur-sm">
+                <Card className="bg-card border-border shadow-sm backdrop-blur-sm">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-gray-300">Pending Quotes</CardTitle>
-                        <Activity className="h-4 w-4 text-handy-gold" />
+                        <CardTitle className="text-sm font-medium text-muted-foreground">Pending Quotes</CardTitle>
+                        <Activity className="h-4 w-4 text-primary" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-white">{safeStats.pendingQuotes}</div>
-                        <p className="text-xs text-gray-400">Requires attention</p>
+                        <div className="text-2xl font-bold text-foreground">{safeStats.pendingQuotes}</div>
+                        <p className="text-xs text-muted-foreground">Requires attention</p>
                     </CardContent>
                 </Card>
-                <Card className="bg-black/40 border-gray-700 backdrop-blur-sm">
+                <Card className="bg-card border-border shadow-sm backdrop-blur-sm">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium text-gray-300">Revenue (WTD)</CardTitle>
-                        <PoundSterling className="h-4 w-4 text-handy-gold" />
+                        <CardTitle className="text-sm font-medium text-muted-foreground">Revenue (WTD)</CardTitle>
+                        <PoundSterling className="h-4 w-4 text-primary" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold text-white">£{safeStats.revenueWtd}</div>
-                        <p className="text-xs text-gray-400">+12% from last week</p>
+                        <div className="text-2xl font-bold text-foreground">£{safeStats.revenueWtd}</div>
+                        <p className="text-xs text-muted-foreground">+12% from last week</p>
                     </CardContent>
                 </Card>
             </div>
@@ -91,10 +91,10 @@ export default function MainDashboard() {
 
             {/* Recent Activity Grid */}
             <div className="grid gap-4 grid-cols-1 lg:grid-cols-7">
-                <Card className="col-span-1 lg:col-span-7 bg-black/40 border-gray-700 backdrop-blur-sm">
+                <Card className="col-span-1 lg:col-span-7 bg-card border-border shadow-sm backdrop-blur-sm">
                     <CardHeader className="flex flex-row items-center justify-between">
-                        <CardTitle className="text-white">Recent Activity</CardTitle>
-                        <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white gap-1" onClick={() => setLocation('/calls')}>
+                        <CardTitle className="text-secondary">Recent Activity</CardTitle>
+                        <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground gap-1" onClick={() => setLocation('/admin/calls')}>
                             View All <ArrowRight className="h-4 w-4" />
                         </Button>
                     </CardHeader>

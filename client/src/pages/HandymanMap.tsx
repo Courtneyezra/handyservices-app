@@ -71,15 +71,15 @@ export default function HandymanMap() {
     const categories = Array.from(new Set(handymen?.flatMap(h => h.skills.map(s => s.service.category)) || [])).filter(Boolean);
 
     return (
-        <div className="flex-1 flex bg-slate-900 text-white overflow-hidden relative">
+        <div className="flex-1 flex bg-background text-foreground overflow-hidden relative transition-colors duration-300">
             {/* Sidebar Filters */}
             <div className={cn(
-                "w-full lg:w-80 flex flex-col gap-6 bg-slate-800 p-6 border-r border-slate-700 absolute inset-0 z-20 transition-transform duration-300 lg:relative lg:translate-x-0 lg:z-10",
+                "w-full lg:w-80 flex flex-col gap-6 bg-card border-r border-border absolute inset-0 z-20 transition-transform duration-300 lg:relative lg:translate-x-0 lg:z-10",
                 showList ? "translate-x-0" : "-translate-x-full"
             )}>
                 <div>
-                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-white">
-                        <Filter className="w-5 h-5 text-green-500" />
+                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-secondary">
+                        <Filter className="w-5 h-5 text-primary" />
                         Filters
                     </h3>
 
@@ -89,16 +89,16 @@ export default function HandymanMap() {
                             <input
                                 type="text"
                                 placeholder="Search handymen..."
-                                className="w-full pl-10 pr-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-green-500/20"
+                                className="w-full pl-10 pr-4 py-2 bg-background border border-input rounded-lg text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                             />
                         </div>
 
                         <div>
-                            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Category</label>
+                            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">Category</label>
                             <select
-                                className="w-full p-2 bg-slate-700 border border-slate-600 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500/20"
+                                className="w-full p-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                                 value={selectedCategory}
                                 onChange={(e) => setSelectedCategory(e.target.value)}
                             >
@@ -112,35 +112,35 @@ export default function HandymanMap() {
                 </div>
 
                 <div className="flex-1 overflow-auto">
-                    <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">
                         Nearby Pros ({filteredHandymen?.length || 0})
                     </h3>
                     <div className="space-y-3">
                         {filteredHandymen?.map(h => (
-                            <div key={h.id} className="p-4 bg-slate-700 rounded-xl border border-slate-600 hover:border-green-500/50 hover:bg-slate-700/80 transition-all cursor-pointer group">
+                            <div key={h.id} className="p-4 bg-muted/30 rounded-xl border border-border hover:border-primary/50 hover:bg-muted/50 transition-all cursor-pointer group">
                                 <div className="flex items-start justify-between mb-2">
                                     <div className="flex items-center gap-2">
                                         <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white font-bold text-xs">
                                             {h.user.firstName[0]}{h.user.lastName[0]}
                                         </div>
                                         <div>
-                                            <p className="font-bold text-sm text-white">{h.user.firstName} {h.user.lastName}</p>
-                                            <p className="text-xs text-slate-400 uppercase font-medium">{h.city}</p>
+                                            <p className="font-bold text-sm text-foreground">{h.user.firstName} {h.user.lastName}</p>
+                                            <p className="text-xs text-muted-foreground uppercase font-medium">{h.city}</p>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-1 bg-slate-600 px-2 py-0.5 rounded-full">
-                                        <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
-                                        <span className="text-[10px] font-bold text-white">4.9</span>
+                                    <div className="flex items-center gap-1 bg-muted px-2 py-0.5 rounded-full">
+                                        <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
+                                        <span className="text-[10px] font-bold text-foreground">4.9</span>
                                     </div>
                                 </div>
                                 <div className="flex flex-wrap gap-1 mt-2">
                                     {h.skills.slice(0, 3).map(s => (
-                                        <span key={s.id} className="text-[10px] bg-slate-600 text-slate-300 px-2 py-0.5 rounded-md">
+                                        <span key={s.id} className="text-[10px] bg-muted text-muted-foreground px-2 py-0.5 rounded-md">
                                             {s.service.name}
                                         </span>
                                     ))}
                                     {h.skills.length > 3 && (
-                                        <span className="text-[10px] bg-slate-700 text-slate-500 px-2 py-0.5 rounded-md">
+                                        <span className="text-[10px] bg-muted/80 text-muted-foreground px-2 py-0.5 rounded-md">
                                             +{h.skills.length - 3} more
                                         </span>
                                     )}
@@ -154,7 +154,7 @@ export default function HandymanMap() {
             {/* Mobile Toggle Button */}
             <Button
                 onClick={() => setShowList(!showList)}
-                className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1001] lg:hidden bg-handy-gold text-gray-900 shadow-xl shadow-yellow-900/40 font-bold px-6 py-6 rounded-2xl flex items-center gap-3 active:scale-95 transition-all"
+                className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1001] lg:hidden bg-primary text-white shadow-xl shadow-primary/40 font-bold px-6 py-6 rounded-2xl flex items-center gap-3 active:scale-95 transition-all"
             >
                 {showList ? (
                     <><MapIcon className="w-5 h-5" /> View Map</>
@@ -164,10 +164,10 @@ export default function HandymanMap() {
             </Button>
 
             {isLoading ? (
-                <div className="absolute inset-0 bg-slate-50 flex items-center justify-center z-[1000]">
+                <div className="absolute inset-0 bg-background flex items-center justify-center z-[1000]">
                     <div className="flex flex-col items-center gap-3">
-                        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                        <p className="text-sm font-medium text-slate-500">Loading map...</p>
+                        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                        <p className="text-sm font-medium text-muted-foreground">Loading map...</p>
                     </div>
                 </div>
             ) : (
@@ -190,7 +190,7 @@ export default function HandymanMap() {
                                                 {h.user.firstName[0]}{h.user.lastName[0]}
                                             </div>
                                             <div>
-                                                <h4 className="font-bold text-slate-800 text-base leading-tight">
+                                                <h4 className="font-bold text-slate-900 text-base leading-tight">
                                                     {h.user.firstName} {h.user.lastName}
                                                 </h4>
                                                 <p className="text-xs text-slate-500">Member since 2024</p>
@@ -208,7 +208,7 @@ export default function HandymanMap() {
                                             </div>
                                         </div>
 
-                                        <div className="border-t border-slate-100 pt-3">
+                                        <div className="border-t border-slate-200 pt-3">
                                             <Button className="w-full h-8 text-xs bg-blue-600 hover:bg-blue-700">
                                                 View Dashboard
                                             </Button>

@@ -34,6 +34,7 @@ import contractorJobsRouter from './job-routes';
 import contractorDashboardRouter from './contractor-dashboard-routes';
 import placesRouter from './places-routes';
 import { stripeRouter } from './stripe-routes';
+import { elevenLabsWebhookRouter } from './eleven-labs/webhook';
 
 import publicRoutes from './public-routes';
 import mediaRouter from './media-upload';
@@ -181,7 +182,11 @@ app.get('/api/diagnostics', async (req, res) => {
         checks.infrastructure.database = false;
     }
 
-    res.json(checks);
+    if (!checks.infrastructure.database) {
+        res.status(503).json(checks);
+    } else {
+        res.json(checks);
+    }
 });
 
 // Register Quotes Router (Migrated from V5)
@@ -200,6 +205,7 @@ app.use(trainingRouter);
 app.use('/api', devRouter);
 app.use('/api/settings', settingsRouter);
 app.use(stripeRouter); // Stripe payment routes
+app.use('/api', elevenLabsWebhookRouter); // ElevenLabs Webhooks
 
 // Contractor Portal Routes
 app.use('/api/contractor', contractorAuthRouter);

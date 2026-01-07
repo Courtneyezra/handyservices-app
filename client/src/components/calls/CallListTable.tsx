@@ -76,10 +76,10 @@ export function CallListTable({ calls, isLoading, onCallClick }: CallListTablePr
     }
 
     return (
-        <div className="rounded-md border bg-black/20 backdrop-blur-sm">
+        <div className="rounded-2xl border border-border bg-card backdrop-blur-sm overflow-hidden">
             <Table>
                 <TableHeader>
-                    <TableRow className="hover:bg-transparent border-gray-800">
+                    <TableRow className="hover:bg-transparent border-border">
                         <TableHead className="w-[50px]">Status</TableHead>
                         <TableHead className="w-[200px]">Route Path</TableHead>
                         <TableHead>Lead Info</TableHead>
@@ -92,7 +92,7 @@ export function CallListTable({ calls, isLoading, onCallClick }: CallListTablePr
                     {calls.map((call) => (
                         <TableRow
                             key={call.id}
-                            className="cursor-pointer hover:bg-white/5 border-gray-800 transition-colors"
+                            className="cursor-pointer hover:bg-muted/50 border-border transition-all"
                             onClick={() => onCallClick(call.id)}
                         >
                             {/* 1. Status Dot */}
@@ -123,7 +123,7 @@ export function CallListTable({ calls, isLoading, onCallClick }: CallListTablePr
                                             {call.phoneNumber}
                                         </span>
                                         {call.jobSummary && (
-                                            <span className="text-gray-400 truncate max-w-[200px]" title={call.jobSummary}>
+                                            <span className="text-muted-foreground truncate max-w-[200px]" title={call.jobSummary}>
                                                 • {call.jobSummary}
                                             </span>
                                         )}
@@ -137,7 +137,7 @@ export function CallListTable({ calls, isLoading, onCallClick }: CallListTablePr
                             </TableCell>
 
                             {/* 5. Time */}
-                            <TableCell className="text-right text-sm text-gray-400">
+                            <TableCell className="text-right text-sm text-muted-foreground">
                                 <div>{format(new Date(call.startTime), "MMM d")}</div>
                                 <div className="text-xs text-muted-foreground">{format(new Date(call.startTime), "HH:mm")}</div>
                             </TableCell>
@@ -180,12 +180,12 @@ export function CallListTable({ calls, isLoading, onCallClick }: CallListTablePr
                                                     <FileText className="h-4 w-4" />
                                                 </Button>
                                             </DialogTrigger>
-                                            <DialogContent className="max-w-xl bg-gray-900 border-gray-700 text-gray-100" onClick={(e) => e.stopPropagation()}>
+                                            <DialogContent className="max-w-xl bg-background border-border text-foreground" onClick={(e) => e.stopPropagation()}>
                                                 <DialogHeader>
                                                     <DialogTitle>Call Transcript</DialogTitle>
                                                 </DialogHeader>
-                                                <ScrollArea className="h-[400px] mt-4 p-4 rounded-md border border-gray-800 bg-black/20">
-                                                    <div className="whitespace-pre-wrap text-sm leading-relaxed text-gray-300 font-mono">
+                                                <ScrollArea className="h-[400px] mt-4 p-4 rounded-md border border-border bg-muted/30">
+                                                    <div className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground font-mono">
                                                         {call.transcription}
                                                     </div>
                                                 </ScrollArea>
@@ -266,7 +266,7 @@ function getOutcomeBadge(call: CallSummary) {
 
         case 'MSG_TAKEN':
         case 'MESSAGE_TAKEN':
-            return <Badge variant="secondary" className="bg-slate-700 text-white">Message Taken</Badge>;
+            return <Badge variant="secondary" className="bg-secondary text-secondary-foreground">Message Taken</Badge>;
 
         case 'VOICEMAIL':
         case 'VOICEMAIL_LEFT':

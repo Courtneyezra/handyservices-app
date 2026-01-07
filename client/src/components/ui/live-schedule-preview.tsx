@@ -10,9 +10,10 @@ interface LiveSchedulePreviewProps {
     start?: string;
     end?: string;
     days?: string;
+    className?: string;
 }
 
-export function LiveSchedulePreview({ mode, start = "08:00", end = "18:00", days = "1,2,3,4,5" }: LiveSchedulePreviewProps) {
+export function LiveSchedulePreview({ mode, start = "08:00", end = "18:00", days = "1,2,3,4,5", className }: LiveSchedulePreviewProps) {
     const [currentTime, setCurrentTime] = useState<Date>(new Date());
     const [status, setStatus] = useState<'open' | 'closed' | 'forced-open' | 'forced-closed' | 'voicemail'>('closed');
 
@@ -108,7 +109,7 @@ export function LiveSchedulePreview({ mode, start = "08:00", end = "18:00", days
     };
 
     return (
-        <Card className={cn("p-4 border", getStatusColor())}>
+        <Card className={cn("p-4 border", getStatusColor(), className)}>
             <div className="flex items-center gap-3 mb-3">
                 {getIcon()}
                 <div>

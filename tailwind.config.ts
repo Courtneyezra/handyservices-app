@@ -61,11 +61,12 @@ export default {
                     border: "hsl(var(--sidebar-border))",
                     ring: "hsl(var(--sidebar-ring))",
                 },
-                // Handy Services Brand Colors
-                handy: {
-                    gold: "#e8b323",
-                    "gold-hover": "#d1a01f",
-                    "gold-light": "#f5d56a",
+                // Jobber Brand Colors
+                jobber: {
+                    green: "#7DB00E",
+                    navy: "#1D2D3D",
+                    gray: "#F3F4F6",
+                    blue: "#0065A0",
                 },
             },
             // Dark theme background gradient utilities

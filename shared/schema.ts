@@ -254,9 +254,11 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     mediaGallery: jsonb("media_gallery"), // Array of { type: 'image'|'video', url: string, caption?: string }
 
     // New "Smart Widget" Fields
+    whatsappNumber: varchar("whatsapp_number", { length: 20 }), // Specific WhatsApp number (overrides main phone)
     trustBadges: jsonb("trust_badges"), // Array of strings e.g. ['dbs', 'insured', 'dog_friendly']
     availabilityStatus: varchar("availability_status", { length: 20 }).default('available'), // 'available', 'busy', 'holiday'
     introVideoUrl: text("intro_video_url"),
+    reviews: jsonb("reviews"), // Array of { id, author, rating, date, text, source? }
     aiRules: jsonb("ai_rules"), // { removeRubbish, supplyMaterials, ... }
     beforeAfterGallery: jsonb("before_after_gallery"), // Array of { before: string, after: string, caption: string }
 
@@ -356,6 +358,12 @@ export const contractorJobs = pgTable("contractor_jobs", {
     acceptedAt: timestamp("accepted_at"),
     completedAt: timestamp("completed_at"),
     notes: text("notes"),
+
+    // Payment Tracking
+    paymentStatus: varchar("payment_status", { length: 20 }).default('unpaid'), // 'unpaid', 'paid', 'refunded'
+    paymentMethod: varchar("payment_method", { length: 20 }), // 'cash', 'bank_transfer', 'card'
+    paidAt: timestamp("paid_at"),
+
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -467,6 +475,7 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     phone: varchar("phone").notNull(),
     email: varchar("email"),
     postcode: varchar("postcode"),
+    coordinates: jsonb("coordinates"), // { lat: number, lng: number }
 
     // Job Details
     jobDescription: text("job_description").notNull(),
@@ -531,10 +540,14 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
 
     // Tracking
     viewedAt: timestamp("viewed_at"), // When lead first viewed the link
+    viewCount: integer("view_count").default(0),
+    lastViewedAt: timestamp("last_viewed_at"),
     selectedPackage: varchar("selected_package"), // 'essential', 'enhanced', or 'elite' (for HHH mode)
-    selectedExtras: jsonb("selected_extras"), // Array of selected extra labels (for simple mode)
+    selectedExtras: jsonb("selected_extras"), // Array of selected extra labels
     selectedAt: timestamp("selected_at"), // When package was selected
     bookedAt: timestamp("booked_at"), // When booking was confirmed
+    rejectionReason: text("rejection_reason"),
+    feedbackJson: jsonb("feedback_json"),
     leadId: varchar("lead_id"), // Links to leads table when lead submits
     expiresAt: timestamp("expires_at"), // When the quote expires (15 minutes from creation)
 
