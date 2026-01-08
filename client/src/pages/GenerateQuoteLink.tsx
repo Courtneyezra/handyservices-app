@@ -190,13 +190,7 @@ export default function GenerateQuoteLink() {
     highDemand: false,
     staffHoliday: false,
   });
-  const [refinedMessage, setRefinedMessage] = useState<string | null>(null);
-  const [isRefining, setIsRefining] = useState(false);
 
-  // Clear refined message when relevant inputs change
-  useEffect(() => {
-    setRefinedMessage(null);
-  }, [excuseToggles, customerName, generatedUrl, visitTierMode, quoteMode, assessmentReason]);
 
 
   // Auto-calculated priming price range using behavioral economics
@@ -793,7 +787,7 @@ export default function GenerateQuoteLink() {
       message += `Based on the photos/description, to give you a *Fixed Price* we can legally stand by, I need a Top Rated Handyman to assess the site first.\n\n`;
 
       if (assessmentReason) {
-        message += `*Reason for Visit:*\n${assessmentReason}\n\n`;
+        message += `${assessmentReason}\n\n`;
       } else {
         message += `(Giving you a quote right now would just be a guess!)\n\n`;
       }
@@ -808,9 +802,7 @@ export default function GenerateQuoteLink() {
 
     // Add priming price range (auto-calculated from HHH pricing)
     if (primingPriceRange) {
-      const jobSummary = analyzedJob?.summary || jobDescription;
-      message += `Before I send the official quote link — regarding: "${jobSummary}"\n\n`;
-      message += `This normally falls in the £${primingPriceRange.low}–£${primingPriceRange.high} range, depending on the specifics.\n\n`;
+      message += `For this type of job, the price normally falls in the £${primingPriceRange.low}–£${primingPriceRange.high} range, depending on the specifics.\n\n`;
     }
 
     // Pay-in-3 with WhatsApp bold formatting (*bold*, not **bold**)
@@ -825,28 +817,7 @@ export default function GenerateQuoteLink() {
     return message;
   };
 
-  const handleRefineMessage = async () => {
-    setIsRefining(true);
-    try {
-      const rawMessage = generateWhatsAppMessage();
-      const res = await fetch('/api/whatsapp/ai-refine', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: rawMessage })
-      });
-      const data = await res.json();
-      if (data.message) {
-        setRefinedMessage(data.message);
-        toast({ title: 'Message Polished', description: 'AI has refined your message with natural flow.' });
-      } else {
-        throw new Error("No message returned");
-      }
-    } catch (e) {
-      toast({ title: 'Error', description: 'Failed to refine message.', variant: 'destructive' });
-    } finally {
-      setIsRefining(false);
-    }
-  };
+
 
   const handleSendWhatsApp = () => {
     if (!phone || !generatedUrl) return;
@@ -857,7 +828,7 @@ export default function GenerateQuoteLink() {
     }
 
     // Use refined message if available, otherwise raw
-    const message = refinedMessage || generateWhatsAppMessage();
+    const message = generateWhatsAppMessage();
 
     const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
@@ -1569,6 +1540,7 @@ export default function GenerateQuoteLink() {
                           }}
                           placeholder="e.g. walls look uneven, need to check for damp..."
                           className="bg-background"
+                          onBlur={handlePolishReason}
                         />
                         <Button
                           onClick={handlePolishReason}
@@ -2116,22 +2088,14 @@ export default function GenerateQuoteLink() {
                       <div className="space-y-2">
                         <Label className="text-sm font-medium text-slate-300">Message Preview</Label>
                         <div className="bg-green-900/20 text-green-100 rounded-lg p-3 text-sm whitespace-pre-wrap border border-green-800/50 max-h-60 overflow-y-auto">
-                          {refinedMessage || generateWhatsAppMessage()}
+                          {generateWhatsAppMessage()}
                         </div>
                       </div>
                     </div>
 
                     {/* Send Options */}
                     <div className="flex gap-2">
-                      <Button
-                        onClick={handleRefineMessage}
-                        disabled={isRefining || !generatedUrl}
-                        className="bg-purple-600 hover:bg-purple-700 text-white"
-                        data-testid="button-refine-message"
-                      >
-                        {isRefining ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
-                        <span className="ml-2 hidden sm:inline">Refine with AI</span>
-                      </Button>
+
                       <Button
                         onClick={handleSendWhatsApp}
                         className="flex-1 bg-green-600 hover:bg-green-700 text-white"

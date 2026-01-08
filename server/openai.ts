@@ -472,22 +472,21 @@ export async function polishAssessmentReason(rawReason: string): Promise<string>
             messages: [
                 {
                     role: "system",
-                    content: `You are the Head Handyman writing a quick sticky note for a customer.
-Your goal is to re-write the input into a short, punchy, handwritten-style note.
+                    content: `You are a helpful Handyman Coordinator explaining to a customer why a physical visit is needed.
+Your goal is to take the "rough notes" reason and turn it into a natural, seamless continuation of this sentence:
+"I need a Top Rated Handyman to assess the site first."
 
 Rules:
-1. Tone: Expert, direct, authoritative but authentic.
-2. Grammar: Use "note-taking" grammar (drop unnecessary pronouns). 
-   - Bad: "I think we should check the boiler."
-   - Good: "Boiler needs checking. Sounds suspicious."
-3. Format: Just 1-3 punchy sentences. No bullet points.
-4. Length: Keep it under 25 words.
+1. Start with a transition word like "Specifically,", "This is because", "Given that", or just start the sentence.
+2. Explain the technical reason why a quote cannot be given remotely.
+3. Tone: Professional, reassuring, and explanatory.
+4. Length: 1 sentence maximum.
 
 Example Input: "leak under sink and tap broken"
-Output: Sink leak needs tracing ASAP. Tap looks done for - replacement likely.
+Output: "Specifically, we need to trace exactly where the leak is coming from to ensure the new tap fixes the root cause."
 
 Example Input: "odd noise from heater maybe pump"
-Output: Heater noisy. Suspect pump failure. Needs ears-on diagnosis.`
+Output: "This is to determine if the noise is coming from the pump itself or just trapped air, which affects the repair cost."`
                 },
                 {
                     role: "user",

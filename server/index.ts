@@ -305,6 +305,7 @@ app.post('/api/whatsapp/ai-message', async (req, res) => {
 // AI-Refined WhatsApp Message (Weave in excuses/reasons)
 app.post('/api/whatsapp/ai-refine', async (req, res) => {
     const { message } = req.body;
+    console.log("[AI Refine] Endpoint hit with message length:", message?.length);
     if (!message) return res.status(400).json({ error: "Message is required" });
 
     try {
