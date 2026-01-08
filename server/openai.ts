@@ -581,3 +581,43 @@ OUTPUT JSON ONLY:
         return { strategy: 'simple', reasoning: "Default strategy" };
     }
 }
+
+/**
+ * Refines a WhatsApp message to weave in excuses/reasons naturally.
+ * Input: "Hi John... Sorry for delay Christmas rush. We just spoke about..."
+ * Output: "Hi John! Sorry for the delay - it's been a mad rush before Christmas! We just spoke about..."
+ */
+export async function refineWhatsAppMessage(rawMessage: string): Promise<string> {
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                {
+                    role: "system",
+                    content: `You are a friendly, professional Handyman Coordinator. 
+Your goal is to REWRITE the provided WhatsApp message to make it flow naturally.
+
+Rules:
+1. Tone: Friendly, authentic, slightly casual but professional.
+2. Formatting: meaningful words should be *bold* (WhatsApp style). NOT **bold**.
+3. Integration: weaving any "excuses" (like "Sorry for delay", "Christmas rush") naturally into the flow, rather than just having them appended at the start.
+4. Accuracy: KEEP the link and prices EXACTLY as they are. Do not change the URL.
+5. Length: Keep it concise.
+
+Example Input: "Hi Dave. Sorry for delay. Fixed price. Link: ..."
+Example Output: "Hi Dave! So sorry for the slight delay getting back to you - we've been non-stop! regarding the *Fixed Price* quote we discussed..."`
+                },
+                {
+                    role: "user",
+                    content: rawMessage
+                }
+            ],
+            temperature: 0.7,
+        });
+
+        return response.choices[0].message.content?.trim() || rawMessage;
+    } catch (error) {
+        console.error("Error refining message:", error);
+        return rawMessage;
+    }
+}

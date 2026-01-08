@@ -190,6 +190,14 @@ export default function GenerateQuoteLink() {
     highDemand: false,
     staffHoliday: false,
   });
+  const [refinedMessage, setRefinedMessage] = useState<string | null>(null);
+  const [isRefining, setIsRefining] = useState(false);
+
+  // Clear refined message when relevant inputs change
+  useEffect(() => {
+    setRefinedMessage(null);
+  }, [excuseToggles, customerName, generatedUrl, visitTierMode, quoteMode, assessmentReason]);
+
 
   // Auto-calculated priming price range using behavioral economics
   // Low: round DOWN to nearest £10 (accessible entry point)
@@ -763,29 +771,13 @@ export default function GenerateQuoteLink() {
     }
   };
 
+
+
   // Generate WhatsApp message based on inputs
   const generateWhatsAppMessage = () => {
     let message = `Thanks ${customerName}!\n\n`;
 
-    // --- DIAGNOSTIC MODE: Anti-Cowboy / Deposit Script ---
-    if (visitTierMode === 'tiers' || quoteMode === 'consultation') {
-      message += `Based on the photos/description, to give you a **Fixed Price** we can legally stand by, I need a Top Rated Handyman to assess the site first.\n\n`;
-
-      if (assessmentReason) {
-        message += `*Reason for Visit:*\n${assessmentReason}\n\n`;
-      } else {
-        message += `(Giving you a quote right now would just be a guess!)\n\n`;
-      }
-      message += `To secure the slot, we ask for a **Refundable Diagnostic Deposit**.\n\n`;
-      message += `🟢 **100% Refundable**: Credited back to your final quote.\n`;
-      message += `🛡️ **Expert Assessment**: You get a vetted pro, not a "cowboy" or salesperson.\n\n`;
-      message += `Book your slot here (Standard & Priority options available):\n${generatedUrl}`;
-      return message;
-    }
-
-    // --- STANDARD MODE: Prime Pricing & Pay-in-3 ---
-
-    // Add excuse if any toggle is selected
+    // 1. Excuses (Universal - applied to all modes)
     if (excuseToggles.christmasRush) {
       message += `Sorry for the delay — everyone's trying to get their jobs done before Christmas! 🎄\n\n`;
     } else if (excuseToggles.weekendDelay) {
@@ -796,15 +788,32 @@ export default function GenerateQuoteLink() {
       message += `Sorry for the delay — one of our team is on holiday so we're catching up!\n\n`;
     }
 
+    // --- DIAGNOSTIC MODE: Anti-Cowboy / Deposit Script ---
+    if (visitTierMode === 'tiers' || quoteMode === 'consultation') {
+      message += `Based on the photos/description, to give you a *Fixed Price* we can legally stand by, I need a Top Rated Handyman to assess the site first.\n\n`;
+
+      if (assessmentReason) {
+        message += `*Reason for Visit:*\n${assessmentReason}\n\n`;
+      } else {
+        message += `(Giving you a quote right now would just be a guess!)\n\n`;
+      }
+      message += `To secure the slot, we ask for a *Refundable Diagnostic Deposit*.\n\n`;
+      message += `🟢 *100% Refundable*: Credited back to your final quote.\n`;
+      message += `🛡️ *Expert Assessment*: You get a vetted pro, not a "cowboy" or salesperson.\n\n`;
+      message += `Book your slot here (Standard & Priority options available):\n${generatedUrl}`;
+      return message;
+    }
+
+    // --- STANDARD MODE: Prime Pricing & Pay-in-3 ---
+
     // Add priming price range (auto-calculated from HHH pricing)
-    // Use AI-polished summary if available, otherwise fall back to raw job description
     if (primingPriceRange) {
       const jobSummary = analyzedJob?.summary || jobDescription;
       message += `Before I send the official quote link — regarding: "${jobSummary}"\n\n`;
       message += `This normally falls in the £${primingPriceRange.low}–£${primingPriceRange.high} range, depending on the specifics.\n\n`;
     }
 
-    // Pay-in-3 with WhatsApp bold formatting
+    // Pay-in-3 with WhatsApp bold formatting (*bold*, not **bold**)
     message += `*We also offer a Pay-in-3 option if you prefer to split the cost.*\n\n`;
 
     // Quote link intro with 15-minute expiry
@@ -816,6 +825,29 @@ export default function GenerateQuoteLink() {
     return message;
   };
 
+  const handleRefineMessage = async () => {
+    setIsRefining(true);
+    try {
+      const rawMessage = generateWhatsAppMessage();
+      const res = await fetch('/api/whatsapp/ai-refine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: rawMessage })
+      });
+      const data = await res.json();
+      if (data.message) {
+        setRefinedMessage(data.message);
+        toast({ title: 'Message Polished', description: 'AI has refined your message with natural flow.' });
+      } else {
+        throw new Error("No message returned");
+      }
+    } catch (e) {
+      toast({ title: 'Error', description: 'Failed to refine message.', variant: 'destructive' });
+    } finally {
+      setIsRefining(false);
+    }
+  };
+
   const handleSendWhatsApp = () => {
     if (!phone || !generatedUrl) return;
 
@@ -824,10 +856,12 @@ export default function GenerateQuoteLink() {
       phoneNumber = '44' + phoneNumber.substring(1);
     }
 
-    const message = generateWhatsAppMessage();
+    // Use refined message if available, otherwise raw
+    const message = refinedMessage || generateWhatsAppMessage();
 
     const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
+
 
     toast({
       title: 'Opening WhatsApp',
@@ -2082,13 +2116,22 @@ export default function GenerateQuoteLink() {
                       <div className="space-y-2">
                         <Label className="text-sm font-medium text-slate-300">Message Preview</Label>
                         <div className="bg-green-900/20 text-green-100 rounded-lg p-3 text-sm whitespace-pre-wrap border border-green-800/50 max-h-60 overflow-y-auto">
-                          {generateWhatsAppMessage()}
+                          {refinedMessage || generateWhatsAppMessage()}
                         </div>
                       </div>
                     </div>
 
                     {/* Send Options */}
                     <div className="flex gap-2">
+                      <Button
+                        onClick={handleRefineMessage}
+                        disabled={isRefining || !generatedUrl}
+                        className="bg-purple-600 hover:bg-purple-700 text-white"
+                        data-testid="button-refine-message"
+                      >
+                        {isRefining ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
+                        <span className="ml-2 hidden sm:inline">Refine with AI</span>
+                      </Button>
                       <Button
                         onClick={handleSendWhatsApp}
                         className="flex-1 bg-green-600 hover:bg-green-700 text-white"

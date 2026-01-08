@@ -26,7 +26,7 @@ import { metaWhatsAppRouter, attachMetaWebSocket } from "./meta-whatsapp";
 import { trainingRouter } from './training-routes';
 import handymenRouter from './handymen';
 import callsRouter from './calls';
-import { generateWhatsAppMessage } from './openai';
+import { generateWhatsAppMessage, refineWhatsAppMessage } from './openai';
 import { searchAddresses, validatePostcode } from './google-places'; // B8: Address lookup
 import { devRouter } from './dev-tools';
 import { settingsRouter, getTwilioSettings } from './settings';
@@ -289,6 +289,7 @@ app.post('/api/intake/sku-detect-multi', async (req, res) => {
     }
 });
 
+
 // AI-Generated WhatsApp Message
 app.post('/api/whatsapp/ai-message', async (req, res) => {
     const { transcription, customerName, tone, detection } = req.body;
@@ -298,6 +299,20 @@ app.post('/api/whatsapp/ai-message', async (req, res) => {
     } catch (e) {
         console.error("AI message error:", e);
         res.status(500).json({ error: "Failed to generate message" });
+    }
+});
+
+// AI-Refined WhatsApp Message (Weave in excuses/reasons)
+app.post('/api/whatsapp/ai-refine', async (req, res) => {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: "Message is required" });
+
+    try {
+        const refined = await refineWhatsAppMessage(message);
+        res.json({ message: refined });
+    } catch (e) {
+        console.error("AI refine error:", e);
+        res.status(500).json({ error: "Failed to refine message" });
     }
 });
 
