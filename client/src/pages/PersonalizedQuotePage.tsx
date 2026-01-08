@@ -714,14 +714,51 @@ export default function PersonalizedQuotePage() {
     },
   ] : [];
 
-  // Calculate total for simple mode
+  // Calculate total for simple mode (with Bundle & Save logic for Pick & Mix)
   const calculateSimpleTotal = () => {
-    if (!quote.basePrice) return 0;
+    // For Pick & Mix, ignore basePrice (strict itemization)
+    const base = quote.quoteMode === 'pick_and_mix' ? 0 : (quote.basePrice || 0);
+
     const extrasTotal = selectedExtras.reduce((sum, extraLabel) => {
       const extra = quote.optionalExtras?.find(e => e.label === extraLabel);
       return sum + (extra?.priceInPence || 0);
     }, 0);
-    return quote.basePrice + extrasTotal;
+
+    const subtotal = base + extrasTotal;
+
+    // Apply Bundle & Save Discounts for Pick & Mix
+    if (quote.quoteMode === 'pick_and_mix') {
+      const itemCount = selectedExtras.length;
+      let discountMultiplier = 1;
+
+      if (itemCount >= 3) {
+        discountMultiplier = 0.90; // 10% off
+      } else if (itemCount === 2) {
+        discountMultiplier = 0.95; // 5% off
+      }
+
+      return Math.round(subtotal * discountMultiplier);
+    }
+
+    return subtotal;
+  };
+
+  // Helper to get raw subtotal (before discount) for display
+  const calculateSubtotal = () => {
+    const base = quote.quoteMode === 'pick_and_mix' ? 0 : (quote.basePrice || 0);
+    const extrasTotal = selectedExtras.reduce((sum, extraLabel) => {
+      const extra = quote.optionalExtras?.find(e => e.label === extraLabel);
+      return sum + (extra?.priceInPence || 0);
+    }, 0);
+    return base + extrasTotal;
+  };
+
+  // Helper to get discount amount
+  const calculateDiscountAmount = () => {
+    if (quote.quoteMode !== 'pick_and_mix') return 0;
+    const subtotal = calculateSubtotal();
+    const finalTotal = calculateSimpleTotal();
+    return subtotal - finalTotal;
   };
 
   // Shared helper: Calculate deposit amount (100% materials + 30% labour)
@@ -1550,6 +1587,45 @@ export default function PersonalizedQuotePage() {
 
               <Card className="bg-gray-800 border-gray-700">
                 <CardContent className="p-4 sm:p-6">
+                  {/* Pick & Mix Nudge Banner */}
+                  {quote.quoteMode === 'pick_and_mix' && (
+                    <div className="mb-6 rounded-lg overflow-hidden relative border border-blue-800/50">
+                      {/* Background Progress Bar */}
+                      <div className="absolute inset-0 bg-blue-900/30">
+                        <div
+                          className="h-full bg-blue-600/20 transition-all duration-500 ease-out"
+                          style={{ width: `${Math.min(100, (selectedExtras.length / 3) * 100)}%` }}
+                        />
+                      </div>
+
+                      <div className="relative p-4 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${selectedExtras.length >= 2 ? 'bg-amber-500 border-amber-400 text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}`}>
+                            <Zap className="w-5 h-5 fill-current" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-white text-lg">
+                              {selectedExtras.length >= 3 ? 'Maximum Discount Unlocked!' : 'Bundle & Save'}
+                            </h4>
+                            <p className="text-sm text-gray-300">
+                              {selectedExtras.length === 0 && "Select 2 items to save 5%"}
+                              {selectedExtras.length === 1 && "Add 1 more item for 5% off"}
+                              {selectedExtras.length === 2 && "Great! Add 1 more for 10% off"}
+                              {selectedExtras.length >= 3 && "You're saving 10% on your bundle"}
+                            </p>
+                          </div>
+                        </div>
+                        {selectedExtras.length > 0 && (
+                          <div className="text-right">
+                            <span className={`text-xl font-bold ${selectedExtras.length >= 2 ? 'text-amber-400' : 'text-gray-500'}`}>
+                              {selectedExtras.length >= 3 ? '10% OFF' : selectedExtras.length === 2 ? '5% OFF' : '0% OFF'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="space-y-3">
                     {quote.optionalExtras.map((extra: any, idx: number) => (
                       <label
@@ -1597,6 +1673,24 @@ export default function PersonalizedQuotePage() {
 
                   {/* Total Summary Inline (Optional, mainly for mobile if footer is hidden) */}
                   <div className="mt-8 pt-6 border-t border-gray-700 flex flex-col items-center">
+
+                    {/* Price Breakdown for Pick & Mix */}
+                    {quote.quoteMode === 'pick_and_mix' && calculateDiscountAmount() > 0 && (
+                      <div className="w-full max-w-sm space-y-2 mb-4">
+                        <div className="flex justify-between items-center text-gray-400">
+                          <span>Subtotal</span>
+                          <span>£{formatPrice(calculateSubtotal())}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-emerald-400 font-medium pb-2 border-b border-gray-700">
+                          <div className="flex items-center gap-1">
+                            <Zap className="w-4 h-4" />
+                            <span>Bundle Savings</span>
+                          </div>
+                          <span>-£{formatPrice(calculateDiscountAmount())}</span>
+                        </div>
+                      </div>
+                    )}
+
                     <p className="text-gray-400 text-sm mb-1">Total Estimated Price</p>
                     <div className="text-5xl font-bold text-white mb-6">
                       £{formatPrice(calculateSimpleTotal())}
@@ -2174,6 +2268,30 @@ export default function PersonalizedQuotePage() {
 
                       return (
                         <>
+                          {/* Payment Choice Toggle */}
+                          <div className="flex justify-center mb-6">
+                            <div className="bg-gray-700/50 p-1 rounded-lg inline-flex items-center border border-gray-600">
+                              <button
+                                onClick={() => setPaymentMode('full')}
+                                className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${paymentMode === 'full'
+                                  ? 'bg-[#e8b323] text-gray-900 shadow-lg'
+                                  : 'text-gray-400 hover:text-white'
+                                  }`}
+                              >
+                                Pay in Full
+                              </button>
+                              <button
+                                onClick={() => setPaymentMode('installments')}
+                                className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${paymentMode === 'installments'
+                                  ? 'bg-[#e8b323] text-gray-900 shadow-lg'
+                                  : 'text-gray-400 hover:text-white'
+                                  }`}
+                              >
+                                Pay in 3
+                              </button>
+                            </div>
+                          </div>
+
                           <div className="text-center mb-6">
                             <div className="mb-4">
                               <h4 className="text-lg font-semibold text-white mb-2">Payment Breakdown</h4>
@@ -2456,7 +2574,7 @@ export default function PersonalizedQuotePage() {
 
         {/* Sticky Footer - Pick & Mix Mode */}
         {
-          quote.quoteMode === 'pick_and_mix' && !hasBooked && !hasReserved && (
+          quote.quoteMode === 'pick_and_mix' && !hasBooked && (
             <div className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900/98 backdrop-blur-lg border-t border-gray-700 shadow-2xl safe-area-bottom">
               <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
                 <div>

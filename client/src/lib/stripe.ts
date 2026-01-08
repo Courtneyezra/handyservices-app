@@ -11,7 +11,7 @@ console.log('[Stripe] Raw key from env:', rawStripeKey ? `${rawStripeKey.substri
 console.log('[Stripe] Raw key length:', rawStripeKey?.length);
 
 // Strip any surrounding quotes that may have been included in the .env file
-const stripePublishableKey = rawStripeKey?.replace(/^["']|["']$/g, '');
+const stripePublishableKey = rawStripeKey?.replace(/^["']|["']$/g, '').trim();
 
 // Debug: log processed key format (masked)
 console.log('[Stripe] Processed key:', stripePublishableKey ? `${stripePublishableKey.substring(0, 10)}...${stripePublishableKey.substring(stripePublishableKey.length - 5)}` : 'undefined');

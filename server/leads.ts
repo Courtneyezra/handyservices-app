@@ -26,7 +26,11 @@ leadsRouter.post('/leads', async (req, res) => {
             source: inputData.source || "web_quote",
             status: "new",
             // Store rich context in JSONB fields if available
-            transcriptJson: inputData.analyzedJobData ? { analyzedData: inputData.analyzedJobData } : null,
+            // Store rich context in JSONB fields if available
+            transcriptJson: {
+                ...(inputData.analyzedJobData ? { analyzedData: inputData.analyzedJobData } : {}),
+                ...(inputData.bookingRequest ? { bookingRequest: inputData.bookingRequest } : {})
+            },
         };
 
         // Validate final object

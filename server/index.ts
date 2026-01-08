@@ -1,3 +1,5 @@
+import dns from "node:dns";
+dns.setDefaultResultOrder('ipv4first');
 
 import 'dotenv/config';
 import express from "express";
@@ -47,6 +49,7 @@ app.use(express.json({ limit: '10mb' })); // Increased limit for large transcrip
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // DEBUG: Global Logger removed
+// Force restart for schema update
 
 app.get('/health', (req, res) => res.status(200).send('OK'));
 app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() }));

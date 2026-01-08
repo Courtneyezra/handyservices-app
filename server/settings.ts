@@ -19,6 +19,8 @@ getTwilioSettings().then(s => {
         console.warn('   - API Key set:', !!s.elevenLabsApiKey);
         console.warn('   - Agent ID set:', !!s.elevenLabsAgentId);
     }
+}).catch(err => {
+    console.error('⚠️  [Settings] Failed to load initial settings:', err.message);
 });
 
 // Configure multer for audio uploads

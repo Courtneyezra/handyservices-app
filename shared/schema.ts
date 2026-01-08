@@ -504,6 +504,11 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     valueMultiplier100: integer("value_multiplier_100"), // Stored as 100x (e.g., 1.12x = 112)
     recommendedTier: varchar("recommended_tier", { length: 20 }), // System recommendation: essential, hassleFree, highStandard
     additionalNotes: text("additional_notes"), // Optional context from call
+    assessmentReason: text("assessment_reason"), // Why a generic quote wasn't possible
+    // Custom Pricing Overrides for Visits
+    tierStandardPrice: integer("tier_standard_price"),
+    tierPriorityPrice: integer("tier_priority_price"),
+    tierEmergencyPrice: integer("tier_emergency_price"),
     tierDeliverables: jsonb("tier_deliverables"), // Job-specific outcome sentences for each tier: {essential: string[], enhanced: string[], elite: string[]}
 
     // PVS (Perceived Value Score) Tracking - DEPRECATED
@@ -513,7 +518,9 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     anchorPrice: integer("anchor_price"), // Base cost × value multiplier (in pence)
 
     // Quote Mode - determines if we show simple quote or HHH packages
-    quoteMode: varchar("quote_mode", { length: 20 }).notNull().default("hhh"), // 'simple' | 'hhh' | 'pick_and_mix'
+    quoteMode: varchar("quote_mode", { length: 20 }).notNull().default("hhh"), // 'simple' | 'hhh' | 'pick_and_mix' | 'consultation'
+    visitTierMode: varchar("visit_tier_mode", { length: 20 }).default('standard'), // 'standard' | 'tiers'
+    clientType: varchar("client_type", { length: 20 }).default('residential'), // 'residential' | 'commercial'
 
     // EEE Pricing (in pence) - for HHH mode
     essentialPrice: integer("essential_price"),
@@ -582,7 +589,8 @@ export type OwnershipContextType = z.infer<typeof ownershipContextEnum>;
 export type DesiredTimeframeType = z.infer<typeof desiredTimeframeEnum>;
 
 // New Enums for Quote Topology
-export const clientTypeEnum = z.enum(['homeowner', 'landlord', 'commercial']);
+
+export const clientTypeEnum = z.enum(['residential', 'commercial']);
 export const jobComplexityEnum = z.enum(['trivial', 'low', 'medium', 'high']);
 
 export type ClientType = z.infer<typeof clientTypeEnum>;
@@ -595,7 +603,7 @@ export interface ValuePricingInputs {
     baseJobPrice: number; // in pence
     clientType: ClientType; // New: Who is asking?
     jobComplexity: JobComplexityType; // New: How hard is it?
-    forcedQuoteStyle?: 'hhh' | 'direct' | 'rate_card' | 'pick_and_mix'; // Override auto-detection
+    forcedQuoteStyle?: 'hhh' | 'direct' | 'rate_card' | 'pick_and_mix' | 'consultation'; // Override auto-detection
 }
 
 export interface HHHStructuredInputs {
@@ -630,6 +638,7 @@ export const insertPersonalizedQuoteSchema = createInsertSchema(personalizedQuot
     risk: z.number().int().min(1).max(3).optional(),
     // Optional extras with full schema validation (CRITICAL: ties JSONB to optionalExtraSchema)
     optionalExtras: z.array(optionalExtraSchema).optional().nullable(),
+    visitTierMode: z.enum(['standard', 'tiers']).optional(),
 });
 
 // ... (PersonalizedQuote types above)

@@ -457,3 +457,127 @@ Rules:
         return `Hi ${cleanName || 'there'}! We just spoke about the job you need help with. If you can send us a quick video, we can take a look and get a price back to you straight away ${tone === 'professional' ? '🔧' : '🛠️'}`;
     }
 }
+
+/**
+ * Polishes a raw "reason for assessment" into a grammatically correct,
+ * professional phrase suitable for inserting into a sentence.
+ *
+ * Example Input: "walls are weird might be damp"
+ * Example Output: "the wall condition is unclear and may indicate potential damp"
+ */
+export async function polishAssessmentReason(rawReason: string): Promise<string> {
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                {
+                    role: "system",
+                    content: `You are the Head Handyman writing a quick sticky note for a customer.
+Your goal is to re-write the input into a short, punchy, handwritten-style note.
+
+Rules:
+1. Tone: Expert, direct, authoritative but authentic.
+2. Grammar: Use "note-taking" grammar (drop unnecessary pronouns). 
+   - Bad: "I think we should check the boiler."
+   - Good: "Boiler needs checking. Sounds suspicious."
+3. Format: Just 1-3 punchy sentences. No bullet points.
+4. Length: Keep it under 25 words.
+
+Example Input: "leak under sink and tap broken"
+Output: Sink leak needs tracing ASAP. Tap looks done for - replacement likely.
+
+Example Input: "odd noise from heater maybe pump"
+Output: Heater noisy. Suspect pump failure. Needs ears-on diagnosis.`
+                },
+                {
+                    role: "user",
+                    content: rawReason
+                }
+            ],
+            temperature: 0.1,
+            max_tokens: 200 // Increased for list format
+        });
+
+        const polished = response.choices[0].message.content?.trim() || rawReason;
+        // Remove trailing period if present
+        return polished.replace(/\.$/, '');
+
+    } catch (error) {
+        console.error("Error polishing assessment reason:", error);
+        return rawReason;
+    }
+}
+
+/**
+ * STRATEGY DIRECTOR
+ * Analyzes a job description to determine the optimal quoting strategy.
+ *
+ * Strategies:
+ * 1. DIAGNOSTIC: Uncertainty, vague symptoms ("leak", "smell", "unsure").
+ * 2. PACKAGES (HHH): Upgradeable quality ("paint", "flooring", "taps").
+ * 3. SIMPLE: Fixed scope commodity ("hang mirror", "mount tv").
+ * 4. PICK_AND_MIX: Multiple distinct tasks list ("and", list format).
+ */
+export async function determineQuoteStrategy(jobDescription: string): Promise<{
+    strategy: 'diagnostic' | 'consultation' | 'hhh' | 'simple' | 'pick_and_mix';
+    reasoning: string;
+}> {
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                {
+                    role: "system",
+                    content: `You are a Senior Estimator. Analyze the job description and select the BEST quote strategy.
+
+STRATEGIES:
+1. "consultation" (Diagnostic)
+   - Use when scope is UNKNOWN or RISK is high.
+   - Keywords: leak, damp, smell, humming, tripping, unsure, investigate, assess, diagnose.
+   - Goal: Sell the expert assessment check.
+
+2. "hhh" (Packages: Good/Better/Best)
+   - Use when QUALITY/finish is variable or upgradeable.
+   - Keywords: paint, flooring, renovate, new tap, new shower, garden, build.
+   - Goal: Upsell materials or finish quality.
+
+3. "simple" (Fixed Price)
+   - Use for COMMODITY tasks with fixed scope.
+   - Keywords: mount TV, hang mirror, assemble flatpack, replace handle, unlock door, reseal bath.
+   - Goal: Speed.
+
+4. "pick_and_mix" (Itemized List)
+   - Use for MULTIPLE DISTINCT tasks.
+   - Keywords: "and", list of items, "plus", "also".
+   - Goal: Flexibility.
+
+OUTPUT JSON ONLY:
+{
+  "strategy": "consultation" | "hhh" | "simple" | "pick_and_mix",
+  "reasoning": "Short explanation (max 6 words)"
+}`
+                },
+                {
+                    role: "user",
+                    content: `Job: "${jobDescription}"`
+                }
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.1 // Deterministic
+        });
+
+        const result = JSON.parse(response.choices[0].message.content || "{}");
+        // Mapped diagnostic strategy to consultation correctly
+        const strategy = (result.strategy === 'diagnostic') ? 'consultation' : result.strategy;
+
+        return {
+            strategy: strategy || 'simple',
+            reasoning: result.reasoning || 'Standard quote type'
+        };
+
+    } catch (error) {
+        console.error("Error determining quote strategy:", error);
+        // Default to simple if uncertain
+        return { strategy: 'simple', reasoning: "Default strategy" };
+    }
+}

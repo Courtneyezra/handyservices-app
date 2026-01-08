@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
 import { CallsFilterBar } from "@/components/calls/CallsFilterBar";
 import { CallListTable, CallSummary } from "@/components/calls/CallListTable";
 import { startOfMonth, endOfMonth, subDays } from "date-fns";
@@ -28,7 +29,7 @@ export default function CallsPage() {
     const { toast } = useToast();
 
     // Fetch calls
-    const { data, isLoading, error } = useQuery({
+    const { data, isLoading, error, refetch, isRefetching } = useQuery({
         queryKey: ['calls', page, dateRange, searchTerm, outcomeFilter, hasSkusOnly],
         queryFn: async () => {
             const params = new URLSearchParams({
@@ -67,7 +68,17 @@ export default function CallsPage() {
                             View and manage inbound calls, transcripts, and detected SKUs.
                         </p>
                     </div>
-                    <ConnectionStatus />
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={() => refetch()}
+                            disabled={isRefetching}
+                            className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-all duration-200 disabled:opacity-50"
+                            title="Refresh logs"
+                        >
+                            <RefreshCw className={`w-5 h-5 ${isRefetching ? "animate-spin" : ""}`} />
+                        </button>
+                        <ConnectionStatus />
+                    </div>
                 </div>
             </div>
 

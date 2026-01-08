@@ -14,23 +14,6 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     const { isLive } = useLiveCall();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-    const navItems = [
-        { icon: LayoutDashboard, label: "Dashboard", href: "/admin" },
-        {
-            icon: Mic,
-            label: "Live Switchboard",
-            href: "/admin/live-call",
-            badge: isLive ? "LIVE" : null
-        },
-        { icon: MessageSquare, label: "WhatsApp CRM", href: "/admin/whatsapp-intake" },
-        { icon: Wrench, label: "Handyman Map", href: "/admin/handymen" },
-        { icon: Wrench, label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },
-        { icon: Package, label: "SKU Manager", href: "/admin/skus" },
-        { icon: DollarSign, label: "Quote Generator", href: "/admin/generate-quote" },
-        { icon: PhoneCall, label: "Call Logs", href: "/admin/calls" },
-        { icon: Settings, label: "Settings", href: "/admin/settings" },
-    ];
-
     return (
         <div className="flex h-screen bg-background font-sans text-foreground overflow-hidden transition-colors duration-300">
             {/* Mobile Backdrop */}
@@ -60,40 +43,88 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 </div>
 
                 {/* Navigation */}
-                <nav className="flex-1 px-4 py-4 space-y-1">
-                    {navItems.map((item) => {
-                        const isActive = location === item.href;
-                        return (
-                            <Link key={item.href} href={item.href}>
-                                <a
-                                    onClick={() => setIsSidebarOpen(false)}
-                                    className={`flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-colors ${isActive
-                                        ? "bg-primary text-primary-foreground shadow-sm"
-                                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                                        }`}>
-                                    <div className="flex items-center gap-3">
-                                        <item.icon className="w-5 h-5" />
-                                        {item.label}
-                                    </div>
-                                    {item.badge && (
-                                        <span className="bg-red-500 text-[10px] font-black px-1.5 py-0.5 rounded text-white animate-pulse">
-                                            {item.badge}
-                                        </span>
-                                    )}
-                                </a>
-                            </Link>
-                        );
-                    })}
+                <nav className="flex-1 px-4 py-4 space-y-6 overflow-y-auto">
+                    {[
+                        {
+                            title: "OVERVIEW",
+                            items: [
+                                { icon: LayoutDashboard, label: "Dashboard", href: "/admin" },
+                                {
+                                    icon: Mic,
+                                    label: "Live Switchboard",
+                                    href: "/admin/live-call",
+                                    badge: isLive ? "LIVE" : null
+                                },
+                            ]
+                        },
+                        {
+                            title: "COMMUNICATIONS",
+                            items: [
+                                { icon: MessageSquare, label: "WhatsApp CRM", href: "/admin/whatsapp-intake" },
+                                { icon: PhoneCall, label: "Call Logs", href: "/admin/calls" },
+                            ]
+                        },
+                        {
+                            title: "SALES & TOOLS",
+                            items: [
+                                { icon: DollarSign, label: "Quote Generator", href: "/admin/generate-quote" },
+                                { icon: Package, label: "SKU Manager", href: "/admin/skus" },
+                            ]
+                        },
+                        {
+                            title: "FLEET OPS",
+                            items: [
+                                { icon: Wrench, label: "Handyman Map", href: "/admin/handymen" },
+                                { icon: LayoutDashboard, label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },
+                            ]
+                        },
+                        {
+                            title: "SYSTEM",
+                            items: [
+                                { icon: Settings, label: "Settings", href: "/admin/settings" },
+                            ]
+                        }
+                    ].map((group, idx) => (
+                        <div key={idx}>
+                            <h3 className="mb-2 px-4 text-[10px] font-black uppercase tracking-wider text-muted-foreground/50 font-mono">
+                                {group.title}
+                            </h3>
+                            <div className="space-y-1">
+                                {group.items.map((item) => (
+                                    <Link key={item.href} href={item.href}>
+                                        <a
+                                            onClick={() => setIsSidebarOpen(false)}
+                                            className={cn(
+                                                "flex items-center justify-between px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
+                                                location === item.href
+                                                    ? "bg-primary text-primary-foreground shadow-md shadow-primary/20 translate-x-1"
+                                                    : "text-muted-foreground hover:text-foreground hover:bg-muted hover:translate-x-1"
+                                            )}>
+                                            <div className="flex items-center gap-3">
+                                                <item.icon className={cn("w-4 h-4", location === item.href && "animate-pulse")} />
+                                                {item.label}
+                                            </div>
+                                            {item.badge && (
+                                                <span className="bg-red-500 text-[10px] font-black px-1.5 py-0.5 rounded text-white animate-pulse">
+                                                    {item.badge}
+                                                </span>
+                                            )}
+                                        </a>
+                                    </Link>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
                 </nav>
 
                 {/* Bottom Actions */}
-                <div className="p-4 mt-auto border-t border-border space-y-2">
+                <div className="p-4 mt-auto border-t border-border space-y-2 bg-card/50 backdrop-blur-sm">
                     <button className="flex items-center gap-3 px-4 py-3 w-full text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg text-sm font-medium transition-colors">
                         <HelpCircle className="w-5 h-5" />
                         Help & Support
                     </button>
-                    <div className="pt-4 flex items-center gap-3 px-4">
-                        <div className="w-8 h-8 rounded-full bg-slate-700 overflow-hidden">
+                    <div className="pt-2 flex items-center gap-3 px-4">
+                        <div className="w-8 h-8 rounded-full bg-slate-700 overflow-hidden ring-2 ring-border">
                             <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" alt="User" />
                         </div>
                         <div className="flex-1 min-w-0">
@@ -116,7 +147,21 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             <Menu className="w-6 h-6" />
                         </button>
                         <h2 className="text-sm lg:text-lg font-semibold text-foreground truncate max-w-[150px] lg:max-w-none">
-                            {navItems.find(i => i.href === location)?.label || "Dashboard"}
+                            {[
+                                {
+                                    items: [
+                                        { label: "Dashboard", href: "/admin" },
+                                        { label: "Live Switchboard", href: "/admin/live-call" },
+                                        { label: "WhatsApp CRM", href: "/admin/whatsapp-intake" },
+                                        { label: "Call Logs", href: "/admin/calls" },
+                                        { label: "Quote Generator", href: "/admin/generate-quote" },
+                                        { label: "SKU Manager", href: "/admin/skus" },
+                                        { label: "Handyman Map", href: "/admin/handymen" },
+                                        { label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },
+                                        { label: "Settings", href: "/admin/settings" },
+                                    ]
+                                }
+                            ].flatMap(g => g.items).find(i => i.href === location)?.label || "Dashboard"}
                         </h2>
                     </div>
                     <div className="flex items-center gap-2 lg:gap-4">

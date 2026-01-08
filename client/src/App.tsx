@@ -30,6 +30,7 @@ import SettingsPage from "./pages/SettingsPage";
 const VideoQuote = lazy(() => import("@/pages/VideoQuote"));
 const VideoReview = lazy(() => import("@/pages/VideoReview"));
 const PersonalizedQuotePage = lazy(() => import("@/pages/PersonalizedQuotePage"));
+const DiagnosticVisitPage = lazy(() => import("@/pages/DiagnosticVisitPage"));
 const SeasonalMenu = lazy(() => import("@/pages/SeasonalMenu"));
 
 // Contractor Portal - Lazy loaded (separate user flow)
@@ -130,6 +131,11 @@ function Router() {
                 </Route>
                 <Route path="/video-review">
                     <VideoReview />
+                </Route>
+
+                {/* Paid Diagnostic Visit */}
+                <Route path="/visit-link/:slug">
+                    <DiagnosticVisitPage />
                 </Route>
 
                 {/* Coming soon */}

@@ -5,7 +5,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle } from 'lucide-react';
 
 interface PaymentFormProps {
-  amount: number; // Amount in pence (unused - kept for backwards compatibility)
+  amount: number; // Amount in pence (unused for deposit mode, used as fallback)
   customerName: string;
   customerEmail?: string;
   quoteId: string;
@@ -13,6 +13,8 @@ interface PaymentFormProps {
   selectedTierPrice: number;
   selectedExtras?: string[]; // Optional extras selected by customer
   paymentType?: 'full' | 'installments'; // Payment mode: full or 3 monthly payments
+  mode?: 'deposit' | 'visit'; // NEW: Switch between deposit calculation and full visit payment
+  slot?: { date: string, slot: string }; // Optional slot info for visit mode
   onSuccess: (paymentIntentId: string) => Promise<void>;
   onError?: (error: string) => void;
 }
@@ -26,6 +28,8 @@ export function PaymentForm({
   selectedTierPrice,
   selectedExtras,
   paymentType = 'full',
+  mode = 'deposit',
+  slot,
   onSuccess,
   onError
 }: PaymentFormProps) {
@@ -61,18 +65,32 @@ export function PaymentForm({
         setPaymentIntentId(null);
         setServerCalculatedAmount(null);
 
-        const response = await fetch('/api/create-payment-intent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        let url = '/api/create-payment-intent';
+        let body: any = {
+          customerName,
+          customerEmail,
+          quoteId,
+          selectedTier,
+          selectedTierPrice, // For validation only - server uses stored price
+          selectedExtras, // Pass selected extras for deposit calculation
+          paymentType, // Payment mode: 'full' or 'installments'
+        };
+
+        if (mode === 'visit') {
+          url = '/api/create-visit-payment-intent';
+          body = {
             customerName,
             customerEmail,
             quoteId,
-            selectedTier,
-            selectedTierPrice, // For validation only - server uses stored price
-            selectedExtras, // Pass selected extras for deposit calculation
-            paymentType, // Payment mode: 'full' or 'installments'
-          }),
+            tierId: selectedTier,
+            slot: slot ? { date: slot.date, slot: slot.slot } : undefined
+          };
+        }
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
           signal: abortController.signal,
         });
 
@@ -93,8 +111,11 @@ export function PaymentForm({
         setClientSecret(data.clientSecret);
         setPaymentIntentId(data.paymentIntentId);
 
-        // Set server-calculated amount and breakdown for display
-        if (data.depositBreakdown?.total) {
+        // Set server-calculated amount
+        if (mode === 'visit') {
+          setServerCalculatedAmount(data.amount);
+          setDepositBreakdown(null); // No breakdown for flat visit fee
+        } else if (data.depositBreakdown?.total) {
           setServerCalculatedAmount(data.depositBreakdown.total);
           setDepositBreakdown({
             totalMaterialsCost: data.depositBreakdown.totalMaterialsCost || 0,
@@ -124,7 +145,7 @@ export function PaymentForm({
       abortController.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerName, customerEmail, quoteId, selectedTier, selectedTierPrice, extrasKey, paymentType]);
+  }, [customerName, customerEmail, quoteId, selectedTier, selectedTierPrice, extrasKey, paymentType, mode]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

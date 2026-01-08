@@ -67,6 +67,34 @@ export function CallListTable({ calls, isLoading, onCallClick }: CallListTablePr
         window.open(`/api/calls/${call.id}/recording`, '_blank');
     };
 
+    /**
+     * Generate dynamic WhatsApp link with message template
+     */
+    const getWhatsAppLink = (call: CallSummary) => {
+        const cleanNumber = call.phoneNumber.replace(/\D/g, '');
+        const firstName = call.customerName?.split(' ')[0] || "there";
+
+        let message = "";
+        const outcome = call.outcome?.toUpperCase();
+
+        // Template for Quote Requested / Video Quote
+        if (outcome === 'QUOTE_REQUESTED' || outcome === 'VIDEO_QUOTE') {
+            let jobSummary = call.jobSummary?.toLowerCase() || "the work you need";
+
+            // Ensure grammatical flow: "video of [the] leaking tap"
+            if (!jobSummary.startsWith("the ") && !jobSummary.startsWith("my ") && !jobSummary.startsWith("our ")) {
+                jobSummary = `the ${jobSummary}`;
+            }
+
+            message = `Hi ${firstName}\n\nAs discussed please send us a video of ${jobSummary} for us to take a look straight away😊\n\nCourtnee\nHandy Services`;
+        } else {
+            // Generic fallback for other outcomes
+            message = `Hi ${firstName}`;
+        }
+
+        return `https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`;
+    };
+
     if (isLoading) {
         return <div className="p-8 text-center flex justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div>;
     }
@@ -150,11 +178,8 @@ export function CallListTable({ calls, isLoading, onCallClick }: CallListTablePr
                                         size="icon"
                                         variant="ghost"
                                         className="h-8 w-8 hover:text-green-500 hover:bg-green-500/10"
-                                        onClick={() => {
-                                            const cleanNumber = call.phoneNumber.replace(/\D/g, '');
-                                            setLocation(`/admin/whatsapp-intake?phone=${cleanNumber}`);
-                                        }}
-                                        title="Open in WhatsApp"
+                                        onClick={() => window.open(getWhatsAppLink(call), '_blank')}
+                                        title="Open in WhatsApp Web"
                                     >
                                         <FaWhatsapp className="h-4 w-4" />
                                     </Button>
@@ -244,7 +269,20 @@ function getRouteBadge(call: CallSummary) {
         return <Badge className="bg-blue-600 hover:bg-blue-700 border-blue-500">Agent</Badge>;
     }
 
-    // 2. VA (Human) - Default for direct answers, forwarding, or if it stayed with VA (even if missed/failed without fallback)
+    // 2. Explicit Non-Answered States (Not Agent, Not VA)
+    if (call.outcome === 'NO_ANSWER' || call.outcome === 'MISSED_CALL') {
+        return <Badge variant="outline" className="text-red-500 border-red-500 bg-red-500/10">Missed</Badge>;
+    }
+
+    if (call.outcome === 'VOICEMAIL' || call.outcome === 'VOICEMAIL_LEFT') {
+        return <Badge variant="outline" className="text-orange-500 border-orange-500 bg-orange-500/10">Voicemail</Badge>;
+    }
+
+    if (call.outcome === 'FAILED' || call.outcome === 'DROPPED_EARLY' || (!call.outcome && call.status === 'failed')) {
+        return <Badge variant="outline" className="text-gray-500 border-gray-500 bg-gray-500/10">Failed</Badge>;
+    }
+
+    // 3. VA (Human) - Default for direct answers, forwarding, or if it stayed with VA (and was answered/active)
     return <Badge className="bg-green-600 hover:bg-green-700 border-green-500">VA</Badge>;
 }
 

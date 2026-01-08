@@ -91,6 +91,18 @@
     animation: gradient-x 3s ease infinite;
   }
 
+  /* Swipe hint animation */
+  .animate-wiggle {
+    animation: wiggle 3s ease-in-out infinite;
+  }
+
+  @keyframes wiggle {
+    0%, 85%, 100% { transform: translateX(0); }
+    88% { transform: translateX(-4px); }
+    92% { transform: translateX(4px); }
+    96% { transform: translateX(-2px); }
+  }
+
   @keyframes gradient-x {
     0% {
       background-position: 0% 50%;

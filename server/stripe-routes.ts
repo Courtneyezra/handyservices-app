@@ -163,3 +163,100 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
     // For now, just acknowledge the webhook
     res.json({ received: true });
 });
+
+// Create Payment Intent for Diagnostic Visit (Full Payment)
+stripeRouter.post('/api/create-visit-payment-intent', async (req, res) => {
+    console.log('[Stripe] Create visit payment intent request received');
+
+    if (!stripe) {
+        console.error('[Stripe] Stripe not initialized');
+        return res.status(500).json({ message: 'Payment system not configured' });
+    }
+
+    try {
+        const {
+            customerName,
+            customerEmail,
+            quoteId,
+            tierId, // 'standard' | 'priority' | 'emergency'
+            slot, // { date, slot }
+        } = req.body;
+
+        if (!quoteId || !tierId) {
+            return res.status(400).json({ message: 'Missing required fields' });
+        }
+
+        // Fetch the quote to determine client type
+        const quoteResult = await db.select()
+            .from(personalizedQuotes)
+            .where(eq(personalizedQuotes.id, quoteId))
+            .limit(1);
+
+        if (quoteResult.length === 0) {
+            return res.status(404).json({ message: 'Quote not found' });
+        }
+
+        const quote = quoteResult[0];
+        const isCommercial = quote.clientType === 'commercial';
+
+        // validate price based on tier and client type
+        let pricePence = 0;
+        if (isCommercial) {
+            // Commercial Rates
+            switch (tierId) {
+                case 'emergency': pricePence = 25000; break;
+                case 'priority': pricePence = 15000; break;
+                default: pricePence = 8500; break;
+            }
+        } else {
+            // Residential Rates
+            switch (tierId) {
+                case 'emergency': pricePence = 17500; break;
+                case 'priority': pricePence = 9900; break;
+                default: pricePence = 4900; break;
+            }
+        }
+
+        // Check for custom tier prices overrides
+        if (tierId === 'standard' && quote.tierStandardPrice) {
+            pricePence = quote.tierStandardPrice;
+        } else if (tierId === 'priority' && quote.tierPriorityPrice) {
+            pricePence = quote.tierPriorityPrice;
+        } else if (tierId === 'emergency' && quote.tierEmergencyPrice) {
+            pricePence = quote.tierEmergencyPrice;
+        }
+
+        console.log(`[Stripe] Creating visit intent for ${tierId} (${isCommercial ? 'Commercial' : 'Residential'}): ${pricePence / 100}`);
+
+        // Create payment intent
+        const paymentIntent = await stripe.paymentIntents.create({
+            amount: pricePence,
+            currency: 'gbp',
+            automatic_payment_methods: {
+                enabled: true,
+            },
+            metadata: {
+                quoteId,
+                customerName,
+                tierId,
+                type: 'diagnostic_visit',
+                bookingDate: slot?.date,
+                bookingSlot: slot?.slot
+            },
+            receipt_email: customerEmail || undefined,
+            description: `Diagnostic Visit - ${tierId.charAt(0).toUpperCase() + tierId.slice(1)}`
+        });
+
+        res.json({
+            clientSecret: paymentIntent.client_secret,
+            paymentIntentId: paymentIntent.id,
+            amount: pricePence
+        });
+
+    } catch (error: any) {
+        console.error('[Stripe] Error creating visit payment intent:', error);
+        res.status(500).json({
+            message: error.message || 'Failed to create payment intent'
+        });
+    }
+});

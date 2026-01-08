@@ -5,7 +5,7 @@ import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfi
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { openai } from "./openai";
+import { openai, polishAssessmentReason, determineQuoteStrategy } from "./openai";
 import { generateValuePricingQuote, createAnalyticsLog, generateTierDeliverables } from "./value-pricing-engine";
 import { geocodeAddress } from "./lib/geocoding";
 import { findBestContractors, checkNetworkAvailability } from "./availability-engine";
@@ -22,22 +22,64 @@ const valuePricingInputSchema = z.object({
     phone: z.string().min(1, 'Phone number is required'),
     email: z.string().email().optional().or(z.literal('')),
     postcode: z.string().min(1, 'Postcode is required'),
-    quoteMode: z.enum(['simple', 'hhh', 'pick_and_mix']).default('hhh'),
+    quoteMode: z.enum(['simple', 'hhh', 'pick_and_mix', 'consultation']).default('hhh'),
     analyzedJobData: z.any().optional(), // Pass through AI analysis data
+
     materialsCostWithMarkupPence: z.number().nonnegative().optional(), // Materials with markup
     optionalExtras: z.array(z.any()).optional(), // Optional extras for simple mode
-    clientType: z.enum(['homeowner', 'landlord', 'commercial']).default('homeowner'),
     jobComplexity: z.enum(['trivial', 'low', 'medium', 'high']).default('low'),
-    contractorId: z.string().optional(), // New: Link quote to contractor
+
+    contractorId: z.string().optional(),
+    visitTierMode: z.enum(['standard', 'tiers']).default('standard'),
+    clientType: z.enum(['residential', 'commercial']).default('residential'),
+    assessmentReason: z.string().optional(),
+    tierStandardPrice: z.number().int().optional(),
+    tierPriorityPrice: z.number().int().optional(),
+    tierEmergencyPrice: z.number().int().optional(),
 });
 
 export const quotesRouter = Router();
+
+// Polish Assessment Reason with AI
+// --- NEW: AI Quote Strategy Director ---
+quotesRouter.post('/api/quote-strategy', async (req, res) => {
+    try {
+        const { jobDescription } = req.body;
+        if (!jobDescription) return res.status(400).json({ error: "Job description required" });
+
+        const strategy = await determineQuoteStrategy(jobDescription);
+        res.json(strategy);
+    } catch (error) {
+        console.error("Strategy determination error:", error);
+        res.status(500).json({ error: "Strategy determination failed" });
+    }
+});
+
+// Polish Assessment Reason with AI
+quotesRouter.post('/api/polish-assessment-reason', async (req, res) => {
+    try {
+        const { reason } = req.body;
+        if (!reason) return res.status(400).json({ error: "Reason is required" });
+
+        const polished = await polishAssessmentReason(reason);
+        res.json({ polished });
+    } catch (error: any) {
+        console.error("Polish reason error:", error);
+        res.status(500).json({ error: "Polishing failed", polished: req.body.reason }); // Fallback to raw
+    }
+});
 
 // Create Quote Endpoint
 quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
     try {
         console.log('[DEBUG-QUOTE] Received quote creation request. Body:', JSON.stringify(req.body, null, 2));
         const input = valuePricingInputSchema.parse(req.body);
+
+        console.log('[DEBUG] Quote Gen Input Prices:', {
+            std: input.tierStandardPrice,
+            prio: input.tierPriorityPrice,
+            emerg: input.tierEmergencyPrice
+        });
 
         // Geocode the postcode (Phase 3 requirement)
         const geocoded = await geocodeAddress(input.postcode);
@@ -75,9 +117,10 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             ownershipContext: input.ownershipContext,
             desiredTimeframe: input.desiredTimeframe,
             baseJobPrice: input.baseJobPrice,
+
             clientType: input.clientType,
             jobComplexity: input.jobComplexity,
-            forcedQuoteStyle: (input.quoteMode === 'hhh' || input.quoteMode === 'pick_and_mix') ? input.quoteMode : undefined,
+            forcedQuoteStyle: (input.quoteMode === 'hhh' || input.quoteMode === 'pick_and_mix' || input.quoteMode === 'consultation') ? input.quoteMode : undefined,
         });
 
         // Pick & Mix Logic: Sort extras high to low (Anchoring)
@@ -100,6 +143,11 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             coordinates, // Store geocoded coordinates
             jobDescription: input.jobDescription,
             quoteMode: input.quoteMode,
+            visitTierMode: input.visitTierMode, // Store the visit tier preference
+            assessmentReason: input.assessmentReason,
+            tierStandardPrice: input.tierStandardPrice,
+            tierPriorityPrice: input.tierPriorityPrice,
+            tierEmergencyPrice: input.tierEmergencyPrice,
 
             // HHH Mode Prices
             essentialPrice: input.quoteMode === 'hhh' ? pricingResult.essential.price : null,
@@ -107,7 +155,7 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             elitePrice: input.quoteMode === 'hhh' ? pricingResult.highStandard.price : null,
 
             // Simple Mode Prices
-            basePrice: (input.quoteMode === 'simple' || input.quoteMode === 'pick_and_mix') ? pricingResult.essential.price : null,
+            basePrice: (input.quoteMode === 'simple' || input.quoteMode === 'pick_and_mix' || input.quoteMode === 'consultation') ? pricingResult.essential.price : null,
 
             // Context & Inputs
             urgencyReason: input.urgencyReason,
@@ -158,7 +206,7 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
                 warrantyMonths: pricingResult.highStandard.warrantyMonths,
                 isRecommended: pricingResult.highStandard.isRecommended,
             } : undefined,
-            basePrice: (input.quoteMode === 'simple' || input.quoteMode === 'pick_and_mix') ? pricingResult.essential.price : undefined,
+            basePrice: (input.quoteMode === 'simple' || input.quoteMode === 'pick_and_mix' || input.quoteMode === 'consultation') ? pricingResult.essential.price : undefined,
 
             // Availability Data
             availability: {
@@ -473,6 +521,34 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
     } catch (error) {
         console.error("Track booking error:", error);
         res.status(500).json({ error: "Failed to track booking" });
+    }
+});
+
+// Track Diagnostic Visit Booking (Full Payment)
+quotesRouter.put('/api/personalized-quotes/:id/track-visit-booking', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { leadId, tierId, amountPence, paymentIntentId, slot } = req.body;
+
+        await db.update(personalizedQuotes)
+            .set({
+                leadId,
+                selectedPackage: tierId, // standard, priority, emergency
+                bookedAt: new Date(),
+                paymentType: 'full',
+                selectedTierPricePence: amountPence,
+                depositAmountPence: amountPence, // Full payment
+                depositPaidAt: new Date(),
+                stripePaymentIntentId: paymentIntentId,
+                // We can't easily store slot in existing columns, but lead will have it.
+                // Or updates 'jobDescription' to include it? No, keep original description.
+            })
+            .where(eq(personalizedQuotes.id, id));
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error("Track visit booking error:", error);
+        res.status(500).json({ error: "Failed to track visit booking" });
     }
 });
 

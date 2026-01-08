@@ -236,7 +236,7 @@ export interface PricingResult {
   highStandard: TierPackage;
 
   // New Quote Topology Fields
-  quoteStyle: 'hhh' | 'direct' | 'rate_card' | 'pick_and_mix';
+  quoteStyle: 'hhh' | 'direct' | 'rate_card' | 'pick_and_mix' | 'consultation';
   isMultiOption: boolean;
 }
 
@@ -244,10 +244,10 @@ export interface PricingResult {
 // QUOTE STYLE LOGIC (The 3 Commandments)
 // ============================================================================
 
-export function determineQuoteStyle(inputs: ValuePricingInputs): 'hhh' | 'direct' | 'rate_card' | 'pick_and_mix' {
+export function determineQuoteStyle(inputs: ValuePricingInputs): 'hhh' | 'direct' | 'rate_card' | 'pick_and_mix' | 'consultation' {
   // 0. Forced Override (e.g. user requested specific mode)
   if (inputs.forcedQuoteStyle) {
-    return inputs.forcedQuoteStyle;
+    return inputs.forcedQuoteStyle as any;
   }
 
   // 1. Property Manager -> Rate Card
@@ -263,7 +263,8 @@ export function determineQuoteStyle(inputs: ValuePricingInputs): 'hhh' | 'direct
   }
 
   // 3. Simple Landlord jobs -> Direct Fix
-  if (inputs.clientType === 'landlord' && inputs.jobComplexity === 'low') {
+
+  if (inputs.ownershipContext === 'landlord' && inputs.jobComplexity === 'low') {
     return 'direct';
   }
 
@@ -275,8 +276,8 @@ export function generateValuePricingQuote(inputs: ValuePricingInputs): PricingRe
   // 1. Determine Style
   const style = determineQuoteStyle(inputs);
 
-  // 2. Handle Single-Option Styles (Direct / Rate Card / Pick & Mix)
-  if (style === 'direct' || style === 'rate_card' || style === 'pick_and_mix') {
+  // 2. Handle Single-Option Styles (Direct / Rate Card / Pick & Mix / Consultation)
+  if (style === 'direct' || style === 'rate_card' || style === 'pick_and_mix' || style === 'consultation') {
     // No multipliers for direct fix (efficiency)
     // For Rate Card, we'd normally look up a contract price, but for now we use base price
     const finalPrice = inputs.baseJobPrice;
@@ -284,9 +285,9 @@ export function generateValuePricingQuote(inputs: ValuePricingInputs): PricingRe
     // Create a single tier package
     const singleTier: TierPackage = {
       ...TIER_CORE_DEFINITIONS.hassleFree, // Use 'Hassle Free' as the base template
-      name: style === 'rate_card' ? 'Standard Rate' : style === 'pick_and_mix' ? 'Base Charge' : 'Fixed Price',
-      coreDescription: style === 'rate_card' ? 'Per agreed rate card' : style === 'pick_and_mix' ? 'Base fee + selected items' : 'Total for job',
-      price: ensurePriceEndsInNine(finalPrice),
+      name: style === 'rate_card' ? 'Standard Rate' : style === 'pick_and_mix' ? 'Base Charge' : style === 'consultation' ? 'Diagnostic Visit' : 'Fixed Price',
+      coreDescription: style === 'rate_card' ? 'Per agreed rate card' : style === 'pick_and_mix' ? 'Base fee + selected items' : style === 'consultation' ? 'Paid Diagnostic Visit' : 'Total for job',
+      price: style === 'consultation' ? finalPrice : ensurePriceEndsInNine(finalPrice),
       perks: [PERK_LIBRARY.basic_tidy], // Minimal perks
       isRecommended: true,
     };
