@@ -13,6 +13,8 @@ RUN npm install
 COPY . .
 
 # Build the application
+ARG VITE_GOOGLE_MAPS_API_KEY
+ENV VITE_GOOGLE_MAPS_API_KEY=$VITE_GOOGLE_MAPS_API_KEY
 RUN npm run build
 
 # Production stage
