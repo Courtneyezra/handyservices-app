@@ -99,15 +99,20 @@ export function ExpertStickyNote({ text, customerName, phone, address, mikePhoto
                 </div>
 
                 {/* Footer: Signature & Photo */}
-                <div className="relative z-10 mt-12 flex items-center justify-end gap-3 translate-x-1">
-                    {/* Signature */}
-                    <div className="font-['Kalam'] text-2xl text-slate-700 font-bold transform -rotate-2">
-                        - Mike
+                <div className="relative z-10 mt-12 flex items-end justify-end gap-4 translate-x-1">
+                    {/* Signature Block */}
+                    <div className="flex flex-col items-end transform -rotate-2">
+                        <div className="font-['Kalam'] text-3xl text-slate-800 font-bold leading-none mb-1">
+                            - Mike
+                        </div>
+                        <div className="text-[10px] font-sans text-slate-500 uppercase tracking-widest font-bold">
+                            Verified Handyman
+                        </div>
                     </div>
 
                     {/* Mike's Photo - Circle matching signature flow */}
                     {mikePhotoUrl && (
-                        <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-800/20 shadow-sm opacity-90 sepia-[0.25] grayscale-[0.3]">
+                        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-slate-800/10 shadow-sm opacity-95 sepia-[0.1]">
                             <img
                                 src={mikePhotoUrl}
                                 alt="Mike"

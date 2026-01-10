@@ -274,7 +274,7 @@ quotesRouter.post('/api/analyze-job', async (req, res) => {
                     Identify the category for each task to apply the correct rate.
 
                     BEHAVIORAL ECONOMICS FRAMEWORKS FOR 'summary':
-                    1. Authority: Write as a Senior Estimator.
+                    1. Authority: Write as a Handy Services Verified Handyman.
                     2. Salience: Focus on the specific pain point and the CLEAR RESULT for the customer.
                     3. Plain Language: Clearly state the deliverables (what will be done) in simple, non-technical terms. Avoid jargon. (e.g. "We will supply and fit..." instead of "Procure and install...")
                     4. Format: 1-2 concise sentences, strictly professional.
