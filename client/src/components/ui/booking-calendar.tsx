@@ -72,7 +72,7 @@ export function BookingCalendar({ onSelect, selectedSlot, className, minDaysInFu
             </div>
 
             {/* Date Slider (Scrollable) */}
-            <div className="flex overflow-x-auto pb-4 gap-2 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent -mx-1 px-1 animate-wiggle">
+            <div className="flex overflow-x-auto py-6 gap-2 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent -mx-1 px-1 animate-wiggle">
                 {nextDays.map((date) => {
                     const isSelected = selectedDate && isSameDay(date, selectedDate);
 

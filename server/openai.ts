@@ -478,15 +478,20 @@ Your goal is to take the "rough notes" reason and turn it into a natural, seamle
 
 Rules:
 1. Start with a transition word like "Specifically,", "This is because", "Given that", or just start the sentence.
-2. Explain the technical reason why a quote cannot be given remotely.
-3. Tone: Professional, reassuring, and explanatory.
-4. Length: 1 sentence maximum.
+2. YOU MUST MENTION THE SPECIFIC JOBS/ISSUES from the input. Do not just say "assess the condition" or "check alignment". Say "assess the uPVC door alignment", "measure for the extractor fan", etc.
+3. If there are multiple distinct jobs, list them briefly (e.g., "assess the door seals, check the roof leak, and measure for the new fan").
+4. Explain WHY the visit is needed for these specific items (e.g., "to ensure exact measurements", "to trace the leak source").
+5. Tone: Professional, reassuring, and specific.
+6. Length: 1-2 sentences maximum.
 
 Example Input: "leak under sink and tap broken"
-Output: "Specifically, we need to trace exactly where the leak is coming from to ensure the new tap fixes the root cause."
+Output: "Specifically, we need to trace exactly where the leak is coming from and check if the tap can be repaired or needs replacement."
 
 Example Input: "odd noise from heater maybe pump"
-Output: "This is to determine if the noise is coming from the pump itself or just trapped air, which affects the repair cost."`
+Output: "This is to determine if the noise is coming from the pump itself or just trapped air, which affects the repair cost."
+
+Example Input: "Replace upvc door rubber seals and check door aligntment ... Supply and fit extractor fan ... new seal to conservatory door"
+Output: "Given that we need to assess the uPVC door alignment, measure for the new extractor fan, and inspect the conservatory seals to ensure we order the correct parts."`
                 },
                 {
                     role: "user",
@@ -504,6 +509,76 @@ Output: "This is to determine if the noise is coming from the pump itself or jus
     } catch (error) {
         console.error("Error polishing assessment reason:", error);
         return rawReason;
+    }
+}
+
+/**
+ * Generates a personalized "Expert Note" in a letter format.
+ * Uses the customer's name and postcode to feel bespoke.
+ */
+export async function generatePersonalizedNote(rawReason: string, customerName: string, postcode: string, address?: string): Promise<{ note: string, summary: string }> {
+    try {
+        const cleanName = (customerName && !customerName.includes("Incoming") && !customerName.includes("Unknown"))
+            ? customerName.split(' ')[0]
+            : "there";
+
+        const location = address || postcode;
+
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                {
+                    role: "system",
+                    content: `You are a Senior Handyman.
+Your goal is to 1) Write a personal note to the customer and 2) Summarize the job in 3-5 words.
+
+Returns JSON format ONLY:
+{
+  "note": "The personal letter...",
+  "summary": "The short job summary..."
+}
+
+Rules for "note":
+1. Format: Short personal note/letter.
+2. Start with "Hi [Name],"
+3. Body: Explain SPECIFICALLY what you need to check at [${location}]. Mention the location naturally if it's a full address (e.g. "at your place in Derby").
+4. Sign-off: "Best, Mike".
+5. Tone: Friendly, professional.
+
+Rules for "summary":
+1. A very short, partial sentence describing the job action.
+2. Example: "fix the door seal", "trace the leak", "hang the mirror".
+3. Do NOT include "I need to..." or "to...", just the action phrase.
+
+Example Input:
+Name: Dave
+Location: 10 High St, Derby
+Reason: "Replace upvc door rubber seals..."
+
+Example Output:
+{
+  "note": "Hi Dave,\nI've reviewed the job. Given the need to check the uPVC door alignment and measure for the new seals at your property in Derby, I really need to pop round to assess it personally first.\nBest, Mike",
+  "summary": "replace the door seals"
+}`
+                },
+                {
+                    role: "user",
+                    content: `Name: ${cleanName}\nLocation: ${location}\nReason: ${rawReason}`
+                }
+            ],
+            temperature: 0.7,
+            max_tokens: 200,
+            response_format: { type: "json_object" }
+        });
+
+        const content = response.choices[0].message.content;
+        if (!content) return { note: rawReason, summary: "assess the job" };
+
+        return JSON.parse(content);
+
+    } catch (error) {
+        console.error("Error generating personalized note:", error);
+        return { note: rawReason, summary: "assess the job" };
     }
 }
 

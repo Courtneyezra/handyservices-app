@@ -23,6 +23,7 @@ import payIn3PromoImage from '@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_17646
 import mikeProfilePhoto from '@assets/mike-profile-photo.png';
 import { NeonBadge } from '@/components/ui/neon-badge';
 import { format, addDays, addWeeks } from 'date-fns';
+import { ExpertStickyNote } from '@/components/ExpertStickyNote';
 
 // Fixed value bullets per tier (hardcoded, not from database)
 const HHH_FIXED_VALUE_BULLETS = {
@@ -168,6 +169,8 @@ interface PersonalizedQuote {
   phone: string;
   email?: string;
   postcode?: string;
+  address?: string;
+  assessmentReason?: string;
   jobDescription: string;
   completionDate: string;
   quoteMode: 'simple' | 'hhh' | 'pick_and_mix';
@@ -976,11 +979,11 @@ export default function PersonalizedQuotePage() {
       <div className="flex-1 px-4 py-3 pb-24 overflow-auto">
         <div className="max-w-2xl mx-auto">
           {/* Promotional Banner Image - Top of Page */}
-          <div className="mb-6 rounded-xl overflow-hidden shadow-lg h-48 md:h-64 relative" data-testid="promo-banner">
+          <div className="mb-6 rounded-xl overflow-hidden shadow-lg w-full h-auto relative" data-testid="promo-banner">
             <img
               src={quote.contractor?.coverPhotoUrl || payIn3PromoImage}
               alt={quote.contractor?.coverPhotoUrl ? `Cover image for ${quote.contractor.name}` : "Handy Services - Pay in 3 interest-free payments"}
-              className="w-full h-full object-cover"
+              className="w-full h-auto"
             />
             {quote.contractor?.coverPhotoUrl && (
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-4">
@@ -989,127 +992,54 @@ export default function PersonalizedQuotePage() {
             )}
           </div>
 
-          {/* Customer Information - Top of Page */}
-          <Card className="bg-black/40 border-gray-700 mb-6" data-testid="customer-info-card">
-            <CardContent className="p-4">
-              <div className="mb-3 pb-3 border-b border-gray-700">
-                {/* Quoted by Section */}
-                <div className="flex items-center gap-3">
-                  <img
-                    src={quote.contractor?.profilePhotoUrl || mikeProfilePhoto}
-                    alt={quote.contractor?.name || "Mike"}
-                    className="w-12 h-12 rounded-full border-2 border-[#e8b323] object-cover"
+
+
+
+
+
+          {/* Expert Note Display (HHH Mode) */}
+          {quote.quoteMode !== 'simple' && (
+            <div className="mb-10 px-4">
+              {(() => {
+                // 1. Determine Summary
+                const summary = quote.jobs?.[0]?.summary || quote.jobs?.[0]?.description || quote.jobDescription;
+
+                // 2. Determine Deliverables
+                let deliverables: string[] = [];
+                if (quote.jobs && quote.jobs.length > 0) {
+                  quote.jobs.forEach(job => {
+                    if (job.tasks) {
+                      job.tasks.forEach(t => {
+                        const d = t.deliverable || t.description;
+                        if (d) deliverables.push(d);
+                      });
+                    }
+                  });
+                } else if (quote.coreDeliverables) {
+                  deliverables = quote.coreDeliverables;
+                }
+
+                // 3. Construct Text
+                // Use assessmentReason as base if no structured jobs, otherwise build the "Job Sheet"
+                // User Requirement: "For generated quotes the note needs to include all the information in the screenshot" -> Summary + Bullets
+                const hasStructuredData = summary || deliverables.length > 0;
+
+                const displayText = hasStructuredData
+                  ? `${summary ? summary + '\n\n' : ''}${deliverables.map(d => `• ${d}`).join('\n')}`
+                  : (quote.assessmentReason || quote.jobDescription);
+
+                return (
+                  <ExpertStickyNote
+                    text={displayText}
+                    customerName={quote.customerName}
+                    phone={quote.phone}
+                    address={quote.address || quote.postcode}
+                    mikePhotoUrl={mikeProfilePhoto}
                   />
-                  <div>
-                    <p className="text-white font-semibold text-sm">
-                      Quoted by: {quote.contractor?.name || "Mike"}
-                    </p>
-                    {quote.contractor?.companyName && quote.contractor.companyName !== quote.contractor.name && (
-                      <p className="text-gray-400 text-xs">{quote.contractor.companyName}</p>
-                    )}
-                    <div className="flex items-center gap-1">
-                      {[...Array(5)].map((_, i) => (
-                        <Star key={i} className="h-3 w-3 fill-[#e8b323] text-[#e8b323]" />
-                      ))}
-                      <span className="text-gray-400 text-xs ml-1">(4.9)</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <User className="h-5 w-5 text-[#e8b323] flex-shrink-0" />
-                  <p className="text-white font-medium">{quote.customerName}</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Phone className="h-5 w-5 text-[#e8b323] flex-shrink-0" />
-                  <p className="text-white font-medium">{quote.phone}</p>
-                </div>
-                {quote.email && (
-                  <div className="flex items-center gap-3">
-                    <Mail className="h-5 w-5 text-[#e8b323] flex-shrink-0" />
-                    <p className="text-white font-medium">{quote.email}</p>
-                  </div>
-                )}
-                {quote.postcode && (
-                  <div className="flex items-center gap-3">
-                    <MapPin className="h-5 w-5 text-[#e8b323] flex-shrink-0" />
-                    <p className="text-white font-medium">{quote.postcode}</p>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Header */}
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold text-white mb-4 text-center">Your Personalized Quote</h2>
-            <Card className="bg-black/40 border-gray-700">
-              <CardContent className="p-4">
-                {(() => {
-                  // Extract summary and deliverables from jobs if available
-                  const summary = quote.jobs?.[0]?.summary;
-                  const deliverables: string[] = [];
-
-                  if (quote.jobs && Array.isArray(quote.jobs)) {
-                    quote.jobs.forEach((job) => {
-                      if (job.tasks && Array.isArray(job.tasks)) {
-                        job.tasks.forEach((task) => {
-                          const deliverable = task.deliverable || task.description;
-                          if (deliverable) {
-                            deliverables.push(deliverable);
-                          }
-                        });
-                      }
-                    });
-                  }
-
-                  return (
-                    <div className="space-y-4">
-                      {/* Summary paragraph */}
-                      {summary && (
-                        <p className="text-gray-300 text-sm leading-relaxed">
-                          {summary}
-                        </p>
-                      )}
-
-                      {/* Deliverables as bullet points */}
-                      {deliverables.length > 0 && (
-                        <div className="space-y-2">
-                          {deliverables.map((item, index) => (
-                            <div key={index} className="flex items-start gap-3">
-                              <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                <Check className="h-3 w-3 text-white" />
-                              </div>
-                              <p className="text-white text-sm">{item}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Fallback to jobDescription if no jobs data */}
-                      {!summary && deliverables.length === 0 && (
-                        <div className="space-y-2">
-                          {quote.jobDescription.split(/(?=[A-Z][a-z])/).map((task, index) => {
-                            const trimmed = task.trim();
-                            if (!trimmed) return null;
-                            return (
-                              <div key={index} className="flex items-start gap-3">
-                                <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                  <Check className="h-3 w-3 text-white" />
-                                </div>
-                                <p className="text-white text-sm">{trimmed}</p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-              </CardContent>
-            </Card>
-          </div>
+                );
+              })()}
+            </div>
+          )}
 
           {/* HHH MODE: 3-Tier Package Stack - Dark Vertical Cards (Positioned FIRST) */}
           {quote.quoteMode !== 'simple' && packages.length > 0 && (

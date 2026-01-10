@@ -1,14 +1,55 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
 import { ArrowRight, Check, Coins, Wrench, Loader2, Sparkles, MapPin, Upload, FileText, ShieldCheck } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
+import markerIcon from "leaflet/dist/images/marker-icon.png";
+import markerIconRetina from "leaflet/dist/images/marker-icon-2x.png";
+import markerShadow from "leaflet/dist/images/marker-shadow.png";
+
+const DefaultIcon = L.icon({
+    iconUrl: markerIcon,
+    iconRetinaUrl: markerIconRetina,
+    shadowUrl: markerShadow,
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowSize: [41, 41]
+});
+L.Marker.prototype.options.icon = DefaultIcon;
 
 export default function ContractorOnboarding() {
     const [, setLocation] = useLocation();
     const { toast } = useToast();
     const [step, setStep] = useState(1);
     const [city, setCity] = useState('');
+    const [radius, setRadius] = useState(10);
+
+    // Fetch user profile for location
+    const { data: profile } = useQuery({
+        queryKey: ['/api/contractor/me'],
+        queryFn: async () => {
+            const token = localStorage.getItem('contractorToken');
+            if (!token) throw new Error("No token");
+            const cleanToken = token.trim().replace(/[^a-zA-Z0-9._-]/g, '');
+            const res = await fetch('/api/contractor/me', {
+                headers: { 'Authorization': `Bearer ${cleanToken}` }
+            });
+            if (!res.ok) throw new Error("Failed to fetch profile");
+            return res.json();
+        }
+    });
+
+    // Auto-set initial values from profile
+    useEffect(() => {
+        if (profile?.profile) {
+            if (profile.profile.radiusMiles) setRadius(profile.profile.radiusMiles);
+            if (profile.profile.city) setCity(profile.profile.city);
+        }
+    }, [profile]);
 
     // Form State
     const [rates, setRates] = useState<Record<string, { hourly: string, day: string }>>({});
@@ -113,7 +154,7 @@ export default function ContractorOnboarding() {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${cleanToken}`
                 },
-                body: JSON.stringify({ city })
+                body: JSON.stringify({ city, radiusMiles: radius })
             });
 
             const servicesData = selectedTrades.map(tradeId => {
@@ -279,27 +320,75 @@ export default function ContractorOnboarding() {
                             <p className="text-slate-400">We'll recommend rates based on your area.</p>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                             {['Derby', 'Leicester', 'Nottingham'].map(c => (
                                 <button
                                     key={c}
                                     onClick={() => setCity(c)}
-                                    className={`p-6 rounded-xl border transition-all text-center group relative overflow-hidden ${city === c
+                                    className={`p-4 rounded-xl border transition-all text-center group relative overflow-hidden ${city === c
                                         ? 'bg-amber-500 border-amber-500 text-slate-900 shadow-lg shadow-amber-500/20'
                                         : 'bg-slate-900/50 border-white/10 text-slate-400 hover:bg-slate-800/50 hover:border-white/20'
                                         }`}
                                 >
-                                    <span className="font-bold text-lg block">{c}</span>
+                                    <span className="font-bold text-sm block">{c}</span>
                                     {city === c && (
                                         <div className="absolute top-2 right-2">
-                                            <div className="w-5 h-5 bg-slate-900/20 rounded-full flex items-center justify-center">
-                                                <Check className="w-3 h-3 text-slate-900" />
+                                            <div className="w-4 h-4 bg-slate-900/20 rounded-full flex items-center justify-center">
+                                                <Check className="w-2.5 h-2.5 text-slate-900" />
                                             </div>
                                         </div>
                                     )}
                                 </button>
                             ))}
                         </div>
+
+                        {/* Map & Radius Control */}
+                        <div className="bg-slate-900/50 rounded-xl border border-white/10 overflow-hidden mb-6 relative">
+                            <div className="h-64 w-full relative z-0">
+                                {profile?.profile?.latitude && profile?.profile?.longitude ? (
+                                    <MapContainer
+                                        center={[parseFloat(profile.profile.latitude), parseFloat(profile.profile.longitude)]}
+                                        zoom={9}
+                                        style={{ height: "100%", width: "100%" }}
+                                        zoomControl={false}
+                                        dragging={false} // Keep it simple for now, or true if we want them to pan
+                                    >
+                                        <TileLayer
+                                            attribution='&copy; OpenStreetMap'
+                                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                                        />
+                                        <Marker position={[parseFloat(profile.profile.latitude), parseFloat(profile.profile.longitude)]} />
+                                        <Circle
+                                            center={[parseFloat(profile.profile.latitude), parseFloat(profile.profile.longitude)]}
+                                            radius={radius * 1609.34}
+                                            pathOptions={{ fillColor: '#f59e0b', color: '#f59e0b', fillOpacity: 0.2, weight: 1 }}
+                                        />
+                                    </MapContainer>
+                                ) : (
+                                    <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                                        Map unavailable (Location not set)
+                                    </div>
+                                )}
+
+                                {/* Overlay Radius Control */}
+                                <div className="absolute bottom-4 left-4 right-4 bg-slate-900/90 backdrop-blur-md border border-white/10 p-4 rounded-xl z-[400]">
+                                    <label className="text-white text-sm font-medium flex items-center justify-between mb-3">
+                                        <span className="flex items-center gap-2"><MapPin className="w-4 h-4 text-amber-500" /> Service Radius</span>
+                                        <span className="text-amber-400 font-bold">{radius} miles</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="1"
+                                        max="50"
+                                        value={radius}
+                                        onChange={(e) => setRadius(parseInt(e.target.value))}
+                                        className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+
 
                         <div className="flex justify-center">
                             <button

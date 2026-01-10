@@ -18,6 +18,8 @@ import {
 import { Elements } from '@stripe/react-stripe-js';
 import { stripePromise } from '@/lib/stripe';
 import { PaymentForm } from '@/components/PaymentForm';
+import { ExpertStickyNote } from "@/components/ExpertStickyNote";
+import mikeProfilePhoto from '@assets/mike-profile-photo.png';
 
 type TierId = 'standard' | 'priority' | 'emergency';
 
@@ -233,39 +235,12 @@ export default function DiagnosticVisitPage() {
                         </p>
 
                         {quote.assessmentReason && (
-                            <motion.div
-                                initial={{ opacity: 0, y: 20, rotate: -5, scale: 0.95 }}
-                                animate={{ opacity: 1, y: 0, rotate: -1, scale: 1 }}
-                                whileHover={{ rotate: 0, scale: 1.02 }}
-                                transition={{
-                                    type: "spring",
-                                    stiffness: 260,
-                                    damping: 20,
-                                    delay: 0.5
-                                }}
-                                className="relative mt-8 mx-auto max-w-lg cursor-pointer"
-                            >
-                                {/* Sticky Note Effect */}
-                                <div className="absolute inset-0 bg-yellow-200 rounded shadow-lg transform translate-y-1 translate-x-1"></div>
-                                <div className="relative bg-[#fef9c3] text-slate-800 p-6 rounded shadow-sm border border-yellow-200/50">
-                                    {/* Pin/Clip visual */}
-                                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-red-400 shadow-sm border border-red-500/30 ring-2 ring-white/50"></div>
-
-                                    <h3 className="font-handwriting text-lg font-bold text-slate-900 mb-2 flex items-center gap-2 justify-center">
-                                        <Wrench className="w-4 h-4 text-slate-600" />
-                                        Expert Note
-                                    </h3>
-                                    <p className="font-handwriting text-xl font-semibold leading-relaxed text-slate-900">
-                                        "{quote.assessmentReason}"
-                                    </p>
-                                    <div className="mt-4 pt-3 border-t border-slate-800/10 flex justify-end">
-                                        <div className="text-right">
-                                            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Head Handyman</p>
-                                            <p className="font-handwriting text-sm text-slate-800">Mike</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </motion.div>
+                            <ExpertStickyNote
+                                text={quote.assessmentReason}
+                                address={quote.address || quote.postcode}
+                                mikePhotoUrl={mikeProfilePhoto}
+                                className="mt-8"
+                            />
                         )}
                     </motion.div>
                 </div>
@@ -391,7 +366,8 @@ export default function DiagnosticVisitPage() {
                                                 ) : (
                                                     <div className="p-4 text-center text-red-400 bg-red-900/20 rounded-lg">
                                                         <AlertCircle className="w-6 h-6 mx-auto mb-2" />
-                                                        <p>Payment system unavailable. Please contact support.</p>
+                                                        <p className="font-bold">Payment system unavailable</p>
+                                                        <p className="text-sm opacity-80 mt-1">Configuration missing. If you recently added API keys, please restart the dev server.</p>
                                                     </div>
                                                 )}
                                             </div>

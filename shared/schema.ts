@@ -475,6 +475,7 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     phone: varchar("phone").notNull(),
     email: varchar("email"),
     postcode: varchar("postcode"),
+    address: text("address"), // Full Google Maps address
     coordinates: jsonb("coordinates"), // { lat: number, lng: number }
 
     // Job Details
@@ -639,6 +640,7 @@ export const insertPersonalizedQuoteSchema = createInsertSchema(personalizedQuot
     // Optional extras with full schema validation (CRITICAL: ties JSONB to optionalExtraSchema)
     optionalExtras: z.array(optionalExtraSchema).optional().nullable(),
     visitTierMode: z.enum(['standard', 'tiers']).optional(),
+    address: z.string().optional(),
 });
 
 // ... (PersonalizedQuote types above)

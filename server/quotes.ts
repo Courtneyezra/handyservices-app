@@ -5,7 +5,7 @@ import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfi
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { openai, polishAssessmentReason, determineQuoteStrategy } from "./openai";
+import { openai, polishAssessmentReason, generatePersonalizedNote, determineQuoteStrategy } from "./openai";
 import { generateValuePricingQuote, createAnalyticsLog, generateTierDeliverables } from "./value-pricing-engine";
 import { geocodeAddress } from "./lib/geocoding";
 import { findBestContractors, checkNetworkAvailability } from "./availability-engine";
@@ -22,6 +22,8 @@ const valuePricingInputSchema = z.object({
     phone: z.string().min(1, 'Phone number is required'),
     email: z.string().email().optional().or(z.literal('')),
     postcode: z.string().min(1, 'Postcode is required'),
+    address: z.string().optional(),
+    coordinates: z.object({ lat: z.number(), lng: z.number() }).optional(),
     quoteMode: z.enum(['simple', 'hhh', 'pick_and_mix', 'consultation']).default('hhh'),
     analyzedJobData: z.any().optional(), // Pass through AI analysis data
 
@@ -55,7 +57,7 @@ quotesRouter.post('/api/quote-strategy', async (req, res) => {
     }
 });
 
-// Polish Assessment Reason with AI
+// Polish Assessment Reason with AI (Legacy/Simple)
 quotesRouter.post('/api/polish-assessment-reason', async (req, res) => {
     try {
         const { reason } = req.body;
@@ -66,6 +68,20 @@ quotesRouter.post('/api/polish-assessment-reason', async (req, res) => {
     } catch (error: any) {
         console.error("Polish reason error:", error);
         res.status(500).json({ error: "Polishing failed", polished: req.body.reason }); // Fallback to raw
+    }
+});
+
+// Generate Personalized Expert Note (New)
+quotesRouter.post('/api/generate-personalized-note', async (req, res) => {
+    try {
+        const { reason, customerName, postcode, address } = req.body;
+        if (!reason || !customerName || !postcode) return res.status(400).json({ error: "Missing required fields" });
+
+        const { note, summary } = await generatePersonalizedNote(reason, customerName, postcode, address);
+        res.json({ note, summary });
+    } catch (error: any) {
+        console.error("Generate note error:", error);
+        res.status(500).json({ error: "Generation failed", note: req.body.reason, summary: "assess the job" });
     }
 });
 
@@ -81,9 +97,12 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             emerg: input.tierEmergencyPrice
         });
 
-        // Geocode the postcode (Phase 3 requirement)
-        const geocoded = await geocodeAddress(input.postcode);
-        const coordinates = geocoded ? { lat: geocoded.lat, lng: geocoded.lng } : null;
+        // Geocode coordinates if not provided (Phase 3 requirement)
+        let coordinates = input.coordinates || null;
+        if (!coordinates && input.postcode) {
+            const geocoded = await geocodeAddress(input.postcode);
+            if (geocoded) coordinates = { lat: geocoded.lat, lng: geocoded.lng };
+        }
 
         // MATCHING ENGINE (Phase 4)
         // Find best contractors based on location
@@ -139,6 +158,7 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             customerName: input.customerName,
             phone: input.phone,
             email: input.email || null,
+            address: input.address || null, // Capture full address
             postcode: input.postcode,
             coordinates, // Store geocoded coordinates
             jobDescription: input.jobDescription,
@@ -252,6 +272,12 @@ quotesRouter.post('/api/analyze-job', async (req, res) => {
                     
                     ${ratesContext}
                     Identify the category for each task to apply the correct rate.
+
+                    BEHAVIORAL ECONOMICS FRAMEWORKS FOR 'summary':
+                    1. Authority: Write as a Senior Estimator.
+                    2. Salience: Focus on the specific pain point and the CLEAR RESULT for the customer.
+                    3. Plain Language: Clearly state the deliverables (what will be done) in simple, non-technical terms. Avoid jargon. (e.g. "We will supply and fit..." instead of "Procure and install...")
+                    4. Format: 1-2 concise sentences, strictly professional.
                     `
                 },
                 {

@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { geocodeAddress } from './lib/geocoding';
 import { db } from './db';
 import { users, handymanProfiles, contractorSessions, productizedServices, handymanSkills } from '../shared/schema';
 import { eq, and, or } from 'drizzle-orm';
@@ -160,12 +161,26 @@ router.post('/register', async (req: Request, res: Response) => {
             emailVerified: false,
         });
 
+        // Geocode postcode if provided
+        let latitude: string | null = null;
+        let longitude: string | null = null;
+
+        if (postcode) {
+            const geo = await geocodeAddress(postcode);
+            if (geo) {
+                latitude = geo.lat.toString();
+                longitude = geo.lng.toString();
+            }
+        }
+
         // Create handyman profile (linked to user)
         const profileId = uuidv4();
         await db.insert(handymanProfiles).values({
             id: profileId,
             userId,
             postcode,
+            latitude,
+            longitude,
             radiusMiles: 10, // Default radius
         });
 
@@ -387,6 +402,18 @@ router.put('/profile', requireContractorAuth, async (req: Request, res: Response
                 }
             }
 
+            // Geocode if postcode changed
+            let newLat = req.body.latitude ? req.body.latitude.toString() : undefined;
+            let newLng = req.body.longitude ? req.body.longitude.toString() : undefined;
+
+            if (postcode && postcode !== profile.postcode) {
+                const geo = await geocodeAddress(postcode);
+                if (geo) {
+                    newLat = geo.lat.toString();
+                    newLng = geo.lng.toString();
+                }
+            }
+
             await db.update(handymanProfiles)
                 .set({
                     bio: bio || undefined,
@@ -395,8 +422,8 @@ router.put('/profile', requireContractorAuth, async (req: Request, res: Response
                     postcode: postcode || undefined,
                     ...(radiusMiles !== undefined && { radiusMiles }),
                     ...(hourlyRate !== undefined && { hourlyRate }),
-                    ...(req.body.latitude !== undefined && { latitude: req.body.latitude.toString() }),
-                    ...(req.body.longitude !== undefined && { longitude: req.body.longitude.toString() }),
+                    ...(newLat !== undefined && { latitude: newLat }),
+                    ...(newLng !== undefined && { longitude: newLng }),
                     ...(slug !== undefined && { slug }),
                     ...(publicProfileEnabled !== undefined && { publicProfileEnabled }),
                     ...(heroImageUrl !== undefined && { heroImageUrl }),

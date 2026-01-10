@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
-import { Mail, Lock, Eye, EyeOff, ArrowRight, User, Phone, MapPin, Globe, Upload, Check, Loader2, X, Sparkles, FileText, CalendarClock, Smartphone, Monitor } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, User, Phone, MapPin, Globe, Upload, Check, Loader2, X, Sparkles, FileText, CalendarClock, Smartphone, Monitor, Star, CheckCircle } from 'lucide-react';
+import Autocomplete from 'react-google-autocomplete';
 
 
 export default function ContractorRegister() {
@@ -35,8 +36,27 @@ export default function ContractorRegister() {
         heroImageUrl: '', // For preview
         profileImage: null as File | null,
         profileImageUrl: '', // For preview
-        website: ''
+        website: '',
+
+        // Step 4: Skills & Value
+        skills: [] as string[],
+        valueTags: [] as string[],
+
+        // Step 5: Rates
+        skillRates: {} as Record<string, string>,
+        calloutFee: '',
+        dayRate: ''
     });
+
+    const SERVICES = [
+        "Plumbing", "Electrical", "Carpentry", "Painting",
+        "General Handyman", "Locksmith", "Cleaning", "Gardening"
+    ];
+
+    const VALUE_TAGS = [
+        "Instant Response", "Weekend Availability", "Emergency Callouts",
+        "Free Estimates", "Verified Pro", "Eco-Friendly products"
+    ];
 
     const handleChange = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         setFormData({ ...formData, [field]: e.target.value });
@@ -78,8 +98,8 @@ export default function ContractorRegister() {
     };
 
     const validateStep2 = () => {
-        if (!formData.firstName || !formData.lastName || !formData.email || !formData.password) {
-            setError('Please fill in all required fields');
+        if (!formData.firstName || !formData.lastName || !formData.email || !formData.password || !formData.postcode) {
+            setError('Please fill in all required fields including Postcode');
             return false;
         }
         if (formData.password !== formData.confirmPassword) {
@@ -93,10 +113,42 @@ export default function ContractorRegister() {
         return true;
     };
 
+    const validateStep3 = () => {
+        // Branding is semi-optional but let's encourage at least a bio? 
+        // For now, let it be optional to reduce friction.
+        return true;
+    };
+
+    const validateStep4 = () => {
+        if (formData.skills.length === 0) {
+            setError('Please select at least one service/skill');
+            return false;
+        }
+        return true;
+    };
+
+    const validateStep5 = () => {
+        // Ensure every selected skill has a rate
+        for (const skill of formData.skills) {
+            if (!formData.skillRates[skill] || parseFloat(formData.skillRates[skill]) <= 0) {
+                setError(`Please set a valid hourly rate for ${skill}`);
+                return false;
+            }
+        }
+        if (!formData.calloutFee) {
+            setError('Please set a call-out fee');
+            return false;
+        }
+        return true;
+    };
+
     // Final Submission
     const handleFinalSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
+
+        if (!validateStep5()) return;
+
         setIsLoading(true);
 
         try {
@@ -111,6 +163,7 @@ export default function ContractorRegister() {
                     phone: formData.phone,
                     postcode: formData.postcode, // Optional at this stage
                     password: formData.password,
+                    // Pass extra data if API supports it, or update profile later
                 }),
             });
 
@@ -159,7 +212,7 @@ export default function ContractorRegister() {
                 }
             }
 
-            // 3. Update Profile (Slug, Bio, Public=true, Image)
+            // 3. Update Profile (Slug, Bio, Skills, Rates, Public=true)
             const updateRes = await fetch('/api/contractor/profile', {
                 method: 'PUT',
                 headers: {
@@ -171,29 +224,30 @@ export default function ContractorRegister() {
                     bio: formData.bio,
                     heroImageUrl: uploadedHeroUrl || undefined,
                     profileImageUrl: uploadedProfileUrl || undefined,
-                    publicProfileEnabled: true, // Enable automatically!
+                    publicProfileEnabled: true,
                     postcode: formData.postcode || undefined,
-                    socialLinks: formData.website ? { website: formData.website } : undefined
+                    socialLinks: formData.website ? { website: formData.website } : undefined,
+                    // Todo: Ensure backend accepts these new fields
+                    // For now assuming we might need to store them or the backend ignores them if schema not updated.
+                    // But we are focusing on frontend flow first. 
+                    skills: formData.skills,
+                    valueTags: formData.valueTags,
+                    skillRates: formData.skillRates, // Send the per-skill rates
+                    calloutFee: formData.calloutFee,
+                    dayRate: formData.dayRate
                 }),
             });
 
             if (!updateRes.ok) throw new Error('Failed to set up profile');
 
-            // Success! Redirect to onboarding wizard
-
+            // Success! Redirect
             setLocation('/contractor/onboarding');
 
         } catch (err: any) {
             console.error(err);
             setError(err.message || 'Something went wrong');
-            // If registered but failed later, they might still be able to login, but let's just show error.
             if (localStorage.getItem('contractorToken')) {
-                // Determine recovery? For now just stay here.
-                // Or redirect to dashboard anyway if registration worked?
-                // Let's redirect to dashboard if registration succeeded so they aren't stuck.
-                if (err.message !== 'Registration failed') {
-                    setLocation('/contractor/onboarding');
-                }
+                setLocation('/contractor/onboarding');
             }
         } finally {
             setIsLoading(false);
@@ -201,8 +255,29 @@ export default function ContractorRegister() {
     };
 
     const nextStep = () => {
-        if (step === 1 && validateStep1()) setStep(2);
-        else if (step === 2 && validateStep2()) setStep(3);
+        setError('');
+        if (step === 1 && validateStep1()) {
+            setError('');
+            setStep(2);
+        }
+        else if (step === 2 && validateStep2()) {
+            setError('');
+            setStep(3);
+        }
+        else if (step === 3 && validateStep3()) {
+            setError('');
+            setStep(4);
+        }
+        else if (step === 4 && validateStep4()) {
+            setError('');
+            setStep(5);
+        }
+    };
+
+    // Helper to change step and clear error (for Back buttons)
+    const goToStep = (s: number) => {
+        setError('');
+        setStep(s);
     };
 
     return (
@@ -215,276 +290,189 @@ export default function ContractorRegister() {
                 }} />
             </div>
 
-            <div className="relative w-full max-w-5xl grid md:grid-cols-2 gap-8 items-center">
+            <div className="relative w-full max-w-5xl md:grid md:grid-cols-2 gap-8 items-center h-screen md:h-auto overflow-hidden md:overflow-visible">
 
-                {/* Left Side: The "Product" Preview */}
-                <div className={step === 0 ? "hidden md:block" : "block"}>
-                    <div className="relative">
-                        {/* View Toggle */}
-                        <div className="absolute -top-12 left-0 flex items-center gap-1 bg-slate-800/50 p-1 rounded-lg border border-white/10 backdrop-blur-sm z-10 transition-all duration-300">
-                            <button
-                                type="button"
-                                onClick={() => setIsMobileView(false)}
-                                className={`p-2 rounded-md transition-all ${!isMobileView ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                                title="Desktop View"
-                            >
-                                <Monitor className="w-4 h-4" />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setIsMobileView(true)}
-                                className={`p-2 rounded-md transition-all ${isMobileView ? 'bg-amber-500 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                                title="Mobile View"
-                            >
-                                <Smartphone className="w-4 h-4" />
-                            </button>
+                {/* Left Side (Desktop) / Top Background (Mobile) - VISUAL NARRATIVE */}
+                {/* On Step 0 (Landing), we hide this section completely to focus on the centered content. */}
+                {step > 0 && (
+                    <div className={`
+                        fixed md:relative top-0 left-0 right-0 
+                        h-[40vh] md:h-auto 
+                        bg-slate-950 
+                        transition-all duration-500 ease-in-out
+                        flex items-center justify-center
+                        overflow-hidden
+                        z-0
+                        ${step === 0 ? "scale-100" : "scale-100"} 
+                    `}>
+                        {/* Background Effects */}
+                        <div className="absolute inset-0 opacity-20 pointer-events-none">
+                            <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-soft-light"></div>
+                            <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl"></div>
+                            <div className="absolute bottom-0 left-0 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl"></div>
                         </div>
 
-                        {/* Blob */}
-                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-amber-500/20 rounded-full blur-3xl" />
+                        {/* DASHBOARD PREVIEW MOCKUP */}
+                        <div className="relative w-full max-w-4xl mx-auto px-4 perspective-1000 transform transition-all duration-700">
+                            <div className={`
+                                    bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden
+                                    transition-all duration-500
+                                    ${step === 0 ? 'opacity-80 scale-95 blur-sm translate-y-4' : 'opacity-100 scale-100 translate-y-0 blur-0'}
+                                `}>
+                                {/* Dashboard Header */}
+                                <div className="bg-slate-950 px-4 py-3 border-b border-slate-800 flex justify-between items-center">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center font-bold text-slate-900">
+                                            {formData.slug ? formData.slug.charAt(0).toUpperCase() : 'H'}
+                                        </div>
+                                        <span className="text-white font-medium hidden md:block">
+                                            {formData.slug ? formData.slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Your Business'}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-2 w-20 bg-slate-800 rounded-full hidden md:block"></div>
+                                        <div className="w-8 h-8 bg-slate-800 rounded-full"></div>
+                                    </div>
+                                </div>
 
-                        {/* DYNAMIC MOCKUP CARD */}
-                        <div className={`relative bg-slate-900 border border-white/10 shadow-2xl overflow-hidden transition-all duration-700 ease-in-out
-                            ${isMobileView ? 'w-[320px] mx-auto rounded-[2.5rem] border-[8px] border-slate-900 ring-1 ring-white/10' : 'w-full rounded-2xl'} 
-                            ${step === 0 ? 'scale-100 rotate-0' : 'scale-95 rotate-[-1deg]'}
-                        `}>
-                            {/* --- STEP 0: HANDYMAN PROFILE (Original) --- */}
-                            {(step === 0 || step === 1) && (
-                                <div className="animate-in fade-in duration-700">
-                                    <div className="bg-slate-800 p-3 border-b border-white/5 flex items-center gap-2">
-                                        <div className="flex gap-1.5">
-                                            <div className="w-2.5 h-2.5 rounded-full bg-red-500/50" />
-                                            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
-                                            <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
-                                        </div>
-                                        <div className="flex-1 text-center">
-                                            <div className="bg-slate-900/50 rounded-md px-3 py-1 text-[10px] text-slate-400 font-mono inline-block">
-                                                handy.com/handy/<span className="text-amber-400">james-handy</span>
+                                {/* Dashboard Content */}
+                                <div className="flex h-[300px] md:h-[500px]">
+                                    {/* Sidebar */}
+                                    <div className="w-48 bg-slate-900 border-r border-slate-800 p-4 hidden md:flex flex-col gap-2">
+                                        {['Dashboard', 'Jobs', 'Message', 'Calendar', 'Profile'].map(item => (
+                                            <div key={item} className={`p-2 rounded-lg text-sm font-medium ${item === 'Profile' ? 'bg-amber-500/10 text-amber-500' : 'text-slate-400'}`}>
+                                                {item}
                                             </div>
-                                        </div>
+                                        ))}
                                     </div>
-                                    <div className="h-40 bg-slate-800/50 relative">
-                                        <img src="/demo-cover.png" className="w-full h-full object-cover" alt="Cover" />
-                                        <div className="absolute -bottom-10 left-6">
-                                            <div className="w-20 h-20 rounded-xl bg-slate-800 border-4 border-slate-900 flex items-center justify-center text-slate-500 overflow-hidden">
-                                                <img src="/demo-profile.png" className="w-full h-full object-cover" alt="Profile" />
+
+                                    {/* Main Area */}
+                                    <div className="flex-1 p-4 md:p-6 bg-slate-900/50 relative overflow-y-auto">
+                                        {/* Intro Overlay (Step 0) */}
+                                        {step === 0 && (
+                                            <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm z-10">
+                                                <div className="text-center">
+                                                    <div className="w-16 h-16 bg-gradient-to-br from-amber-500 to-amber-600 rounded-2xl mx-auto mb-4 flex items-center justify-center shadow-lg shadow-amber-500/20">
+                                                        <Sparkles className="w-8 h-8 text-white" />
+                                                    </div>
+                                                    <h3 className="text-xl font-bold text-white mb-1">Your Command Center</h3>
+                                                    <p className="text-slate-400 text-sm">Everything you need to run your business.</p>
+                                                </div>
                                             </div>
-                                        </div>
-                                    </div>
-                                    <div className="pt-12 px-6 pb-6">
-                                        <h1 className="text-xl font-bold text-white mb-1">James Turner</h1>
-                                        <p className="text-slate-400 text-sm mb-4">
-                                            Professional handyman serving Greater London. Fully insured and experienced in plumbing, carpentry, and general repairs.
-                                        </p>
-                                        <div className="flex gap-2">
-                                            <div className="px-3 py-1.5 bg-emerald-500/10 text-emerald-400 text-xs rounded-lg border border-emerald-500/20">
-                                                Verified Pro
+                                        )}
+
+                                        {/* Grid Layout */}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            {/* Profile Card */}
+                                            <div className={`bg-slate-800/50 p-4 rounded-xl border border-white/5 transition-all duration-500 ${step >= 2 ? 'opacity-100' : 'opacity-50 grayscale'}`}>
+                                                <div className="flex items-start gap-3">
+                                                    <div className="w-12 h-12 rounded-full bg-slate-700 overflow-hidden flex-shrink-0">
+                                                        {formData.profileImageUrl ? (
+                                                            <img src={formData.profileImageUrl} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-slate-500"><User className="w-6 h-6" /></div>
+                                                        )}
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-white font-medium">
+                                                            {formData.firstName || formData.lastName ? `${formData.firstName} ${formData.lastName}` : 'Providing Name...'}
+                                                        </h4>
+                                                        <p className="text-slate-400 text-xs line-clamp-2 mt-1">
+                                                            {formData.bio || "Bio will appear here..."}
+                                                        </p>
+                                                        {formData.postcode && (
+                                                            <div className="flex items-center gap-1 mt-2 text-emerald-400 text-xs">
+                                                                <MapPin className="w-3 h-3" />
+                                                                <span>{formData.postcode}</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div className="px-3 py-1.5 bg-amber-500/10 text-amber-400 text-xs rounded-lg border border-amber-500/20">
-                                                Available Today
+
+                                            {/* Stats Card */}
+                                            <div className="bg-slate-800/50 p-4 rounded-xl border border-white/5">
+                                                <h5 className="text-slate-400 text-xs uppercase font-bold mb-3">Performance</h5>
+                                                <div className="flex items-end gap-2 mb-2">
+                                                    <span className="text-2xl font-bold text-white">0</span>
+                                                    <span className="text-slate-400 text-sm mb-1">jobs completed</span>
+                                                </div>
+                                                <div className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-emerald-500 w-0"></div>
+                                                </div>
+                                            </div>
+
+                                            {/* Services (Step 4) */}
+                                            <div className={`bg-slate-800/50 p-4 rounded-xl border border-white/5 md:col-span-2 transition-all duration-500 ${step >= 4 ? 'ring-2 ring-amber-500/50 bg-slate-800' : ''}`}>
+                                                <h5 className="text-slate-400 text-xs uppercase font-bold mb-3 flex justify-between">
+                                                    <span>Services & Skills</span>
+                                                    {step === 4 && <span className="text-amber-500 text-[10px] animate-pulse">EDITING</span>}
+                                                </h5>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {formData.skills.length > 0 ? (
+                                                        formData.skills.map(skill => (
+                                                            <span key={skill} className="px-2 py-1 bg-amber-500/20 text-amber-400 text-xs rounded-md border border-amber-500/20">
+                                                                {skill}
+                                                            </span>
+                                                        ))
+                                                    ) : (
+                                                        <span className="text-slate-600 text-sm italic">No services added yet...</span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Rates (Step 5) */}
+                                            <div className={`bg-slate-800/50 p-4 rounded-xl border border-white/5 md:col-span-2 transition-all duration-500 ${step >= 5 ? 'ring-2 ring-emerald-500/50 bg-slate-800' : ''}`}>
+                                                <h5 className="text-slate-400 text-xs uppercase font-bold mb-3 flex justify-between">
+                                                    <span>Standard Rates</span>
+                                                    {step === 5 && <span className="text-emerald-500 text-[10px] animate-pulse">EDITING</span>}
+                                                </h5>
+                                                <div className="space-y-3">
+                                                    {formData.skills.length > 0 ? (
+                                                        formData.skills.map(skill => (
+                                                            <div key={skill} className="flex items-center justify-between border-b border-white/5 pb-2 last:border-0 last:pb-0">
+                                                                <span className="text-slate-300 text-sm">{skill}</span>
+                                                                <span className="text-white font-mono font-medium">
+                                                                    {formData.skillRates[skill] ? `£${formData.skillRates[skill]}/hr` : 'Not set'}
+                                                                </span>
+                                                            </div>
+                                                        ))
+                                                    ) : (
+                                                        <span className="text-slate-600 text-sm italic">Select skills to set rates...</span>
+                                                    )}
+                                                    <div className="flex items-center justify-between pt-2 border-t border-white/5 mt-2">
+                                                        <span className="text-slate-400 text-xs">Call-out Fee</span>
+                                                        <span className="text-slate-300 font-mono text-xs">
+                                                            {formData.calloutFee ? `£${formData.calloutFee}` : '£0'}
+                                                        </span>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-                            )}
-
-                            {/* --- STEP 1: Using Step 0 Visual --- */}
-                            {false && step === 1 && (
-                                <div className="bg-white h-full min-h-[400px] animate-in slide-in-from-right-8 duration-500">
-                                    <div className="bg-slate-50 p-6 border-b border-slate-100 flex justify-between items-center">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center text-white shadow-lg shadow-green-500/30">
-                                                <Check className="w-6 h-6" />
-                                            </div>
-                                            <div>
-                                                <h3 className="font-bold text-slate-900">Payment Received</h3>
-                                                <p className="text-xs text-slate-500">Just now</p>
-                                            </div>
-                                        </div>
-                                        <span className="text-lg font-bold text-green-600">+£150.00</span>
-                                    </div>
-
-                                    <div className="p-6 space-y-4">
-                                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Recent Transactions</h4>
-                                        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600 font-bold">JD</div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-900">John Doe</p>
-                                                    <p className="text-xs text-slate-500">Tap Repair</p>
-                                                </div>
-                                            </div>
-                                            <span className="text-sm font-bold text-slate-900">£85.00</span>
-                                        </div>
-                                        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center text-purple-600 font-bold">SM</div>
-                                                <div>
-                                                    <p className="text-sm font-bold text-slate-900">Sarah M.</p>
-                                                    <p className="text-xs text-slate-500">Shelf Installation</p>
-                                                </div>
-                                            </div>
-                                            <span className="text-sm font-bold text-slate-900">£120.00</span>
-                                        </div>
-                                        <div className="mt-6 pt-6 border-t border-slate-100">
-                                            <div className="flex justify-between items-end">
-                                                <div>
-                                                    <p className="text-sm text-slate-500 mb-1">Total Balance</p>
-                                                    <h2 className="text-3xl font-bold text-slate-900">£2,450.50</h2>
-                                                </div>
-                                                <div className="w-24 h-12 bg-slate-100 rounded-lg relative overflow-hidden">
-                                                    <div className="absolute bottom-0 left-0 right-0 h-8 bg-green-500/20" />
-                                                    <svg className="absolute bottom-0 left-0 right-0 text-green-500" viewBox="0 0 100 40" preserveAspectRatio="none">
-                                                        <path d="M0 40 L0 25 L20 30 L40 15 L60 25 L80 10 L100 20 L100 40 Z" fill="currentColor" opacity="0.4" />
-                                                        <path d="M0 40 L0 30 L20 35 L40 20 L60 30 L80 15 L100 25 L100 40 Z" fill="currentColor" opacity="0.3" />
-                                                    </svg>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* --- STEP 2: QUOTE OPTIONS (HHH Style) --- */}
-                            {step === 2 && (
-                                <div className="bg-white h-full min-h-[400px] animate-in slide-in-from-right-8 duration-500 flex flex-col">
-                                    <div className="bg-slate-50 p-6 border-b border-slate-100 mb-auto">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center text-white font-bold uppercase">JT</div>
-                                            <span className="font-bold text-slate-900">James Turner</span>
-                                        </div>
-                                        <h3 className="text-lg font-bold text-slate-900">Bathroom Renovation</h3>
-                                        <p className="text-xs text-slate-500">Select an option to proceed</p>
-                                    </div>
-
-                                    <div className="p-6 space-y-3">
-                                        {/* Option 1 */}
-                                        <div className="p-4 rounded-xl border border-slate-100 bg-white shadow-sm hover:border-amber-500/50 hover:bg-amber-50 transition-colors cursor-pointer group">
-                                            <div className="flex justify-between items-center mb-1">
-                                                <span className="font-bold text-slate-900 group-hover:text-amber-700">Basic Fix</span>
-                                                <span className="font-bold text-slate-900">£1,200</span>
-                                            </div>
-                                            <p className="text-xs text-slate-500">Labor and basic materials only.</p>
-                                        </div>
-
-                                        {/* Option 2 (Selected) */}
-                                        <div className="p-4 rounded-xl border-2 border-amber-500 bg-amber-50 shadow-md relative overflow-hidden cursor-pointer">
-                                            <div className="absolute top-0 right-0 bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg">RECOMMENDED</div>
-                                            <div className="flex justify-between items-center mb-1">
-                                                <span className="font-bold text-amber-900">Standard</span>
-                                                <span className="font-bold text-amber-900">£1,800</span>
-                                            </div>
-                                            <p className="text-xs text-amber-800/80">Includes waste removal and premium adhesive.</p>
-                                        </div>
-
-                                        {/* Option 3 */}
-                                        <div className="p-4 rounded-xl border border-slate-100 bg-white shadow-sm hover:border-amber-500/50 hover:bg-amber-50 transition-colors cursor-pointer group">
-                                            <div className="flex justify-between items-center mb-1">
-                                                <span className="font-bold text-slate-900 group-hover:text-amber-700">Premium Finish</span>
-                                                <span className="font-bold text-slate-900">£2,400</span>
-                                            </div>
-                                            <p className="text-xs text-slate-500">All inclusive + 2 year guarantee.</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="p-4 bg-slate-50 border-t border-slate-100 mt-auto">
-                                        <div className="w-full py-2 bg-slate-900 text-white text-xs font-bold rounded-lg text-center opacity-50">
-                                            Select Package
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* --- STEP 3: CALENDAR (Run Business at Glance) --- */}
-                            {step === 3 && (
-                                <div className="bg-white h-full min-h-[400px] animate-in slide-in-from-right-8 duration-500 relative">
-                                    <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                                        <h3 className="font-bold text-slate-900">October 2025</h3>
-                                        <div className="flex gap-1">
-                                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600"><span className="sr-only">Prev</span>←</div>
-                                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600"><span className="sr-only">Next</span>→</div>
-                                        </div>
-                                    </div>
-                                    <div className="p-4 grid grid-cols-7 gap-2 text-center text-sm mb-2">
-                                        {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => <div key={i} className="text-slate-400 font-medium">{d}</div>)}
-                                        {/* Fake Calendar Days */}
-                                        {Array.from({ length: 14 }).map((_, i) => {
-                                            const day = i + 12;
-                                            const hasJob = [14, 15, 18, 20].includes(day);
-                                            const isSelected = day === 15;
-                                            return (
-                                                <div key={i} className={`aspect-square rounded-lg flex items-center justify-center text-xs relative
-                                                    ${isSelected ? 'bg-amber-500 text-white font-bold shadow-md' : 'text-slate-700 hover:bg-slate-50'}
-                                                `}>
-                                                    {day}
-                                                    {hasJob && !isSelected && <div className="absolute bottom-1 w-1 h-1 bg-amber-500 rounded-full"></div>}
-                                                </div>
-                                            )
-                                        })}
-                                    </div>
-
-                                    <div className="px-4 pb-4">
-                                        <div className="text-xs font-bold text-slate-400 uppercase mb-3">Upcoming Jobs</div>
-
-                                        <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 flex gap-3 mb-2 animate-in slide-in-from-bottom-4 delay-100">
-                                            <div className="w-12 h-12 bg-blue-100 rounded-lg flex flex-col items-center justify-center text-blue-700 shrink-0">
-                                                <span className="text-xs font-bold">OCT</span>
-                                                <span className="text-lg font-bold leading-none">15</span>
-                                            </div>
-                                            <div>
-                                                <h4 className="font-bold text-slate-900 text-sm">Kitchen Tiling</h4>
-                                                <p className="text-xs text-slate-500">09:00 AM - 4:00 PM</p>
-                                                <p className="text-xs text-blue-600 font-medium mt-0.5">88 Road, London</p>
-                                            </div>
-                                        </div>
-
-                                        <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 flex gap-3 animate-in slide-in-from-bottom-4 delay-200 opacity-50">
-                                            <div className="w-12 h-12 bg-slate-200 rounded-lg flex flex-col items-center justify-center text-slate-500 shrink-0">
-                                                <span className="text-xs font-bold">OCT</span>
-                                                <span className="text-lg font-bold leading-none">16</span>
-                                            </div>
-                                            <div>
-                                                <h4 className="font-bold text-slate-900 text-sm">Radiator Fix</h4>
-                                                <p className="text-xs text-slate-500">10:00 AM - 11:30 AM</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* CAPTION TEXT */}
-                        <div className="text-center mt-8 px-4 transition-all duration-300">
-                            {step === 0 && (
-                                <>
-                                    <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Everything you need to grow</h2>
-                                    <p className="text-slate-400">Stop chasing invoices and missed calls.</p>
-                                </>
-                            )}
-                            {step === 1 && (
-                                <>
-                                    <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Build your digital presence</h2>
-                                    <p className="text-slate-400">Claim your professional URL and start accepting bookings today.</p>
-                                </>
-                            )}
-                            {step === 2 && (
-                                <>
-                                    <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Give customers choice</h2>
-                                    <p className="text-slate-400">Clients trust transparent, professional quotes.</p>
-                                </>
-                            )}
-                            {step === 3 && (
-                                <>
-                                    <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Run your business at a glance</h2>
-                                    <p className="text-slate-400">Manage availability and never miss a job.</p>
-                                </>
-                            )}
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
 
-                {/* Right Side: The Form */}
-                <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8 shadow-2xl min-h-[500px] flex flex-col justify-center">
+                {/* Right Side (Form) / Main Center (Step 0) */}
+                <div className={`
+                    fixed md:relative bottom-0 left-0 right-0 z-10 
+                    bg-slate-900 md:bg-white/5 backdrop-blur-xl md:backdrop-filter-none
+                    border-t border-white/10 md:border md:rounded-2xl
+                    rounded-t-[2rem] md:rounded-t-2xl
+                    shadow-[0_-10px_40px_rgba(0,0,0,0.5)] md:shadow-2xl
+                    transition-all duration-500 ease-out
+                    flex flex-col
+                    max-h-[85vh] md:max-h-none
+                    ${step === 0 ? 'relative !fixed-none !bottom-auto md:w-full md:max-w-4xl md:mx-auto md:!border-0 md:!bg-transparent md:!shadow-none items-center h-auto min-h-screen justify-center' : 'h-auto md:h-auto p-6 md:p-8 overflow-y-auto md:overflow-visible'}
+                `}>
+
+                    {/* Mobile Drag Handle */}
+                    <div className="md:hidden w-full flex justify-center mb-4 shrink-0">
+                        <div className="w-12 h-1.5 bg-white/20 rounded-full" />
+                    </div>
 
                     {step > 0 && (
                         <div className="flex items-center gap-2 mb-8">
@@ -514,19 +502,17 @@ export default function ContractorRegister() {
                                         Run your business <br />
                                         <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-200">on Autopilot.</span>
                                     </h2>
-                                    <p className="text-slate-400 text-lg leading-relaxed">
-                                        The complete operating system for modern independent contractors. Stop playing phone tag and start getting booked.
-                                    </p>
+
                                 </div>
 
-                                <div className="space-y-6">
+                                <div className="grid md:grid-cols-3 gap-6">
                                     {/* Feature 1 */}
-                                    <div className="flex gap-4 p-4 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors group">
-                                        <div className="w-12 h-12 bg-blue-500/20 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                    <div className="p-6 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors group text-center md:text-left">
+                                        <div className="w-12 h-12 bg-blue-500/20 rounded-lg flex items-center justify-center mb-4 mx-auto md:mx-0 group-hover:scale-110 transition-transform">
                                             <Globe className="w-6 h-6 text-blue-400" />
                                         </div>
                                         <div>
-                                            <h3 className="text-white font-bold text-lg mb-1">Your Own Booking Website</h3>
+                                            <h3 className="text-white font-bold text-lg mb-2">Your Own Booking Website</h3>
                                             <p className="text-slate-400 text-sm leading-relaxed">
                                                 Get a professional <span className="text-amber-400 font-mono">handy.com/you</span> link. Clients see your real-time availability and book slots instantly.
                                             </p>
@@ -534,12 +520,12 @@ export default function ContractorRegister() {
                                     </div>
 
                                     {/* Feature 2 */}
-                                    <div className="flex gap-4 p-4 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors group">
-                                        <div className="w-12 h-12 bg-purple-500/20 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                    <div className="p-6 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors group text-center md:text-left">
+                                        <div className="w-12 h-12 bg-purple-500/20 rounded-lg flex items-center justify-center mb-4 mx-auto md:mx-0 group-hover:scale-110 transition-transform">
                                             <FileText className="w-6 h-6 text-purple-400" />
                                         </div>
                                         <div>
-                                            <h3 className="text-white font-bold text-lg mb-1">Smart Quotes & Estimates</h3>
+                                            <h3 className="text-white font-bold text-lg mb-2">Smart Quotes & Estimates</h3>
                                             <p className="text-slate-400 text-sm leading-relaxed">
                                                 Send fast day-rate offers or build detailed project quotes. We track who's viewed and accepted them.
                                             </p>
@@ -547,12 +533,12 @@ export default function ContractorRegister() {
                                     </div>
 
                                     {/* Feature 3 */}
-                                    <div className="flex gap-4 p-4 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors group">
-                                        <div className="w-12 h-12 bg-emerald-500/20 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                    <div className="p-6 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors group text-center md:text-left">
+                                        <div className="w-12 h-12 bg-emerald-500/20 rounded-lg flex items-center justify-center mb-4 mx-auto md:mx-0 group-hover:scale-110 transition-transform">
                                             <CalendarClock className="w-6 h-6 text-emerald-400" />
                                         </div>
                                         <div>
-                                            <h3 className="text-white font-bold text-lg mb-1">Zero-Admin Scheduling</h3>
+                                            <h3 className="text-white font-bold text-lg mb-2">Zero-Admin Scheduling</h3>
                                             <p className="text-slate-400 text-sm leading-relaxed">
                                                 Connect your calendar. We handle reminders, confirmations, and payments so you never double-book.
                                             </p>
@@ -563,7 +549,7 @@ export default function ContractorRegister() {
                                 <div className="pt-4">
                                     <button
                                         type="button"
-                                        onClick={() => setStep(1)}
+                                        onClick={() => goToStep(1)}
                                         className="w-full py-4 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white font-bold rounded-xl transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 text-lg group"
                                     >
                                         Start Your Free Profile <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
@@ -608,7 +594,7 @@ export default function ContractorRegister() {
                                 <div className="grid grid-cols-2 gap-3">
                                     <button
                                         type="button"
-                                        onClick={() => setStep(0)}
+                                        onClick={() => goToStep(0)}
                                         className="py-3 px-4 bg-white/5 hover:bg-white/10 text-white font-medium rounded-xl border border-white/10 transition-colors"
                                     >
                                         Back
@@ -652,6 +638,49 @@ export default function ContractorRegister() {
                                             className="w-full px-4 py-3 bg-slate-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
                                             placeholder="Doe"
                                         />
+                                    </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-sm font-medium text-slate-300 mb-1.5">Postcode <span className="text-slate-500 text-xs">(Required for Fleet Map)</span></label>
+                                        <div className="relative">
+                                            <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
+                                            <Autocomplete
+                                                apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY}
+                                                onPlaceSelected={(place) => {
+                                                    let postcode = "";
+                                                    if (place.address_components) {
+                                                        for (const component of place.address_components) {
+                                                            if (component.types.includes("postal_code")) {
+                                                                postcode = component.long_name;
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+                                                    // If we found a postcode, use it. Otherwise use the formatted address or name as fallback if needed, 
+                                                    // but for "Postcode" field we prefer the actual postcode. 
+                                                    // Some users might select an address that doesn't resolve a postcode immediately (rare in UK).
+                                                    // If no postcode found, we'll keep the text they typed or possibly the formatted address
+                                                    // but let's stick to trying to update with the refined postcode.
+                                                    if (postcode) {
+                                                        setFormData(prev => ({ ...prev, postcode }));
+                                                        setError('');
+                                                    } else if (place.formatted_address) {
+                                                        // Fallback to address if they selected something without a clear postal code component (unlikely for UK address)
+                                                        // or maybe they just typed a postcode and hit enter?
+                                                        // use formatted address might be too long for "postcode" field but let's use it for now
+                                                        // tailored to user behavior.
+                                                        // actually, sticking to just updating if postcode is found is safer to avoid putting "London, UK" in a postcode field.
+                                                    }
+                                                }}
+                                                options={{
+                                                    types: ['geocode'],
+                                                    componentRestrictions: { country: "uk" },
+                                                }}
+                                                value={formData.postcode}
+                                                onChange={(e: any) => handleChange('postcode')(e)}
+                                                className="w-full pl-10 pr-4 py-3 bg-slate-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                                placeholder="e.g. SW1A 1AA"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
 
@@ -706,7 +735,7 @@ export default function ContractorRegister() {
                                 <div className="grid grid-cols-2 gap-3 pt-2">
                                     <button
                                         type="button"
-                                        onClick={() => setStep(1)}
+                                        onClick={() => goToStep(1)}
                                         className="py-3 px-4 bg-white/5 hover:bg-white/10 text-white font-medium rounded-xl border border-white/10 transition-colors"
                                     >
                                         Back
@@ -780,7 +809,173 @@ export default function ContractorRegister() {
                                 <div className="grid grid-cols-2 gap-3 pt-4">
                                     <button
                                         type="button"
-                                        onClick={() => setStep(2)}
+                                        onClick={() => goToStep(2)}
+                                        className="py-3 px-4 bg-white/5 hover:bg-white/10 text-white font-medium rounded-xl border border-white/10 transition-colors"
+                                    >
+                                        Back
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={nextStep}
+                                        className="py-3 px-4 bg-amber-500 hover:bg-amber-400 text-white font-medium rounded-xl shadow-lg shadow-amber-500/20 transition-colors"
+                                    >
+                                        Next Step
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* STEP 4: Skills & Value */}
+                        {step === 4 && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-white mb-2">What do you do?</h2>
+                                    <p className="text-slate-400">Select your core services to get matched with jobs.</p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-300 mb-3">Core Services</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {SERVICES.map(service => (
+                                            <button
+                                                key={service}
+                                                type="button"
+                                                onClick={() => {
+                                                    const newSkills = formData.skills.includes(service)
+                                                        ? formData.skills.filter(s => s !== service)
+                                                        : [...formData.skills, service];
+                                                    setFormData({ ...formData, skills: newSkills });
+                                                }}
+                                                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${formData.skills.includes(service)
+                                                    ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
+                                                    : 'bg-slate-900/50 text-slate-400 border border-white/10 hover:border-white/20'
+                                                    }`}
+                                            >
+                                                {service}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-300 mb-3">What sets you apart?</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {VALUE_TAGS.map(tag => (
+                                            <button
+                                                key={tag}
+                                                type="button"
+                                                onClick={() => {
+                                                    const newTags = formData.valueTags.includes(tag)
+                                                        ? formData.valueTags.filter(t => t !== tag)
+                                                        : [...formData.valueTags, tag];
+                                                    setFormData({ ...formData, valueTags: newTags });
+                                                }}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${formData.valueTags.includes(tag)
+                                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                                    : 'bg-slate-900/30 text-slate-500 border border-white/5 hover:border-white/10'
+                                                    }`}
+                                            >
+                                                {tag}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3 pt-4">
+                                    <button
+                                        type="button"
+                                        onClick={() => goToStep(3)}
+                                        className="py-3 px-4 bg-white/5 hover:bg-white/10 text-white font-medium rounded-xl border border-white/10 transition-colors"
+                                    >
+                                        Back
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={nextStep}
+                                        className="py-3 px-4 bg-amber-500 hover:bg-amber-400 text-white font-medium rounded-xl shadow-lg shadow-amber-500/20 transition-colors"
+                                    >
+                                        Next Step
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* STEP 5: Rates */}
+                        {step === 5 && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-white mb-2">Set your rates</h2>
+                                    <p className="text-slate-400">You can change these anytime in your dashboard.</p>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div className="bg-slate-900/50 rounded-xl p-4 border border-white/5 space-y-3">
+                                        <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">Hourly Rates per Trade</h3>
+                                        {formData.skills.length > 0 ? (
+                                            formData.skills.map(skill => (
+                                                <div key={skill}>
+                                                    <label className="block text-sm font-medium text-slate-300 mb-1.5">{skill} Rate (£/hr)</label>
+                                                    <div className="relative">
+                                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">£</span>
+                                                        <input
+                                                            type="number"
+                                                            value={formData.skillRates[skill] || ''}
+                                                            onChange={(e) => {
+                                                                setFormData({
+                                                                    ...formData,
+                                                                    skillRates: {
+                                                                        ...formData.skillRates,
+                                                                        [skill]: e.target.value
+                                                                    }
+                                                                });
+                                                            }}
+                                                            className="w-full pl-8 pr-4 py-3 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                                            placeholder="e.g. 60"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="text-center py-4 text-slate-500 italic">
+                                                Go back and select services first.
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-300 mb-1.5">Call-out Fee (£)</label>
+                                            <div className="relative">
+                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">£</span>
+                                                <input
+                                                    type="number"
+                                                    value={formData.calloutFee}
+                                                    onChange={handleChange('calloutFee')}
+                                                    className="w-full pl-8 pr-4 py-3 bg-slate-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                                    placeholder="80"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-300 mb-1.5">Day Rate (Optional)</label>
+                                            <div className="relative">
+                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">£</span>
+                                                <input
+                                                    type="number"
+                                                    value={formData.dayRate}
+                                                    onChange={handleChange('dayRate')}
+                                                    className="w-full pl-8 pr-4 py-3 bg-slate-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                                    placeholder="350"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3 pt-4">
+                                    <button
+                                        type="button"
+                                        onClick={() => goToStep(4)}
                                         className="py-3 px-4 bg-white/5 hover:bg-white/10 text-white font-medium rounded-xl border border-white/10 transition-colors"
                                     >
                                         Back
@@ -808,7 +1003,7 @@ export default function ContractorRegister() {
                         </div>
                     </form>
                 </div>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 }

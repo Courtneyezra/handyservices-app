@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Copy, Check, Loader2, LinkIcon, Send, X, Plus, Shield, ArrowRight, Search, Eye, Edit, Trash2, RefreshCw, Phone, CreditCard, Calendar, Settings, FileText, Receipt, DollarSign, Wrench, Sparkles } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { FaWhatsapp } from 'react-icons/fa';
+import Autocomplete from "react-google-autocomplete";
 import { format } from 'date-fns';
 import {
   urgencyReasonEnum,
@@ -176,6 +177,9 @@ export default function GenerateQuoteLink() {
   const [assessmentReason, setAssessmentReason] = useState("");
   const [isPolishingReason, setIsPolishingReason] = useState(false);
   const [isParsingExtra, setIsParsingExtra] = useState(false);
+  const [whatsappSummary, setWhatsappSummary] = useState('');
+  const [address, setAddress] = useState("");
+  const [coordinates, setCoordinates] = useState<{ lat: number, lng: number } | null>(null);
 
   // AI Strategy Director State
   const [aiStrategy, setAiStrategy] = useState<{
@@ -618,6 +622,8 @@ export default function GenerateQuoteLink() {
         phone,
         email: customerEmail || undefined,
         postcode,
+        address: address || undefined,
+        coordinates: coordinates || undefined,
         quoteMode: finalQuoteMode,
         visitTierMode: finalQuoteMode === 'consultation' ? visitTierMode : 'standard', // Pass the tier preference
         clientType,
@@ -746,26 +752,29 @@ export default function GenerateQuoteLink() {
 
   const handlePolishReason = async () => {
     if (!assessmentReason) return;
+    if (!customerName || !postcode) {
+      toast({ title: "Missing Info", description: "Please enter Customer Name and Postcode first.", variant: "destructive" });
+      return;
+    }
     setIsPolishingReason(true);
     try {
-      const res = await fetch('/api/polish-assessment-reason', {
+      const res = await fetch('/api/generate-personalized-note', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: assessmentReason })
+        body: JSON.stringify({ reason: assessmentReason, customerName, postcode, address: address || undefined })
       });
       const data = await res.json();
-      if (data.polished) {
-        setAssessmentReason(data.polished);
-        toast({ title: "Reason Polished", description: "AI has refined your reason." });
+      if (data.note) {
+        setAssessmentReason(data.note);
+        setWhatsappSummary(data.summary || '');
+        toast({ title: "Reason Personalised", description: "AI has created an expert note and summary." });
       }
     } catch (e) {
-      toast({ title: "Error", description: "Failed to polish reason", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to generate note", variant: "destructive" });
     } finally {
       setIsPolishingReason(false);
     }
   };
-
-
 
   // Generate WhatsApp message based on inputs
   const generateWhatsAppMessage = () => {
@@ -784,17 +793,13 @@ export default function GenerateQuoteLink() {
 
     // --- DIAGNOSTIC MODE: Anti-Cowboy / Deposit Script ---
     if (visitTierMode === 'tiers' || quoteMode === 'consultation') {
-      message += `Based on the photos/description, to give you a *Fixed Price* we can legally stand by, I need a Top Rated Handyman to assess the site first.\n\n`;
+      const reasonAction = whatsappSummary ? ` to ${whatsappSummary}` : '';
 
-      if (assessmentReason) {
-        message += `${assessmentReason}\n\n`;
-      } else {
-        message += `(Giving you a quote right now would just be a guess!)\n\n`;
-      }
-      message += `To secure the slot, we ask for a *Refundable Diagnostic Deposit*.\n\n`;
+      message += `I've had a look at the job${reasonAction}. To give you a *Fixed Price* we can legally stand by, I need a Top Rated Handyman to assess the site first.\n\n`;
+      message += `I've put together a personalised expert plan for you here (includes my full assessment):\n${generatedUrl}\n\n`;
+      message += `To secure the slot, we ask for a *Refundable Diagnostic Deposit*.\n`;
       message += `🟢 *100% Refundable*: Credited back to your final quote.\n`;
-      message += `🛡️ *Expert Assessment*: You get a vetted pro, not a "cowboy" or salesperson.\n\n`;
-      message += `Book your slot here (Standard & Priority options available):\n${generatedUrl}`;
+      message += `🛡️ *Expert Assessment*: You get a vetted pro, not a "cowboy" or salesperson.`;
       return message;
     }
 
@@ -1413,6 +1418,71 @@ export default function GenerateQuoteLink() {
                 </Card>
               )}
 
+              {/* 1. CUSTOMER INFORMATION - MOVED TO TOP */}
+              <Card className="jobber-card shadow-sm border-l-4 border-l-blue-500">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-secondary">
+                    <div className="bg-blue-100 p-1.5 rounded-full">
+                      <LinkIcon className="h-5 w-5 text-blue-600" />
+                    </div>
+                    1. Customer Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="customerName">Customer Name *</Label>
+                      <Input id="customerName" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="John Smith" className="bg-background" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="address">Full Address (Derby/Notts) *</Label>
+                      <Autocomplete
+                        apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY}
+                        onPlaceSelected={(place) => {
+                          if (place.formatted_address) {
+                            setAddress(place.formatted_address);
+                            // Extract postcode
+                            const postcodeComp = place.address_components?.find((c: any) => c.types.includes('postal_code'));
+                            if (postcodeComp) setPostcode(postcodeComp.long_name);
+
+                            // Extract coordinates
+                            if (place.geometry?.location) {
+                              setCoordinates({
+                                lat: place.geometry.location.lat(),
+                                lng: place.geometry.location.lng()
+                              });
+                            }
+                          }
+                        }}
+                        onChange={(e: any) => setAddress(e.target.value)}
+                        options={{
+                          componentRestrictions: { country: "gb" },
+                          types: ["address"],
+                        }}
+                        defaultValue={address || postcode}
+                        placeholder="Search Google Maps..."
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                      {/* Hidden Postcode fallback just in case or for manual override if needed? 
+                           For now, we trust the autocomplete or manual typing in the same box if it allows free text.
+                           React-google-autocomplete allows typing, but onPlaceSelected only fires on selection.
+                           We should also handle 'onChange' to allow manual entry if not selected.
+                        */}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="phone">Phone Number *</Label>
+                      <Input id="phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07123456789" className="bg-background" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email (Optional)</Label>
+                      <Input id="email" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="john@example.com" className="bg-background" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* DIAGNOSTIC MODE: Simple Card */}
               {generatorTab === 'diagnostic' && (
                 <Card className="jobber-card shadow-sm border-2 border-blue-500/20">
@@ -1522,10 +1592,6 @@ export default function GenerateQuoteLink() {
                         checked={clientType === 'commercial'}
                         onCheckedChange={(checked) => setClientType(checked ? 'commercial' : 'residential')}
                       />
-                      <Switch
-                        checked={clientType === 'commercial'}
-                        onCheckedChange={(checked) => setClientType(checked ? 'commercial' : 'residential')}
-                      />
                     </div>
 
                     {/* Consolidated Reason for Visit Input */}
@@ -1559,70 +1625,7 @@ export default function GenerateQuoteLink() {
                 </Card>
               )}
 
-              {/* Customer Information Card */}
-              <Card className="jobber-card shadow-sm">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-secondary">
-                    <LinkIcon className="h-5 w-5" />
-                    Customer Information
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="customerName" className="text-foreground font-medium">Customer Name *</Label>
-                      <Input
-                        id="customerName"
-                        value={customerName}
-                        onChange={(e) => setCustomerName(e.target.value)}
-                        placeholder="John Smith"
-                        className="bg-background text-foreground border-input"
-                        data-testid="input-customer-name"
-                      />
-                    </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="phone" className="text-foreground font-medium">Phone Number *</Label>
-                      <Input
-                        id="phone"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="07123456789"
-                        className="bg-background text-foreground border-input"
-                        data-testid="input-phone"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="postcode" className="text-foreground font-medium">Postcode *</Label>
-                      <Input
-                        id="postcode"
-                        value={postcode}
-                        onChange={(e) => setPostcode(e.target.value)}
-                        placeholder="SW1A 1AA"
-                        className="bg-background text-foreground border-input"
-                        data-testid="input-postcode"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="email" className="text-foreground font-medium">Email (Optional)</Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        value={customerEmail}
-                        onChange={(e) => setCustomerEmail(e.target.value)}
-                        placeholder="john@example.com"
-                        className="bg-background text-foreground border-input"
-                        data-testid="input-email"
-                      />
-                    </div>
-                  </div>
-
-                </CardContent>
-              </Card>
 
               {/* Optional Extras Card (Estimator Only) */}
               {generatorTab === 'estimator' && (
