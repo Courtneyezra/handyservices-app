@@ -19,11 +19,12 @@ import { Elements } from '@stripe/react-stripe-js';
 import { stripePromise } from '@/lib/stripe';
 // import handymanPhoto from '@assets/Untitled design (27)_1762913661129.png';
 // import handyServicesLogo from '@assets/Copy of Copy of Add a heading (256 x 256 px)_1764065869316.png';
-import payIn3PromoImage from '@assets/pay-in-3-banner.png';
+import payIn3PromoImage from '@assets/pay-in-3-banner-original.jpg';
 import mikeProfilePhoto from '@assets/mike-profile-photo.png';
 import { NeonBadge } from '@/components/ui/neon-badge';
 import { format, addDays, addWeeks } from 'date-fns';
 import { ExpertStickyNote } from '@/components/ExpertStickyNote';
+import { getExpertNoteText } from "@/lib/quote-helpers";
 
 // Fixed value bullets per tier (hardcoded, not from database)
 const HHH_FIXED_VALUE_BULLETS = {
@@ -997,47 +998,20 @@ export default function PersonalizedQuotePage() {
 
 
 
+          import {getExpertNoteText} from "@/lib/quote-helpers";
+
+          // ... inside the component ...
+
           {/* Expert Note Display (HHH Mode) */}
           {quote.quoteMode !== 'simple' && (
             <div className="mb-10 px-4">
-              {(() => {
-                // 1. Determine Summary
-                const summary = quote.jobs?.[0]?.summary || quote.jobs?.[0]?.description || quote.jobDescription;
-
-                // 2. Determine Deliverables
-                let deliverables: string[] = [];
-                if (quote.jobs && quote.jobs.length > 0) {
-                  quote.jobs.forEach(job => {
-                    if (job.tasks) {
-                      job.tasks.forEach(t => {
-                        const d = t.deliverable || t.description;
-                        if (d) deliverables.push(d);
-                      });
-                    }
-                  });
-                } else if (quote.coreDeliverables) {
-                  deliverables = quote.coreDeliverables;
-                }
-
-                // 3. Construct Text
-                // Use assessmentReason as base if no structured jobs, otherwise build the "Job Sheet"
-                // User Requirement: "For generated quotes the note needs to include all the information in the screenshot" -> Summary + Bullets
-                const hasStructuredData = summary || deliverables.length > 0;
-
-                const displayText = hasStructuredData
-                  ? `${summary ? summary + '\n\n' : ''}${deliverables.map(d => `• ${d}`).join('\n')}`
-                  : (quote.assessmentReason || quote.jobDescription);
-
-                return (
-                  <ExpertStickyNote
-                    text={displayText}
-                    customerName={quote.customerName}
-                    phone={quote.phone}
-                    address={quote.address || quote.postcode}
-                    mikePhotoUrl={mikeProfilePhoto}
-                  />
-                );
-              })()}
+              <ExpertStickyNote
+                text={getExpertNoteText(quote)}
+                customerName={quote.customerName}
+                phone={quote.phone}
+                address={quote.address || quote.postcode}
+                mikePhotoUrl={mikeProfilePhoto}
+              />
             </div>
           )}
 

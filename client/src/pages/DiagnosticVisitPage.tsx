@@ -234,14 +234,12 @@ export default function DiagnosticVisitPage() {
                             To guarantee a fixed price we can legally stand by, our <span className="text-primary font-bold">Top Rated Handyman</span> first needs to assess the site.
                         </p>
 
-                        {quote.assessmentReason && (
-                            <ExpertStickyNote
-                                text={quote.assessmentReason}
-                                address={quote.address || quote.postcode}
-                                mikePhotoUrl={mikeProfilePhoto}
-                                className="mt-8"
-                            />
-                        )}
+                        <ExpertStickyNote
+                            text={quote.assessmentReason || quote.jobDescription}
+                            address={quote.address || quote.postcode}
+                            mikePhotoUrl={mikeProfilePhoto}
+                            className="mt-8"
+                        />
                     </motion.div>
                 </div>
 
