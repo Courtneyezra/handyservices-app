@@ -3,8 +3,8 @@ import { loadStripe } from '@stripe/stripe-js';
 // Get the Stripe publishable key from environment variables
 // Use test key in development, live key in production
 const rawStripeKey = import.meta.env.DEV
-    ? import.meta.env.VITE_STRIPE_TEST_PUBLIC_KEY
-    : import.meta.env.VITE_STRIPE_PUBLIC_KEY;
+    ? (import.meta.env.VITE_STRIPE_TEST_PUBLIC_KEY || import.meta.env.VITE_STRIPE_PUBLIC_KEY)
+    : (import.meta.env.VITE_STRIPE_PUBLIC_KEY || import.meta.env.VITE_STRIPE_TEST_PUBLIC_KEY);
 
 // Debug: log raw key format (masked)
 console.log('[Stripe] Raw key from env:', rawStripeKey ? `${rawStripeKey.substring(0, 10)}...${rawStripeKey.substring(rawStripeKey.length - 5)}` : 'undefined');
