@@ -70,7 +70,10 @@ export default function CallsPage() {
                     </div>
                     <div className="flex items-center gap-4">
                         <button
-                            onClick={() => refetch()}
+                            onClick={() => {
+                                console.log("Manually refreshing call logs...");
+                                refetch();
+                            }}
                             disabled={isRefetching}
                             className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-all duration-200 disabled:opacity-50"
                             title="Refresh logs"
