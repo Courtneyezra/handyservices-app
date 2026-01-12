@@ -325,7 +325,7 @@ export default function ContractorRegister() {
                                         <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center font-bold text-slate-900">
                                             {formData.slug ? formData.slug.charAt(0).toUpperCase() : 'H'}
                                         </div>
-                                        <span className="text-white font-medium hidden md:block">
+                                        <span className="text-white font-medium">
                                             {formData.slug ? formData.slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Your Business'}
                                         </span>
                                     </div>

@@ -86,14 +86,14 @@ export function DesktopLeadForm() {
     return (
         <div className="bg-slate-900/80 backdrop-blur-md border border-slate-700/50 p-6 rounded-2xl shadow-xl max-w-lg w-full">
             <div className="mb-4">
-                <h3 className="text-xl font-bold text-white">Get a Free Quote</h3>
-                <p className="text-slate-400 text-sm">Tell us what you need, and we'll reply with a fixed price.</p>
+                <h3 className="text-xl font-bold text-white">Prefer to speak to a human?</h3>
+                <p className="text-slate-400 text-sm">Enter your number and we'll call you back with a price.</p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                     <Textarea
-                        placeholder="What needs doing? (e.g. leaking tap, TV mounting...)"
+                        placeholder="What do you need help with?"
                         className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 min-h-[100px] text-lg resize-none focus-visible:ring-emerald-500"
                         value={formData.jobDescription}
                         onChange={(e) => setFormData({ ...formData, jobDescription: e.target.value })}
@@ -121,12 +121,13 @@ export function DesktopLeadForm() {
                     disabled={loading}
                     className="w-full h-14 text-xl font-bold rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-900 shadow-lg shadow-amber-400/20 transition-all hover:scale-[1.02]"
                 >
-                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Get Instant Quote"}
+                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Request Call Back"}
                 </Button>
 
-                <p className="text-xs text-center text-slate-500">
-                    No payment required. We'll verify availability first.
-                </p>
+                <div className="text-center pt-2">
+                    <p className="text-sm text-slate-400 mb-1">Or call us directly on:</p>
+                    <p className="text-xl font-bold text-white tracking-wide">07449 501 762</p>
+                </div>
             </form>
         </div>
     );
