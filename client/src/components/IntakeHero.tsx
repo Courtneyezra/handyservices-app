@@ -63,23 +63,17 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
               </p>
 
               {/* Primary Actions: Call & WhatsApp */}
-              <div className="flex flex-col sm:flex-row gap-3 max-w-xl mx-auto lg:mx-0 mb-10">
+              <div className="flex flex-col sm:flex-row gap-4 max-w-xl mx-auto lg:mx-0 mb-10 text-base md:text-lg">
                 <Button
                   type="button"
                   onClick={() => {
                     onConversion?.('hero_call');
                     window.location.href = "tel:+447449501762";
                   }}
-                  className="flex-1 py-2.5 lg:py-8 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-xl lg:rounded-2xl text-base lg:text-2xl flex items-center justify-center gap-2 lg:gap-3 shadow-lg shadow-amber-400/20 transition-transform hover:scale-105"
+                  className="flex-1 py-4 lg:py-8 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-full shadow-lg shadow-amber-400/20 transition-transform hover:scale-105"
                 >
-                  <div className="bg-white/20 p-1 lg:p-2 rounded-full">
-                    <Phone className="w-4 h-4 lg:w-7 lg:h-7" />
-                  </div>
-                  <div>
-                    <span className="block text-[8px] lg:text-xs font-normal opacity-80 uppercase tracking-wider leading-none mb-0.5">Instant Quote</span>
-                    <span className="lg:hidden">{mobileCtaText || ctaText || "Call Now"}</span>
-                    <span className="hidden lg:inline">{desktopCtaText || ctaText || "Call Now"}</span>
-                  </div>
+                  <span className="lg:hidden">{mobileCtaText || ctaText || "Call Now"}</span>
+                  <span className="hidden lg:inline">{desktopCtaText || ctaText || "Call Now"}</span>
                 </Button>
 
                 <Button
@@ -88,14 +82,10 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                     onConversion?.('hero_whatsapp');
                     window.open("https://wa.me/447508744402", "_blank");
                   }}
-                  className="flex-1 py-2.5 lg:py-8 bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold rounded-xl lg:rounded-2xl text-base lg:text-2xl flex items-center justify-center gap-2 lg:gap-3 shadow-lg shadow-green-500/20 transition-transform hover:scale-105"
+                  className="flex-1 py-4 lg:py-8 bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold rounded-full shadow-lg shadow-green-500/20 transition-transform hover:scale-105 flex items-center justify-center gap-2"
                 >
-                  <div className="bg-white/20 p-1 lg:p-2 rounded-full">
-                    <MessageCircle className="w-4 h-4 lg:w-7 lg:h-7" />
-                  </div>
-                  <div>
-                    WhatsApp Us
-                  </div>
+                  <MessageCircle className="w-5 h-5 lg:w-6 lg:h-6" />
+                  WhatsApp Us
                 </Button>
               </div>
 
