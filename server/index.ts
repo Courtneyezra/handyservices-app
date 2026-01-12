@@ -37,9 +37,14 @@ import contractorDashboardRouter from './contractor-dashboard-routes';
 import placesRouter from './places-routes';
 import { stripeRouter } from './stripe-routes';
 import { elevenLabsWebhookRouter } from './eleven-labs/webhook';
+import contentRouter from './content';
+
 
 import publicRoutes from './public-routes';
 import mediaRouter from './media-upload';
+import session from "express-session";
+import passport from "passport";
+import authRouter, { requireAdmin } from "./auth";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,6 +52,16 @@ const __dirname = path.dirname(__filename);
 const app = express();
 app.use(express.json({ limit: '10mb' })); // Increased limit for large transcriptions
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+app.use(session({
+    secret: process.env.SESSION_SECRET || "dev_secret_key_123",
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: process.env.NODE_ENV === "production" }
+}));
+
+app.use(passport.initialize());
+// app.use(passport.session()); // Not strictly needed as we use manual tokens, but harmless if configured correctly
 
 // DEBUG: Global Logger removed
 // Force restart for schema update
@@ -200,7 +215,7 @@ app.use('/api/places', placesRouter); // API: Places Search
 app.use('/api', testRouter);
 app.use('/api/whatsapp', whatsappRouter); // Legacy Twilio Webhooks
 app.use('/api/whatsapp', metaWhatsAppRouter); // Meta Cloud API Webhooks
-app.use('/api/dashboard', dashboardRouter);
+app.use('/api/dashboard', requireAdmin, dashboardRouter);
 app.use('/api/handymen', handymenRouter);
 app.use('/api/calls', callsRouter);
 app.use('/api/calls', callsRouter);
@@ -209,6 +224,7 @@ app.use('/api', devRouter);
 app.use('/api/settings', settingsRouter);
 app.use(stripeRouter); // Stripe payment routes
 app.use('/api', elevenLabsWebhookRouter); // ElevenLabs Webhooks
+app.use('/api', contentRouter); // Landing Pages & Banners
 
 // Contractor Portal Routes
 app.use('/api/contractor', contractorAuthRouter);
@@ -217,6 +233,7 @@ app.use('/api/contractor/media', mediaRouter);
 app.use('/api/contractor/availability', contractorAvailabilityRouter);
 app.use('/api/contractor/jobs', contractorJobsRouter);
 app.use('/api/public', publicRoutes); // Public API Routes
+app.use('/api/auth', authRouter); // Auth Routes
 // app.use('/api/places', placesRouter); // API: Places Search (Moved to register before catch-all)
 
 // Serve static assets (for hold music)
@@ -501,7 +518,21 @@ app.post('/api/twilio/voice', async (req, res) => {
 
         // Only update outcome if we have a meaningful one
         if (initialOutcome !== 'UNKNOWN') {
-            await updateCall(callRecordId, { outcome: initialOutcome });
+            const updateProps: Record<string, any> = { outcome: initialOutcome };
+
+            // Store routing context for differentiation
+            if (routing.destination === 'busy-agent') {
+                updateProps.missedReason = 'busy_agent';
+            } else if (routing.destination === 'eleven-labs') {
+                if (routing.elevenLabsContext === 'out-of-hours') {
+                    updateProps.missedReason = 'out_of_hours';
+                } else {
+                    // Start of Catch-all: Ensure we tag it as an agent call even if in-hours
+                    updateProps.missedReason = 'ai_agent';
+                }
+            }
+
+            await updateCall(callRecordId, updateProps);
         }
     }
 

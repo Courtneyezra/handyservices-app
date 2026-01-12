@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Link, useLocation } from "wouter";
 import { useLiveCall } from "@/contexts/LiveCallContext";
@@ -76,6 +76,12 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             items: [
                                 { icon: Wrench, label: "Handyman Map", href: "/admin/handymen" },
                                 { icon: LayoutDashboard, label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },
+                            ]
+                        },
+                        {
+                            title: "MARKETING",
+                            items: [
+                                { icon: LayoutTemplate, label: "Marketing", href: "/admin/marketing" },
                             ]
                         },
                         {
@@ -158,6 +164,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                         { label: "SKU Manager", href: "/admin/skus" },
                                         { label: "Handyman Map", href: "/admin/handymen" },
                                         { label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },
+                                        { label: "Marketing", href: "/admin/marketing" },
                                         { label: "Settings", href: "/admin/settings" },
                                     ]
                                 }

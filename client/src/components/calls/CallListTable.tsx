@@ -266,6 +266,12 @@ function getRouteBadge(call: CallSummary) {
         call.outcome === 'RECOVERED_FROM_TWILIO';
 
     if (isAgent) {
+        if (call.missedReason === 'busy_agent') {
+            return <Badge className="bg-amber-600 hover:bg-amber-700 border-amber-500">Agent (Busy)</Badge>;
+        }
+        if (call.missedReason === 'out_of_hours' || call.missedReason === 'out-of-hours') {
+            return <Badge className="bg-indigo-600 hover:bg-indigo-700 border-indigo-500">Agent (OOH)</Badge>;
+        }
         return <Badge className="bg-blue-600 hover:bg-blue-700 border-blue-500">Agent</Badge>;
     }
 

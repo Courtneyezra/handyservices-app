@@ -26,6 +26,14 @@ import TestLab from "./pages/TestLab";
 import TrainingCenter from "./pages/TrainingCenter";
 import SettingsPage from "./pages/SettingsPage";
 
+// Admin Content Management
+const LandingPages = lazy(() => import("@/pages/admin/LandingPages"));
+const MarketingDashboard = lazy(() => import("@/pages/admin/MarketingDashboard"));
+const LandingPageBuilder = lazy(() => import("@/pages/admin/LandingPageBuilder"));
+const Banners = lazy(() => import("@/pages/admin/Banners"));
+const LandingPageRender = lazy(() => import("@/pages/LandingPageRender"));
+import SmartBanner from "@/components/SmartBanner";
+
 // Public customer-facing pages - Lazy loaded (not needed for admin initial load)
 const VideoQuote = lazy(() => import("@/pages/VideoQuote"));
 const VideoReview = lazy(() => import("@/pages/VideoReview"));
@@ -53,6 +61,12 @@ const ContractorOnboarding = lazy(() => import('./pages/ContractorOnboarding'));
 const ContractorSettingsPage = lazy(() => import('./pages/contractor/dashboard/ContractorSettingsPage'));
 
 
+
+
+// Auth Pages
+const AdminLogin = lazy(() => import("@/pages/AdminLogin"));
+const GoogleCallback = lazy(() => import("@/pages/GoogleCallback"));
+import ProtectedRoute from "@/components/ProtectedRoute";
 
 // Public Contractor Profiles
 const ContractorPublicProfile = lazy(() => import("@/pages/public/ContractorPublicProfile"));
@@ -115,12 +129,14 @@ function Router() {
 
     return (
         <Suspense fallback={<LoadingFallback />}>
+            <SmartBanner />
             <Switch>
                 {/* ============ PUBLIC ROUTES ============ */}
                 {/* Landing Pages */}
                 <Route path="/landing" component={HandymanLanding} />
                 <Route path="/derby" component={DerbyLanding} />
                 <Route path="/seasonal-guide" component={SeasonalMenu} />
+                <Route path="/l/:slug" component={LandingPageRender} />
 
                 {/* Customer-facing quote views */}
                 <Route path="/quote-link/:slug">
@@ -151,6 +167,15 @@ function Router() {
                     <ContractorPublicProfile />
                 </Route>
 
+
+                {/* Auth Routes */}
+                <Route path="/admin/login">
+                    <AdminLogin />
+                </Route>
+                <Route path="/auth/callback">
+                    <GoogleCallback />
+                </Route>
+
                 {/* Contractor Portal Routes (separate auth) */}
                 <Route path="/contractor/login">
                     <ContractorLogin />
@@ -165,32 +190,49 @@ function Router() {
                     }}
                 </Route>
                 <Route path="/contractor/dashboard">
-                    <ContractorDashboardHome />
+                    <ProtectedRoute role="contractor">
+                        <ContractorDashboardHome />
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/contractor/dashboard/bookings">
-                    <BookingRequestsPage />
+                    <ProtectedRoute role="contractor">
+                        <BookingRequestsPage />
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/contractor/onboarding">
-                    {/* Security: Should check auth inside component */}
-                    <ContractorOnboarding />
+                    <ProtectedRoute role="contractor">
+                        <ContractorOnboarding />
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/contractor/dashboard/quotes/new">
-                    <NewQuotePage />
+                    <ProtectedRoute role="contractor">
+                        <NewQuotePage />
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/contractor/dashboard/quotes">
-                    <QuotesListPage />
+                    <ProtectedRoute role="contractor">
+                        <QuotesListPage />
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/contractor/dashboard/quotes/:id">
-                    <QuoteDetailsPage />
+                    <ProtectedRoute role="contractor">
+                        <QuoteDetailsPage />
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/contractor/dashboard/jobs">
-                    <JobsPage />
+                    <ProtectedRoute role="contractor">
+                        <JobsPage />
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/contractor/dashboard/jobs/:id">
-                    <JobDetailsPage />
+                    <ProtectedRoute role="contractor">
+                        <JobDetailsPage />
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/contractor/calendar">
-                    <ContractorCalendar />
+                    <ProtectedRoute role="contractor">
+                        <ContractorCalendar />
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/contractor/profile">
                     {() => {
@@ -199,68 +241,110 @@ function Router() {
                     }}
                 </Route>
                 <Route path="/contractor/service-area">
-                    <ContractorServiceArea />
+                    <ProtectedRoute role="contractor">
+                        <ContractorServiceArea />
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/contractor/dashboard/settings">
-                    <ContractorSettingsPage />
+                    <ProtectedRoute role="contractor">
+                        <ContractorSettingsPage />
+                    </ProtectedRoute>
                 </Route>
 
-                {/* ============ ADMIN ROUTES (Protected by Cloudflare Access) ============ */}
+                {/* ============ ADMIN ROUTES (Protected) ============ */}
                 <Route path="/admin">
-                    <SidebarLayout>
-                        <MainDashboard />
-                    </SidebarLayout>
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <MainDashboard />
+                        </SidebarLayout>
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/admin/audio-upload">
-                    <SidebarLayout>
-                        <AudioUploadPage />
-                    </SidebarLayout>
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <AudioUploadPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/admin/live-call">
-                    <SidebarLayout>
-                        <AudioUploadPage />
-                    </SidebarLayout>
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <AudioUploadPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/admin/skus">
-                    <SidebarLayout>
-                        <SKUPage />
-                    </SidebarLayout>
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <SKUPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/admin/whatsapp-intake">
-                    <SidebarLayout>
-                        <WhatsAppInbox />
-                    </SidebarLayout>
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <WhatsAppInbox />
+                        </SidebarLayout>
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/admin/handymen">
-                    <SidebarLayout>
-                        <HandymanMap />
-                    </SidebarLayout>
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <HandymanMap />
+                        </SidebarLayout>
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/admin/handyman/dashboard">
-                    <SidebarLayout>
-                        <ContractorFleetDashboard />
-                    </SidebarLayout>
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <ContractorFleetDashboard />
+                        </SidebarLayout>
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/admin/calls">
-                    <SidebarLayout>
-                        <CallsPage />
-                    </SidebarLayout>
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <CallsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/admin/generate-quote">
-                    <SidebarLayout>
-                        <GenerateQuoteLink />
-                    </SidebarLayout>
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <GenerateQuoteLink />
+                        </SidebarLayout>
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/admin/test-lab">
-                    <SidebarLayout>
-                        <TestLab />
-                    </SidebarLayout>
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <TestLab />
+                        </SidebarLayout>
+                    </ProtectedRoute>
                 </Route>
                 <Route path="/admin/settings">
-                    <SidebarLayout>
-                        <SettingsPage />
-                    </SidebarLayout>
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <SettingsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
                 </Route>
+
+                <Route path="/admin/marketing">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <MarketingDashboard />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/landing-pages/:id">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <LandingPageBuilder />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+
 
                 {/* Redirect root to admin dashboard */}
                 <Route path="/">

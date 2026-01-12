@@ -27,6 +27,7 @@ import realJobBlinds from "@assets/528c52d4-f8ff-4e5b-9853-b68263a62c2f_17646945
 import beforeImage from "@assets/74cb4082-17d2-48b1-bd98-bf51f85bc7a5_(1)_1764694445995.webp";
 import afterImage from "@assets/cb5e8951-9d46-4023-9909-510a89d3da60_1764693845208.webp";
 import payIn3Image from "@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.webp";
+import { useLandingPage } from "@/hooks/useLandingPage";
 
 const WHATSAPP_NUMBER = "+447508744402";
 const WHATSAPP_MESSAGE = encodeURIComponent("I'm interested in Handy Services");
@@ -56,7 +57,11 @@ function GoogleReviewsBadge({ dark = false }: { dark?: boolean }) {
     );
 }
 
-function Header() {
+interface HeaderProps {
+    onConversion?: (source: string) => void;
+}
+
+function Header({ onConversion }: HeaderProps) {
     return (
         <header className="sticky top-0 z-50 bg-slate-800 px-4 lg:px-8 py-3">
             <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -77,6 +82,7 @@ function Header() {
                 <div className="flex items-center gap-3">
                     <a
                         href={`tel:${PHONE_NUMBER}`}
+                        onClick={() => onConversion?.('header_call')}
                         className="hidden lg:flex items-center gap-2 px-4 py-2 text-white border border-white/30 rounded-full hover:bg-white/10 transition-colors"
                         data-testid="button-header-call"
                     >
@@ -87,6 +93,7 @@ function Header() {
                         href={`https://wa.me/${WHATSAPP_NUMBER.replace('+', '')}?text=${WHATSAPP_MESSAGE}`}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={() => onConversion?.('header_whatsapp')}
                         className="flex lg:hidden items-center gap-2 px-4 py-2 bg-amber-400 hover:bg-amber-500 text-slate-900 font-semibold rounded-full transition-colors"
                         data-testid="button-header-whatsapp"
                     >
@@ -99,117 +106,7 @@ function Header() {
     );
 }
 
-function HeroSection() {
-    return (
-        <section className="bg-slate-800 px-4 lg:px-8 py-12 lg:py-20">
-            <div className="max-w-7xl mx-auto">
-                <div className="grid lg:grid-cols-2 gap-12 items-center">
-                    <div className="text-center lg:text-left">
-                        {/* Mobile hero image - only visible on mobile */}
-                        <div className="lg:hidden mb-8 rounded-2xl overflow-hidden max-w-sm mx-auto">
-                            <img
-                                src={mobileHeroImage}
-                                alt="Handy Services handyman at customer door"
-                                className="w-full h-auto object-contain"
-                                loading="eager"
-                                decoding="async"
-                                fetchPriority="high"
-                            />
-                        </div>
 
-                        <div className="inline-flex items-center gap-2 bg-amber-400/20 px-4 py-2 rounded-full mb-6">
-                            <CheckCircle className="w-4 h-4 text-amber-400" />
-                            <span className="text-amber-400 font-medium text-sm">Trusted by 300+ Nottingham Homeowners</span>
-                        </div>
-
-                        <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6 leading-tight font-poppins">
-                            Next-Day<br /><span className="text-amber-400">Handyman Service</span><br />in Nottingham
-                        </h1>
-
-                        <p className="text-xl text-white font-bold mb-8 max-w-xl mx-auto lg:mx-0">
-                            <span className="hidden sm:inline">Describe or record your job. Get an instant fixed quote in seconds.</span>
-                            <span className="sm:hidden">Describe or record your job. Get a fixed quote in seconds.</span>
-                        </p>
-
-                        <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start mb-8">
-                            <a href="#hero" className="scroll-smooth">
-                                <Button
-                                    className="w-full sm:w-auto px-8 py-6 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-full text-lg"
-                                    data-testid="button-hero-quote"
-                                >
-                                    Get Instant Quote
-                                    <ArrowRight className="w-5 h-5 ml-2" />
-                                </Button>
-                            </a>
-
-                            <a
-                                href={`https://wa.me/${WHATSAPP_NUMBER.replace('+', '')}?text=${WHATSAPP_MESSAGE}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex lg:hidden items-center justify-center gap-2 w-full sm:w-auto px-8 py-4 bg-green-500 hover:bg-green-600 text-white font-bold rounded-full text-lg transition-colors"
-                                data-testid="button-hero-whatsapp"
-                            >
-                                <SiWhatsapp className="w-6 h-6" />
-                                Chat on WhatsApp
-                            </a>
-                        </div>
-
-                        <div className="flex flex-wrap items-center justify-center lg:justify-start gap-6 text-white/60">
-                            <div className="flex items-center gap-2">
-                                <Clock className="w-5 h-5 text-amber-400" />
-                                <span>Next-day service</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Mic className="w-5 h-5 text-amber-400" />
-                                <span>Voice recording</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Shield className="w-5 h-5 text-amber-400" />
-                                <span>Fully insured</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <CheckCircle className="w-5 h-5 text-amber-400" />
-                                <span>DBS checked</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="relative hidden lg:block">
-                        <div className="relative rounded-3xl overflow-hidden max-w-lg mx-auto shadow-2xl">
-                            <img
-                                src={heroImage}
-                                alt="Handy Services handyman at customer door"
-                                className="w-full h-auto object-contain"
-                                loading="eager"
-                                decoding="async"
-                                fetchPriority="high"
-                            />
-                        </div>
-
-                        <div className="absolute -bottom-6 -left-6 bg-white rounded-2xl p-4 shadow-xl">
-                            <div className="flex items-center gap-3">
-                                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                                    <CheckCircle className="w-6 h-6 text-green-600" />
-                                </div>
-                                <div>
-                                    <p className="font-bold text-slate-800">Quick Response</p>
-                                    <p className="text-slate-500 text-sm">Average 15 min reply</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="absolute -top-4 -right-4 bg-amber-400 rounded-2xl p-4 shadow-xl">
-                            <div className="flex items-center gap-2">
-                                <Star className="w-5 h-5 fill-slate-800 text-slate-800" />
-                                <span className="font-bold text-slate-800">4.9 Rating</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-    );
-}
 
 function TeamSection() {
     const team = [
@@ -969,6 +866,7 @@ function EcoFriendlySection() {
 }
 
 export default function HandymanLanding() {
+    const { variant, trackConversion } = useLandingPage("landing");
     const [showSticky, setShowSticky] = useState(false);
 
     useEffect(() => {
@@ -987,8 +885,17 @@ export default function HandymanLanding() {
 
     return (
         <div className="min-h-screen bg-slate-50 font-poppins text-slate-900 font-medium">
-            <Header />
-            <IntakeHero location="Nottingham" />
+            <Header onConversion={trackConversion} />
+            <IntakeHero
+                location="Nottingham"
+                headline={variant?.content?.heroHeadline}
+                subhead={variant?.content?.heroSubhead}
+                ctaText={variant?.content?.ctaText}
+                mobileCtaText={variant?.content?.mobileCtaText}
+                desktopCtaText={variant?.content?.desktopCtaText}
+                bannerText={variant?.content?.bannerText}
+                onConversion={trackConversion}
+            />
             <SocialProofSection location="nottingham" />
             <EmergencyServiceSection />
             <TeamSection />
@@ -1005,7 +912,7 @@ export default function HandymanLanding() {
             <TestimonialsSection />
             <GuaranteesSection />
             <FooterCTA />
-            <StickyCTA isVisible={showSticky} />
+            <StickyCTA isVisible={showSticky} onConversion={trackConversion} />
         </div>
     );
 }

@@ -1,4 +1,4 @@
-import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -766,3 +766,85 @@ export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export const insertMessageSchema = createInsertSchema(messages);
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+
+// ==========================================
+// LANDING PAGE & BANNER OPTIMIZATION
+// ==========================================
+
+export const landingPages = pgTable("landing_pages", {
+    id: serial("id").primaryKey(),
+    slug: text("slug").notNull().unique(),
+    name: text("name").notNull(), // Internal name
+    isActive: boolean("is_active").default(true).notNull(),
+    optimizationMode: text("optimization_mode", { enum: ["manual", "auto"] }).default("manual").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_landing_pages_slug").on(table.slug),
+]);
+
+export const landingPageVariants = pgTable("landing_page_variants", {
+    id: serial("id").primaryKey(),
+    landingPageId: integer("landing_page_id").references(() => landingPages.id, { onDelete: 'cascade' }).notNull(),
+    name: text("name").notNull(), // e.g., "Variant A", "Control"
+    weight: integer("weight").default(50).notNull(), // 0-100 probability
+    content: jsonb("content").notNull(), // { heroHeadline, heroSubhead, ctaText, heroImage, ... }
+
+    // Quick Stats (synced from PostHog or local tracking)
+    viewCount: integer("view_count").default(0).notNull(),
+    conversionCount: integer("conversion_count").default(0).notNull(),
+
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_landing_page_variants_page").on(table.landingPageId),
+]);
+
+export const banners = pgTable("banners", {
+    id: serial("id").primaryKey(),
+    content: text("content").notNull(), // HTML or Text
+    linkUrl: text("link_url"),
+    location: text("location").default('top-bar').notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    startDate: timestamp("start_date"),
+    endDate: timestamp("end_date"),
+
+    viewCount: integer("view_count").default(0).notNull(),
+    clickCount: integer("click_count").default(0).notNull(),
+
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Relations
+export const landingPageRelations = relations(landingPages, ({ many }) => ({
+    variants: many(landingPageVariants),
+}));
+
+export const landingPageVariantRelations = relations(landingPageVariants, ({ one }) => ({
+    landingPage: one(landingPages, {
+        fields: [landingPageVariants.landingPageId],
+        references: [landingPages.id],
+    }),
+}));
+
+// Schemas
+export const landingPageContentSchema = z.object({
+    heroHeadline: z.string().optional(),
+    heroSubhead: z.string().optional(),
+    ctaText: z.string().optional(),
+    mobileCtaText: z.string().optional(),
+    desktopCtaText: z.string().optional(),
+    bannerText: z.string().optional(),
+    heroImage: z.string().optional(),
+});
+
+export const insertLandingPageSchema = createInsertSchema(landingPages);
+export const insertLandingPageVariantSchema = createInsertSchema(landingPageVariants);
+export const insertBannerSchema = createInsertSchema(banners);
+
+export type LandingPage = typeof landingPages.$inferSelect;
+export type InsertLandingPage = typeof insertLandingPageSchema.$inferInsert;
+export type LandingPageVariant = typeof landingPageVariants.$inferSelect;
+export type InsertLandingPageVariant = typeof insertLandingPageVariantSchema.$inferInsert;
+export type Banner = typeof banners.$inferSelect;
+export type InsertBanner = typeof insertBannerSchema.$inferInsert;

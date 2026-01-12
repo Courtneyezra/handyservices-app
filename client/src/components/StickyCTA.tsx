@@ -4,9 +4,10 @@ import { Button } from "@/components/ui/button";
 
 interface StickyCTAProps {
     isVisible: boolean;
+    onConversion?: (source: string) => void;
 }
 
-export function StickyCTA({ isVisible }: StickyCTAProps) {
+export function StickyCTA({ isVisible, onConversion }: StickyCTAProps) {
     return (
         <AnimatePresence>
             {isVisible && (
@@ -19,14 +20,20 @@ export function StickyCTA({ isVisible }: StickyCTAProps) {
                 >
                     <div className="bg-slate-900/90 backdrop-blur-lg border border-white/10 rounded-2xl p-3 shadow-2xl flex gap-3">
                         <Button
-                            onClick={() => window.location.href = "tel:+447449501762"}
+                            onClick={() => {
+                                onConversion?.('sticky_call');
+                                window.location.href = "tel:+447449501762";
+                            }}
                             className="flex-1 py-3 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-xl text-sm flex items-center justify-center gap-2"
                         >
                             <Phone className="w-4 h-4" />
                             Call Now
                         </Button>
                         <Button
-                            onClick={() => window.open("https://wa.me/447508744402", "_blank")}
+                            onClick={() => {
+                                onConversion?.('sticky_whatsapp');
+                                window.open("https://wa.me/447508744402", "_blank");
+                            }}
                             className="flex-1 py-3 bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2"
                         >
                             <MessageCircle className="w-4 h-4" />

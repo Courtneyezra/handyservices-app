@@ -105,5 +105,53 @@ elevenLabsWebhookRouter.post('/webhooks/elevenlabs', async (req, res) => {
     }
 });
 
+
+/**
+ * Handle Real-Time Lead Capture from Eleven Labs Tool
+ * Tool: capture_lead
+ * Schema: { name, phone, job_description, urgency }
+ */
+elevenLabsWebhookRouter.post('/eleven-labs/lead', async (req, res) => {
+    console.log('[ElevenLabs-LeadCapture] Received tool call:', JSON.stringify(req.body, null, 2));
+
+    try {
+        const { name, phone, job_description, urgency } = req.body;
+
+        if (!phone || !job_description || !urgency) {
+            console.warn('[ElevenLabs-LeadCapture] Missing required fields');
+            return res.status(400).json({ error: "Missing required fields: phone, job_description, urgency" });
+        }
+
+        // Generate ID
+        const { nanoid } = await import('nanoid');
+        const leadId = `lead_${nanoid(10)}`;
+
+        console.log(`[ElevenLabs-LeadCapture] Creating Lead: ${leadId} for ${phone}`);
+
+        // Insert Lead
+        await db.insert(leads).values({
+            id: leadId,
+            customerName: name || 'Unknown (from AI)',
+            phone: phone,
+            jobDescription: job_description,
+            urgency: urgency,
+            source: 'eleven_labs_tool',
+            status: 'new',
+            jobSummary: `AI Captured: ${job_description} (${urgency})`,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        });
+
+        res.status(200).json({
+            message: "Lead information captured successfully.",
+            lead_id: leadId
+        });
+
+    } catch (error) {
+        console.error('[ElevenLabs-LeadCapture] Error:', error);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+});
+
 // Helper for sql import since I used it above
 import { sql } from "drizzle-orm";
