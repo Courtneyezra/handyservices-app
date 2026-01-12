@@ -290,7 +290,7 @@ export default function ContractorRegister() {
                 }} />
             </div>
 
-            <div className="relative w-full max-w-5xl md:grid md:grid-cols-2 gap-8 items-center h-screen md:h-auto overflow-hidden md:overflow-visible">
+            <div className={`relative w-full max-w-5xl md:grid md:grid-cols-2 gap-8 items-center ${step === 0 ? 'min-h-screen' : 'h-screen overflow-hidden'} md:h-auto md:overflow-visible`}>
 
                 {/* Left Side (Desktop) / Top Background (Mobile) - VISUAL NARRATIVE */}
                 {/* On Step 0 (Landing), we hide this section completely to focus on the centered content. */}
@@ -466,7 +466,7 @@ export default function ContractorRegister() {
                     transition-all duration-500 ease-out
                     flex flex-col
                     max-h-[85vh] md:max-h-none
-                    ${step === 0 ? 'relative !fixed-none !bottom-auto md:w-full md:max-w-4xl md:mx-auto md:!border-0 md:!bg-transparent md:!shadow-none items-center h-auto min-h-screen justify-center' : 'h-auto md:h-auto p-6 md:p-8 overflow-y-auto md:overflow-visible'}
+                    ${step === 0 ? 'relative !static !bottom-auto !max-h-none md:w-full md:max-w-4xl md:mx-auto md:!border-0 md:!bg-transparent md:!shadow-none items-center h-auto min-h-screen justify-center' : 'h-auto md:h-auto p-6 md:p-8 overflow-y-auto md:overflow-visible'}
                 `}>
 
                     {/* Mobile Drag Handle */}

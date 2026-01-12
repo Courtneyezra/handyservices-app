@@ -1,5 +1,6 @@
 import { MessageCircle, CheckCircle, Clock, Shield, Phone, Gift } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DesktopLeadForm } from "@/components/DesktopLeadForm";
 import defaultHeroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
 
 interface IntakeHeroProps {
@@ -62,8 +63,8 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                 {subhead ? subhead.replace("{{location}}", location) : "Call or WhatsApp for an instant fixed quote."}
               </p>
 
-              {/* Primary Actions: Call & WhatsApp */}
-              <div className="flex flex-col sm:flex-row gap-4 max-w-xl mx-auto lg:mx-0 mb-10 text-xl md:text-2xl">
+              {/* Primary Actions: Call & WhatsApp (Mobile Only) */}
+              <div className="lg:hidden flex flex-col sm:flex-row gap-4 max-w-xl mx-auto lg:mx-0 mb-10 text-xl md:text-2xl">
                 <Button
                   type="button"
                   onClick={() => {
@@ -87,6 +88,11 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                   <MessageCircle className="w-6 h-6 lg:w-8 lg:h-8" />
                   WhatsApp Us
                 </Button>
+              </div>
+
+              {/* Desktop Free Quote Flow */}
+              <div className="hidden lg:block mb-8">
+                <DesktopLeadForm />
               </div>
 
               {/* Features List */}
