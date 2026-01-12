@@ -218,4 +218,28 @@ router.post('/:id/availability', async (req, res) => {
     }
 });
 
+// Verify Contractor
+router.post('/:id/verify', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body; // 'verified' | 'rejected' | 'pending' | 'unverified'
+
+        if (!['verified', 'rejected', 'pending', 'unverified'].includes(status)) {
+            return res.status(400).json({ error: "Invalid status" });
+        }
+
+        await db.update(handymanProfiles)
+            .set({
+                verificationStatus: status,
+                updatedAt: new Date()
+            })
+            .where(eq(handymanProfiles.id, id));
+
+        res.json({ success: true, status });
+    } catch (error) {
+        console.error("Failed to verify contractor:", error);
+        res.status(500).json({ error: "Failed to verify contractor" });
+    }
+});
+
 export default router;
