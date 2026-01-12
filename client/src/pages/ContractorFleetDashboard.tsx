@@ -42,6 +42,7 @@ interface Handyman {
     latitude: string;
     longitude: string;
     radiusMiles: number;
+    verificationStatus: 'unverified' | 'pending' | 'verified' | 'rejected';
     user: {
         firstName: string;
         lastName: string;
@@ -62,17 +63,30 @@ interface Handyman {
 export default function ContractorFleetDashboard() {
     const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
     const [searchQuery, setSearchQuery] = useState("");
-    const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'onboarding' | 'offline'>('all');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'verified' | 'pending' | 'unverified'>('all');
 
-    const { data: handymen = [], isLoading } = useQuery<Handyman[]>({
+    const { data: handymen = [], isLoading, refetch } = useQuery<Handyman[]>({
         queryKey: ["/api/handymen"],
     });
+
+    const handleVerify = async (id: string) => {
+        try {
+            await fetch(`/api/handymen/${id}/verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'verified' })
+            });
+            refetch(); // Refresh list
+        } catch (error) {
+            console.error("Failed to verify contractor", error);
+        }
+    };
 
     // Computed Metrics
     const metrics = useMemo(() => {
         const total = handymen.length;
-        const active = handymen.filter(h => h.skills.length > 0).length; // Rough proxy for "active"
-        const onboarding = total - active;
+        const active = handymen.filter(h => h.verificationStatus === 'verified').length;
+        const onboarding = handymen.filter(h => h.verificationStatus === 'pending' || h.verificationStatus === 'unverified').length;
         const coverageIssues = 0; // Placeholder until we have coverage logic
 
         return { total, active, onboarding, coverageIssues };
@@ -87,11 +101,9 @@ export default function ContractorFleetDashboard() {
                 h.city?.toLowerCase().includes(searchLower) ||
                 h.skills.some(s => s.service.name.toLowerCase().includes(searchLower));
 
-            const isActive = h.skills.length > 0;
             const matchesStatus =
                 statusFilter === 'all' ? true :
-                    statusFilter === 'active' ? isActive :
-                        statusFilter === 'onboarding' ? !isActive : true;
+                    h.verificationStatus === statusFilter;
 
             return matchesSearch && matchesStatus;
         });
@@ -147,10 +159,10 @@ export default function ContractorFleetDashboard() {
                     bg="bg-blue-500/10"
                 />
                 <MetricCard
-                    title="Active Today"
+                    title="Active (Verified)"
                     value={metrics.active}
                     icon={Activity}
-                    trend="56 currently available"
+                    trend="Fully onboarded"
                     color="text-emerald-400"
                     bg="bg-emerald-500/10"
                 />
@@ -158,7 +170,7 @@ export default function ContractorFleetDashboard() {
                     title="Pending Approval"
                     value={metrics.onboarding}
                     icon={Clock}
-                    trend="Requires review"
+                    trend="Requires verification"
                     color="text-amber-400"
                     bg="bg-amber-500/10"
                 />
@@ -192,8 +204,9 @@ export default function ContractorFleetDashboard() {
                         </div>
                         <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
                             <FilterButton label="All" active={statusFilter === 'all'} onClick={() => setStatusFilter('all')} />
-                            <FilterButton label="Active" active={statusFilter === 'active'} onClick={() => setStatusFilter('active')} />
-                            <FilterButton label="Onboarding" active={statusFilter === 'onboarding'} onClick={() => setStatusFilter('onboarding')} />
+                            <FilterButton label="Verified" active={statusFilter === 'verified'} onClick={() => setStatusFilter('verified')} />
+                            <FilterButton label="Pending" active={statusFilter === 'pending'} onClick={() => setStatusFilter('pending')} />
+                            <FilterButton label="Unverified" active={statusFilter === 'unverified'} onClick={() => setStatusFilter('unverified')} />
                         </div>
                     </div>
 
@@ -252,13 +265,24 @@ export default function ContractorFleetDashboard() {
                                             </div>
                                         </TableCell>
                                         <TableCell>
-                                            {handyman.skills.length > 0 ? (
+                                            {handyman.verificationStatus === 'verified' && (
                                                 <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20">
-                                                    <CheckCircle2 className="w-3 h-3 mr-1" /> Active
+                                                    <CheckCircle2 className="w-3 h-3 mr-1" /> Verified
                                                 </Badge>
-                                            ) : (
+                                            )}
+                                            {handyman.verificationStatus === 'pending' && (
                                                 <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20">
-                                                    <Clock className="w-3 h-3 mr-1" /> Onboarding
+                                                    <Clock className="w-3 h-3 mr-1" /> Pending
+                                                </Badge>
+                                            )}
+                                            {(handyman.verificationStatus === 'unverified' || !handyman.verificationStatus) && (
+                                                <Badge className="bg-slate-700 text-slate-300 border-slate-600">
+                                                    Unverified
+                                                </Badge>
+                                            )}
+                                            {handyman.verificationStatus === 'rejected' && (
+                                                <Badge className="bg-red-500/10 text-red-400 border-red-500/20">
+                                                    Rejected
                                                 </Badge>
                                             )}
                                         </TableCell>
@@ -267,14 +291,23 @@ export default function ContractorFleetDashboard() {
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <div className="flex items-center justify-end gap-1">
+                                                {(handyman.verificationStatus === 'pending' || handyman.verificationStatus === 'unverified') && (
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="h-8 text-xs border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+                                                        title="Approve Contractor"
+                                                        onClick={() => handleVerify(handyman.id)}
+                                                    >
+                                                        Approve
+                                                    </Button>
+                                                )}
+
                                                 <Button size="sm" variant="ghost" className="h-8 w-8 p-0" title="View Profile">
                                                     <Wrench className="w-4 h-4 text-slate-400" />
                                                 </Button>
                                                 <Button size="sm" variant="ghost" className="h-8 w-8 p-0" title="Locate">
                                                     <MapIcon className="w-4 h-4 text-slate-400" />
-                                                </Button>
-                                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0" title="Call">
-                                                    <Phone className="w-4 h-4 text-slate-400" />
                                                 </Button>
                                             </div>
                                         </TableCell>
