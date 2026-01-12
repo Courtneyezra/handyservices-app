@@ -63,14 +63,14 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
               </p>
 
               {/* Primary Actions: Call & WhatsApp */}
-              <div className="flex flex-col sm:flex-row gap-4 max-w-xl mx-auto lg:mx-0 mb-10 text-2xl md:text-3xl">
+              <div className="flex flex-col sm:flex-row gap-4 max-w-xl mx-auto lg:mx-0 mb-10 text-xl md:text-2xl">
                 <Button
                   type="button"
                   onClick={() => {
                     onConversion?.('hero_call');
                     window.location.href = "tel:+447449501762";
                   }}
-                  className="flex-1 py-8 lg:py-10 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-full shadow-lg shadow-amber-400/20 transition-transform hover:scale-105"
+                  className="flex-1 py-4 lg:py-6 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-full shadow-lg shadow-amber-400/20 transition-transform hover:scale-105"
                 >
                   <span className="lg:hidden">{mobileCtaText || ctaText || "Call Now"}</span>
                   <span className="hidden lg:inline">{desktopCtaText || ctaText || "Call Now"}</span>
@@ -82,9 +82,9 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                     onConversion?.('hero_whatsapp');
                     window.open("https://wa.me/447508744402", "_blank");
                   }}
-                  className="flex-1 py-8 lg:py-10 bg-transparent border-[3px] border-white hover:bg-white/10 text-white font-bold rounded-full transition-transform hover:scale-105 flex items-center justify-center gap-3"
+                  className="flex-1 py-4 lg:py-6 bg-transparent border-[3px] border-white hover:bg-white/10 text-white font-bold rounded-full transition-transform hover:scale-105 flex items-center justify-center gap-2"
                 >
-                  <MessageCircle className="w-8 h-8 lg:w-10 lg:h-10" />
+                  <MessageCircle className="w-6 h-6 lg:w-8 lg:h-8" />
                   WhatsApp Us
                 </Button>
               </div>
