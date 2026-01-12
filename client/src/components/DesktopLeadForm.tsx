@@ -84,17 +84,24 @@ export function DesktopLeadForm() {
     }
 
     return (
-        <div className="bg-slate-900/80 backdrop-blur-md border border-slate-700/50 p-6 rounded-2xl shadow-xl max-w-lg w-full">
-            <div className="mb-4">
-                <h3 className="text-xl font-bold text-white">Prefer to speak to a human?</h3>
-                <p className="text-slate-400 text-sm">Enter your number and we'll call you back with a price.</p>
+        <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 p-8 rounded-3xl shadow-2xl max-w-lg w-full relative overflow-hidden group">
+            {/* Glow effect */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/20 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+
+            <div className="mb-6 relative z-10">
+                <div className="flex items-center gap-2 mb-2">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+                    <span className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Available Now</span>
+                </div>
+                <h3 className="text-2xl font-bold text-white mb-2">Get a Fixed Price Quote</h3>
+                <p className="text-slate-300 text-sm">Enter your details. We'll verify availability and call you back with a price.</p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4 relative z-10">
                 <div>
                     <Textarea
-                        placeholder="What do you need help with?"
-                        className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 min-h-[100px] text-lg resize-none focus-visible:ring-emerald-500"
+                        placeholder="What needs doing? (e.g. leaking tap, TV mounting...)"
+                        className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 min-h-[100px] text-lg resize-none focus-visible:ring-emerald-500 rounded-xl"
                         value={formData.jobDescription}
                         onChange={(e) => setFormData({ ...formData, jobDescription: e.target.value })}
                     />
@@ -103,14 +110,14 @@ export function DesktopLeadForm() {
                 <div className="grid grid-cols-2 gap-3">
                     <Input
                         placeholder="Postcode"
-                        className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 h-12 text-lg focus-visible:ring-emerald-500"
+                        className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 h-12 text-lg focus-visible:ring-emerald-500 rounded-xl"
                         value={formData.postcode}
                         onChange={(e) => setFormData({ ...formData, postcode: e.target.value })}
                     />
                     <Input
                         placeholder="Phone Number"
                         type="tel"
-                        className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 h-12 text-lg focus-visible:ring-emerald-500"
+                        className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 h-12 text-lg focus-visible:ring-emerald-500 rounded-xl"
                         value={formData.phone}
                         onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                     />
@@ -119,14 +126,16 @@ export function DesktopLeadForm() {
                 <Button
                     type="submit"
                     disabled={loading}
-                    className="w-full h-14 text-xl font-bold rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-900 shadow-lg shadow-amber-400/20 transition-all hover:scale-[1.02]"
+                    className="w-full h-14 text-xl font-bold rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-900 shadow-lg shadow-amber-400/20 transition-all hover:scale-[1.02] active:scale-95"
                 >
-                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Request Call Back"}
+                    {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : "Request Call Back"}
                 </Button>
 
-                <div className="text-center pt-2">
-                    <p className="text-sm text-slate-400 mb-1">Or call us directly on:</p>
-                    <p className="text-xl font-bold text-white tracking-wide">07449 501 762</p>
+                <div className="text-center pt-4 border-t border-white/5 mt-4">
+                    <p className="text-sm text-slate-400 mb-1">In a hurry? Call us directly:</p>
+                    <a href="tel:+447449501762" className="text-xl font-bold text-white tracking-wide hover:text-emerald-400 transition-colors">
+                        07449 501 762
+                    </a>
                 </div>
             </form>
         </div>

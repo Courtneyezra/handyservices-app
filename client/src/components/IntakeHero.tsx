@@ -29,12 +29,25 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
         </div>
       )}
 
-      <section id="hero" className="bg-slate-800 px-4 lg:px-8 py-12 lg:py-20 font-poppins font-medium">
-        <div className="max-w-7xl mx-auto">
+      <section id="hero" className="relative bg-slate-900 px-4 lg:px-8 py-12 lg:py-20 font-poppins font-medium min-h-[600px] flex items-center overflow-hidden">
+
+        {/* Background Image & Overlay */}
+        <div className="absolute inset-0 z-0">
+          <img
+            src={heroImage || defaultHeroImage}
+            alt="Background"
+            className="w-full h-full object-cover"
+            loading="eager"
+          />
+          <div className="absolute inset-0 bg-slate-900/80 backdrop-grayscale-[30%]"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/80 to-transparent"></div>
+        </div>
+
+        <div className="max-w-7xl mx-auto relative z-10 w-full">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
-            {/* Left Column - Text and Form */}
+            {/* Left Column - Text */}
             <div className="text-center lg:text-left order-2 lg:order-1">
-              <div className="inline-flex items-center gap-2 bg-amber-400/20 px-4 py-2 rounded-full mb-6">
+              <div className="inline-flex items-center gap-2 bg-amber-400/20 px-4 py-2 rounded-full mb-6 backdrop-blur-sm border border-amber-400/10">
                 <CheckCircle className="w-4 h-4 text-amber-400" />
                 <span className="text-amber-400 font-medium text-sm">Trusted by 300+ {location} Homeowners</span>
               </div>
@@ -46,7 +59,7 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                 </div>
               </div>
 
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6 leading-tight font-poppins">
+              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6 leading-tight font-poppins drop-shadow-lg">
                 {headline ?
                   headline.replace("{{location}}", location).split(location).map((part, i, arr) => (
                     <span key={i}>
@@ -59,7 +72,7 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                 }
               </h1>
 
-              <p className="text-xl text-white font-bold mb-10 max-w-xl mx-auto lg:mx-0">
+              <p className="text-xl text-slate-200 font-medium mb-10 max-w-xl mx-auto lg:mx-0 drop-shadow-md">
                 {subhead ? subhead.replace("{{location}}", location) : "Call or WhatsApp for an instant fixed quote."}
               </p>
 
@@ -90,13 +103,8 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                 </Button>
               </div>
 
-              {/* Desktop Free Quote Flow */}
-              <div className="hidden lg:block mb-8">
-                <DesktopLeadForm />
-              </div>
-
               {/* Features List */}
-              <div className="flex flex-wrap items-center justify-center lg:justify-start gap-6 text-white/60">
+              <div className="flex flex-wrap items-center justify-center lg:justify-start gap-6 text-white/80">
                 <div className="flex items-center gap-2">
                   <Clock className="w-5 h-5 text-amber-400" />
                   <span>Next-day service</span>
@@ -116,17 +124,9 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
               </div>
             </div>
 
-            {/* Right Column - Hero Image */}
-            <div className="order-1 lg:order-2 hidden lg:block">
-              <div className="relative rounded-3xl overflow-hidden max-w-lg mx-auto shadow-2xl">
-                <img
-                  src={heroImage || defaultHeroImage}
-                  alt="Handy Services handyman at customer door"
-                  className="w-full h-auto object-cover"
-                  loading="eager"
-                  decoding="async"
-                />
-              </div>
+            {/* Right Column - Desktop Lead Form (Replaces Image) */}
+            <div className="order-1 lg:order-2 hidden lg:flex justify-end animate-in fade-in slide-in-from-right-10 duration-700">
+              <DesktopLeadForm />
             </div>
           </div>
         </div>
