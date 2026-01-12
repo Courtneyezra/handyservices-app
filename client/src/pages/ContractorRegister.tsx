@@ -9,7 +9,441 @@ export default function ContractorRegister() {
 
 
     // Steps: 0=Intro, 1=Claim URL, 2=Account Detail, 3=Branding
-    const [step, setStep] = useState(0); // Start at 0 now
+    return (
+        <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 md:p-8">
+            <div className="w-full max-w-6xl grid md:grid-cols-2 gap-12 items-center">
+
+                {/* Left Side: Benefits (Hidden on Mobile) */}
+                <div className="hidden md:flex flex-col justify-center space-y-8 p-4">
+                    <div className="space-y-4">
+                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 text-sm font-medium">
+                            <Star className="w-4 h-4 fill-amber-500" />
+                            <span>#1 Platform for Installers</span>
+                        </div>
+                        <h1 className="text-4xl lg:text-5xl font-bold text-white leading-tight">
+                            Transform Your <br />
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-600">
+                                Trade Business
+                            </span>
+                        </h1>
+                        <p className="text-lg text-slate-400 max-w-md leading-relaxed">
+                            Partner with the UK's fastest growing on-demand home service platform. we handle the admin, you do the work.
+                        </p>
+                    </div>
+
+                    <div className="space-y-6">
+                        {[
+                            { title: 'Zero Upfront Costs', desc: 'Free to join, free to list. We only make money when you do.' },
+                            { title: 'Verified Leads', desc: 'No time wasters. Every job is pre-qualified and video verified.' },
+                            { title: 'Instant Payments', desc: 'Get paid immediately upon job completion. No chasing invoices.' },
+                            { title: 'Smart Scheduling', desc: 'AI-powered calendar management filling the gaps in your diary.' }
+                        ].map((item, i) => (
+                            <div key={i} className="flex items-start gap-4">
+                                <div className="mt-1 w-10 h-10 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center flex-shrink-0 group-hover:border-amber-500/50 transition-colors">
+                                    <CheckCircle2 className="w-5 h-5 text-amber-500" />
+                                </div>
+                                <div>
+                                    <h3 className="text-white font-semibold text-lg">{item.title}</h3>
+                                    <p className="text-slate-400 text-sm">{item.desc}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="pt-4 flex items-center gap-4 text-sm text-slate-500">
+                        <div className="flex -space-x-3">
+                            {[1, 2, 3, 4].map(i => (
+                                <div key={i} className="w-8 h-8 rounded-full border-2 border-slate-950 bg-slate-800"></div>
+                            ))}
+                        </div>
+                        <p>Join 2,000+ tradespeople today</p>
+                    </div>
+                </div>
+
+                {/* Right Side: The Form */}
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden">
+                    {/* Background Glints */}
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-8 relative z-10">
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
+                                <span className="font-bold text-white">H</span>
+                            </div>
+                            <span className="font-bold text-xl text-white">Handy</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                            <span className="text-slate-400">Step {step} of 5</span>
+                            <div className="w-20 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div
+                                    className="h-full bg-amber-500 transition-all duration-300"
+                                    style={{ width: `${(step / 5) * 100}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Form Content */}
+                    <form onSubmit={handleSubmit} className="relative z-10">
+
+                        {/* STEP 1: Branding / Slug */}
+                        {step === 1 && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-white mb-2">Claim your free profile</h2>
+                                    <p className="text-slate-400">Choose a unique handle for your business URL.</p>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-300 mb-2">
+                                            Profile URL
+                                        </label>
+                                        <div className="flex rounded-xl bg-slate-950 border border-white/10 focus-within:border-amber-500/50 focus-within:ring-2 focus-within:ring-amber-500/20 transition-all overflow-hidden items-stretch">
+                                            <div className="flex items-center pl-4 pr-2 bg-white/5 border-r border-white/5">
+                                                <Globe className="w-4 h-4 text-slate-400 mr-2" />
+                                                <span className="text-slate-400 text-sm">handy.com/</span>
+                                            </div>
+                                            <input
+                                                type="text"
+                                                value={formData.slug}
+                                                onChange={handleChange('slug')}
+                                                placeholder="your-business-name"
+                                                className="flex-1 bg-transparent px-4 py-3 text-white placeholder-slate-600 focus:outline-none"
+                                            />
+                                            {isCheckingSlug && (
+                                                <div className="pr-4 flex items-center">
+                                                    <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />
+                                                </div>
+                                            )}
+                                        </div>
+                                        {formData.slug && !isCheckingSlug && (
+                                            <div className="mt-2 flex items-center gap-2 text-sm">
+                                                {slugAvailable ? (
+                                                    <span className="text-emerald-400 flex items-center gap-1">
+                                                        <CheckCircle2 className="w-4 h-4" /> Available
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-red-400 flex items-center gap-1">
+                                                        <AlertCircle className="w-4 h-4" /> Taken
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={nextStep}
+                                    className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-white font-bold rounded-xl transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 group"
+                                >
+                                    Claim URL <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                                </button>
+                            </div>
+                        )}
+
+                        {/* STEP 2: Account Details */}
+                        {step === 2 && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-white mb-2">Create your account</h2>
+                                    <p className="text-slate-400">Enter your details and service area.</p>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-300 mb-1.5">First Name</label>
+                                            <input
+                                                type="text"
+                                                value={formData.firstName}
+                                                onChange={handleChange('firstName')}
+                                                className="w-full px-4 py-3 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-300 mb-1.5">Last Name</label>
+                                            <input
+                                                type="text"
+                                                value={formData.lastName}
+                                                onChange={handleChange('lastName')}
+                                                className="w-full px-4 py-3 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-300 mb-1.5">Email</label>
+                                        <input
+                                            type="email"
+                                            value={formData.email}
+                                            onChange={handleChange('email')}
+                                            className="w-full px-4 py-3 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-300 mb-1.5">Password</label>
+                                        <input
+                                            type="password"
+                                            value={formData.password}
+                                            onChange={handleChange('password')}
+                                            className="w-full px-4 py-3 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-300 mb-1.5">Postcode</label>
+                                        <input
+                                            type="text"
+                                            value={formData.postcode}
+                                            onChange={handleChange('postcode')}
+                                            className="w-full px-4 py-3 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3 pt-4">
+                                    <button
+                                        type="button"
+                                        onClick={() => goToStep(1)}
+                                        className="py-3 px-4 bg-white/5 hover:bg-white/10 text-white font-medium rounded-xl border border-white/10 transition-colors"
+                                    >
+                                        Back
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={nextStep}
+                                        className="py-3 px-4 bg-amber-500 hover:bg-amber-400 text-white font-medium rounded-xl shadow-lg shadow-amber-500/20 transition-colors"
+                                    >
+                                        Next Step
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* STEP 3: Bio / Branding */}
+                        {step === 3 && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-white mb-2">Your Business Profile</h2>
+                                    <p className="text-slate-400">Tell customers about your services.</p>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-300 mb-1.5">Phone Number</label>
+                                        <input
+                                            type="tel"
+                                            value={formData.phone}
+                                            onChange={handleChange('phone')}
+                                            className="w-full px-4 py-3 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-300 mb-1.5">Bio / Description</label>
+                                        <textarea
+                                            value={formData.bio}
+                                            onChange={handleChange('bio')}
+                                            rows={4}
+                                            className="w-full px-4 py-3 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 resize-none"
+                                            placeholder="We are a team of experienced..."
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-300 mb-1.5">Service Radius (Miles)</label>
+                                        <div className="flex items-center gap-4">
+                                            <input
+                                                type="range"
+                                                min="1"
+                                                max="50"
+                                                value={formData.radiusMiles}
+                                                onChange={(e) => setFormData({ ...formData, radiusMiles: parseInt(e.target.value) })}
+                                                className="flex-1 accent-amber-500"
+                                            />
+                                            <span className="w-12 text-center text-white font-mono bg-white/10 rounded py-1">{formData.radiusMiles}m</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3 pt-4">
+                                    <button
+                                        type="button"
+                                        onClick={() => goToStep(2)}
+                                        className="py-3 px-4 bg-white/5 hover:bg-white/10 text-white font-medium rounded-xl border border-white/10 transition-colors"
+                                    >
+                                        Back
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={nextStep}
+                                        className="py-3 px-4 bg-amber-500 hover:bg-amber-400 text-white font-medium rounded-xl shadow-lg shadow-amber-500/20 transition-colors"
+                                    >
+                                        Next Step
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* STEP 4: Skills */}
+                        {step === 4 && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-white mb-2">Select Services</h2>
+                                    <p className="text-slate-400">What trades do you offer?</p>
+                                </div>
+
+                                <div className="max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                                    <div className="flex flex-wrap gap-2">
+                                        {AVAILABLE_SKILLS.map(tag => (
+                                            <button
+                                                key={tag}
+                                                type="button"
+                                                onClick={() => toggleSkill(tag)}
+                                                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${formData.skills.includes(tag)
+                                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                                        : 'bg-slate-900/30 text-slate-500 border border-white/5 hover:border-white/10'
+                                                    }`}
+                                            >
+                                                {tag}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3 pt-4">
+                                    <button
+                                        type="button"
+                                        onClick={() => goToStep(3)}
+                                        className="py-3 px-4 bg-white/5 hover:bg-white/10 text-white font-medium rounded-xl border border-white/10 transition-colors"
+                                    >
+                                        Back
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={nextStep}
+                                        className="py-3 px-4 bg-amber-500 hover:bg-amber-400 text-white font-medium rounded-xl shadow-lg shadow-amber-500/20 transition-colors"
+                                    >
+                                        Next Step
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* STEP 5: Rates */}
+                        {step === 5 && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-white mb-2">Set your rates</h2>
+                                    <p className="text-slate-400">You can change these anytime in your dashboard.</p>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div className="bg-slate-950 rounded-xl p-4 border border-white/5 space-y-3">
+                                        <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">Hourly Rates per Trade</h3>
+                                        {formData.skills.length > 0 ? (
+                                            formData.skills.map(skill => (
+                                                <div key={skill}>
+                                                    <label className="block text-sm font-medium text-slate-300 mb-1.5">{skill} Rate (£/hr)</label>
+                                                    <div className="relative">
+                                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">£</span>
+                                                        <input
+                                                            type="number"
+                                                            value={formData.skillRates[skill] || ''}
+                                                            onChange={(e) => {
+                                                                setFormData({
+                                                                    ...formData,
+                                                                    skillRates: {
+                                                                        ...formData.skillRates,
+                                                                        [skill]: e.target.value
+                                                                    }
+                                                                });
+                                                            }}
+                                                            className="w-full pl-8 pr-4 py-3 bg-slate-950 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                                            placeholder="e.g. 60"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="text-center py-4 text-slate-500 italic">
+                                                Go back and select services first.
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-300 mb-1.5">Call-out Fee (£)</label>
+                                            <div className="relative">
+                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">£</span>
+                                                <input
+                                                    type="number"
+                                                    value={formData.calloutFee}
+                                                    onChange={handleChange('calloutFee')}
+                                                    className="w-full pl-8 pr-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                                    placeholder="80"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-300 mb-1.5">Day Rate (Optional)</label>
+                                            <div className="relative">
+                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">£</span>
+                                                <input
+                                                    type="number"
+                                                    value={formData.dayRate}
+                                                    onChange={handleChange('dayRate')}
+                                                    className="w-full pl-8 pr-4 py-3 bg-slate-950/50 border border-white/10 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                                                    placeholder="350"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3 pt-4">
+                                    <button
+                                        type="button"
+                                        onClick={() => goToStep(4)}
+                                        className="py-3 px-4 bg-white/5 hover:bg-white/10 text-white font-medium rounded-xl border border-white/10 transition-colors"
+                                    >
+                                        Back
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={isLoading}
+                                        className="py-3 px-4 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Complete Registration'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Error Message */}
+                        {error && (
+                            <div className="mt-4 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4" />
+                                {error}
+                            </div>
+                        )}
+                    </form>
+
+                    {/* Footer */}
+                    <div className="mt-8 pt-6 border-t border-white/10 text-center">
+                        <p className="text-slate-500 text-sm">
+                            Already have an account?{' '}
+                            <button onClick={() => setLocation('/contractor/login')} className="text-amber-500 hover:text-amber-400 font-medium transition-colors">
+                                Log In
+                            </button>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    ); // Start at 0 now
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [showPassword, setShowPassword] = useState(false);

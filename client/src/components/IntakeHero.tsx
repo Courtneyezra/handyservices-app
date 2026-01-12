@@ -36,7 +36,7 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
           <img
             src={heroImage || defaultHeroImage}
             alt="Background"
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover object-top"
             loading="eager"
           />
           <div className="absolute inset-0 bg-slate-900/80 backdrop-grayscale-[30%]"></div>
