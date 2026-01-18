@@ -323,7 +323,7 @@ export default function ContractorCalendar() {
                         </span>
                     </div>
                 </div>
-            </main>
+            </div>
 
             {/* Weekly Pattern Modal */}
             {showWeeklyModal && (
@@ -334,19 +334,9 @@ export default function ContractorCalendar() {
                     isSaving={saveWeeklyMutation.isPending}
                 />
             )}
-        </div>
 
-            {/* Weekly Pattern Modal */ }
-    {
-        showWeeklyModal && (
-            <WeeklyPatternModal
-                patterns={monthData?.weeklyPatterns || []}
-                onSave={(patterns) => saveWeeklyMutation.mutate(patterns)}
-                onClose={() => setShowWeeklyModal(false)}
-                isSaving={saveWeeklyMutation.isPending}
-            />
-        )
-    }
+
+
         </ContractorAppShell >
     );
 }
