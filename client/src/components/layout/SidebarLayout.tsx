@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Link, useLocation } from "wouter";
 import { useLiveCall } from "@/contexts/LiveCallContext";
@@ -46,9 +46,10 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 <nav className="flex-1 px-4 py-4 space-y-6 overflow-y-auto">
                     {[
                         {
-                            title: "OVERVIEW",
+                            title: "DISPATCH CONSOLE",
                             items: [
-                                { icon: LayoutDashboard, label: "Dashboard", href: "/admin" },
+                                { icon: Inbox, label: "Inbox", href: "/admin/inbox", badge: "NEW" },
+                                { icon: LayoutDashboard, label: "Overview", href: "/admin" },
                                 {
                                     icon: Mic,
                                     label: "Live Switchboard",
@@ -58,36 +59,24 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             ]
                         },
                         {
-                            title: "COMMUNICATIONS",
+                            title: "OPERATIONS",
                             items: [
-                                { icon: Users, label: "Leads", href: "/admin/leads" },
-                                { icon: MessageSquare, label: "WhatsApp CRM", href: "/admin/whatsapp-intake" },
-                                { icon: PhoneCall, label: "Call Logs", href: "/admin/calls" },
+                                { icon: Wrench, label: "Handyman Map", href: "/admin/handymen" },
+                                { icon: LayoutDashboard, label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },
+                                { icon: User, label: "Leads (Classic)", href: "/admin/leads" }, // Keeping for safety
                             ]
                         },
                         {
-                            title: "SALES & TOOLS",
+                            title: "SALES & PRODUCTS",
                             items: [
                                 { icon: DollarSign, label: "Quote Generator", href: "/admin/generate-quote" },
                                 { icon: Package, label: "SKU Manager", href: "/admin/skus" },
                             ]
                         },
                         {
-                            title: "FLEET OPS",
-                            items: [
-                                { icon: Wrench, label: "Handyman Map", href: "/admin/handymen" },
-                                { icon: LayoutDashboard, label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },
-                            ]
-                        },
-                        {
-                            title: "MARKETING",
-                            items: [
-                                { icon: LayoutTemplate, label: "Marketing", href: "/admin/marketing" },
-                            ]
-                        },
-                        {
                             title: "SYSTEM",
                             items: [
+                                { icon: LayoutTemplate, label: "Marketing", href: "/admin/marketing" },
                                 { icon: Settings, label: "Settings", href: "/admin/settings" },
                             ]
                         }
@@ -112,7 +101,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                                 {item.label}
                                             </div>
                                             {item.badge && (
-                                                <span className="bg-red-500 text-[10px] font-black px-1.5 py-0.5 rounded text-white animate-pulse">
+                                                <span className={`${isLive && item.href.includes('live') ? 'bg-red-500' : 'bg-amber-500'} text-[10px] font-black px-1.5 py-0.5 rounded text-white animate-pulse`}>
                                                     {item.badge}
                                                 </span>
                                             )}
@@ -122,6 +111,13 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             </div>
                         </div>
                     ))}
+
+                    {/* Access to Legacy Comms (Collapsed/Hidden or just less prominent) */}
+                    <div className="mt-4 px-4 pt-4 border-t border-border/50">
+                        <p className="text-[10px] text-muted-foreground mb-2 font-mono uppercase">LEGACY VIEWS</p>
+                        <Link href="/admin/calls"><a className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground mb-2"><PhoneCall className="w-3 h-3" /> Call Logs</a></Link>
+                        <Link href="/admin/whatsapp-intake"><a className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"><MessageSquare className="w-3 h-3" /> WhatsApp CRM</a></Link>
+                    </div>
                 </nav>
 
                 {/* Bottom Actions */}

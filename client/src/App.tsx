@@ -25,6 +25,7 @@ import CallsPage from "@/pages/CallsPage";
 import TestLab from "./pages/TestLab";
 import TrainingCenter from "./pages/TrainingCenter";
 import SettingsPage from "./pages/SettingsPage";
+const AdminInboxPage = lazy(() => import("@/pages/admin/AdminInboxPage"));
 
 // Admin Content Management
 const LandingPages = lazy(() => import("@/pages/admin/LandingPages"));
@@ -58,7 +59,6 @@ const NewQuotePage = lazy(() => import("./pages/contractor/dashboard/quotes/NewQ
 const QuotesListPage = lazy(() => import("./pages/contractor/dashboard/quotes/QuotesListPage"));
 const JobsPage = lazy(() => import("./pages/contractor/dashboard/JobsPage"));
 const QuoteDetailsPage = lazy(() => import("./pages/contractor/dashboard/quotes/QuoteDetailsPage"));
-const InboxPage = lazy(() => import("./pages/contractor/dashboard/InboxPage"));
 const JobDetailsPage = lazy(() => import("./pages/contractor/dashboard/JobDetailsPage"));
 const ContractorOnboarding = lazy(() => import('./pages/ContractorOnboarding'));
 const ContractorSettingsPage = lazy(() => import('./pages/contractor/dashboard/ContractorSettingsPage'));
@@ -202,13 +202,7 @@ function Router() {
                 </Route>
                 <Route path="/contractor/dashboard">
                     <ProtectedRoute role="contractor">
-                        {/* Redirect /dashboard to /dashboard/inbox by default for productivity */}
                         <ContractorDashboardHome />
-                    </ProtectedRoute>
-                </Route>
-                <Route path="/contractor/dashboard/inbox">
-                    <ProtectedRoute role="contractor">
-                        <InboxPage />
                     </ProtectedRoute>
                 </Route>
                 <Route path="/contractor/dashboard/bookings">
@@ -297,6 +291,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <AudioUploadPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/inbox">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <AdminInboxPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

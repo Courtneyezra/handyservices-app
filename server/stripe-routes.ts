@@ -4,16 +4,16 @@ import { db } from './db';
 import { personalizedQuotes } from '../shared/schema';
 import { eq } from 'drizzle-orm';
 
-// Initialize Stripe with the secret key (strip quotes if present in .env)
-const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || '').replace(/^["']|["']$/g, '').trim();
+// Helper to get Stripe instance lazily
+const getStripe = () => {
+    const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || '').replace(/^["']|["']$/g, '').trim();
 
-if (!stripeSecretKey || !stripeSecretKey.startsWith('sk_')) {
-    console.error('[Stripe] Invalid or missing STRIPE_SECRET_KEY. Payment functionality will be disabled.');
-}
+    if (!stripeSecretKey || !stripeSecretKey.startsWith('sk_')) {
+        return null;
+    }
 
-const stripe = stripeSecretKey && stripeSecretKey.startsWith('sk_')
-    ? new Stripe(stripeSecretKey)
-    : null;
+    return new Stripe(stripeSecretKey);
+};
 
 export const stripeRouter = Router();
 
@@ -37,6 +37,8 @@ function calculateDeposit(totalPrice: number, materialsCost: number): {
 // Create Payment Intent
 stripeRouter.post('/api/create-payment-intent', async (req, res) => {
     console.log('[Stripe] Create payment intent request received');
+
+    const stripe = getStripe();
 
     if (!stripe) {
         console.error('[Stripe] Stripe not initialized. STRIPE_SECRET_KEY is missing or invalid.');
@@ -175,6 +177,8 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
 // Create Payment Intent for Diagnostic Visit (Full Payment)
 stripeRouter.post('/api/create-visit-payment-intent', async (req, res) => {
     console.log('[Stripe] Create visit payment intent request received');
+
+    const stripe = getStripe();
 
     if (!stripe) {
         console.error('[Stripe] Stripe not initialized');

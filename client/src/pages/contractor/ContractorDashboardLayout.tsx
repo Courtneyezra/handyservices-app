@@ -22,11 +22,11 @@ export default function ContractorDashboardLayout({ children }: ContractorDashbo
     });
 
     const navItems = [
-        { icon: Inbox, label: "Inbox", href: "/contractor/dashboard/inbox" },
-        { icon: Calendar, label: "Schedule", href: "/contractor/dashboard/bookings" },
-        { icon: DollarSign, label: "Proposals", href: "/contractor/dashboard/quotes" },
-        { icon: History, label: "History", href: "/contractor/dashboard/history" },
-        { icon: Settings, label: "Settings", href: "/contractor/settings" },
+        { icon: LayoutDashboard, label: "Overview", href: "/contractor/dashboard" },
+        { icon: Calendar, label: "Bookings", href: "/contractor/dashboard/bookings" },
+        { icon: DollarSign, label: "My Quotes", href: "/contractor/dashboard/quotes" },
+        { icon: FileText, label: "Jobs", href: "/contractor/dashboard/jobs" },
+        { icon: Settings, label: "Settings", href: "/contractor/dashboard/settings" },
     ];
 
     return (
