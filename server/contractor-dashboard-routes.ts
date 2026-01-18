@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { db } from "./db";
-import { contractorBookingRequests, handymanProfiles, personalizedQuotes, handymanSkills, productizedServices, contractorJobs } from "../shared/schema";
+import { contractorBookingRequests, handymanProfiles, personalizedQuotes, handymanSkills, productizedServices, contractorJobs, expenses } from "../shared/schema";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
 import { requireContractorAuth } from "./contractor-auth";
 import { AutoSkuGenerator } from "./services";
@@ -318,7 +318,7 @@ router.post('/quotes/create', requireContractorAuth, async (req: Request, res: R
             urgencyReason: 'med', // Default
             ownershipContext: 'homeowner', // Default
             desiredTimeframe: 'week', // Default
-            clientType: 'homeowner',
+            clientType: 'residential',
             jobComplexity: analysis.complexity || 'low',
             forcedQuoteStyle: 'hhh'
         });
@@ -671,6 +671,106 @@ router.get('/jobs/:id/invoice', requireContractorAuth, async (req: Request, res:
     } catch (error) {
         console.error('[ContractorDashboard] Invoice error:', error);
         res.status(500).json({ error: 'Failed to generate invoice' });
+    }
+});
+
+
+// GET /api/contractor/expenses
+// Get all expenses for the authenticated contractor
+router.get('/expenses', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const contractor = (req as any).contractor;
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id),
+            columns: { id: true }
+        });
+
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        const expensesList = await db.select()
+            .from(expenses)
+            .where(eq(expenses.contractorId, profile.id))
+            .orderBy(desc(expenses.date));
+
+        res.json(expensesList);
+    } catch (error) {
+        console.error('[Expenses] Get error:', error);
+        res.status(500).json({ error: 'Failed to fetch expenses' });
+    }
+});
+
+// POST /api/contractor/expenses
+// Create a new expense
+router.post('/expenses', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const contractor = (req as any).contractor;
+        const { description, category, amountPence, date, receiptUrl } = req.body;
+
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id),
+            columns: { id: true }
+        });
+
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        const id = `exp_${nanoid()}`;
+        await db.insert(expenses).values({
+            id,
+            contractorId: profile.id,
+            description,
+            category,
+            amountPence,
+            date: new Date(date),
+            receiptUrl,
+        });
+
+        res.json({ success: true, id });
+    } catch (error) {
+        console.error('[Expenses] Create error:', error);
+        res.status(500).json({ error: 'Failed to create expense' });
+    }
+});
+
+// GET /api/contractor/stats/financials
+// Get monthly financial stats (Income vs Expenses)
+router.get('/stats/financials', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const contractor = (req as any).contractor;
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id),
+            columns: { id: true }
+        });
+
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        // Get expenses
+        const expenseRecords = await db.select({
+            amountPence: expenses.amountPence,
+            date: expenses.date
+        })
+            .from(expenses)
+            .where(eq(expenses.contractorId, profile.id));
+
+        // Get income (completed jobs)
+        // TODO: This should strictly be 'paid' jobs, but for now using completed jobs with payout
+        const jobRecords = await db.select({
+            amountPence: contractorJobs.payoutPence,
+            date: contractorJobs.completedAt
+        })
+            .from(contractorJobs)
+            .where(and(
+                eq(contractorJobs.contractorId, profile.id),
+                eq(contractorJobs.status, 'completed'),
+                // optionally check paymentStatus = 'paid'
+            ));
+
+        // Aggregate by month (last 6 months)
+        // Simplified aggregation here or return raw data for frontend
+        res.json({ expenses: expenseRecords, jobs: jobRecords });
+
+    } catch (error) {
+        console.error('[Financials] Stats error:', error);
+        res.status(500).json({ error: 'Failed to fetch financial stats' });
     }
 });
 

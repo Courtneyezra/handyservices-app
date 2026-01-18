@@ -4,8 +4,9 @@ import { useLocation } from "wouter";
 import {
     Plus, GripVertical, CheckCircle2, AlertCircle, LayoutTemplate, Upload, FileText,
     Globe, Share2, Copy, ExternalLink, Video, User, Star, Phone, Mail, Lock, LogOut, X,
-    ShieldCheck, Sparkles, MessageCircle, Save, Trash2, Loader2, ArrowRight, Camera
-} from "lucide-react";
+    ShieldCheck, Sparkles, MessageCircle, Save, Loader2, ArrowRight, Camera, Trash2
+} from 'lucide-react';
+import ContractorAppShell from "@/components/layout/ContractorAppShell";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
@@ -329,67 +330,50 @@ export default function ContractorSettingsPage() {
         }
     };
 
-    if (isLoading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500">Loading settings...</div>;
+    if (isLoading) return <div className="min-h-screen bg-white flex items-center justify-center text-slate-500">Loading settings...</div>;
 
     return (
-        <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-24">
-            {/* Header */}
-            <header className="sticky top-0 z-30 bg-slate-950/80 backdrop-blur-md border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-                <h1 className="text-xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">Settings</h1>
-                <div className="flex items-center gap-4">
-                    <Button
-                        onClick={() => handleProfileSubmit()}
-                        disabled={mutation.isPending}
-                        className="bg-amber-500 hover:bg-amber-400 text-white"
-                    >
-                        {mutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-                        Save All
-                    </Button>
-                    <Button onClick={() => setLocation('/contractor/dashboard')} variant="ghost" className="text-slate-400 hover:text-white">Done</Button>
-                </div>
-            </header>
+        <ContractorAppShell>
+            <div className="max-w-6xl mx-auto p-4 sm:p-6 lg:p-8 flex flex-col lg:flex-row gap-8 pb-32">
+                {/* Sidebar Navigation */}
+                <aside className="w-full lg:w-64 shrink-0 space-y-2">
+                    <nav className="flex flex-row lg:flex-col gap-1 overflow-x-auto pb-4 lg:pb-0 scrollbar-hide">
+                        {[
+                            { id: 'general', label: 'Availability', icon: MessageCircle },
+                            { id: 'profile', label: 'Public Profile', icon: Globe },
+                            { id: 'services', label: 'Services & Rates', icon: CheckCircle2 },
+                            { id: 'portfolio', label: 'Work Gallery', icon: LayoutTemplate },
+                            { id: 'verification', label: 'Verification', icon: ShieldCheck },
+                            { id: 'ai-rules', label: 'AI Rules', icon: Sparkles },
+                            { id: 'security', label: 'Security', icon: Lock },
+                        ].map((tab) => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${activeTab === tab.id
+                                    ? 'bg-white text-amber-600 shadow-sm border border-gray-100 ring-1 ring-black/5'
+                                    : 'text-slate-500 hover:bg-white/60 hover:text-slate-900'
+                                    }`}
+                            >
+                                <tab.icon className="w-4 h-4" />
+                                {tab.label}
+                            </button>
+                        ))}
+                    </nav>
+                </aside>
 
-            <div className="max-w-5xl mx-auto p-4 lg:p-10">
-                <div className="flex flex-col lg:flex-row gap-10">
-                    {/* Sidebar Tabs */}
-                    <aside className="lg:w-64 shrink-0">
-                        <nav className="flex flex-row lg:flex-col gap-1 overflow-x-auto pb-4 lg:pb-0 scrollbar-hide">
-                            {[
-                                { id: 'general', label: 'Availability', icon: MessageCircle },
-                                { id: 'profile', label: 'Public Profile', icon: Globe },
-                                { id: 'services', label: 'Services & Rates', icon: CheckCircle2 },
-                                { id: 'portfolio', label: 'Work Gallery', icon: LayoutTemplate },
-                                { id: 'verification', label: 'Verification', icon: ShieldCheck },
-                                { id: 'ai-rules', label: 'AI Rules', icon: Sparkles },
-                                { id: 'security', label: 'Security', icon: Lock },
-                            ].map((tab) => (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => setActiveTab(tab.id)}
-                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${activeTab === tab.id
-                                        ? 'bg-amber-500/10 text-amber-500 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.2)]'
-                                        : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
-                                        }`}
-                                >
-                                    <tab.icon className="w-4 h-4" />
-                                    {tab.label}
-                                </button>
-                            ))}
-                        </nav>
-                    </aside>
-
-                    {/* Main Content Area */}
-                    <main className="flex-1 space-y-12">
+                <div className="flex-1 min-w-0">
+                    <main className="space-y-12">
                         {activeTab === 'general' && (
                             <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 {/* 1. STATUS CONTROLLER */}
                                 <section>
                                     <div className="flex items-center gap-3 mb-6">
-                                        <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                                        <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
                                             <MessageCircle className="w-5 h-5" />
                                         </div>
                                         <div>
-                                            <h2 className="text-lg font-bold text-slate-100">Live Availability</h2>
+                                            <h2 className="text-lg font-bold text-slate-900">Live Availability</h2>
                                             <p className="text-sm text-slate-500">Control how customers contact you right now.</p>
                                         </div>
                                     </div>
@@ -403,26 +387,26 @@ export default function ContractorSettingsPage() {
                                                 key={mode.value}
                                                 onClick={() => mutation.mutate({ availabilityStatus: mode.value })}
                                                 className={`p-4 rounded-xl border text-left transition-all ${profile?.availabilityStatus === mode.value
-                                                    ? `bg-${mode.color}-500/10 border-${mode.color}-500/50 ring-1 ring-${mode.color}-500/50`
-                                                    : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+                                                    ? `bg-${mode.color}-50 border-${mode.color}-200 ring-1 ring-${mode.color}-200 shadow-sm`
+                                                    : 'bg-white border-gray-200 hover:border-gray-300'
                                                     }`}
                                             >
-                                                <div className={`font-bold text-${mode.color === 'slate' ? 'slate-200' : mode.color + '-400'}`}>{mode.label}</div>
+                                                <div className={`font-bold text-${mode.color === 'slate' ? 'slate-700' : mode.color + '-600'}`}>{mode.label}</div>
                                                 <div className="text-xs text-slate-500 mt-1">{mode.desc}</div>
                                             </button>
                                         ))}
                                     </div>
                                 </section>
 
-                                <hr className="border-slate-800" />
+                                <hr className="border-gray-200" />
 
                                 <section>
                                     <div className="flex items-center gap-3 mb-6">
-                                        <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500">
+                                        <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
                                             <Phone className="w-5 h-5" />
                                         </div>
                                         <div>
-                                            <h2 className="text-lg font-bold text-slate-100">Direct Contact</h2>
+                                            <h2 className="text-lg font-bold text-slate-900">Direct Contact</h2>
                                             <p className="text-sm text-slate-500">Set specific numbers for customer outreach.</p>
                                         </div>
                                     </div>
@@ -436,7 +420,7 @@ export default function ContractorSettingsPage() {
                                                     value={formData.whatsappNumber}
                                                     onChange={(e) => setFormData({ ...formData, whatsappNumber: e.target.value })}
                                                     placeholder="Defaults to Phone Number if empty"
-                                                    className="w-full pl-10 pr-4 py-2.5 bg-slate-900/50 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-amber-500 transition-colors"
+                                                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-sm"
                                                 />
                                             </div>
                                             <p className="text-[10px] text-slate-600 mt-2">Overrides main phone for the 'WhatsApp Me' button on your profile.</p>
@@ -449,20 +433,21 @@ export default function ContractorSettingsPage() {
                         {activeTab === 'profile' && (
                             <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 <section>
+
                                     <div className="flex items-center gap-3 mb-6">
-                                        <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                                        <div className="w-10 h-10 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-600">
                                             <Globe className="w-5 h-5" />
                                         </div>
                                         <div>
-                                            <h2 className="text-lg font-bold text-slate-100">Profile Content</h2>
-                                            <p className="text-sm text-slate-500">Manage how you appear to customers.</p>
+                                            <h2 className="text-lg font-bold text-slate-900">Public Profile</h2>
+                                            <p className="text-sm text-slate-500">Manage your public appearance.</p>
                                         </div>
                                     </div>
 
-                                    <div className="space-y-8 bg-slate-900/50 p-6 sm:p-8 rounded-2xl border border-slate-800">
-                                        <div className="flex items-center justify-between p-4 bg-slate-950 rounded-xl border border-slate-800">
+                                    <div className="space-y-8 bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 shadow-sm">
+                                        <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-gray-100">
                                             <div>
-                                                <h3 className="font-medium text-slate-200">Public Profile Enabled</h3>
+                                                <h3 className="font-bold text-slate-900 text-sm">Public Profile Enabled</h3>
                                                 <p className="text-xs text-slate-500">Turn your profile link on/off</p>
                                             </div>
                                             <Switch
@@ -473,87 +458,87 @@ export default function ContractorSettingsPage() {
 
                                         <div className="grid md:grid-cols-2 gap-6">
                                             <div>
-                                                <label className="block text-xs font-medium text-slate-500 uppercase mb-2">Username / Handle</label>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Username / Handle</label>
                                                 <div className="relative">
-                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600 text-sm">handy.com/</span>
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">handy.com/</span>
                                                     <input
                                                         type="text"
                                                         value={formData.slug}
                                                         onChange={(e) => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })}
-                                                        className="w-full pl-24 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                                                        className="w-full pl-24 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none transition-all shadow-sm"
                                                         placeholder="your-name"
                                                     />
                                                 </div>
                                             </div>
                                             <div>
-                                                <label className="block text-xs font-medium text-slate-500 uppercase mb-2">Service Area (City)</label>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Service Area (City)</label>
                                                 <input
                                                     type="text"
                                                     value={formData.city}
                                                     onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                                                    className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                                                    className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg text-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none transition-all shadow-sm"
                                                     placeholder="London, Bristol, etc."
                                                 />
                                             </div>
                                         </div>
 
                                         <div>
-                                            <label className="block text-xs font-medium text-slate-500 uppercase mb-2">Bio / About Me</label>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Bio / About Me</label>
                                             <textarea
                                                 value={formData.bio}
                                                 onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
                                                 rows={4}
-                                                className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                                                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-lg text-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none transition-all shadow-sm resize-none"
                                                 placeholder="What makes you the best person for the job?"
                                             />
                                         </div>
 
                                         <div className="grid md:grid-cols-2 gap-6">
                                             <div>
-                                                <label className="block text-xs font-medium text-slate-500 uppercase mb-2">Website</label>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Website</label>
                                                 <input
                                                     type="url"
                                                     value={formData.website}
                                                     onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                                                    className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                                                    className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg text-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none transition-all shadow-sm"
                                                     placeholder="https://"
                                                 />
                                             </div>
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div>
-                                                    <label className="block text-xs font-medium text-slate-500 uppercase mb-2">Instagram</label>
+                                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Instagram</label>
                                                     <input
                                                         type="text"
                                                         value={formData.instagram}
                                                         onChange={(e) => setFormData({ ...formData, instagram: e.target.value })}
-                                                        className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                                                        className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg text-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none transition-all shadow-sm"
                                                         placeholder="@handle"
                                                     />
                                                 </div>
                                                 <div>
-                                                    <label className="block text-xs font-medium text-slate-500 uppercase mb-2">LinkedIn</label>
+                                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">LinkedIn</label>
                                                     <input
                                                         type="text"
                                                         value={formData.linkedin}
                                                         onChange={(e) => setFormData({ ...formData, linkedin: e.target.value })}
-                                                        className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                                                        className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg text-slate-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none transition-all shadow-sm"
                                                         placeholder="Profile Link"
                                                     />
                                                 </div>
                                             </div>
                                         </div>
 
-                                        <hr className="border-slate-800" />
+                                        <hr className="border-gray-100" />
 
                                         <div>
-                                            <label className="block text-xs font-medium text-slate-500 uppercase mb-2">Cover Photo</label>
-                                            <div className="aspect-[21/9] bg-slate-950 rounded-xl border-2 border-dashed border-slate-800 overflow-hidden group relative">
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Cover Photo</label>
+                                            <div className="aspect-[21/9] bg-slate-50 rounded-xl border-2 border-dashed border-gray-200 overflow-hidden group relative hover:border-amber-500/50 transition-all">
                                                 {formData.heroImageUrl ? (
                                                     <img src={formData.heroImageUrl} className="w-full h-full object-cover" />
                                                 ) : (
-                                                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-600">
+                                                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
                                                         <Camera className="w-8 h-8 mb-2" />
-                                                        <span className="text-xs">Click to upload banner</span>
+                                                        <span className="text-xs font-medium">Click to upload banner</span>
                                                     </div>
                                                 )}
                                                 <input
@@ -587,15 +572,15 @@ export default function ContractorSettingsPage() {
                             <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 <section>
                                     <div className="flex items-center gap-3 mb-6">
-                                        <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500">
+                                        <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
                                             <CheckCircle2 className="w-5 h-5" />
                                         </div>
                                         <div>
-                                            <h2 className="text-lg font-bold text-slate-100">Services & Rates</h2>
+                                            <h2 className="text-lg font-bold text-slate-900">Services & Rates</h2>
                                             <p className="text-sm text-slate-500">Manage your skills and hourly pricing.</p>
                                         </div>
                                     </div>
-                                    <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-800">
+                                    <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
                                         <RateCardEditor />
                                     </div>
                                 </section>
@@ -606,11 +591,11 @@ export default function ContractorSettingsPage() {
                             <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                 <section>
                                     <div className="flex items-center gap-3 mb-6">
-                                        <div className="w-10 h-10 rounded-full bg-purple-500/10 flex items-center justify-center text-purple-500">
+                                        <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600">
                                             <LayoutTemplate className="w-5 h-5" />
                                         </div>
                                         <div>
-                                            <h2 className="text-lg font-bold text-slate-100">Project Portfolio</h2>
+                                            <h2 className="text-lg font-bold text-slate-900">Project Portfolio</h2>
                                             <p className="text-sm text-slate-500">Showcase your best transformations.</p>
                                         </div>
                                     </div>
@@ -618,7 +603,7 @@ export default function ContractorSettingsPage() {
                                     {/* Work Gallery */}
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10">
                                         {formData.mediaGallery.map((img, i) => (
-                                            <div key={i} className="aspect-square bg-slate-900 rounded-xl border border-slate-800 overflow-hidden relative group">
+                                            <div key={i} className="aspect-square bg-slate-50 rounded-xl border border-gray-200 overflow-hidden relative group">
                                                 <img src={img.url} className="w-full h-full object-cover" />
                                                 <button
                                                     onClick={() => {
@@ -632,9 +617,9 @@ export default function ContractorSettingsPage() {
                                                 </button>
                                             </div>
                                         ))}
-                                        <label className="aspect-square bg-slate-900 border-2 border-dashed border-slate-800 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-slate-700 transition-all">
-                                            <Plus className="w-6 h-6 text-slate-600" />
-                                            <span className="text-[10px] text-slate-600 mt-2 font-bold uppercase tracking-widest">Add View</span>
+                                        <label className="aspect-square bg-slate-50 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center cursor-pointer hover:border-amber-500/50 transition-all group">
+                                            <Plus className="w-6 h-6 text-slate-400 group-hover:text-amber-500" />
+                                            <span className="text-[10px] text-slate-500 mt-2 font-bold uppercase tracking-widest group-hover:text-amber-600">Add View</span>
                                             <input
                                                 type="file" className="hidden"
                                                 onChange={async (e) => {
@@ -659,13 +644,13 @@ export default function ContractorSettingsPage() {
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                         <div className="space-y-4">
-                                            <h3 className="font-bold text-slate-100 flex items-center gap-2">
+                                            <h3 className="font-bold text-slate-900 flex items-center gap-2">
                                                 <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
                                                 Manual Reviews
                                             </h3>
                                             <div className="space-y-4">
                                                 {formData.reviews.map((r, i) => (
-                                                    <div key={i} className="bg-slate-900/50 p-4 rounded-xl border border-slate-800 space-y-3">
+                                                    <div key={i} className="bg-white p-4 rounded-xl border border-gray-200 space-y-3 shadow-sm">
                                                         <div className="flex justify-between items-start">
                                                             <input
                                                                 value={r.author}
@@ -674,7 +659,7 @@ export default function ContractorSettingsPage() {
                                                                     rs[i].author = e.target.value;
                                                                     setFormData({ ...formData, reviews: rs });
                                                                 }}
-                                                                className="bg-transparent text-sm font-bold text-white focus:outline-none"
+                                                                className="bg-transparent text-sm font-bold text-slate-900 focus:outline-none"
                                                             />
                                                             <button onClick={() => {
                                                                 const rs = [...formData.reviews];
@@ -689,7 +674,7 @@ export default function ContractorSettingsPage() {
                                                                 rs[i].text = e.target.value;
                                                                 setFormData({ ...formData, reviews: rs });
                                                             }}
-                                                            className="w-full bg-transparent text-xs text-slate-400 focus:outline-none resize-none"
+                                                            className="w-full bg-transparent text-xs text-slate-500 focus:outline-none resize-none"
                                                             rows={2}
                                                         />
                                                     </div>
@@ -697,7 +682,7 @@ export default function ContractorSettingsPage() {
                                                 <Button
                                                     variant="outline"
                                                     onClick={() => setFormData({ ...formData, reviews: [...formData.reviews, { id: Math.random().toString(), author: 'Customer Name', text: 'Excellent work!', rating: 5, date: new Date().toISOString() }] })}
-                                                    className="w-full border-slate-800 text-slate-400"
+                                                    className="w-full border-gray-200 text-slate-600 hover:bg-slate-50"
                                                 >
                                                     Add Review
                                                 </Button>
@@ -705,18 +690,18 @@ export default function ContractorSettingsPage() {
                                         </div>
 
                                         <div className="space-y-4">
-                                            <h3 className="font-bold text-slate-100 flex items-center gap-2">
+                                            <h3 className="font-bold text-slate-900 flex items-center gap-2">
                                                 <CheckCircle2 className="w-4 h-4 text-sky-500" />
                                                 Transformations
                                             </h3>
                                             <div className="space-y-4">
                                                 {(profile?.beforeAfterGallery || []).map((p: any, i: number) => (
-                                                    <div key={i} className="bg-slate-900 border border-slate-800 p-2 rounded-xl flex items-center gap-3">
+                                                    <div key={i} className="bg-white border border-gray-200 p-2 rounded-xl flex items-center gap-3 shadow-sm">
                                                         <img src={p.before} className="w-12 h-12 rounded object-cover" />
-                                                        <ArrowRight className="w-3 h-3 text-slate-600" />
+                                                        <ArrowRight className="w-3 h-3 text-slate-400" />
                                                         <img src={p.after} className="w-12 h-12 rounded object-cover" />
                                                         <div className="flex-1 min-w-0">
-                                                            <p className="text-[10px] text-slate-400 truncate">{p.caption}</p>
+                                                            <p className="text-[10px] text-slate-600 truncate">{p.caption}</p>
                                                         </div>
                                                         <button onClick={() => {
                                                             const g = profile.beforeAfterGallery.filter((_: any, idx: number) => idx !== i);
@@ -724,7 +709,7 @@ export default function ContractorSettingsPage() {
                                                         }} className="p-2 text-slate-600 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
                                                     </div>
                                                 ))}
-                                                <Button variant="outline" onClick={() => setIsUploadOpen(true)} className="w-full border-slate-800 text-slate-400">Add Transformation</Button>
+                                                <Button variant="outline" onClick={() => setIsUploadOpen(true)} className="w-full border-gray-200 text-slate-600 hover:bg-slate-50">Add Transformation</Button>
                                             </div>
                                         </div>
                                     </div>
@@ -750,12 +735,12 @@ export default function ContractorSettingsPage() {
                                             { id: 'dbs', label: 'DBS Check', type: 'DBS', url: profile?.dbsCertificateUrl },
                                             { id: 'identity', label: 'ID Verification', type: 'Identity', url: profile?.identityDocumentUrl },
                                         ].map((doc) => (
-                                            <div key={doc.id} className="bg-slate-900/50 p-6 rounded-2xl border border-slate-800 flex flex-col items-center text-center space-y-4">
-                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${doc.url ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-800 text-slate-600'}`}>
+                                            <div key={doc.id} className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center text-center space-y-4">
+                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${doc.url ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
                                                     {doc.url ? <CheckCircle2 className="w-6 h-6" /> : <Upload className="w-6 h-6" />}
                                                 </div>
                                                 <div>
-                                                    <h3 className="font-bold text-sm text-white">{doc.label}</h3>
+                                                    <h3 className="font-bold text-sm text-slate-900">{doc.label}</h3>
                                                     <p className="text-[10px] text-slate-500 mt-1">{doc.url ? 'Successfully Uploaded' : 'Action Required'}</p>
                                                 </div>
                                                 <input
@@ -777,7 +762,7 @@ export default function ContractorSettingsPage() {
                                     </div>
                                 </section>
 
-                                <hr className="border-slate-800" />
+                                <hr className="border-gray-200" />
 
                                 <section>
                                     <div className="flex items-center gap-3 mb-6">
@@ -802,8 +787,8 @@ export default function ContractorSettingsPage() {
                                                         mutation.mutate({ trustBadges: newBadges });
                                                     }}
                                                     className={`p-3 rounded-xl border text-xs font-bold transition-all flex items-center gap-2 ${isSelected
-                                                        ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
-                                                        : 'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-700'
+                                                        ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-sm'
+                                                        : 'bg-white border-gray-200 text-slate-500 hover:border-gray-300'
                                                         }`}
                                                 >
                                                     {isSelected && <CheckCircle2 className="w-3 h-3" />}
@@ -829,10 +814,10 @@ export default function ContractorSettingsPage() {
                                         </div>
                                     </div>
 
-                                    <div className="space-y-4 bg-slate-900/50 p-6 rounded-2xl border border-slate-800">
+                                    <div className="space-y-4 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
                                         <div className="flex items-center justify-between">
                                             <div>
-                                                <h3 className="font-medium text-slate-200">Remove Rubbish</h3>
+                                                <h3 className="font-medium text-slate-900">Remove Rubbish</h3>
                                                 <p className="text-xs text-slate-500">Include waste removal in quotes?</p>
                                             </div>
                                             <Switch
@@ -842,10 +827,10 @@ export default function ContractorSettingsPage() {
                                                 })}
                                             />
                                         </div>
-                                        <div className="h-px bg-slate-800" />
+                                        <div className="h-px bg-gray-100" />
                                         <div className="flex items-center justify-between">
                                             <div>
-                                                <h3 className="font-medium text-slate-200">Supply Materials</h3>
+                                                <h3 className="font-medium text-slate-900">Supply Materials</h3>
                                                 <p className="text-xs text-slate-500">Quote including parts & materials?</p>
                                             </div>
                                             <Switch
@@ -855,14 +840,14 @@ export default function ContractorSettingsPage() {
                                                 })}
                                             />
                                         </div>
-                                        <div className="h-px bg-slate-800" />
+                                        <div className="h-px bg-gray-100" />
                                         <div className="flex items-center justify-between">
                                             <div>
-                                                <h3 className="font-medium text-slate-200">Minimum Callout Fee</h3>
+                                                <h3 className="font-medium text-slate-900">Minimum Callout Fee</h3>
                                                 <p className="text-xs text-slate-500">Smallest job value accepted (£)</p>
                                             </div>
                                             <input
-                                                type="number" className="w-20 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-right text-sm"
+                                                type="number" className="w-20 bg-white border border-gray-200 rounded px-2 py-1 text-right text-sm text-slate-900 focus:border-amber-500"
                                                 defaultValue={profile?.aiRules?.minCallout || 50}
                                                 onBlur={(e) => mutation.mutate({ aiRules: { ...profile?.aiRules, minCallout: parseInt(e.target.value) } })}
                                             />
@@ -884,46 +869,46 @@ export default function ContractorSettingsPage() {
                                         </div>
                                     </div>
 
-                                    <div className="max-w-md space-y-6 bg-slate-900/50 p-6 rounded-2xl border border-slate-800">
+                                    <div className="max-w-md space-y-6 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
                                         <form onSubmit={handlePasswordSubmit} className="space-y-4">
                                             <div>
-                                                <label className="block text-xs font-medium text-slate-500 uppercase mb-2">Current Password</label>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Current Password</label>
                                                 <input
                                                     type="password"
                                                     value={passwordData.currentPassword}
                                                     onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
-                                                    className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                                                    className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg text-slate-900 focus:border-amber-500 outline-none"
                                                 />
                                             </div>
                                             <div>
-                                                <label className="block text-xs font-medium text-slate-500 uppercase mb-2">New Password</label>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">New Password</label>
                                                 <input
                                                     type="password"
                                                     value={passwordData.newPassword}
                                                     onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
-                                                    className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                                                    className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg text-slate-900 focus:border-amber-500 outline-none"
                                                 />
                                             </div>
                                             <div>
-                                                <label className="block text-xs font-medium text-slate-500 uppercase mb-2">Confirm New Password</label>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Confirm New Password</label>
                                                 <input
                                                     type="password"
                                                     value={passwordData.confirmNewPassword}
                                                     onChange={(e) => setPasswordData({ ...passwordData, confirmNewPassword: e.target.value })}
-                                                    className="w-full px-4 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
+                                                    className="w-full px-4 py-2 bg-white border border-gray-200 rounded-lg text-slate-900 focus:border-amber-500 outline-none"
                                                 />
                                             </div>
                                             <Button
                                                 type="submit"
                                                 disabled={changePasswordMutation.isPending}
-                                                className="w-full bg-slate-800 hover:bg-slate-700 text-white"
+                                                className="w-full bg-slate-900 hover:bg-slate-800 text-white"
                                             >
                                                 {changePasswordMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
                                                 Update Password
                                             </Button>
                                         </form>
 
-                                        <hr className="border-slate-800 shadow-[0_1px_rgba(255,255,255,0.05)]" />
+                                        <hr className="border-gray-200 shadow-[0_1px_rgba(0,0,0,0.05)]" />
 
                                         <button
                                             onClick={handleLogout}
@@ -938,9 +923,7 @@ export default function ContractorSettingsPage() {
                         )}
                     </main>
                 </div>
-
-                <div className="h-20" /> {/* Spacer */}
             </div>
-        </div>
+        </ContractorAppShell>
     );
 }

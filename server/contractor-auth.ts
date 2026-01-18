@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { geocodeAddress } from './lib/geocoding';
+import { AutoSkuGenerator } from './services/auto-sku-generator';
 import { db } from './db';
 import { users, handymanProfiles, contractorSessions, productizedServices, handymanSkills } from '../shared/schema';
 import { eq, and, or } from 'drizzle-orm';
@@ -18,6 +19,7 @@ const registerSchema = z.object({
     lastName: z.string().min(1, 'Last name is required'),
     phone: z.string().optional(),
     postcode: z.string().optional(),
+    slug: z.string().optional(),
 });
 
 const loginSchema = z.object({
@@ -118,14 +120,46 @@ router.put('/skills', requireContractorAuth, async (req: Request, res: Response)
     } catch (error) {
         console.error('Error updating skills:', error);
         res.status(500).json({ error: "Failed to update skills" });
+
+    }
+});
+
+// GET /api/contractor/check-slug - Check if slug is available
+router.get('/check-slug', async (req: Request, res: Response) => {
+    try {
+        const { slug } = req.query;
+        if (!slug || typeof slug !== 'string') {
+            return res.status(400).json({ error: 'Slug is required' });
+        }
+
+        const existing = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.slug, slug)
+        });
+
+        res.json({ available: !existing });
+    } catch (error) {
+        console.error('Check slug error:', error);
+        res.status(500).json({ error: "Failed to check slug" });
     }
 });
 
 // POST /api/contractor/register - Create new contractor account
 router.post('/register', async (req: Request, res: Response) => {
     try {
+        // Extended schema for consolidated registration
+        const extendedRegisterSchema = registerSchema.extend({
+            city: z.string().optional(),
+            radiusMiles: z.number().optional(),
+            bio: z.string().optional(),
+            services: z.array(z.object({
+                trade: z.string(),
+                hourlyRatePence: z.number(),
+                dayRatePence: z.number()
+            })).optional()
+        });
+
         // Validate request body
-        const validation = registerSchema.safeParse(req.body);
+        const validation = extendedRegisterSchema.safeParse(req.body);
         if (!validation.success) {
             return res.status(400).json({
                 error: 'Validation failed',
@@ -133,7 +167,7 @@ router.post('/register', async (req: Request, res: Response) => {
             });
         }
 
-        const { email, password, firstName, lastName, phone, postcode } = validation.data;
+        const { email, password, firstName, lastName, phone, postcode, slug, city, radiusMiles, bio, services } = validation.data;
 
         // Check if email already exists
         const existing = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1);
@@ -179,10 +213,27 @@ router.post('/register', async (req: Request, res: Response) => {
             id: profileId,
             userId,
             postcode,
+            city: city, // From new payload
+            bio: bio,   // From new payload
             latitude,
             longitude,
-            radiusMiles: 10, // Default radius
+            radiusMiles: radiusMiles || 10, // From new payload or default
+            slug: slug || undefined,
         });
+
+        // Generates SKUs if services are provided
+        if (services && services.length > 0) {
+            try {
+                await AutoSkuGenerator.generateForContractor({
+                    userId,
+                    profileId,
+                    services
+                });
+            } catch (skuError) {
+                console.error("[ContractorAuth] Failed to generate SKUs:", skuError);
+                // Non-blocking error, user is still created
+            }
+        }
 
         // Create session
         const sessionToken = generateSessionToken();

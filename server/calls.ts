@@ -1,9 +1,10 @@
 import express, { type Request, Response } from "express";
 import { db } from "./db";
-import { calls, callSkus, productizedServices, updateCallSchema } from "../shared/schema";
+import { calls, callSkus, leads, productizedServices, updateCallSchema } from "../shared/schema";
 import { eq, desc, and, or, like, sql, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import crypto from "crypto";
+import { storageService } from "./storage";
 
 const router = express.Router();
 
@@ -115,8 +116,12 @@ router.get("/", async (req: Request, res: Response) => {
         const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
         const [callsList, totalCount] = await Promise.all([
-            db.select()
+            db.select({
+                call: calls,
+                elevenLabsRecordingUrl: leads.elevenLabsRecordingUrl
+            })
                 .from(calls)
+                .leftJoin(leads, eq(calls.leadId, leads.id))
                 .where(whereClause)
                 .orderBy(desc(calls.startTime))
                 .limit(limitNum)
@@ -135,11 +140,11 @@ router.get("/", async (req: Request, res: Response) => {
                 .groupBy(callSkus.callId);
 
             const callIdsWithSkus = new Set(callsWithSkus.map(c => c.callId));
-            filteredCalls = callsList.filter(call => callIdsWithSkus.has(call.id));
+            filteredCalls = callsList.filter(row => callIdsWithSkus.has(row.call.id));
         }
 
         // Get SKU counts for each call
-        const callIds = filteredCalls.map(c => c.id);
+        const callIds = filteredCalls.map(row => row.call.id);
         const skuCounts = callIds.length > 0
             ? await db.select({
                 callId: callSkus.callId,
@@ -153,24 +158,35 @@ router.get("/", async (req: Request, res: Response) => {
         const skuCountMap = new Map(skuCounts.map(sc => [sc.callId, Number(sc.count)]));
 
         // Format response
-        const formattedCalls = filteredCalls.map(call => ({
-            id: call.id,
-            callId: call.callId,
-            customerName: call.customerName || "Unknown",
-            phoneNumber: call.phoneNumber,
-            address: call.address,
-            startTime: call.startTime,
-            jobSummary: call.jobSummary,
-            skuCount: skuCountMap.get(call.id) || 0,
-            totalPricePence: call.totalPricePence || 0,
-            outcome: call.outcome,
-            urgency: call.urgency,
-            status: call.status,
-            metadataJson: call.metadataJson,
-            missedReason: call.missedReason,
-            recordingUrl: call.recordingUrl,
-            transcription: call.transcription,
-        }));
+        const formattedCalls = filteredCalls.map(({ call, elevenLabsRecordingUrl }) => {
+            const finalRecordingUrl = call.recordingUrl || elevenLabsRecordingUrl;
+
+            // Debug log for recording URLs (can be removed later)
+            if (finalRecordingUrl) {
+                console.log(`[CallsAPI] Found recording for call ${call.id}: ${finalRecordingUrl.substring(0, 50)}...`);
+            } else {
+                console.log(`[CallsAPI] No recording found for call ${call.id} (leadId: ${call.leadId || 'none'})`);
+            }
+
+            return {
+                id: call.id,
+                callId: call.callId,
+                customerName: call.customerName || "Unknown",
+                phoneNumber: call.phoneNumber,
+                address: call.address,
+                startTime: call.startTime,
+                jobSummary: call.jobSummary,
+                skuCount: skuCountMap.get(call.id) || 0,
+                totalPricePence: call.totalPricePence || 0,
+                outcome: call.outcome,
+                urgency: call.urgency,
+                status: call.status,
+                metadataJson: call.metadataJson,
+                missedReason: call.missedReason,
+                recordingUrl: finalRecordingUrl,
+                transcription: call.transcription,
+            };
+        });
 
         res.json({
             calls: formattedCalls,
@@ -407,14 +423,68 @@ router.get("/:id/recording", async (req: Request, res: Response) => {
         const { id } = req.params;
 
         // Get call details to find recording URL
-        const [call] = await db.select().from(calls).where(eq(calls.id, id));
+        const [result] = await db.select({
+            call: calls,
+            lead: leads
+        })
+            .from(calls)
+            .leftJoin(leads, eq(calls.leadId, leads.id))
+            .where(eq(calls.id, id));
 
-        if (!call) {
+        if (!result || !result.call) {
             return res.status(404).json({ error: "Call not found" });
         }
 
-        if (!call.recordingUrl) {
+        const { call, lead } = result;
+
+        const targetUrl = call.recordingUrl || lead?.elevenLabsRecordingUrl;
+
+        if (!targetUrl) {
             return res.status(404).json({ error: "No recording available for this call" });
+        }
+
+        // --- NEW: S3 Presigned URL Redirection ---
+        // If the URL is managed by our StorageService (S3), generate a signed URL and redirect.
+        // This avoids proxying large files through our server and fixes 403 Forbidden on private buckets.
+        const signedUrl = await storageService.getSignedRecordingUrl(targetUrl);
+
+        // If the signed URL is different (i.e., it was signed) OR it's a known S3 URL that isn't Twilio/11Labs
+        if (signedUrl !== targetUrl || (targetUrl.includes('s3') && !targetUrl.includes('twilio.com'))) {
+            return res.redirect(signedUrl);
+        }
+
+        // --- End S3 Logic ---
+
+        // Check if it is a Twilio URL
+        const isTwilio = targetUrl.includes('twilio.com');
+
+        if (!isTwilio) {
+            // For ElevenLabs or other external URLs, stream directly
+
+            const headers: HeadersInit = {};
+
+            // Should we add API Key?
+            // If it is an Eleven Labs API URL for audio, we definitely need the key.
+            if (targetUrl.includes('api.elevenlabs.io')) {
+                const { elevenLabsApiKey } = await import("./settings").then(m => m.getTwilioSettings());
+                if (elevenLabsApiKey) {
+                    headers['xi-api-key'] = elevenLabsApiKey;
+                }
+            }
+
+            const response = await fetch(targetUrl, { headers });
+
+            if (!response.ok) {
+                console.error(`External recording fetch failed: ${response.status}`);
+                return res.status(response.status).json({ error: "Failed to fetch recording" });
+            }
+
+            res.setHeader('Content-Type', response.headers.get('content-type') || 'audio/mpeg');
+            res.setHeader('Content-Length', response.headers.get('content-length') || '');
+            res.setHeader('Accept-Ranges', 'bytes');
+
+            const arrayBuffer = await response.arrayBuffer();
+            return res.send(Buffer.from(arrayBuffer));
         }
 
         // Fetch recording from Twilio with Basic Auth
@@ -425,7 +495,7 @@ router.get("/:id/recording", async (req: Request, res: Response) => {
             return res.status(500).json({ error: "Twilio credentials not configured" });
         }
 
-        const response = await fetch(call.recordingUrl, {
+        const response = await fetch(targetUrl, {
             headers: {
                 Authorization: 'Basic ' + Buffer.from(`${accountSid}:${authToken}`).toString('base64')
             }

@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
+import { generateInvoicePDF } from '@/lib/invoice-generator';
 
 export default function QuoteDetailsPage() {
     const [, params] = useRoute('/contractor/dashboard/quotes/:id');
@@ -46,6 +47,52 @@ export default function QuoteDetailsPage() {
         setCopied(true);
         toast({ title: "Link Copied", description: "Quote URL copied to clipboard." });
         setTimeout(() => setCopied(false), 2000);
+    };
+
+    const handleShare = async (method: 'email' | 'sms') => {
+        if (!quote) return;
+
+        // In a real app, we'd open a modal to ask for the recipient's phone/email if not known.
+        // For this V1, we'll assume we send to the customer details on file or prompt.
+        // Let's use a simple prompt for now or just trigger the action if we had the data.
+        // Since we have customer info in quote (maybe), let's try to send to them.
+
+        try {
+            const res = await fetch(`/api/quotes/${params?.id}/share`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ method, target: method === 'email' ? 'customer@example.com' : quote.phone })
+            });
+
+            if (res.ok) {
+                toast({ title: "Sent!", description: `Quote sent via ${method.toUpperCase()}.` });
+            } else {
+                toast({ title: "Error", description: "Failed to send quote.", variant: "destructive" });
+            }
+        } catch (e) {
+            toast({ title: "Error", description: "Network error.", variant: "destructive" });
+        }
+    };
+
+    const handleDownloadInvoice = () => {
+        if (!quote) return;
+
+        generateInvoicePDF({
+            invoiceNumber: quote.shortSlug, // simple invoice number
+            date: new Date(),
+            customerName: quote.customerName,
+            customerAddress: quote.address || quote.postcode,
+            items: [
+                {
+                    description: quote.jobDescription,
+                    quantity: 1,
+                    price: quote.basePrice || quote.tierStandardPrice || 0
+                }
+            ],
+            total: quote.basePrice || quote.tierStandardPrice || 0,
+            deposit: quote.depositAmountPence
+        });
+        toast({ title: "Downloaded", description: "Invoice PDF generated." });
     };
 
     if (isLoading) return <div className="flex h-screen items-center justify-center bg-slate-950 text-slate-400"><Loader2 className="animate-spin mr-2" /> Loading Quote...</div>;
@@ -94,6 +141,18 @@ export default function QuoteDetailsPage() {
                                 Preview
                             </Button>
                         </a>
+                    </div>
+
+                    <div className="flex gap-2 w-full md:w-auto mt-4 md:mt-0 pt-4 md:pt-0 border-t md:border-t-0 border-slate-800">
+                        <Button onClick={() => handleShare('email')} variant="secondary" className="flex-1 md:flex-none gap-2">
+                            <span className="hidden md:inline">Send</span> Email
+                        </Button>
+                        <Button onClick={() => handleShare('sms')} variant="secondary" className="flex-1 md:flex-none gap-2">
+                            <span className="hidden md:inline">Send</span> SMS
+                        </Button>
+                        <Button onClick={handleDownloadInvoice} variant="outline" className="flex-1 md:flex-none gap-2 border-slate-700">
+                            <span className="hidden md:inline">Download</span> Invoice
+                        </Button>
                     </div>
                 </div>
 

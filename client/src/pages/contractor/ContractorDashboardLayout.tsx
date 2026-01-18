@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LayoutDashboard, Calendar, Clock, FileText, User, Menu, LogOut, Plus } from "lucide-react";
+import { LayoutDashboard, Calendar, Clock, FileText, User, Menu, LogOut, Plus, DollarSign } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { useMutation } from "@tanstack/react-query";

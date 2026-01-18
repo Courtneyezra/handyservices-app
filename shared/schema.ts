@@ -160,6 +160,7 @@ export const calls = pgTable("calls", {
     urgency: varchar("urgency"), // 'Critical' | 'High' | 'Standard' | 'Low'
     leadType: varchar("lead_type"), // 'Homeowner' | 'Landlord' | 'Property Manager' | 'Tenant'
     jobSummary: text("job_summary"), // AI-generated short summary of the job
+    elevenLabsConversationId: varchar("eleven_labs_conversation_id"), // ID for retrieving recording/transcript
 
 
     // SKU Detection Results (from AI)
@@ -676,8 +677,35 @@ export const contractorBookingRequestsRelations = relations(contractorBookingReq
 }));
 
 export const insertContractorBookingRequestSchema = createInsertSchema(contractorBookingRequests);
-export type ContractorBookingRequest = typeof contractorBookingRequests.$inferSelect;
-export type InsertContractorBookingRequest = z.infer<typeof insertContractorBookingRequestSchema>;
+export type ContractorBookingRequest = typeof contractorBookingRequests.$inferSelect;// ==========================================
+// EXPENSES & BOOKKEEPING
+// ==========================================
+
+export const expenses = pgTable("expenses", {
+    id: varchar("id").primaryKey().notNull(),
+    contractorId: varchar("contractor_id").references(() => handymanProfiles.id).notNull(),
+    jobId: varchar("job_id"), // Optional: Link to a specific job
+    date: timestamp("date").notNull().defaultNow(),
+    description: text("description").notNull(),
+    category: varchar("category", { length: 50 }).notNull(), // 'materials', 'marketing', 'travel', 'equipment', 'insurance', 'other'
+    amountPence: integer("amount_pence").notNull(),
+    receiptUrl: text("receipt_url"),
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_expenses_contractor").on(table.contractorId),
+    index("idx_expenses_date").on(table.date),
+]);
+
+export const expensesRelations = relations(expenses, ({ one }) => ({
+    contractor: one(handymanProfiles, {
+        fields: [expenses.contractorId],
+        references: [handymanProfiles.id],
+    }),
+}));
+
+export const insertExpenseSchema = createInsertSchema(expenses);
+export type Expense = typeof expenses.$inferSelect;
+export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 
 // ==========================================
 // WHATSAPP CRM SCHEMA

@@ -5,6 +5,7 @@ import { Sparkles, ArrowRight, ArrowLeft, Check, Loader2, AlertCircle, Info, Quo
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { useContractorAuth } from '@/hooks/use-contractor-auth';
+import { VoiceDictation } from '@/components/VoiceDictation';
 import { motion, AnimatePresence } from 'framer-motion';
 
 type Complexity = 'trivial' | 'low' | 'medium' | 'high';
@@ -230,7 +231,13 @@ export default function NewQuotePage() {
 
                         <div className="space-y-4">
                             <div className="relative">
-                                <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Description</label>
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="text-xs font-bold text-slate-500 block uppercase">Description</label>
+                                    <VoiceDictation
+                                        className="scale-75 origin-right"
+                                        onTranscriptionComplete={(text) => setJobDescription(prev => prev + (prev ? " " : "") + text)}
+                                    />
+                                </div>
                                 <textarea
                                     value={jobDescription}
                                     onChange={e => setJobDescription(e.target.value)}

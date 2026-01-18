@@ -699,3 +699,17 @@ quotesRouter.delete('/api/personalized-quotes/:id', async (req, res) => {
         res.status(500).json({ error: "Failed to delete quote" });
     }
 });
+
+// V1: Share Quote (Mock)
+quotesRouter.post("/quotes/:id/share", async (req, res) => {
+    const { id } = req.params;
+    const { method, target } = req.body;
+
+    console.log(`[Quote Share] Sending quote ${id} via ${method} to ${target}`);
+
+    // Simulate delay
+    await new Promise(r => setTimeout(r, 1000));
+
+    res.json({ success: true, message: `Quote sent to ${target}` });
+});
+

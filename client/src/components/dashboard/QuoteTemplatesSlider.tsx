@@ -47,24 +47,24 @@ export function QuoteTemplatesSlider() {
     };
 
     return (
-        <div className="w-full overflow-x-auto pb-4 -mt-2">
-            <h3 className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-3 px-1">
+        <div className="w-full overflow-x-auto pb-4 -mt-2 scrollbar-hide">
+            <h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-3 px-1">
                 Quick Start Templates
             </h3>
             <div className="flex gap-4">
                 {services.map((sku) => (
                     <Link key={sku.id} href={`/contractor/dashboard/quotes/new?sku=${sku.id}`}>
-                        <div className="min-w-[240px] p-4 bg-slate-900/50 border border-slate-800 rounded-xl hover:bg-slate-800/80 hover:border-amber-500/30 transition-all cursor-pointer group flex flex-col justify-between h-[110px]">
+                        <div className="min-w-[240px] p-4 bg-white border border-gray-200 rounded-xl hover:bg-slate-50 hover:border-indigo-200 transition-all cursor-pointer group flex flex-col justify-between h-[110px] shadow-sm hover:shadow-md">
                             <div className="flex justify-between items-start">
-                                <div className="p-2 bg-slate-800 rounded-lg group-hover:scale-110 transition-transform">
+                                <div className="p-2 bg-slate-50 rounded-lg group-hover:scale-110 transition-transform border border-gray-100">
                                     {getIcon(sku.category || sku.name)}
                                 </div>
-                                <span className="font-mono text-emerald-400 font-bold">
+                                <span className="font-mono text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded text-sm">
                                     £{(sku.pricePence / 100).toFixed(0)}
                                 </span>
                             </div>
                             <div>
-                                <h4 className="font-bold text-slate-200 text-sm truncate group-hover:text-amber-400 transition-colors">
+                                <h4 className="font-bold text-slate-900 text-sm truncate group-hover:text-indigo-600 transition-colors">
                                     {sku.name.replace(' - ', ' • ')}
                                 </h4>
                                 <div className="flex items-center gap-1 text-xs text-slate-500 mt-1">
@@ -78,11 +78,11 @@ export function QuoteTemplatesSlider() {
 
                 {/* "Create Custom" Card */}
                 <Link href="/contractor/dashboard/quotes/new">
-                    <div className="min-w-[100px] flex flex-col items-center justify-center bg-slate-900/30 border border-dashed border-slate-800 rounded-xl hover:bg-slate-800/50 hover:border-slate-700 transition-all cursor-pointer h-[110px]">
-                        <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center mb-2">
-                            <Plus className="w-4 h-4 text-slate-400" />
+                    <div className="min-w-[100px] flex flex-col items-center justify-center bg-white border border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-indigo-300 transition-all cursor-pointer h-[110px] group">
+                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center mb-2 group-hover:bg-indigo-50 transition-colors">
+                            <Plus className="w-4 h-4 text-slate-500 group-hover:text-indigo-600" />
                         </div>
-                        <span className="text-xs text-slate-500 font-medium">Custom</span>
+                        <span className="text-xs text-slate-500 font-medium group-hover:text-indigo-600">Custom</span>
                     </div>
                 </Link>
             </div>

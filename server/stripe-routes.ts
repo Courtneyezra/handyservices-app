@@ -5,7 +5,7 @@ import { personalizedQuotes } from '../shared/schema';
 import { eq } from 'drizzle-orm';
 
 // Initialize Stripe with the secret key (strip quotes if present in .env)
-const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || '').replace(/^["']|["']$/g, '');
+const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || '').replace(/^["']|["']$/g, '').trim();
 
 if (!stripeSecretKey || !stripeSecretKey.startsWith('sk_')) {
     console.error('[Stripe] Invalid or missing STRIPE_SECRET_KEY. Payment functionality will be disabled.');
@@ -39,8 +39,16 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
     console.log('[Stripe] Create payment intent request received');
 
     if (!stripe) {
-        console.error('[Stripe] Stripe not initialized');
-        return res.status(500).json({ message: 'Payment system not configured' });
+        console.error('[Stripe] Stripe not initialized. STRIPE_SECRET_KEY is missing or invalid.');
+        // Log environment status safely
+        console.error('[Stripe] Key status:', {
+            exists: !!process.env.STRIPE_SECRET_KEY,
+            startsWithSk: process.env.STRIPE_SECRET_KEY?.startsWith('sk_')
+        });
+        return res.status(500).json({
+            message: 'Payment system not configured. Please contact support.',
+            debug: 'Stripe secret key missing or invalid'
+        });
     }
 
     try {

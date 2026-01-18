@@ -124,16 +124,32 @@ export async function loadAndCacheSkus(): Promise<ProductizedService[]> {
     if (skuCache && (now - lastCacheUpdate < CACHE_TTL)) {
         return skuCache;
     }
-    try {
-        const skus = await db.select().from(productizedServices).where(eq(productizedServices.isActive, true));
-        skuCache = skus;
-        lastCacheUpdate = now;
-        console.log(`[SKU Detector] Loaded ${skus.length} active SKUs`);
-        return skus;
-    } catch (error) {
-        console.error("Failed to load SKUs:", error);
-        return [];
+
+    const MAX_RETRIES = 3;
+    let attempt = 0;
+
+    while (attempt < MAX_RETRIES) {
+        try {
+            const skus = await db.select().from(productizedServices).where(eq(productizedServices.isActive, true));
+            skuCache = skus;
+            lastCacheUpdate = now;
+            console.log(`[SKU Detector] Loaded ${skus.length} active SKUs`);
+            return skus;
+        } catch (error) {
+            attempt++;
+            console.warn(`[SKU Detector] Failed to load SKUs (Attempt ${attempt}/${MAX_RETRIES}):`, error);
+
+            if (attempt === MAX_RETRIES) {
+                console.error("[SKU Detector] Final failure loading SKUs after retries.");
+                return [];
+            }
+
+            // Exponential backoff: 1s, 2s, 4s...
+            const delay = 1000 * Math.pow(2, attempt - 1);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
     }
+    return [];
 }
 
 // Pre-computation: Synonym Expansion

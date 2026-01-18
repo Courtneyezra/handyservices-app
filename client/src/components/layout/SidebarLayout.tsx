@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Link, useLocation } from "wouter";
 import { useLiveCall } from "@/contexts/LiveCallContext";
@@ -60,6 +60,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                         {
                             title: "COMMUNICATIONS",
                             items: [
+                                { icon: Users, label: "Leads", href: "/admin/leads" },
                                 { icon: MessageSquare, label: "WhatsApp CRM", href: "/admin/whatsapp-intake" },
                                 { icon: PhoneCall, label: "Call Logs", href: "/admin/calls" },
                             ]

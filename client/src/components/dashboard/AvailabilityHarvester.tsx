@@ -95,20 +95,20 @@ export function AvailabilityHarvester() {
         }
     });
 
-    if (isLoading) return <div className="h-24 bg-slate-100 rounded-xl animate-pulse" />;
+    if (isLoading) return <div className="h-24 bg-gray-100 rounded-xl animate-pulse" />;
 
     return (
-        <div className="bg-transparent rounded-xl overflow-hidden h-full flex flex-col">
-            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-slate-900/40">
-                <h3 className="font-bold text-white flex items-center gap-2">
+        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden h-full flex flex-col shadow-sm">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-slate-50/50">
+                <h3 className="font-bold text-slate-900 flex items-center gap-2">
                     <img src="/logo.png" alt="Handy" className="w-5 h-5 object-contain" />
                     Quick Availability
                 </h3>
-                <span className="text-xs text-slate-400">Tap to toggle</span>
+                <span className="text-xs text-slate-500">Tap to toggle</span>
             </div>
 
             <div className="p-4">
-                <div className="flex gap-3 overflow-x-auto pb-2 snap-x">
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x scrollbar-hide">
                     {days?.map((day) => {
                         const dateObj = new Date(day.date);
                         const isToday = isSameDay(dateObj, new Date());
@@ -119,11 +119,6 @@ export function AvailabilityHarvester() {
 
                         const handleAmClick = (e: React.MouseEvent) => {
                             e.stopPropagation();
-                            // Toggle AM: 
-                            // If OFF -> AM
-                            // If PM -> FULL
-                            // If AM -> OFF
-                            // If FULL -> PM
                             let nextMode: 'am' | 'pm' | 'full' | 'off' = 'am';
                             if (currentMode === 'off') nextMode = 'am';
                             if (currentMode === 'pm') nextMode = 'full';
@@ -135,11 +130,6 @@ export function AvailabilityHarvester() {
 
                         const handlePmClick = (e: React.MouseEvent) => {
                             e.stopPropagation();
-                            // Toggle PM:
-                            // If OFF -> PM
-                            // If AM -> FULL
-                            // If PM -> OFF
-                            // If FULL -> AM
                             let nextMode: 'am' | 'pm' | 'full' | 'off' = 'pm';
                             if (currentMode === 'off') nextMode = 'pm';
                             if (currentMode === 'am') nextMode = 'full';
@@ -156,19 +146,19 @@ export function AvailabilityHarvester() {
                             >
                                 {/* Date Header (Static) */}
                                 <div className="text-center">
-                                    <span className="text-[10px] font-bold uppercase text-slate-500 block leading-tight">
+                                    <span className="text-[10px] font-bold uppercase text-slate-400 block leading-tight">
                                         {format(dateObj, 'EEE')}
                                     </span>
                                     <span className={cn(
                                         "text-sm font-bold block leading-tight",
-                                        day.isAvailable ? "text-white" : "text-slate-600"
+                                        day.isAvailable ? "text-slate-900" : "text-slate-400"
                                     )}>
                                         {format(dateObj, 'd')}
                                     </span>
                                 </div>
 
                                 {/* Split Pills Container */}
-                                <div className="flex flex-col gap-[2px] flex-grow w-full border border-slate-800 rounded-lg overflow-hidden bg-slate-900/50">
+                                <div className="flex flex-col gap-[1px] flex-grow w-full border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
 
                                     {/* AM Button */}
                                     <button
@@ -176,15 +166,15 @@ export function AvailabilityHarvester() {
                                         className={cn(
                                             "flex-1 flex items-center justify-center transition-all active:scale-95 text-[10px] font-bold tracking-wider",
                                             isAmActive
-                                                ? "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 shadow-[inset_0_0_10px_rgba(245,158,11,0.2)]"
-                                                : "bg-transparent text-slate-600 hover:bg-slate-800 hover:text-slate-400"
+                                                ? "bg-amber-100 text-amber-700 hover:bg-amber-200 shadow-inner"
+                                                : "bg-transparent text-slate-400 hover:bg-gray-100 hover:text-slate-600"
                                         )}
                                     >
                                         AM
                                     </button>
 
                                     {/* Divider */}
-                                    <div className="h-[1px] bg-slate-800/50" />
+                                    <div className="h-[1px] bg-gray-200" />
 
                                     {/* PM Button */}
                                     <button
@@ -192,8 +182,8 @@ export function AvailabilityHarvester() {
                                         className={cn(
                                             "flex-1 flex items-center justify-center transition-all active:scale-95 text-[10px] font-bold tracking-wider",
                                             isPmActive
-                                                ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 shadow-[inset_0_0_10px_rgba(16,185,129,0.2)]"
-                                                : "bg-transparent text-slate-600 hover:bg-slate-800 hover:text-slate-400"
+                                                ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 shadow-inner"
+                                                : "bg-transparent text-slate-400 hover:bg-gray-100 hover:text-slate-600"
                                         )}
                                     >
                                         PM
@@ -205,7 +195,7 @@ export function AvailabilityHarvester() {
                 </div>
             </div>
 
-            <div className="bg-slate-900/40 px-4 py-3 text-xs text-slate-400 text-center border-t border-white/5 flex-grow flex items-center justify-center">
+            <div className="bg-slate-50 px-4 py-3 text-xs text-slate-500 text-center border-t border-gray-100 flex-grow flex items-center justify-center font-medium">
                 Updating this helps us get you 30% more jobs.
             </div>
         </div>

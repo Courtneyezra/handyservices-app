@@ -81,6 +81,7 @@ elevenLabsWebhookRouter.post('/webhooks/elevenlabs', async (req, res) => {
             transcription: fullTranscript,
             jobSummary: analysis.summary,
             recordingUrl: recording_url, // Update with high-quality AI recording if available
+            elevenLabsConversationId: conversation_id, // Store ID for manual retrieval if URL fails
             customerName: customerName,
             address: address,
             urgency: urgency,

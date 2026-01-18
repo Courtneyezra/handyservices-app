@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
+import ContractorAppShell from "@/components/layout/ContractorAppShell";
 import { ArrowLeft, Loader2, FileText, CheckCircle2, Calendar, Briefcase, Play, CheckSquare } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { motion } from "framer-motion";
@@ -90,25 +91,24 @@ export default function JobsPage() {
     };
 
     return (
-        <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-24">
-
+        <ContractorAppShell>
             {/* Header */}
-            <div className="sticky top-0 z-30 bg-slate-950/80 backdrop-blur-md px-4 py-4 flex items-center gap-3 border-b border-slate-800">
+            <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-md px-4 py-4 flex items-center gap-3 border-b border-gray-100">
                 <Link href="/contractor/dashboard">
-                    <button className="p-2 -ml-2 rounded-full hover:bg-slate-800 text-slate-400">
+                    <button className="p-2 -ml-2 rounded-full hover:bg-slate-100 text-slate-400">
                         <ArrowLeft className="w-5 h-5" />
                     </button>
                 </Link>
                 <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
                         <Briefcase className="w-4 h-4" />
                     </div>
-                    <h1 className="font-bold text-lg">My Jobs</h1>
+                    <h1 className="font-bold text-lg text-slate-800">My Jobs</h1>
                 </div>
             </div>
 
             {/* Content */}
-            <div className="px-4 py-6 space-y-4">
+            <div className="px-5 py-6 space-y-4">
                 {isLoading ? (
                     <div className="flex flex-col items-center justify-center py-20 text-slate-500 gap-3">
                         <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
@@ -121,17 +121,17 @@ export default function JobsPage() {
                                 <motion.div
                                     initial={{ opacity: 0, y: 10 }}
                                     animate={{ opacity: 1, y: 0 }}
-                                    className="block bg-slate-900/50 border border-slate-800 rounded-xl p-4 active:scale-[0.98] transition-all hover:bg-slate-900 cursor-pointer group"
+                                    className="block bg-white border border-gray-100 rounded-xl p-4 active:scale-[0.98] transition-all hover:bg-gray-50 cursor-pointer group shadow-sm"
                                 >
                                     <div className="flex justify-between items-start mb-3">
                                         <div className="flex flex-col">
-                                            <span className="font-bold text-base text-white line-clamp-1 group-hover:text-amber-500 transition-colors">{job.customerName}</span>
-                                            <span className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                                            <span className="font-bold text-base text-slate-800 line-clamp-1 group-hover:text-amber-600 transition-colors">{job.customerName}</span>
+                                            <span className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
                                                 <Calendar className="w-3 h-3" />
                                                 Booked {formatDistanceToNow(new Date(job.bookedAt!), { addSuffix: true })}
                                             </span>
                                         </div>
-                                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-600 border border-emerald-200">
                                             <CheckCircle2 className="w-3.5 h-3.5" />
                                             <span className="text-xs font-bold">Active</span>
                                         </div>
@@ -139,14 +139,11 @@ export default function JobsPage() {
 
                                     <div className="flex gap-2 mb-4">
                                         {/* Status Actions */}
-                                        {/* Note: We need real proper status tracking. For now assume 'booked' = pending/ready */}
                                         <Button
                                             size="sm"
-                                            className="h-8 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white"
+                                            className="h-8 bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800 border border-slate-200 shadow-sm"
                                             onClick={(e) => {
                                                 e.preventDefault();
-                                                // Ideally we call updateStatusMutation.mutate({ jobId: job.contractorJobId, status: 'in_progress' })
-                                                // But we lack the ID currently on the frontend.
                                                 toast({ title: "Feature Coming Soon", description: "Job status tracking will be enabled shortly." });
                                             }}
                                         >
@@ -154,7 +151,7 @@ export default function JobsPage() {
                                         </Button>
                                         <Button
                                             size="sm"
-                                            className="h-8 bg-slate-800 text-slate-200 hover:bg-emerald-600 hover:text-white"
+                                            className="h-8 bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 border border-slate-200 shadow-sm"
                                             onClick={(e) => {
                                                 e.preventDefault();
                                                 toast({ title: "Feature Coming Soon", description: "Mark as complete will be enabled shortly." });
@@ -164,15 +161,15 @@ export default function JobsPage() {
                                         </Button>
                                     </div>
 
-                                    <p className="text-sm text-slate-400 line-clamp-2 mb-4 leading-relaxed">
+                                    <p className="text-sm text-slate-500 line-clamp-2 mb-4 leading-relaxed">
                                         {job.jobDescription}
                                     </p>
 
-                                    <div className="flex items-center justify-between pt-3 border-t border-slate-800/50">
-                                        <span className="text-xs text-slate-500">
+                                    <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                                        <span className="text-xs text-slate-400">
                                             {job.quoteMode === 'hhh' ? 'Magic Quote' : job.quoteMode === 'pick_and_mix' ? 'Pick & Mix' : 'Standard Quote'}
                                         </span>
-                                        <span className="font-bold text-white">
+                                        <span className="font-bold text-slate-700">
                                             {getPriceDisplay(job)}
                                         </span>
                                     </div>
@@ -182,11 +179,11 @@ export default function JobsPage() {
                     </div>
                 ) : (
                     <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
-                        <div className="w-16 h-16 rounded-full bg-slate-900 flex items-center justify-center border border-slate-800">
-                            <Briefcase className="w-8 h-8 text-slate-600" />
+                        <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200">
+                            <Briefcase className="w-8 h-8 text-slate-400" />
                         </div>
                         <div className="space-y-1">
-                            <h3 className="font-bold text-white text-lg">No jobs yet</h3>
+                            <h3 className="font-bold text-slate-800 text-lg">No jobs yet</h3>
                             <p className="text-slate-400 text-sm max-w-[200px] mx-auto">
                                 Accepted quotes will appear here as active jobs.
                             </p>
@@ -194,6 +191,6 @@ export default function JobsPage() {
                     </div>
                 )}
             </div>
-        </div>
+        </ContractorAppShell>
     );
 }

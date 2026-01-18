@@ -193,7 +193,7 @@ export default function ContractorDashboardHome() {
                         </div>
 
                         {/* Recent Activity / Stats Grid */}
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                             <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm">
                                 <div className="flex items-start justify-between mb-4">
                                     <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
@@ -204,16 +204,36 @@ export default function ContractorDashboardHome() {
                                 <p className="text-3xl font-bold text-white mb-1">0</p>
                                 <p className="text-sm text-slate-400">Active Jobs</p>
                             </div>
-                            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm">
-                                <div className="flex items-start justify-between mb-4">
-                                    <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
-                                        <BarChart3 className="w-5 h-5" />
+
+                            <Link href="/contractor/financials">
+                                <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm cursor-pointer hover:bg-slate-800/50 transition-colors group">
+                                    <div className="flex items-start justify-between mb-4">
+                                        <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400 group-hover:bg-emerald-500/20 transition-colors">
+                                            <BarChart3 className="w-5 h-5" />
+                                        </div>
+                                        <div className="flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                                            <ArrowRight className="w-3 h-3 text-slate-500 group-hover:text-emerald-400" />
+                                        </div>
                                     </div>
-                                    <span className="text-xs font-bold bg-slate-800 text-slate-400 px-2 py-1 rounded">Month</span>
+                                    <p className="text-3xl font-bold text-white mb-1">£0</p>
+                                    <p className="text-sm text-slate-400">Revenue</p>
                                 </div>
-                                <p className="text-3xl font-bold text-white mb-1">£0</p>
-                                <p className="text-sm text-slate-400">Revenue</p>
-                            </div>
+                            </Link>
+
+                            <Link href="/contractor/financials">
+                                <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm cursor-pointer hover:bg-slate-800/50 transition-colors group">
+                                    <div className="flex items-start justify-between mb-4">
+                                        <div className="w-10 h-10 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-400 group-hover:bg-rose-500/20 transition-colors">
+                                            <DollarSign className="w-5 h-5" />
+                                        </div>
+                                        <div className="flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                                            <ArrowRight className="w-3 h-3 text-slate-500 group-hover:text-rose-400" />
+                                        </div>
+                                    </div>
+                                    <p className="text-3xl font-bold text-white mb-1">£0</p>
+                                    <p className="text-sm text-slate-400">Expenses</p>
+                                </div>
+                            </Link>
                         </div>
                     </div>
 

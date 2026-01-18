@@ -31,6 +31,7 @@ const LandingPages = lazy(() => import("@/pages/admin/LandingPages"));
 const MarketingDashboard = lazy(() => import("@/pages/admin/MarketingDashboard"));
 const LandingPageBuilder = lazy(() => import("@/pages/admin/LandingPageBuilder"));
 const Banners = lazy(() => import("@/pages/admin/Banners"));
+const LeadsPage = lazy(() => import("@/pages/admin/LeadsPage"));
 const LandingPageRender = lazy(() => import("@/pages/LandingPageRender"));
 import SmartBanner from "@/components/SmartBanner";
 
@@ -44,13 +45,14 @@ const SeasonalMenu = lazy(() => import("@/pages/SeasonalMenu"));
 // Contractor Portal - Lazy loaded (separate user flow)
 const ContractorLogin = lazy(() => import("./pages/ContractorLogin"));
 const ContractorRegister = lazy(() => import("./pages/ContractorRegister"));
+const ContractorWelcome = lazy(() => import("./pages/ContractorWelcome"));
 const ContractorPortal = lazy(() => import("./pages/ContractorPortal"));
 const ContractorCalendar = lazy(() => import("./pages/ContractorCalendar"));
 const ContractorProfile = lazy(() => import("./pages/ContractorProfile"));
 const ContractorServiceArea = lazy(() => import("./pages/ContractorServiceArea"));
 
 // Contractor Dashboard (Phase 3)
-const ContractorDashboardHome = lazy(() => import("./pages/contractor/dashboard/ContractorDashboardHome"));
+const ContractorDashboardHome = lazy(() => import("./pages/ContractorMobileDashboard"));
 const BookingRequestsPage = lazy(() => import("./pages/contractor/dashboard/BookingRequestsPage"));
 const NewQuotePage = lazy(() => import("./pages/contractor/dashboard/quotes/NewQuotePage"));
 const QuotesListPage = lazy(() => import("./pages/contractor/dashboard/quotes/QuotesListPage"));
@@ -59,6 +61,10 @@ const QuoteDetailsPage = lazy(() => import("./pages/contractor/dashboard/quotes/
 const JobDetailsPage = lazy(() => import("./pages/contractor/dashboard/JobDetailsPage"));
 const ContractorOnboarding = lazy(() => import('./pages/ContractorOnboarding'));
 const ContractorSettingsPage = lazy(() => import('./pages/contractor/dashboard/ContractorSettingsPage'));
+const ContractorAppLanding = lazy(() => import('./pages/ContractorAppLanding'));
+const ExpensesPage = lazy(() => import('./pages/contractor/dashboard/ExpensesPage'));
+const ContractorDashboardLayout = lazy(() => import('./pages/contractor/ContractorDashboardLayout'));
+const PartnerOnboardingModal = lazy(() => import('./pages/PartnerOnboardingModal'));
 
 
 
@@ -134,6 +140,7 @@ function Router() {
                 {/* ============ PUBLIC ROUTES ============ */}
                 {/* Landing Pages */}
                 <Route path="/landing" component={HandymanLanding} />
+                <Route path="/app" component={ContractorAppLanding} />
                 <Route path="/derby" component={DerbyLanding} />
                 <Route path="/seasonal-guide" component={SeasonalMenu} />
                 <Route path="/l/:slug" component={LandingPageRender} />
@@ -180,6 +187,9 @@ function Router() {
                 <Route path="/contractor/login">
                     <ContractorLogin />
                 </Route>
+                <Route path="/contractor/welcome">
+                    <ContractorWelcome />
+                </Route>
                 <Route path="/contractor/register">
                     <ContractorRegister />
                 </Route>
@@ -202,6 +212,11 @@ function Router() {
                 <Route path="/contractor/onboarding">
                     <ProtectedRoute role="contractor">
                         <ContractorOnboarding />
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/contractor/partner-onboarding">
+                    <ProtectedRoute role="contractor">
+                        <PartnerOnboardingModal />
                     </ProtectedRoute>
                 </Route>
                 <Route path="/contractor/dashboard/quotes/new">
@@ -227,6 +242,11 @@ function Router() {
                 <Route path="/contractor/dashboard/jobs/:id">
                     <ProtectedRoute role="contractor">
                         <JobDetailsPage />
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/contractor/financials">
+                    <ProtectedRoute role="contractor">
+                        <ExpensesPage />
                     </ProtectedRoute>
                 </Route>
                 <Route path="/contractor/calendar">
@@ -337,6 +357,13 @@ function Router() {
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
+                <Route path="/admin/leads">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <LeadsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
                 <Route path="/admin/landing-pages/:id">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
@@ -361,7 +388,7 @@ function Router() {
                     </div>
                 </Route>
             </Switch>
-        </Suspense>
+        </Suspense >
     );
 }
 

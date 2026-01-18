@@ -11,6 +11,7 @@ import { normalizePhoneNumber } from './phone-utils'; // B1: Phone normalization
 import { createCall, updateCall, addDetectedSkus, finalizeCall, findCallByTwilioSid } from './call-logger'; // Call logging integration
 import fs from 'fs';
 import path from 'path';
+import { storageService } from './storage';
 
 // Initialize Deepgram with logging
 const apiKey = process.env.DEEPGRAM_API_KEY || "";
@@ -395,6 +396,45 @@ export class MediaStreamTranscriber {
 
         const finalText = this.fullTranscript.trim();
 
+        // Close recording stream first to ensure flush
+        if (this.recordingStream) {
+            this.recordingStream.end();
+            console.log(`[Recording] Saved raw audio to ${this.recordingPath}`);
+            await new Promise(resolve => setTimeout(resolve, 100)); // Small buffer to ensure flush
+        }
+
+        let finalRecordingUrl: string | undefined = undefined;
+        let finalLocalPath: string | undefined = this.recordingPath || undefined;
+
+        // Upload/Persist Recording
+        if (this.recordingPath && fs.existsSync(this.recordingPath)) {
+            try {
+                const filename = `call_${this.callSid}.raw`; // Keep consistent naming
+                // This handles both S3 upload or safe local persistence
+                finalRecordingUrl = await storageService.uploadRecording(this.recordingPath, filename);
+
+                // If we got a URL back (S3) or a new path, update usage.
+                console.log(`[Recording] Persisted to: ${finalRecordingUrl}`);
+
+                // If using S3, we might want to treat the returned string as the recordingUrl
+                // If local, it might be the localRecordingPath. 
+                // For simplicity, let's assume if it starts with http, it's a URL.
+                if (finalRecordingUrl.startsWith('http')) {
+                    // It is an S3 URL
+                    finalLocalPath = undefined; // Clear local path reference if offloaded? 
+                    // Actually keep it if we want redundancy, but S3 usually implies we don't need local.
+                    // Optionally delete local file if successfully uploaded to cloud
+                    // fs.unlinkSync(this.recordingPath); 
+                } else {
+                    // It is a local path
+                    finalLocalPath = finalRecordingUrl;
+                }
+
+            } catch (error) {
+                console.error("[Recording] Failed to persist recording:", error);
+            }
+        }
+
         // ALWAYS finalize the call record, even if transcript is short/empty
         // This prevents calls from getting stuck as "in-progress" forever
         if (this.callRecordId) {
@@ -406,7 +446,8 @@ export class MediaStreamTranscriber {
                     outcome: 'UNKNOWN',  // Default for short calls, will be updated if analysis runs
                     transcription: finalText || undefined,
                     segments: this.segments,
-                    localRecordingPath: this.recordingPath || undefined
+                    localRecordingPath: finalLocalPath,
+                    recordingUrl: finalRecordingUrl || undefined
                 });
                 console.log(`[CallLogger] Finalized call ${this.callRecordId} with duration ${duration}s`);
             } catch (e) {
@@ -414,11 +455,13 @@ export class MediaStreamTranscriber {
             }
         }
 
-        // Close recording stream
+        // Close recording stream - (Already closed above)
+        /* 
         if (this.recordingStream) {
             this.recordingStream.end();
-            console.log(`[Recording] Saved raw audio to ${this.recordingPath}`);
-        }
+             console.log(`[Recording] Saved raw audio to ${this.recordingPath}`);
+        } 
+        */
 
         if (finalText.length > 5) {
             try {

@@ -29,7 +29,7 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
         </div>
       )}
 
-      <section id="hero" className="relative bg-slate-900 px-4 lg:px-8 py-12 lg:py-20 font-poppins font-medium min-h-[600px] flex items-center overflow-hidden">
+      <section id="hero" className="relative bg-slate-900 px-4 lg:px-8 py-12 lg:py-20 font-poppins font-medium min-h-[600px] lg:min-h-[750px] flex items-center overflow-hidden">
 
         {/* Background Image & Overlay */}
         <div className="absolute inset-0 z-0">

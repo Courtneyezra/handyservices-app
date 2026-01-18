@@ -17,11 +17,16 @@ const stripePublishableKey = rawStripeKey?.replace(/^["']|["']$/g, '').trim();
 console.log('[Stripe] Processed key:', stripePublishableKey ? `${stripePublishableKey.substring(0, 10)}...${stripePublishableKey.substring(stripePublishableKey.length - 5)}` : 'undefined');
 console.log('[Stripe] Processed key length:', stripePublishableKey?.length);
 
-if (!stripePublishableKey) {
-    console.warn('[Stripe] Publishable key not found. Payment functionality will be disabled.');
-} else if (!stripePublishableKey.startsWith('pk_')) {
-    console.error('[Stripe] Invalid key format. Key should start with pk_live_ or pk_test_');
-    console.error('[Stripe] First 20 chars:', stripePublishableKey.substring(0, 20));
+// Initialize Stripe with the publishable key
+export const isStripeConfigured = !!(stripePublishableKey && stripePublishableKey.startsWith('pk_'));
+
+if (!isStripeConfigured) {
+    if (!stripePublishableKey) {
+        console.warn('[Stripe] Publishable key not found. Payment functionality will be disabled.');
+    } else {
+        console.error('[Stripe] Invalid key format. Key should start with pk_live_ or pk_test_');
+        console.error('[Stripe] First 20 chars:', stripePublishableKey.substring(0, 20));
+    }
 }
 
 // Initialize Stripe with the publishable key

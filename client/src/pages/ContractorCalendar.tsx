@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import ContractorAppShell from "@/components/layout/ContractorAppShell";
 import {
     ChevronLeft,
     ChevronRight,
@@ -143,42 +144,27 @@ export default function ContractorCalendar() {
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-4 sm:p-6 pb-24 lg:pb-6">
-            <main className="max-w-5xl mx-auto">
+        <ContractorAppShell>
+            <div className="max-w-5xl mx-auto p-4 sm:p-6 pb-24 lg:pb-6">
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8">
-                    <div className="flex items-center gap-4">
-                        <button
-                            onClick={() => setLocation('/contractor')}
-                            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-                        >
-                            <ArrowLeft className="w-5 h-5 text-slate-400" />
-                        </button>
-                        <div>
-                            <h1 className="text-2xl sm:text-3xl font-bold text-white flex items-center gap-3">
-                                <CalendarIcon className="w-6 h-6 sm:w-8 sm:h-8 text-amber-500" />
-                                Availability
-                            </h1>
-                            <p className="text-slate-400 text-sm mt-1">Manage your work schedule</p>
-                        </div>
+                    <div>
+                        <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 flex items-center gap-3">
+                            <CalendarIcon className="w-6 h-6 sm:w-8 sm:h-8 text-amber-500" />
+                            Availability
+                        </h1>
+                        <p className="text-slate-500 text-sm mt-1">Manage your work schedule</p>
                     </div>
-                    <button
-                        onClick={() => setLocation('/contractor')}
-                        className="hidden sm:flex px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 rounded-xl text-sm transition-all items-center gap-2"
-                    >
-                        <LogOut className="w-4 h-4" />
-                        Back to Dashboard
-                    </button>
                 </div>
 
                 {/* Controls */}
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 mb-6">
-                    <div className="flex items-center gap-2 bg-white/5 rounded-xl p-1 self-start sm:self-auto">
+                    <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl p-1 self-start sm:self-auto shadow-sm">
                         <button
                             onClick={() => setSelectionMode('available')}
                             className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectionMode === 'available'
-                                ? 'bg-emerald-500 text-white'
-                                : 'text-slate-400 hover:text-white'
+                                ? 'bg-emerald-500 text-white shadow-sm'
+                                : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
                                 }`}
                         >
                             <Check className="w-4 h-4 inline-block mr-1" />
@@ -187,8 +173,8 @@ export default function ContractorCalendar() {
                         <button
                             onClick={() => setSelectionMode('blocked')}
                             className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-all ${selectionMode === 'blocked'
-                                ? 'bg-red-500 text-white'
-                                : 'text-slate-400 hover:text-white'
+                                ? 'bg-red-500 text-white shadow-sm'
+                                : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
                                 }`}
                         >
                             <X className="w-4 h-4 inline-block mr-1" />
@@ -199,7 +185,7 @@ export default function ContractorCalendar() {
                     <div className="flex gap-2">
                         <button
                             onClick={() => setShowWeeklyModal(true)}
-                            className="flex-1 sm:flex-none px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 rounded-xl text-sm transition-all whitespace-nowrap"
+                            className="flex-1 sm:flex-none px-4 py-2 bg-white hover:bg-slate-50 border border-gray-200 text-slate-700 rounded-xl text-sm transition-all whitespace-nowrap shadow-sm"
                         >
                             <Clock className="w-4 h-4 inline-block mr-1" />
                             Weekly Pattern
@@ -223,30 +209,30 @@ export default function ContractorCalendar() {
                 </div>
 
                 {/* Calendar Card */}
-                <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
+                <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200 p-6 shadow-sm">
                     {/* Month Navigation */}
                     <div className="flex items-center justify-between mb-6">
                         <button
                             onClick={() => navigateMonth(-1)}
-                            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
                         >
-                            <ChevronLeft className="w-5 h-5 text-slate-400" />
+                            <ChevronLeft className="w-5 h-5 text-slate-500" />
                         </button>
-                        <h2 className="text-xl font-semibold text-white">
+                        <h2 className="text-xl font-bold text-slate-800">
                             {monthNames[currentMonth - 1]} {currentYear}
                         </h2>
                         <button
                             onClick={() => navigateMonth(1)}
-                            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
                         >
-                            <ChevronRight className="w-5 h-5 text-slate-400" />
+                            <ChevronRight className="w-5 h-5 text-slate-500" />
                         </button>
                     </div>
 
                     {/* Day Headers */}
                     <div className="grid grid-cols-7 gap-2 mb-4">
                         {dayNames.map(day => (
-                            <div key={day} className="text-center text-slate-500 text-sm font-medium py-2">
+                            <div key={day} className="text-center text-slate-400 text-sm font-bold uppercase tracking-wider py-2">
                                 {day}
                             </div>
                         ))}
@@ -283,33 +269,33 @@ export default function ContractorCalendar() {
                                             transition-all relative
                                             ${isPast
                                                 ? 'opacity-30 cursor-not-allowed'
-                                                : 'hover:scale-105 cursor-pointer'
+                                                : 'hover:scale-105 cursor-pointer shadow-sm hover:shadow-md'
                                             }
                                             ${isSelected
                                                 ? selectionMode === 'available'
-                                                    ? 'ring-2 ring-emerald-400 bg-emerald-500/30'
-                                                    : 'ring-2 ring-red-400 bg-red-500/30'
+                                                    ? 'ring-2 ring-emerald-400 bg-emerald-50'
+                                                    : 'ring-2 ring-red-400 bg-red-50'
                                                 : status === 'available'
-                                                    ? 'bg-emerald-500/20 border border-emerald-500/30'
+                                                    ? 'bg-emerald-50 border border-emerald-100'
                                                     : status === 'blocked'
-                                                        ? 'bg-red-500/20 border border-red-500/30'
-                                                        : 'bg-white/5 border border-white/10'
+                                                        ? 'bg-red-50 border border-red-100'
+                                                        : 'bg-white border border-gray-100'
                                             }
                                             ${isToday ? 'ring-2 ring-amber-400' : ''}
                                         `}
                                     >
                                         <span className={`
-                                            text-lg font-semibold
-                                            ${status === 'available' ? 'text-emerald-400' :
-                                                status === 'blocked' ? 'text-red-400' : 'text-slate-400'}
+                                            text-lg font-bold
+                                            ${status === 'available' ? 'text-emerald-600' :
+                                                status === 'blocked' ? 'text-red-600' : 'text-slate-600'}
                                         `}>
                                             {day}
                                         </span>
                                         {status === 'available' && (
-                                            <Check className="w-3 h-3 text-emerald-400" />
+                                            <Check className="w-3 h-3 text-emerald-500" />
                                         )}
                                         {status === 'blocked' && (
-                                            <X className="w-3 h-3 text-red-400" />
+                                            <X className="w-3 h-3 text-red-500" />
                                         )}
                                     </button>
                                 );
@@ -318,17 +304,17 @@ export default function ContractorCalendar() {
                     )}
 
                     {/* Legend */}
-                    <div className="mt-6 flex flex-wrap items-center gap-4 text-sm text-slate-400">
+                    <div className="mt-6 flex flex-wrap items-center gap-4 text-sm text-slate-500">
                         <span className="flex items-center gap-2">
-                            <span className="w-4 h-4 rounded bg-emerald-500/30 border border-emerald-500/50" />
+                            <span className="w-4 h-4 rounded bg-emerald-100 border border-emerald-200" />
                             Available
                         </span>
                         <span className="flex items-center gap-2">
-                            <span className="w-4 h-4 rounded bg-red-500/30 border border-red-500/50" />
+                            <span className="w-4 h-4 rounded bg-red-100 border border-red-200" />
                             Blocked
                         </span>
                         <span className="flex items-center gap-2">
-                            <span className="w-4 h-4 rounded bg-white/5 border border-white/10" />
+                            <span className="w-4 h-4 rounded bg-white border border-gray-200" />
                             No Preference
                         </span>
                         <span className="flex items-center gap-2">
@@ -349,6 +335,19 @@ export default function ContractorCalendar() {
                 />
             )}
         </div>
+
+            {/* Weekly Pattern Modal */ }
+    {
+        showWeeklyModal && (
+            <WeeklyPatternModal
+                patterns={monthData?.weeklyPatterns || []}
+                onSave={(patterns) => saveWeeklyMutation.mutate(patterns)}
+                onClose={() => setShowWeeklyModal(false)}
+                isSaving={saveWeeklyMutation.isPending}
+            />
+        )
+    }
+        </ContractorAppShell >
     );
 }
 
@@ -394,11 +393,11 @@ function WeeklyPatternModal({
     };
 
     return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-800 rounded-2xl border border-white/10 shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-                <div className="p-6 border-b border-white/10">
-                    <h3 className="text-xl font-semibold text-white">Weekly Availability Pattern</h3>
-                    <p className="text-slate-400 text-sm mt-1">Set your recurring weekly schedule</p>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+                <div className="p-6 border-b border-gray-100">
+                    <h3 className="text-xl font-bold text-slate-900">Weekly Availability Pattern</h3>
+                    <p className="text-slate-500 text-sm mt-1">Set your recurring weekly schedule</p>
                 </div>
 
                 <div className="p-6 space-y-3">
@@ -406,17 +405,17 @@ function WeeklyPatternModal({
                         <div
                             key={pattern.dayOfWeek}
                             className={`p-4 rounded-xl border transition-all ${pattern.isActive
-                                ? 'bg-emerald-500/10 border-emerald-500/30'
-                                : 'bg-white/5 border-white/10'
+                                ? 'bg-emerald-50 border-emerald-100'
+                                : 'bg-white border-gray-200 shadow-sm'
                                 }`}
                         >
                             <div className="flex items-center justify-between mb-3">
-                                <span className={`font-medium ${pattern.isActive ? 'text-emerald-400' : 'text-slate-400'}`}>
+                                <span className={`font-bold ${pattern.isActive ? 'text-emerald-700' : 'text-slate-600'}`}>
                                     {dayNames[index]}
                                 </span>
                                 <button
                                     onClick={() => toggleDay(index)}
-                                    className={`w-12 h-6 rounded-full transition-all ${pattern.isActive ? 'bg-emerald-500' : 'bg-white/10'
+                                    className={`w-12 h-6 rounded-full transition-all ${pattern.isActive ? 'bg-emerald-500' : 'bg-slate-200'
                                         }`}
                                 >
                                     <div className={`w-5 h-5 rounded-full bg-white shadow-md transform transition-all ${pattern.isActive ? 'translate-x-6' : 'translate-x-0.5'
@@ -430,14 +429,14 @@ function WeeklyPatternModal({
                                         type="time"
                                         value={pattern.startTime}
                                         onChange={(e) => updateTime(index, 'startTime', e.target.value)}
-                                        className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                                        className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 shadow-sm"
                                     />
-                                    <span className="text-slate-500">to</span>
+                                    <span className="text-slate-400">to</span>
                                     <input
                                         type="time"
                                         value={pattern.endTime}
                                         onChange={(e) => updateTime(index, 'endTime', e.target.value)}
-                                        className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                                        className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 shadow-sm"
                                     />
                                 </div>
                             )}
@@ -445,17 +444,17 @@ function WeeklyPatternModal({
                     ))}
                 </div>
 
-                <div className="p-6 border-t border-white/10 flex gap-3">
+                <div className="p-6 border-t border-gray-100 flex gap-3">
                     <button
                         onClick={onClose}
-                        className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-white font-medium rounded-xl transition-all"
+                        className="flex-1 py-3 bg-white hover:bg-slate-50 border border-gray-200 text-slate-700 font-medium rounded-xl transition-all shadow-sm"
                     >
                         Cancel
                     </button>
                     <button
                         onClick={handleSave}
                         disabled={isSaving}
-                        className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-white font-medium rounded-xl transition-all flex items-center justify-center gap-2"
+                        className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-white font-medium rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20"
                     >
                         {isSaving ? (
                             <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

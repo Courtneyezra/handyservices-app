@@ -58,13 +58,75 @@ interface CallListTableProps {
 }
 
 export function CallListTable({ calls, isLoading, onCallClick }: CallListTableProps) {
-    const [, setLocation] = useLocation();
-    const [playingId, setPlayingId] = useState<string | null>(null);
+    // Audio Player State
+    const audioRef = React.useRef<HTMLAudioElement | null>(null);
+    // playingId tracks which call ID is currently "active" (loaded) in the player
+    const [playingId, setPlayingId] = React.useState<string | null>(null);
+    // isAudioPlaying tracks if the audio is actually running (vs paused)
+    const [isAudioPlaying, setIsAudioPlaying] = React.useState(false);
+
+    // Cleanup audio on unmount
+    React.useEffect(() => {
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current = null;
+            }
+        };
+    }, []);
 
     const handlePlayRecording = async (e: React.MouseEvent, call: CallSummary) => {
         e.stopPropagation();
         if (!call.recordingUrl) return;
-        window.open(`/api/calls/${call.id}/recording`, '_blank');
+
+        // Condition 1: Clicking the SAME call that is already active
+        if (playingId === call.id) {
+            if (audioRef.current) {
+                if (audioRef.current.paused) {
+                    audioRef.current.play().catch(err => console.error("Playback failed", err));
+                    setIsAudioPlaying(true);
+                } else {
+                    audioRef.current.pause();
+                    setIsAudioPlaying(false);
+                }
+            }
+            return;
+        }
+
+        // Condition 2: Clicking a DIFFERENT call (or first play)
+        // Stop existing
+        if (audioRef.current) {
+            audioRef.current.pause();
+        }
+
+        // Initialize new audio
+        const audio = new Audio(`/api/calls/${call.id}/recording`);
+        audioRef.current = audio;
+        setPlayingId(call.id);
+        setIsAudioPlaying(true); // Optimistic state
+
+        audio.addEventListener('ended', () => {
+            setIsAudioPlaying(false);
+            setPlayingId(null); // Reset ID on finish so icon reverts to Play
+        });
+
+        audio.addEventListener('pause', () => {
+            // Catch external pauses (like headphones removed)
+            setIsAudioPlaying(false);
+        });
+
+        audio.addEventListener('play', () => {
+            setIsAudioPlaying(true);
+        });
+
+        try {
+            await audio.play();
+        } catch (err) {
+            console.error("Failed to play audio:", err);
+            setIsAudioPlaying(false);
+            setPlayingId(null);
+            alert("Could not play recording. It may be unavailable.");
+        }
     };
 
     /**
@@ -191,9 +253,15 @@ export function CallListTable({ calls, isLoading, onCallClick }: CallListTablePr
                                             variant="ghost"
                                             className="h-8 w-8 hover:text-handy-gold hover:bg-amber-500/10"
                                             onClick={(e) => handlePlayRecording(e, call)}
-                                            title="Play Recording"
+                                            title={playingId === call.id && isAudioPlaying ? "Pause Recording" : "Play Recording"}
                                         >
-                                            <Play className="h-4 w-4" />
+                                            {/* Toggle Icon Logic */}
+                                            {playingId === call.id && isAudioPlaying ? (
+                                                /* Pause Icon (using literal or Lucide component if available, though Pause isn't imported yet) */
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                                            ) : (
+                                                <Play className="h-4 w-4" />
+                                            )}
                                         </Button>
                                     )}
 

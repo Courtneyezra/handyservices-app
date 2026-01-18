@@ -7,6 +7,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Loader2, ArrowRight } from "lucide-react";
 
+import Autocomplete from "react-google-autocomplete";
+
 export function DesktopLeadForm() {
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
@@ -104,15 +106,31 @@ export function DesktopLeadForm() {
                         className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 min-h-[100px] text-lg resize-none focus-visible:ring-emerald-500 rounded-xl"
                         value={formData.jobDescription}
                         onChange={(e) => setFormData({ ...formData, jobDescription: e.target.value })}
+                        required
                     />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                    <Input
-                        placeholder="Postcode"
-                        className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 h-12 text-lg focus-visible:ring-emerald-500 rounded-xl"
-                        value={formData.postcode}
-                        onChange={(e) => setFormData({ ...formData, postcode: e.target.value })}
+                    <Autocomplete
+                        apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY}
+                        onPlaceSelected={(place) => {
+                            if (place.address_components) {
+                                // Try to extract postcode specifically
+                                const postcodeComp = place.address_components.find((c: any) => c.types.includes('postal_code'));
+                                const postcode = postcodeComp ? postcodeComp.long_name : place.formatted_address;
+                                setFormData({ ...formData, postcode: postcode || "" });
+                            } else if (place.formatted_address) {
+                                setFormData({ ...formData, postcode: place.formatted_address });
+                            }
+                        }}
+                        options={{
+                            componentRestrictions: { country: "gb" },
+                            types: ["postal_code"], // Restrict to postcodes
+                        }}
+                        defaultValue={formData.postcode}
+                        placeholder="Postcode / Address"
+                        className="flex h-12 w-full rounded-xl border border-slate-700 bg-slate-800/50 px-3 py-2 text-lg text-white ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        onChange={(e: any) => setFormData({ ...formData, postcode: e.target.value })}
                     />
                     <Input
                         placeholder="Phone Number"

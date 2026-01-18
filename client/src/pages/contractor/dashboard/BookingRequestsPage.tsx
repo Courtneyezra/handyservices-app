@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Loader2, Check, X, Calendar, Clock, MapPin, User, FileText } from "lucide-react";
-import ContractorDashboardLayout from "../ContractorDashboardLayout";
+import ContractorAppShell from "@/components/layout/ContractorAppShell";
 import { useToast } from "@/hooks/use-toast";
 
 interface BookingRequest {
@@ -59,8 +59,8 @@ export default function BookingRequestsPage() {
     });
 
     return (
-        <ContractorDashboardLayout>
-            <div className="max-w-4xl mx-auto space-y-6">
+        <ContractorAppShell>
+            <div className="max-w-4xl mx-auto space-y-6 p-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">Booking Requests</h1>
                     <p className="text-slate-500">Manage incoming job requests from your public profile.</p>
@@ -159,6 +159,6 @@ export default function BookingRequestsPage() {
                     </div>
                 )}
             </div>
-        </ContractorDashboardLayout>
+        </ContractorAppShell>
     );
 }

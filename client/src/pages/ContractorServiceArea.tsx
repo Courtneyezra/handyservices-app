@@ -10,6 +10,7 @@ import {
     Loader2,
     ArrowRight
 } from 'lucide-react';
+import ContractorAppShell from "@/components/layout/ContractorAppShell";
 import { useToast } from "@/hooks/use-toast";
 import { Slider } from "@/components/ui/slider";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -37,7 +38,7 @@ import { Home, Briefcase } from 'lucide-react';
 // Animated explainer component
 function ServiceAreaExplainer() {
     return (
-        <div className="bg-slate-900/50 rounded-xl p-6 mb-6 border border-white/5 overflow-hidden relative group">
+        <div className="bg-slate-50 rounded-xl p-6 mb-6 border border-gray-100 overflow-hidden relative group">
             <div className="flex items-center gap-4 relative z-10">
                 <div className="relative shrink-0">
                     {/* Radar Pulse Animation */}
@@ -83,8 +84,8 @@ function ServiceAreaExplainer() {
                 </div>
 
                 <div className="flex-1">
-                    <h3 className="text-white font-medium text-sm mb-1">How it works</h3>
-                    <p className="text-xs text-slate-400 leading-relaxed">
+                    <h3 className="text-slate-900 font-medium text-sm mb-1">How it works</h3>
+                    <p className="text-xs text-slate-500 leading-relaxed">
                         We use your <span className="text-amber-400 font-medium">Home Address</span> as the center point. You'll only receive jobs within your set radius.
                     </p>
                 </div>
@@ -269,33 +270,14 @@ export default function ContractorServiceArea() {
     }
 
     return (
-        <div className="min-h-screen bg-slate-900 flex flex-col">
-            {/* Header */}
-            <header className="bg-slate-800/50 backdrop-blur-xl border-b border-white/5 sticky top-0 z-50">
-                <div className="max-w-5xl mx-auto px-4 sm:px-6 w-full">
-                    <div className="flex items-center justify-between h-16">
-                        <div className="flex items-center gap-3">
-                            <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" />
-                            <span className="text-white font-semibold">Service Area</span>
-                        </div>
-
-                        <button
-                            onClick={() => setLocation('/contractor')}
-                            className="text-slate-400 text-sm hover:text-white transition-colors"
-                        >
-                            Close
-                        </button>
-                    </div>
-                </div>
-            </header>
-
-            <main className="flex-1 max-w-5xl mx-auto px-4 sm:px-6 py-8 w-full flex flex-col lg:flex-row gap-8">
+        <ContractorAppShell>
+            <div className="flex-1 max-w-6xl mx-auto px-4 sm:px-6 py-6 w-full flex flex-col lg:flex-row gap-6 h-[calc(100vh-80px)]">
                 {/* Controls - Left Side */}
                 <div className="hidden lg:flex w-80 flex-col gap-6 shrink-0 h-[calc(100vh-140px)] min-h-[500px]">
-                    <div className="bg-slate-800/50 border border-white/10 rounded-2xl p-6 flex flex-col h-full">
-                        <h2 className="text-xl font-bold text-white mb-2">Set Location</h2>
-                        <p className="text-slate-400 text-sm mb-6">
-                            Enter your <strong className="text-white">permanent home address</strong>. This will be the center of your service radius for job allocation.
+                    <div className="bg-white border border-gray-200 rounded-2xl p-6 flex flex-col h-full shadow-sm">
+                        <h2 className="text-xl font-bold text-slate-800 mb-2">Set Location</h2>
+                        <p className="text-slate-500 text-sm mb-6">
+                            Enter your <strong className="text-slate-900">permanent home address</strong>. This will be the center of your service radius for job allocation.
                         </p>
 
                         <ServiceAreaExplainer />
@@ -313,7 +295,7 @@ export default function ContractorServiceArea() {
                                         if (searchResults.length > 0) setShowResults(true);
                                     }}
                                     placeholder="Enter home address"
-                                    className="w-full pl-10 pr-4 py-3 bg-slate-900/50 border border-white/10 rounded-xl text-white outline-none focus:ring-2 focus:ring-amber-500/50 transition-all placeholder:text-slate-600 text-sm"
+                                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-gray-200 rounded-xl text-slate-900 outline-none focus:ring-2 focus:ring-amber-500/50 transition-all placeholder:text-slate-400 text-sm"
                                 />
                                 {isSearching && (
                                     <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-500 animate-spin" />
@@ -322,17 +304,17 @@ export default function ContractorServiceArea() {
 
                             {/* Search Results */}
                             {showResults && searchResults.length > 0 && (
-                                <div className="absolute z-20 w-full mt-1 bg-slate-800 border border-white/10 rounded-xl shadow-xl max-h-60 overflow-y-auto">
+                                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
                                     {searchResults.map((result) => (
                                         <button
                                             key={result.placeId}
                                             onClick={() => handleSelectAddress(result)}
-                                            className="w-full text-left px-4 py-3 hover:bg-slate-700/50 transition-colors flex items-center gap-3 border-b border-white/5 last:border-0"
+                                            className="w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors flex items-center gap-3 border-b border-gray-100 last:border-0"
                                         >
                                             <MapPin className="w-4 h-4 text-amber-500 shrink-0" />
                                             <div className="min-w-0">
-                                                <p className="text-sm text-white font-medium truncate">{result.formattedAddress.split(',')[0]}</p>
-                                                <p className="text-xs text-slate-400 truncate">{result.formattedAddress}</p>
+                                                <p className="text-sm text-slate-800 font-medium truncate">{result.formattedAddress.split(',')[0]}</p>
+                                                <p className="text-xs text-slate-500 truncate">{result.formattedAddress}</p>
                                             </div>
                                         </button>
                                     ))}
@@ -347,21 +329,21 @@ export default function ContractorServiceArea() {
                                 onValueChange={(v) => setMode(v as 'suggested' | 'custom')}
                                 className="space-y-4"
                             >
-                                <div className={`border rounded-xl p-4 transition-all cursor-pointer ${mode === 'suggested' ? 'border-amber-500/50 bg-amber-500/10' : 'border-white/10 bg-slate-900/20 hover:border-white/20'}`}>
+                                <div className={`border rounded-xl p-4 transition-all cursor-pointer ${mode === 'suggested' ? 'border-amber-500/50 bg-amber-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                                     <div className="flex items-start justify-between">
                                         <Label htmlFor="suggested" className="cursor-pointer">
-                                            <div className="font-semibold text-white mb-1">Standard Radius</div>
-                                            <p className="text-xs text-slate-400">Local area only (5 miles)</p>
+                                            <div className="font-semibold text-slate-800 mb-1">Standard Radius</div>
+                                            <p className="text-xs text-slate-500">Local area only (5 miles)</p>
                                         </Label>
                                         <RadioGroupItem value="suggested" id="suggested" className="text-amber-500 border-slate-500" />
                                     </div>
                                 </div>
 
-                                <div className={`border rounded-xl p-4 transition-all cursor-pointer ${mode === 'custom' ? 'border-amber-500/50 bg-amber-500/10' : 'border-white/10 bg-slate-900/20 hover:border-white/20'}`}>
+                                <div className={`border rounded-xl p-4 transition-all cursor-pointer ${mode === 'custom' ? 'border-amber-500/50 bg-amber-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                                     <div className="flex items-start justify-between mb-4">
                                         <Label htmlFor="custom" className="cursor-pointer">
-                                            <div className="font-semibold text-white mb-1">Custom Radius</div>
-                                            <p className="text-xs text-slate-400">Set specific distance</p>
+                                            <div className="font-semibold text-slate-800 mb-1">Custom Radius</div>
+                                            <p className="text-xs text-slate-500">Set specific distance</p>
                                         </Label>
                                         <RadioGroupItem value="custom" id="custom" className="text-amber-500 border-slate-500" />
                                     </div>
@@ -411,7 +393,7 @@ export default function ContractorServiceArea() {
                 {/* Mobile Controls (Drawer style) can be implemented here if needed, but for now stacking map + sidebar */}
 
                 {/* Map Area */}
-                <div className="flex-1 relative bg-slate-900 overflow-hidden shadow-2xl h-[calc(100vh-100px)] lg:h-[calc(100vh-140px)] rounded-2xl border border-white/10 lg:rounded-2xl"><div className="absolute inset-0 z-0">
+                <div className="flex-1 relative bg-slate-100 overflow-hidden shadow-sm h-[calc(100vh-100px)] lg:h-[calc(100vh-140px)] rounded-2xl border border-gray-200 lg:rounded-2xl"><div className="absolute inset-0 z-0">
 
 
 
@@ -454,11 +436,11 @@ export default function ContractorServiceArea() {
 
                     {/* Mobile Only: Bottom Controls Overlay */}
                     <div className="lg:hidden absolute bottom-4 left-4 right-4 z-[500]">
-                        <div className="bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl">
+                        <div className="bg-white/95 backdrop-blur-xl border border-gray-200 rounded-2xl p-5 shadow-xl">
                             <div className="flex flex-col gap-4">
                                 {/* Address Input */}
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Home Address</label>
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider ml-1">Home Address</label>
                                     <div className="relative">
                                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                         <input
@@ -469,7 +451,7 @@ export default function ContractorServiceArea() {
                                                 if (searchResults.length > 0) setShowResults(true);
                                             }}
                                             placeholder="Enter permanent home address"
-                                            className="w-full pl-10 pr-4 py-3 bg-slate-800 border border-white/10 rounded-xl text-white text-sm outline-none focus:ring-2 focus:ring-amber-500/50 placeholder:text-slate-600 transition-all shadow-inner"
+                                            className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-gray-200 rounded-xl text-slate-900 text-sm outline-none focus:ring-2 focus:ring-amber-500/50 placeholder:text-slate-400 transition-all shadow-inner"
                                         />
                                         {isSearching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-500 animate-spin" />}
                                     </div>
@@ -521,7 +503,9 @@ export default function ContractorServiceArea() {
                         </div>
                     </div>
                 </div>
-            </main>
-        </div>
+                {/* Removed the extra closing main since we opened a div */}
+
+            </div>
+        </ContractorAppShell >
     );
 }

@@ -10,7 +10,17 @@ export default defineConfig({
     react(),
   ],
   server: {
-    host: true, // Expose on network for mobile testing
+    host: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5001',
+        changeOrigin: true,
+      },
+      '/leads': {
+        target: 'http://localhost:5001',
+        changeOrigin: true,
+      }
+    }
   },
   resolve: {
     alias: {

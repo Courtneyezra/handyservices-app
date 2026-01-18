@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { isStripeConfigured } from '@/lib/stripe';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle } from 'lucide-react';
@@ -241,6 +242,16 @@ export function PaymentForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Configuration Warning */}
+      {!isStripeConfigured && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Payment system is not configured (missing public key). You cannot make a payment at this time.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="space-y-2">
         <label className="text-sm font-medium text-white">Card Details</label>
         <div className="border border-gray-600 rounded-lg p-4 bg-gray-800/80 backdrop-blur transition-all focus-within:border-[#e8b323] focus-within:ring-1 focus-within:ring-[#e8b323]">
@@ -285,7 +296,7 @@ export function PaymentForm({
 
       <Button
         type="submit"
-        disabled={!stripe || isProcessing || isLoadingIntent || !!error || !clientSecret}
+        disabled={!stripe || isProcessing || isLoadingIntent || !!error || !clientSecret || !isStripeConfigured}
         className="w-full bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold text-lg py-6 transition-all"
         size="lg"
         data-testid="button-submit-payment"

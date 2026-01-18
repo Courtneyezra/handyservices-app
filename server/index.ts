@@ -19,6 +19,7 @@ import { createCall, findCallByTwilioSid, updateCall, finalizeCall } from './cal
 import { determineCallRouting, CallRoutingSettings, AgentMode, FallbackAction } from "./call-routing-engine";
 import { quotesRouter } from "./quotes";
 import { leadsRouter } from "./leads";
+import voiceRouter from "./voice";
 import { testRouter } from "./test-routes";
 import { dashboardRouter } from "./dashboard";
 import { whatsappRouter } from "./whatsapp-api";
@@ -38,6 +39,8 @@ import placesRouter from './places-routes';
 import { stripeRouter } from './stripe-routes';
 import { elevenLabsWebhookRouter } from './eleven-labs/webhook';
 import contentRouter from './content';
+import { setupCronJobs } from './cron';
+import uploadRouter from "./upload";
 
 
 import publicRoutes from './public-routes';
@@ -115,6 +118,9 @@ app.get('/api/health', (req, res) => {
     });
 });
 
+// Start Cron Jobs
+setupCronJobs();
+
 // ==========================================
 // DOMAIN ROUTING MIDDLEWARE
 // ==========================================
@@ -178,6 +184,7 @@ app.get('/api/diagnostics', async (req, res) => {
             openai_key_set: !!process.env.OPENAI_API_KEY,
             twilio_account_sid_set: !!process.env.TWILIO_ACCOUNT_SID,
             twilio_auth_token_set: !!process.env.TWILIO_AUTH_TOKEN,
+            stripe_key_set: !!process.env.STRIPE_SECRET_KEY,
             node_env: process.env.NODE_ENV
         },
         infrastructure: {
@@ -211,6 +218,7 @@ app.get('/api/diagnostics', async (req, res) => {
 app.use(express.static(path.join(__dirname, '../client/dist')));
 app.use(quotesRouter);
 app.use(leadsRouter);
+app.use('/api', voiceRouter);
 app.use('/api/places', placesRouter); // API: Places Search
 app.use('/api', testRouter);
 app.use('/api/whatsapp', whatsappRouter); // Legacy Twilio Webhooks
@@ -225,6 +233,8 @@ app.use('/api/settings', settingsRouter);
 app.use(stripeRouter); // Stripe payment routes
 app.use('/api', elevenLabsWebhookRouter); // ElevenLabs Webhooks
 app.use('/api', contentRouter); // Landing Pages & Banners
+app.use('/api', uploadRouter);
+app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
 
 // Contractor Portal Routes
 app.use('/api/contractor', contractorAuthRouter);

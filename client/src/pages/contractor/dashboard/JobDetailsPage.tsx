@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import ContractorAppShell from "@/components/layout/ContractorAppShell";
 import { useRoute, useLocation } from "wouter";
 import {
     ArrowLeft, Loader2, MapPin, Phone, Calendar,
@@ -95,36 +96,36 @@ export default function JobDetailsPage() {
     const isPaid = job.paymentStatus === 'paid'; // We need to expose this in GET /quotes too
 
     return (
-        <div className="min-h-screen bg-slate-950 pb-20">
+        <ContractorAppShell>
             {/* Header */}
-            <div className="sticky top-0 z-30 bg-slate-950/80 backdrop-blur-md border-b border-slate-800 p-4 flex items-center gap-4">
+            <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-gray-100 p-4 flex items-center gap-4">
                 <Button variant="ghost" size="icon" onClick={() => setLocation("/contractor/dashboard/jobs")}>
                     <ArrowLeft className="w-5 h-5 text-slate-400" />
                 </Button>
-                <h1 className="font-bold text-white text-lg">Job Details</h1>
+                <h1 className="font-bold text-slate-800 text-lg">Job Details</h1>
             </div>
 
-            <div className="p-4 space-y-6">
+            <div className="p-5 space-y-6">
                 {/* Status Card */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                <div className="bg-white border border-gray-100 rounded-xl p-6 shadow-sm">
                     <div className="flex justify-between items-start mb-4">
                         <div>
-                            <h2 className="text-xl font-bold text-white mb-1">{job.customerName}</h2>
-                            <div className="flex items-center gap-1.5 text-slate-400 text-sm">
+                            <h2 className="text-xl font-bold text-slate-800 mb-1">{job.customerName}</h2>
+                            <div className="flex items-center gap-1.5 text-slate-500 text-sm">
                                 <MapPin className="w-3.5 h-3.5" />
                                 {job.postcode || "Location pending"}
                             </div>
                         </div>
-                        <Badge className={`${isPaid ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                        <Badge className={`${isPaid ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-100' : 'bg-amber-100 text-amber-600 hover:bg-amber-100'}`}>
                             {isPaid ? 'PAID' : 'DUE'}
                         </Badge>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3 mb-6">
-                        <Button className="bg-emerald-600 hover:bg-emerald-500 text-white w-full">
+                        <Button className="bg-emerald-600 hover:bg-emerald-500 text-white w-full shadow-md shadow-emerald-500/20">
                             <Phone className="w-4 h-4 mr-2" /> Call
                         </Button>
-                        <Button variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800 w-full">
+                        <Button variant="outline" className="border-gray-200 text-slate-600 hover:bg-slate-50 w-full">
                             <Navigation className="w-4 h-4 mr-2" /> Directions
                         </Button>
                     </div>
@@ -132,43 +133,43 @@ export default function JobDetailsPage() {
 
                 {/* Actions */}
                 <div className="space-y-3">
-                    <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wider">Management</h3>
+                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-1">Management</h3>
 
                     {!isPaid && (
                         <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
                             <DialogTrigger asChild>
-                                <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden cursor-pointer active:scale-[0.99] transition-transform">
-                                    <div className="w-full p-4 flex items-center justify-between hover:bg-slate-800 transition-colors text-left">
+                                <div className="bg-white border border-gray-100 rounded-xl overflow-hidden cursor-pointer active:scale-[0.99] transition-transform shadow-sm">
+                                    <div className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition-colors text-left">
                                         <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                                            <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
                                                 <CreditCard className="w-5 h-5" />
                                             </div>
                                             <div>
-                                                <div className="font-medium text-white">Mark as Paid</div>
-                                                <div className="text-xs text-slate-500">Record cash or transfer</div>
+                                                <div className="font-bold text-slate-700">Mark as Paid</div>
+                                                <div className="text-xs text-slate-400">Record cash or transfer</div>
                                             </div>
                                         </div>
-                                        <ArrowLeft className="w-5 h-5 rotate-180 text-slate-600" />
+                                        <ArrowLeft className="w-5 h-5 rotate-180 text-slate-400" />
                                     </div>
                                 </div>
                             </DialogTrigger>
-                            <DialogContent className="bg-slate-900 border-slate-800 text-white">
+                            <DialogContent className="bg-white sm:max-w-md">
                                 <DialogHeader>
                                     <DialogTitle>Record Payment</DialogTitle>
-                                    <DialogDescription className="text-slate-400">
+                                    <DialogDescription className="text-slate-500">
                                         Confirm that you have received payment for this job.
                                     </DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
-                                    <div className="bg-slate-950 p-4 rounded-lg flex justify-between items-center border border-slate-800">
-                                        <span className="text-slate-400">Amount Due</span>
-                                        <span className="text-xl font-bold text-white">£{((job.pricePence || 0) / 100).toFixed(2)}</span>
+                                    <div className="bg-slate-50 p-4 rounded-lg flex justify-between items-center border border-slate-100">
+                                        <span className="text-slate-500">Amount Due</span>
+                                        <span className="text-xl font-bold text-slate-800">£{((job.pricePence || 0) / 100).toFixed(2)}</span>
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
                                         <Button
                                             onClick={() => handlePayment('cash')}
                                             disabled={payMutation.isPending}
-                                            className="bg-emerald-600 hover:bg-emerald-500 h-20 flex flex-col gap-2"
+                                            className="bg-emerald-600 hover:bg-emerald-500 h-20 flex flex-col gap-2 shadow-lg shadow-emerald-500/20"
                                         >
                                             <Coins className="w-6 h-6" />
                                             <span>Cash Received</span>
@@ -177,7 +178,7 @@ export default function JobDetailsPage() {
                                             onClick={() => handlePayment('transfer')}
                                             disabled={payMutation.isPending}
                                             variant="outline"
-                                            className="border-slate-700 hover:bg-slate-800 h-20 flex flex-col gap-2 text-slate-300"
+                                            className="border-slate-200 hover:bg-slate-50 h-20 flex flex-col gap-2 text-slate-600"
                                         >
                                             <CreditCard className="w-6 h-6" />
                                             <span>Bank Transfer</span>
@@ -188,26 +189,26 @@ export default function JobDetailsPage() {
                         </Dialog>
                     )}
 
-                    <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                    <div className="bg-white border border-gray-100 rounded-xl overflow-hidden shadow-sm">
                         <a
                             href={`/api/contractor/jobs/${job.contractorJobId || job.id}/invoice`}
                             target="_blank"
-                            className="w-full p-4 flex items-center justify-between hover:bg-slate-800 transition-colors text-left"
+                            className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition-colors text-left"
                         >
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500">
+                                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
                                     <FileText className="w-5 h-5" />
                                 </div>
                                 <div>
-                                    <div className="font-medium text-white">Download Invoice</div>
-                                    <div className="text-xs text-slate-500">PDF / Print View</div>
+                                    <div className="font-bold text-slate-700">Download Invoice</div>
+                                    <div className="text-xs text-slate-400">PDF / Print View</div>
                                 </div>
                             </div>
-                            <ExternalLink className="w-5 h-5 text-slate-600" />
+                            <ExternalLink className="w-5 h-5 text-slate-400" />
                         </a>
                     </div>
                 </div>
             </div>
-        </div>
+        </ContractorAppShell>
     );
 }
