@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LayoutDashboard, Calendar, Clock, FileText, User, Menu, LogOut, Plus, DollarSign } from "lucide-react";
+import { LayoutDashboard, Calendar, Clock, FileText, User, Menu, LogOut, Plus, DollarSign, Inbox, History, Settings } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { useMutation } from "@tanstack/react-query";
@@ -22,11 +22,11 @@ export default function ContractorDashboardLayout({ children }: ContractorDashbo
     });
 
     const navItems = [
-        { icon: LayoutDashboard, label: "Overview", href: "/contractor/dashboard" },
-        { icon: Calendar, label: "Bookings", href: "/contractor/dashboard/bookings" },
-        { icon: Clock, label: "Availability", href: "/contractor/dashboard/availability" },
-        { icon: FileText, label: "My Quotes", href: "/contractor/dashboard/quotes" },
-        { icon: User, label: "Profile", href: "/contractor/profile" },
+        { icon: Inbox, label: "Inbox", href: "/contractor/dashboard/inbox" },
+        { icon: Calendar, label: "Schedule", href: "/contractor/dashboard/bookings" },
+        { icon: DollarSign, label: "Proposals", href: "/contractor/dashboard/quotes" },
+        { icon: History, label: "History", href: "/contractor/dashboard/history" },
+        { icon: Settings, label: "Settings", href: "/contractor/settings" },
     ];
 
     return (

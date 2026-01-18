@@ -17,11 +17,21 @@ interface BookingRequest {
     createdAt: string;
 }
 
+interface Quote {
+    id: string;
+    customerName: string;
+    jobDescription: string;
+    quoteMode: 'hhh' | 'simple' | 'pick_and_mix' | 'consultation';
+    bookedAt: string | null;
+    createdAt: string;
+    status: string | null;
+}
+
 export default function BookingRequestsPage() {
     const { toast } = useToast();
     const queryClient = useQueryClient();
 
-    const { data: bookings, isLoading } = useQuery<BookingRequest[]>({
+    const { data: bookings, isLoading: bookingsLoading } = useQuery<BookingRequest[]>({
         queryKey: ['contractor-bookings'],
         queryFn: async () => {
             const res = await fetch('/api/contractor/bookings');
@@ -29,6 +39,49 @@ export default function BookingRequestsPage() {
             return res.json();
         }
     });
+
+    const { data: quotes, isLoading: quotesLoading } = useQuery<Quote[]>({
+        queryKey: ['contractor-quotes'],
+        queryFn: async () => {
+            const res = await fetch('/api/contractor/quotes');
+            if (!res.ok) throw new Error('Failed to fetch quotes');
+            return res.json();
+        }
+    });
+
+    const isLoading = bookingsLoading || quotesLoading;
+
+    // Merge Bookings and Diagnostic Visits
+    const diagnosticVisits = quotes?.filter(q => q.quoteMode === 'consultation') || [];
+
+    // Normalize to a unified Display Item
+    const unifiedSchedule = [
+        ...(bookings || []).map(b => ({
+            id: b.id,
+            type: 'request',
+            title: b.customerName,
+            subtitle: b.description,
+            date: b.requestedDate,
+            slot: b.requestedSlot,
+            status: b.status,
+            created: b.createdAt,
+            phone: b.customerPhone,
+            email: b.customerEmail
+        })),
+        ...diagnosticVisits.map(q => ({
+            id: q.id,
+            type: 'visit_link',
+            title: q.customerName,
+            subtitle: q.jobDescription || "Diagnostic Visit Link Sent",
+            date: q.bookedAt || q.createdAt,
+            slot: q.bookedAt ? format(new Date(q.bookedAt), 'HH:mm') : 'Pending Booking',
+            status: q.bookedAt ? 'accepted' : 'pending',
+            created: q.createdAt,
+            phone: 'N/A', // Quotes might not have this in list view? Wait, type Def above has only title/desc.
+            email: 'N/A'
+        }))
+    ].sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime());
+
 
     const respondMutation = useMutation({
         mutationFn: async ({ id, status }: { id: string, status: 'accepted' | 'declined' }) => {
@@ -62,29 +115,39 @@ export default function BookingRequestsPage() {
         <ContractorAppShell>
             <div className="max-w-4xl mx-auto space-y-6 p-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900">Booking Requests</h1>
-                    <p className="text-slate-500">Manage incoming job requests from your public profile.</p>
+                    <h1 className="text-2xl font-bold text-slate-900">Schedule & Visits</h1>
+                    <p className="text-slate-500">Manage your upcoming appointments and booking requests.</p>
                 </div>
 
                 {isLoading ? (
                     <div className="flex items-center justify-center h-48">
                         <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
                     </div>
-                ) : bookings && bookings.length > 0 ? (
+                ) : unifiedSchedule && unifiedSchedule.length > 0 ? (
                     <div className="space-y-4">
-                        {bookings.map((booking) => (
-                            <div key={booking.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col md:flex-row gap-6">
+                        {unifiedSchedule.map((item) => (
+                            <div key={item.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex flex-col md:flex-row gap-6">
                                 {/* Left: Date & Time Badge */}
-                                <div className="flex flex-col items-center justify-center p-4 bg-slate-50 rounded-lg min-w-[100px] text-center border border-slate-100">
-                                    <span className="text-sm font-bold text-slate-500 uppercase">
-                                        {format(new Date(booking.requestedDate), 'MMM')}
-                                    </span>
-                                    <span className="text-3xl font-bold text-slate-900">
-                                        {format(new Date(booking.requestedDate), 'd')}
-                                    </span>
-                                    <span className="text-xs text-slate-500 mt-1">
-                                        {format(new Date(booking.requestedDate), 'EEE')}
-                                    </span>
+                                <div className={`flex flex-col items-center justify-center p-4 rounded-lg min-w-[100px] text-center border ${item.type === 'visit_link' ? 'bg-purple-50 border-purple-100' : 'bg-slate-50 border-slate-100'}`}>
+                                    {item.status === 'pending' && item.type === 'visit_link' ? (
+                                        <>
+                                            <span className="text-xs font-bold text-purple-500 uppercase">WAITING</span>
+                                            <span className="text-2xl font-bold text-purple-700">Link</span>
+                                            <span className="text-[10px] text-purple-400 mt-1">SENT</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="text-sm font-bold text-slate-500 uppercase">
+                                                {format(new Date(item.date), 'MMM')}
+                                            </span>
+                                            <span className="text-3xl font-bold text-slate-900">
+                                                {format(new Date(item.date), 'd')}
+                                            </span>
+                                            <span className="text-xs text-slate-500 mt-1">
+                                                {format(new Date(item.date), 'EEE')}
+                                            </span>
+                                        </>
+                                    )}
                                 </div>
 
                                 {/* Middle: Details */}
@@ -92,51 +155,53 @@ export default function BookingRequestsPage() {
                                     <div>
                                         <div className="flex items-center gap-2 mb-1">
                                             <span className={`px-2 py-0.5 text-xs font-bold rounded-full uppercase tracking-wide
-                                                ${booking.status === 'pending' ? 'bg-amber-100 text-amber-700' :
-                                                    booking.status === 'accepted' ? 'bg-emerald-100 text-emerald-700' :
+                                                ${item.status === 'pending' ? 'bg-amber-100 text-amber-700' :
+                                                    item.status === 'accepted' ? 'bg-emerald-100 text-emerald-700' :
                                                         'bg-red-100 text-red-700'}`}>
-                                                {booking.status}
+                                                {item.status}
                                             </span>
                                             <span className="text-xs text-slate-400">
-                                                Received {format(new Date(booking.createdAt), 'MMM d, h:mm a')}
+                                                {item.type === 'visit_link' ? 'Sent' : 'Received'} {format(new Date(item.created), 'MMM d, h:mm a')}
                                             </span>
                                         </div>
                                         <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                                             <User className="w-4 h-4 text-slate-400" />
-                                            {booking.customerName}
+                                            {item.title}
                                         </h3>
                                     </div>
 
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-slate-600">
                                         <p className="flex items-center gap-2">
                                             <Clock className="w-4 h-4 text-slate-400" />
-                                            Slot: <span className="font-medium">{booking.requestedSlot}</span>
+                                            Slot: <span className="font-medium">{item.slot}</span>
                                         </p>
                                         <p className="flex items-center gap-2">
                                             <FileText className="w-4 h-4 text-slate-400" />
-                                            {booking.description}
+                                            {item.subtitle}
                                         </p>
                                     </div>
 
-                                    {/* Contact Info (Only show if accepted?) - For now show always for ease */}
-                                    <div className="text-sm text-slate-500 pt-2 border-t border-slate-100 mt-2">
-                                        <span className="mr-4">📧 {booking.customerEmail}</span>
-                                        <span>📞 {booking.customerPhone}</span>
-                                    </div>
+                                    {/* Contact Info */}
+                                    {item.type === 'request' && (
+                                        <div className="text-sm text-slate-500 pt-2 border-t border-slate-100 mt-2">
+                                            <span className="mr-4">📧 {item.email}</span>
+                                            <span>📞 {item.phone}</span>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Right: Actions */}
-                                {booking.status === 'pending' && (
+                                {item.type === 'request' && item.status === 'pending' && (
                                     <div className="flex md:flex-col gap-2 justify-center min-w-[140px]">
                                         <button
-                                            onClick={() => respondMutation.mutate({ id: booking.id, status: 'accepted' })}
+                                            onClick={() => respondMutation.mutate({ id: item.id, status: 'accepted' })}
                                             disabled={respondMutation.isPending}
                                             className="flex-1 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center justify-center gap-2"
                                         >
                                             <Check className="w-4 h-4" /> Accept
                                         </button>
                                         <button
-                                            onClick={() => respondMutation.mutate({ id: booking.id, status: 'declined' })}
+                                            onClick={() => respondMutation.mutate({ id: item.id, status: 'declined' })}
                                             disabled={respondMutation.isPending}
                                             className="flex-1 bg-white border border-slate-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-slate-600 px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center justify-center gap-2"
                                         >

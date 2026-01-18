@@ -12,7 +12,7 @@ interface Quote {
     shortSlug: string;
     customerName: string;
     jobDescription: string;
-    quoteMode: 'hhh' | 'simple' | 'pick_and_mix';
+    quoteMode: 'hhh' | 'simple' | 'pick_and_mix' | 'consultation';
     basePricePence: number | null;
     baseJobPricePence: number | null;
     essentialPrice: number | null;
@@ -43,16 +43,17 @@ export default function QuotesListPage() {
     });
 
     const filteredQuotes = quotes?.filter(quote => {
+        // 0. Exclude "Consultation/Diagnostic" quotes (These belong in Schedule/Bookings)
+        if (quote.quoteMode === 'consultation') return false;
+
         // 1. Filter by Tab Logic
         const isBooked = !!quote.bookedAt;
 
         if (activeTab === 'active') {
-            // Active = Not Booked (includes Viewed, Sent, Expired - though maybe hide expired? User asked for clean UI. Let's keep Expired in Active for now but maybe at bottom or strictly separate. Plan said Active vs Booked specifically.)
-            // Let's hide Expired from Active to keep it super clean? user didn't explicitly ask to hide expired, but "Active" implies valid.
-            // Actually, let's keep it simple: Active = !Booked.
+            // Active = Not Booked
             if (isBooked) return false;
         } else {
-            // Booked = Booked
+            // Booked = Booked (Accepted Quotes)
             if (!isBooked) return false;
         }
 
@@ -123,7 +124,7 @@ export default function QuotesListPage() {
             <div className="bg-white sticky top-0 z-20 shadow-sm border-b border-gray-100">
                 <div className="px-5 py-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <h1 className="font-bold text-xl text-[#323338]">My Quotes</h1>
+                        <h1 className="font-bold text-xl text-[#323338]">Proposals</h1>
                         <span className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full text-xs font-bold">
                             {quotes?.length || 0}
                         </span>
@@ -158,7 +159,7 @@ export default function QuotesListPage() {
                                 : "text-gray-400 border-transparent hover:text-gray-600"
                         )}
                     >
-                        Booked Jobs
+                        Accepted
                     </button>
                 </div>
             </div>

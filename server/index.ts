@@ -185,6 +185,12 @@ app.get('/api/diagnostics', async (req, res) => {
             twilio_account_sid_set: !!process.env.TWILIO_ACCOUNT_SID,
             twilio_auth_token_set: !!process.env.TWILIO_AUTH_TOKEN,
             stripe_key_set: !!process.env.STRIPE_SECRET_KEY,
+            stripe_debug: {
+                exists: !!process.env.STRIPE_SECRET_KEY,
+                length: process.env.STRIPE_SECRET_KEY?.length || 0,
+                prefix: process.env.STRIPE_SECRET_KEY ? process.env.STRIPE_SECRET_KEY.trim().substring(0, 8) + '...' : 'none',
+                is_valid_format: (process.env.STRIPE_SECRET_KEY || '').replace(/^["']|["']$/g, '').trim().startsWith('sk_')
+            },
             node_env: process.env.NODE_ENV
         },
         infrastructure: {
