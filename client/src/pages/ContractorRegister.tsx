@@ -4,6 +4,7 @@ import { useLocation } from 'wouter';
 import { Eye, EyeOff, Loader2, Globe, CheckCircle2, AlertCircle, ArrowRight } from 'lucide-react';
 import SkillSelector from '../components/contractor/SkillSelector';
 import { LocationRadiusSelector } from '../components/contractor/LocationRadiusSelector';
+import { ConfettiTools } from '@/components/dashboard/ConfettiTools';
 
 export default function ContractorRegister() {
     const [, setLocation] = useLocation();
@@ -17,6 +18,7 @@ export default function ContractorRegister() {
     // Slug verification state
     const [isCheckingSlug, setIsCheckingSlug] = useState(false);
     const [slugAvailable, setSlugAvailable] = useState(false);
+    const [showConfetti, setShowConfetti] = useState(false);
 
     // Form Data
     const [formData, setFormData] = useState({
@@ -234,13 +236,19 @@ export default function ContractorRegister() {
                     body: JSON.stringify(payload)
                 });
 
-                if (!res.ok) throw new Error('Failed to save rates');
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}));
+                    console.error("Server Error Details:", errorData);
+                    throw new Error(errorData.details || errorData.error || 'Failed to save rates');
+                }
 
-                // Done!
+                // Success! Show Confetti
+                setShowConfetti(true);
+
+                // Short delay for confetti before redirect
                 setTimeout(() => {
-                    setIsLoading(false);
                     setLocation('/contractor/dashboard?welcome=true');
-                }, 1000);
+                }, 2500);
 
             } catch (err: any) {
                 console.error(err);
@@ -252,6 +260,7 @@ export default function ContractorRegister() {
 
     return (
         <div className="min-h-screen bg-white text-slate-900 font-sans flex flex-col">
+            {showConfetti && <ConfettiTools />}
             {/* Minimal Header */}
             <div className="h-16 flex items-center px-6 border-b border-slate-100">
                 <div className="flex items-center gap-2">

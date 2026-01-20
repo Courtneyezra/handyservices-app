@@ -51,6 +51,8 @@ interface Handyman {
     };
     skills: {
         id: string;
+        hourlyRate: number;
+        dayRate: number;
         service: {
             id: string;
             name: string;
@@ -216,6 +218,7 @@ export default function ContractorFleetDashboard() {
                             <TableRow className="border-slate-800 hover:bg-slate-800/50">
                                 <TableHead className="text-slate-400">Contractor</TableHead>
                                 <TableHead className="text-slate-400">Primary Trade</TableHead>
+                                <TableHead className="text-slate-400">Rates</TableHead>
                                 <TableHead className="text-slate-400">Location</TableHead>
                                 <TableHead className="text-slate-400">Status</TableHead>
                                 <TableHead className="text-slate-400">Radius</TableHead>
@@ -256,6 +259,18 @@ export default function ContractorFleetDashboard() {
                                                 {handyman.skills.length > 2 && (
                                                     <Badge variant="secondary" className="bg-slate-800 text-slate-400 border-none">+{handyman.skills.length - 2}</Badge>
                                                 )}
+                                            </div>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex flex-col gap-1">
+                                                {handyman.skills.slice(0, 3).map((skill) => (
+                                                    <div key={skill.id} className="text-xs text-slate-300 whitespace-nowrap">
+                                                        <span className="text-slate-500 mr-1">{skill.service.name.split(':')[0]}:</span>
+                                                        <span className="font-mono text-emerald-400">
+                                                            {skill.hourlyRate ? `£${(skill.hourlyRate / 100).toFixed(0)}/hr` : '-'}
+                                                        </span>
+                                                    </div>
+                                                ))}
                                             </div>
                                         </TableCell>
                                         <TableCell>

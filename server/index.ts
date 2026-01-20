@@ -1115,8 +1115,8 @@ server.on('upgrade', (request, socket, head) => {
             wssElevenLabs.emit('connection', ws, request);
         });
     } else {
-        process.stdout.write(`[Server] Unexpected upgrade for ${pathname} - destroying socket\n`);
-        socket.destroy();
+        // Don't destroy! Let other listeners (like Vite HMR) handle it.
+        // process.stdout.write(`[Server] Unknown upgrade request for ${pathname} - passing through\n`);
     }
 });
 
@@ -1128,7 +1128,7 @@ async function startServer() {
         try {
             const { createServer: createViteServer } = await import('vite');
             const vite = await createViteServer({
-                server: { middlewareMode: true },
+                server: { middlewareMode: true, hmr: { server } },
                 appType: 'custom'
             });
 

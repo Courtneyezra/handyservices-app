@@ -318,25 +318,32 @@ router.post('/onboarding/trade-rates', requireContractorAuth, async (req: Reques
                     eq(handymanSkills.serviceId, generalSku.id)
                 ));
 
+                // Defensive check ensuring numbers
+                const hourly = isNaN(trade.hourlyRatePence) ? 0 : Math.floor(trade.hourlyRatePence);
+                const daily = isNaN(trade.dayRatePence) ? 0 : Math.floor(trade.dayRatePence);
+
                 await db.insert(handymanSkills).values({
                     id: uuidv4(),
                     handymanId: profile.id,
                     serviceId: generalSku.id,
-                    hourlyRate: trade.hourlyRatePence,
-                    dayRate: trade.dayRatePence, // Using new column
+                    hourlyRate: hourly,
+                    dayRate: daily, // Using new column
                     proficiency: 'competent' // Default
                 });
                 savedCount++;
             } else {
-                console.warn(`General SKU not found for category: ${trade.category} (Name: ${generalSkuName})`);
+                console.warn(`[Onboarding] General SKU not found for: ${trade.category}`);
             }
         }
 
         res.json({ success: true, saved: savedCount });
 
     } catch (error) {
-        console.error('[Onboarding] Save trade rates error:', error);
-        res.status(500).json({ error: "Failed to save trade rates" });
+        console.error('❌ [Onboarding] CRITICAL SAVE ERROR:', error);
+        if (error instanceof Error) {
+            console.error('Error Stack:', error.stack);
+        }
+        res.status(500).json({ error: "Failed to save trade rates", details: String(error) });
     }
 });
 // Save selected skills with proficiency
