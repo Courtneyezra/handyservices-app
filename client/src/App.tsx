@@ -10,6 +10,7 @@ import SidebarLayout from "@/components/layout/SidebarLayout";
 // Landing pages - Keep eager for instant load (public-facing, need fast LCP)
 import HandymanLanding from "@/pages/HandymanLanding";
 import DerbyLanding from "@/pages/DerbyLanding";
+import { Loader2, Wrench } from "lucide-react";
 
 // Admin/CRM pages - Eager loaded for smooth navigation within CRM
 import AudioUploadPage from "@/pages/AudioUploadPage";
@@ -82,13 +83,17 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 const ContractorPublicProfile = lazy(() => import("@/pages/public/ContractorPublicProfile"));
 
 // Loading fallback for lazy-loaded components
+// Loading fallback for lazy-loaded components
 function LoadingFallback() {
     return (
-        <div className="flex items-center justify-center min-h-screen bg-gray-900">
-            <div className="flex flex-col items-center gap-4">
-                <div className="w-10 h-10 border-4 border-amber-400 border-t-transparent rounded-full animate-spin" />
-                <p className="text-slate-400 text-sm">Loading...</p>
+        <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-gray-900 to-gray-800">
+            <div className="relative">
+                <Wrench className="h-14 w-14 animate-spin text-[#e8b323]" strokeWidth={1.5} />
+                <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="h-4 w-4 bg-gray-900 rounded-full" />
+                </div>
             </div>
+            <p className="sr-only">Loading...</p>
         </div>
     );
 }

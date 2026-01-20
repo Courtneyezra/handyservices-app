@@ -453,7 +453,28 @@ router.get("/:id/recording", async (req: Request, res: Response) => {
             return res.redirect(signedUrl);
         }
 
-        // --- End S3 Logic ---
+        // --- END S3 Logic ---
+
+        // Check if it is a local file (legacy/hybrid)
+        if (!targetUrl.startsWith('http')) {
+            const path = await import("path");
+            const fs = await import("fs");
+
+            // Resolve absolute path safely
+            const absolutePath = path.resolve(process.cwd(), targetUrl);
+
+            // Security check: ensure it's within storage directory
+            if (!absolutePath.includes('storage/recordings')) {
+                return res.status(403).json({ error: "Access denied" });
+            }
+
+            if (fs.existsSync(absolutePath)) {
+                return res.sendFile(absolutePath);
+            } else {
+                console.error(`Local recording file missing: ${absolutePath}`);
+                return res.status(404).json({ error: "Recording file not found on server" });
+            }
+        }
 
         // Check if it is a Twilio URL
         const isTwilio = targetUrl.includes('twilio.com');

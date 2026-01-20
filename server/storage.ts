@@ -139,6 +139,22 @@ class StorageService {
 
             let key = storedPathOrUrl;
 
+            // Fix: If this is a local path (legacy or hybrid), do not treat as S3 key
+            // UNLESS we are in S3 mode and the local file is missing (Fall through to S3 recovery)
+            if (storedPathOrUrl.startsWith('storage/')) {
+                const isS3Mode = this.provider === 's3' || (S3_BUCKET && S3_ACCESS_KEY); // Robust check
+                if (isS3Mode) {
+                    const localPath = path.resolve(process.cwd(), storedPathOrUrl);
+                    if (fs.existsSync(localPath)) {
+                        return storedPathOrUrl;
+                    }
+                    console.warn(`[Storage] Local file missing for ${storedPathOrUrl}. Attempting S3 fallback...`);
+                    // Fall through to S3 logic -> Key = storedPathOrUrl ('storage/recordings/...')
+                } else {
+                    return storedPathOrUrl;
+                }
+            }
+
             // Check if it matches our generated pattern
             const prefix = `${S3_ENDPOINT}/${S3_BUCKET}/`;
             if (storedPathOrUrl.startsWith(prefix)) {
@@ -148,7 +164,8 @@ class StorageService {
                 // This handles cases where endpoint/bucket struct might vary slightly
                 // or if custom domain was used.
                 const urlObj = new URL(storedPathOrUrl);
-                key = urlObj.pathname.replace(/^\/handyuploaduk\//, '').replace(/^\//, ''); // Remove bucket name if in path
+                const bucketPattern = new RegExp(`^/${S3_BUCKET}/`);
+                key = urlObj.pathname.replace(bucketPattern, '').replace(/^\//, ''); // Remove bucket name if in path
             }
 
             const command = new GetObjectCommand({

@@ -640,7 +640,12 @@ export default function PersonalizedQuotePage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 flex items-center justify-center">
-        <Loader2 className="h-12 w-12 animate-spin text-[#e8b323]" />
+        <div className="relative">
+          <Wrench className="h-14 w-14 animate-spin text-[#e8b323]" strokeWidth={1.5} />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="h-4 w-4 bg-gray-900 rounded-full" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -911,16 +916,28 @@ export default function PersonalizedQuotePage() {
       {isExpired && <QuoteExpiredPopup />}
 
       {/* Christmas Pay in 3 Promo Banner with Timer - Hidden once payment is made */}
+      {/* New Year Pay in 3 Promo Banner with Timer - Hidden once payment is made */}
       {!quote.bookedAt && (
-        <div className="sticky top-0 z-50 bg-gradient-to-r from-red-700 via-red-600 to-green-700 border-b border-red-500/50 px-3 py-2">
+        <div className="sticky top-0 z-50 bg-gradient-to-r from-gray-950 via-gray-900 to-gray-950 border-b border-amber-500/30 px-3 py-2.5">
           <div className="max-w-2xl mx-auto">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span className="text-lg flex-shrink-0">🎄</span>
-                <p className="text-white text-xs sm:text-sm truncate">
-                  Christmas Cash Crunch? <span className="text-yellow-300 font-bold">Pay in 3!</span> Spread the cost into the new year 🎁
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                <span className="text-xl flex-shrink-0 animate-pulse">✨</span>
+                <p className="text-gray-100 text-xs sm:text-sm font-medium truncate">
+                  <span className="text-[#e8b323] font-bold">New Year Offer:</span> Pay in 3 Interest-Free available today.
                 </p>
               </div>
+
+              {/* Timer */}
+              {quote.expiresAt && (
+                <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-full border border-white/10 flex-shrink-0">
+                  <Clock className="w-3.5 h-3.5 text-[#e8b323]" />
+                  <CountdownTimer
+                    expiresAt={quote.expiresAt}
+                    className="text-[#e8b323] text-sm font-bold"
+                  />
+                </div>
+              )}
             </div>
           </div>
         </div>

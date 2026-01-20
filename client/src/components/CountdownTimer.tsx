@@ -4,9 +4,10 @@ import { Loader2 } from "lucide-react";
 interface CountdownTimerProps {
     expiresAt: string | Date;
     onExpire?: () => void;
+    className?: string; // Allow custom styling
 }
 
-export function CountdownTimer({ expiresAt, onExpire }: CountdownTimerProps) {
+export function CountdownTimer({ expiresAt, onExpire, className = "" }: CountdownTimerProps) {
     const [timeLeft, setTimeLeft] = useState(() => {
         const expiryTime = new Date(expiresAt).getTime();
         const now = Date.now();
@@ -49,11 +50,11 @@ export function CountdownTimer({ expiresAt, onExpire }: CountdownTimerProps) {
     };
 
     if (timeLeft <= 0) {
-        return <span className="text-red-500 font-bold">Expired</span>;
+        return <span className={`font-bold ${className}`}>Expired</span>;
     }
 
     return (
-        <span className="font-mono tabular-nums text-red-500 font-bold">
+        <span className={`font-mono tabular-nums font-bold ${className}`}>
             {formatTime(timeLeft)}
         </span>
     );
