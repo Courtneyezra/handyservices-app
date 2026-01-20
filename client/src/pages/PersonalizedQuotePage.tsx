@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRoute, useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { queryClient } from '@/lib/queryClient';
@@ -22,7 +22,8 @@ import { stripePromise } from '@/lib/stripe';
 import payIn3PromoImage from '@assets/pay-in-3-banner-original.jpg';
 import mikeProfilePhoto from '@assets/mike-profile-photo.png';
 import { NeonBadge } from '@/components/ui/neon-badge';
-import { format, addDays, addWeeks } from 'date-fns';
+import { format } from 'date-fns';
+import { CountdownTimer } from '@/components/CountdownTimer';
 import { ExpertStickyNote } from '@/components/ExpertStickyNote';
 import { getExpertNoteText } from "@/lib/quote-helpers";
 
@@ -331,7 +332,7 @@ export default function PersonalizedQuotePage() {
 
   const [selectedEEEPackage, setSelectedEEEPackage] = useState<EEEPackageTier>('enhanced');
   const [selectedExtras, setSelectedExtras] = useState<string[]>([]); // Shared: tracks selected extras for both Simple and HHH modes
-  const [timeLeft, setTimeLeft] = useState(15 * 60); // 15 minutes in seconds
+  // const [timeLeft, setTimeLeft] = useState(15 * 60); // REMOVED: Managed by CountdownTimer now
   const [hasBooked, setHasBooked] = useState(false);
   const [isBooking, setIsBooking] = useState(false);
   const [hasReserved, setHasReserved] = useState(false); // Track if user clicked "Book Now"
@@ -343,6 +344,7 @@ export default function PersonalizedQuotePage() {
   const [showPriceIncreaseNotice, setShowPriceIncreaseNotice] = useState(false); // Show banner when prices increased
   const [isQuoteExpiredOnLoad, setIsQuoteExpiredOnLoad] = useState(false); // Track if quote was expired when loaded
   const [paymentMode, setPaymentMode] = useState<'full' | 'installments'>('installments'); // Track payment mode selection - default to installments
+  const [isExpiredState, setIsExpiredState] = useState(false); // Track visual expiration state
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const dateSelectionRef = useRef<HTMLDivElement>(null);
@@ -394,51 +396,30 @@ export default function PersonalizedQuotePage() {
     }
   }, [quote?.id]); // Only run when quote ID changes (quote loaded)
 
-  // Calculate countdown timer from expiresAt
-  useEffect(() => {
-    if (!quote?.expiresAt) return;
+  // Timer logic moved to CountdownTimer component to prevent re-renders
 
-    const calculateTimeLeft = () => {
-      const expiryTime = new Date(quote.expiresAt!).getTime();
-      const now = Date.now();
-      const diff = Math.floor((expiryTime - now) / 1000);
-      return Math.max(0, diff); // Never go negative
-    };
-
-    // Set initial time
-    setTimeLeft(calculateTimeLeft());
-
-    // Update every second
-    const interval = setInterval(() => {
-      const remaining = calculateTimeLeft();
-      setTimeLeft(remaining);
-
-      if (remaining <= 0) {
-        clearInterval(interval);
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [quote?.expiresAt]);
-
-  // Auto-scroll to Enhanced package on mount
+  // Auto-scroll to Enhanced package on mount - OPTIMIZED
   useEffect(() => {
     if (quote && scrollContainerRef.current) {
-      setTimeout(() => {
+      // Use requestAnimationFrame to wait for layout paint
+      requestAnimationFrame(() => {
         const enhancedCard = scrollContainerRef.current?.querySelector('[data-testid="package-enhanced"]');
         if (enhancedCard) {
-          const containerRect = scrollContainerRef.current!.getBoundingClientRect();
+          // Check if already visible to avoid unnecessary reflow
           const cardRect = enhancedCard.getBoundingClientRect();
+          const containerRect = scrollContainerRef.current!.getBoundingClientRect();
+
+          // Only scroll if significantly off-center (optional optimization, but good for stability)
           const containerCenter = containerRect.width / 2;
           const cardCenter = cardRect.width / 2;
           const scrollOffset = cardRect.left - containerRect.left - containerCenter + cardCenter;
 
           scrollContainerRef.current?.scrollBy({
             left: scrollOffset,
-            behavior: 'instant'
+            behavior: 'smooth' // Smooth often looks better and can be less jarring than instant
           });
         }
-      }, 50);
+      });
     }
   }, [quote]);
 
@@ -521,11 +502,7 @@ export default function PersonalizedQuotePage() {
     return tierMap[tier];
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  /* REMOVED: formatTime moved to CountdownTimer */
 
   const formatPrice = (priceInPence: number) => {
     return Math.round(priceInPence / 100);
@@ -690,8 +667,9 @@ export default function PersonalizedQuotePage() {
     );
   }
 
-  // Check if quote has expired (timer reached 0, expiresAt is in the past, OR backend returned 410 expired status)
-  const isExpired = isQuoteExpiredOnLoad || timeLeft === 0 || (quote.expiresAt && new Date(quote.expiresAt) < new Date());
+  // Check if quote has expired (initial check only, mostly visual now via component)
+  // const [isExpiredState, setIsExpiredState] = useState(false); // MOVED TO TOP
+  const isExpired = isQuoteExpiredOnLoad || isExpiredState || (quote.expiresAt && new Date(quote.expiresAt) < new Date());
 
   // Only create packages array if in HHH mode
   const packages: EEEPackage[] = quote.quoteMode === 'hhh' && quote.essentialPrice && quote.enhancedPrice && quote.elitePrice ? [

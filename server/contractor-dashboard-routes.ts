@@ -268,7 +268,7 @@ router.post('/onboarding/skills', requireContractorAuth, async (req: Request, re
 
         for (const skill of skills) {
             await db.insert(handymanSkills).values({
-                id: uuidv4(),
+                id: nanoid(),
                 handymanId: profile.id,
                 serviceId: skill.skuId,
                 proficiency: skill.proficiency || 'competent'
@@ -323,7 +323,7 @@ router.post('/onboarding/trade-rates', requireContractorAuth, async (req: Reques
                 const daily = isNaN(trade.dayRatePence) ? 0 : Math.floor(trade.dayRatePence);
 
                 await db.insert(handymanSkills).values({
-                    id: uuidv4(),
+                    id: nanoid(),
                     handymanId: profile.id,
                     serviceId: generalSku.id,
                     hourlyRate: hourly,

@@ -794,6 +794,10 @@ export default function GenerateQuoteLink() {
     // 2. Mode-Specific Messaging (THE VALUE PRIMER)
     if (quoteMode === 'consultation') {
       // --- DIAGNOSTIC / BOOK VISIT MODE ---
+    } else if (quoteMode === 'hhh' && primingPriceRange) {
+      // --- PACKAGES / HHH MODE ---
+      message += `Rough price guide: £${primingPriceRange.low} - £${primingPriceRange.high}\n`;
+      message += `Pay in 3 interest-free available 💳\n\n`;
     }
 
     // 3. Append Link (for all Quote modes)
