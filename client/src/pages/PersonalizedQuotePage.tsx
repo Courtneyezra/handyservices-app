@@ -921,10 +921,6 @@ export default function PersonalizedQuotePage() {
                   Christmas Cash Crunch? <span className="text-yellow-300 font-bold">Pay in 3!</span> Spread the cost into the new year 🎁
                 </p>
               </div>
-              <div className="flex items-center gap-1.5 bg-black/30 rounded px-2 py-1 flex-shrink-0">
-                <Clock className="h-3 w-3 text-yellow-300" />
-                <span className="text-sm font-bold text-white">{formatTime(timeLeft)}</span>
-              </div>
             </div>
           </div>
         </div>
