@@ -227,6 +227,83 @@ export async function finalizeCall(
     });
 
     console.log(`[CallLogger] Finalized call record ${callRecordId}`);
+
+    // --- AGENTIC WORKFLOW: ONE-CLICK ACTION ---
+    if (data.transcription && data.transcription.length > 50) {
+        // Run analysis in background so we don't block the response
+        (async () => {
+            try {
+                const { analyzeLeadActionPlan } = await import("./services/agentic-service");
+                // 1. Fetch Call Record to get Customer Name
+                const [call] = await db.select().from(calls).where(eq(calls.id, callRecordId));
+
+                if (call) {
+                    // 2. Run Analysis (now with Customer Name)
+                    console.log(`[Agent-Reflexion] Analyzing transcript for call ${callRecordId} (Customer: ${call.customerName})...`);
+                    const plan = await analyzeLeadActionPlan(data.transcription!, call.customerName || undefined);
+                    console.log(`[Agent-Reflexion] Generated Plan:`, JSON.stringify(plan, null, 2));
+
+                    const { conversations } = await import("../shared/schema");
+
+                    // Normalize phone (remove + if present, ensure @c.us if needed by schema, 
+                    // but schema says "447..." format usually. Let's match existing pattern in meta-whatsapp)
+                    // Actually call.phoneNumber is usually like +44...
+                    // conversation.phoneNumber is usually 44...@c.us or just number?
+                    // Let's rely on a fuzzy match or strict if we know format.
+                    // For now, let's try to find it.
+
+                    // Helper to format phone for WhatsApp ID
+                    const formatPhoneForWa = (p: string) => p.replace('+', '') + '@c.us';
+                    const waId = formatPhoneForWa(call.phoneNumber);
+
+                    // Check if conversation exists
+                    let [conv] = await db.select().from(conversations).where(eq(conversations.phoneNumber, waId));
+
+                    if (conv) {
+                        await db.update(conversations)
+                            .set({
+                                metadata: plan as any,
+                                lastMessagePreview: `[Agent Plan] ${plan.recommendedAction}: ${plan.draftReply.substring(0, 30)}...`
+                            })
+                            .where(eq(conversations.id, conv.id));
+                    } else {
+                        // Create phantom conversation for the Agent Plan to live in the Inbox
+                        try {
+                            await db.insert(conversations).values({
+                                id: crypto.randomBytes(16).toString("hex"),
+                                phoneNumber: waId,
+                                contactName: call.customerName || "Unknown Caller",
+                                status: 'active',
+                                unreadCount: 0,
+                                lastMessageAt: new Date(),
+                                lastMessagePreview: `[Agent Plan] ${plan.recommendedAction}`,
+                                metadata: plan as any,
+                                // Metadata for timeline
+                                stage: 'new',
+                                priority: plan.urgency === 'critical' ? 'urgent' : plan.urgency === 'high' ? 'high' : 'normal'
+                            });
+                            console.log(`[Agent-Reflexion] Created new conversation for ${waId}`);
+                        } catch (e) {
+                            console.error("Failed to create conversation:", e);
+                        }
+                    }
+
+                    // 2. Store in Call Metadata (Snapshotted for this specific call)
+                    await db.update(calls)
+                        .set({
+                            metadataJson: { ...call.metadataJson as object, agentPlan: plan },
+                            actionStatus: 'pending', // Flag for UI to show "Action Needed"
+                            actionUrgency: plan.urgency === 'critical' ? 1 : plan.urgency === 'high' ? 2 : 3
+                        })
+                        .where(eq(calls.id, callRecordId));
+
+                    console.log(`[Agent-Reflexion] Plan saved to Conversation and Call ${callRecordId}`);
+                }
+            } catch (err) {
+                console.error(`[Agent-Reflexion] Failed to analyze call:`, err);
+            }
+        })();
+    }
 }
 
 /**

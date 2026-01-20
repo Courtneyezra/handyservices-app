@@ -4,6 +4,7 @@ import { leads, insertLeadSchema } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "nanoid";
+import { v4 as uuidv4 } from "uuid";
 import { getSetting, getTwilioSettings } from "./settings";
 import { createCall, updateCall } from "./call-logger"; // Import call logger function
 import { calls } from "@shared/schema"; // Import calls schema
@@ -39,11 +40,53 @@ leadsRouter.post('/leads', async (req, res) => {
         // Insert into DB
         await db.insert(leads).values(newLead);
 
-        // If this lead came from a quote reservation, update the quote
-        // The frontend sends outcome='whatsapp_video' and eeePackage for reservations
-        if (inputData.quoteAmount || inputData.eeePackage) {
-            // We might want to link this to a quote if we had the quote shortSlug or ID.
-            // For now, the primary goal is capturing the lead.
+        // --- AGENTIC WORKFLOW: ONE-CLICK ACTION ---
+        // Just like calls, we run the agent on the job description to get a plan
+        if (newLead.jobDescription && newLead.jobDescription.length > 10) {
+            (async () => {
+                try {
+                    const { analyzeLeadActionPlan } = await import("./services/agentic-service");
+                    console.log(`[Agent-Reflexion] Analyzing Web Lead ${newLead.id}...`);
+
+                    const plan = await analyzeLeadActionPlan(newLead.jobDescription, newLead.customerName);
+
+                    // 1. Save Plan to Lead metadata (if we had a column, but we use conversation logic mainly)
+                    // 2. IMPORTANT: Update the Conversation Metadata so it shows in Inbox
+
+                    // Find or create the conversation to attach the plan
+                    const { conversations } = await import("@shared/schema");
+                    const [existingConv] = await db.select().from(conversations)
+                        .where(eq(conversations.phoneNumber, newLead.phone))
+                        .limit(1);
+
+                    if (existingConv) {
+                        await db.update(conversations)
+                            .set({ metadata: plan })
+                            .where(eq(conversations.id, existingConv.id));
+                        console.log(`[Agent-Reflexion] Attached plan to existing conversation ${existingConv.id}`);
+                    } else {
+                        // If no conversation exists yet, the Inbox "GetThread" logic might miss it 
+                        // unless we create a phantom one OR relying on the lead item itself.
+                        // Ideally, we create a conversation record for the agent to "live" in.
+                        await db.insert(conversations).values({
+                            id: uuidv4(),
+                            phoneNumber: newLead.phone,
+                            contactName: newLead.customerName,
+                            source: 'web_lead',
+                            status: 'active',
+                            unreadCount: 0,
+                            lastMessageAt: new Date(),
+                            lastMessagePreview: "New Web Inquiry",
+                            lastMessageDirection: 'inbound',
+                            metadata: plan
+                        });
+                        console.log(`[Agent-Reflexion] Created new conversation with plan for ${newLead.phone}`);
+                    }
+
+                } catch (err) {
+                    console.error(`[Agent-Reflexion] Failed to analyze web lead:`, err);
+                }
+            })();
         }
 
         res.status(201).json({

@@ -196,7 +196,6 @@ router.post('/onboarding/complete', requireContractorAuth, async (req: Request, 
         const { services } = validation.data;
         const contractor = (req as any).contractor;
 
-        // 1. Get profile
         const profile = await db.query.handymanProfiles.findFirst({
             where: eq(handymanProfiles.userId, contractor.id),
             columns: { id: true }
@@ -204,12 +203,10 @@ router.post('/onboarding/complete', requireContractorAuth, async (req: Request, 
 
         if (!profile) return res.status(404).json({ error: "Profile not found" });
 
-        // 2. Generate SKUs
-        // Check if AutoSkuGenerator is working (it should be)
         const skus = await AutoSkuGenerator.generateForContractor({
             userId: contractor.id,
             profileId: profile.id,
-            services: services // [{ trade, hourlyRatePence, dayRatePence }]
+            services: services
         });
 
         res.json({ success: true, skusGenerated: skus.length });
@@ -220,6 +217,187 @@ router.post('/onboarding/complete', requireContractorAuth, async (req: Request, 
             console.error('[Onboarding] Stack:', error.stack);
         }
         res.status(500).json({ error: "Failed to complete onboarding", details: String(error) });
+    }
+});
+
+// GET /api/contractor/onboarding/capabilities
+// Fetch all available capabilities grouped by category
+router.get('/onboarding/capabilities', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const services = await db.select().from(productizedServices).where(eq(productizedServices.isActive, true));
+
+        // Group by category
+        const categories: Record<string, typeof services> = {};
+
+        services.forEach(service => {
+            let cat = service.category || 'Other';
+            // Title case normalization: plumbing -> Plumbing
+            cat = cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase();
+
+            if (!categories[cat]) {
+                categories[cat] = [];
+            }
+            categories[cat].push(service);
+        });
+
+        res.json(categories);
+    } catch (error) {
+        console.error('[Onboarding] Get capabilities error:', error);
+        res.status(500).json({ error: "Failed to fetch capabilities" });
+    }
+});
+
+// POST /api/contractor/onboarding/skills
+router.post('/onboarding/skills', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const { skills } = req.body; // Expects [{ skuId, proficiency }]
+        const contractor = (req as any).contractor;
+
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id)
+        });
+
+        if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+        // Using a transaction to ensure all skills are saved or none
+        // Note: neon-serverless driver transactions work a bit differently, simple batch inserts are safer if transactions flaky
+
+        // Delete existing skills to allow full overwrite (simplified logic)
+        // In a real app we might want to be smarter (merge)
+        await db.delete(handymanSkills).where(eq(handymanSkills.handymanId, profile.id));
+
+        for (const skill of skills) {
+            await db.insert(handymanSkills).values({
+                id: uuidv4(),
+                handymanId: profile.id,
+                serviceId: skill.skuId,
+                proficiency: skill.proficiency || 'competent'
+            });
+        }
+
+        res.json({ success: true, count: skills.length });
+
+    } catch (error) {
+        console.error('[Onboarding] Save skills error:', error);
+        res.status(500).json({ error: "Failed to save skills" });
+    }
+});
+
+// POST /api/contractor/onboarding/trade-rates (New Simplified Flow)
+router.post('/onboarding/trade-rates', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const { trades } = req.body; // Expects [{ category, hourlyRatePence, dayRatePence }]
+
+        if (!trades || !Array.isArray(trades)) {
+            return res.status(400).json({ error: "Invalid payload: trades array required" });
+        }
+
+        const contractor = (req as any).contractor;
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id)
+        });
+
+        if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+        let savedCount = 0;
+
+        for (const trade of trades) {
+            // Find the "General" SKU for this category
+            // Convention: "Category: General Category" e.g., "Plumbing: General Plumbing"
+            // Or simple check for "General" keyword match in category
+            const generalSkuName = `${trade.category}: General ${trade.category}`;
+
+            const generalSku = await db.query.productizedServices.findFirst({
+                where: eq(productizedServices.name, generalSkuName)
+            });
+
+            if (generalSku) {
+                // Remove existing entry for this specific SKU if any (upsert simulation)
+                await db.delete(handymanSkills).where(and(
+                    eq(handymanSkills.handymanId, profile.id),
+                    eq(handymanSkills.serviceId, generalSku.id)
+                ));
+
+                await db.insert(handymanSkills).values({
+                    id: uuidv4(),
+                    handymanId: profile.id,
+                    serviceId: generalSku.id,
+                    hourlyRate: trade.hourlyRatePence,
+                    dayRate: trade.dayRatePence, // Using new column
+                    proficiency: 'competent' // Default
+                });
+                savedCount++;
+            } else {
+                console.warn(`General SKU not found for category: ${trade.category} (Name: ${generalSkuName})`);
+            }
+        }
+
+        res.json({ success: true, saved: savedCount });
+
+    } catch (error) {
+        console.error('[Onboarding] Save trade rates error:', error);
+        res.status(500).json({ error: "Failed to save trade rates" });
+    }
+});
+// Save selected skills with proficiency
+router.post('/onboarding/skills', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const schema = z.object({
+            skills: z.array(z.object({
+                skuId: z.string(),
+                proficiency: z.enum(['basic', 'competent', 'expert']).default('competent'),
+                hourlyRatePence: z.number().optional()
+            }))
+        });
+
+        const validation = schema.safeParse(req.body);
+        if (!validation.success) {
+            return res.status(400).json({ error: "Invalid payload", details: validation.error.errors });
+        }
+
+        const { skills } = validation.data;
+        const contractor = (req as any).contractor;
+
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id),
+            columns: { id: true }
+        });
+
+        if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+        // Insert skills
+        // For simplicity, we'll just insert/upsert. 
+        // Iterate and insert
+        for (const skill of skills) {
+            // Check if exists
+            const existing = await db.query.handymanSkills.findFirst({
+                where: and(
+                    eq(handymanSkills.handymanId, profile.id),
+                    eq(handymanSkills.serviceId, skill.skuId)
+                )
+            });
+
+            if (existing) {
+                await db.update(handymanSkills).set({
+                    proficiency: skill.proficiency,
+                    hourlyRate: skill.hourlyRatePence
+                }).where(eq(handymanSkills.id, existing.id));
+            } else {
+                await db.insert(handymanSkills).values({
+                    id: nanoid(),
+                    handymanId: profile.id,
+                    serviceId: skill.skuId,
+                    proficiency: skill.proficiency,
+                    hourlyRate: skill.hourlyRatePence
+                });
+            }
+        }
+
+        res.json({ success: true, count: skills.length });
+
+    } catch (error) {
+        console.error('[Onboarding] Save skills error:', error);
+        res.status(500).json({ error: "Failed to save skills" });
     }
 });
 

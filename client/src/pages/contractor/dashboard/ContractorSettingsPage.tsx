@@ -4,8 +4,9 @@ import { useLocation } from "wouter";
 import {
     Plus, GripVertical, CheckCircle2, AlertCircle, LayoutTemplate, Upload, FileText,
     Globe, Share2, Copy, ExternalLink, Video, User, Star, Phone, Mail, Lock, LogOut, X,
-    ShieldCheck, Sparkles, MessageCircle, Save, Loader2, ArrowRight, Camera, Trash2
+    ShieldCheck, Sparkles, MessageCircle, Save, Loader2, ArrowRight, Camera, Trash2, CreditCard
 } from 'lucide-react';
+import { StripeConnectStatus } from "@/components/contractor/StripeConnectStatus";
 import ContractorAppShell from "@/components/layout/ContractorAppShell";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -344,6 +345,7 @@ export default function ContractorSettingsPage() {
                             { id: 'services', label: 'Services & Rates', icon: CheckCircle2 },
                             { id: 'portfolio', label: 'Work Gallery', icon: LayoutTemplate },
                             { id: 'verification', label: 'Verification', icon: ShieldCheck },
+                            { id: 'payments', label: 'Payments', icon: CreditCard },
                             { id: 'ai-rules', label: 'AI Rules', icon: Sparkles },
                             { id: 'security', label: 'Security', icon: Lock },
                         ].map((tab) => (
@@ -796,6 +798,102 @@ export default function ContractorSettingsPage() {
                                                 </button>
                                             );
                                         })}
+                                    </div>
+                                </section>
+                            </div>
+                        )}
+
+                        {activeTab === 'payments' && (
+                            <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <section>
+                                    <div className="flex items-center gap-3 mb-6">
+                                        <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                                            <CreditCard className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-lg font-bold text-slate-100">Payout Settings</h2>
+                                            <p className="text-sm text-slate-500">Manage how you receive payments from jobs.</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-6">
+                                        <div className="flex items-start gap-4">
+                                            <div className="p-3 bg-indigo-50 rounded-xl">
+                                                <CreditCard className="w-6 h-6 text-indigo-600" />
+                                            </div>
+                                            <div className="flex-1">
+                                                <h3 className="text-base font-bold text-slate-900">Stripe Connect</h3>
+                                                <p className="text-sm text-slate-500 mt-1">We use Stripe to ensure you get paid securely and instantly. You need to connect a bank account to receive payouts.</p>
+
+                                                <div className="mt-4 flex flex-col gap-2">
+                                                    <StripeConnectStatus />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+                        )}
+
+                        {activeTab === 'payments' && (
+                            <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <section>
+                                    <div className="flex items-center gap-3 mb-6">
+                                        <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                                            <CreditCard className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-lg font-bold text-slate-100">Payout Settings</h2>
+                                            <p className="text-sm text-slate-500">Manage how you receive payments from jobs.</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-6">
+                                        <div className="flex items-start gap-4">
+                                            <div className="p-3 bg-indigo-50 rounded-xl">
+                                                <CreditCard className="w-6 h-6 text-indigo-600" />
+                                            </div>
+                                            <div className="flex-1">
+                                                <h3 className="text-base font-bold text-slate-900">Stripe Connect</h3>
+                                                <p className="text-sm text-slate-500 mt-1">We use Stripe to ensure you get paid securely and instantly. You need to connect a bank account to receive payouts.</p>
+
+                                                <div className="mt-4 flex flex-col gap-2">
+                                                    <StripeConnectStatus />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+                        )}
+
+                        {activeTab === 'payments' && (
+                            <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <section>
+                                    <div className="flex items-center gap-3 mb-6">
+                                        <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                                            <CreditCard className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-lg font-bold text-slate-100">Payout Settings</h2>
+                                            <p className="text-sm text-slate-500">Manage how you receive payments from jobs.</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-6">
+                                        <div className="flex items-start gap-4">
+                                            <div className="p-3 bg-indigo-50 rounded-xl">
+                                                <CreditCard className="w-6 h-6 text-indigo-600" />
+                                            </div>
+                                            <div className="flex-1">
+                                                <h3 className="text-base font-bold text-slate-900">Stripe Connect</h3>
+                                                <p className="text-sm text-slate-500 mt-1">We use Stripe to ensure you get paid securely and instantly. You need to connect a bank account to receive payouts.</p>
+
+                                                <div className="mt-4 flex flex-col gap-2">
+                                                    <StripeConnectStatus />
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </section>
                             </div>

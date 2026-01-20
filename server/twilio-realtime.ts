@@ -439,15 +439,31 @@ export class MediaStreamTranscriber {
         // This prevents calls from getting stuck as "in-progress" forever
         if (this.callRecordId) {
             const duration = Math.floor((new Date().getTime() - this.callStartTime.getTime()) / 1000);
+
+            // --- AGENTIC LAYER START ---
+            let agentPlan = null;
+            if (finalText.length > 5) { // Only analyze if there's content
+                try {
+                    const { analyzeLeadActionPlan } = await import('./services/agentic-service');
+                    console.log(`[Twilio-Agent] Analyzing call ${this.callRecordId}...`);
+                    agentPlan = await analyzeLeadActionPlan(finalText);
+                    console.log(`[Twilio-Agent] Plan generated:`, JSON.stringify(agentPlan, null, 2));
+                } catch (err) {
+                    console.error(`[Twilio-Agent] Analysis failed:`, err);
+                }
+            }
+            // --- AGENTIC LAYER END ---
+
             try {
                 await finalizeCall(this.callRecordId, {
                     duration,
                     endTime: new Date(),
-                    outcome: 'UNKNOWN',  // Default for short calls, will be updated if analysis runs
+                    outcome: agentPlan ? (agentPlan.recommendedAction === 'book_visit' ? 'SITE_VISIT' : 'INSTANT_PRICE') : 'UNKNOWN',
                     transcription: finalText || undefined,
                     segments: this.segments,
                     localRecordingPath: finalLocalPath,
-                    recordingUrl: finalRecordingUrl || undefined
+                    recordingUrl: finalRecordingUrl || undefined,
+                    detectedSkusJson: agentPlan ? agentPlan : undefined // Store the Brain Dump
                 });
                 console.log(`[CallLogger] Finalized call ${this.callRecordId} with duration ${duration}s`);
             } catch (e) {

@@ -63,100 +63,272 @@ dashboardRouter.get('/actions', async (req, res) => {
     }
 });
 
-// GET /api/dashboard/inbox - Unified Inbox & Triage
+// GET /api/dashboard/inbox - Unified Inbox (People-Centric Threads)
 dashboardRouter.get('/inbox', async (req, res) => {
     try {
-        // 1. Fetch recent Calls (Answered + Missed)
-        const recentCalls = await db.select().from(calls)
-            .orderBy(desc(calls.startTime))
-            .limit(20);
+        // 1. Fetch ALL recent inputs
+        const recentCalls = await db.select().from(calls).orderBy(desc(calls.startTime)).limit(50);
+        const recentLeads = await db.select().from(leads).orderBy(desc(leads.createdAt)).limit(50);
+        const activeConversations = await db.select().from(conversations).orderBy(desc(conversations.lastMessageAt)).limit(50);
 
-        // 2. Fetch recent Web Leads
-        const recentLeads = await db.select().from(leads)
-            .orderBy(desc(leads.createdAt))
-            .limit(20);
+        // 2. Normalization Helper
+        const normalizePhone = (p: string) => p?.replace(/\s+/g, '').replace(/^0/, '+44') || 'unknown';
 
-        // 3. Fetch active WhatsApp Conversations
-        const activeConversations = await db.select().from(conversations)
-            .orderBy(desc(conversations.lastMessageAt))
-            .limit(20);
+        // 3. Grouping Map
+        const threads = new Map<string, any>();
 
-        // Combine and Normalize
-        const inboxItems = [];
+        // Helper to get or create thread
+        const getThread = (phone: string, name: string, date: Date | null) => {
+            const normalized = normalizePhone(phone);
+            if (!threads.has(normalized)) {
+                threads.set(normalized, {
+                    threadId: normalized,
+                    customerName: name || phone,
+                    phone: phone, // Keep original format for display if possible, or use normalized
+                    lastActivityAt: date || new Date(0),
+                    status: 'active',
+                    items: [], // Timeline events
+                    priority: 'normal',
+                    suggestion: null,
+                    summary: '',
+                    actionPayload: null
+                });
+            }
+            const thread = threads.get(normalized);
+            // Update latest metadata if this event is newer
+            if (date && new Date(date) > new Date(thread.lastActivityAt)) {
+                thread.lastActivityAt = date;
+                if (name) thread.customerName = name; // Prefer newer names
+            }
+            return thread;
+        };
 
-        // Map Calls
+        // --- PROCESS CALLS ---
         for (const call of recentCalls) {
-            let priority = 'normal';
-            let suggestion = 'Review Call';
-            let summary = call.transcription || call.jobSummary || "No transcript available.";
+            const thread = getThread(call.phoneNumber, call.customerName || '', call.startTime);
 
-            // Co-pilot Logic for Calls
+            // Analyze this specific event
+            let itemPriority = 'normal';
+            let itemSuggestion = 'Review Call';
+
+            // Default "Simple" Analysis
             if (call.outcome === 'MISSED_CALL' || call.outcome === 'VOICEMAIL') {
-                priority = 'high';
-                suggestion = 'Call Back';
-                summary = "Missed Call / Voicemail: " + (call.transcription?.slice(0, 100) || "Recorded");
+                itemPriority = 'high';
+                itemSuggestion = 'Call Back';
             } else if (call.jobSummary?.toLowerCase().includes('emergency') || call.urgency === 'Critical') {
-                priority = 'high';
-                suggestion = 'Book Emergency Visit';
-            } else if (call.detectedSkusJson) {
-                suggestion = 'Create Quote';
+                itemPriority = 'high';
+                itemSuggestion = 'Book Emergency Visit';
             }
 
-            inboxItems.push({
-                id: call.id,
-                type: 'call',
+            // --- AGENTIC "FRANCIS" LOGIC ---
+            // Check New Metadata (metadataJson.agentPlan) OR Legacy (detectedSkusJson)
+            const meta = call.metadataJson as any;
+            let agentPlan = meta?.agentPlan;
+
+            if (!agentPlan) {
+                // Fallback to legacy location
+                agentPlan = call.detectedSkusJson as any;
+            }
+
+            if (agentPlan && agentPlan.recommendedAction) {
+                // Override with Agent's Brain
+                if (agentPlan.recommendedAction === 'create_quote') itemSuggestion = 'Create Quote (Pre-filled)';
+                if (agentPlan.recommendedAction === 'book_visit') itemSuggestion = 'Book Visit (Pre-filled)';
+                if (agentPlan.recommendedAction === 'request_video') itemSuggestion = 'Request Video';
+                if (agentPlan.urgency === 'critical') itemPriority = 'high';
+            } else if (call.detectedSkusJson) {
+                // Legacy fallback for really old detectedSkus structure
+                itemSuggestion = 'Create Quote';
+            }
+
+            // Generate Payload for this event (Execution Layer)
+            const payload: any = {
                 customerName: call.customerName || call.phoneNumber,
                 phone: call.phoneNumber,
-                summary: summary,
+                source: 'inbox_call',
+                leadId: call.id,
+                description: call.jobSummary || "Call Transcript"
+            };
+
+            if (agentPlan && agentPlan.recommendedAction) {
+                // Pass the FULL Agent Plan to the frontend
+                payload.action = agentPlan.recommendedAction;
+                payload.mode = agentPlan.quoteMode || 'simple';
+                payload.tasks = agentPlan.tasks; // Array of { description, priceEstimate }
+                payload.draftReply = agentPlan.draftReply;
+            } else if (itemSuggestion === 'Create Quote') {
+                payload.action = 'create_quote';
+                payload.mode = call.detectedSkusJson ? 'simple' : 'consultation';
+            } else if (itemSuggestion === 'Book Emergency Visit') {
+                payload.action = 'book_visit';
+                payload.urgency = 'critical';
+            }
+
+            thread.items.push({
+                id: call.id,
+                type: 'call',
+                summary: call.jobSummary || call.transcription || "Call Log",
                 receivedAt: call.startTime,
-                status: 'new', // TODO: track read status
-                priority,
-                suggestion,
-                transcription: call.transcription,
-                recordingUrl: call.recordingUrl
+                priority: itemPriority,
+                suggestion: itemSuggestion,
+                recordingUrl: call.recordingUrl,
+                payload
             });
         }
 
-        // Map Leads
+        // --- PROCESS LEADS ---
         for (const lead of recentLeads) {
-            inboxItems.push({
-                id: lead.id,
-                type: lead.source === 'eleven_labs' ? 'ai_lead' : 'web_form',
+            const thread = getThread(lead.phone, lead.customerName, lead.createdAt);
+
+            const payload = {
+                action: 'create_quote',
                 customerName: lead.customerName,
                 phone: lead.phone,
-                summary: lead.jobDescription || "New Lead Submission",
+                source: 'inbox_lead',
+                leadId: lead.id,
+                mode: 'simple',
+                description: lead.jobDescription
+            };
+
+            thread.items.push({
+                id: lead.id,
+                type: 'lead',
+                summary: lead.jobDescription || "Web Inquiry",
                 receivedAt: lead.createdAt,
-                status: lead.status || 'new',
-                priority: 'high', // Web leads are usually intent-high
-                suggestion: 'Send Instant Price'
+                priority: 'high',
+                suggestion: 'Send Instant Price',
+                payload
             });
         }
 
-        // Map WhatsApp
+        // --- PROCESS WHATSAPP ---
         for (const conv of activeConversations) {
-            inboxItems.push({
-                id: conv.id,
-                type: 'whatsapp',
+            const thread = getThread(conv.phoneNumber, conv.contactName || '', conv.lastMessageAt);
+
+            let suggestion = 'Reply to Message';
+            let priority = 'normal';
+
+            // Default Payload
+            const payload: any = {
+                action: 'reply',
                 customerName: conv.contactName || conv.phoneNumber,
                 phone: conv.phoneNumber,
-                summary: conv.lastMessagePreview || "New Message",
+                source: 'inbox_whatsapp'
+            };
+
+            // --- AGENTIC LAYER CHECK ---
+            if (conv.metadata) {
+                const agentPlan = conv.metadata as any;
+                if (agentPlan.recommendedAction) {
+                    if (agentPlan.recommendedAction === 'create_quote') {
+                        suggestion = 'Create Quote (Pre-filled)';
+                        payload.action = 'create_quote';
+                        payload.mode = agentPlan.quoteMode || 'simple';
+                        payload.tasks = agentPlan.tasks;
+                        payload.description = agentPlan.reasoning || "WhatsApp Request";
+                        if (agentPlan.draftReply) {
+                            payload.draftReply = agentPlan.draftReply;
+                        }
+                    } else if (agentPlan.recommendedAction === 'book_visit') {
+                        suggestion = 'Book Visit (Pre-filled)';
+                        payload.action = 'book_visit';
+                        payload.urgency = 'critical';
+                    } else if (agentPlan.recommendedAction === 'request_video') {
+                        suggestion = 'Request Video';
+                        payload.action = 'request_video';
+                        if (agentPlan.draftReply) payload.draftReply = agentPlan.draftReply;
+                    }
+                    if (agentPlan.urgency === 'critical') priority = 'high';
+                }
+            }
+
+            thread.items.push({
+                id: conv.id,
+                type: 'whatsapp',
+                summary: conv.lastMessagePreview || "Message Thread",
                 receivedAt: conv.lastMessageAt,
-                status: 'new',
-                priority: 'normal',
-                suggestion: 'Reply to Message'
+                priority: priority,
+                suggestion: suggestion,
+                payload
             });
         }
 
-        // Sort by Date Descending
-        inboxItems.sort((a, b) => {
-            const dateA = new Date(a.receivedAt as any);
-            const dateB = new Date(b.receivedAt as any);
-            return dateB.getTime() - dateA.getTime();
+        // 4. Finalize Threads (Sort items, determine top-level suggestion)
+        const result = Array.from(threads.values()).map(thread => {
+            // ROBUST DEDUPLICATION:
+            // If any CALL exists, hide all Leads and WhatsApp messages that occurred within 2 HOURS of it.
+            // This merges the "Context" into the Call, which is the primary record.
+            const calls = thread.items.filter((i: any) => i.type === 'call');
+            const safeTime = (d: any) => d ? new Date(d).getTime() : 0;
+
+            if (calls.length > 0) {
+                thread.items = thread.items.filter((item: any) => {
+                    // Always keep calls
+                    if (item.type === 'call') return true;
+
+                    // Check if this item is close to ANY call
+                    const isDuplicate = calls.some((call: any) => {
+                        return Math.abs(safeTime(call.receivedAt) - safeTime(item.receivedAt)) < 1000 * 60 * 60 * 2;
+                    });
+
+                    return !isDuplicate;
+                });
+            }
+            // Sort items by date desc (newest first)
+            thread.items.sort((a: any, b: any) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
+
+            // The "Headline" is the newest item's summary
+            const latest = thread.items[0];
+
+            // Refined Logic: Prioritize "Rich" Actions over "Generic" ones
+            // Iterate through items to find the "Best" action (Agent Plan > Urgency > Generic)
+            let bestItem = latest;
+            let bestRank = 0; // 0=Generic, 1=Urgent, 2=AgentPlan
+
+            for (const item of thread.items) {
+                let rank = 0;
+                if (item.priority === 'high') rank = 1;
+
+                // Check payload for specific Agent Actions
+                const action = item.payload?.action;
+                if (action === 'request_video' || action === 'book_visit' || (action === 'create_quote' && item.payload?.tasks)) {
+                    rank = 2; // Specific Agent Plan
+                }
+
+                if (thread.phone.includes('7944776311')) {
+                    console.log(`[InboxDebug] Item ${item.id} (${item.type}): Rank=${rank}, Action=${action}`);
+                }
+
+                // If better rank found (or equal rank but newer), pick it? 
+                // Actually, if we find a RANK 2 action, that should stick until resolved.
+                if (rank > bestRank) {
+                    bestRank = rank;
+                    bestItem = item;
+                }
+            }
+
+            // Use the BEST item for the Suggestion and Action Button
+            thread.suggestion = bestItem.suggestion;
+            thread.priority = bestItem.priority;
+            thread.actionPayload = bestItem.payload;
+
+            // Simplify Summary Display (Truncate if too long)
+            const MAX_LENGTH = 100;
+            let summaryText = latest.summary;
+            if (summaryText.length > MAX_LENGTH) {
+                summaryText = summaryText.substring(0, MAX_LENGTH) + "...";
+            }
+            thread.summary = summaryText;
+
+            return thread;
         });
 
-        res.json(inboxItems);
+        // 5. Sort Threads by Last Activity
+        result.sort((a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime());
+
+        res.json(result);
     } catch (error) {
         console.error("Inbox Aggregate Error:", error);
-        res.status(500).json({ error: "Failed to fetch inbox items" });
+        res.status(500).json({ error: "Failed to fetch inbox threads" });
     }
 });

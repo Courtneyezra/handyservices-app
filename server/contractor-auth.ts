@@ -151,6 +151,9 @@ router.post('/register', async (req: Request, res: Response) => {
             city: z.string().optional(),
             radiusMiles: z.number().optional(),
             bio: z.string().optional(),
+            businessName: z.string().optional(), // Added
+            latitude: z.number().optional(),
+            longitude: z.number().optional(),
             services: z.array(z.object({
                 trade: z.string(),
                 hourlyRatePence: z.number(),
@@ -167,7 +170,7 @@ router.post('/register', async (req: Request, res: Response) => {
             });
         }
 
-        const { email, password, firstName, lastName, phone, postcode, slug, city, radiusMiles, bio, services } = validation.data;
+        const { email, password, firstName, lastName, phone, postcode, slug, city, radiusMiles, bio, services, businessName, latitude: latArg, longitude: lngArg } = validation.data;
 
         // Check if email already exists
         const existing = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1);
@@ -175,6 +178,15 @@ router.post('/register', async (req: Request, res: Response) => {
             return res.status(409).json({ error: 'Email already registered' });
         }
 
+        // Check if slug already exists (to avoid 500)
+        if (slug) {
+            const existingSlug = await db.query.handymanProfiles.findFirst({
+                where: eq(handymanProfiles.slug, slug)
+            });
+            if (existingSlug) {
+                return res.status(409).json({ error: 'Business URL is already taken. Please choose another.' });
+            }
+        }
 
         // Transaction removed as neon-http driver doesn't support them
         // Hash password
@@ -195,15 +207,20 @@ router.post('/register', async (req: Request, res: Response) => {
             emailVerified: false,
         });
 
-        // Geocode postcode if provided
-        let latitude: string | null = null;
-        let longitude: string | null = null;
+        // Handle geolocation
+        let latitude: string | null = latArg ? latArg.toString() : null;
+        let longitude: string | null = lngArg ? lngArg.toString() : null;
 
-        if (postcode) {
-            const geo = await geocodeAddress(postcode);
-            if (geo) {
-                latitude = geo.lat.toString();
-                longitude = geo.lng.toString();
+        if (!latitude && !longitude && postcode) {
+            try {
+                const geo = await geocodeAddress(postcode);
+                if (geo) {
+                    latitude = geo.lat.toString();
+                    longitude = geo.lng.toString();
+                }
+            } catch (geoError) {
+                console.warn("Geocoding failed, continuing without coords:", geoError);
+                // Continue without valid coords, don't crash registration
             }
         }
 
@@ -215,6 +232,7 @@ router.post('/register', async (req: Request, res: Response) => {
             postcode,
             city: city, // From new payload
             bio: bio,   // From new payload
+            businessName: businessName || undefined,
             latitude,
             longitude,
             radiusMiles: radiusMiles || 10, // From new payload or default

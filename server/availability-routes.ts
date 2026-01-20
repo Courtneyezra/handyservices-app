@@ -189,4 +189,191 @@ router.post('/toggle', requireContractorAuth, async (req: Request, res: Response
     }
 });
 
+// GET /api/contractor/availability/:year/:month
+// Fetch availability for a specific month
+router.get('/:year/:month', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).contractor?.id;
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+        const contractorId = await getContractorId(userId);
+        if (!contractorId) return res.status(404).json({ error: 'Contractor profile not found' });
+
+        const year = parseInt(req.params.year);
+        const month = parseInt(req.params.month); // 1-12
+
+        const start = new Date(year, month - 1, 1);
+        const end = new Date(year, month, 0); // Last day of month
+
+        // 1. Fetch Date Overrides
+        const overrides = await db.select()
+            .from(contractorAvailabilityDates)
+            .where(and(
+                eq(contractorAvailabilityDates.contractorId, contractorId),
+                gte(contractorAvailabilityDates.date, start),
+                lte(contractorAvailabilityDates.date, end)
+            ));
+
+        // 2. Fetch Weekly Pattern
+        const patterns = await db.select()
+            .from(handymanAvailability)
+            .where(eq(handymanAvailability.handymanId, contractorId));
+
+        res.json({
+            dates: overrides.map(o => ({
+                id: o.id,
+                date: o.date.toISOString().split('T')[0],
+                isAvailable: o.isAvailable,
+                startTime: o.startTime,
+                endTime: o.endTime,
+                notes: o.notes
+            })),
+            weeklyPatterns: patterns
+        });
+
+    } catch (error) {
+        console.error('Failed to fetch monthly availability:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// POST /api/contractor/availability/dates
+// Bulk save specific dates
+router.post('/dates', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).contractor?.id;
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+        const contractorId = await getContractorId(userId);
+        if (!contractorId) return res.status(404).json({ error: 'Contractor profile not found' });
+
+        const { dates, isAvailable } = req.body;
+        // dates is array of "YYYY-MM-DD"
+
+        if (!Array.isArray(dates)) return res.status(400).json({ error: 'Invalid dates' });
+
+        // Upsert each date
+        // Note: Drizzle upsert is better but loop is fine for small batches
+        const startTime = isAvailable ? '09:00' : null;
+        const endTime = isAvailable ? '17:00' : null;
+
+        await db.transaction(async (tx) => {
+            for (const dateStr of dates) {
+                const date = new Date(dateStr);
+
+                // Check existing
+                const existing = await tx.select()
+                    .from(contractorAvailabilityDates)
+                    .where(and(
+                        eq(contractorAvailabilityDates.contractorId, contractorId),
+                        eq(contractorAvailabilityDates.date, date)
+                    ))
+                    .limit(1);
+
+                if (existing.length > 0) {
+                    await tx.update(contractorAvailabilityDates)
+                        .set({ isAvailable, startTime, endTime })
+                        .where(eq(contractorAvailabilityDates.id, existing[0].id));
+                } else {
+                    await tx.insert(contractorAvailabilityDates).values({
+                        id: uuidv4(),
+                        contractorId,
+                        date,
+                        isAvailable,
+                        startTime,
+                        endTime
+                    });
+                }
+            }
+        });
+
+        res.json({ success: true, count: dates.length });
+
+    } catch (error) {
+        console.error('Failed to save dates:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// POST /api/contractor/availability/weekly
+// Save weekly patterns
+router.post('/weekly', requireContractorAuth, async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).contractor?.id;
+        if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+        const contractorId = await getContractorId(userId);
+        if (!contractorId) return res.status(404).json({ error: 'Contractor profile not found' });
+
+        const { patterns } = req.body; // Array of { dayOfWeek, startTime, endTime, isActive }
+
+        if (!Array.isArray(patterns)) return res.status(400).json({ error: 'Invalid patterns' });
+
+        await db.transaction(async (tx) => {
+            // First delete existing patterns? Or upsert?
+            // Safer to delete all and insert active ones, OR upsert logic.
+            // Let's go with upsert logic based on dayOfWeek.
+
+            for (const p of patterns) {
+                const dayOfWeek = p.dayOfWeek;
+
+                const existing = await tx.select()
+                    .from(handymanAvailability)
+                    .where(and(
+                        eq(handymanAvailability.handymanId, contractorId),
+                        eq(handymanAvailability.dayOfWeek, dayOfWeek)
+                    ))
+                    .limit(1);
+
+                if (existing.length > 0) {
+                    await tx.update(handymanAvailability)
+                        .set({
+                            startTime: p.startTime,
+                            endTime: p.endTime,
+                            isActive: true // Explicitly active if sent in this list?
+                            // Frontend sends `localPatterns.filter(p => p.isActive)`?
+                            // No, frontend sends `localPatterns.filter(p => p.isActive)` in handleSave.
+                            // So if it's in the list, it's active.
+                            // But what about inactive ones?
+                            // If we want to disable a day, we might need to handle it.
+                            // Frontend logic: `saveWeeklyMutation.mutate(localPatterns.filter(p => p.isActive))`
+                            // This means only ACTIVE patterns are sent.
+                            // We should probably mark others as inactive or delete them.
+                        })
+                        .where(eq(handymanAvailability.id, existing[0].id));
+                } else {
+                    await tx.insert(handymanAvailability).values({
+                        id: uuidv4(),
+                        handymanId: contractorId,
+                        dayOfWeek,
+                        startTime: p.startTime,
+                        endTime: p.endTime,
+                        isActive: true
+                    });
+                }
+            }
+
+            // Handle disabled days: If a day is NOT in the list, set isActive = false
+            const sentDays = patterns.map((p: any) => p.dayOfWeek);
+            const allDays = [0, 1, 2, 3, 4, 5, 6];
+            const disabledDays = allDays.filter(d => !sentDays.includes(d));
+
+            for (const day of disabledDays) {
+                await tx.update(handymanAvailability)
+                    .set({ isActive: false })
+                    .where(and(
+                        eq(handymanAvailability.handymanId, contractorId),
+                        eq(handymanAvailability.dayOfWeek, day)
+                    ));
+            }
+        });
+
+        res.json({ success: true });
+
+    } catch (error) {
+        console.error('Failed to save weekly pattern:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
 export default router;

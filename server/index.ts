@@ -41,6 +41,8 @@ import { elevenLabsWebhookRouter } from './eleven-labs/webhook';
 import contentRouter from './content';
 import { setupCronJobs } from './cron';
 import uploadRouter from "./upload";
+import invoiceRouter from './invoices'; // B2: Invoice management
+import jobAssignmentRouter from './job-assignment'; // B5: Job assignment/dispatch
 
 
 import publicRoutes from './public-routes';
@@ -221,7 +223,7 @@ app.get('/api/diagnostics', async (req, res) => {
 });
 
 // Register Quotes Router (Migrated from V5)
-app.use(express.static(path.join(__dirname, '../client/dist')));
+// app.use(express.static(path.join(__dirname, '../client/dist'))); // REMOVED: Conflicts with Vite Dev Server
 app.use(quotesRouter);
 app.use(leadsRouter);
 app.use('/api', voiceRouter);
@@ -240,6 +242,8 @@ app.use(stripeRouter); // Stripe payment routes
 app.use('/api', elevenLabsWebhookRouter); // ElevenLabs Webhooks
 app.use('/api', contentRouter); // Landing Pages & Banners
 app.use('/api', uploadRouter);
+app.use('/api', invoiceRouter); // B2: Invoice management
+app.use('/api', jobAssignmentRouter); // B5: Job assignment/dispatch
 app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
 
 // Contractor Portal Routes

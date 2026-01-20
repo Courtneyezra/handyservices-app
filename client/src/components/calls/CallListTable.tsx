@@ -235,16 +235,43 @@ export function CallListTable({ calls, isLoading, onCallClick }: CallListTablePr
                             {/* 6. Actions */}
                             <TableCell className="text-right">
                                 <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                                    {/* WhatsApp Action */}
-                                    <Button
-                                        size="icon"
-                                        variant="ghost"
-                                        className="h-8 w-8 hover:text-green-500 hover:bg-green-500/10"
-                                        onClick={() => window.open(getWhatsAppLink(call), '_blank')}
-                                        title="Open in WhatsApp Web"
-                                    >
-                                        <FaWhatsapp className="h-4 w-4" />
-                                    </Button>
+                                    {/* One-Click Agent Action */}
+                                    {call.metadataJson?.agentPlan?.draftReply && (
+                                        <Button
+                                            size="sm"
+                                            className="h-8 px-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white border-0 shadow-sm gap-1.5 animate-in fade-in zoom-in duration-300"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                const plan = call.metadataJson.agentPlan;
+                                                const cleanNumber = call.phoneNumber.replace(/\D/g, '');
+                                                const url = `https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(plan.draftReply)}`;
+                                                window.open(url, '_blank');
+                                            }}
+                                            title={`Agent Suggestion: ${call.metadataJson.agentPlan.recommendedAction}`}
+                                        >
+                                            <div className="relative">
+                                                <FaWhatsapp className="h-4 w-4" />
+                                                <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                                                </span>
+                                            </div>
+                                            <span className="text-xs font-medium hidden md:inline-block">Action</span>
+                                        </Button>
+                                    )}
+
+                                    {/* Traditional WhatsApp Action (Fallback) */}
+                                    {!call.metadataJson?.agentPlan?.draftReply && (
+                                        <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="h-8 w-8 hover:text-green-500 hover:bg-green-500/10"
+                                            onClick={() => window.open(getWhatsAppLink(call), '_blank')}
+                                            title="Open in WhatsApp Web"
+                                        >
+                                            <FaWhatsapp className="h-4 w-4" />
+                                        </Button>
+                                    )}
 
                                     {/* Play Recording */}
                                     {call.recordingUrl && (

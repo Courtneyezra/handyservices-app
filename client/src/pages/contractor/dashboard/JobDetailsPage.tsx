@@ -1,213 +1,225 @@
-import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import ContractorAppShell from "@/components/layout/ContractorAppShell";
 import { useRoute, useLocation } from "wouter";
-import {
-    ArrowLeft, Loader2, MapPin, Phone, Calendar,
-    CreditCard, FileText,
-    Navigation, ExternalLink, Download, Coins
-} from "lucide-react";
+import ContractorAppShell from "@/components/layout/ContractorAppShell";
+import { Loader2, ArrowLeft, MapPin, Calendar, Clock, CheckCircle2, XCircle, Upload, Camera } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-    DialogFooter,
-} from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
+import { Card, CardContent } from "@/components/ui/card";
+import { useState } from "react";
+import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useToast } from "@/hooks/use-toast";
+
+interface Job {
+    id: number;
+    customerName: string;
+    customerPhone: string;
+    jobDescription: string;
+    location: string;
+    assignmentStatus: string;
+    scheduledDate: string | null;
+    scheduledStartTime: string | null;
+    scheduledEndTime: string | null;
+    createdAt: string;
+}
 
 export default function JobDetailsPage() {
-    const [, params] = useRoute("/contractor/dashboard/jobs/:id");
-    const [location, setLocation] = useLocation();
+    const [match, params] = useRoute("/contractor/dashboard/jobs/:id");
+    const [, setLocation] = useLocation();
     const { toast } = useToast();
     const queryClient = useQueryClient();
-    const jobId = params?.id;
+    const id = params?.id;
 
-    // We can reuse the quotes endpoint if it returns job data, or use our manual fetching logic.
-    // Ideally we'd have GET /api/contractor/jobs/:id.
-    // For v1, the quotes endpoint returns quote+job info combined usually.
-    // Let's assume we can fetch the specific job via the quotes list endpoint filtering or a new endpoint.
-    // Actually, `QuotesListPage` fetches all.
-    // Let's create a quick specific fetch or reuse the list.
-    // Since we didn't make GET /jobs/:id, let's just fetch all and find (inefficient but safe for v1).
-    const { data: quotes, isLoading } = useQuery<any[]>({
-        queryKey: ['contractor-quotes'],
+    // Wizard State
+    const [completionStep, setCompletionStep] = useState<"idle" | "upload" | "confirm">("idle");
+    const [photos, setPhotos] = useState<File[]>([]);
+
+    const { data: job, isLoading } = useQuery<Job>({
+        queryKey: ["job", id],
         queryFn: async () => {
-            const token = localStorage.getItem('contractorToken');
-            const res = await fetch('/api/contractor/quotes', {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            if (!res.ok) throw new Error('Failed to fetch jobs');
+            const res = await fetch(`/api/jobs/${id}`);
+            if (!res.ok) throw new Error("Failed to load job");
             return res.json();
-        }
+        },
+        enabled: !!id,
     });
 
-    const job = quotes?.find(q => q.id === jobId || q.shortSlug === jobId);
-    // Note: The previous page links to `quotes/:slug` but arguably this should be `jobs/:id`.
-    // If we are redirecting from JobsPage, we might be using the quote ID or shortSlug.
-    // Let's assume we are fixing the route in App.tsx to point here for jobs.
-
-    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-    const [amount, setAmount] = useState("");
-
-    const payMutation = useMutation({
-        mutationFn: async ({ method, amountPence }: { method: string, amountPence: number }) => {
+    const acceptMutation = useMutation({
+        mutationFn: async () => {
             const token = localStorage.getItem('contractorToken');
-            if (!job) throw new Error("No job loaded");
+            // Need to get contractor ID from profile or passing it? 
+            // Logic in server requires contractorId in body usually, or token.
+            // Server endpoint: jobAssignmentRouter.post('/api/jobs/:id/accept', ... req.body.contractorId
+            // I need to fetch profile to get ID, or rely on server using token.
+            // The current server implementation (Step 854) lines 142-143 says: 
+            // const contractorId = req.body.contractorId; // Temporary
 
-            // Try to use contractorJobId if available, else job.id
-            const targetId = job.contractorJobId || job.id;
+            // So I must provide contractorId.
+            const profileRes = await fetch('/api/contractor/me', { headers: { Authorization: `Bearer ${token}` } });
+            const profileData = await profileRes.json();
+            const contractorId = profileData.profile.id;
 
-            const res = await fetch(`/api/contractor/jobs/${targetId}/payment`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ amountPence, method })
+            const res = await fetch(`/api/jobs/${id}/accept`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ contractorId })
             });
-            if (!res.ok) throw new Error("Payment failed");
+            if (!res.ok) throw new Error("Failed to accept");
             return res.json();
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['contractor-quotes'] });
-            toast({ title: "Payment Recorded", description: "Job marked as paid." });
-            setIsPaymentModalOpen(false);
+            queryClient.invalidateQueries({ queryKey: ["job", id] });
+            toast({ title: "Job Accepted", description: "This job is now in your schedule." });
         },
-        onError: () => {
-            toast({ title: "Error", description: "Failed to record payment.", variant: "destructive" });
-        }
+        onError: () => toast({ title: "Error", description: "Could not accept job.", variant: "destructive" })
     });
 
-    const handlePayment = (method: 'cash' | 'transfer') => {
-        if (!job) return;
-        // Default to full price if not set, or parse input
-        // For MVP, we assume full payment.
-        const payAmount = job.pricePence || 0; // The job price
-        payMutation.mutate({ method, amountPence: payAmount });
+    const rejectMutation = useMutation({
+        mutationFn: async () => {
+            const token = localStorage.getItem('contractorToken');
+            const profileRes = await fetch('/api/contractor/me', { headers: { Authorization: `Bearer ${token}` } });
+            const profileData = await profileRes.json();
+            const contractorId = profileData.profile.id;
+
+            const res = await fetch(`/api/jobs/${id}/reject`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ contractorId, reason: "Contractor declined" })
+            });
+            if (!res.ok) throw new Error("Failed to reject");
+            return res.json();
+        },
+        onSuccess: () => {
+            setLocation("/contractor/dashboard");
+            toast({ title: "Job Rejected", description: "You have declined this job." });
+        },
+        onError: () => toast({ title: "Error", description: "Failed to reject.", variant: "destructive" })
+    });
+
+    const completeMutation = useMutation({
+        mutationFn: async () => {
+            // Here we would upload photos first in a real app
+            const res = await fetch(`/api/jobs/${id}/complete`, { method: "POST" });
+            if (!res.ok) throw new Error("Failed to complete");
+            return res.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["job", id] });
+            setCompletionStep("idle");
+            toast({ title: "Job Completed!", description: "Great work. Proceeding to invoice...", className: "bg-green-600 text-white" });
+            // Maybe redirect to invoice?
+        },
+        onError: () => toast({ title: "Error", description: "Failed to complete job.", variant: "destructive" })
+    });
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files) {
+            setPhotos(Array.from(e.target.files));
+        }
     };
 
-    if (isLoading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-amber-500" /></div>;
-    if (!job) return <div className="p-10 text-center text-slate-500">Job not found</div>;
-
-    const isPaid = job.paymentStatus === 'paid'; // We need to expose this in GET /quotes too
+    if (isLoading) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
+    if (!job) return <div className="p-8 text-center">Job not found</div>;
 
     return (
         <ContractorAppShell>
             {/* Header */}
-            <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-gray-100 p-4 flex items-center gap-4">
-                <Button variant="ghost" size="icon" onClick={() => setLocation("/contractor/dashboard/jobs")}>
-                    <ArrowLeft className="w-5 h-5 text-slate-400" />
+            <div className="bg-white p-4 items-center flex gap-4 border-b sticky top-0 z-10">
+                <Button variant="ghost" size="icon" onClick={() => window.history.back()}>
+                    <ArrowLeft className="w-5 h-5" />
                 </Button>
-                <h1 className="font-bold text-slate-800 text-lg">Job Details</h1>
+                <div>
+                    <h1 className="font-bold text-lg">Job #{job.id}</h1>
+                    <Badge variant={job.assignmentStatus === 'assigned' ? 'secondary' : 'default'} className="uppercase text-[10px]">
+                        {job.assignmentStatus}
+                    </Badge>
+                </div>
             </div>
 
-            <div className="p-5 space-y-6">
-                {/* Status Card */}
-                <div className="bg-white border border-gray-100 rounded-xl p-6 shadow-sm">
-                    <div className="flex justify-between items-start mb-4">
-                        <div>
-                            <h2 className="text-xl font-bold text-slate-800 mb-1">{job.customerName}</h2>
-                            <div className="flex items-center gap-1.5 text-slate-500 text-sm">
-                                <MapPin className="w-3.5 h-3.5" />
-                                {job.postcode || "Location pending"}
-                            </div>
-                        </div>
-                        <Badge className={`${isPaid ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-100' : 'bg-amber-100 text-amber-600 hover:bg-amber-100'}`}>
-                            {isPaid ? 'PAID' : 'DUE'}
-                        </Badge>
+            <div className="p-5 space-y-6 pb-24">
+                {/* Map Placeholder */}
+                <div className="rounded-2xl bg-slate-100 h-48 flex items-center justify-center relative overflow-hidden">
+                    <div className="absolute inset-0 bg-blue-500/10" />
+                    <MapPin className="w-8 h-8 text-slate-400 mb-2" />
+                    <span className="text-xs text-slate-500 absolute bottom-4 bg-white/80 px-2 py-1 rounded backdrop-blur">
+                        {job.location}
+                    </span>
+                </div>
+
+                {/* Info */}
+                <div className="space-y-4">
+                    <h2 className="text-2xl font-bold">{job.customerName}</h2>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <Card className="bg-blue-50 border-none shadow-none">
+                            <CardContent className="p-4 flex flex-col items-center text-center">
+                                <Calendar className="w-5 h-5 text-blue-600 mb-2" />
+                                <span className="text-xs font-bold text-blue-800">
+                                    {job.scheduledDate ? format(new Date(job.scheduledDate), "MMM d") : "TBD"}
+                                </span>
+                            </CardContent>
+                        </Card>
+                        <Card className="bg-purple-50 border-none shadow-none">
+                            <CardContent className="p-4 flex flex-col items-center text-center">
+                                <Clock className="w-5 h-5 text-purple-600 mb-2" />
+                                <span className="text-xs font-bold text-purple-800">{job.scheduledStartTime || "--:--"}</span>
+                            </CardContent>
+                        </Card>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3 mb-6">
-                        <Button className="bg-emerald-600 hover:bg-emerald-500 text-white w-full shadow-md shadow-emerald-500/20">
-                            <Phone className="w-4 h-4 mr-2" /> Call
-                        </Button>
-                        <Button variant="outline" className="border-gray-200 text-slate-600 hover:bg-slate-50 w-full">
-                            <Navigation className="w-4 h-4 mr-2" /> Directions
-                        </Button>
+                    <div className="bg-slate-50 p-4 rounded-xl">
+                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Instructions</h3>
+                        <p className="text-sm leading-relaxed text-slate-700">{job.jobDescription}</p>
                     </div>
                 </div>
 
                 {/* Actions */}
-                <div className="space-y-3">
-                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider px-1">Management</h3>
-
-                    {!isPaid && (
-                        <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
-                            <DialogTrigger asChild>
-                                <div className="bg-white border border-gray-100 rounded-xl overflow-hidden cursor-pointer active:scale-[0.99] transition-transform shadow-sm">
-                                    <div className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition-colors text-left">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
-                                                <CreditCard className="w-5 h-5" />
-                                            </div>
-                                            <div>
-                                                <div className="font-bold text-slate-700">Mark as Paid</div>
-                                                <div className="text-xs text-slate-400">Record cash or transfer</div>
-                                            </div>
-                                        </div>
-                                        <ArrowLeft className="w-5 h-5 rotate-180 text-slate-400" />
-                                    </div>
-                                </div>
-                            </DialogTrigger>
-                            <DialogContent className="bg-white sm:max-w-md">
-                                <DialogHeader>
-                                    <DialogTitle>Record Payment</DialogTitle>
-                                    <DialogDescription className="text-slate-500">
-                                        Confirm that you have received payment for this job.
-                                    </DialogDescription>
-                                </DialogHeader>
-                                <div className="grid gap-4 py-4">
-                                    <div className="bg-slate-50 p-4 rounded-lg flex justify-between items-center border border-slate-100">
-                                        <span className="text-slate-500">Amount Due</span>
-                                        <span className="text-xl font-bold text-slate-800">£{((job.pricePence || 0) / 100).toFixed(2)}</span>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <Button
-                                            onClick={() => handlePayment('cash')}
-                                            disabled={payMutation.isPending}
-                                            className="bg-emerald-600 hover:bg-emerald-500 h-20 flex flex-col gap-2 shadow-lg shadow-emerald-500/20"
-                                        >
-                                            <Coins className="w-6 h-6" />
-                                            <span>Cash Received</span>
-                                        </Button>
-                                        <Button
-                                            onClick={() => handlePayment('transfer')}
-                                            disabled={payMutation.isPending}
-                                            variant="outline"
-                                            className="border-slate-200 hover:bg-slate-50 h-20 flex flex-col gap-2 text-slate-600"
-                                        >
-                                            <CreditCard className="w-6 h-6" />
-                                            <span>Bank Transfer</span>
-                                        </Button>
-                                    </div>
-                                </div>
-                            </DialogContent>
-                        </Dialog>
-                    )}
-
-                    <div className="bg-white border border-gray-100 rounded-xl overflow-hidden shadow-sm">
-                        <a
-                            href={`/api/contractor/jobs/${job.contractorJobId || job.id}/invoice`}
-                            target="_blank"
-                            className="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition-colors text-left"
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
-                                    <FileText className="w-5 h-5" />
-                                </div>
-                                <div>
-                                    <div className="font-bold text-slate-700">Download Invoice</div>
-                                    <div className="text-xs text-slate-400">PDF / Print View</div>
-                                </div>
-                            </div>
-                            <ExternalLink className="w-5 h-5 text-slate-400" />
-                        </a>
+                {job.assignmentStatus === 'assigned' && (
+                    <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t flex gap-3 z-20 pb-8">
+                        <Button variant="outline" className="flex-1 border-red-200 text-red-600 hover:bg-red-50 h-12 rounded-xl" onClick={() => rejectMutation.mutate()}>
+                            <XCircle className="w-4 h-4 mr-2" /> Decline
+                        </Button>
+                        <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white h-12 rounded-xl" onClick={() => acceptMutation.mutate()}>
+                            <CheckCircle2 className="w-4 h-4 mr-2" /> Accept Job
+                        </Button>
                     </div>
-                </div>
+                )}
+
+                {['accepted', 'in_progress'].includes(job.assignmentStatus) && completionStep === 'idle' && (
+                    <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t z-20 pb-8">
+                        <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-14 rounded-xl text-lg font-bold shadow-lg shadow-emerald-500/30" onClick={() => setCompletionStep('upload')}>
+                            Complete Job
+                        </Button>
+                    </div>
+                )}
+
+                {/* Completion Wizard */}
+                {completionStep === 'upload' && (
+                    <div className="fixed inset-0 bg-white z-50 flex flex-col">
+                        <div className="p-4 border-b flex items-center">
+                            <Button variant="ghost" onClick={() => setCompletionStep('idle')}>Cancel</Button>
+                            <h2 className="ml-auto font-bold">Step 1 of 2</h2>
+                        </div>
+                        <div className="p-8 flex-1 flex flex-col items-center justify-center text-center space-y-6">
+                            <div className="w-20 h-20 rounded-full bg-blue-50 flex items-center justify-center">
+                                <Camera className="w-10 h-10 text-blue-500" />
+                            </div>
+                            <h3 className="text-2xl font-bold">Upload Evidence</h3>
+                            <p className="text-slate-500">Please upload a photo of the completed work</p>
+
+                            <div className="w-full max-w-xs">
+                                <Label htmlFor="photo" className="sr-only">Photo</Label>
+                                <Input id="photo" type="file" accept="image/*" onChange={handleFileChange} className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                            </div>
+                        </div>
+                        <div className="p-4 border-t pb-8">
+                            <Button className="w-full h-12 text-lg rounded-xl" disabled={photos.length === 0} onClick={() => completeMutation.mutate()}>
+                                Finish & Complete
+                            </Button>
+                        </div>
+                    </div>
+                )}
             </div>
         </ContractorAppShell>
     );

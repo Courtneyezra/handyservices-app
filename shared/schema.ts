@@ -1,4 +1,4 @@
-import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, serial } from "drizzle-orm/pg-core";
+import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, serial, vector } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -75,7 +75,7 @@ export const productizedServices = pgTable("productized_services", {
     negativeKeywords: text("negative_keywords").array(),
     aiPromptHint: text("ai_prompt_hint"),
     embeddingVector: text("embedding_vector"), // Legacy: JSON string format (deprecated)
-    embedding: text("embedding"),               // B10: Native pgvector column (vector(1536))
+    embedding: vector("embedding", { dimensions: 1536 }), // B10: Native pgvector column (vector(1536))
 
     // Categorization
     category: varchar("category", { length: 50 }),
@@ -236,6 +236,7 @@ export const callSkusRelations = relations(callSkus, ({ one }) => ({
 export const handymanProfiles = pgTable("handyman_profiles", {
     id: varchar("id").primaryKey().notNull(),
     userId: varchar("user_id").references(() => users.id).notNull(),
+    businessName: varchar("business_name"), // Added field
     bio: text("bio"),
     address: text("address"),
     city: varchar("city", { length: 100 }),
@@ -270,6 +271,10 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     publicLiabilityExpiryDate: timestamp("public_liability_expiry_date"),
     verificationStatus: varchar("verification_status", { length: 20 }).default('unverified'), // 'unverified' | 'pending' | 'verified' | 'rejected'
 
+    // Stripe Connect
+    stripeAccountId: varchar("stripe_account_id"),
+    stripeAccountStatus: varchar("stripe_account_status", { length: 20 }).default('unverified'), // 'unverified' | 'pending' | 'active' | 'rejected'
+
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -289,6 +294,8 @@ export const handymanSkills = pgTable("handyman_skills", {
     handymanId: varchar("handyman_id").references(() => handymanProfiles.id).notNull(),
     serviceId: varchar("service_id").references(() => productizedServices.id).notNull(),
     hourlyRate: integer("hourly_rate"), // Override standard rate for this specific skill
+    dayRate: integer("day_rate"),       // Added for Day Rate support
+    proficiency: varchar("proficiency", { length: 20 }).default('competent'), // 'basic' | 'competent' | 'expert'
 });
 
 export const handymanSkillRelations = relations(handymanSkills, ({ one }) => ({
@@ -648,6 +655,62 @@ export const insertPersonalizedQuoteSchema = createInsertSchema(personalizedQuot
 export type InsertPersonalizedQuote = z.infer<typeof insertPersonalizedQuoteSchema>;
 export type PersonalizedQuote = typeof personalizedQuotes.$inferSelect;
 
+// B1: Invoices table - For post-job billing
+export const invoices = pgTable("invoices", {
+    id: varchar("id").primaryKey().notNull(),
+    invoiceNumber: varchar("invoice_number", { length: 50 }).unique().notNull(), // e.g., "INV-2024-001"
+
+    // Relationships
+    quoteId: varchar("quote_id").references(() => personalizedQuotes.id),
+    customerId: varchar("customer_id"), // Could link to a customers table in future
+    contractorId: varchar("contractor_id").references(() => handymanProfiles.id),
+
+    // Customer Details (denormalized for invoice stability)
+    customerName: varchar("customer_name").notNull(),
+    customerEmail: varchar("customer_email"),
+    customerPhone: varchar("customer_phone"),
+    customerAddress: text("customer_address"),
+
+    // Financial Details (all in pence)
+    totalAmount: integer("total_amount").notNull(), // Total job cost
+    depositPaid: integer("deposit_paid").default(0), // Amount already paid as deposit
+    balanceDue: integer("balance_due").notNull(), // Remaining amount to be paid
+
+    // Line Items (for detailed breakdown)
+    lineItems: jsonb("line_items"), // Array of {description, quantity, unitPrice, total}
+
+    // Status Management
+    status: varchar("status", { length: 20 }).notNull().default('draft'), // 'draft' | 'sent' | 'paid' | 'void' | 'overdue'
+
+    // Dates
+    dueDate: timestamp("due_date"),
+    sentAt: timestamp("sent_at"),
+    paidAt: timestamp("paid_at"),
+    voidedAt: timestamp("voided_at"),
+
+    // Payment Tracking
+    stripePaymentIntentId: varchar("stripe_payment_intent_id"),
+    paymentMethod: varchar("payment_method", { length: 50 }), // 'stripe' | 'bank_transfer' | 'cash' | 'other'
+
+    // Documents
+    pdfUrl: text("pdf_url"), // S3 link to generated PDF invoice
+
+    // Notes
+    notes: text("notes"), // Internal notes
+    customerNotes: text("customer_notes"), // Notes visible to customer
+
+    // Timestamps
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+    index("idx_invoices_quote").on(table.quoteId),
+    index("idx_invoices_status").on(table.status),
+    index("idx_invoices_due_date").on(table.dueDate),
+]);
+
+export type Invoice = typeof invoices.$inferSelect;
+export type InsertInvoice = typeof invoices.$inferInsert;
+
 // ==========================================
 // CONTRACTOR BOOKING REQUESTS
 // ==========================================
@@ -662,11 +725,33 @@ export const contractorBookingRequests = pgTable("contractor_booking_requests", 
     requestedSlot: varchar("requested_slot"), // "09:00 - 11:00"
     description: text("description"),
     status: varchar("status", { length: 20 }).notNull().default('pending'), // 'pending' | 'accepted' | 'declined' | 'completed'
+
+    // B4: Job Assignment & Dispatch Fields
+    quoteId: varchar("quote_id").references(() => personalizedQuotes.id), // Link to quote if job came from quote
+    assignedContractorId: varchar("assigned_contractor_id").references(() => handymanProfiles.id), // Who is assigned (may differ from initial contractor)
+    scheduledDate: timestamp("scheduled_date"), // When the job is scheduled
+    scheduledStartTime: varchar("scheduled_start_time", { length: 10 }), // e.g., "09:00"
+    scheduledEndTime: varchar("scheduled_end_time", { length: 10 }), // e.g., "11:00"
+    assignedAt: timestamp("assigned_at"), // When job was assigned
+    acceptedAt: timestamp("accepted_at"), // When contractor accepted
+    rejectedAt: timestamp("rejected_at"), // When contractor rejected
+    completedAt: timestamp("completed_at"), // When job was marked complete
+    assignmentStatus: varchar("assignment_status", { length: 20 }).default('unassigned'), // 'unassigned' | 'assigned' | 'accepted' | 'rejected' | 'in_progress' | 'completed'
+
+    // Evidence/Completion
+    evidenceUrls: text("evidence_urls").array(), // Photos uploaded on completion
+    completionNotes: text("completion_notes"), // Notes from contractor on completion
+
+    // Financial
+    invoiceId: varchar("invoice_id").references(() => invoices.id), // Link to generated invoice
+
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
     index("idx_booking_requests_contractor").on(table.contractorId),
     index("idx_booking_requests_status").on(table.status),
+    index("idx_booking_requests_assigned").on(table.assignedContractorId),
+    index("idx_booking_requests_scheduled").on(table.scheduledDate),
 ]);
 
 export const contractorBookingRequestsRelations = relations(contractorBookingRequests, ({ one }) => ({
@@ -737,6 +822,7 @@ export const conversations = pgTable("conversations", {
     // CRM Fields
     tags: text("tags").array(), // ['urgent', 'quote_sent']
     notes: text("notes"), // Internal notes for this conversation
+    metadata: jsonb("metadata"), // Store Agentic Plans (detected tasks, urgency, etc.)
 
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),

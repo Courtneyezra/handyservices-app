@@ -2,11 +2,13 @@ import { useState, useEffect } from "react";
 import ContractorAppShell from "@/components/layout/ContractorAppShell";
 import { useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+
+import { format } from "date-fns";
 import {
     Plus, Search, Bell, FileText, Calendar,
     CreditCard, Settings, Archive, Sparkles,
     ArrowRight, CheckCircle2, LayoutGrid, Clock,
-    Briefcase, User, Zap, ChevronRight, X
+    Briefcase, User, Zap, ChevronRight, X, MapPin
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -41,6 +43,24 @@ export default function ContractorMobileDashboard() {
 
     // States
     const [isActionsOpen, setIsActionsOpen] = useState(false);
+
+    const { data: assignedJobs } = useQuery({
+        queryKey: ['contractor-jobs', profile?.id],
+        enabled: !!profile?.id,
+        queryFn: async () => {
+            const res = await fetch(`/api/jobs/assigned?contractorId=${profile?.id}`);
+            if (!res.ok) throw new Error('Failed to fetch jobs');
+            return res.json();
+        },
+    });
+
+    const nextJob = assignedJobs?.filter((j: any) =>
+        ['assigned', 'accepted', 'in_progress'].includes(j.assignmentStatus)
+    ).sort((a: any, b: any) => {
+        const dateA = new Date(a.scheduledDate || 0).getTime();
+        const dateB = new Date(b.scheduledDate || 0).getTime();
+        return dateA - dateB;
+    })?.[0];
 
     // Mock Data needs to be replaced with real queries later, but for UI:
     const recentItems = [
@@ -113,6 +133,47 @@ export default function ContractorMobileDashboard() {
                         </Link>
                     </div>
                 </div>
+
+                {/* 2.5 Next Job Card (F4) */}
+                {nextJob && (
+                    <div className="rounded-3xl p-1 bg-gradient-to-r from-blue-600 to-indigo-600 shadow-xl shadow-blue-500/20">
+                        <div className="bg-slate-900 rounded-[22px] p-5 text-white">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <div className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-1">
+                                        {nextJob.scheduledDate ? format(new Date(nextJob.scheduledDate), "EEEE, MMM d") : "Upcoming"}
+                                    </div>
+                                    <h3 className="text-xl font-bold">{nextJob.scheduledStartTime || "TBD"}</h3>
+                                </div>
+                                <div className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${nextJob.assignmentStatus === 'assigned' ? 'bg-amber-500 text-black' : 'bg-emerald-500 text-white'
+                                    }`}>
+                                    {nextJob.assignmentStatus === 'assigned' ? 'New Request' : 'Confirmed'}
+                                </div>
+                            </div>
+
+                            <div className="space-y-3 mb-5">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
+                                        <User size={14} className="text-blue-200" />
+                                    </div>
+                                    <span className="font-medium text-sm">{nextJob.customerName}</span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
+                                        <MapPin size={14} className="text-blue-200" />
+                                    </div>
+                                    <span className="font-medium text-sm truncate pr-4">{nextJob.location || "Location pending"}</span>
+                                </div>
+                            </div>
+
+                            <Link href={`/contractor/dashboard/jobs/${nextJob.id}`}>
+                                <button className="w-full py-3 bg-white text-slate-900 font-bold rounded-xl active:scale-[0.98] transition-transform flex items-center justify-center gap-2">
+                                    View Details <ArrowRight size={16} />
+                                </button>
+                            </Link>
+                        </div>
+                    </div>
+                )}
 
                 {/* 3. MAGIC QUOTE HERO (Re-skinned for Monday.com Style) */}
                 <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#2B2D42] to-[#1E1F24] text-white shadow-xl group">

@@ -167,15 +167,116 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
     }
 });
 
-// Webhook for handling Stripe events (optional but recommended)
+// B3: Webhook for handling Stripe events
 stripeRouter.post('/api/stripe/webhook', async (req, res) => {
-    // This would handle payment confirmations, etc.
-    // For now, just acknowledge the webhook
-    res.json({ received: true });
+    const stripe = getStripe();
+
+    if (!stripe) {
+        console.error('[Stripe Webhook] Stripe not initialized');
+        return res.status(500).json({ error: 'Stripe not configured' });
+    }
+
+    const sig = req.headers['stripe-signature'];
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    if (!webhookSecret) {
+        console.error('[Stripe Webhook] STRIPE_WEBHOOK_SECRET not configured');
+        return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
+
+    let event;
+
+    try {
+        // Verify webhook signature
+        event = stripe.webhooks.constructEvent(
+            req.body,
+            sig as string,
+            webhookSecret
+        );
+    } catch (err: any) {
+        console.error('[Stripe Webhook] Signature verification failed:', err.message);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    console.log('[Stripe Webhook] Received event:', event.type);
+
+    try {
+        // Handle the event
+        switch (event.type) {
+            case 'payment_intent.succeeded': {
+                const paymentIntent = event.data.object;
+                console.log('[Stripe Webhook] Payment succeeded:', paymentIntent.id);
+
+                // Import invoices table
+                const { invoices } = await import('../shared/schema');
+                const { eq } = await import('drizzle-orm');
+
+                // Find invoice by payment intent ID
+                const invoiceResults = await db.select()
+                    .from(invoices)
+                    .where(eq(invoices.stripePaymentIntentId, paymentIntent.id))
+                    .limit(1);
+
+                if (invoiceResults.length > 0) {
+                    // Update invoice status to paid
+                    await db.update(invoices)
+                        .set({
+                            status: 'paid',
+                            paidAt: new Date(),
+                            paymentMethod: 'stripe',
+                            updatedAt: new Date()
+                        })
+                        .where(eq(invoices.id, invoiceResults[0].id));
+
+                    console.log('[Stripe Webhook] Invoice marked as paid:', invoiceResults[0].invoiceNumber);
+                } else {
+                    console.log('[Stripe Webhook] No invoice found for payment intent:', paymentIntent.id);
+                }
+                break;
+            }
+
+            case 'payment_intent.payment_failed': {
+                const paymentIntent = event.data.object;
+                console.log('[Stripe Webhook] Payment failed:', paymentIntent.id);
+
+                const { invoices } = await import('../shared/schema');
+                const { eq } = await import('drizzle-orm');
+
+                // Find and update invoice
+                const invoiceResults = await db.select()
+                    .from(invoices)
+                    .where(eq(invoices.stripePaymentIntentId, paymentIntent.id))
+                    .limit(1);
+
+                if (invoiceResults.length > 0) {
+                    await db.update(invoices)
+                        .set({
+                            notes: `Payment failed: ${paymentIntent.last_payment_error?.message || 'Unknown error'}`,
+                            updatedAt: new Date()
+                        })
+                        .where(eq(invoices.id, invoiceResults[0].id));
+
+                    console.log('[Stripe Webhook] Invoice updated with payment failure');
+                }
+                break;
+            }
+
+            default:
+                console.log('[Stripe Webhook] Unhandled event type:', event.type);
+        }
+
+        res.json({ received: true });
+    } catch (error: any) {
+        console.error('[Stripe Webhook] Error processing event:', error);
+        res.status(500).json({ error: 'Webhook processing failed' });
+    }
 });
 
 // Create Payment Intent for Diagnostic Visit (Full Payment)
 stripeRouter.post('/api/create-visit-payment-intent', async (req, res) => {
+    // ... (existing code omitted for brevity in instruction, but kept in replacement content if I was replacing whole block, but here I am appending)
+    // Actually, I should just append. But replace_file_content replaces a block.
+    // I will replace the last block and append new routes.
     console.log('[Stripe] Create visit payment intent request received');
 
     const stripe = getStripe();
@@ -270,5 +371,163 @@ stripeRouter.post('/api/create-visit-payment-intent', async (req, res) => {
         res.status(500).json({
             message: error.message || 'Failed to create payment intent'
         });
+    }
+});
+
+// ==========================================
+// CONNECT ONBOARDING FOR CONTRACTORS
+// ==========================================
+
+import { requireContractorAuth } from './contractor-auth';
+import { handymanProfiles } from '../shared/schema';
+
+// POST /api/stripe/connect/account
+// Create Express Account for Contractor
+stripeRouter.post('/api/stripe/connect/account', requireContractorAuth, async (req: any, res) => {
+    try {
+        const stripe = getStripe();
+        if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
+
+        const contractor = req.contractor;
+
+        // Fetch profile
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id),
+            with: { user: true }
+        });
+
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        if (profile.stripeAccountId) {
+            return res.json({ accountId: profile.stripeAccountId, alreadyExists: true });
+        }
+
+        // Create Account
+        const account = await stripe.accounts.create({
+            type: 'express',
+            country: 'GB',
+            email: profile.user.email,
+            capabilities: {
+                card_payments: { requested: true },
+                transfers: { requested: true },
+            },
+            business_type: 'individual',
+            individual: {
+                email: profile.user.email,
+                first_name: profile.user.firstName || undefined,
+                last_name: profile.user.lastName || undefined,
+            }
+        });
+
+        // Save Account ID
+        await db.update(handymanProfiles)
+            .set({
+                stripeAccountId: account.id,
+                stripeAccountStatus: 'pending'
+            })
+            .where(eq(handymanProfiles.id, profile.id));
+
+        res.json({ accountId: account.id });
+
+    } catch (error: any) {
+        console.error('[Stripe Connect] Create Account Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/stripe/connect/account-link
+// Generate Onboarding Link
+stripeRouter.post('/api/stripe/connect/account-link', requireContractorAuth, async (req: any, res) => {
+    try {
+        const stripe = getStripe();
+        if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
+
+        const contractor = req.contractor;
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id)
+        });
+
+        if (!profile || !profile.stripeAccountId) {
+            return res.status(400).json({ error: 'No Stripe Account found. Create one first.' });
+        }
+
+        const accountLink = await stripe.accountLinks.create({
+            account: profile.stripeAccountId,
+            refresh_url: `${req.headers.origin}/contractor/settings`, // return to settings on failure/refresh
+            return_url: `${req.headers.origin}/contractor/settings?stripe_return=true`, // return on success
+            type: 'account_onboarding',
+        });
+
+        res.json({ url: accountLink.url });
+
+    } catch (error: any) {
+        console.error('[Stripe Connect] Account Link Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/stripe/connect/status
+// Check Account Status (Charges Enabled?)
+stripeRouter.get('/api/stripe/connect/status', requireContractorAuth, async (req: any, res) => {
+    try {
+        const stripe = getStripe();
+        if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
+
+        const contractor = req.contractor;
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id)
+        });
+
+        if (!profile || !profile.stripeAccountId) {
+            return res.json({ connected: false });
+        }
+
+        const account = await stripe.accounts.retrieve(profile.stripeAccountId);
+
+        // Update DB status if changed
+        const status = account.charges_enabled ? 'active' : 'pending';
+        if (profile.stripeAccountStatus !== status) {
+            await db.update(handymanProfiles)
+                .set({ stripeAccountStatus: status })
+                .where(eq(handymanProfiles.id, profile.id));
+        }
+
+        res.json({
+            connected: true,
+            accountId: account.id,
+            chargesEnabled: account.charges_enabled,
+            detailsSubmitted: account.details_submitted,
+            payoutsEnabled: account.payouts_enabled,
+            requirements: account.requirements
+        });
+
+    } catch (error: any) {
+        console.error('[Stripe Connect] Status Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/stripe/connect/login-link
+// Generate Dashboard Link
+stripeRouter.post('/api/stripe/connect/login-link', requireContractorAuth, async (req: any, res) => {
+    try {
+        const stripe = getStripe();
+        if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
+
+        const contractor = req.contractor;
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, contractor.id)
+        });
+
+        if (!profile || !profile.stripeAccountId) {
+            return res.status(400).json({ error: 'No Stripe Account found.' });
+        }
+
+        const loginLink = await stripe.accounts.createLoginLink(profile.stripeAccountId);
+        res.json({ url: loginLink.url });
+
+    } catch (error: any) {
+        console.error('[Stripe Connect] Login Link Error:', error);
+        res.status(500).json({ error: error.message });
     }
 });

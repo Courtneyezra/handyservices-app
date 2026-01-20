@@ -150,6 +150,20 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
     const now = new Date();
 
     try {
+        // --- AGENTIC LAYER START ---
+        let agentPlan = null;
+        if (type === 'text' && content.length > 10) {
+            try {
+                const { analyzeLeadActionPlan } = await import('./services/agentic-service');
+                console.log(`[WhatsApp-Agent] Analyzing message from ${from}...`);
+                agentPlan = await analyzeLeadActionPlan(content);
+                console.log(`[WhatsApp-Agent] Plan:`, JSON.stringify(agentPlan, null, 2));
+            } catch (err) {
+                console.error(`[WhatsApp-Agent] Analysis failed:`, err);
+            }
+        }
+        // --- AGENTIC LAYER END ---
+
         // 1. Get or Create Conversation
         let conv = await db.query.conversations.findFirst({
             where: eq(conversations.phoneNumber, phoneNumber)
@@ -168,6 +182,7 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
                 templateRequired: false,
                 lastMessagePreview: content.substring(0, 50),
                 unreadCount: 1,
+                metadata: agentPlan ? agentPlan : undefined // Store initial plan
             };
             await db.insert(conversations).values(newConv);
             conv = newConv as any;
@@ -184,6 +199,7 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
                     unreadCount: (conv.unreadCount || 0) + 1,
                     contactName: profileName || conv.contactName,
                     updatedAt: now,
+                    metadata: agentPlan ? agentPlan : conv.metadata // Update plan if new one generated
                 })
                 .where(eq(conversations.id, conv.id));
             console.log('[Meta WhatsApp] Updated conversation:', phoneNumber);

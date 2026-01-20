@@ -19,96 +19,90 @@ import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 
-// Types for our unified inbox items
-interface InboxItem {
+// Types for People-Centric Threads
+interface InboxEvent {
     id: string;
-    type: 'call' | 'whatsapp' | 'web_form' | 'ai_lead';
-    customerName: string;
-    phone: string;
+    type: 'call' | 'whatsapp' | 'lead' | 'note';
     summary: string;
     receivedAt: string;
-    status: 'new' | 'triaged' | 'archived';
-    priority: 'high' | 'normal' | 'low';
+    priority: string;
     suggestion?: string;
-    transcription?: string;
-    recordingUrl?: string;
+    payload?: any;
 }
 
-// Mock Data for Prototype (Will replace with real API call next)
-const MOCK_INBOX_ITEMS: InboxItem[] = [
-    {
-        id: '1',
-        type: 'web_form',
-        customerName: 'Sarah Jenkins',
-        phone: '+44 7700 900123',
-        summary: 'Inquiry about bathroom tiling. Needs quote ASAP.',
-        receivedAt: new Date().toISOString(),
-        status: 'new',
-        priority: 'high'
-    },
-    {
-        id: '2',
-        type: 'whatsapp',
-        customerName: 'Mike Ross',
-        phone: '+44 7700 900456',
-        summary: 'Can you fix a leaking tap in Derby?',
-        receivedAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // 30 mins ago
-        status: 'new',
-        priority: 'normal'
-    },
-    {
-        id: '3',
-        type: 'call',
-        customerName: 'Unknown Caller',
-        phone: '+44 7700 900789',
-        summary: 'Missed call. Voicemail transcript: "Hi, looking for someone to assemble ikea furniture."',
-        receivedAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
-        status: 'new',
-        priority: 'low'
-    }
-];
+interface InboxThread {
+    threadId: string;
+    customerName: string;
+    phone: string;
+    lastActivityAt: string;
+    status: 'active' | 'archived';
+    items: InboxEvent[];
+    suggestion?: string;
+    actionPayload?: any; // The "Draft" Action for the thread
+}
 
 export default function AdminInboxPage() {
-    const [selectedItem, setSelectedItem] = useState<InboxItem | null>(null);
+    const [selectedThread, setSelectedThread] = useState<InboxThread | null>(null);
     const [, setLocation] = useLocation();
     const { toast } = useToast();
 
-    // Fetch Real Data from our new Orchestration Endpoint
-    const { data: inboxItems, isLoading } = useQuery({
-        queryKey: ['admin-inbox'],
+    // Fix: State for expand/collapse
+    const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
+
+    const toggleExpand = (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setExpandedItems(prev => ({ ...prev, [id]: !prev[id] }));
+    };
+
+    // Fetch Real Data 
+    const { data: threads, isLoading } = useQuery({
+        queryKey: ['admin-inbox-threads'],
         queryFn: async () => {
-            const res = await fetch('/api/dashboard/inbox');
+            const token = localStorage.getItem('adminToken');
+            const headers: Record<string, string> = {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+
+            const res = await fetch('/api/dashboard/inbox', { headers });
+
+            if (res.status === 401) {
+                setLocation('/admin/login');
+                throw new Error("Unauthorized");
+            }
+
             if (!res.ok) throw new Error("Failed to fetch inbox");
-            return res.json() as Promise<InboxItem[]>;
+            return res.json() as Promise<InboxThread[]>;
         },
     });
 
-    const handleAction = (action: 'quote' | 'visit' | 'video') => {
-        if (!selectedItem) return;
+    const handleAction = (actionType: 'quote' | 'visit' | 'video') => {
+        if (!selectedThread) return;
 
-        // Carry data over to the next step
+        // Prioritize the Thread's "Top Level" Action Payload
+        const payload = selectedThread.actionPayload || {};
+
         const params = new URLSearchParams({
-            customerName: selectedItem.customerName,
-            phone: selectedItem.phone,
-            description: selectedItem.summary,
-            source: 'inbox_triage',
-            leadId: selectedItem.id
+            customerName: payload.customerName || selectedThread.customerName,
+            phone: payload.phone || selectedThread.phone,
+            description: payload.description || selectedThread.items[0]?.summary,
+            source: payload.source || 'inbox_thread',
+            leadId: payload.leadId,
+            mode: payload.mode || 'simple'
         });
 
-        if (action === 'quote') {
+        // Pass Agentic Tasks if available
+        if (payload.tasks) {
+            params.set('tasks', JSON.stringify(payload.tasks));
+        }
+
+        if (actionType === 'quote') {
             setLocation(`/admin/generate-quote?${params.toString()}`);
-        } else if (action === 'visit') {
-            // For admin, booking a visit usually means sending a link or assigning.
-            // For now, let's route to Generate Quote with consultation mode? 
-            // Or maybe a dedicated booking modal. 
-            // Integrating with existing "Generate Link" flow for now.
+        } else if (actionType === 'visit') {
             params.set('mode', 'consultation');
             setLocation(`/admin/generate-quote?${params.toString()}`);
-        } else if (action === 'video') {
-            // Placeholder for video request
+        } else if (actionType === 'video') {
             toast({
                 title: "Video Request Sent",
-                description: `Request sent to ${selectedItem.phone} via WhatsApp.`
+                description: `Request sent to ${selectedThread.phone} via WhatsApp.`
             });
         }
     };
@@ -116,121 +110,169 @@ export default function AdminInboxPage() {
     return (
         <div className="h-[calc(100vh-64px)] flex bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
 
-            {/* Left Panel: The Stream */}
+            {/* LEFT: The Customers (Threads) */}
             <div className="w-1/3 border-r border-slate-200 flex flex-col">
                 <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                     <h2 className="font-bold text-slate-700 flex items-center gap-2">
-                        <Inbox className="w-5 h-5" /> Inbox
-                        <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-xs">{inboxItems?.length || 0}</span>
+                        <Inbox className="w-5 h-5" /> All Inbox
+                        <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-xs">{threads?.length || 0}</span>
                     </h2>
-                    {/* Filter controls could go here */}
                 </div>
                 <div className="flex-1 overflow-y-auto">
-                    {inboxItems?.map((item) => (
+                    {threads?.map((thread) => (
                         <div
-                            key={item.id}
-                            onClick={() => setSelectedItem(item)}
+                            key={thread.threadId}
+                            onClick={() => setSelectedThread(thread)}
                             className={cn(
                                 "p-4 border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors",
-                                selectedItem?.id === item.id ? "bg-amber-50 border-amber-200" : ""
+                                selectedThread?.threadId === thread.threadId ? "bg-amber-50 border-amber-200" : ""
                             )}
                         >
                             <div className="flex justify-between items-start mb-1">
-                                <div className="flex items-center gap-2">
-                                    {item.type === 'call' && <div className="bg-blue-100 p-1 rounded"><Phone className="w-3 h-3 text-blue-600" /></div>}
-                                    {item.type === 'whatsapp' && <MessageSquare className="w-3 h-3 text-green-600" />}
-                                    {item.type === 'web_form' && <Globe className="w-3 h-3 text-purple-600" />}
-                                    <span className="font-bold text-slate-800 text-sm">{item.customerName}</span>
-                                </div>
-                                <span className="text-xs text-slate-400">{format(new Date(item.receivedAt), 'HH:mm')}</span>
+                                <span className="font-bold text-slate-800 text-sm">{thread.customerName}</span>
+                                <span className="text-xs text-slate-400">{format(new Date(thread.lastActivityAt), 'HH:mm')}</span>
                             </div>
-                            <p className="text-sm text-slate-600 line-clamp-2">{item.summary}</p>
+                            <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                                {thread.items.length > 1 && <span className="bg-slate-200 px-1.5 rounded">{thread.items.length} events</span>}
+                                {thread.suggestion && <span className="text-indigo-600 font-medium">{thread.suggestion}</span>}
+                            </div>
+                            <p className="text-xs text-slate-400 truncate">{thread.items[0]?.summary}</p>
                         </div>
                     ))}
                 </div>
             </div>
 
-            {/* Middle & Right: Context & Action (Unified for now due to space, or split 2/3) */}
+            {/* RIGHT: The Timeline (Stream) */}
             <div className="flex-1 flex flex-col bg-slate-50/50">
-                {selectedItem ? (
+                {selectedThread ? (
                     <div className="flex flex-col h-full">
                         {/* Header */}
-                        <div className="p-6 border-b border-slate-200 bg-white">
-                            <div className="flex justify-between items-start">
-                                <div>
-                                    <h1 className="text-2xl font-bold text-slate-900 mb-1">{selectedItem.customerName}</h1>
-                                    <div className="flex items-center gap-4 text-sm text-slate-500">
-                                        <span className="flex items-center gap-1"><Phone className="w-4 h-4" /> {selectedItem.phone}</span>
-                                        <span className="flex items-center gap-1"><Clock className="w-4 h-4" /> Received {format(new Date(selectedItem.receivedAt), 'PPp')}</span>
-                                    </div>
-                                </div>
-                                <div className="flex gap-2">
-                                    <button className="px-3 py-1.5 border border-slate-200 rounded text-sm font-medium hover:bg-slate-50">Archive</button>
-                                </div>
+                        <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center">
+                            <div>
+                                <h1 className="text-xl font-bold text-slate-900">{selectedThread.customerName}</h1>
+                                <p className="text-sm text-slate-500">{selectedThread.phone}</p>
                             </div>
+                            <button className="text-sm bg-white border border-slate-200 px-3 py-1 rounded hover:bg-slate-50">
+                                Log Note
+                            </button>
                         </div>
 
-                        {/* Content Body */}
-                        <div className="flex-1 p-6 overflow-y-auto">
-                            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-6">
-                                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Request Summary</h3>
-                                <p className="text-lg text-slate-800 leading-relaxed">
-                                    {selectedItem.summary}
-                                </p>
-                            </div>
-
-                            {/* AI Analysis (Mock) */}
-                            {/* Co-pilot Analysis (D.O.E Orchestration) */}
-                            {selectedItem.suggestion && (
-                                <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 flex gap-3 text-sm text-indigo-800">
-                                    <div className="mt-0.5">✨</div>
+                        {/* Stream Body */}
+                        <div className="flex-1 p-6 overflow-y-auto space-y-6">
+                            {/* Co-pilot Insight at Top */}
+                            {selectedThread.suggestion && (
+                                <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-lg flex gap-3 text-sm">
+                                    <div className="text-xl">🤖</div>
                                     <div>
-                                        <span className="font-bold">Co-pilot Suggestion:</span> {selectedItem.suggestion}
-                                        <div className="mt-1 text-xs opacity-75">
-                                            Based on analysis of {selectedItem.type === 'call' ? 'call transcript' : 'submission'}.
-                                        </div>
+                                        <p className="font-bold text-indigo-800">{selectedThread.suggestion}</p>
+                                        <p className="text-indigo-600">Based on {selectedThread.items.length} recent interactions.</p>
                                     </div>
                                 </div>
                             )}
+
+                            {selectedThread.items.map((item, idx) => (
+                                <div key={item.id} className="relative pl-8">
+                                    {/* Timeline Line */}
+                                    {idx !== selectedThread.items.length - 1 && (
+                                        <div className="absolute left-3 top-8 bottom-[-24px] w-0.5 bg-slate-200"></div>
+                                    )}
+
+                                    {/* Icon Bubble */}
+                                    <div className={`absolute left-0 top-0 w-6 h-6 rounded-full flex items-center justify-center border-2 border-white shadow-sm z-10
+                                        ${item.type === 'call' ? 'bg-blue-100 text-blue-600' :
+                                            item.type === 'lead' ? 'bg-purple-100 text-purple-600' :
+                                                'bg-green-100 text-green-600'}`}>
+                                        {item.type === 'call' && <Phone className="w-3 h-3" />}
+                                        {item.type === 'lead' && <Globe className="w-3 h-3" />}
+                                        {item.type === 'whatsapp' && <MessageSquare className="w-3 h-3" />}
+                                    </div>
+
+                                    {/* Content Card */}
+                                    <div className="bg-white border border-slate-200 p-3 rounded-lg shadow-sm">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="font-bold text-xs uppercase text-slate-400">{item.type}</span>
+                                            <span className="text-xs text-slate-400">{format(new Date(item.receivedAt), 'MMM d, HH:mm')}</span>
+                                        </div>
+                                        <div className="text-slate-800 text-sm">
+                                            {item.type === 'call' && item.payload?.description ? (
+                                                <>
+                                                    <p className={`${expandedItems[item.id] ? '' : 'line-clamp-3'}`}>
+                                                        {item.payload.description}
+                                                    </p>
+                                                    {item.payload.description.length > 150 && (
+                                                        <button
+                                                            onClick={(e) => toggleExpand(item.id, e)}
+                                                            className="text-xs text-blue-500 hover:text-blue-700 mt-1 font-medium"
+                                                        >
+                                                            {expandedItems[item.id] ? 'Show Less' : 'Show More'}
+                                                        </button>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <p>{item.summary}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+
+                            {/* --- AGENT DRAFT IN THE THREAD --- */}
+                            {selectedThread.actionPayload?.draftReply && (
+                                <div className="relative pl-8 animate-in slide-in-from-bottom-2 duration-300">
+                                    <div className="absolute left-3 top-[-24px] bottom-8 w-0.5 bg-dashed bg-emerald-200"></div>
+                                    <div className="absolute left-0 top-0 w-6 h-6 rounded-full flex items-center justify-center border-2 border-white shadow-sm z-10 bg-emerald-100 text-emerald-600 animate-pulse">
+                                        <div className="text-xs">🤖</div>
+                                    </div>
+
+                                    <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-lg shadow-sm">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="font-bold text-xs uppercase text-emerald-600">Proposed Action</span>
+                                            <span className="text-xs text-emerald-500">Ready to Send</span>
+                                        </div>
+                                        <div className="bg-white p-3 rounded border border-emerald-100 italic text-slate-600 text-sm mb-3">
+                                            "{selectedThread.actionPayload.draftReply}"
+                                        </div>
+
+                                        <button
+                                            onClick={() => {
+                                                const phone = selectedThread.phone;
+                                                const text = selectedThread.actionPayload?.draftReply;
+                                                const cleanNumber = phone.replace(/\D/g, '');
+                                                const url = `https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(text || '')}`;
+                                                window.open(url, '_blank');
+                                            }}
+                                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded flex items-center justify-center gap-2 transition-colors"
+                                        >
+                                            <MessageSquare className="w-4 h-4" /> Send Message
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
                         </div>
 
-                        {/* Action Bar (Bottom) */}
-                        <div className="p-6 bg-white border-t border-slate-200">
-                            <h3 className="text-sm font-bold text-slate-900 mb-3">Triage Action</h3>
-                            <div className="grid grid-cols-3 gap-4">
-                                <button
-                                    onClick={() => handleAction('visit')}
-                                    className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-slate-100 hover:border-amber-400 hover:bg-amber-50 transition-all group"
-                                >
-                                    <Calendar className="w-6 h-6 text-slate-400 group-hover:text-amber-600 mb-2" />
-                                    <span className="font-bold text-slate-700 group-hover:text-amber-700">Book Visit</span>
-                                    <span className="text-xs text-slate-400 text-center mt-1">Send booking link for diagnostic</span>
-                                </button>
-
-                                <button
-                                    onClick={() => handleAction('quote')}
-                                    className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-slate-100 hover:border-emerald-400 hover:bg-emerald-50 transition-all group"
-                                >
-                                    <DollarSign className="w-6 h-6 text-slate-400 group-hover:text-emerald-600 mb-2" />
-                                    <span className="font-bold text-slate-700 group-hover:text-emerald-700">Create Quote</span>
-                                    <span className="text-xs text-slate-400 text-center mt-1">Send instant price estimator</span>
-                                </button>
-
-                                <button
-                                    onClick={() => handleAction('video')}
-                                    className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-slate-100 hover:border-blue-400 hover:bg-blue-50 transition-all group"
-                                >
-                                    <Video className="w-6 h-6 text-slate-400 group-hover:text-blue-600 mb-2" />
-                                    <span className="font-bold text-slate-700 group-hover:text-blue-700">Request Video</span>
-                                    <span className="text-xs text-slate-400 text-center mt-1">Ask customer for a video</span>
-                                </button>
-                            </div>
+                        <div className="p-4 bg-white border-t border-slate-200 grid grid-cols-2 gap-4">
+                            {/* Draft Action moved to thread. Show generics or nothing here? 
+                                User asked for "Action as part of thread". 
+                                We'll keep generic actions just in case the draft is wrong. */}
+                            <button
+                                onClick={() => handleAction('quote')}
+                                className="bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold py-3 rounded-lg flex items-center justify-center gap-2"
+                            >
+                                <DollarSign className="w-5 h-5" /> Quote
+                            </button>
+                            <button
+                                onClick={() => handleAction('visit')}
+                                className="bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold py-3 rounded-lg flex items-center justify-center gap-2"
+                            >
+                                <Calendar className="w-5 h-5" /> Visit
+                            </button>
                         </div>
                     </div>
                 ) : (
                     <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                        <Inbox className="w-16 h-16 mb-4 opacity-20" />
-                        <p>Select an item from the inbox to triage</p>
+                        <User className="w-16 h-16 mb-4 opacity-20" />
+                        <p>Select a Thread</p>
                     </div>
                 )}
             </div>

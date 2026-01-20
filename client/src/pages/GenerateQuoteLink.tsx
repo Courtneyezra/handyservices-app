@@ -791,38 +791,9 @@ export default function GenerateQuoteLink() {
       message += `Sorry for the delay — one of our team is on holiday so we're catching up!\n\n`;
     }
 
-    // 2. Mode-Specific Messaging
+    // 2. Mode-Specific Messaging (THE VALUE PRIMER)
     if (quoteMode === 'consultation') {
       // --- DIAGNOSTIC / BOOK VISIT MODE ---
-      const reasonAction = whatsappSummary ? ` to ${whatsappSummary}` : '';
-
-      message += `I've had a look at the job${reasonAction}. To give you a *Fixed Price* we can legally stand by, I need a Top Rated Handyman to assess the site first.\n\n`;
-      message += `I've put together a personalised expert plan for you here (includes my full assessment):\n${generatedUrl}\n\n`;
-      message += `To secure the slot, we ask for a *Refundable Diagnostic Deposit*.\n`;
-      message += `🟢 *100% Refundable*: Credited back to your final quote.\n`;
-      message += `🛡️ *Expert Assessment*: You get a vetted pro, not a "cowboy" or salesperson.`;
-
-      return message;
-    }
-
-    // --- QUOTE MODES (HHH, Simple, Pick & Mix) ---
-    else if (quoteMode === 'hhh') {
-      // --- HHH Logic: Prime Pricing & Pay-in-3 ---
-      if (primingPriceRange) {
-        message += `For this type of job, the price normally falls in the £${primingPriceRange.low}–£${primingPriceRange.high} range, depending on the specifics.\n\n`;
-      }
-      message += `*We also offer a Pay-in-3 option if you prefer to split the cost.*\n\n`;
-      message += `I'll send the quote link now — it's held for 15 minutes so you can pick whichever option suits you best 😊\n\n`;
-    }
-    else if (quoteMode === 'simple') {
-      // --- SIMPLE Logic: Direct & Clear ---
-      message += `I've put together a fixed price quote for the work we discussed.\n\n`;
-      message += `Review the details and book directly here:\n\n`;
-    }
-    else if (quoteMode === 'pick_and_mix') {
-      // --- PICK & MIX Logic: Choice Focused ---
-      message += `I've created a custom quote where you can choose exactly which options you want.\n\n`;
-      message += `Take a look at the different packages and select what suits you best:\n\n`;
     }
 
     // 3. Append Link (for all Quote modes)

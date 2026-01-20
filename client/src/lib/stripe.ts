@@ -23,6 +23,8 @@ export const isStripeConfigured = !!(stripePublishableKey && stripePublishableKe
 if (!isStripeConfigured) {
     if (!stripePublishableKey) {
         console.warn('[Stripe] Publishable key not found. Payment functionality will be disabled.');
+        console.warn('[Stripe] Please check your .env file for VITE_STRIPE_PUBLIC_KEY or VITE_STRIPE_TEST_PUBLIC_KEY.');
+        console.warn('[Stripe] Current Mode:', import.meta.env.DEV ? 'Development' : 'Production');
     } else {
         console.error('[Stripe] Invalid key format. Key should start with pk_live_ or pk_test_');
         console.error('[Stripe] First 20 chars:', stripePublishableKey.substring(0, 20));

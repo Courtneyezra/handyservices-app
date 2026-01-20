@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText } from "lucide-react";
+
+
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Link, useLocation } from "wouter";
 import { useLiveCall } from "@/contexts/LiveCallContext";
@@ -49,6 +51,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             title: "DISPATCH CONSOLE",
                             items: [
                                 { icon: Inbox, label: "Inbox", href: "/admin/inbox", badge: "NEW" },
+                                { icon: LayoutTemplate, label: "Dispatch Board", href: "/admin/dispatch" },
                                 { icon: LayoutDashboard, label: "Overview", href: "/admin" },
                                 {
                                     icon: Mic,
@@ -67,9 +70,10 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             ]
                         },
                         {
-                            title: "SALES & PRODUCTS",
+                            title: "SALES & FINANCE",
                             items: [
                                 { icon: DollarSign, label: "Quote Generator", href: "/admin/generate-quote" },
+                                { icon: FileText, label: "Invoices", href: "/admin/invoices" },
                                 { icon: Package, label: "SKU Manager", href: "/admin/skus" },
                             ]
                         },
@@ -154,10 +158,12 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 {
                                     items: [
                                         { label: "Dashboard", href: "/admin" },
+                                        { label: "Dispatch Board", href: "/admin/dispatch" },
                                         { label: "Live Switchboard", href: "/admin/live-call" },
                                         { label: "WhatsApp CRM", href: "/admin/whatsapp-intake" },
                                         { label: "Call Logs", href: "/admin/calls" },
                                         { label: "Quote Generator", href: "/admin/generate-quote" },
+                                        { label: "Invoices", href: "/admin/invoices" },
                                         { label: "SKU Manager", href: "/admin/skus" },
                                         { label: "Handyman Map", href: "/admin/handymen" },
                                         { label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },

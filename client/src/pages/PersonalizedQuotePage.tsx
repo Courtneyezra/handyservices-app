@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar, Sun } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar, Sun, Clipboard, Calculator } from 'lucide-react';
 import { SiGoogle, SiVisa, SiMastercard, SiAmericanexpress, SiApplepay, SiStripe } from 'react-icons/si';
 import { FaWhatsapp } from 'react-icons/fa';
 import { useToast } from '@/hooks/use-toast';
@@ -318,14 +318,90 @@ interface EEEPackage {
   isPopular?: boolean;
 }
 
+// Value Reveal Component (Pre-Education)
+function ValueReveal({ onComplete }: { onComplete: () => void }) {
+  const [step, setStep] = useState(0);
+
+  const steps = [
+    {
+      title: "Analyzing Request",
+      subtitle: "Reviewing job details and requirements...",
+      icon: <Clipboard className="w-12 h-12 text-blue-500 mb-4 animate-pulse" />
+    },
+    {
+      title: "Matching Specialist",
+      subtitle: "Checking availability of vetted experts...",
+      icon: <UserCheck className="w-12 h-12 text-purple-500 mb-4 animate-bounce" />
+    },
+    {
+      title: "Finalizing",
+      subtitle: "Calculating transparent local pricing...",
+      icon: <Calculator className="w-12 h-12 text-green-500 mb-4" /> // requires Calculator import
+    }
+  ];
+
+  useEffect(() => {
+    // Sequence timer: 1.5s per step
+    if (step < steps.length) {
+      const timer = setTimeout(() => {
+        setStep(prev => prev + 1);
+      }, 1500);
+      return () => clearTimeout(timer);
+    } else {
+      // Finished
+      const timer = setTimeout(onComplete, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [step, onComplete]);
+
+  if (step >= steps.length) return null;
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-300">
+      <div className="max-w-xs mx-auto">
+        {steps[step].icon}
+        <h2 className="text-2xl font-bold text-gray-900 mb-2 animate-in slide-in-from-bottom-4 fade-in duration-500 key={step}">
+          {steps[step].title}
+        </h2>
+        <p className="text-gray-500 text-lg animate-in slide-in-from-bottom-4 fade-in duration-700 key={step+'-sub'}">
+          {steps[step].subtitle}
+        </p>
+
+        <div className="mt-8 flex gap-2 justify-center">
+          {steps.map((_, i) => (
+            <div
+              key={i}
+              className={`h-2 w-2 rounded-full transition-colors duration-300 ${i === step ? 'bg-amber-500' : 'bg-gray-200'}`}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PersonalizedQuotePage() {
   const [, params] = useRoute('/quote-link/:slug');
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  // Parse query params for Tenant Mode
-  // const searchParams = new URLSearchParams(window.location.search);
-  // const isTenantView = searchParams.get('mode') === 'tenant';
+  // Value Reveal Logic
+  const [showReveal, setShowReveal] = useState(false);
+
+  useEffect(() => {
+    // Only show if we haven't seen it in this session (and params exist)
+    if (params?.slug && !sessionStorage.getItem(`reveal_${params.slug}`)) {
+      setShowReveal(true);
+    }
+  }, [params?.slug]);
+
+  const handleRevealComplete = () => {
+    setShowReveal(false);
+    if (params?.slug) sessionStorage.setItem(`reveal_${params.slug}`, 'true');
+  };
+
+  // ... rest of existing code ... (Inject <ValueReveal> at return)
+
 
 
   const [selectedEEEPackage, setSelectedEEEPackage] = useState<EEEPackageTier>('enhanced');
@@ -667,6 +743,11 @@ export default function PersonalizedQuotePage() {
     );
   }
 
+  // Pre-education Interstitial
+  if (showReveal) {
+    return <ValueReveal onComplete={handleRevealComplete} />;
+  }
+
   // If quote expired on load, show expired popup
   if (isQuoteExpiredOnLoad && params?.slug) {
     return (
@@ -1004,7 +1085,7 @@ export default function PersonalizedQuotePage() {
           {quote.quoteMode !== 'simple' && (
             <div className="mb-10 px-4">
               <ExpertStickyNote
-                text={getExpertNoteText(quote)}
+                text={getExpertNoteText(quote as any)}
                 customerName={quote.customerName}
                 phone={quote.phone}
                 address={quote.address || quote.postcode}
@@ -1029,10 +1110,8 @@ export default function PersonalizedQuotePage() {
               {packages.map((pkg) => {
                 const rawFeatures = quote.tierDeliverables?.[pkg.tier === 'essential' ? 'essential' : pkg.tier === 'enhanced' ? 'hassleFree' : 'highStandard'] ||
                   getPerksForTier(quote, pkg.tier as 'essential' | 'enhanced' | 'elite');
-                // DEBUG: Check for duplication
-                console.log(`[Quote] Tier ${pkg.tier} raw features:`, rawFeatures);
+
                 const features = Array.from(new Set(rawFeatures.map(f => typeof f === 'string' ? f.trim() : f)));
-                console.log(`[Quote] Tier ${pkg.tier} unique features:`, features);
                 const isExpanded = expandedTiers.has(pkg.tier);
                 // UX Improvement: Show more features by default (4 instead of 1)
                 const hasMoreFeatures = features.length > 4;

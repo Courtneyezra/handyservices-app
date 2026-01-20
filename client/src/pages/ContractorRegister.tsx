@@ -1,11 +1,14 @@
+
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { Eye, EyeOff, Loader2, Globe, CheckCircle2, AlertCircle, ArrowRight } from 'lucide-react';
+import SkillSelector from '../components/contractor/SkillSelector';
+import { LocationRadiusSelector } from '../components/contractor/LocationRadiusSelector';
 
 export default function ContractorRegister() {
     const [, setLocation] = useLocation();
 
-    // Steps: 1=Identity, 2=Security, 3=Business
+    // Steps: 1=Identity, 2=Security, 3=Business, 4=Location, 5=Trades, 6=Rates
     const [step, setStep] = useState(1);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -29,7 +32,44 @@ export default function ContractorRegister() {
         // Business
         businessName: '',
         slug: '',
+
+        // Location (Step 4)
+        address: '',
+        city: '',
+        postcode: '',
+        latitude: 0,
+        longitude: 0,
+        radiusMiles: 10,
     });
+
+    const [selectedSkills, setSelectedSkills] = useState<Array<{ skuId: string; proficiency: 'basic' | 'competent' | 'expert' }>>([]);
+
+    // New Simplified Flow State
+    const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+    const [selectedTrades, setSelectedTrades] = useState<string[]>([]);
+    const [tradeRates, setTradeRates] = useState<Record<string, { hourly: string, day: string }>>({});
+
+    // Fetch categories when reaching step 5
+    useEffect(() => {
+        if (step === 5 && availableCategories.length === 0) {
+            const token = localStorage.getItem('contractorToken');
+
+            fetch('/api/contractor/onboarding/capabilities', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
+                .then(res => {
+                    if (!res.ok) throw new Error("Failed to load trade categories");
+                    return res.json();
+                })
+                .then(data => setAvailableCategories(Object.keys(data)))
+                .catch(err => {
+                    console.error("Failed to fetch categories", err);
+                    setError("Could not load trade categories. Please refresh or try again.");
+                });
+        }
+    }, [step]);
 
     const handleChange = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
@@ -48,13 +88,16 @@ export default function ContractorRegister() {
             if (!formData.slug || formData.slug.length < 3) return;
             setIsCheckingSlug(true);
             try {
-                // Simulate API call delay
-                setTimeout(() => {
-                    setSlugAvailable(true); // Mock success
-                    setIsCheckingSlug(false);
-                }, 500);
+                const res = await fetch(`/api/contractor/check-slug?slug=${formData.slug}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setSlugAvailable(data.available);
+                } else {
+                    setSlugAvailable(false);
+                }
             } catch (err) {
                 setSlugAvailable(false);
+            } finally {
                 setIsCheckingSlug(false);
             }
         };
@@ -89,6 +132,16 @@ export default function ContractorRegister() {
                 setError('Please enter a business name');
                 return;
             }
+            // Proceed to Location Step
+            setStep(4);
+            return;
+        }
+
+        if (step === 4) {
+            if (!formData.address || !formData.latitude) {
+                setError('Please select a valid address from the dropdown');
+                return;
+            }
 
             setIsLoading(true);
             try {
@@ -99,12 +152,17 @@ export default function ContractorRegister() {
                     password: formData.password,
                     businessName: formData.businessName,
                     slug: formData.slug,
-                    // Defaults for "Software Only" mode
-                    postcode: "SW1A 1AA", // Default until profile completion
+
+                    // Location Data
+                    postcode: formData.postcode || "SW1A 1AA",
+                    city: formData.city,
                     phone: formData.phone || "00000000000",
-                    radiusMiles: 10,
+                    radiusMiles: formData.radiusMiles,
+                    latitude: formData.latitude,
+                    longitude: formData.longitude,
+
                     bio: "New Contractor",
-                    services: [] // No services initially
+                    services: [] // No services initially, handled in next step
                 };
 
                 const registerRes = await fetch('/api/contractor/register', {
@@ -125,6 +183,60 @@ export default function ContractorRegister() {
                     if (data.profileId) localStorage.setItem('contractorProfileId', data.profileId);
                 }
 
+                // Move to Skills Step instead of immediate redirect
+                setIsLoading(false);
+                setStep(5);
+
+            } catch (err: any) {
+                console.error(err);
+                setError(err.message || 'Registration failed');
+                setIsLoading(false);
+            }
+        }
+
+        if (step === 5) {
+            if (selectedTrades.length === 0) {
+                setError('Please select at least one trade.');
+                return;
+            }
+            setStep(6);
+            return;
+        }
+
+        if (step === 6) {
+            // Validate rates
+            const missingRates = selectedTrades.some(trade =>
+                !tradeRates[trade]?.hourly || !tradeRates[trade]?.day
+            );
+
+            if (missingRates) {
+                setError('Please enter both hourly and day rates for all selected trades.');
+                return;
+            }
+
+            setIsLoading(true);
+            try {
+                const token = localStorage.getItem('contractorToken');
+                const payload = {
+                    trades: selectedTrades.map(trade => ({
+                        category: trade,
+                        hourlyRatePence: parseFloat(tradeRates[trade].hourly) * 100,
+                        dayRatePence: parseFloat(tradeRates[trade].day) * 100
+                    }))
+                };
+
+                const res = await fetch('/api/contractor/onboarding/trade-rates', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!res.ok) throw new Error('Failed to save rates');
+
+                // Done!
                 setTimeout(() => {
                     setIsLoading(false);
                     setLocation('/contractor/dashboard?welcome=true');
@@ -132,7 +244,7 @@ export default function ContractorRegister() {
 
             } catch (err: any) {
                 console.error(err);
-                setError(err.message || 'Registration failed');
+                setError(err.message || 'Failed to save rates');
                 setIsLoading(false);
             }
         }
@@ -149,8 +261,8 @@ export default function ContractorRegister() {
             </div>
 
             {/* Main Content */}
-            <div className="flex-1 flex flex-col items-center pt-12 px-6">
-                <div className="w-full max-w-md space-y-8">
+            <div className="flex-1 flex flex-col items-center pt-12 px-6 pb-20">
+                <div className="w-full max-w-2xl space-y-8">
 
                     {/* Header Text */}
                     <div className="text-center space-y-2">
@@ -158,22 +270,28 @@ export default function ContractorRegister() {
                             {step === 1 && "First, tell us about you"}
                             {step === 2 && "Secure your account"}
                             {step === 3 && "Name your workspace"}
+                            {step === 4 && "Where are you based?"}
+                            {step === 5 && "Select your trades"}
+                            {step === 6 && "Set your standard rates"}
                         </h1>
                         <p className="text-slate-500">
                             {step === 1 && "We need these details to create your profile."}
                             {step === 2 && "Choose a strong password to keep your data safe."}
                             {step === 3 && "This will be the name of your digital office."}
+                            {step === 4 && "We'll show you jobs within your service radius."}
+                            {step === 5 && "Select all the trades you provide services for."}
+                            {step === 6 && "You can adjust these later for specific jobs."}
                         </p>
                     </div>
 
                     {/* Progress Bar */}
-                    <div className="flex gap-2">
-                        {[1, 2, 3].map(i => (
+                    <div className="flex gap-2 max-w-md mx-auto w-full">
+                        {[1, 2, 3, 4, 5, 6].map(i => (
                             <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors ${i <= step ? "bg-[#6C6CFF]" : "bg-slate-100"}`} />
                         ))}
                     </div>
 
-                    <form onSubmit={handleSubmit} className="space-y-6">
+                    <form onSubmit={handleSubmit} className="space-y-8 max-w-md mx-auto w-full">
 
                         {/* STEP 1: IDENTITY */}
                         {step === 1 && (
@@ -280,6 +398,128 @@ export default function ContractorRegister() {
                             </div>
                         )}
 
+                        {/* STEP 4: LOCATION */}
+                        {step === 4 && (
+                            <div className="space-y-4 animate-in fade-in slide-in-from-right-8 duration-500">
+                                <LocationRadiusSelector
+                                    value={{
+                                        address: formData.address,
+                                        city: formData.city,
+                                        postcode: formData.postcode,
+                                        latitude: formData.latitude,
+                                        longitude: formData.longitude,
+                                        radiusMiles: formData.radiusMiles
+                                    }}
+                                    onChange={(data) => setFormData(prev => ({ ...prev, ...data }))}
+                                />
+                            </div>
+                        )}
+
+                        {/* STEP 5: TRADES */}
+                        {step === 5 && (
+                            <div className="space-y-4 animate-in fade-in slide-in-from-right-8 duration-500">
+                                <div className="grid grid-cols-2 gap-3">
+                                    {availableCategories.map(appCat => (
+                                        <button
+                                            key={appCat}
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedTrades(prev => {
+                                                    const isSelected = prev.includes(appCat);
+                                                    if (isSelected) {
+                                                        return prev.filter(c => c !== appCat);
+                                                    } else {
+                                                        // Tiered Random Rates
+                                                        let minH = 30, maxH = 45;
+                                                        let minD = 190, maxD = 230;
+
+                                                        const cat = appCat.toLowerCase();
+                                                        if (cat.includes('plumb') || cat.includes('elec') || cat.includes('gas')) {
+                                                            // High Tier: Plumbing, Electrical
+                                                            minH = 55; maxH = 75;
+                                                            minD = 350; maxD = 450;
+                                                        } else if (cat.includes('join') || cat.includes('carp') || cat.includes('til') || cat.includes('brick')) {
+                                                            // Mid Tier: Joinery, Tiling
+                                                            minH = 40; maxH = 60;
+                                                            minD = 250; maxD = 350;
+                                                        } else {
+                                                            // Base Tier: Handyman, Decorating, Flatpack
+                                                            minH = 30; maxH = 45;
+                                                            minD = 190; maxD = 250;
+                                                        }
+
+                                                        const randomHourly = Math.floor(Math.random() * (maxH - minH + 1)) + minH;
+                                                        const randomDay = Math.floor(Math.random() * (maxD - minD + 1)) + minD;
+
+                                                        setTradeRates(rates => ({
+                                                            ...rates,
+                                                            [appCat]: {
+                                                                hourly: randomHourly.toString(),
+                                                                day: randomDay.toString()
+                                                            }
+                                                        }));
+
+                                                        return [...prev, appCat];
+                                                    }
+                                                });
+                                            }}
+                                            className={`p-4 rounded-xl border-2 text-left transition-all ${selectedTrades.includes(appCat)
+                                                ? 'border-[#6C6CFF] bg-[#6C6CFF]/5'
+                                                : 'border-slate-100 hover:border-slate-200'
+                                                }`}
+                                        >
+                                            <span className={`font-semibold ${selectedTrades.includes(appCat) ? 'text-[#6C6CFF]' : 'text-slate-700'}`}>
+                                                {appCat}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* STEP 6: RATES */}
+                        {step === 6 && (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-right-8 duration-500">
+                                {selectedTrades.map(trade => (
+                                    <div key={trade} className="p-4 rounded-xl border border-slate-200 space-y-3">
+                                        <h3 className="font-semibold text-slate-800">{trade} Rates</h3>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-xs font-medium text-slate-500 mb-1">Hourly (£)</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="0.01"
+                                                    value={tradeRates[trade]?.hourly || ''}
+                                                    onChange={e => setTradeRates(prev => ({
+                                                        ...prev,
+                                                        [trade]: { ...prev[trade], hourly: e.target.value }
+                                                    }))}
+                                                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-[#6C6CFF] outline-none"
+                                                    placeholder="50"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-slate-500 mb-1">Day Rate (£)</label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="0.01"
+                                                    value={tradeRates[trade]?.day || ''}
+                                                    onChange={e => setTradeRates(prev => ({
+                                                        ...prev,
+                                                        [trade]: { ...prev[trade], day: e.target.value }
+                                                    }))}
+                                                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-[#6C6CFF] outline-none"
+                                                    placeholder="350"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
                         {/* Error Message */}
                         {error && (
                             <div className="p-3 rounded-lg bg-red-50 text-red-600 text-sm flex items-center gap-2">
@@ -289,20 +529,22 @@ export default function ContractorRegister() {
                         )}
 
                         {/* Submit Button */}
-                        <button
-                            type="submit"
-                            disabled={isLoading}
-                            className="w-full py-4 bg-[#6C6CFF] hover:bg-[#5858E0] active:scale-[0.98] transition-all text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
-                        >
-                            {isLoading ? (
-                                <Loader2 className="animate-spin" />
-                            ) : (
-                                <>
-                                    {step < 3 ? "Continue" : "Create Account"}
-                                    <ArrowRight size={20} className="opacity-80" />
-                                </>
-                            )}
-                        </button>
+                        <div className="pt-4">
+                            <button
+                                type="submit"
+                                disabled={isLoading}
+                                className="w-full py-4 bg-[#6C6CFF] hover:bg-[#5858E0] active:scale-[0.98] transition-all text-white font-bold rounded-xl shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
+                            >
+                                {isLoading ? (
+                                    <Loader2 className="animate-spin" />
+                                ) : (
+                                    <>
+                                        {step === 6 ? "Finish Setup" : "Continue"}
+                                        <ArrowRight size={20} className="opacity-80" />
+                                    </>
+                                )}
+                            </button>
+                        </div>
 
                     </form>
                 </div>

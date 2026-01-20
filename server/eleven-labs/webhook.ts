@@ -77,17 +77,32 @@ elevenLabsWebhookRouter.post('/webhooks/elevenlabs', async (req, res) => {
         const leadType = collectedData['lead_type']?.value as string; // homeowner, landlord etc
 
         // Update Call Record
+
+        // --- AGENTIC LAYER START ---
+        // Trigger the "Brain" to analyze the transcript immediately
+        const { analyzeLeadActionPlan } = await import('../services/agentic-service');
+        let agentPlan = null;
+        try {
+            console.log(`[Agentic-Layer] Analyzing call ${callRecordId} for Francis Flow...`);
+            agentPlan = await analyzeLeadActionPlan(fullTranscript);
+            console.log(`[Agentic-Layer] Plan generated:`, JSON.stringify(agentPlan, null, 2));
+        } catch (err) {
+            console.error(`[Agentic-Layer] Analysis failed:`, err);
+        }
+        // --- AGENTIC LAYER END ---
+
         await updateCall(callRecordId, {
             transcription: fullTranscript,
-            jobSummary: analysis.summary,
-            recordingUrl: recording_url, // Update with high-quality AI recording if available
-            elevenLabsConversationId: conversation_id, // Store ID for manual retrieval if URL fails
+            jobSummary: agentPlan?.reasoning || analysis.summary,
+            recordingUrl: recording_url,
+            elevenLabsConversationId: conversation_id,
             customerName: customerName,
             address: address,
             urgency: urgency,
             leadType: leadType,
             outcome: 'ELEVEN_LABS_COMPLETED',
-            // Store raw analysis for debugging
+            // Store the Full Agent Plan in detectedSkusJson (The "Brain" Dump)
+            detectedSkusJson: agentPlan ? agentPlan : undefined,
             liveAnalysisJson: analysis
         });
 

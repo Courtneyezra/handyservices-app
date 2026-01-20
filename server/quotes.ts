@@ -701,7 +701,7 @@ quotesRouter.delete('/api/personalized-quotes/:id', async (req, res) => {
 });
 
 // V1: Share Quote (Mock)
-quotesRouter.post("/quotes/:id/share", async (req, res) => {
+quotesRouter.post("/api/quotes/:id/share", async (req, res) => {
     const { id } = req.params;
     const { method, target } = req.body;
 

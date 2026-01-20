@@ -33,6 +33,8 @@ const MarketingDashboard = lazy(() => import("@/pages/admin/MarketingDashboard")
 const LandingPageBuilder = lazy(() => import("@/pages/admin/LandingPageBuilder"));
 const Banners = lazy(() => import("@/pages/admin/Banners"));
 const LeadsPage = lazy(() => import("@/pages/admin/LeadsPage"));
+const InvoicesPage = lazy(() => import("@/pages/admin/InvoicesPage"));
+const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
 const LandingPageRender = lazy(() => import("@/pages/LandingPageRender"));
 import SmartBanner from "@/components/SmartBanner";
 
@@ -64,6 +66,7 @@ const ContractorOnboarding = lazy(() => import('./pages/ContractorOnboarding'));
 const ContractorSettingsPage = lazy(() => import('./pages/contractor/dashboard/ContractorSettingsPage'));
 const ContractorAppLanding = lazy(() => import('./pages/ContractorAppLanding'));
 const ExpensesPage = lazy(() => import('./pages/contractor/dashboard/ExpensesPage'));
+const CreateInvoicePage = lazy(() => import('./pages/contractor/invoices/CreateInvoicePage'));
 const ContractorDashboardLayout = lazy(() => import('./pages/contractor/ContractorDashboardLayout'));
 const PartnerOnboardingModal = lazy(() => import('./pages/PartnerOnboardingModal'));
 
@@ -250,6 +253,11 @@ function Router() {
                         <ExpensesPage />
                     </ProtectedRoute>
                 </Route>
+                <Route path="/contractor/create-invoice">
+                    <ProtectedRoute role="contractor">
+                        <CreateInvoicePage />
+                    </ProtectedRoute>
+                </Route>
                 <Route path="/contractor/calendar">
                     <ProtectedRoute role="contractor">
                         <ContractorCalendar />
@@ -298,6 +306,20 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <AdminInboxPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/invoices">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <InvoicesPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/dispatch">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <DispatchPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
