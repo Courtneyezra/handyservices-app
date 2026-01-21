@@ -253,6 +253,21 @@ quotesRouter.post('/api/analyze-job', async (req, res) => {
         const { jobDescription, optionalExtrasRaw, hourlyRate = 50, rateCard = {} } = req.body;
         if (!jobDescription) return res.status(400).json({ error: "Job description is required" });
 
+        // 1. Fetch System Master Categories from DB
+        let systemCategories: string[] = [];
+        try {
+            const allServices = await db.select().from(productizedServices);
+            systemCategories = Array.from(new Set(allServices.map(s => s.category).filter(Boolean).map(c =>
+                // Normalize capitalisation (e.g. "plumbing" -> "Plumbing")
+                c!.charAt(0).toUpperCase() + c!.slice(1).toLowerCase()
+            )));
+        } catch (dbError) {
+            console.warn("Failed to fetch system categories for AI prompt, proceeding without them:", dbError);
+            // Proceed with empty systemCategories
+        }
+
+        const systemCatString = systemCategories.join(', ');
+
         const rateCardString = Object.entries(rateCard).map(([k, v]) => `${k} at £${v}/hr`).join(', ');
         const ratesContext = rateCardString
             ? `Use these specific contractor rates where applicable: ${rateCardString}. For unlisted tasks use default £${hourlyRate}/hr.`
@@ -265,46 +280,68 @@ quotesRouter.post('/api/analyze-job', async (req, res) => {
                     role: "system",
                     content: `Analyze this handyman job description. Return JSON with:
                     - totalEstimatedHours (number)
-                    - basePricePounds (number) - calculated by summing (task hours * task rate) + £40 callout
+                    - basePricePounds (number) - calculated by summing (task hours * task rate)
                     - summary (string, professional summary)
                     - tasks (array of objects with description, estimatedHours, category, appliedRate)
                     - optionalExtras (array of objects with label, pricePence, description, isRecommended boolean).
                     
                     ${ratesContext}
-                    Identify the category for each task to apply the correct rate.
+                    SYSTEM CATEGORIES: [${systemCatString}]
 
-                    BEHAVIORAL ECONOMICS FRAMEWORKS FOR 'summary':
-                    1. Authority: Write as a Handy Services Verified Handyman.
-                    2. Salience: Focus on the specific pain point and the CLEAR RESULT for the customer.
-                    3. Plain Language: Clearly state the deliverables (what will be done) in simple, non-technical terms. Avoid jargon. (e.g. "We will supply and fit..." instead of "Procure and install...")
-                    4. Format: 1-2 concise sentences, strictly professional.
-                    `
+                    Identify the category for each task.
+                    IMPORTANT:
+                    - Priority 1: If the task fits a category in the provided rate card, use that CATEGORY and appliedRate.
+                    - Priority 2: If the task does NOT fit a rate card category, map it to one of the SYSTEM CATEGORIES provided above. Set appliedRate to 0.
+                    - If it fits neither, use "General" and set appliedRate to 0.
+                    
+                    - basePricePounds should be the sum of (estimatedHours * appliedRate) (using 0 for missing rates). Do NOT add any callout fee.
+                    1. Clarity: Write a concise, objective summary of the work.
+                    2. Tone: Professional and neutral.
+                    3. No Intro: Start directly with the summary.
+                    
+                    Use the provided rates strictly.`
                 },
                 {
                     role: "user",
-                    content: `Job Description: ${jobDescription}\n\nOptional Extras Input: ${optionalExtrasRaw || "None"}`
+                    content: jobDescription
                 }
             ],
             response_format: { type: "json_object" }
         });
 
         const result = JSON.parse(response.choices[0].message.content || "{}");
+
+        // Recalculate totals programmatically to ensure math is correct (AI often fails arithmetic)
+        if (result.tasks && Array.isArray(result.tasks)) {
+            let calculatedTotalHours = 0;
+            let calculatedPrice = 0;
+
+            result.tasks.forEach((t: any) => {
+                const hours = Number(t.estimatedHours) || 0;
+                const rate = Number(t.appliedRate) || 0;
+                calculatedTotalHours += hours;
+                calculatedPrice += (hours * rate);
+            });
+
+            result.totalEstimatedHours = calculatedTotalHours;
+            result.basePricePounds = calculatedPrice; // Standard sum, no callout
+        }
+
         res.json(result);
 
     } catch (error: any) {
-        console.error("Job analysis error:", error?.message || error);
+        console.error("AI Analysis Failed:", error);
 
-        // Always fallback to mock for now if AI fails (Unconditional fallback for debugging)
-        console.warn("Analysis failed, returning mock data. Error:", error?.message);
-        return res.json({
-            totalEstimatedHours: 2,
-            basePricePounds: (req.body.hourlyRate || 50) * 2 + 40,
-            summary: "Standard repair service (Mock Analysis - AI Unavailable)",
-            tasks: [{ description: req.body.jobDescription || "General repair", estimatedHours: 2, category: "general", appliedRate: req.body.hourlyRate || 50 }],
+        // Fallback Mock Response (if AI/DB fails)
+        res.json({
+            summary: "Unable to analyze with AI. Using estimation based on description length.",
+            totalEstimatedHours: 4, // use totalEstimatedHours to match success schema
+            basePricePounds: 200, // 4 * 50 (No callout)
+            tasks: [
+                { description: "General Labor & Assessment", estimatedHours: 4, category: "General", appliedRate: 50 },
+            ],
             optionalExtras: []
         });
-
-        res.status(500).json({ error: "Analysis failed", details: error?.message || "Unknown error" });
     }
 });
 

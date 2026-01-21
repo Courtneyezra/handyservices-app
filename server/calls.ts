@@ -1,10 +1,13 @@
 import express, { type Request, Response } from "express";
+import fs from "fs";
+import path from "path";
 import { db } from "./db";
 import { calls, callSkus, leads, productizedServices, updateCallSchema } from "../shared/schema";
 import { eq, desc, and, or, like, sql, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import crypto from "crypto";
 import { storageService } from "./storage";
+import { twilioClient } from "./twilio-client";
 
 const router = express.Router();
 
@@ -443,24 +446,74 @@ router.get("/:id/recording", async (req: Request, res: Response) => {
             return res.status(404).json({ error: "No recording available for this call" });
         }
 
-        // --- NEW: S3 Presigned URL Redirection ---
-        // If the URL is managed by our StorageService (S3), generate a signed URL and redirect.
-        // This avoids proxying large files through our server and fixes 403 Forbidden on private buckets.
+        // --- NEW: S3 Presigned URL + RAW File Handling ---
         const signedUrl = await storageService.getSignedRecordingUrl(targetUrl);
+        const isRaw = targetUrl.endsWith('.raw');
+        const isRemote = signedUrl.startsWith('http');
 
-        // If the signed URL is different (i.e., it was signed) OR it's a known S3 URL that isn't Twilio/11Labs
-        if (signedUrl !== targetUrl || (targetUrl.includes('s3') && !targetUrl.includes('twilio.com'))) {
-            return res.redirect(signedUrl);
+        if (isRemote) {
+            // If it's a RAW file (Twilio stream), we MUST wrap it in a WAV container
+            if (isRaw) {
+                try {
+                    const response = await fetch(signedUrl);
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            console.warn(`[CallsAPI] Recording not found in S3: ${signedUrl}. Checking Twilio fallback...`);
+
+                            // Fallback: Check Twilio API
+                            try {
+                                const recordings = await twilioClient.recordings.list({ callSid: call.callId, limit: 1 });
+                                if (recordings.length > 0) {
+                                    const twilioRec = recordings[0];
+                                    // Fetch mp3/wav from Twilio using credentials
+                                    const mediaUrl = `https://api.twilio.com${twilioRec.uri.replace('.json', '.wav')}`;
+                                    console.log(`[CallsAPI] Found Twilio backup: ${mediaUrl}`);
+
+                                    const twilioRes = await fetch(mediaUrl); // twitch-client lib usually handles auth? No, this is manual fetch
+                                    // Wait, better to use the client request or manually construct auth header
+                                    // simple fetch with Basic Auth
+                                    const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+                                    const twilioFetch = await fetch(mediaUrl, {
+                                        headers: { 'Authorization': `Basic ${auth}` }
+                                    });
+
+                                    if (twilioFetch.ok) {
+                                        const buffer = Buffer.from(await twilioFetch.arrayBuffer());
+                                        res.setHeader('Content-Type', 'audio/wav');
+                                        res.send(buffer);
+                                        return;
+                                    }
+                                }
+                            } catch (twilioErr) {
+                                console.error("[CallsAPI] Twilio fallback failed:", twilioErr);
+                            }
+
+                            return res.status(404).json({ error: "Recording not available in S3 or Twilio" });
+                        }
+                        throw new Error(`Fetch failed: ${response.status}`);
+                    }
+
+                    const arrayBuffer = await response.arrayBuffer();
+                    const buffer = Buffer.from(arrayBuffer);
+                    const header = createWavHeader(buffer.length);
+
+                    res.setHeader('Content-Type', 'audio/wav');
+                    res.send(Buffer.concat([header, buffer]));
+                    return;
+                } catch (error) {
+                    console.error("Error proxying raw S3 audio:", error);
+                    return res.status(500).json({ error: "Failed to fetch recording" });
+                }
+            }
+
+            // Normal S3 file (mp3/wav) -> Redirect
+            if (!targetUrl.includes('twilio.com')) {
+                return res.redirect(signedUrl);
+            }
         }
 
-        // --- END S3 Logic ---
-
-        // Check if it is a local file (legacy/hybrid)
+        // Local File Handling
         if (!targetUrl.startsWith('http')) {
-            const path = await import("path");
-            const fs = await import("fs");
-
-            // Resolve absolute path safely
             const absolutePath = path.resolve(process.cwd(), targetUrl);
 
             // Security check: ensure it's within storage directory
@@ -469,10 +522,39 @@ router.get("/:id/recording", async (req: Request, res: Response) => {
             }
 
             if (fs.existsSync(absolutePath)) {
+                if (isRaw) {
+                    const buffer = fs.readFileSync(absolutePath);
+                    const header = createWavHeader(buffer.length);
+                    res.setHeader('Content-Type', 'audio/wav');
+                    res.send(Buffer.concat([header, buffer]));
+                    return;
+                }
                 return res.sendFile(absolutePath);
             } else {
-                console.error(`Local recording file missing: ${absolutePath}`);
-                return res.status(404).json({ error: "Recording file not found on server" });
+                console.warn(`[CallsAPI] Local file missing: ${absolutePath}. Checking Twilio fallback...`);
+                try {
+                    const recordings = await twilioClient.recordings.list({ callSid: call.callId, limit: 1 });
+                    if (recordings.length > 0) {
+                        const twilioRec = recordings[0];
+                        const mediaUrl = `https://api.twilio.com${twilioRec.uri.replace('.json', '.wav')}`;
+                        console.log(`[CallsAPI] Found Twilio backup: ${mediaUrl}`);
+
+                        const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+                        const twilioFetch = await fetch(mediaUrl, {
+                            headers: { 'Authorization': `Basic ${auth}` }
+                        });
+
+                        if (twilioFetch.ok) {
+                            const buffer = Buffer.from(await twilioFetch.arrayBuffer());
+                            res.setHeader('Content-Type', 'audio/wav');
+                            res.send(buffer);
+                            return;
+                        }
+                    }
+                } catch (twilioErr) {
+                    console.error("[CallsAPI] Twilio fallback failed:", twilioErr);
+                }
+                return res.status(404).send("File not found");
             }
         }
 
@@ -542,4 +624,22 @@ router.get("/:id/recording", async (req: Request, res: Response) => {
 });
 
 export default router;
+
+function createWavHeader(dataLength: number) {
+    const buffer = Buffer.alloc(44);
+    buffer.write("RIFF", 0);
+    buffer.writeUInt32LE(36 + dataLength, 4);
+    buffer.write("WAVE", 8);
+    buffer.write("fmt ", 12);
+    buffer.writeUInt32LE(16, 16);
+    buffer.writeUInt16LE(7, 20); // Mu-law
+    buffer.writeUInt16LE(1, 22); // Channels
+    buffer.writeUInt32LE(8000, 24); // Sample Rate
+    buffer.writeUInt32LE(8000, 28); // Byte Rate
+    buffer.writeUInt16LE(1, 32); // Block Align
+    buffer.writeUInt16LE(8, 34); // Bits per sample
+    buffer.write("data", 36);
+    buffer.writeUInt32LE(dataLength, 40);
+    return buffer;
+}
 

@@ -1,12 +1,13 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useLocation } from 'wouter';
 import { useMutation } from '@tanstack/react-query';
-import { Sparkles, ArrowRight, ArrowLeft, Check, Loader2, AlertCircle, Info, Quote } from 'lucide-react';
+import { Sparkles, ArrowRight, ArrowLeft, Check, Loader2, Quote } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { useContractorAuth } from '@/hooks/use-contractor-auth';
 import { VoiceDictation } from '@/components/VoiceDictation';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
+import ContractorAppShell from '@/components/layout/ContractorAppShell';
 
 type Complexity = 'trivial' | 'low' | 'medium' | 'high';
 type ClientType = 'homeowner' | 'landlord' | 'commercial';
@@ -55,9 +56,7 @@ export default function NewQuotePage() {
         const card: Record<string, number> = {};
         contractor.profile.skills.forEach((skill: any) => {
             const cat = skill.service?.category || skill.service?.name || 'General';
-            // Use specific skill rate, or fallback to profile rate
             const rate = skill.hourlyRate || contractor.profile.hourlyRate || 50;
-            // Normalize category key
             card[cat] = rate;
         });
         return card;
@@ -72,8 +71,8 @@ export default function NewQuotePage() {
                 body: JSON.stringify({
                     jobDescription,
                     optionalExtrasRaw,
-                    hourlyRate: contractor?.profile?.hourlyRate || 50, // Default fallback
-                    rateCard // Pass specific rates
+                    hourlyRate: contractor?.profile?.hourlyRate || 50,
+                    rateCard
                 })
             });
             if (!res.ok) throw new Error('Failed to analyze');
@@ -87,7 +86,6 @@ export default function NewQuotePage() {
         },
         onError: (error) => {
             console.warn("Analysis failed API call, falling back to client-side mock.", error);
-            // Fallback mock data structure
             const mockAnalysis: JobAnalysis = {
                 summary: "Standard job estimate (AI Unavailable)",
                 totalEstimatedHours: 2,
@@ -110,11 +108,7 @@ export default function NewQuotePage() {
     // Create Quote Mutation
     const createQuoteMutation = useMutation({
         mutationFn: async () => {
-            console.log('Creating quote with contractor:', contractor);
-            if (!contractor?.user?.id) {
-                console.error('Missing Contractor ID before creating quote! Contractor object:', contractor);
-                throw new Error("Contractor ID missing - please refresh");
-            }
+            if (!contractor?.user?.id) throw new Error("Contractor ID missing - please refresh");
 
             const payload = {
                 contractorId: contractor.user.id,
@@ -126,12 +120,12 @@ export default function NewQuotePage() {
                 optionalExtras: quoteMode === 'pick_and_mix' && analysis ? [
                     ...analysis.tasks.map(t => ({
                         label: t.description,
-                        description: t.description, // Use description as label for tasks
+                        description: t.description,
                         priceInPence: Math.round(t.estimatedHours * (t.appliedRate || 50) * 100),
                         estimatedHours: t.estimatedHours,
                         isRecommended: true
                     })),
-                    ...(analysis.optionalExtras || []).map(e => ({ ...e, priceInPence: Math.round(e.pricePence) })) // Ensure format matches
+                    ...(analysis.optionalExtras || []).map(e => ({ ...e, priceInPence: Math.round(e.pricePence) }))
                 ] : (analysis?.optionalExtras || []),
                 clientType,
                 urgencyReason: urgency,
@@ -151,14 +145,12 @@ export default function NewQuotePage() {
             return res.json();
         },
         onSuccess: (data) => {
-            // Success Animation Step
             setStep(4);
-            // Redirect after delay
             setTimeout(() => {
                 setLocation(`/contractor/dashboard/quotes/${data.shortSlug}`);
             }, 2000);
         },
-        onError: (err) => {
+        onError: () => {
             toast({ title: "Error", description: "Failed to generate quote.", variant: "destructive" });
         }
     });
@@ -171,54 +163,55 @@ export default function NewQuotePage() {
         analyzeMutation.mutate();
     };
 
-    if (isAuthLoading) return <div className="flex h-screen items-center justify-center bg-slate-950 text-slate-400"><Loader2 className="animate-spin mr-2" /> Loading...</div>;
+    if (isAuthLoading) return <div className="flex h-screen items-center justify-center bg-[#F5F6F8] text-slate-400"><Loader2 className="animate-spin mr-2" /> Loading...</div>;
 
     return (
-        <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-safe">
-            {/* Header */}
-            <div className="sticky top-0 z-30 bg-slate-950/80 backdrop-blur-md px-4 py-4 flex items-center gap-3 border-b border-slate-800">
-                <button onClick={() => step > 1 ? setStep(step - 1) : setLocation('/contractor/dashboard')} className="p-2 rounded-full hover:bg-slate-800">
-                    <ArrowLeft className="w-5 h-5 text-slate-400" />
-                </button>
-                <div className="flex-1">
-                    <h1 className="font-bold text-lg">
-                        {quoteMode === 'hhh' ? 'Magic Quote' :
-                            quoteMode === 'pick_and_mix' ? 'Pick & Mix Quote' :
-                                'Standard Quote'}
-                    </h1>
-                    <div className="flex gap-1 mt-1">
-                        {[1, 2, 3].map(s => (
-                            <div key={s} className={cn("h-1 flex-1 rounded-full bg-slate-800 overflow-hidden", step >= s && "bg-slate-800")}>
-                                <div className={cn("h-full w-full bg-amber-500 transition-transform duration-500 ease-out origin-left", step >= s ? "scale-x-100" : "scale-x-0")} />
-                            </div>
-                        ))}
+        <ContractorAppShell>
+            <div className="max-w-md mx-auto px-4 py-6 space-y-6">
+
+                {/* Header with Navigation */}
+                <div className="flex items-center gap-3 mb-6">
+                    <button onClick={() => step > 1 ? setStep(step - 1) : setLocation('/contractor/dashboard')} className="p-2 rounded-full hover:bg-slate-200 transition-colors">
+                        <ArrowLeft className="w-5 h-5 text-slate-600" />
+                    </button>
+                    <div className="flex-1">
+                        <h1 className="font-bold text-lg text-slate-900">
+                            {quoteMode === 'hhh' ? 'Magic Quote' :
+                                quoteMode === 'pick_and_mix' ? 'Pick & Mix Quote' :
+                                    'Standard Quote'}
+                        </h1>
+                        <div className="flex gap-1 mt-1.5">
+                            {[1, 2, 3].map(s => (
+                                <div key={s} className={cn("h-1 flex-1 rounded-full bg-slate-200 overflow-hidden", step >= s && "bg-slate-200")}>
+                                    <div className={cn("h-full w-full bg-amber-500 transition-transform duration-500 ease-out origin-left", step >= s ? "scale-x-100" : "scale-x-0")} />
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
+
                 {/* Mode Toggle */}
-                <div className="flex bg-slate-900 rounded-lg p-1 border border-slate-800">
+                <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm">
                     <button
                         onClick={() => setQuoteMode('simple')}
-                        className={cn("px-3 py-1 text-xs font-bold rounded-md transition-all", quoteMode === 'simple' ? "bg-slate-700 text-white" : "text-slate-500")}
+                        className={cn("px-3 py-1 text-xs font-bold rounded-md transition-all flex-1", quoteMode === 'simple' ? "bg-slate-100 text-slate-900 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700")}
                     >Raw</button>
                     <button
                         onClick={() => setQuoteMode('hhh')}
-                        className={cn("px-3 py-1 text-xs font-bold rounded-md transition-all", quoteMode === 'hhh' ? "bg-amber-500 text-slate-900" : "text-slate-500")}
+                        className={cn("px-3 py-1 text-xs font-bold rounded-md transition-all flex-1", quoteMode === 'hhh' ? "bg-amber-100 text-amber-800 shadow-sm border border-amber-200" : "text-slate-500 hover:text-slate-700")}
                     >Magic</button>
                     <button
                         onClick={() => setQuoteMode('pick_and_mix')}
-                        className={cn("px-3 py-1 text-xs font-bold rounded-md transition-all", quoteMode === 'pick_and_mix' ? "bg-emerald-500 text-white" : "text-slate-500")}
+                        className={cn("px-3 py-1 text-xs font-bold rounded-md transition-all flex-1", quoteMode === 'pick_and_mix' ? "bg-emerald-100 text-emerald-800 shadow-sm border border-emerald-200" : "text-slate-500 hover:text-slate-700")}
                     >Pick & Mix</button>
                 </div>
-            </div>
 
-            <div className="max-w-md mx-auto px-4 py-6 space-y-6">
-
-                {/* STEP 1: JOB DESCRIPTION (Input) */}
+                {/* STEP 1: JOB DESCRIPTION */}
                 {step === 1 && (
                     <div className="space-y-6 animate-in slide-in-from-right-8 fade-in duration-500">
                         <div>
-                            <h2 className="text-3xl font-bold mb-2 text-white tracking-tight">What's the job?</h2>
-                            <p className="text-slate-400 text-base leading-relaxed">
+                            <h2 className="text-3xl font-bold mb-2 text-slate-900 tracking-tight">What's the job?</h2>
+                            <p className="text-slate-500 text-base leading-relaxed">
                                 {quoteMode === 'hhh'
                                     ? "Describe the work directly. Our AI will break it down and price it."
                                     : quoteMode === 'pick_and_mix'
@@ -227,13 +220,12 @@ export default function NewQuotePage() {
                             </p>
                         </div>
 
-
-
                         <div className="space-y-4">
                             <div className="relative">
-                                <div className="flex justify-between items-center mb-1">
-                                    <label className="text-xs font-bold text-slate-500 block uppercase">Description</label>
+                                <div className="flex justify-between items-center mb-2">
+                                    <label className="text-xs font-bold text-slate-500 block uppercase tracking-wider">Description</label>
                                     <VoiceDictation
+                                        theme="light"
                                         className="scale-75 origin-right"
                                         onTranscriptionComplete={(text) => setJobDescription(prev => prev + (prev ? " " : "") + text)}
                                     />
@@ -242,17 +234,17 @@ export default function NewQuotePage() {
                                     value={jobDescription}
                                     onChange={e => setJobDescription(e.target.value)}
                                     placeholder="e.g. Paint the living room walls and fix the dripping tap in the kitchen."
-                                    className="w-full h-32 bg-slate-900 border border-slate-800 rounded-xl p-4 text-white placeholder:text-slate-600 focus:ring-2 focus:ring-amber-500 focus:outline-none resize-none text-base"
+                                    className="w-full h-32 bg-white border border-slate-200 rounded-xl p-4 text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-amber-500 focus:outline-none resize-none text-base shadow-sm font-medium"
                                 />
                             </div>
 
                             <div className="relative">
-                                <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Optional Extras (Optional)</label>
+                                <label className="text-xs font-bold text-slate-500 mb-2 block uppercase tracking-wider">Optional Extras (Optional)</label>
                                 <textarea
                                     value={optionalExtrasRaw}
                                     onChange={e => setOptionalExtrasRaw(e.target.value)}
                                     placeholder="e.g. Include rubbish removal, replace isolation valves..."
-                                    className="w-full h-24 bg-slate-900 border border-slate-800 rounded-xl p-4 text-white placeholder:text-slate-600 focus:ring-2 focus:ring-amber-500 focus:outline-none resize-none text-base"
+                                    className="w-full h-24 bg-white border border-slate-200 rounded-xl p-4 text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-amber-500 focus:outline-none resize-none text-base shadow-sm font-medium"
                                 />
                             </div>
                         </div>
@@ -263,10 +255,10 @@ export default function NewQuotePage() {
                             className={cn(
                                 "w-full py-4 text-white font-bold rounded-2xl shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-80 disabled:cursor-not-allowed overflow-hidden relative",
                                 quoteMode === 'hhh'
-                                    ? "bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 shadow-amber-900/20"
+                                    ? "bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 shadow-amber-500/30"
                                     : quoteMode === 'pick_and_mix'
-                                        ? "bg-emerald-600 hover:bg-emerald-500 border border-emerald-500 shadow-emerald-900/20"
-                                        : "bg-slate-800 hover:bg-slate-700 border border-slate-700"
+                                        ? "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/30"
+                                        : "bg-slate-900 hover:bg-slate-800"
                             )}
                         >
                             {isAnalyzing ? (
@@ -276,11 +268,10 @@ export default function NewQuotePage() {
                                 </div>
                             ) : (
                                 <>
-                                    {quoteMode === 'hhh' ? <Sparkles className="w-5 h-5 animate-pulse" /> : <ArrowRight className="w-5 h-5" />}
+                                    {quoteMode === 'hhh' ? <Sparkles className="w-5 h-5" /> : <ArrowRight className="w-5 h-5" />}
                                     {quoteMode === 'hhh' ? "Analyze with AI" : "Continue to Pricing"}
                                 </>
                             )}
-                            {/* Shiny Effect for Magic Mode */}
                             {quoteMode === 'hhh' && !isAnalyzing && (
                                 <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/20 to-transparent pointer-events-none" />
                             )}
@@ -288,39 +279,41 @@ export default function NewQuotePage() {
                     </div>
                 )}
 
-                {/* STEP 2: VERIFICATION & ADJUSTMENTS (Review AI) */}
+                {/* STEP 2: VERIFICATION & ADJUSTMENTS */}
                 {step === 2 && analysis && (
                     <div className="space-y-6 animate-in slide-in-from-right duration-300">
                         <div>
-                            <h2 className="text-2xl font-bold mb-2 text-white">We found this...</h2>
-                            <p className="text-slate-400 text-sm">Review the estimated scope. You can adjust the complexity.</p>
+                            <h2 className="text-2xl font-bold mb-2 text-slate-900">We found this...</h2>
+                            <p className="text-slate-500 text-sm">Review the estimated scope. You can adjust the complexity.</p>
                         </div>
 
                         {/* AI Summary Card */}
-                        <div className="bg-slate-900 border border-indigo-500/30 rounded-xl p-4 shadow-lg shadow-indigo-900/10">
+                        <div className="bg-white border border-indigo-100 rounded-xl p-5 shadow-lg shadow-indigo-100/50">
                             <div className="flex items-start gap-3">
-                                <Sparkles className="w-5 h-5 text-indigo-400 shrink-0 mt-1" />
+                                <div className="p-2 bg-indigo-50 rounded-lg shrink-0">
+                                    <Sparkles className="w-5 h-5 text-indigo-500" />
+                                </div>
                                 <div>
-                                    <h3 className="font-bold text-indigo-100">AI Summary</h3>
-                                    <p className="text-indigo-200/70 text-sm mt-1 leading-relaxed">{analysis.summary}</p>
+                                    <h3 className="font-bold text-slate-900">Job Scope</h3>
+                                    <p className="text-slate-600 text-sm mt-1 leading-relaxed">{analysis.summary}</p>
                                 </div>
                             </div>
 
-                            <div className="mt-4 pt-4 border-t border-slate-800 grid grid-cols-2 gap-4">
+                            <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 gap-4">
                                 <div>
-                                    <label className="text-[10px] uppercase text-slate-500 font-bold tracking-wider">Est. Hours</label>
-                                    <p className="text-xl font-bold text-white">{analysis.totalEstimatedHours} hrs</p>
+                                    <label className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">Est. Hours</label>
+                                    <p className="text-xl font-bold text-slate-900">{analysis.totalEstimatedHours} hrs</p>
                                 </div>
                                 <div>
-                                    <label className="text-[10px] uppercase text-slate-500 font-bold tracking-wider">Base Price</label>
-                                    <p className="text-xl font-bold text-white">£{analysis.basePricePounds}</p>
+                                    <label className="text-[10px] uppercase text-slate-400 font-bold tracking-wider">Base Price</label>
+                                    <p className="text-xl font-bold text-slate-900">£{analysis.basePricePounds}</p>
                                 </div>
                             </div>
                         </div>
 
                         {/* Complexity Slider */}
                         <div className="space-y-3">
-                            <label className="text-sm font-semibold text-slate-300">Job Complexity</label>
+                            <label className="text-sm font-semibold text-slate-700">Job Complexity</label>
                             <div className="grid grid-cols-4 gap-2">
                                 {(['trivial', 'low', 'medium', 'high'] as Complexity[]).map(comp => (
                                     <button
@@ -329,8 +322,8 @@ export default function NewQuotePage() {
                                         className={cn(
                                             "py-2 rounded-lg text-xs font-bold capitalize border transition-all",
                                             complexity === comp
-                                                ? "bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-900/50"
-                                                : "bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800"
+                                                ? "bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-200"
+                                                : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300"
                                         )}
                                     >
                                         {comp}
@@ -340,18 +333,39 @@ export default function NewQuotePage() {
                         </div>
 
                         {/* Analysis List */}
-                        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                            <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">Detected Tasks</h4>
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                            <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 tracking-wider">Detected Tasks</h4>
                             <ul className="space-y-3">
                                 {analysis.tasks.map((task, i) => (
-                                    <li key={i} className="flex gap-3 text-sm text-slate-300">
-                                        <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                    <li key={i} className="flex gap-3 text-sm text-slate-700">
+                                        <div className="mt-0.5"><Check className="w-4 h-4 text-emerald-500" /></div>
                                         <div className="flex-1">
-                                            <div>{task.description}</div>
+                                            <div className="font-medium">{task.description}</div>
                                             {task.category && (
-                                                <div className="text-xs text-slate-500 mt-1 flex gap-2">
-                                                    <span className="bg-slate-800 px-1.5 py-0.5 rounded text-slate-400">{task.category}</span>
-                                                    {task.appliedRate && <span>@ £{task.appliedRate}/hr</span>}
+                                                <div className="text-xs text-slate-400 mt-1 flex gap-2 items-center">
+                                                    <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-500 border border-slate-200">{task.category}</span>
+                                                    {task.appliedRate ? (
+                                                        <span>@ £{task.appliedRate}/hr</span>
+                                                    ) : (
+                                                        <div className="flex items-center gap-1">
+                                                            <span className="text-amber-600 font-bold bg-amber-50 px-1 rounded">Set Rate: £</span>
+                                                            <input
+                                                                type="number"
+                                                                className="w-16 p-1 text-xs border border-amber-300 rounded focus:border-amber-500 focus:outline-none"
+                                                                placeholder="50"
+                                                                onChange={(e) => {
+                                                                    const newRate = parseInt(e.target.value) || 0;
+                                                                    const newTasks = [...analysis.tasks];
+                                                                    newTasks[i].appliedRate = newRate;
+
+                                                                    // Recalculate total
+                                                                    const newBasePrice = newTasks.reduce((acc, t) => acc + (t.estimatedHours * (t.appliedRate || 0)), 0) + 40; // + Callout
+                                                                    setAnalysis({ ...analysis, tasks: newTasks, basePricePounds: newBasePrice });
+                                                                }}
+                                                            />
+                                                            <span className="text-slate-400">/hr</span>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -362,16 +376,16 @@ export default function NewQuotePage() {
 
                         {/* Optional Extras List */}
                         {analysis.optionalExtras && analysis.optionalExtras.length > 0 && (
-                            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                                <h4 className="text-xs font-bold text-amber-500 uppercase mb-3">Optional Extras</h4>
+                            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                                <h4 className="text-xs font-bold text-amber-500 uppercase mb-3 tracking-wider">Optional Extras</h4>
                                 <ul className="space-y-3">
                                     {analysis.optionalExtras.map((extra, i) => (
-                                        <li key={i} className="flex justify-between items-center text-sm text-slate-300">
+                                        <li key={i} className="flex justify-between items-center text-sm text-slate-700">
                                             <div className="flex gap-2">
                                                 <div className="w-4 h-4 rounded-full border border-amber-500/50 mt-0.5" />
                                                 <span>{extra.label}</span>
                                             </div>
-                                            <span className="font-bold text-white">£{(extra.pricePence / 100).toFixed(0)}</span>
+                                            <span className="font-bold text-slate-900">£{(extra.pricePence / 100).toFixed(0)}</span>
                                         </li>
                                     ))}
                                 </ul>
@@ -380,7 +394,7 @@ export default function NewQuotePage() {
 
                         <button
                             onClick={() => setStep(3)}
-                            className="w-full py-4 bg-slate-100 hover:bg-white text-slate-950 font-bold rounded-xl shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                            className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2"
                         >
                             Looks Good
                             <ArrowRight className="w-5 h-5" />
@@ -388,22 +402,22 @@ export default function NewQuotePage() {
                     </div>
                 )}
 
-                {/* STEP 3: VALUE CONTEXT (The Sell) */}
+                {/* STEP 3: VALUE CONTEXT */}
                 {step === 3 && (
                     <div className="space-y-6 animate-in slide-in-from-right duration-300">
                         <div>
-                            <h2 className="text-2xl font-bold mb-2 text-white">Almost done.</h2>
-                            <p className="text-slate-400 text-sm">A few details to help us price it perfectly (Value Pricing).</p>
+                            <h2 className="text-2xl font-bold mb-2 text-slate-900">Almost done.</h2>
+                            <p className="text-slate-500 text-sm">A few details to help us price it perfectly (Value Pricing).</p>
                         </div>
 
                         {/* Customer Details */}
-                        <div className="space-y-4 bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+                        <div className="space-y-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                             <div className="space-y-2">
                                 <label className="text-xs font-bold text-slate-500">Customer Name</label>
                                 <input
                                     value={customerName}
                                     onChange={e => setCustomerName(e.target.value)}
-                                    className="w-full bg-slate-800 border-slate-700 rounded-lg p-2.5 text-white"
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-slate-900 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none transition-all placeholder:text-slate-400"
                                     placeholder="e.g. Sarah Jones"
                                 />
                             </div>
@@ -413,7 +427,7 @@ export default function NewQuotePage() {
                                     <input
                                         value={phoneNumber}
                                         onChange={e => setPhoneNumber(e.target.value)}
-                                        className="w-full bg-slate-800 border-slate-700 rounded-lg p-2.5 text-white"
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-slate-900 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none transition-all placeholder:text-slate-400"
                                         placeholder="Mobile"
                                     />
                                 </div>
@@ -422,7 +436,7 @@ export default function NewQuotePage() {
                                     <input
                                         value={postcode}
                                         onChange={e => setPostcode(e.target.value)}
-                                        className="w-full bg-slate-800 border-slate-700 rounded-lg p-2.5 text-white"
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-slate-900 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-none transition-all placeholder:text-slate-400"
                                         placeholder="SW1A 1AA"
                                     />
                                 </div>
@@ -431,7 +445,7 @@ export default function NewQuotePage() {
 
                         {/* Value Questions */}
                         <div className="space-y-4">
-                            <label className="text-sm font-semibold text-slate-300">Who is paying?</label>
+                            <label className="text-sm font-semibold text-slate-700">Who is paying?</label>
                             <div className="grid grid-cols-3 gap-2">
                                 {(['homeowner', 'landlord', 'commercial'] as ClientType[]).map(type => (
                                     <button
@@ -440,8 +454,8 @@ export default function NewQuotePage() {
                                         className={cn(
                                             "py-3 px-2 rounded-lg text-xs font-bold capitalize border transition-all text-center",
                                             clientType === type
-                                                ? "bg-amber-500 border-amber-400 text-white shadow-lg shadow-amber-900/50"
-                                                : "bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800"
+                                                ? "bg-amber-500 border-amber-500 text-white shadow-md shadow-amber-200"
+                                                : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
                                         )}
                                     >
                                         {type}
@@ -449,7 +463,7 @@ export default function NewQuotePage() {
                                 ))}
                             </div>
 
-                            <label className="text-sm font-semibold text-slate-300 block mt-4">How urgent / annoying is it?</label>
+                            <label className="text-sm font-semibold text-slate-700 block mt-4">How urgent / annoying is it?</label>
                             <div className="grid grid-cols-3 gap-2">
                                 {(['low', 'med', 'high'] as Urgency[]).map(lvl => (
                                     <button
@@ -458,8 +472,8 @@ export default function NewQuotePage() {
                                         className={cn(
                                             "py-3 px-2 rounded-lg text-xs font-bold capitalize border transition-all text-center",
                                             urgency === lvl
-                                                ? "bg-red-500 border-red-400 text-white shadow-lg shadow-red-900/50"
-                                                : "bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800"
+                                                ? "bg-red-500 border-red-500 text-white shadow-md shadow-red-200"
+                                                : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
                                         )}
                                     >
                                         {lvl === 'high' ? 'High / Emergency' : lvl === 'med' ? 'Standard' : 'Low / Flexible'}
@@ -471,7 +485,7 @@ export default function NewQuotePage() {
                         <button
                             onClick={() => createQuoteMutation.mutate()}
                             disabled={createQuoteMutation.isPending}
-                            className="w-full py-4 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold rounded-xl shadow-lg shadow-amber-900/40 active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-8"
+                            className="w-full py-4 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold rounded-xl shadow-lg shadow-amber-500/30 active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-8"
                         >
                             {createQuoteMutation.isPending ? (
                                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -496,20 +510,20 @@ export default function NewQuotePage() {
                             <motion.div
                                 animate={{ rotate: 360 }}
                                 transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                                className="absolute inset-0 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full blur-xl opacity-50"
+                                className="absolute inset-0 bg-gradient-to-r from-amber-400 to-orange-400 rounded-full blur-xl opacity-30"
                             />
-                            <div className="relative bg-slate-900 p-6 rounded-full border border-amber-500/50 shadow-2xl shadow-amber-900/50">
+                            <div className="relative bg-white p-6 rounded-full border border-amber-100 shadow-xl shadow-amber-100/50">
                                 <Sparkles className="w-12 h-12 text-amber-500" />
                             </div>
                         </div>
 
                         <div className="space-y-2">
-                            <h2 className="text-3xl font-bold text-white">Magic Quote Ready!</h2>
-                            <p className="text-slate-400">Redirecting you to the preview details...</p>
+                            <h2 className="text-3xl font-bold text-slate-900">Magic Quote Ready!</h2>
+                            <p className="text-slate-500">Redirecting you to the preview details...</p>
                         </div>
                     </motion.div>
                 )}
             </div>
-        </div>
+        </ContractorAppShell>
     );
 }

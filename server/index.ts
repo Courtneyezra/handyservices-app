@@ -15,6 +15,7 @@ import { desc, eq, and, ne, or, asc } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 import { detectSku, detectMultipleTasks, loadAndCacheSkus } from "./skuDetector";
 import { setupTwilioSocket } from "./twilio-realtime";
+import { twilioClient } from "./twilio-client";
 import { createCall, findCallByTwilioSid, updateCall, finalizeCall } from './call-logger';
 import { determineCallRouting, CallRoutingSettings, AgentMode, FallbackAction } from "./call-routing-engine";
 import { quotesRouter } from "./quotes";
@@ -503,6 +504,16 @@ app.post('/api/twilio/voice', async (req, res) => {
                 customerName: "Unknown Caller",
             });
             console.log(`[Twilio] Initial call logged for ${req.body.CallSid}`);
+
+            // Robustness: Start Twilio Recording
+            try {
+                await twilioClient.calls(req.body.CallSid).recordings.create({
+                    recordingChannels: 'dual'
+                });
+                console.log(`[Twilio] Explicit recording started for ${req.body.CallSid}`);
+            } catch (e) {
+                console.warn(`[Twilio] Failed to start explicit recording:`, e);
+            }
         }
     } catch (e) {
         console.error(`[Twilio] Failed to log initial call ${req.body.CallSid}:`, e);
@@ -591,7 +602,7 @@ app.post('/api/twilio/voice', async (req, res) => {
         const holdMusicUrl = settings.holdMusicUrl || `${httpProtocol}://${host}/assets/hold-music.mp3`;
         twiml += `
       <Dial timeout="${settings.maxWaitSeconds || 30}" action="${httpProtocol}://${host}/api/twilio/dial-status" method="POST" answerOnBridge="false" ringTone="uk" callerId="${req.body.To || req.body.Called}">
-        <Number url="${holdMusicUrl}">${settings.forwardNumber}</Number>
+        <Number>${settings.forwardNumber}</Number>
       </Dial>`;
     } else if (routing.destination === 'eleven-labs' || routing.destination === 'busy-agent') {
         // Redirect to Eleven Labs Register Call endpoint (DIRECT MODE)

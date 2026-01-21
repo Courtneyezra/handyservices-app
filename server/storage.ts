@@ -149,7 +149,10 @@ class StorageService {
                         return storedPathOrUrl;
                     }
                     console.warn(`[Storage] Local file missing for ${storedPathOrUrl}. Attempting S3 fallback...`);
-                    // Fall through to S3 logic -> Key = storedPathOrUrl ('storage/recordings/...')
+                    // Fall through to S3 logic
+                    // If local file is missing, try S3. 
+                    // Since local paths include directory but S3 keys are flat (basename), extract basename.
+                    key = path.basename(storedPathOrUrl);
                 } else {
                     return storedPathOrUrl;
                 }
