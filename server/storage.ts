@@ -26,6 +26,7 @@ class StorageService {
         if (this.provider === 's3') {
             if (!S3_ENDPOINT || !S3_BUCKET || !S3_ACCESS_KEY || !S3_SECRET_KEY) {
                 console.warn("[Storage] S3 configuration missing. Falling back to local storage.");
+                console.warn(`[Storage] Debug: Endpoint=${!!S3_ENDPOINT}, Bucket=${!!S3_BUCKET}, AccessKey=${!!S3_ACCESS_KEY}, Secret=${!!S3_SECRET_KEY}`);
                 this.provider = 'local';
             } else {
                 this.s3Client = new S3Client({

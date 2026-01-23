@@ -51,11 +51,11 @@ export interface UpdateCallData {
     localRecordingPath?: string;
     status?: string;
 
-    // Action Center Updates
     actionStatus?: string;
     actionUrgency?: number;
     missedReason?: string;
     tags?: string[];
+    leadId?: string;
 }
 
 /**

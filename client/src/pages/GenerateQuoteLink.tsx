@@ -607,6 +607,31 @@ export default function GenerateQuoteLink() {
     }
 
     setIsGenerating(true);
+
+    // Auto-polish for Diagnostic Mode if reason is raw text
+    let finalAssessmentReason = assessmentReason;
+
+    if (generatorTab === 'diagnostic' && assessmentReason && !assessmentReason.trim().toLowerCase().startsWith('hi')) {
+      try {
+        toast({ title: "Personalising Note...", description: "AI is formatting your reason for visit." });
+        const res = await fetch('/api/generate-personalized-note', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: assessmentReason, customerName, postcode, address: address || undefined })
+        });
+        const data = await res.json();
+        if (data.note) {
+          finalAssessmentReason = data.note;
+          // Update UI state so user sees the change too
+          setAssessmentReason(data.note);
+          setWhatsappSummary(data.summary || '');
+        }
+      } catch (e) {
+        console.error("Auto-polish failed", e);
+        // Fallback to raw reason
+      }
+    }
+
     try {
       // Convert effective base price to pence
       const baseJobPricePence = Math.round(finalBasePrice * 100);
@@ -627,7 +652,7 @@ export default function GenerateQuoteLink() {
         quoteMode: finalQuoteMode,
         visitTierMode: finalQuoteMode === 'consultation' ? visitTierMode : 'standard', // Pass the tier preference
         clientType,
-        assessmentReason: assessmentReason || undefined,
+        assessmentReason: finalAssessmentReason || undefined,
         tierStandardPrice: tierStandardPrice ? Math.round(parseFloat(tierStandardPrice) * 100) : undefined,
         tierPriorityPrice: tierPriorityPrice ? Math.round(parseFloat(tierPriorityPrice) * 100) : undefined,
         tierEmergencyPrice: tierEmergencyPrice ? Math.round(parseFloat(tierEmergencyPrice) * 100) : undefined,

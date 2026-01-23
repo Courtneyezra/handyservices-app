@@ -24,6 +24,7 @@ import beforeImage from "@assets/74cb4082-17d2-48b1-bd98-bf51f85bc7a5_(1)_176469
 import afterImage from "@assets/cb5e8951-9d46-4023-9909-510a89d3da60_1764693845208.webp";
 import payIn3Image from "@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.webp";
 import { useLandingPage } from "@/hooks/useLandingPage";
+import { LocalTrustSection } from "@/components/AnimatedMap";
 
 const WHATSAPP_NUMBER = "+447508744402";
 const WHATSAPP_MESSAGE = encodeURIComponent("I'm interested in Handy Services - Derby");
@@ -887,6 +888,7 @@ export default function DerbyLanding() {
                 bannerText={variant?.content?.bannerText}
             />
             <SocialProofSection location="derby" />
+            <LocalTrustSection location="derby" />
             <EmergencyServiceSection />
             <TeamSection />
             <ProcessSection />

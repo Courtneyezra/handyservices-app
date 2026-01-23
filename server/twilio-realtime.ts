@@ -556,6 +556,13 @@ export class MediaStreamTranscriber {
                         }
                     });
                     */
+
+                    // Update call with leadId
+                    if (this.callRecordId) {
+                        await updateCall(this.callRecordId, {
+                            leadId: leadId
+                        });
+                    }
                 } else {
                     // Create new lead
                     leadId = `lead_voice_${Date.now()}`;
@@ -588,8 +595,11 @@ export class MediaStreamTranscriber {
                         postcode: mergedMetadata.postcode,
                         urgency: mergedMetadata.urgency,
                         leadType: mergedMetadata.leadType,
+                        urgency: mergedMetadata.urgency,
+                        leadType: mergedMetadata.leadType,
                         outcome: routing.nextRoute,
-                        metadataJson: mergedMetadata
+                        metadataJson: mergedMetadata,
+                        leadId: leadId
                     });
 
                     // Add detected SKUs to call record

@@ -218,12 +218,12 @@ export default function DiagnosticVisitPage() {
             <div className={`mx-auto px-4 py-8 ${quote.visitTierMode === 'tiers' ? 'max-w-7xl' : 'max-w-xl'}`}>
                 {/* --- HERO SECTION --- */}
                 <div className="mb-12 text-center max-w-2xl mx-auto">
-                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-bold text-sm mb-6 animate-pulse">
-                        <Check className="w-4 h-4" /> 100% Refundable against your final quote
+                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 font-bold text-sm mb-6 animate-pulse">
+                        <AlertCircle className="w-4 h-4" /> Don't get caught in the phone quote trap
                     </div>
 
                     <h1 className="text-3xl md:text-4xl font-bold text-white mb-4">
-                        Site Visit & Diagnosis
+                        Don't Waste Money on Guesswork Quotes
                     </h1>
                     <motion.div
                         initial={{ opacity: 0 }}
@@ -277,7 +277,7 @@ export default function DiagnosticVisitPage() {
 
                                     <div className="flex items-baseline gap-1 mb-2 md:mb-2">
                                         <span className="text-3xl md:text-4xl font-black text-white">£{tier.price}</span>
-                                        <span className="text-slate-500 text-xs md:text-sm font-medium">Refundable Deposit</span>
+                                        <span className="text-slate-500 text-xs md:text-sm font-medium">Fully Refundable Deposit</span>
                                     </div>
 
                                     {/* Trust Signal - Hidden on mobile to save space */}
@@ -321,6 +321,15 @@ export default function DiagnosticVisitPage() {
 
                                     {/* Embedded Booking Calendar */}
                                     <div className="mb-4 pt-4 border-t border-slate-700/50">
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <div className="relative flex h-2 w-2">
+                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                                            </div>
+                                            <span className="text-xs font-bold text-red-400 uppercase tracking-wide">
+                                                Only {Math.floor(Math.random() * 3) + 2} slots left this week
+                                            </span>
+                                        </div>
                                         <BookingCalendar
                                             selectedSlot={selectedTier?.id === tier.id ? selectedSlot : undefined}
                                             onSelect={(slot) => {

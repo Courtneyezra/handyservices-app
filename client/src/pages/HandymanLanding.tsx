@@ -7,6 +7,7 @@ import { SocialProofSection } from "@/components/SocialProofSection";
 import { IntakeHero } from "@/components/IntakeHero";
 import { GoogleReviewsSection } from "@/components/GoogleReviewsSection";
 import { StickyCTA } from "@/components/StickyCTA";
+import { LocalTrustSection } from "@/components/AnimatedMap";
 
 import teamMember1 from "@assets/Untitled design (22)_1764599239600.webp";
 import teamMember2 from "@assets/Untitled design (23)_1764599239600.webp";
@@ -897,6 +898,7 @@ export default function HandymanLanding() {
                 onConversion={trackConversion}
             />
             <SocialProofSection location="nottingham" />
+            <LocalTrustSection location="nottingham" />
             <EmergencyServiceSection />
             <TeamSection />
             <ProcessSection />

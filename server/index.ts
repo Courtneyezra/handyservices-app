@@ -44,6 +44,7 @@ import { setupCronJobs } from './cron';
 import uploadRouter from "./upload";
 import invoiceRouter from './invoices'; // B2: Invoice management
 import jobAssignmentRouter from './job-assignment'; // B5: Job assignment/dispatch
+import reviewsRouter from "./reviews-routes";
 
 
 import publicRoutes from './public-routes';
@@ -228,6 +229,7 @@ app.get('/api/diagnostics', async (req, res) => {
 app.use(quotesRouter);
 app.use(leadsRouter);
 app.use('/api', voiceRouter);
+app.use('/api', reviewsRouter); // API: Google Reviews
 app.use('/api/places', placesRouter); // API: Places Search
 app.use('/api', testRouter);
 app.use('/api/whatsapp', whatsappRouter); // Legacy Twilio Webhooks

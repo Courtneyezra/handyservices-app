@@ -31,6 +31,26 @@ export interface PostcodeValidationResult {
     };
 }
 
+export interface GoogleReview {
+    authorName: string;
+    authorPhoto?: string;
+    rating: number;
+    text: string;
+    relativeTime: string;
+    time: number;
+}
+
+export interface GoogleReviewsData {
+    businessName: string;
+    rating: number;
+    totalReviews: number;
+    reviews: GoogleReview[];
+}
+
+// Cache reviews for 24 hours
+const reviewsCache = new Map<string, { data: GoogleReviewsData; timestamp: number }>();
+const REVIEWS_CACHE_TTL = 24 * 60 * 60 * 1000;
+
 /**
  * B4: Validate UK postcode using free postcodes.io API
  * Returns validation result with coordinates if valid
@@ -226,3 +246,90 @@ export function getCacheStats() {
         entries: Array.from(addressCache.keys())
     };
 }
+
+/**
+ * Fetch Google Reviews for a specific location query
+ */
+export async function getGoogleReviews(location: string): Promise<GoogleReviewsData | null> {
+    // Check cache first
+    const cacheKey = `reviews_${location}`;
+    const cached = reviewsCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < REVIEWS_CACHE_TTL) {
+        console.log(`[Google Reviews] Cache hit for ${location}`);
+        return cached.data;
+    }
+
+    if (!process.env.GOOGLE_PLACES_API_KEY) {
+        console.warn('[Google Reviews] API key not configured');
+        return null;
+    }
+
+    try {
+        // 1. Find the Place ID
+        // Use text search to find the business "Handy Services" in the specific location
+        const searchResponse = await axios.post(
+            'https://places.googleapis.com/v1/places:searchText',
+            {
+                textQuery: `Handy Services ${location}`,
+                maxResultCount: 1
+            },
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Goog-Api-Key': process.env.GOOGLE_PLACES_API_KEY,
+                    'X-Goog-FieldMask': 'places.id'
+                }
+            }
+        );
+
+        const placeId = searchResponse.data.places?.[0]?.id;
+
+        if (!placeId) {
+            console.warn(`[Google Reviews] No place found for "Handy Services ${location}"`);
+            return null;
+        }
+
+        // 2. Fetch Place Details (Reviews, Rating)
+        const detailsResponse = await axios.get(
+            `https://places.googleapis.com/v1/places/${placeId}`,
+            {
+                params: {
+                    key: process.env.GOOGLE_PLACES_API_KEY,
+                    fields: 'displayName,rating,userRatingCount,reviews',
+                    languageCode: 'en'
+                }
+            }
+        );
+
+        const place = detailsResponse.data;
+
+        // Transform to our interface
+        const reviewsData: GoogleReviewsData = {
+            businessName: place.displayName?.text || 'Handy Services',
+            rating: place.rating || 0,
+            totalReviews: place.userRatingCount || 0,
+            reviews: (place.reviews || []).map((r: any) => ({
+                authorName: r.authorAttribution?.displayName || 'Anonymous',
+                authorPhoto: r.authorAttribution?.photoUri,
+                rating: r.rating,
+                text: r.text?.text || r.originalText?.text || '',
+                relativeTime: r.relativePublishTimeDescription || '',
+                time: new Date(r.publishTime).getTime()
+            }))
+        };
+
+        // Cache the result
+        reviewsCache.set(cacheKey, {
+            data: reviewsData,
+            timestamp: Date.now()
+        });
+
+        console.log(`[Google Reviews] Fetched ${reviewsData.reviews.length} reviews for ${location}`);
+        return reviewsData;
+
+    } catch (error: any) {
+        console.error('[Google Reviews] API error:', error.response?.data || error.message);
+        return null;
+    }
+}
+
