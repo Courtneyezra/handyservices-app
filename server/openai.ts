@@ -4,11 +4,24 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
-// Initialize OpenAI
-if (!process.env.OPENAI_API_KEY) {
-    console.warn("OPENAI_API_KEY is not set. AI features will be limited.");
+// Initialize OpenAI (lazy initialization to allow testing without API key)
+let _openai: OpenAI | null = null;
+export function getOpenAI(): OpenAI {
+    if (!_openai) {
+        if (!process.env.OPENAI_API_KEY) {
+            throw new Error("OPENAI_API_KEY is not set. AI features require an API key.");
+        }
+        _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    }
+    return _openai;
 }
-export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Legacy export for backward compatibility
+export const openai = new Proxy({} as OpenAI, {
+    get(target, prop) {
+        return (getOpenAI() as any)[prop];
+    }
+});
 
 export interface CallMetadata {
     customerName: string | null;
@@ -24,6 +37,18 @@ export interface CallMetadata {
         reasoning: string;
     }>;
 }
+
+// NEW: Lead Classification Types for Routing Brain
+export interface LeadClassification {
+    clientType: 'homeowner' | 'landlord' | 'tenant' | 'commercial' | 'unknown';
+    jobClarity: 'known' | 'vague' | 'complex';
+    jobType: 'commodity' | 'subjective' | 'fault' | 'project';
+    urgency: 'asap' | 'normal' | 'flexible';
+    segment: 'BUSY_PRO' | 'PROP_MGR' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'UNKNOWN';
+    reasoning: string;
+}
+
+export type QuoteRoute = 'instant' | 'tiers' | 'assessment';
 
 interface Segment {
     speaker: number;
@@ -694,4 +719,161 @@ Example Output: "Hi Dave! So sorry for the slight delay getting back to you - we
         console.error("Error refining message:", error);
         return rawMessage;
     }
+}
+
+/**
+ * ROUTING BRAIN: Lead Classifier
+ * Extracts structured signals from messy customer input to enable intelligent routing.
+ * 
+ * This is the "Brain" - it understands natural language and converts it to structured data.
+ * The "Matrix" (determineOptimalRoute) then applies business rules to these signals.
+ */
+export async function classifyLead(
+    jobDescription: string,
+    metadata?: CallMetadata
+): Promise<LeadClassification> {
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                {
+                    role: "system",
+                    content: `You are an expert Lead Classifier for a handyman service.
+Your goal is to extract 5 KEY SIGNALS from the customer's input to enable intelligent quote routing.
+
+OUTPUT JSON ONLY:
+{
+  "clientType": "homeowner" | "landlord" | "tenant" | "commercial" | "unknown",
+  "jobClarity": "known" | "vague" | "complex",
+  "jobType": "commodity" | "subjective" | "fault" | "project",
+  "urgency": "asap" | "normal" | "flexible",
+  "segment": "BUSY_PRO" | "PROP_MGR" | "SMALL_BIZ" | "DIY_DEFERRER" | "BUDGET" | "UNKNOWN",
+  "reasoning": "Brief explanation (max 10 words)"
+}
+
+SIGNAL DEFINITIONS:
+
+1. CLIENT TYPE:
+   - "homeowner": Owner-occupier, mentions "my house", "we live here"
+   - "landlord": Rental property owner, mentions "tenant", "rental", "investment property"
+   - "tenant": Renter, mentions "landlord", "deposit", "end of tenancy"
+   - "commercial": Business, mentions "Ltd", "office", "shop", company name
+   - "unknown": Cannot determine
+
+2. JOB CLARITY:
+   - "known": Clear, specific task (e.g., "mount 55-inch TV", "replace kitchen tap")
+   - "vague": Unclear problem (e.g., "leak somewhere", "odd smell", "not working")
+   - "complex": Large project requiring planning (e.g., "bathroom refit", "kitchen install")
+
+3. JOB TYPE:
+   - "commodity": Standard, identical task (TV mount, lock change, key safe)
+   - "subjective": Variable quality/finish (painting, shelving, carpentry)
+   - "fault": Diagnostic needed (leak, electrical trip, noise)
+   - "project": Multi-trade renovation (bathroom, kitchen, extension)
+
+4. URGENCY:
+   - "asap": <24 hours, emergency, "urgent", "ASAP"
+   - "normal": This week, "soon", "when you can"
+   - "flexible": No rush, "whenever", "next month"
+
+5. STRATEGY SEGMENT (CRITICAL):
+   - "BUSY_PRO": High WTP, Values SPEED. Signals: "ASAP", "work schedule", "won't be home", professional tone.
+   - "PROP_MGR": Medium/High WTP, Values RELIABILITY. Signals: "I manage", "tenant", multiple units, invoicing.
+   - "SMALL_BIZ": High WTP, Values DISRUPTION-FREE. Signals: Business name, "after hours", "before we open", "office/shop".
+   - "DIY_DEFERRER": Low/Med WTP, Values BATCHING. Signals: "Meaning to for ages", list of small jobs, "while you're there".
+   - "BUDGET": Low WTP, Values PRICE. Signals: "Cheapest", "rough estimate", price-first questions, "I'm renting".
+   - "UNKNOWN": No clear signal.
+
+
+EXAMPLES:
+
+Input: "Need to mount my new 65-inch Samsung TV on the living room wall. I work 9-5 so need an evening slot."
+Output: {"clientType": "homeowner", "jobClarity": "known", "jobType": "commodity", "urgency": "normal", "segment": "BUSY_PRO", "reasoning": "Homeowner with work schedule constraints"}
+
+Input: "My tenant says there's a musty smell under the kitchen sink at 42 High St. Need an invoice for the company."
+Output: {"clientType": "landlord", "jobClarity": "vague", "jobType": "fault", "urgency": "normal", "segment": "PROP_MGR", "reasoning": "Landlord managing rental with invoicing needs"}
+
+Input: "Hi, I have a list of small jobs I've been putting off. A shelf to hang, a loose door handle, and some caulking."
+Output: {"clientType": "homeowner", "jobClarity": "known", "jobType": "commodity", "urgency": "flexible", "segment": "DIY_DEFERRER", "reasoning": "Batching small list of deferred jobs"}
+
+Input: "What's the cheapest price to just change a lock? I don't need anything fancy."
+Output: {"clientType": "unknown", "jobClarity": "known", "jobType": "commodity", "urgency": "normal", "segment": "BUDGET", "reasoning": "Price-sensitive language"}
+`
+                },
+                {
+                    role: "user",
+                    content: `Job Description: "${jobDescription}"${metadata?.leadType ? `\nLead Type from Call: ${metadata.leadType}` : ''}${metadata?.urgency ? `\nUrgency from Call: ${metadata.urgency}` : ''}`
+                }
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.1 // Deterministic
+        });
+
+        const result = JSON.parse(response.choices[0].message.content || "{}");
+
+        return {
+            clientType: result.clientType || 'unknown',
+            jobClarity: result.jobClarity || 'known',
+            jobType: result.jobType || 'commodity',
+            urgency: result.urgency || 'normal',
+            segment: result.segment || 'UNKNOWN',
+            reasoning: result.reasoning || 'Default classification'
+        };
+
+
+    } catch (error) {
+        console.error("Error classifying lead:", error);
+        // Safe fallback
+        return {
+            clientType: 'unknown',
+            jobClarity: 'known',
+            jobType: 'subjective',
+            urgency: 'normal',
+            segment: 'UNKNOWN',
+            reasoning: 'Classification failed - using defaults'
+        };
+    }
+}
+
+/**
+ * ROUTING MATRIX: Deterministic Route Selection
+ * Applies business rules to classified signals to determine the optimal quote route.
+ * 
+ * This is the "Matrix" - it ensures consistent, predictable routing based on your business logic.
+ */
+export function determineOptimalRoute(classification: LeadClassification): {
+    route: QuoteRoute;
+    reasoning: string;
+} {
+    const { clientType, jobClarity, jobType, urgency } = classification;
+
+    // RULE 1: Unknown faults or complex projects -> Expert Assessment
+    if (jobClarity === 'vague' || jobType === 'fault') {
+        return {
+            route: 'assessment',
+            reasoning: 'Unknown fault requires diagnostic visit'
+        };
+    }
+
+    if (jobClarity === 'complex' || jobType === 'project') {
+        return {
+            route: 'assessment',
+            reasoning: 'Complex project requires site survey'
+        };
+    }
+
+    // RULE 2: Commodity tasks -> Instant Action
+    if (jobType === 'commodity') {
+        return {
+            route: 'instant',
+            reasoning: 'Standard commodity task - fixed price'
+        };
+    }
+
+    // RULE 3: Subjective jobs -> Service Tiers (with appropriate skin)
+    // The skin will be determined by clientType on the frontend
+    return {
+        route: 'tiers',
+        reasoning: `Service tiers with ${clientType} skin`
+    };
 }

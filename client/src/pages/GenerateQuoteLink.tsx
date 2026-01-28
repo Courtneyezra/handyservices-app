@@ -22,6 +22,7 @@ import {
   ownershipContextEnum,
   desiredTimeframeEnum,
 } from '@shared/schema';
+import { RouteRecommendation, RouteAnalysis } from '../components/RouteRecommendation';
 
 // Task item interface for editable tasks
 interface TaskItem {
@@ -31,6 +32,7 @@ interface TaskItem {
   hours: number;
   materialCost: number;
   complexity: 'low' | 'medium' | 'high';
+  fixedPrice?: number; // Optional fixed price override (for SKUs)
 }
 
 interface PersonalizedQuote {
@@ -61,6 +63,7 @@ interface PersonalizedQuote {
   leadId: string | null;
   createdAt: string;
   visitTierMode?: 'tiers' | 'fixed' | null;
+  segment?: 'BUSY_PRO' | 'PROP_MGR' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'UNKNOWN';
 }
 
 export default function GenerateQuoteLink() {
@@ -78,7 +81,7 @@ export default function GenerateQuoteLink() {
   // Tab state
   const [activeTab, setActiveTab] = useState<'generate' | 'sent' | 'settings'>('generate');
   const [generatorTab, setGeneratorTab] = useState<'estimator' | 'diagnostic'>('estimator');
-  const [searchQuery, setSearchQuery] = useState('');
+
 
   // Invoice modal state
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
@@ -104,7 +107,15 @@ export default function GenerateQuoteLink() {
     totalEstimatedHours: number;
     basePricePounds: number;
     summary?: string;
+    suggestedSkus?: {
+      taskDescription: string;
+      skuName: string;
+      pricePence: number;
+      confidence: number;
+      id: string;
+    }[];
   } | null>(null);
+  const [dismissedSkuIds, setDismissedSkuIds] = useState<string[]>([]);
   const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [overridePrice, setOverridePrice] = useState<string>('');
@@ -130,9 +141,73 @@ export default function GenerateQuoteLink() {
     localStorage.setItem('tierPriorityPrice', tierPriorityPrice);
     localStorage.setItem('tierEmergencyPrice', tierEmergencyPrice);
   }, [tierStandardPrice, tierPriorityPrice, tierEmergencyPrice]);
+
+  // F7: Pre-fill form from Extraction Agent (if triggered from Call Log)
+  useEffect(() => {
+    const savedData = sessionStorage.getItem("quoteFromCall");
+    if (savedData) {
+      try {
+        const data = JSON.parse(savedData);
+        // Clean up immediately so it doesn't persist forever
+        sessionStorage.removeItem("quoteFromCall");
+
+        toast({
+          title: "Data Extracted",
+          description: "Pre-filling Quote Generator from call transcript.",
+        });
+
+        // 1. Populate Customer Info
+        if (data.customerName) setCustomerName(data.customerName);
+        if (data.customerPhone) setPhone(data.customerPhone);
+        if (data.postcode) setPostcode(data.postcode);
+        if (data.address) setAddress(data.address);
+
+        // 2. Populate Job Context
+        if (data.jobSummary) setJobDescription(data.jobSummary);
+        if (data.urgency) {
+          // Map AI urgency to our schema (low/med/high)
+          const mapUrgency = (u: string) => {
+            if (u.includes("high") || u.includes("emergency")) return "high";
+            if (u.includes("low")) return "low";
+            return "med";
+          };
+          setUrgencyReason(mapUrgency(data.urgency));
+        }
+        if (data.clientType) {
+          // Map client type
+          if (data.clientType.includes("manager") || data.clientType.includes("commercial")) {
+            setClientType("commercial");
+            // Maybe set ownership context?
+            setOwnershipContext("landlord");
+          } else {
+            setClientType("residential");
+            setOwnershipContext("homeowner");
+          }
+        }
+
+        // 3. Auto-Trigger Analysis (Optional but helpful)
+        if (data.jobSummary && data.jobSummary.length > 10) {
+          // We can't easily call runJobAnalysis because of closure staleness on initial render,
+          // but we can set a flag or just let the user click "Analyze".
+          // For now, let's just let the user review the text first.
+        }
+
+      } catch (e) {
+        console.error("Failed to parse quoteFromCall data", e);
+      }
+    }
+  }, []);
+
   const [showPriceOverride, setShowPriceOverride] = useState(false);
   const [showTaskEditor, setShowTaskEditor] = useState(false);
   const [editableTasks, setEditableTasks] = useState<any[]>([]);
+
+  // NEW STATE for Redesign
+  const [classification, setClassification] = useState<RouteAnalysis['classification'] | null>(null);
+  const [selectedRoute, setSelectedRoute] = useState<'instant' | 'tiers' | 'assessment' | undefined>(undefined);
+  const [segment, setSegment] = useState<'BUSY_PRO' | 'PROP_MGR' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | undefined>(undefined);
+  const [proposalModeEnabled, setProposalModeEnabled] = useState(false);
+  const [isQuickLink, setIsQuickLink] = useState(false);
 
   // Effective base price (override or AI-calculated)
   const effectiveBasePrice = overridePrice
@@ -219,16 +294,7 @@ export default function GenerateQuoteLink() {
   //   queryKey: ['/api/user'],
   // });
 
-  // Fetch personalized quotes for Sent Quotes tab
-  const { data: quotes = [], isLoading: isLoadingQuotes, error: quotesError, refetch: refetchQuotes } = useQuery<PersonalizedQuote[]>({
-    queryKey: ['/api/personalized-quotes'],
-    queryFn: async () => {
-      const res = await fetch('/api/personalized-quotes');
-      if (!res.ok) throw new Error('Failed to fetch quotes');
-      return res.json();
-    },
-    enabled: activeTab === 'sent',
-  });
+
   // Fetch Twilio settings for Settings tab
   interface ForwardingAgentInfo {
     id: string;
@@ -314,6 +380,15 @@ export default function GenerateQuoteLink() {
       return sum + (baseHours * quantity * multiplier);
     }, 0);
 
+    // Calculate labor hours (excluding fixed price tasks)
+    const laborHours = editableTasks.reduce((sum, task) => {
+      if (task.fixedPrice) return sum; // Skip fixed price tasks for labor calc
+      const baseHours = task.hours || 0;
+      const quantity = task.quantity || 1;
+      const multiplier = complexityMultipliers[task.complexity as keyof typeof complexityMultipliers] || 1.0;
+      return sum + (baseHours * quantity * multiplier);
+    }, 0);
+
     // Calculate raw materials cost with quantity
     const totalMaterialCost = editableTasks.reduce((sum, task) => {
       const quantity = task.quantity || 1;
@@ -328,8 +403,16 @@ export default function GenerateQuoteLink() {
       ? (analyzedJob.basePricePounds / analyzedJob.totalEstimatedHours)
       : 50; // Fallback to £50/hour
 
-    const laborCost = totalHours * baseHourlyRate;
-    const totalPrice = Math.round(laborCost + materialCostWithMarkup);
+
+
+    const laborCost = laborHours * baseHourlyRate;
+
+    // Sum fixed prices
+    const fixedPriceTotal = editableTasks.reduce((sum, task) => {
+      return sum + ((task.fixedPrice || 0) * (task.quantity || 1));
+    }, 0);
+
+    const totalPrice = Math.round(laborCost + materialCostWithMarkup + fixedPriceTotal);
 
     return {
       totalHours: Math.round(totalHours * 10) / 10, // Round to 1 decimal
@@ -476,17 +559,52 @@ export default function GenerateQuoteLink() {
     setAnalysisError(null);
 
     try {
-      const response = await fetch('/api/analyze-job', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobDescription }),
-      });
+      // internal helper to handle fetch errors gracefully
+      const safeFetch = async (url: string, body: any) => {
+        try {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          if (!res.ok) {
+            const errText = await res.text();
+            console.error(`Fetch error for ${url}: ${res.status} ${res.statusText}`, errText);
+          }
+          return res;
+        } catch (e) {
+          console.error(`Fetch error for ${url}:`, e);
+          return null;
+        }
+      };
 
-      if (!response.ok) {
-        throw new Error('Failed to analyze job');
+      const [pricingResponse, routeResponse] = await Promise.all([
+        safeFetch('/api/analyze-job', { jobDescription }),
+        safeFetch('/api/quotes/analyze-route', { jobDescription })
+      ]);
+
+      if (!pricingResponse || !pricingResponse.ok) {
+        // Pricing is critical, so we throw if it fails
+        throw new Error('Failed to analyze job pricing');
       }
 
-      const data = await response.json();
+      const data = await pricingResponse.json();
+      let routeData: RouteAnalysis | null = null;
+
+      if (routeResponse && routeResponse.ok) {
+        routeData = await routeResponse.json();
+        setClassification(routeData?.classification || null);
+
+        // Auto-select the recommended route
+        if (routeData?.recommendedRoute) {
+          setSelectedRoute(routeData.recommendedRoute);
+
+          // Map route to legacy quoteMode for compatibility
+          if (routeData.recommendedRoute === 'instant') setQuoteMode('simple');
+          else if (routeData.recommendedRoute === 'tiers') setQuoteMode('hhh');
+          else if (routeData.recommendedRoute === 'assessment') setQuoteMode('consultation');
+        }
+      }
 
       // Calculate base price from multiple fallback sources
       let basePricePounds = 0;
@@ -507,7 +625,10 @@ export default function GenerateQuoteLink() {
 
       // Validate numeric result
       if (!basePricePounds || isNaN(basePricePounds) || basePricePounds <= 0) {
-        throw new Error('Unable to calculate valid price from AI analysis. Please try again or enter price manually.');
+        // If price analysis failed but we have a route, we might still want to proceed?
+        // For now, let's allow it but warn, or just default.
+        console.warn('Could not calculate base price, defaulting to 0');
+        basePricePounds = 0;
       }
 
       const roundedPrice = Math.round(basePricePounds);
@@ -516,30 +637,18 @@ export default function GenerateQuoteLink() {
         tasks: data.tasks || [],
         totalEstimatedHours: data.totalEstimatedHours || 0,
         basePricePounds: roundedPrice,
+
         summary: data.summary,
+        suggestedSkus: data.suggestedSkus || [],
       });
+      setDismissedSkuIds([]); // Reset dismissed suggestions
       setAnalysisStatus('success');
       setOverridePrice(''); // Reset override when new analysis succeeds
       setShowPriceOverride(false);
 
-      // --- NEW: AI Strategy Director ---
-      // Run in parallel to not block the main price display
-      fetch('/api/quote-strategy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobDescription }),
-      })
-        .then(res => res.json())
-        .then(strategyData => {
-          if (strategyData.strategy) {
-            setAiStrategy(strategyData);
-          }
-        })
-        .catch(err => console.error("Strategy fetch failed", err));
-
       toast({
-        title: 'Job Analyzed',
-        description: `Estimated price: £${roundedPrice} (${data.tasks?.length || 0} tasks)`,
+        title: 'Job Analysis Complete',
+        description: `Route: ${routeData?.recommendedRoute || 'Unknown'} | Price: £${roundedPrice}`, // Updated message
       });
     } catch (error) {
       console.error('Job analysis error:', error);
@@ -597,7 +706,7 @@ export default function GenerateQuoteLink() {
       }
     }
 
-    if (!customerName || !phone || !postcode) {
+    if (!isQuickLink && (!customerName || !phone || !postcode)) {
       toast({
         title: 'Missing Information',
         description: 'Please fill in all required customer fields.',
@@ -643,13 +752,15 @@ export default function GenerateQuoteLink() {
         ownershipContext: finalOwnership,
         desiredTimeframe: finalTimeframe,
         additionalNotes: additionalNotes || undefined,
-        customerName,
-        phone,
-        email: customerEmail || undefined,
+        customerName: isQuickLink ? undefined : customerName,
+        phone: isQuickLink ? undefined : phone,
+        proposalModeEnabled,
+        email: !isQuickLink ? (customerEmail || undefined) : undefined,
         postcode,
         address: address || undefined,
         coordinates: coordinates || undefined,
         quoteMode: finalQuoteMode,
+        selectedRoute: selectedRoute, // Pass manual selection
         visitTierMode: finalQuoteMode === 'consultation' ? visitTierMode : 'standard', // Pass the tier preference
         clientType,
         assessmentReason: finalAssessmentReason || undefined,
@@ -657,6 +768,8 @@ export default function GenerateQuoteLink() {
         tierPriorityPrice: tierPriorityPrice ? Math.round(parseFloat(tierPriorityPrice) * 100) : undefined,
         tierEmergencyPrice: tierEmergencyPrice ? Math.round(parseFloat(tierEmergencyPrice) * 100) : undefined,
         analyzedJobData: finalAnalyzedJob,
+        manualClassification: classification, // Pass the edited classification
+        manualSegment: segment, // Pass the manually selected segment
         materialsCostWithMarkupPence: recalculatedTotals.materialCostWithMarkup, // Materials cost with 30% markup applied
         optionalExtras: finalQuoteMode === 'pick_and_mix'
           ? editableTasks.map(task => {
@@ -886,15 +999,7 @@ export default function GenerateQuoteLink() {
     return `£${priceInPounds.toFixed(2)}`;
   };
 
-  // Filter quotes based on search
-  const allFilteredQuotes = quotes?.filter(quote =>
-    quote.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    quote.phone.includes(searchQuery) ||
-    quote.shortSlug.toLowerCase().includes(searchQuery.toLowerCase())
-  ) || [];
 
-  const visitQuotes = allFilteredQuotes.filter(q => q.quoteMode === 'consultation');
-  const generatedQuotes = allFilteredQuotes.filter(q => q.quoteMode !== 'consultation');
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden transition-colors duration-300">
@@ -907,9 +1012,10 @@ export default function GenerateQuoteLink() {
         <div className="max-w-6xl mx-auto">
 
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'generate' | 'sent' | 'settings')} className="w-full">
-            <TabsList className="grid w-full grid-cols-3 mb-4 lg:mb-6">
+            {/* Legacy Tabs - Hidden to unify flow */}
+            <TabsList className="grid w-full grid-cols-3 mb-4 lg:mb-6 hidden">
               <TabsTrigger value="generate" data-testid="tab-generate" className="text-[10px] lg:text-sm">Create</TabsTrigger>
-              <TabsTrigger value="sent" data-testid="tab-sent" className="text-[10px] lg:text-sm">History</TabsTrigger>
+
               <TabsTrigger value="settings" data-testid="tab-settings" className="text-[10px] lg:text-sm">Config</TabsTrigger>
             </TabsList>
 
@@ -979,71 +1085,7 @@ export default function GenerateQuoteLink() {
                       />
                     </div>
 
-                    {/* Quote Mode Toggle */}
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-base font-semibold">Quote Type</Label>
-                      </div>
-                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
-                        <Button
-                          type="button"
-                          variant={quoteMode === 'hhh' ? 'default' : 'outline'}
-                          onClick={() => setQuoteMode('hhh')}
-                          className={`h-auto py-2 flex flex-col gap-1 relative ${aiStrategy?.strategy === 'hhh' ? 'ring-2 ring-amber-400 ring-offset-2' : ''}`}
-                        >
-                          {aiStrategy?.strategy === 'hhh' && (
-                            <div className="absolute -top-3 -right-2 z-10">
-                              <span className="bg-amber-500 text-white text-[10px] px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1 font-bold animate-pulse">
-                                <Sparkles className="w-2.5 h-2.5" />
-                                AI Pick
-                              </span>
-                            </div>
-                          )}
-                          <span className="font-bold">Packages</span>
-                          <span className="text-[10px] opacity-70">Good/Better/Best</span>
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={quoteMode === 'simple' ? 'default' : 'outline'}
-                          onClick={() => setQuoteMode('simple')}
-                          className={`h-auto py-2 flex flex-col gap-1 relative ${aiStrategy?.strategy === 'simple' ? 'ring-2 ring-amber-400 ring-offset-2' : ''}`}
-                        >
-                          {aiStrategy?.strategy === 'simple' && (
-                            <div className="absolute -top-3 -right-2 z-10">
-                              <span className="bg-amber-500 text-white text-[10px] px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1 font-bold animate-pulse">
-                                <Sparkles className="w-2.5 h-2.5" />
-                                AI Pick
-                              </span>
-                            </div>
-                          )}
-                          <span className="font-bold">Simple</span>
-                          <span className="text-[10px] opacity-70">Single Price</span>
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={quoteMode === 'pick_and_mix' ? 'default' : 'outline'}
-                          onClick={() => setQuoteMode('pick_and_mix')}
-                          className={`h-auto py-2 flex flex-col gap-1 relative ${aiStrategy?.strategy === 'pick_and_mix' ? 'ring-2 ring-amber-400 ring-offset-2' : ''}`}
-                        >
-                          {aiStrategy?.strategy === 'pick_and_mix' && (
-                            <div className="absolute -top-3 -right-2 z-10">
-                              <span className="bg-amber-500 text-white text-[10px] px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1 font-bold animate-pulse">
-                                <Sparkles className="w-2.5 h-2.5" />
-                                AI Pick
-                              </span>
-                            </div>
-                          )}
-                          <span className="font-bold">Pick & Mix</span>
-                          <span className="text-[10px] opacity-70">Itemized List</span>
-                        </Button>
-                      </div>
-                      {aiStrategy && (
-                        <div className="mt-2 p-2 bg-amber-50/50 dark:bg-amber-900/10 border border-amber-200/50 dark:border-amber-800/50 rounded text-[11px] text-muted-foreground flex items-start gap-2">
-                          <Sparkles className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
-                          <span><strong>AI Insight:</strong> {aiStrategy.reasoning}</span>
-                        </div>
-                      )}
-                    </div>
+
 
 
                     {/* AI Job Analysis & Pricing */}
@@ -1073,6 +1115,83 @@ export default function GenerateQuoteLink() {
                           )}
                         </Button>
                       </div>
+
+                      {/* Suggested SKUs Block (Admin View) */}
+                      {analysisStatus === 'success' && analyzedJob?.suggestedSkus && analyzedJob.suggestedSkus.length > 0 && (
+                        <div className="mb-4 space-y-2">
+                          {analyzedJob.suggestedSkus
+                            .filter(sku => !dismissedSkuIds.includes(sku.id))
+                            .map(sku => (
+                              <Card key={sku.id} className="bg-gradient-to-r from-indigo-50 to-blue-50 border-indigo-100">
+                                <CardContent className="p-3 flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <div className="bg-indigo-100 p-2 rounded-lg">
+                                      <Sparkles className="w-4 h-4 text-indigo-600" />
+                                    </div>
+                                    <div>
+                                      <p className="font-bold text-sm text-indigo-900">{sku.skuName}</p>
+                                      <p className="text-xs text-indigo-600">Replaces: "{sku.taskDescription}"</p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <p className="font-bold text-slate-700">£{(sku.pricePence / 100).toFixed(0)}</p>
+                                    <Button
+                                      size="sm"
+                                      className="h-8 bg-indigo-600 hover:bg-indigo-700"
+                                      onClick={() => {
+                                        // Accept Logic
+                                        setDismissedSkuIds(prev => [...prev, sku.id]);
+
+                                        // 1. Find matching task to replace, or add new
+                                        // Simple heuristic: fuzzy match description or just add new if no clear match
+                                        const skuPricePounds = sku.pricePence / 100;
+
+                                        setEditableTasks(prev => {
+                                          // Try to find a task that matches the description
+                                          const matchIndex = prev.findIndex(t =>
+                                            t.description.toLowerCase().includes(sku.taskDescription.toLowerCase()) ||
+                                            sku.taskDescription.toLowerCase().includes(t.description.toLowerCase())
+                                          );
+
+                                          if (matchIndex >= 0) {
+                                            const newTasks = [...prev];
+                                            newTasks[matchIndex] = {
+                                              ...newTasks[matchIndex],
+                                              description: `${sku.skuName} (Fixed Price)`,
+                                              fixedPrice: skuPricePounds,
+                                              hours: 1, // Visual placeholder, not charged
+                                              quantity: 1,
+                                              complexity: 'medium'
+                                            };
+                                            return newTasks;
+                                          } else {
+                                            // Add new task
+                                            return [...prev, {
+                                              id: `task-sku-${sku.id}`,
+                                              description: `${sku.skuName} (Fixed Price)`,
+                                              quantity: 1,
+                                              hours: 1,
+                                              materialCost: 0,
+                                              complexity: 'medium',
+                                              fixedPrice: skuPricePounds
+                                            }];
+                                          }
+                                        });
+
+                                        toast({
+                                          title: "Fixed Price Applied",
+                                          description: `Applied £${(sku.pricePence / 100).toFixed(0)} for ${sku.skuName}`,
+                                        });
+                                      }}
+                                    >
+                                      Accept
+                                    </Button>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            ))}
+                        </div>
+                      )}
 
                       {/* Analysis Results */}
                       {analysisStatus === 'success' && analyzedJob && (
@@ -1316,50 +1435,133 @@ export default function GenerateQuoteLink() {
                       )}
                     </div>
 
-                    {/* Quote Mode Toggle */}
-                    <Card className="border-border bg-muted/20">
-                      <CardContent className="pt-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="quoteMode" className="text-foreground font-semibold flex items-center gap-2">
-                            <Shield className="h-4 w-4 text-primary" />
-                            Quote Presentation Mode
-                          </Label>
-                          <Select value={quoteMode} onValueChange={(v: 'hhh' | 'simple') => setQuoteMode(v)}>
-                            <SelectTrigger id="quoteMode" data-testid="select-quote-mode" className="bg-background text-foreground border-input">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className="bg-background border-border">
-                              <SelectItem value="hhh" className="text-foreground focus:bg-muted focus:text-foreground">
-                                <div className="flex flex-col">
-                                  <span className="font-medium">Three-Tier Packages (Essential/Enhanced/Elite)</span>
-                                  <span className="text-xs text-muted-foreground">Best for jobs with multiple value levels</span>
-                                </div>
-                              </SelectItem>
-                              <SelectItem value="simple" className="text-foreground focus:bg-muted focus:text-foreground">
-                                <div className="flex flex-col">
-                                  <span className="font-medium">Simple Quote with Optional Extras</span>
-                                  <span className="text-xs text-muted-foreground">Best for straightforward jobs with add-ons</span>
-                                </div>
-                              </SelectItem>
-                              <SelectItem value="pick_and_mix" className="text-foreground focus:bg-muted focus:text-foreground">
-                                <div className="flex flex-col">
-                                  <span className="font-medium">Pick & Mix (A La Carte)</span>
-                                  <span className="text-xs text-muted-foreground">Customer builds their own quote from line items</span>
-                                </div>
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <p className="text-xs text-muted-foreground">
-                            {quoteMode === 'hhh'
-                              ? 'Customer will see three pricing tiers with different value levels and comparison grid.'
-                              : quoteMode === 'simple'
-                                ? 'Customer will see a single base price with optional extras they can add at checkout.'
-                                : 'Customer will see a list of individual items and can choose which ones to include.'
-                            }
-                          </p>
-                        </div>
-                      </CardContent>
-                    </Card>
+                    {/* --- NEW: AI Classification Dashboard --- */}
+                    {classification && (
+                      <Card className="mb-6 border-indigo-100 bg-indigo-50/20">
+                        <CardHeader className="pb-3">
+                          <div className="flex items-center gap-2">
+                            <Sparkles className="w-5 h-5 text-indigo-600" />
+                            <CardTitle className="text-lg text-indigo-900">AI Job Classification</CardTitle>
+                          </div>
+                          <CardDescription>Review and adjust the AI's understanding of the job context.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            {/* Job Type */}
+                            <div className="space-y-2">
+                              <Label className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Job Type</Label>
+                              <Select
+                                value={classification.jobType}
+                                onValueChange={(val: any) => setClassification({ ...classification, jobType: val })}
+                              >
+                                <SelectTrigger className="bg-white border-indigo-200">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="standard">Standard</SelectItem>
+                                  <SelectItem value="complex">Complex</SelectItem>
+                                  <SelectItem value="emergency">Emergency</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {/* Clarity */}
+                            <div className="space-y-2">
+                              <Label className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Clarity</Label>
+                              <Select
+                                value={classification.jobClarity}
+                                onValueChange={(val: any) => setClassification({ ...classification, jobClarity: val })}
+                              >
+                                <SelectTrigger className="bg-white border-indigo-200">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="clear">Clear</SelectItem>
+                                  <SelectItem value="vague">Vague</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {/* Client Type */}
+                            <div className="space-y-2">
+                              <Label className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Client</Label>
+                              <Select
+                                value={classification.clientType}
+                                onValueChange={(val: any) => setClassification({ ...classification, clientType: val })}
+                              >
+                                <SelectTrigger className="bg-white border-indigo-200">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="residential">Residential</SelectItem>
+                                  <SelectItem value="commercial">Commercial</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {/* Urgency */}
+                            <div className="space-y-2">
+                              <Label className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Urgency</Label>
+                              <Select
+                                value={classification.urgency}
+                                onValueChange={(val: any) => setClassification({ ...classification, urgency: val })}
+                              >
+                                <SelectTrigger className="bg-white border-indigo-200">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="low">Low</SelectItem>
+                                  <SelectItem value="medium">Medium</SelectItem>
+                                  <SelectItem value="high">High</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Client Segment</Label>
+                              <Select
+                                value={segment || 'UNKNOWN'}
+                                onValueChange={(val: any) => setSegment(val === 'UNKNOWN' ? undefined : val)}
+                              >
+                                <SelectTrigger className="bg-white border-indigo-200">
+                                  <SelectValue placeholder="Select..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="UNKNOWN">Auto-Detect</SelectItem>
+                                  <SelectItem value="BUSY_PRO">Busy Professional</SelectItem>
+                                  <SelectItem value="PROP_MGR">Property Manager</SelectItem>
+                                  <SelectItem value="SMALL_BIZ">Small Business</SelectItem>
+                                  <SelectItem value="DIY_DEFERRER">DIY Deferrer</SelectItem>
+                                  <SelectItem value="BUDGET">Budget/Economy</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* --- NEW: Route Selection --- */}
+                    {/* Replaces old Quote Mode buttons */}
+                    <div className="mb-8">
+                      <h3 className="text-lg font-semibold mb-4">Select Quote Strategy</h3>
+                      <RouteRecommendation
+                        analysisResult={classification ? {
+                          classification: classification,
+                          recommendedRoute: selectedRoute || 'tiers',
+                          reasoning: "AI analysis based on job description.",
+                          confidence: 'high'
+                        } : null}
+                        selectedRoute={selectedRoute}
+                        onSelectRoute={(route) => {
+                          setSelectedRoute(route);
+                          // Map to legacy modes
+                          if (route === 'instant') setQuoteMode('simple');
+                          else if (route === 'tiers') setQuoteMode('hhh');
+                          else if (route === 'assessment') setQuoteMode('consultation');
+                        }}
+                        isAnalyzing={analysisStatus === 'loading'}
+                      />
+                    </div>
 
                     {/* 3 Value Questions */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1852,12 +2054,93 @@ export default function GenerateQuoteLink() {
                 </Card>
               )}
 
-              {/* Action Buttons */}
-              <div className="flex flex-col sm:flex-row gap-4">
+              {/* --- NEW: Finalize Quote Section --- */}
+              <div className="mt-8 space-y-6 bg-slate-50 border border-slate-200 rounded-xl p-6">
+                <div className="flex items-center gap-2 mb-2">
+                  <Check className="w-5 h-5 text-green-600" />
+                  <h3 className="text-xl font-bold text-slate-900">Finalize & Generate</h3>
+                </div>
+
+                {/* Toggles Row */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Proposal Mode Toggle */}
+                  <div className="flex items-center justify-between p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="proposal-mode" className="text-base font-semibold text-slate-800">Proposal Mode</Label>
+                      <p className="text-xs text-slate-500">Enable cinematic intro experience for customer</p>
+                    </div>
+                    <Switch
+                      id="proposal-mode"
+                      checked={proposalModeEnabled}
+                      onCheckedChange={setProposalModeEnabled}
+                    />
+                  </div>
+
+                  {/* Quick Link Toggle */}
+                  <div className="flex items-center justify-between p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="quick-link" className="text-base font-semibold text-slate-800">Quick Link</Label>
+                      <p className="text-xs text-slate-500">Generate anonymous link (no customer details)</p>
+                    </div>
+                    <Switch
+                      id="quick-link"
+                      checked={isQuickLink}
+                      onCheckedChange={setIsQuickLink}
+                    />
+                  </div>
+                </div>
+
+                {/* Customer Details Form (Conditional) */}
+                {!isQuickLink && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="space-y-2">
+                      <Label htmlFor="customerName">Customer Name *</Label>
+                      <Input
+                        id="customerName"
+                        value={customerName}
+                        onChange={(e) => setCustomerName(e.target.value)}
+                        placeholder="e.g. John Doe"
+                        className="bg-white"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phone">Phone Number *</Label>
+                      <Input
+                        id="phone"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="e.g. 07700 900000"
+                        className="bg-white"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="customerEmail">Email (Optional)</Label>
+                      <Input
+                        id="customerEmail"
+                        value={customerEmail}
+                        onChange={(e) => setCustomerEmail(e.target.value)}
+                        placeholder="john@example.com"
+                        className="bg-white"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="postcode">Postcode *</Label>
+                      <Input
+                        id="postcode"
+                        value={postcode}
+                        onChange={(e) => setPostcode(e.target.value.toUpperCase())}
+                        placeholder="e.g. SW1A 1AA"
+                        className="bg-white"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Generate Button */}
                 <Button
                   onClick={handleGenerateLink}
                   disabled={isGenerating}
-                  className="w-full lg:flex-1 bg-primary hover:bg-primary/90 py-6 lg:py-4 font-bold uppercase tracking-widest text-primary-foreground"
+                  className="w-full py-6 text-lg font-bold shadow-lg hover:shadow-xl transition-all"
                   size="lg"
                   data-testid="button-generate-link"
                 >
@@ -1868,22 +2151,23 @@ export default function GenerateQuoteLink() {
                     </>
                   ) : (
                     <>
-                      <LinkIcon className="mr-2 h-5 w-5" />
-                      Generate Quote Link
+                      Generate {isQuickLink ? 'Quick Link' : 'Personalized Quote'}
+                      <ArrowRight className="ml-2 h-5 w-5" />
                     </>
                   )}
                 </Button>
 
                 {/* Reset Button */}
-                <Button
-                  onClick={handleReset}
-                  variant="outline"
-                  size="lg"
-                  className="w-full lg:w-auto py-6 lg:py-4 font-bold uppercase tracking-widest opacity-50"
-                  data-testid="button-reset"
-                >
-                  Reset Form
-                </Button>
+                <div className="text-center">
+                  <Button
+                    onClick={handleReset}
+                    variant="ghost"
+                    size="sm"
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    Reset Form
+                  </Button>
+                </div>
               </div>
 
               {/* Validation Helper Text */}
@@ -2122,535 +2406,13 @@ export default function GenerateQuoteLink() {
               )}
             </TabsContent>
 
-            <TabsContent value="sent" className="space-y-6">
-              {/* Search */}
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    placeholder="Search by name, phone, or quote ID..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 bg-slate-800 text-white border-slate-600"
-                    data-testid="input-search-quotes"
-                  />
-                </div>
-              </div>
 
-              {/* Quotes List */}
-              <div className="space-y-8">
-                {/* Booking Visits Section */}
-                <div>
-                  <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                    <Wrench className="h-5 w-5 text-blue-500" />
-                    Booking Visits
-                    <Badge variant="secondary" className="bg-blue-900/50 text-blue-300 ml-2">
-                      {visitQuotes.length}
-                    </Badge>
-                  </h3>
 
-                  {isLoadingQuotes ? (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-                    </div>
-                  ) : visitQuotes.length === 0 ? (
-                    <Card className="bg-slate-900/50 border-slate-800 border-dashed">
-                      <CardContent className="py-8 text-center text-slate-500 text-sm">
-                        {searchQuery ? 'No visits found.' : 'No diagnostic visits scheduled yet.'}
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <div className="space-y-4">
-                      {visitQuotes.map((quote) => {
-                        const datePrefs = (quote as any).datePreferences || [];
-                        // Logic for deposit display (Diagnostic fees are usually fixed)
-                        const depositAmount = quote.basePrice || 8500; // Default or saved
-
-                        return (
-                          <Card key={quote.id} className={`hover:shadow-md transition-shadow border-l-4 border-l-blue-500`}>
-                            <CardContent className="p-4">
-                              <div className="flex items-start justify-between gap-2 mb-3">
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                                    <h3 className="font-semibold text-lg text-white truncate">{quote.customerName}</h3>
-                                    <Badge variant="secondary" className="text-xs bg-blue-900/30 text-blue-400 border border-blue-800">Diagnostic</Badge>
-                                    {quote.viewedAt && (
-                                      <Badge variant="outline" className="text-green-600 border-green-600 text-xs" title={`Opened: ${format(new Date(quote.viewedAt), 'dd MMM yyyy, HH:mm')}`}>
-                                        <Eye className="h-3 w-3 mr-1" />
-                                        Opened
-                                      </Badge>
-                                    )}
-                                    {quote.bookedAt && (
-                                      <Badge className="bg-green-600 text-xs">Booked</Badge>
-                                    )}
-                                  </div>
-
-                                  <div className="flex items-center gap-2 max-w-full">
-                                    <div className="flex-1 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-400 font-mono truncate select-all">
-                                      {`${window.location.origin}/visit-link/${quote.shortSlug}`}
-                                    </div>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6 text-slate-400 hover:text-white"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        navigator.clipboard.writeText(`${window.location.origin}/visit-link/${quote.shortSlug}`);
-                                        toast({ title: 'Copied', description: 'Link copied to clipboard' });
-                                      }}
-                                    >
-                                      <Copy className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                </div>
-
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-slate-500 hover:text-red-400 hover:bg-red-900/20 -mt-1 -mr-2"
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    if (confirm('Are you sure you want to delete this visit link?')) {
-                                      try {
-                                        const res = await fetch(`/api/personalized-quotes/${quote.id}`, { method: 'DELETE' });
-                                        if (res.ok) {
-                                          await queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
-                                          refetchQuotes();
-                                          toast({ title: 'Deleted', description: 'Visit link removed.' });
-                                        }
-                                      } catch (err) { console.error(err); }
-                                    }
-                                  }}
-                                >
-                                  <X className="h-4 w-4" />
-                                </Button>
-                              </div>
-
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-sm text-slate-300 mb-3">
-                                <p className="flex items-center gap-1">
-                                  <Phone className="h-3 w-3" />
-                                  <a href={`tel:${quote.phone}`} className="text-blue-400 hover:underline">{quote.phone}</a>
-                                </p>
-                                <p><span className="font-medium">Postcode:</span> {quote.postcode}</p>
-                              </div>
-
-                              {quote.assessmentReason && (
-                                <div className="bg-blue-900/20 border border-blue-900/50 rounded-lg p-2 mb-3">
-                                  <p className="text-xs text-blue-200"><strong>Reason:</strong> {quote.assessmentReason}</p>
-                                </div>
-                              )}
-
-                              <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-700">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => window.open(`/visit-link/${quote.shortSlug}`, '_blank')}
-                                >
-                                  <Eye className="h-4 w-4 mr-1" />
-                                  View Visit Link
-                                </Button>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Generated Quotes Section */}
-                <div>
-                  <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                    <FileText className="h-5 w-5 text-emerald-500" />
-                    Generated Quotes
-                    <Badge variant="secondary" className="bg-emerald-900/50 text-emerald-300 ml-2">
-                      {generatedQuotes.length}
-                    </Badge>
-                  </h3>
-
-                  {isLoadingQuotes ? (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-                    </div>
-                  ) : generatedQuotes.length === 0 ? (
-                    <Card className="bg-slate-900/50 border-slate-800">
-                      <CardContent className="py-12 text-center text-slate-400">
-                        {searchQuery ? 'No quotes found matching your search.' : 'No quotes sent yet.'}
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <div className="space-y-4">
-                      {generatedQuotes.map((quote) => {
-                        const datePrefs = (quote as any).datePreferences || [];
-
-                        // Handle both old (handyFix/hassleFree/highStandard) and new (essential/enhanced/elite) package names
-                        const pkg = quote.selectedPackage;
-                        const isEssentialTier = pkg === 'essential' || pkg === 'handyFix';
-                        const isEnhancedTier = pkg === 'enhanced' || pkg === 'hassleFree';
-                        const isEliteTier = pkg === 'elite' || pkg === 'highStandard';
-
-                        const selectedPrice = isEssentialTier
-                          ? quote.essentialPrice
-                          : isEnhancedTier
-                            ? quote.enhancedPrice
-                            : isEliteTier
-                              ? quote.elitePrice
-                              : null;
-
-                        const packageLabel = isEssentialTier ? 'Handy Fix'
-                          : isEnhancedTier ? 'Hassle-Free'
-                            : isEliteTier ? 'High Standard'
-                              : null;
-
-                        const tierBadgeClass = isEssentialTier ? 'bg-slate-600'
-                          : isEnhancedTier ? 'bg-green-600'
-                            : isEliteTier ? 'bg-rose-600'
-                              : 'bg-gray-600';
-
-                        // Calculate deposit: 100% materials + 30% labor
-                        const materialsCost = quote.materialsCostWithMarkupPence || 0;
-                        const laborCost = selectedPrice ? Math.max(0, selectedPrice - materialsCost) : 0;
-                        const depositAmount = materialsCost + Math.round(laborCost * 0.30);
-
-                        return (
-                          <Card key={quote.id} className={`hover:shadow-md transition-shadow ${quote.bookedAt ? 'border-l-4 border-l-green-500' : ''}`}>
-                            <CardContent className="p-4">
-                              {/* Header - Name, Status Badges, URL, Delete */}
-                              <div className="flex items-start justify-between gap-2 mb-3">
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                                    <h3 className="font-semibold text-lg text-white truncate">{quote.customerName}</h3>
-                                    <Badge variant="secondary" className="text-xs">{quote.shortSlug}</Badge>
-                                    {quote.viewedAt && (
-                                      <Badge variant="outline" className="text-green-600 border-green-600 text-xs" title={`Opened: ${format(new Date(quote.viewedAt), 'dd MMM yyyy, HH:mm')}`}>
-                                        <Eye className="h-3 w-3 mr-1" />
-                                        Opened {format(new Date(quote.viewedAt), 'dd MMM, HH:mm')}
-                                      </Badge>
-                                    )}
-                                    {(() => {
-                                      if (!quote.expiresAt) return null;
-                                      const isExpired = new Date() > new Date(quote.expiresAt);
-                                      if (isExpired && !quote.bookedAt) {
-                                        return (
-                                          <Badge variant="outline" className="text-red-600 border-red-600 text-xs">
-                                            Expired
-                                          </Badge>
-                                        );
-                                      }
-                                      return null;
-                                    })()}
-                                    {quote.bookedAt && (
-                                      <Badge className="bg-green-600 text-xs">
-                                        Booked
-                                      </Badge>
-                                    )}
-                                    {quote.regenerationCount && quote.regenerationCount > 0 && (
-                                      <Badge variant="outline" className="text-orange-600 border-orange-600 text-xs">
-                                        Regen ×{quote.regenerationCount}
-                                      </Badge>
-                                    )}
-                                  </div>
-
-                                  {/* Persistent URL Display */}
-                                  <div className="flex items-center gap-2 max-w-full">
-                                    <div className="flex-1 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-400 font-mono truncate select-all">
-                                      {`${window.location.origin}/quote-link/${quote.shortSlug}`}
-                                    </div>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6 text-slate-400 hover:text-white"
-                                      title="Copy Link"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        navigator.clipboard.writeText(`${window.location.origin}/quote-link/${quote.shortSlug}`);
-                                        toast({ title: 'Copied', description: 'Link copied to clipboard' });
-                                      }}
-                                    >
-                                      <Copy className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                </div>
-
-                                {/* Delete Button */}
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-slate-500 hover:text-red-400 hover:bg-red-900/20 -mt-1 -mr-2"
-                                  title="Delete Quote"
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    if (confirm('Are you sure you want to delete this quote?')) {
-                                      try {
-                                        console.log('Deleting quote:', quote.id);
-                                        const res = await fetch(`/api/personalized-quotes/${quote.id}`, { method: 'DELETE' });
-                                        if (res.ok) {
-                                          console.log('Delete successful, invalidating queries');
-                                          toast({ title: 'Quote Deleted', description: 'The quote has been removed.' });
-                                          // Force a hard refetch by invalidating the query
-                                          await queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
-                                          refetchQuotes();
-                                        } else {
-                                          throw new Error('Failed to delete');
-                                        }
-                                      } catch (err) {
-                                        console.error('Delete failed:', err);
-                                        toast({ title: 'Error', description: 'Failed to delete quote', variant: 'destructive' });
-                                      }
-                                    }
-                                  }}
-                                >
-                                  <X className="h-4 w-4" />
-                                </Button>
-                              </div>
-
-                              {/* Contact Info - Mobile Stacked */}
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-sm text-slate-300 mb-3">
-                                <p className="flex items-center gap-1">
-                                  <Phone className="h-3 w-3" />
-                                  <a href={`tel:${quote.phone}`} className="text-blue-400 hover:underline">{quote.phone}</a>
-                                </p>
-                                {quote.email && (
-                                  <p className="truncate">
-                                    <span className="font-medium">Email:</span> {quote.email}
-                                  </p>
-                                )}
-                                {quote.postcode && (
-                                  <p><span className="font-medium">Postcode:</span> {quote.postcode}</p>
-                                )}
-                                <p className="text-xs text-gray-400">
-                                  Created: {format(new Date(quote.createdAt), 'dd MMM, HH:mm')}
-                                </p>
-                              </div>
-
-                              {/* Job Description */}
-                              {quote.jobDescription && (
-                                <div className="bg-slate-800 rounded-lg p-3 mb-3">
-                                  <p className="text-sm text-slate-300 line-clamp-2">{quote.jobDescription}</p>
-                                </div>
-                              )}
-
-                              {/* Booking Details - Only show if booked */}
-                              {quote.bookedAt && (
-                                <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-3 space-y-2">
-                                  <div className="flex flex-wrap items-center gap-2 text-sm">
-                                    {packageLabel && (
-                                      <div className="flex items-center gap-1">
-                                        <span className="font-medium text-green-800">Package:</span>
-                                        <Badge className={tierBadgeClass}>
-                                          {packageLabel}
-                                        </Badge>
-                                      </div>
-                                    )}
-                                    {selectedPrice && (
-                                      <span className="text-green-800 font-semibold">
-                                        £{Math.round(selectedPrice / 100)}
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  {/* Payment Info */}
-                                  <div className="flex flex-wrap items-center gap-3 text-sm">
-                                    {quote.paymentType && (
-                                      <div className="flex items-center gap-1">
-                                        <CreditCard className="h-4 w-4 text-green-600" />
-                                        <span className="font-medium text-green-800">
-                                          {quote.paymentType === 'installments' ? 'Pay in 3' : 'Pay in Full'}
-                                        </span>
-                                      </div>
-                                    )}
-                                    {quote.depositPaidAt && depositAmount > 0 && (
-                                      <div className="flex items-center gap-1">
-                                        <Check className="h-4 w-4 text-green-600" />
-                                        <span className="text-green-700">
-                                          Deposit paid: £{Math.round(depositAmount / 100)}
-                                        </span>
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  {/* Selected Dates */}
-                                  {datePrefs.length > 0 && (
-                                    <div className="pt-2 border-t border-green-200">
-                                      <p className="text-xs font-medium text-green-800 mb-1">Preferred Dates:</p>
-                                      <div className="flex flex-wrap gap-2">
-                                        {datePrefs.map((pref: any, idx: number) => (
-                                          <span key={idx} className="inline-flex items-center gap-1 bg-white border border-green-300 rounded px-2 py-1 text-xs">
-                                            <Calendar className="h-3 w-3 text-green-600" />
-                                            {format(new Date(pref.preferredDate), 'EEE, d MMM')} ({pref.timeSlot})
-                                          </span>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* Pricing Tiers - Show only if not booked */}
-                              {!quote.bookedAt && quote.essentialPrice && (
-                                <div className="flex flex-wrap gap-2 text-xs mb-3">
-                                  <span className="bg-slate-700 text-slate-200 px-2 py-1 rounded">H: £{Math.round(quote.essentialPrice / 100)}</span>
-                                  <span className="bg-green-900/50 text-green-300 px-2 py-1 rounded">HH: £{Math.round((quote.enhancedPrice || 0) / 100)}</span>
-                                  <span className="bg-rose-900/50 text-rose-300 px-2 py-1 rounded">HHH: £{Math.round((quote.elitePrice || 0) / 100)}</span>
-                                </div>
-                              )}
-
-                              {/* Action Buttons */}
-                              <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-700">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => window.open(`/quote-link/${quote.shortSlug}?t=${Date.now()}`, '_blank')}
-                                  data-testid={`button-view-quote-${quote.shortSlug}`}
-                                >
-                                  <Eye className="h-4 w-4 mr-1" />
-                                  View
-                                </Button>
-                                {/* Invoice button for booked quotes */}
-                                {quote.bookedAt && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                    onClick={async () => {
-                                      setLoadingInvoice(true);
-                                      try {
-                                        const response = await fetch(`/api/personalized-quotes/${quote.id}/invoice-data`, {
-                                          credentials: 'include',
-                                        });
-                                        if (!response.ok) throw new Error('Failed to fetch invoice data');
-                                        const data = await response.json();
-                                        setInvoiceData(data);
-                                        setInvoiceModalOpen(true);
-                                      } catch (error) {
-                                        toast({
-                                          title: 'Error',
-                                          description: 'Failed to load invoice data. Please try again.',
-                                          variant: 'destructive',
-                                        });
-                                      } finally {
-                                        setLoadingInvoice(false);
-                                      }
-                                    }}
-                                    disabled={loadingInvoice}
-                                    data-testid={`button-invoice-${quote.shortSlug}`}
-                                  >
-                                    <Receipt className="h-4 w-4 mr-1" />
-                                    Invoice
-                                  </Button>
-                                )}
-                                {(() => {
-                                  if (quote.bookedAt) return null;
-                                  const isExpired = quote.expiresAt && new Date() > new Date(quote.expiresAt);
-                                  if (!isExpired) {
-                                    return (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                        onClick={async () => {
-                                          if (!confirm(`Are you sure you want to expire the quote for ${quote.customerName}?`)) {
-                                            return;
-                                          }
-                                          try {
-                                            const response = await fetch(`/api/admin/personalized-quotes/${quote.id}/expire`, {
-                                              method: 'POST',
-                                              headers: { 'Content-Type': 'application/json' }
-                                            });
-                                            if (!response.ok) throw new Error('Failed to expire quote');
-                                            toast({
-                                              title: 'Quote expired',
-                                              description: `The quote for ${quote.customerName} has been expired.`,
-                                            });
-                                            refetchQuotes();
-                                          } catch (error) {
-                                            toast({
-                                              title: 'Error',
-                                              description: 'Failed to expire quote. Please try again.',
-                                              variant: 'destructive',
-                                            });
-                                          }
-                                        }}
-                                        data-testid={`button-expire-quote-${quote.shortSlug}`}
-                                      >
-                                        <X className="h-4 w-4 mr-1" />
-                                        Expire
-                                      </Button>
-                                    );
-                                  } else {
-                                    // Quote is expired - show regenerate dropdown
-                                    return (
-                                      <div className="flex gap-1">
-                                        <select
-                                          id={`regenerate-percent-${quote.id}`}
-                                          defaultValue="5"
-                                          className="h-8 px-2 text-xs border rounded-md bg-white"
-                                          data-testid={`select-regenerate-percent-${quote.shortSlug}`}
-                                        >
-                                          <option value="0">0%</option>
-                                          <option value="2.5">+2.5%</option>
-                                          <option value="5">+5%</option>
-                                          <option value="7.5">+7.5%</option>
-                                          <option value="10">+10%</option>
-                                        </select>
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                                          onClick={async () => {
-                                            const selectEl = document.getElementById(`regenerate-percent-${quote.id}`) as HTMLSelectElement;
-                                            const percentageIncrease = parseFloat(selectEl?.value || '5');
-
-                                            if (!confirm(`Regenerate quote for ${quote.customerName} with ${percentageIncrease}% increase?`)) {
-                                              return;
-                                            }
-                                            try {
-                                              const response = await fetch(`/api/admin/personalized-quotes/${quote.id}/regenerate`, {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ percentageIncrease })
-                                              });
-                                              if (!response.ok) throw new Error('Failed to regenerate quote');
-                                              const data = await response.json();
-                                              toast({
-                                                title: 'Quote Regenerated!',
-                                                description: `Quote for ${quote.customerName} regenerated with ${percentageIncrease}% increase. New timer: 15 mins.`,
-                                              });
-                                              // Invalidate cache and refetch to update UI immediately
-                                              queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
-                                              refetchQuotes();
-                                            } catch (error) {
-                                              toast({
-                                                title: 'Error',
-                                                description: 'Failed to regenerate quote. Please try again.',
-                                                variant: 'destructive',
-                                              });
-                                            }
-                                          }}
-                                          data-testid={`button-regenerate-quote-${quote.shortSlug}`}
-                                        >
-                                          <RefreshCw className="h-4 w-4 mr-1" />
-                                          Regenerate
-                                        </Button>
-                                      </div>
-                                    );
-                                  }
-                                })()}
-                              </div>
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </TabsContent>
 
             {/* Twilio Settings Tab */}
-            <TabsContent value="settings" className="space-y-6">
+            < TabsContent value="settings" className="space-y-6" >
               {/* Active Call Forwarding Status Card */}
-              <Card className={twilioSettings?.activeAgents && twilioSettings.activeAgents.length > 0
+              < Card className={twilioSettings?.activeAgents && twilioSettings.activeAgents.length > 0
                 ? "border-green-200 bg-green-50"
                 : "border-amber-200 bg-amber-50"
               }>
@@ -2704,10 +2466,10 @@ export default function GenerateQuoteLink() {
                     )}
                   </div>
                 </CardContent>
-              </Card>
+              </Card >
 
               {/* Call Forwarding Management Card */}
-              <Card className="bg-slate-900/50 border-slate-800">
+              < Card className="bg-slate-900/50 border-slate-800" >
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Phone className="h-5 w-5 text-blue-600" />
@@ -2748,12 +2510,12 @@ export default function GenerateQuoteLink() {
                     </div>
                   )}
                 </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+              </Card >
+            </TabsContent >
+          </Tabs >
 
           {/* Invoice Modal */}
-          <Dialog open={invoiceModalOpen} onOpenChange={setInvoiceModalOpen}>
+          < Dialog open={invoiceModalOpen} onOpenChange={setInvoiceModalOpen} >
             <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
@@ -2918,8 +2680,8 @@ Stripe ID: ${invoiceData.stripePaymentIntentId || 'N/A'}`;
                 </div>
               )}
             </DialogContent>
-          </Dialog>
-        </div>
+          </Dialog >
+        </div >
       </div >
     </div >
   );

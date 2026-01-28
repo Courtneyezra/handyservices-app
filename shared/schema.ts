@@ -453,6 +453,11 @@ export const urgencyReasonEnum = z.enum(['low', 'med', 'high']);
 export const ownershipContextEnum = z.enum(['tenant', 'homeowner', 'landlord', 'airbnb', 'selling']);
 export const desiredTimeframeEnum = z.enum(['flex', 'week', 'asap']);
 
+// B1.1: Segmentation Enums (Phase 1 Master Plan)
+export const segmentEnum = z.enum(['BUSY_PRO', 'PROP_MGR', 'SMALL_BIZ', 'DIY_DEFERRER', 'BUDGET', 'UNKNOWN']);
+export const jobTypeEnum = z.enum(['SINGLE', 'COMPLEX', 'MULTIPLE']);
+export const quotabilityEnum = z.enum(['INSTANT', 'VIDEO', 'VISIT']);
+
 export const optionalExtraSchema = z.object({
     id: z.string().optional(), // Unique ID for tracking
     label: z.string().min(1, "Label is required"),
@@ -498,6 +503,12 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     urgency: varchar("urgency", { length: 20 }), // Enum: same_day, next_day, flexible (replaces old low/medium/high)
     persona: varchar("persona", { length: 20 }), // Enum: price, homeowner, landlord
     risk: integer("risk"), // 1-3 scale (max risk across tasks)
+
+    // B1.2: Segmentation Fields (Phase 1 Master Plan)
+    segment: varchar("segment", { length: 20 }).default('UNKNOWN'), // BUSY_PRO, PROP_MGR, SMALL_BIZ, DIY_DEFERRER, BUDGET
+    jobType: varchar("job_type", { length: 20 }).default('SINGLE'), // SINGLE, COMPLEX, MULTIPLE
+    quotability: varchar("quotability", { length: 20 }).default('VISIT'), // INSTANT, VIDEO, VISIT
+    proposalModeEnabled: boolean("proposal_mode_enabled").default(false), // Enable weighted scroll value primer
 
     // Multi-Job Support (value-anchored pricing) - DEPRECATED
     jobs: jsonb("jobs"), // Array of individual job objects with their own PVS scores
@@ -613,6 +624,11 @@ export interface ValuePricingInputs {
     clientType: ClientType; // New: Who is asking?
     jobComplexity: JobComplexityType; // New: How hard is it?
     forcedQuoteStyle?: 'hhh' | 'direct' | 'rate_card' | 'pick_and_mix' | 'consultation'; // Override auto-detection
+
+    // B1: Phase 1 Segmentation Fields (Manual Entry)
+    segment?: string; // BUSY_PRO, PROP_MGR, SMALL_BIZ, DIY_DEFERRER, BUDGET, UNKNOWN
+    jobType?: string; // SINGLE, COMPLEX, MULTIPLE
+    quotability?: string; // INSTANT, VIDEO, VISIT
 }
 
 export interface HHHStructuredInputs {

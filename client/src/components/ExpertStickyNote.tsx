@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Tv, Drill, Paintbrush, Hammer, Wrench, Zap, Droplet, Search, Ruler, Home } from 'lucide-react';
+import { Tv, Drill, Paintbrush, Hammer, Wrench, Zap, Droplet, Search, Ruler, Home, Clock, CheckCircle2, MessageCircle } from 'lucide-react';
 
 interface ExpertStickyNoteProps {
     text: string;
@@ -9,6 +9,9 @@ interface ExpertStickyNoteProps {
     address?: string | null;
     mikePhotoUrl?: string; // Optional, can fallback or be omitted
     className?: string;
+    showExperienceStats?: boolean;
+    showDirectContact?: boolean;
+    availabilityHint?: string;
 }
 
 // Simple keyword matcher for doodles
@@ -26,9 +29,28 @@ const getDoodleIcon = (text: string) => {
     return Wrench; // Default
 };
 
-export function ExpertStickyNote({ text, customerName, phone, address, mikePhotoUrl, className = '' }: ExpertStickyNoteProps) {
+export function ExpertStickyNote({
+    text,
+    customerName,
+    phone,
+    address,
+    mikePhotoUrl,
+    className = '',
+    showExperienceStats = true,
+    showDirectContact = true,
+    availabilityHint
+}: ExpertStickyNoteProps) {
     const DoodleIcon = getDoodleIcon(text);
     const [isExpanded, setIsExpanded] = React.useState(false);
+
+    // Generate a dynamic availability hint if not provided
+    const getAvailabilityHint = () => {
+        if (availabilityHint) return availabilityHint;
+        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+        const today = new Date().getDay();
+        const nextAvailable = days[(today + 1) % 5] || 'Monday';
+        return `I've got a slot on ${nextAvailable} if that works for you`;
+    };
 
     // Thresholds for truncation
     const CHAR_LIMIT = 100;
@@ -135,8 +157,36 @@ export function ExpertStickyNote({ text, customerName, phone, address, mikePhoto
                     )}
                 </div>
 
+                {/* Experience Stats & Direct Contact */}
+                {(showExperienceStats || showDirectContact) && (
+                    <div className="relative z-10 mt-6 pt-4 border-t-2 border-slate-800/10 space-y-3">
+                        {showExperienceStats && (
+                            <div className="flex flex-wrap items-center gap-3 text-[11px] md:text-xs font-sans text-slate-600">
+                                <span className="flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    12 years experience
+                                </span>
+                                <span className="text-slate-300">|</span>
+                                <span className="flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    2,400+ jobs completed
+                                </span>
+                            </div>
+                        )}
+                        {showDirectContact && (
+                            <div className="flex items-center gap-2 text-[11px] md:text-xs font-sans">
+                                <MessageCircle className="w-3 h-3 text-green-600" />
+                                <span className="text-slate-600">Text me direct on </span>
+                                <a href="tel:+447449501762" className="text-slate-800 font-bold underline">07449 501762</a>
+                                <span className="text-slate-600">if you have questions</span>
+                            </div>
+                        )}
+
+                    </div>
+                )}
+
                 {/* Footer: Signature & Photo */}
-                <div className="relative z-10 mt-8 md:mt-12 flex items-end justify-end gap-3 md:gap-4 translate-x-1">
+                <div className="relative z-10 mt-6 md:mt-8 flex items-end justify-end gap-3 md:gap-4 translate-x-1">
                     {/* Signature Block */}
                     <div className="flex flex-col items-end transform -rotate-2">
                         <div className="font-['Kalam'] text-2xl md:text-3xl text-slate-800 font-bold leading-none mb-1">

@@ -16,7 +16,8 @@ import {
     PhoneMissed,
     User,
     ArrowRight,
-    Loader2
+    Loader2,
+    Sparkles
 } from "lucide-react";
 import { FaWhatsapp } from "react-icons/fa";
 import { format } from "date-fns";
@@ -28,6 +29,14 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 import { NameCorrection } from "@/components/NameCorrection";
@@ -58,6 +67,41 @@ interface CallListTableProps {
 }
 
 export function CallListTable({ calls, isLoading, onCallClick }: CallListTableProps) {
+    const [, setLocation] = useLocation();
+    const [extractingId, setExtractingId] = useState<string | null>(null);
+
+    const handleCreateQuote = async (e: React.MouseEvent, callId: string) => {
+        e.stopPropagation();
+        setExtractingId(callId);
+
+        try {
+            const response = await fetch("/api/extract-call-data", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ callId }),
+            });
+
+            if (!response.ok) throw new Error("Extraction failed");
+
+            const data = await response.json();
+
+            // Store extraction result in sessionStorage to pass to next page
+            sessionStorage.setItem("quoteFromCall", JSON.stringify({
+                ...data,
+                callId
+            }));
+
+            // Navigate to Quote Generator
+            setLocation("/admin/generate-quote");
+
+        } catch (error) {
+            console.error("Failed to extract call data:", error);
+            alert("Failed to analyze call. Please try again.");
+        } finally {
+            setExtractingId(null);
+        }
+    };
+
     // Audio Player State
     const audioRef = React.useRef<HTMLAudioElement | null>(null);
     // playingId tracks which call ID is currently "active" (loaded) in the player
@@ -235,43 +279,123 @@ export function CallListTable({ calls, isLoading, onCallClick }: CallListTablePr
                             {/* 6. Actions */}
                             <TableCell className="text-right">
                                 <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                                    {/* One-Click Agent Action */}
-                                    {call.metadataJson?.agentPlan?.draftReply && (
-                                        <Button
-                                            size="sm"
-                                            className="h-8 px-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white border-0 shadow-sm gap-1.5 animate-in fade-in zoom-in duration-300"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                const plan = call.metadataJson.agentPlan;
-                                                const cleanNumber = call.phoneNumber.replace(/\D/g, '');
-                                                const url = `https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(plan.draftReply)}`;
-                                                window.open(url, '_blank');
-                                            }}
-                                            title={`Agent Suggestion: ${call.metadataJson.agentPlan.recommendedAction}`}
-                                        >
-                                            <div className="relative">
+                                    {/* Smart Quote Extraction Button */}
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={extractingId === call.id}
+                                        className={`h-8 px-2 border-handy-gold/50 text-handy-gold hover:bg-handy-gold/10 ${extractingId === call.id ? 'opacity-80' : ''}`}
+                                        onClick={(e) => handleCreateQuote(e, call.id)}
+                                        title="Create Quote from Call (AI Extraction)"
+                                    >
+                                        {extractingId === call.id ? (
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                                        ) : (
+                                            <Sparkles className="h-3.5 w-3.5 mr-1" />
+                                        )}
+                                        <span className="text-xs font-medium">Quote</span>
+                                    </Button>
+                                    {/* Smart Action Dropdown (Human overrides AI) */}
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                            <Button
+                                                size="sm"
+                                                className={`h-8 px-2 text-white border-0 shadow-sm gap-1.5 transition-all
+                                                    ${call.metadataJson?.agentPlan?.draftReply
+                                                        ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
+                                                        : "bg-green-600 hover:bg-green-700"}`}
+                                            >
                                                 <FaWhatsapp className="h-4 w-4" />
-                                                <span className="absolute -top-1 -right-1 flex h-2 w-2">
-                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
-                                                </span>
-                                            </div>
-                                            <span className="text-xs font-medium hidden md:inline-block">Action</span>
-                                        </Button>
-                                    )}
+                                                <span className="text-xs font-medium hidden md:inline-block">Action</span>
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" className="w-56" onClick={(e) => e.stopPropagation()}>
+                                            <DropdownMenuLabel>Choose Response</DropdownMenuLabel>
+                                            <DropdownMenuSeparator />
 
-                                    {/* Traditional WhatsApp Action (Fallback) */}
-                                    {!call.metadataJson?.agentPlan?.draftReply && (
-                                        <Button
-                                            size="icon"
-                                            variant="ghost"
-                                            className="h-8 w-8 hover:text-green-500 hover:bg-green-500/10"
-                                            onClick={() => window.open(getWhatsAppLink(call), '_blank')}
-                                            title="Open in WhatsApp Web"
-                                        >
-                                            <FaWhatsapp className="h-4 w-4" />
-                                        </Button>
-                                    )}
+                                            {/* 1. Request Video */}
+                                            <DropdownMenuItem onClick={() => {
+                                                const cleanNumber = call.phoneNumber.replace(/\D/g, '');
+                                                const firstName = call.customerName?.split(' ')[0] || "there";
+                                                const jobSummary = call.jobSummary || "the work you need";
+                                                const message = `Hi ${firstName}\n\nAs discussed please send us a video of ${jobSummary} for us to take a look straight away😊\n\nCourtnee\nHandy Services`;
+                                                window.open(`https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`, '_blank');
+                                            }}>
+                                                📹 Request Video
+                                            </DropdownMenuItem>
+
+                                            {/* 2. Instant Quote */}
+                                            <DropdownMenuItem onClick={() => {
+                                                const cleanNumber = call.phoneNumber.replace(/\D/g, '');
+                                                const firstName = call.customerName?.split(' ')[0] || "there";
+                                                const jobSummary = call.jobSummary || "the work you need";
+                                                // Placeholder price - user would edit before sending
+                                                const message = `Hi ${firstName}, great speaking with you. As discussed, we can do ${jobSummary}. Here is the link to secure your booking: [Link]. Let me know if you have any questions! - Courtnee, Handy Services`;
+                                                window.open(`https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`, '_blank');
+                                            }}>
+                                                ⚡ Instant Quote Link
+                                            </DropdownMenuItem>
+
+                                            {/* 3. Confirm Visit */}
+                                            <DropdownMenuItem onClick={() => {
+                                                const cleanNumber = call.phoneNumber.replace(/\D/g, '');
+                                                const firstName = call.customerName?.split(' ')[0] || "there";
+                                                const message = `Hi ${firstName}, confirming your booking for a diagnostic visit. Our engineer will arrive to assess the issue. You can track their arrival here: [Link] - Handy Services`;
+                                                window.open(`https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`, '_blank');
+                                            }}>
+                                                🏠 Confirm Visit
+                                            </DropdownMenuItem>
+
+                                            {/* 4. General Reply */}
+                                            <DropdownMenuItem onClick={() => {
+                                                const cleanNumber = call.phoneNumber.replace(/\D/g, '');
+                                                const firstName = call.customerName?.split(' ')[0] || "there";
+                                                const message = `Hi ${firstName}, thanks for your enquiry. I've checked with the team and...`;
+                                                window.open(`https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`, '_blank');
+                                            }}>
+                                                📝 General Reply
+                                            </DropdownMenuItem>
+
+                                            {/* 5. Missed Call (Smart Context) */}
+                                            <DropdownMenuItem onClick={() => {
+                                                const cleanNumber = call.phoneNumber.replace(/\D/g, '');
+                                                const firstName = call.customerName?.split(' ')[0] || "there";
+
+                                                // Intelligent Context: Did the AI speak to them?
+                                                // metadataJson stores the AgentActionPlan directly
+                                                const plan = call.metadataJson as any;
+
+                                                // Try to find a human-readable topic
+                                                let topic = call.jobSummary;
+
+                                                // 1. Try first task description (Best, e.g. "Fix Leaking Tap")
+                                                if (plan?.tasks && plan.tasks.length > 0) {
+                                                    topic = plan.tasks[0].description;
+                                                }
+                                                // 2. Fallback to reasoning if it's not a debug string
+                                                else if (plan?.reasoning && !plan.reasoning.startsWith("Tools Used")) {
+                                                    topic = plan.reasoning;
+                                                }
+                                                // 3. Cleanup fallback jobSummary if it's the debug string (from backend logic)
+                                                else if (topic?.startsWith("Tools Used")) {
+                                                    topic = "your enquiry";
+                                                }
+
+                                                let message = "";
+                                                if (topic && topic !== "your enquiry") {
+                                                    // Context-aware recovery
+                                                    message = `Hi ${firstName}, sorry I missed you! I see you called about ${topic.toLowerCase()}. I'm free now if you want to chat? - Courtnee`;
+                                                } else {
+                                                    // Generic fallback
+                                                    message = `Hi ${firstName}, sorry I missed your call just now! I'm on the other line. How can I help? (Feel free to send a voice note or video here) - Courtnee`;
+                                                }
+
+                                                window.open(`https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`, '_blank');
+                                            }}>
+                                                👋 Missed Call Summary
+                                            </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
 
                                     {/* Play Recording */}
                                     {call.recordingUrl && (

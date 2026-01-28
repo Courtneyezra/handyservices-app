@@ -13,11 +13,13 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function ContractorMobileDashboard() {
-    const [, setLocation] = useLocation();
+    const [location, setLocation] = useLocation();
 
     // 1. Data Fetching (Migrated from Old Dashboard)
     const { data: profileData } = useQuery({
         queryKey: ['contractor-profile'],
+        // Only fetch on contractor routes to prevent unnecessary calls on public pages
+        enabled: location.startsWith('/contractor'),
         queryFn: async () => {
             const token = localStorage.getItem('contractorToken');
             const res = await fetch('/api/contractor/me', {
@@ -46,8 +48,14 @@ export default function ContractorMobileDashboard() {
 
     const { data: assignedJobs } = useQuery({
         queryKey: ['contractor-jobs', profile?.id],
-        enabled: !!profile?.id,
+        // Only fetch on contractor routes AND when we have a profile ID
+        enabled: location.startsWith('/contractor') && !!profile?.id,
+        retry: 1, // Only retry once to avoid mass requests
         queryFn: async () => {
+            // Double-check profile ID exists before making request
+            if (!profile?.id) {
+                throw new Error('No profile ID available');
+            }
             const res = await fetch(`/api/jobs/assigned?contractorId=${profile?.id}`);
             if (!res.ok) throw new Error('Failed to fetch jobs');
             return res.json();

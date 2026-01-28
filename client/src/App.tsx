@@ -9,6 +9,8 @@ import SidebarLayout from "@/components/layout/SidebarLayout";
 
 // Landing pages - Keep eager for instant load (public-facing, need fast LCP)
 import HandymanLanding from "@/pages/HandymanLanding";
+import PropertyManagerLanding from "@/pages/PropertyManagerLanding";
+import BusinessLanding from "@/pages/BusinessLanding";
 import DerbyLanding from "@/pages/DerbyLanding";
 import { Loader2, Wrench } from "lucide-react";
 
@@ -36,6 +38,8 @@ const Banners = lazy(() => import("@/pages/admin/Banners"));
 const LeadsPage = lazy(() => import("@/pages/admin/LeadsPage"));
 const InvoicesPage = lazy(() => import("@/pages/admin/InvoicesPage"));
 const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
+const QuotesPage = lazy(() => import("@/pages/admin/QuotesPage"));
+const BookingVisitsPage = lazy(() => import("@/pages/admin/BookingVisitsPage"));
 const LandingPageRender = lazy(() => import("@/pages/LandingPageRender"));
 import SmartBanner from "@/components/SmartBanner";
 
@@ -148,7 +152,11 @@ function Router() {
             <Switch>
                 {/* ============ PUBLIC ROUTES ============ */}
                 {/* Landing Pages */}
-                <Route path="/landing" component={HandymanLanding} />
+                <Route path="/landing">
+                    <HandymanLanding />
+                </Route>
+                <Route path="/property-managers" component={PropertyManagerLanding} />
+                <Route path="/businesses" component={BusinessLanding} />
                 <Route path="/app" component={ContractorAppLanding} />
                 <Route path="/derby" component={DerbyLanding} />
                 <Route path="/seasonal-guide" component={SeasonalMenu} />
@@ -318,6 +326,20 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <InvoicesPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/quotes">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <QuotesPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/visits">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <BookingVisitsPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

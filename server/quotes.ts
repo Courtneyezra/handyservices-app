@@ -1,14 +1,14 @@
-
 import { Router } from "express";
 import { db } from "./db";
-import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles } from "@shared/schema";
+import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { openai, polishAssessmentReason, generatePersonalizedNote, determineQuoteStrategy } from "./openai";
-import { generateValuePricingQuote, createAnalyticsLog, generateTierDeliverables } from "./value-pricing-engine";
+import { openai, polishAssessmentReason, generatePersonalizedNote, determineQuoteStrategy, classifyLead, determineOptimalRoute } from "./openai";
+import { generateValuePricingQuote, createAnalyticsLog, generateTierDeliverables, getSegmentTierConfig } from "./value-pricing-engine";
 import { geocodeAddress } from "./lib/geocoding";
 import { findBestContractors, checkNetworkAvailability } from "./availability-engine";
+import { detectMultipleTasks } from "./skuDetector";
 
 // Define input schema for value pricing
 const valuePricingInputSchema = z.object({
@@ -38,6 +38,15 @@ const valuePricingInputSchema = z.object({
     tierStandardPrice: z.number().int().optional(),
     tierPriorityPrice: z.number().int().optional(),
     tierEmergencyPrice: z.number().int().optional(),
+
+    // Human-in-loop route selection
+    selectedRoute: z.enum(['instant', 'tiers', 'assessment']).optional(),
+    routeOverridden: z.boolean().optional(), // Track if human overrode AI recommendation
+    proposalModeEnabled: z.boolean().default(false).optional(),
+
+    // Manual Overrides
+    manualClassification: z.any().optional(),
+    manualSegment: z.enum(['BUSY_PRO', 'PROP_MGR', 'SMALL_BIZ', 'DIY_DEFERRER', 'BUDGET', 'UNKNOWN']).optional(),
 });
 
 export const quotesRouter = Router();
@@ -104,6 +113,82 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             if (geocoded) coordinates = { lat: geocoded.lat, lng: geocoded.lng };
         }
 
+        // ROUTING BRAIN: Use manually selected route or classify for recommendation
+        let leadClassification = null;
+        let recommendedRoute = null;
+        let finalRoute = input.selectedRoute || null; // Use selected route if provided
+
+        // If no route was manually selected, classify and use AI recommendation
+        if (!finalRoute) {
+            try {
+                // Classify the lead using AI
+                leadClassification = await classifyLead(input.jobDescription);
+
+                // Determine optimal route using business rules
+                const routingDecision = determineOptimalRoute(leadClassification);
+                recommendedRoute = routingDecision.route;
+                finalRoute = recommendedRoute; // Use AI recommendation as fallback
+
+                console.log('[Routing Brain] No manual route selected, using AI recommendation');
+                console.log('[Routing Brain] Classification:', leadClassification);
+                console.log('[Routing Brain] Recommended Route:', recommendedRoute, '-', routingDecision.reasoning);
+            } catch (error) {
+                console.error('[Routing Brain] Classification failed, defaulting to tiers:', error);
+                // Fallback: default to 'tiers' route if classification fails
+                finalRoute = 'tiers';
+            }
+        } else {
+            console.log('[Routing Brain] Using manually selected route:', finalRoute);
+
+            // Optionally still classify for audit trail (but don't use it)
+            try {
+                leadClassification = await classifyLead(input.jobDescription);
+                const routingDecision = determineOptimalRoute(leadClassification);
+                recommendedRoute = routingDecision.route;
+
+                console.log('[Routing Brain] AI would have recommended:', recommendedRoute);
+                console.log('[Routing Brain] Human selected:', finalRoute);
+                console.log('[Routing Brain] Override:', recommendedRoute !== finalRoute);
+            } catch (error) {
+                console.log('[Routing Brain] Could not generate AI recommendation for comparison');
+            }
+        }
+
+        // Apply Manual Overrides (F4/B4)
+        if (input.manualClassification) {
+            console.log('[Routing Brain] Applying manual classification overrides');
+            leadClassification = {
+                ...(leadClassification || {}),
+                ...input.manualClassification
+            };
+        }
+
+        if (input.manualSegment) {
+            console.log('[Routing Brain] Applying manual segment override:', input.manualSegment);
+            if (!leadClassification) {
+                leadClassification = {
+                    jobType: 'standard',
+                    jobClarity: 'clear',
+                    clientType: 'residential',
+                    urgency: 'medium'
+                };
+            }
+            leadClassification.segment = input.manualSegment;
+        }
+
+        // FORCE QUOTE MODE synchronization with Route
+        // If route is 'instant', we MUST store as 'simple' mode so basePrice is populated
+        if (finalRoute === 'instant') {
+            console.log('[Routing Brain] forcing quoteMode=simple to match route=instant');
+            input.quoteMode = 'simple';
+        } else if (finalRoute === 'assessment') {
+            console.log('[Routing Brain] forcing quoteMode=consultation to match route=assessment');
+            input.quoteMode = 'consultation';
+        } else if (finalRoute === 'tiers') {
+            console.log('[Routing Brain] forcing quoteMode=hhh to match route=tiers');
+            input.quoteMode = 'hhh';
+        }
+
         // MATCHING ENGINE (Phase 4)
         // Find best contractors based on location
         let matchingContractors: any[] = [];
@@ -130,6 +215,30 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
         const shortSlug = nanoid(8);
         const id = `quote_${nanoid()}`;
 
+        // B3.1: Map AI classification to schema enums
+        // Map AI jobType ('commodity'/'subjective'/'fault'/'project') to schema enum
+        let mappedJobType: 'SINGLE' | 'COMPLEX' | 'MULTIPLE' = 'SINGLE';
+        if (leadClassification?.jobType) {
+            if (leadClassification.jobType === 'project') {
+                mappedJobType = 'COMPLEX';
+            } else if (leadClassification.jobType === 'commodity' && leadClassification.jobClarity === 'known') {
+                mappedJobType = 'SINGLE';
+            } else if (leadClassification.jobType === 'fault' || leadClassification.jobClarity === 'complex') {
+                mappedJobType = 'COMPLEX';
+            }
+            // Default to SINGLE for 'subjective' jobs
+        }
+
+        // Map to quotability based on route recommendation
+        let mappedQuotability: 'INSTANT' | 'VIDEO' | 'VISIT' = 'INSTANT';
+        if (finalRoute === 'instant') {
+            mappedQuotability = 'INSTANT';
+        } else if (finalRoute === 'assessment') {
+            mappedQuotability = 'VISIT';
+        } else if (leadClassification?.jobClarity === 'vague' || leadClassification?.jobType === 'fault') {
+            mappedQuotability = 'VIDEO';
+        }
+
         // Generate quote using value pricing engine
         const pricingResult = generateValuePricingQuote({
             urgencyReason: input.urgencyReason,
@@ -140,6 +249,9 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             clientType: input.clientType,
             jobComplexity: input.jobComplexity,
             forcedQuoteStyle: (input.quoteMode === 'hhh' || input.quoteMode === 'pick_and_mix' || input.quoteMode === 'consultation') ? input.quoteMode : undefined,
+            segment: input.manualSegment || leadClassification?.segment || 'UNKNOWN',
+            jobType: mappedJobType,
+            quotability: mappedQuotability
         });
 
         // Pick & Mix Logic: Sort extras high to low (Anchoring)
@@ -147,8 +259,16 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             input.optionalExtras.sort((a: any, b: any) => (b.priceInPence || 0) - (a.priceInPence || 0));
         }
 
-        // Generate tier deliverables
-        const tierDeliverables = generateTierDeliverables(input.analyzedJobData, input.jobDescription);
+        // B2.3-B2.4: Generate tier deliverables with segment-specific configurations
+        const aiTierDeliverables = generateTierDeliverables(input.analyzedJobData, input.jobDescription);
+        const segmentConfig = getSegmentTierConfig(input.manualSegment || leadClassification?.segment || 'UNKNOWN');
+
+        // Merge segment-specific deliverables with AI-generated ones
+        const tierDeliverables = {
+            essential: Array.from(new Set([...segmentConfig.essential.deliverables, ...aiTierDeliverables.essential])),
+            hassleFree: Array.from(new Set([...segmentConfig.hassleFree.deliverables, ...aiTierDeliverables.hassleFree])),
+            highStandard: Array.from(new Set([...segmentConfig.highStandard.deliverables, ...aiTierDeliverables.highStandard])),
+        };
 
         // Prepare quote data
         const quoteInsertData = {
@@ -168,6 +288,10 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             tierStandardPrice: input.tierStandardPrice,
             tierPriorityPrice: input.tierPriorityPrice,
             tierEmergencyPrice: input.tierEmergencyPrice,
+
+            // Routing Brain Data (NEW)
+            recommendedRoute: finalRoute, // Use final route (manual selection or AI recommendation)
+            leadClassification, // Full classification object with signals
 
             // HHH Mode Prices
             essentialPrice: input.quoteMode === 'hhh' ? pricingResult.essential.price : null,
@@ -196,6 +320,15 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             materialsCostWithMarkupPence: input.materialsCostWithMarkupPence || 0,
             optionalExtras: input.optionalExtras || null,
 
+            // B3.4: Phase 1 Segmentation Fields
+            segment: input.manualSegment || leadClassification?.segment || 'UNKNOWN',
+            jobType: mappedJobType,
+            quotability: mappedQuotability,
+
+            // Proposal Mode - Enable if we have a valid segment
+            proposalModeEnabled: input.proposalModeEnabled ?? ((input.manualSegment || leadClassification?.segment) && (input.manualSegment || leadClassification?.segment) !== 'UNKNOWN'),
+
+
             createdAt: new Date(),
             expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes from creation
         };
@@ -209,18 +342,24 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             valueMultiplier: pricingResult.valueMultiplier,
             recommendedTier: pricingResult.recommendedTier,
             essential: input.quoteMode === 'hhh' ? {
+                name: pricingResult.essential.name,
+                description: pricingResult.essential.coreDescription,
                 price: pricingResult.essential.price,
                 perks: pricingResult.essential.perks,
                 warrantyMonths: pricingResult.essential.warrantyMonths,
                 isRecommended: pricingResult.essential.isRecommended,
             } : undefined,
             hassleFree: input.quoteMode === 'hhh' ? {
+                name: pricingResult.hassleFree.name,
+                description: pricingResult.hassleFree.coreDescription,
                 price: pricingResult.hassleFree.price,
                 perks: pricingResult.hassleFree.perks,
                 warrantyMonths: pricingResult.hassleFree.warrantyMonths,
                 isRecommended: pricingResult.hassleFree.isRecommended,
             } : undefined,
             highStandard: input.quoteMode === 'hhh' ? {
+                name: pricingResult.highStandard.name,
+                description: pricingResult.highStandard.coreDescription,
                 price: pricingResult.highStandard.price,
                 perks: pricingResult.highStandard.perks,
                 warrantyMonths: pricingResult.highStandard.warrantyMonths,
@@ -274,7 +413,7 @@ quotesRouter.post('/api/analyze-job', async (req, res) => {
             : `Estimate at flat £${hourlyRate}/hr.`;
 
         const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
+            model: "gpt-4o",
             messages: [
                 {
                     role: "system",
@@ -283,7 +422,7 @@ quotesRouter.post('/api/analyze-job', async (req, res) => {
                     - basePricePounds (number) - calculated by summing (task hours * task rate)
                     - summary (string, professional summary)
                     - tasks (array of objects with description, estimatedHours, category, appliedRate)
-                    - optionalExtras (array of objects with label, pricePence, description, isRecommended boolean).
+                    - tasks (array of objects with description, estimatedHours, category, appliedRate).
                     
                     ${ratesContext}
                     SYSTEM CATEGORIES: [${systemCatString}]
@@ -327,7 +466,31 @@ quotesRouter.post('/api/analyze-job', async (req, res) => {
             result.basePricePounds = calculatedPrice; // Standard sum, no callout
         }
 
-        res.json(result);
+
+        // Run hybrid SKU detection
+        let suggestedSkus: {
+            taskDescription: string;
+            skuName: string;
+            pricePence: number;
+            confidence: number;
+            id: string;
+        }[] = [];
+        try {
+            const skuResult = await detectMultipleTasks(jobDescription);
+            if (skuResult.hasMatches) {
+                suggestedSkus = skuResult.matchedServices.map((m: any) => ({
+                    taskDescription: m.task.description,
+                    skuName: m.sku.name,
+                    pricePence: m.sku.pricePence,
+                    confidence: m.confidence,
+                    id: m.sku.id
+                }));
+            }
+        } catch (e) {
+            console.error("SKU Detection failed:", e);
+        }
+
+        res.json({ ...result, suggestedSkus });
 
     } catch (error: any) {
         console.error("AI Analysis Failed:", error);
@@ -492,8 +655,31 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
             }
         }
 
+        // Enrich with segment-specific tier names
+        // Use the direct segment field from database (B3.4), fallback to leadClassification for legacy quotes
+        const quoteSegment = quote.segment || ((quote as any).leadClassification as any)?.segment || 'UNKNOWN';
+        const segmentConfig = getSegmentTierConfig(quoteSegment);
+
         res.json({
             ...quote,
+            segment: quoteSegment, // Use the direct field from database (B3.4)
+            // Enriched Tier Objects for Frontend Display
+            tierConfig: segmentConfig, // Pass the full config for ease
+            essential: {
+                name: segmentConfig.essential.name,
+                description: segmentConfig.essential.description,
+                price: quote.essentialPrice, // Existing price
+            },
+            hassleFree: {
+                name: segmentConfig.hassleFree.name,
+                description: segmentConfig.hassleFree.description,
+                price: quote.enhancedPrice,
+            },
+            highStandard: {
+                name: segmentConfig.highStandard.name,
+                description: segmentConfig.highStandard.description,
+                price: quote.elitePrice,
+            },
             contractor: contractorDetails,
             availability: {
                 hasContractors: matchingContractors.length > 0,

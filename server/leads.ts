@@ -12,7 +12,7 @@ import { calls } from "@shared/schema"; // Import calls schema
 export const leadsRouter = Router();
 
 // Create Lead (Quick Capture / Slot Reservation)
-leadsRouter.post('/leads', async (req, res) => {
+leadsRouter.post('/api/leads', async (req, res) => {
     try {
         // Validate input against schema
         // Note: We perform loose validation first to handle diverse frontend payloads
@@ -48,7 +48,7 @@ leadsRouter.post('/leads', async (req, res) => {
                     const { analyzeLeadActionPlan } = await import("./services/agentic-service");
                     console.log(`[Agent-Reflexion] Analyzing Web Lead ${newLead.id}...`);
 
-                    const plan = await analyzeLeadActionPlan(newLead.jobDescription, newLead.customerName);
+                    const plan = await analyzeLeadActionPlan(newLead.jobDescription || "", newLead.customerName);
 
                     // 1. Save Plan to Lead metadata (if we had a column, but we use conversation logic mainly)
                     // 2. IMPORTANT: Update the Conversation Metadata so it shows in Inbox
@@ -72,12 +72,10 @@ leadsRouter.post('/leads', async (req, res) => {
                             id: uuidv4(),
                             phoneNumber: newLead.phone,
                             contactName: newLead.customerName,
-                            source: 'web_lead',
                             status: 'active',
                             unreadCount: 0,
                             lastMessageAt: new Date(),
                             lastMessagePreview: "New Web Inquiry",
-                            lastMessageDirection: 'inbound',
                             metadata: plan
                         });
                         console.log(`[Agent-Reflexion] Created new conversation with plan for ${newLead.phone}`);
@@ -313,7 +311,7 @@ leadsRouter.post('/api/eleven-labs/post-call', async (req, res) => {
 });
 
 // List Leads (Admin)
-leadsRouter.get('/leads', async (req, res) => {
+leadsRouter.get('/api/leads', async (req, res) => {
     try {
         const allLeads = await db.select().from(leads).orderBy(desc(leads.createdAt));
         res.json(allLeads);

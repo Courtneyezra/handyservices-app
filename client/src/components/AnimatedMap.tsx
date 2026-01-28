@@ -160,7 +160,7 @@ export function LocalTrustSection({ location = "derby" }: LocalTrustSectionProps
     const cityName = location === "derby" ? "Derby" : "Nottingham";
 
     return (
-        <section className="bg-slate-900 px-4 lg:px-8 py-16 lg:py-24 overflow-hidden relative">
+        <section className="bg-transparent px-4 lg:px-8 pb-16 lg:pb-24 pt-0 -mt-1 overflow-hidden relative">
             <div className="absolute top-0 right-0 w-1/2 h-full bg-blue-500/5 blur-[120px] rounded-full pointer-events-none" />
             <div className="absolute bottom-0 left-0 w-1/2 h-full bg-amber-500/5 blur-[120px] rounded-full pointer-events-none" />
 
@@ -171,18 +171,7 @@ export function LocalTrustSection({ location = "derby" }: LocalTrustSectionProps
                 </div>
 
                 {/* Text Content - Flex column for mobile reordering */}
-                <div className="flex flex-col text-center lg:text-left">
-                    {/* Live Activity Badge */}
-                    <div className="mb-6">
-                        <div className="inline-flex items-center gap-2 bg-slate-800 border border-slate-700 px-4 py-2 rounded-full">
-                            <span className="relative flex h-3 w-3">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
-                            </span>
-                            <span className="text-white font-bold text-sm tracking-wide">LIVE ACTIVITY</span>
-                        </div>
-                    </div>
-
+                <div className="flex flex-col text-center lg:text-right">
                     {/* Headline */}
                     <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-6 leading-tight">
                         {cityName}'s Hardest Working <span className="text-amber-400">Handy Team</span>

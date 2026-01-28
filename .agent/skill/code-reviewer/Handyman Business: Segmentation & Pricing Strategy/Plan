@@ -1,0 +1,1503 @@
+ # Handyman Business: Segmentation & Pricing Strategy
+
+  Based on Madhavan Ramanujam's Monetizing Innovation framework.
+
+  ---
+
+  ## Core Principle
+
+  > "How you charge matters more than how much you charge."
+
+  **Strategy**: Keep prices constant, improve framing per segment, measure conversion, then adjust pricing per segment based on data.
+
+  ---
+
+  ## Priority Segments
+
+  | Segment | Profile | WTP Level | Value Driver |
+  |---------|---------|-----------|--------------|
+  | **Busy Professionals** | Dual-income, time-poor homeowners | HIGH | Speed, convenience, reliability |
+  | **Property Managers** | Managing 3-50+ rental units | MEDIUM-HIGH | Response time, consistency, volume pricing |
+  | **Small Businesses** | Retail, restaurants, offices | HIGH | Minimal disruption, flexibility, after-hours |
+
+  **Deprioritized** (serve but don't optimize for): DIY Deferrers, Renters/Budget
+
+  ---
+
+  ## Segment Detection Signals
+
+  For LLM brain to tag segments from call transcripts / WhatsApp:
+
+  ### BUSY_PRO Signals
+  - "As soon as possible" / urgency language
+  - Mentions work schedule conflicts
+  - "I won't be home but..." (wants hands-off)
+  - Professional communication tone
+  - Single-family home context
+
+  ### PROP_MGR Signals
+  - "I manage..." / "property manager"
+  - "Tenant" mentioned
+  - "Unit" or multiple addresses
+  - Asks about invoicing / payment terms
+  - Property company name mentioned
+
+  ### SMALL_BIZ Signals
+  - Business name mentioned
+  - "The shop" / "the office" / "the restaurant"
+  - "After hours" / "before we open"
+  - Mentions customers / business disruption concerns
+
+  ### DIY_DEFERRER Signals
+  - "I've been meaning to..."
+  - "List of things" / "bunch of small jobs"
+  - "While you're there..."
+  - Batching language
+
+  ### BUDGET Signals
+  - "What's the cheapest..."
+  - "Rough estimate" before committing
+  - "I'm renting"
+  - Price-first questions
+  - Hesitation on paid visit fee
+
+  ---
+
+  ## Intake Decision Tree
+
+  ```
+  LEAD COMES IN (Call/WhatsApp)
+  │
+  ├─→ "Is this for your home, a rental you manage, or a business?"
+  │
+  ├─────────────────────┬──────────────────┬─────────────────────┐
+  │                     │                  │                     │
+  ▼                     ▼                  ▼                     ▼
+  "MY HOME"         "I MANAGE           "BUSINESS"           "I'M RENTING"
+  │                 PROPERTIES"          │                     │
+  │                     │                 │                     │
+  ▼                     │                 │                     ▼
+  "How soon do          │                 │                   [BUDGET]
+  you need this?"       │                 │
+  │                     │                 │
+  ├──────┬──────┐       ▼                 ▼
+  ▼      ▼      ▼   "Do you have      "Would you need
+  ASAP  1-2wk  Flex  ongoing needs?"   after-hours work?"
+  │      │      │       │                 │
+  ▼      ▼      │   ┌───┴───┐        ┌───┴───┐
+  [BUSY  [DIY   │   │       │        │       │
+  PRO]   DEF]   │   ▼       ▼        ▼       ▼
+  │ "Yes"   "Just    "Yes"   "Normal
+  │   │     this"      │     hours"
+  │   ▼       │        ▼       │
+  │ [PM-    [PM-    [BIZ-    [BIZ-
+  │ RETAINER] SINGLE] PREMIUM] STANDARD]
+  │
+  └─────────────────────────────────────────┐
+  ▼
+  ASK ABOUT THE JOB
+  "What needs doing?"
+  │
+  ┌───────────────┼───────────────┐
+  ▼               ▼               ▼
+  INSTANT          VIDEO            VISIT
+  PRICE            QUOTE            NEEDED
+  ```
+
+  ---
+
+  ## Leaders, Killers, Fillers Framework
+
+  How to structure what's **included** in each tier:
+
+  | Type | Definition | Role in Tier |
+  |------|------------|--------------|
+  | **Killers** | Must-have baseline (table stakes) | Every tier has these |
+  | **Leaders** | High-value features that draw them in | Added in higher tiers |
+  | **Fillers** | Nice-to-haves that add perceived value | Top tier extras |
+
+  ---
+
+  ### BUSY PRO - Tier Breakdown
+
+  ```
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  STANDARD (Killers)                                             │
+  │  ─────────────────                                              │
+  │  • Quality workmanship                                          │
+  │  • Cleanup included                                             │
+  │  • 30-day guarantee                                             │
+  │  • Scheduled within 2 weeks                                     │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  PRIORITY ⭐ (Killers + Leaders + Fillers)                       │
+  │  ─────────────────────────────────────────                      │
+  │  KILLERS:                                                       │
+  │  • Quality workmanship                                          │
+  │  • Cleanup included                                             │
+  │                                                                 │
+  │  LEADERS (the draw):                                            │
+  │  • Same-week scheduling                                         │
+  │  • Photo updates during job                                     │
+  │  • 90-day guarantee                                             │
+  │                                                                 │
+  │  FILLERS (extras):                                              │
+  │  • Direct contact line                                          │
+  │  • Free small fix "while I'm there" (under 10 min)             │
+  └─────────────────────────────────────────────────────────────────┘
+  ```
+
+  ---
+
+  ### PROP MGR - Tier Breakdown
+
+  ```
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  SINGLE JOB (Killers)                                           │
+  │  ────────────────────                                           │
+  │  • Quality workmanship                                          │
+  │  • Scheduled within 1 week                                      │
+  │  • Invoice on completion                                        │
+  │  • Tenant coordination                                          │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  PARTNER PROGRAM ⭐ (Killers + Leaders + Fillers)                │
+  │  ───────────────────────────────────────────────                │
+  │  KILLERS:                                                       │
+  │  • Quality workmanship                                          │
+  │  • Tenant coordination                                          │
+  │                                                                 │
+  │  LEADERS (the draw):                                            │
+  │  • Priority 24-48hr response                                    │
+  │  • Dedicated contact (skip the queue)                           │
+  │  • Monthly invoicing (Net 30)                                   │
+  │                                                                 │
+  │  FILLERS (extras):                                              │
+  │  • 10% volume discount                                          │
+  │  • Quarterly property walk-through                              │
+  └─────────────────────────────────────────────────────────────────┘
+  ```
+
+  ---
+
+  ### SMALL BIZ - Tier Breakdown
+
+  ```
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  STANDARD (Killers)                                             │
+  │  ─────────────────                                              │
+  │  • Quality workmanship                                          │
+  │  • Cleanup included                                             │
+  │  • Business hours (M-F)                                         │
+  │  • Proper invoicing                                             │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  AFTER-HOURS ⭐ (Killers + Leaders)                              │
+  │  ──────────────────────────────────                             │
+  │  KILLERS:                                                       │
+  │  • Quality workmanship                                          │
+  │  • Cleanup included                                             │
+  │  • Proper invoicing                                             │
+  │                                                                 │
+  │  LEADERS (the draw):                                            │
+  │  • Evening/weekend availability                                 │
+  │  • Zero business disruption                                     │
+  │  • "Open to a finished job"                                     │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  EMERGENCY (Killers + Leaders + Fillers)                        │
+  │  ───────────────────────────────────────                        │
+  │  KILLERS + LEADERS from above, plus:                            │
+  │                                                                 │
+  │  FILLERS (extras):                                              │
+  │  • Same-day response                                            │
+  │  • Priority over other jobs                                     │
+  │  • Direct emergency line                                        │
+  └─────────────────────────────────────────────────────────────────┘
+  ```
+
+  ---
+
+  ### DIY DEFERRER - Tier Breakdown
+
+  ```
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  BASIC ⭐ (Killers)                                              │
+  │  ─────────────────                                              │
+  │  • Quality workmanship                                          │
+  │  • Cleanup included                                             │
+  │  • Scheduled within 2-3 weeks                                   │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  STANDARD (Killers + Leaders)                                   │
+  │  ────────────────────────────                                   │
+  │  KILLERS:                                                       │
+  │  • Quality workmanship                                          │
+  │  • Cleanup included                                             │
+  │                                                                 │
+  │  LEADERS:                                                       │
+  │  • Faster scheduling (1-2 weeks)                                │
+  │  • 30-day guarantee                                             │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  PREMIUM (Killers + Leaders + Fillers)                          │
+  │  ─────────────────────────────────────                          │
+  │  KILLERS + LEADERS from above, plus:                            │
+  │                                                                 │
+  │  FILLERS:                                                       │
+  │  • Priority scheduling                                          │
+  │  • 90-day guarantee                                             │
+  │  • Free small fix while there                                   │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  BATCH BUNDLE (for multiple jobs)                               │
+  │  ─────────────────────────────────                              │
+  │  • Basic tier for each job                                      │
+  │  • X% discount for 3+ jobs                                      │
+  │  • Single visit efficiency                                      │
+  └─────────────────────────────────────────────────────────────────┘
+  ```
+
+  ---
+
+  ### BUDGET - Tier Breakdown
+
+  ```
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  SINGLE PRICE ⭐ (Killers only)                                  │
+  │  ─────────────────────────────                                  │
+  │  • Quality workmanship                                          │
+  │  • Cleanup included                                             │
+  │  • Scheduled when available                                     │
+  │                                                                 │
+  │  NO TIERS - just the job done at fair price                     │
+  │  No upsell pressure for this segment                            │
+  └─────────────────────────────────────────────────────────────────┘
+  ```
+
+  ---
+
+  ### Leaders/Killers/Fillers by Segment - Summary
+
+  | Segment | Killers (Every Tier) | Leaders (Draw) | Fillers (Extras) |
+  |---------|---------------------|----------------|------------------|
+  | **BUSY PRO** | Quality, cleanup | Same-week, photo updates, 90-day | Direct line, free small fix |
+  | **PROP MGR** | Quality, tenant coord | Priority response, dedicated line, Net 30 | Volume discount, quarterly walk |
+  | **SMALL BIZ** | Quality, cleanup, invoicing | After-hours, zero disruption | Same-day, emergency line |
+  | **DIY DEFERRER** | Quality, cleanup | Faster scheduling, 30-day guarantee | 90-day, free small fix |
+  | **BUDGET** | Quality, cleanup | N/A | N/A |
+
+  ---
+
+  ## Quote Templates by Segment
+
+  ### BUSY_PRO → Priority Service Quote
+
+  ```
+  QUOTE FOR: [Name]
+  JOB: [Description]
+
+  ────────────────────────────────────────
+
+  ⭐ PRIORITY SERVICE (Recommended)         $XXX
+  • Scheduled within 5 business days
+  • Photo updates sent during job
+  • 90-day workmanship guarantee
+  • Direct line for any questions
+
+  STANDARD SERVICE                       $XXX
+  • Scheduled within 2 weeks
+  • Quality workmanship
+  • 30-day guarantee
+
+  ────────────────────────────────────────
+  Includes: [materials, labor, cleanup]
+  Valid for: 14 days
+
+  Ready to book? Just reply "Priority" or "Standard"
+  ```
+
+  **Anchor on**: Priority tier
+  **Key framing**: Time savings, hands-off convenience
+
+  ---
+
+  ### PROP_MGR → Partner Quote
+
+  ```
+  QUOTE FOR: [Name / Company]
+  PROPERTY: [Address]
+  JOB: [Description]
+
+  ────────────────────────────────────────
+
+  SINGLE JOB                               $XXX
+  • Scheduled within 1 week
+  • Tenant coordination included
+  • Invoice on completion
+
+  ⭐ PROPERTY PARTNER PROGRAM
+  For ongoing needs:
+  • Priority 24-48hr response
+  • 10% off all jobs
+  • Monthly invoicing (Net 30)
+  • Dedicated contact
+
+  → Reply "Partner" to learn more
+
+  ────────────────────────────────────────
+  Note: We handle tenant scheduling directly.
+  Just share their contact.
+  ```
+
+  **Anchor on**: Partner program mention
+  **Key framing**: Reliability, one vendor to manage, tenant coordination
+
+  ---
+
+  ### SMALL_BIZ → Business Quote
+
+  ```
+  QUOTE FOR: [Business Name]
+  JOB: [Description]
+
+  ────────────────────────────────────────
+
+  STANDARD (Business Hours, M-F)           $XXX
+
+  ⭐ AFTER-HOURS (Recommended)              $XXX
+  Evening/weekend - zero business disruption
+
+  EMERGENCY SAME-DAY                       $XXX
+  If you can't wait
+
+  ────────────────────────────────────────
+  All options include:
+  • Proper invoicing for your records
+  • Clean, professional service
+  • Minimal disruption to your operations
+
+  Note: After-hours = we come when you're
+  closed, you open to a finished job.
+  ```
+
+  **Anchor on**: After-hours option
+  **Key framing**: Minimal disruption, business expense
+
+  ---
+
+  ### BUDGET/DIY_DEFERRER → Standard Quote
+
+  ```
+  QUOTE FOR: [Name]
+  JOB: [Description]
+
+  ────────────────────────────────────────
+
+  ⭐ BASIC (Recommended)                    $XXX
+  • Gets the job done right
+  • Scheduled within 2-3 weeks
+
+  STANDARD                                 $XXX
+  • Faster scheduling (1-2 weeks)
+  • 30-day guarantee
+
+  PREMIUM                                  $XXX
+  • Priority scheduling
+  • 90-day guarantee
+
+  ────────────────────────────────────────
+  Includes: [labor, materials, cleanup]
+
+  💡 Have more jobs? Send me the full list -
+  batching usually saves on the visit.
+  ```
+
+  **Anchor on**: Basic tier
+  **Key framing**: Value, batching opportunity
+
+  ---
+
+  ## Matrix Logic (Segment → Quote Style)
+
+  | Segment | Quote Style | Anchor Tier | Add-ons to Show |
+  |---------|-------------|-------------|-----------------|
+  | BUSY_PRO | PRIORITY_3TIER | Priority (top) | Photo updates, extended guarantee |
+  | PROP_MGR | PARTNER_OFFER | Partner program | Tenant coordination, bulk scheduling |
+  | SMALL_BIZ | AFTERHOURS_3TIER | After-hours | Emergency line, maintenance retainer |
+  | DIY_DEFERRER | BATCH_STANDARD | Basic + batch | Multi-job discount |
+  | BUDGET | BASIC_STANDARD | Basic | None |
+
+  ---
+
+  ## Paid Visit Script
+
+  Use confidently when video isn't enough:
+
+  > "For this one I'd need to see it in person to give you an accurate quote. We do a $XX assessment visit - if you go ahead with the job, that gets credited back to you. Want me to book that in?"
+
+  **Framing**: Refundable deposit, not "charge to quote"
+
+  ---
+
+  ## PMF Measurement (No Customer Surveys)
+
+  Track these metrics per segment:
+
+  | Metric | What It Tells You | Action If Poor |
+  |--------|-------------------|----------------|
+  | **Quote conversion rate** | Is framing resonating? | Adjust template language |
+  | **Time-to-decision** | Fast = good fit | If slow, qualification may be off |
+  | **Tier selection** | Are they choosing expected tier? | Adjust anchoring or tier design |
+  | **Repeat rate** | Value delivered vs. price | PM segment should be highest |
+  | **Add-on attach rate** | Which extras resonate? | Double down on winners |
+  | **Revenue by segment** | Where's profit coming from? | Shift marketing spend |
+
+  **Feedback loop**: Matrix evolves based on CRM data. If BUSY_PRO conversion drops, investigate before changing price.
+
+  ---
+
+  ## Pricing Examples & Multipliers
+
+  ### Tier Pricing Structure
+
+  Use your **base rate** as the anchor, then apply multipliers:
+
+  ```
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  BASE RATE = Your standard hourly or job rate                   │
+  │                                                                 │
+  │  TIER MULTIPLIERS:                                              │
+  │  ───────────────────────────────────────────────────────────    │
+  │  Basic / Standard Hours    =  1.0x  (base rate)                 │
+  │  Standard / Faster         =  1.15x - 1.25x                     │
+  │  Priority / After-Hours    =  1.3x - 1.5x                       │
+  │  Emergency / Same-Day      =  1.5x - 2.0x                       │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+  ```
+
+  ### Example: $300 Base Job
+
+  | Tier | Multiplier | Price | What They Get |
+  |------|------------|-------|---------------|
+  | Basic | 1.0x | $300 | Standard scheduling, 30-day guarantee |
+  | Standard | 1.2x | $360 | 1-week scheduling, photo updates |
+  | Priority | 1.4x | $420 | Same-week, 90-day guarantee, extras |
+  | Emergency | 1.75x | $525 | Same-day, top priority |
+
+  ### Segment-Specific Pricing Notes
+
+  ```
+  ┌──────────────┬─────────────────────────────────────────────────────────────┐
+  │   SEGMENT    │   PRICING APPROACH                                          │
+  ├──────────────┼─────────────────────────────────────────────────────────────┤
+  │              │                                                             │
+  │  BUSY PRO    │  Lead with Priority tier (1.4x)                            │
+  │              │  They expect to pay for speed - don't discount              │
+  │              │  If they choose Basic, that's fine - they self-selected     │
+  │              │                                                             │
+  ├──────────────┼─────────────────────────────────────────────────────────────┤
+  │              │                                                             │
+  │  PROP MGR    │  Standard rate for single jobs                              │
+  │              │  Partner Program: 10% discount but VOLUME commitment        │
+  │              │  Net 30 terms (factor into your cash flow)                  │
+  │              │                                                             │
+  ├──────────────┼─────────────────────────────────────────────────────────────┤
+  │              │                                                             │
+  │  SMALL BIZ   │  After-hours = 1.3x - 1.5x (their downtime costs more)     │
+  │              │  Emergency = 1.75x - 2.0x (business-critical)               │
+  │              │  Frame as business expense, not personal cost               │
+  │              │                                                             │
+  ├──────────────┼─────────────────────────────────────────────────────────────┤
+  │              │                                                             │
+  │  DIY         │  Anchor on Basic (1.0x)                                     │
+  │  DEFERRER    │  Batch discount: 10-15% off for 3+ jobs                     │
+  │              │  They'll upgrade if genuinely urgent                        │
+  │              │                                                             │
+  ├──────────────┼─────────────────────────────────────────────────────────────┤
+  │              │                                                             │
+  │  BUDGET      │  Single price at base rate only                             │
+  │              │  No tiers - they'll just pick cheapest anyway               │
+  │              │  Be honest if you're not the cheapest option                │
+  │              │                                                             │
+  └──────────────┴─────────────────────────────────────────────────────────────┘
+  ```
+
+  ### Paid Visit Pricing
+
+  ```
+  Assessment visit: $50 - $100 (depending on travel distance)
+  → Credited back if they book the job
+  → Non-refundable if they don't proceed
+  → Filters for serious buyers
+  ```
+
+  ---
+
+  ## Follow-Up Sequences
+
+  ### After Sending Quote
+
+  ```
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                    FOLLOW-UP TIMELINE                           │
+  └─────────────────────────────────────────────────────────────────┘
+
+  DAY 0: Quote sent
+  └── "Let me know if you have any questions!"
+
+  DAY 2-3: First follow-up (if no response)
+  └── "Hi [Name], just checking if you had a chance to
+  review the quote. Happy to answer any questions."
+
+  DAY 5-7: Second follow-up (if still no response)
+  └── "Hi [Name], wanted to follow up on the quote I sent.
+  If timing or pricing doesn't work, no worries -
+  just let me know and I'll close this out."
+
+  DAY 10-14: Final follow-up
+  └── "Hi [Name], I'll assume you've gone in another direction.
+  If things change or you need help in the future,
+  feel free to reach out. All the best!"
+
+  CLOSE: Mark as Lost in CRM, note reason if known
+  ```
+
+  ### Segment-Specific Follow-Up Adjustments
+
+  ```
+  ┌──────────────┬─────────────────────────────────────────────────────────────┐
+  │   SEGMENT    │   FOLLOW-UP APPROACH                                        │
+  ├──────────────┼─────────────────────────────────────────────────────────────┤
+  │              │                                                             │
+  │  BUSY PRO    │  FASTER cadence (they decide quickly)                       │
+  │              │  Day 1-2: First follow-up                                   │
+  │              │  Day 4-5: Final follow-up                                   │
+  │              │  "I have availability this week if you'd like to lock in"   │
+  │              │                                                             │
+  ├──────────────┼─────────────────────────────────────────────────────────────┤
+  │              │                                                             │
+  │  PROP MGR    │  PATIENT cadence (they're busy, managing multiple things)   │
+  │              │  Day 3-4: First follow-up                                   │
+  │              │  Day 7-10: Second follow-up                                 │
+  │              │  Mention Partner Program again if applicable                 │
+  │              │                                                             │
+  ├──────────────┼─────────────────────────────────────────────────────────────┤
+  │              │                                                             │
+  │  SMALL BIZ   │  BUSINESS HOURS follow-up (respect their schedule)          │
+  │              │  Standard cadence                                           │
+  │              │  "Want me to pencil in an after-hours slot for you?"        │
+  │              │                                                             │
+  ├──────────────┼─────────────────────────────────────────────────────────────┤
+  │              │                                                             │
+  │  DIY         │  LONGER cadence (they're not in a rush)                     │
+  │  DEFERRER    │  Day 5-7: First follow-up                                   │
+  │              │  Day 14: Final follow-up                                    │
+  │              │  "Still have that list? Happy to batch them when ready"     │
+  │              │                                                             │
+  ├──────────────┼─────────────────────────────────────────────────────────────┤
+  │              │                                                             │
+  │  BUDGET      │  MINIMAL follow-up (don't chase)                            │
+  │              │  One follow-up at Day 3-4                                   │
+  │              │  If no response, move on (they're price shopping)           │
+  │              │                                                             │
+  └──────────────┴─────────────────────────────────────────────────────────────┘
+  ```
+
+  ### Follow-Up Message Templates
+
+  **First Follow-Up (General):**
+  > "Hi [Name], just checking in on the quote I sent for [job]. Any questions I can answer? Happy to adjust if needed."
+
+  **First Follow-Up (BUSY PRO):**
+  > "Hi [Name], following up on [job]. I've got availability [this week/next few days] if you'd like to lock in a Priority slot."
+
+  **First Follow-Up (PROP MGR):**
+  > "Hi [Name], checking in on the quote for [property address]. Let me know if you'd like to discuss the Partner Program for your other properties."
+
+  **First Follow-Up (SMALL BIZ):**
+  > "Hi [Name], following up on the quote for [business]. Want me to pencil in an after-hours slot so there's no disruption to your day?"
+
+  **First Follow-Up (DIY DEFERRER):**
+  > "Hi [Name], just checking in. Still have that list of jobs? Happy to batch them together whenever you're ready."
+
+  **Final Follow-Up (All):**
+  > "Hi [Name], I'll assume you've sorted this out. If things change or you need help down the road, feel free to reach out. All the best!"
+
+  ---
+
+  ### Quote Outcome Tracking
+
+  After follow-up sequence completes, log outcome:
+
+  ```
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  OUTCOME OPTIONS:                                               │
+  │                                                                 │
+  │  ✓ ACCEPTED - Tier chosen: _____ Amount: $_____                │
+  │                                                                 │
+  │  ✗ REJECTED - Reason (if known):                               │
+  │      □ Price too high                                           │
+  │      □ Went with competitor                                     │
+  │      □ Decided not to do the job                                │
+  │      □ Timing didn't work                                       │
+  │      □ Other: _____                                             │
+  │                                                                 │
+  │  👻 GHOSTED - No response after follow-up sequence              │
+  │                                                                 │
+  │  ⏸️ DELAYED - "Not right now, will reach out later"             │
+  │      → Set reminder for 30/60/90 days                           │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+  ```
+
+  ---
+
+  ## Pricing Strategy
+
+  ### Current Approach
+  - **Hold prices constant** across all segments (control variable)
+  - **Change framing/packaging** per segment (test variable)
+  - **Measure conversion** by segment
+  - If framing alone improves conversions → pricing wasn't the issue
+  - If specific segments struggle → adjust price for THAT segment only
+
+  ### Future Pricing Levers (per segment)
+
+  | Segment | Potential Price Moves |
+  |---------|----------------------|
+  | BUSY_PRO | Premium for same-day/next-day, convenience fees |
+  | PROP_MGR | Volume discounts, retainer model |
+  | SMALL_BIZ | After-hours premium (25-50%), emergency premium |
+  | BUDGET | Stripped-down basic tier, batching discounts |
+
+  ---
+
+  ## Add-Ons Roadmap (Future Innovation)
+
+  | Segment | High-Converting Add-Ons |
+  |---------|------------------------|
+  | BUSY_PRO | "While I'm there" small fixes, photo documentation, extended guarantee |
+  | PROP_MGR | Tenant coordination, bulk scheduling, preventive maintenance check |
+  | SMALL_BIZ | After-hours upgrade, emergency priority line, quarterly maintenance retainer |
+  | DIY_DEFERRER | Bundle discount for 3+ jobs, prepaid visit punch card |
+
+  ---
+
+  ## System Architecture
+
+  ```
+  ┌─────────────────────────────────────────────────────────┐
+  │                    LLM BRAIN                            │
+  │                                                         │
+  │  EXTRACTS:                    DETECTS SEGMENT:          │
+  │  • Job description            • Property type signal    │
+  │  • Urgency                    • Urgency signal          │
+  │  • Contact info               • Volume/repeat signal    │
+  │  • Location                   • WTP signals             │
+  │                                                         │
+  │  OUTPUT: Lead object + SEGMENT TAG                      │
+  └─────────────────────────────────────────────────────────┘
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────┐
+  │                    MATRIX (DB)                          │
+  │                                                         │
+  │  INPUTS:              OUTPUTS:                          │
+  │  • Segment tag        • Quote style                     │
+  │  • Job complexity     • Recommended add-ons             │
+  │  • Quotability        • Follow-up cadence               │
+  │                       • Paid visit threshold            │
+  └─────────────────────────────────────────────────────────┘
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────┐
+  │                  CRM / QUOTE SOFTWARE                   │
+  │                                                         │
+  │  • Generates segment-appropriate quote                  │
+  │  • Anchors on right tier                               │
+  │  • Shows relevant add-ons                              │
+  │  • Tracks conversion metrics for feedback loop         │
+  └─────────────────────────────────────────────────────────┘
+  ```
+
+  ---
+
+  ## Quick Reference Card
+
+  ```
+  ┌─────────────────────────────────────────────────────────┐
+  │  SEGMENT          │ ANCHOR TIER  │ KEY PHRASE          │
+  ├───────────────────┼──────────────┼─────────────────────┤
+  │  Busy Pro         │ Priority     │ "This week"         │
+  │  Property Mgr     │ Partner      │ "Ongoing needs"     │
+  │  Small Biz        │ After-Hours  │ "No disruption"     │
+  │  DIY Deferrer     │ Batch        │ "Full list"         │
+  │  Renter/Budget    │ Basic        │ "Gets it done"      │
+  └─────────────────────────────────────────────────────────┘
+  ```
+
+  ---
+
+  ## Next Steps
+
+  1. **Update LLM brain** prompt to detect and tag segments
+  2. **Update matrix** with segment → quote style mapping
+  3. **Create quote templates** in CRM for each segment
+  4. **Train team** on qualification questions during intake
+  5. **Set up tracking** for conversion by segment
+  6. **Review data** after 2-4 weeks, iterate
+
+  ---
+
+  # MASTER ARCHITECTURE DIAGRAM
+
+  ## Complete Flow: Call/Message → Sent Quote
+
+  ---
+
+  ## HIGH-LEVEL OVERVIEW
+
+  ```
+  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
+  │  LEAD    │───▶│ QUALIFY  │───▶│ SEGMENT  │───▶│  QUOTE   │───▶│  SEND    │
+  │  INTAKE  │    │          │    │          │    │  BUILD   │    │          │
+  └──────────┘    └──────────┘    └──────────┘    └──────────┘    └──────────┘
+  ```
+
+  ---
+
+  ## DETAILED MASTER FLOW
+
+  ```
+  ╔═════════════════════════════════════════════════════════════════════════════╗
+  ║                                                                             ║
+  ║                              LEAD INTAKE                                    ║
+  ║                                                                             ║
+  ╚═════════════════════════════════════════════════════════════════════════════╝
+  │
+  ┌───────────────┴───────────────┐
+  │                               │
+  ▼                               ▼
+  ┌─────────────┐                 ┌─────────────┐
+  │    CALL     │                 │  WHATSAPP   │
+  │   (Phone)   │                 │  (Message)  │
+  └──────┬──────┘                 └──────┬──────┘
+  │                               │
+  └───────────────┬───────────────┘
+  │
+  ▼
+  ╔═════════════════════════════════════════════════════════════════════════════╗
+  ║                                                                             ║
+  ║                         CAPTURE LEAD INFO                                   ║
+  ║                                                                             ║
+  ║    • Name                                                                   ║
+  ║    • Phone/Contact                                                          ║
+  ║    • Location/Address                                                       ║
+  ║    • Job Description (what they need done)                                  ║
+  ║                                                                             ║
+  ╚═════════════════════════════════════════════════════════════════════════════╝
+  │
+  ▼
+  ╔═════════════════════════════════════════════════════════════════════════════╗
+  ║                                                                             ║
+  ║                      QUALIFICATION QUESTIONS                                ║
+  ║                         (Manual Entry)                                      ║
+  ║                                                                             ║
+  ╠═════════════════════════════════════════════════════════════════════════════╣
+  ║                                                                             ║
+  ║  Q1: "Is this for your home, a rental you manage, or a business?"          ║
+  ║       ○ My home                                                             ║
+  ║       ○ I manage properties                                                 ║
+  ║       ○ Business                                                            ║
+  ║       ○ I'm renting                                                         ║
+  ║                                                                             ║
+  ║  Q2: "How soon do you need this done?"                                      ║
+  ║       ○ ASAP / This week                                                    ║
+  ║       ○ 1-2 weeks                                                           ║
+  ║       ○ Flexible                                                            ║
+  ║                                                                             ║
+  ║  Q3: "One job or a few things?"                                             ║
+  ║       ○ Just this                                                           ║
+  ║       ○ Multiple / Ongoing                                                  ║
+  ║                                                                             ║
+  ╚═════════════════════════════════════════════════════════════════════════════╝
+  │
+  ▼
+  ╔═════════════════════════════════════════════════════════════════════════════╗
+  ║                                                                             ║
+  ║                        SEGMENT IDENTIFICATION                               ║
+  ║                                                                             ║
+  ╚═════════════════════════════════════════════════════════════════════════════╝
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │                                                                             │
+  │                           DECISION LOGIC                                    │
+  │                                                                             │
+  │    ┌─────────────────────────────────────────────────────────────────┐     │
+  │    │                                                                 │     │
+  │    │   Q1 = "My home" + Q2 = "ASAP"  ─────────────▶  BUSY PRO       │     │
+  │    │                                                                 │     │
+  │    │   Q1 = "My home" + Q2 = "1-2wk/Flex"  ───────▶  DIY DEFERRER   │     │
+  │    │                                                                 │     │
+  │    │   Q1 = "I manage properties"  ───────────────▶  PROP MGR       │     │
+  │    │                                                                 │     │
+  │    │   Q1 = "Business"  ──────────────────────────▶  SMALL BIZ      │     │
+  │    │                                                                 │     │
+  │    │   Q1 = "I'm renting"  ───────────────────────▶  BUDGET         │     │
+  │    │                                                                 │     │
+  │    └─────────────────────────────────────────────────────────────────┘     │
+  │                                                                             │
+  └─────────────────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+  ┌─────────────────┐
+  │  SEGMENT TAG    │
+  │  ASSIGNED       │
+  └────────┬────────┘
+  │
+  ┌────────────┬───────────┼───────────┬────────────┐
+  │            │           │           │            │
+  ▼            ▼           ▼           ▼            ▼
+  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
+  │  BUSY   │ │  PROP   │ │  SMALL  │ │   DIY   │ │ BUDGET  │
+  │  PRO    │ │  MGR    │ │  BIZ    │ │ DEFERRER│ │         │
+  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘
+  │            │           │           │            │
+  └────────────┴───────────┼───────────┴────────────┘
+  │
+  ▼
+  ╔═════════════════════════════════════════════════════════════════════════════╗
+  ║                                                                             ║
+  ║                       QUOTABILITY ASSESSMENT                                ║
+  ║                                                                             ║
+  ╚═════════════════════════════════════════════════════════════════════════════╝
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │                                                                             │
+  │                "Can I quote this without seeing it?"                        │
+  │                                                                             │
+  └─────────────────────────────────────────────────────────────────────────────┘
+  │
+  ┌─────────────────────┼─────────────────────┐
+  │                     │                     │
+  ▼                     ▼                     ▼
+  ┌─────────────┐       ┌─────────────┐       ┌─────────────┐
+  │   INSTANT   │       │    VIDEO    │       │    VISIT    │
+  │    PRICE    │       │    QUOTE    │       │   REQUIRED  │
+  └──────┬──────┘       └──────┬──────┘       └──────┬──────┘
+  │                     │                     │
+  ▼                     ▼                     ▼
+  Simple job,           "Send me a 30-sec      "I'd need to see
+  known price           video of the area"     this in person.
+  │                We do a $XX
+  Give range:                  │                assessment -
+  "Usually $XX-$XX"            │                credited if
+  │                     │                you book."
+  │                     ▼                     │
+  │              ┌─────────────┐              │
+  │              │   REVIEW    │              │
+  │              │   VIDEO     │              │
+  │              └──────┬──────┘              │
+  │                     │                     │
+  │              ┌──────┴──────┐              │
+  │              │             │              │
+  │              ▼             ▼              │
+  │         CAN QUOTE    CAN'T QUOTE ────────┘
+  │              │
+  └──────────────┼───────────────────────────┐
+  │                           │
+  ▼                           │
+  ╔═════════════════════════════════════════════════════════════════════════════╗
+  ║                                                                             ║
+  ║                      QUOTE TEMPLATE SELECTION                               ║
+  ║                   (Based on SEGMENT + JOB TYPE)                             ║
+  ║                                                                             ║
+  ╠═════════════════════════════════════════════════════════════════════════════╣
+  ║                                                                             ║
+  ║   TWO FACTORS DETERMINE TEMPLATE:                                           ║
+  ║                                                                             ║
+  ║   1. SEGMENT    ──▶  Framing, language, what to emphasize                  ║
+  ║   2. JOB TYPE   ──▶  Quote structure (single vs tiered vs package)         ║
+  ║                                                                             ║
+  ╠═════════════════════════════════════════════════════════════════════════════╣
+  ║                                                                             ║
+  ║   QUOTE STRUCTURES AVAILABLE:                                               ║
+  ║                                                                             ║
+  ║   ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐            ║
+  ║   │  SINGLE PRICE   │  │   3-TIER QUOTE  │  │ PACKAGE/RETAINER│            ║
+  ║   │                 │  │                 │  │                 │            ║
+  ║   │  One price for  │  │  Good/Better/   │  │  Bundled offer  │            ║
+  ║   │  the job        │  │  Best options   │  │  or ongoing     │            ║
+  ║   │                 │  │                 │  │  relationship   │            ║
+  ║   │  USE WHEN:      │  │  USE WHEN:      │  │                 │            ║
+  ║   │  • Simple job   │  │  • Speed/       │  │  USE WHEN:      │            ║
+  ║   │  • Commodity    │  │    guarantee    │  │  • Prop Mgr     │            ║
+  ║   │    service      │  │    matters      │  │  • Multiple     │            ║
+  ║   │  • Budget       │  │  • Upsell       │  │    jobs         │            ║
+  ║   │    segment      │  │    opportunity  │  │  • Ongoing      │            ║
+  ║   │                 │  │                 │  │    needs        │            ║
+  ║   └─────────────────┘  └─────────────────┘  └─────────────────┘            ║
+  ║                                                                             ║
+  ╠═════════════════════════════════════════════════════════════════════════════╣
+  ║                                                                             ║
+  ║   SEGMENT + JOB → TEMPLATE MATRIX:                                          ║
+  ║                                                                             ║
+  ║   ┌──────────────┬─────────────────┬─────────────────┬─────────────────┐   ║
+  ║   │   SEGMENT    │  SIMPLE JOB     │  COMPLEX JOB    │  MULTIPLE JOBS  │   ║
+  ║   ├──────────────┼─────────────────┼─────────────────┼─────────────────┤   ║
+  ║   │              │                 │                 │                 │   ║
+  ║   │  BUSY PRO    │  Single Price   │  3-Tier         │  3-Tier +       │   ║
+  ║   │              │  + Priority     │  (Priority ⭐)   │  Batch discount │   ║
+  ║   │              │  option         │                 │                 │   ║
+  ║   │              │                 │                 │                 │   ║
+  ║   ├──────────────┼─────────────────┼─────────────────┼─────────────────┤   ║
+  ║   │              │                 │                 │                 │   ║
+  ║   │  PROP MGR    │  Single Price   │  Single Price   │  PACKAGE:       │   ║
+  ║   │              │  (quick         │  (partner       │  Partner        │   ║
+  ║   │              │  turnaround)    │  mention)       │  Program ⭐      │   ║
+  ║   │              │                 │                 │                 │   ║
+  ║   ├──────────────┼─────────────────┼─────────────────┼─────────────────┤   ║
+  ║   │              │                 │                 │                 │   ║
+  ║   │  SMALL BIZ   │  Single Price   │  3-Tier         │  PACKAGE:       │   ║
+  ║   │              │  (after-hrs     │  (After-Hrs ⭐)  │  Maintenance    │   ║
+  ║   │              │  option)        │                 │  Retainer       │   ║
+  ║   │              │                 │                 │                 │   ║
+  ║   ├──────────────┼─────────────────┼─────────────────┼─────────────────┤   ║
+  ║   │              │                 │                 │                 │   ║
+  ║   │  DIY         │  Single Price   │  3-Tier         │  PACKAGE:       │   ║
+  ║   │  DEFERRER    │  (basic)        │  (Basic ⭐)      │  Batch Bundle ⭐ │   ║
+  ║   │              │                 │                 │                 │   ║
+  ║   ├──────────────┼─────────────────┼─────────────────┼─────────────────┤   ║
+  ║   │              │                 │                 │                 │   ║
+  ║   │  BUDGET      │  Single Price ⭐ │  Single Price ⭐ │  Single Price   │   ║
+  ║   │              │  (basic only)   │  (basic only)   │  per job        │   ║
+  ║   │              │                 │                 │                 │   ║
+  ║   └──────────────┴─────────────────┴─────────────────┴─────────────────┘   ║
+  ║                                                                             ║
+  ║   ⭐ = Recommended/anchored option for that combination                     ║
+  ║                                                                             ║
+  ╚═════════════════════════════════════════════════════════════════════════════╝
+  │
+  ▼
+  ╔═════════════════════════════════════════════════════════════════════════════╗
+  ║                                                                             ║
+  ║                          QUOTE BUILDING                                     ║
+  ║                                                                             ║
+  ╠═════════════════════════════════════════════════════════════════════════════╣
+  ║                                                                             ║
+  ║   1. Select structure: SINGLE / 3-TIER / PACKAGE                            ║
+  ║   2. Apply segment framing + language                                       ║
+  ║   3. Fill in job details + pricing                                          ║
+  ║   4. Mark recommended option with ⭐ (if applicable)                        ║
+  ║   5. Include any relevant add-ons (future)                                  ║
+  ║                                                                             ║
+  ╚═════════════════════════════════════════════════════════════════════════════╝
+  │
+  ▼
+  ╔═════════════════════════════════════════════════════════════════════════════╗
+  ║                                                                             ║
+  ║                           SEND QUOTE                                        ║
+  ║                                                                             ║
+  ╠═════════════════════════════════════════════════════════════════════════════╣
+  ║                                                                             ║
+  ║   Via: WhatsApp / Email / CRM                                               ║
+  ║                                                                             ║
+  ║   Include:                                                                  ║
+  ║   • Personalized greeting                                                   ║
+  ║   • Quote (structure matches segment + job)                                 ║
+  ║   • Clear CTA                                                               ║
+  ║   • Validity period                                                         ║
+  ║                                                                             ║
+  ╚═════════════════════════════════════════════════════════════════════════════╝
+  │
+  ▼
+  ╔═════════════════════════════════════════════════════════════════════════════╗
+  ║                                                                             ║
+  ║                              LOG                                            ║
+  ║                                                                             ║
+  ╠═════════════════════════════════════════════════════════════════════════════╣
+  ║                                                                             ║
+  ║   Record for tracking:                                                      ║
+  ║   • Lead name + contact                                                     ║
+  ║   • Segment assigned                                                        ║
+  ║   • Job type (simple/complex/multiple)                                      ║
+  ║   • Template used (single/3-tier/package)                                   ║
+  ║   • Quote amount                                                            ║
+  ║   • Date sent                                                               ║
+  ║                                                                             ║
+  ║   Track later:                                                              ║
+  ║   • Outcome (Accepted / Rejected / Ghosted)                                 ║
+  ║   • Tier/option chosen (if applicable)                                      ║
+  ║   • Days to decision                                                        ║
+  ║                                                                             ║
+  ╚═════════════════════════════════════════════════════════════════════════════╝
+  ```
+
+  ---
+
+  ## TEMPLATE SELECTION DECISION TREE
+
+  ```
+  ┌─────────────────┐
+  │  SEGMENT + JOB  │
+  │    IDENTIFIED   │
+  └────────┬────────┘
+  │
+  ▼
+  ┌─────────────────────────┐
+  │   HOW MANY JOBS?        │
+  └─────────────┬───────────┘
+  │
+  ┌─────────────────────┼─────────────────────┐
+  │                     │                     │
+  ▼                     ▼                     ▼
+  ┌───────────┐         ┌───────────┐         ┌───────────┐
+  │  SINGLE   │         │  SINGLE   │         │ MULTIPLE  │
+  │  SIMPLE   │         │  COMPLEX  │         │   JOBS    │
+  │   JOB     │         │   JOB     │         │           │
+  └─────┬─────┘         └─────┬─────┘         └─────┬─────┘
+  │                     │                     │
+  ▼                     ▼                     ▼
+  ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
+  │ Is BUDGET       │   │ Does segment    │   │ Is PROP MGR     │
+  │ segment?        │   │ benefit from    │   │ or repeat       │
+  │                 │   │ tier options?   │   │ potential?      │
+  └────────┬────────┘   └────────┬────────┘   └────────┬────────┘
+  │                     │                     │
+  ┌────┴────┐           ┌────┴────┐           ┌────┴────┐
+  │         │           │         │           │         │
+  ▼         ▼           ▼         ▼           ▼         ▼
+  YES       NO          YES       NO          YES       NO
+  │         │           │         │           │         │
+  ▼         ▼           ▼         ▼           ▼         ▼
+  ┌───────┐ ┌───────┐   ┌───────┐ ┌───────┐   ┌───────┐ ┌───────┐
+  │SINGLE │ │SINGLE │   │3-TIER │ │SINGLE │   │PACKAGE│ │ BATCH │
+  │PRICE  │ │PRICE  │   │QUOTE  │ │PRICE  │   │OFFER  │ │BUNDLE │
+  │(basic)│ │+option│   │       │ │       │   │       │ │       │
+  └───────┘ └───────┘   └───────┘ └───────┘   └───────┘ └───────┘
+
+
+  SEGMENT BENEFITS FROM TIERS WHEN:
+  ─────────────────────────────────
+  • BUSY PRO + complex job (speed/guarantee options)
+  • SMALL BIZ + complex job (after-hours options)
+  • DIY DEFERRER + complex job (price tier options)
+
+  SEGMENT DOES NOT NEED TIERS WHEN:
+  ─────────────────────────────────
+  • BUDGET (just wants lowest price)
+  • PROP MGR (wants reliability, not options)
+  • Any segment + very simple job
+  ```
+
+  ---
+
+  ## QUICK REFERENCE: WHEN TO USE EACH QUOTE TYPE
+
+  ```
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │                                                                             │
+  │   SINGLE PRICE QUOTE                                                        │
+  │   ──────────────────                                                        │
+  │   • Simple, straightforward job                                             │
+  │   • BUDGET segment (any job)                                                │
+  │   • Commodity service (standard rate)                                       │
+  │   • PROP MGR single job (reliability > options)                             │
+  │                                                                             │
+  │   Framing varies by segment:                                                │
+  │   - BUSY PRO: "Priority scheduling available for +$XX"                      │
+  │   - PROP MGR: "As your ongoing partner, priority response included"         │
+  │   - SMALL BIZ: "After-hours available for +$XX"                             │
+  │   - BUDGET: Just the price                                                  │
+  │                                                                             │
+  ├─────────────────────────────────────────────────────────────────────────────┤
+  │                                                                             │
+  │   3-TIER QUOTE                                                              │
+  │   ────────────                                                              │
+  │   • Complex job with meaningful upgrade options                             │
+  │   • BUSY PRO wanting speed/guarantee choices                                │
+  │   • SMALL BIZ needing after-hours/emergency options                         │
+  │   • DIY DEFERRER who might upgrade for faster service                       │
+  │                                                                             │
+  │   Anchor tier varies by segment:                                            │
+  │   - BUSY PRO: Priority (top)                                                │
+  │   - SMALL BIZ: After-Hours (middle)                                         │
+  │   - DIY DEFERRER: Basic (bottom)                                            │
+  │                                                                             │
+  ├─────────────────────────────────────────────────────────────────────────────┤
+  │                                                                             │
+  │   PACKAGE / RETAINER                                                        │
+  │   ─────────────────                                                         │
+  │   • PROP MGR with ongoing needs                                             │
+  │   • SMALL BIZ wanting maintenance retainer                                  │
+  │   • Multiple jobs from any segment (batch bundle)                           │
+  │                                                                             │
+  │   Structure:                                                                │
+  │   - PROP MGR: Partner Program (priority response, volume discount, Net 30)  │
+  │   - SMALL BIZ: Maintenance Retainer (quarterly check-ins, priority)         │
+  │   - BATCH: X jobs bundled at Y% discount                                    │
+  │                                                                             │
+  └─────────────────────────────────────────────────────────────────────────────┘
+  ```
+
+  ---
+
+  ## SEGMENT FRAMING CHEAT SHEET
+
+  Regardless of quote structure, use this language:
+
+  ```
+  ┌──────────────┬───────────────────────────────────────────────────────────────┐
+  │   SEGMENT    │   KEY PHRASES / FRAMING                                       │
+  ├──────────────┼───────────────────────────────────────────────────────────────┤
+  │              │                                                               │
+  │  BUSY PRO    │  "This week" • "Priority scheduling" • "Done right"          │
+  │              │  "Photo updates" • "90-day guarantee" • "Hands-off"          │
+  │              │                                                               │
+  ├──────────────┼───────────────────────────────────────────────────────────────┤
+  │              │                                                               │
+  │  PROP MGR    │  "Ongoing partner" • "Priority response" • "Net 30"          │
+  │              │  "Tenant coordination" • "We handle scheduling"              │
+  │              │                                                               │
+  ├──────────────┼───────────────────────────────────────────────────────────────┤
+  │              │                                                               │
+  │  SMALL BIZ   │  "Minimal disruption" • "After-hours" • "Open to finished"   │
+  │              │  "Zero downtime" • "Proper invoicing"                         │
+  │              │                                                               │
+  ├──────────────┼───────────────────────────────────────────────────────────────┤
+  │              │                                                               │
+  │  DIY         │  "Full list" • "Batch saves" • "While I'm there"             │
+  │  DEFERRER    │  "Bundle discount" • "Get it all done"                        │
+  │              │                                                               │
+  ├──────────────┼───────────────────────────────────────────────────────────────┤
+  │              │                                                               │
+  │  BUDGET      │  "Gets it done" • "Basic rate" • "Quality work"              │
+  │              │  Keep it simple, no upsell pressure                           │
+  │              │                                                               │
+  └──────────────┴───────────────────────────────────────────────────────────────┘
+  ```
+
+  ---
+
+  ## ONE-PAGE VISUAL SUMMARY
+
+  ```
+  CALL / WHATSAPP
+  │
+  ▼
+  ┌───────────┐
+  │  CAPTURE  │  Name, Phone, Location, Job
+  └─────┬─────┘
+  │
+  ▼
+  ┌───────────┐
+  │  QUALIFY  │  Q1: Property type?  Q2: Urgency?  Q3: One-off?
+  └─────┬─────┘
+  │
+  ▼
+  ┌───────────┐
+  │  SEGMENT  │  BUSY PRO │ PROP MGR │ SMALL BIZ │ DIY DEF │ BUDGET
+  └─────┬─────┘
+  │
+  ▼
+  ┌───────────┐
+  │ QUOTABLE? │  INSTANT ──┐    VIDEO ──┐    VISIT
+  └─────┬─────┘            │            │       │
+  │                  │            ▼       │
+  │                  │      [Review]      │
+  │                  │        │   │       │
+  │                  │       Yes  No──────┘
+  │                  │        │
+  ▼◀─────────────────┴────────┘
+  ┌───────────┐
+  │ TEMPLATE  │  Segment + Job Type → Single / 3-Tier / Package
+  └─────┬─────┘
+  │
+  ▼
+  ┌───────────┐
+  │   BUILD   │  Fill details, apply segment framing, mark ⭐
+  └─────┬─────┘
+  │
+  ▼
+  ┌───────────┐
+  │   SEND    │  WhatsApp / Email / CRM
+  └─────┬─────┘
+  │
+  ▼
+  ┌───────────┐
+  │    LOG    │  Track for PMF measurement
+  └───────────┘
+  ```
+
+  ---
+
+  ## IMPLEMENTATION PHASES
+
+  ### Phase 1: Manual Entry (Current)
+
+  **Brain + Matrix bypassed. Human handles qualification and selection.**
+
+  ```
+  CALL / WHATSAPP
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                  HUMAN QUALIFICATION                            │
+  │                                                                 │
+  │  Person on call/WhatsApp:                                       │
+  │  • Asks Q1, Q2, Q3 qualification questions                      │
+  │  • Identifies segment mentally                                  │
+  │  • Assesses job complexity                                      │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                  MANUAL DROPDOWN ENTRY                          │
+  │                                                                 │
+  │  In Quote Generator / CRM:                                      │
+  │                                                                 │
+  │  ┌─────────────────────────────────────────────────────────┐   │
+  │  │  Segment:     [▼ Select]                                │   │
+  │  │               ├── BUSY PRO                              │   │
+  │  │               ├── PROP MGR                              │   │
+  │  │               ├── SMALL BIZ                             │   │
+  │  │               ├── DIY DEFERRER                          │   │
+  │  │               └── BUDGET                                │   │
+  │  │                                                         │   │
+  │  │  Job Type:    [▼ Select]                                │   │
+  │  │               ├── SIMPLE                                │   │
+  │  │               ├── COMPLEX                               │   │
+  │  │               └── MULTIPLE                              │   │
+  │  │                                                         │   │
+  │  │  Quotability: [▼ Select]                                │   │
+  │  │               ├── INSTANT                               │   │
+  │  │               ├── VIDEO                                 │   │
+  │  │               └── VISIT                                 │   │
+  │  └─────────────────────────────────────────────────────────┘   │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                  QUOTE GENERATOR                                │
+  │                                                                 │
+  │  Auto-selects template based on dropdown inputs:                │
+  │                                                                 │
+  │  Segment + Job Type → Template Structure                        │
+  │  Segment → Framing / Language                                   │
+  │  Segment → Anchor Tier                                          │
+  │                                                                 │
+  │  Output: Pre-filled quote ready to customize                    │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                  SEND + LOG                                     │
+  │                                                                 │
+  │  Human reviews → sends via WhatsApp/Email                       │
+  │  Log: segment, job type, template, outcome                      │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+
+
+  WHAT TO BUILD FOR PHASE 1:
+  ──────────────────────────
+  □ Dropdown fields in CRM/Quote tool (Segment, Job Type, Quotability)
+  □ Quote template selection logic based on inputs
+  □ Quote templates for each Segment + Job Type combo
+  □ Framing/language variations per segment
+  □ Tracking fields for outcome logging
+  ```
+
+  ---
+
+  ### Phase 2: Semi-Automated (Next)
+
+  **Brain suggests, human confirms, matrix executes.**
+
+  ```
+  CALL / WHATSAPP
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                    LLM BRAIN                                    │
+  │                                                                 │
+  │  Parses transcript/chat in real-time or after call              │
+  │                                                                 │
+  │  Extracts:                                                      │
+  │  • Lead info (name, contact, location)                          │
+  │  • Job description                                              │
+  │  • Urgency signals                                              │
+  │                                                                 │
+  │  SUGGESTS:                                                      │
+  │  • Segment: "BUSY PRO" (confidence: 85%)                        │
+  │  • Job Type: "COMPLEX"                                          │
+  │  • Recommended questions if missing info                        │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                 HUMAN CONFIRMATION                              │
+  │                                                                 │
+  │  ┌─────────────────────────────────────────────────────────┐   │
+  │  │  Brain suggests: BUSY PRO                               │   │
+  │  │                                                         │   │
+  │  │  [✓ Confirm]  [✎ Change to: ▼]                         │   │
+  │  │                                                         │   │
+  │  └─────────────────────────────────────────────────────────┘   │
+  │                                                                 │
+  │  Human can override if brain got it wrong                       │
+  │  Override data feeds back to improve brain                      │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                     MATRIX                                      │
+  │                                                                 │
+  │  Takes confirmed segment + job type                             │
+  │  → Selects quote template                                       │
+  │  → Applies framing                                              │
+  │  → Suggests add-ons                                             │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │              QUOTE GENERATOR + SEND                             │
+  │                                                                 │
+  │  Quote auto-generated, human reviews before sending             │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+
+
+  WHAT TO BUILD FOR PHASE 2:
+  ──────────────────────────
+  □ LLM prompt for segment detection from transcripts
+  □ Confidence scoring for suggestions
+  □ Confirmation UI (approve/override)
+  □ Feedback loop: overrides improve brain accuracy
+  □ Matrix logic in database/app
+  ```
+
+  ---
+
+  ### Phase 3: Fully Automated (Future)
+
+  **Brain + Matrix handle everything, human reviews before send.**
+
+  ```
+  CALL / WHATSAPP
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                    LLM BRAIN                                    │
+  │                                                                 │
+  │  Auto-parses all incoming conversations                         │
+  │  High-confidence segment detection (trained on Phase 2 data)    │
+  │                                                                 │
+  │  Output:                                                        │
+  │  • Segment (locked in if confidence > 90%)                      │
+  │  • Job classification                                           │
+  │  • Lead info extracted                                          │
+  │  • Quotability assessment                                       │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                     MATRIX                                      │
+  │                                                                 │
+  │  Full automation:                                               │
+  │  • Segment → Quote template                                     │
+  │  • Job type → Quote structure                                   │
+  │  • Add-on recommendations                                       │
+  │  • Follow-up cadence settings                                   │
+  │  • Pricing tier suggestions                                     │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │              QUOTE GENERATOR                                    │
+  │                                                                 │
+  │  Fully generated quote with:                                    │
+  │  • Correct template                                             │
+  │  • Segment framing applied                                      │
+  │  • Pricing filled in                                            │
+  │  • Add-ons included                                             │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │              HUMAN REVIEW (Optional)                            │
+  │                                                                 │
+  │  [✓ Send as-is]  [✎ Edit before sending]                       │
+  │                                                                 │
+  │  For high-value leads: always review                            │
+  │  For standard leads: auto-send option                           │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │              AUTO FOLLOW-UP                                     │
+  │                                                                 │
+  │  Segment-appropriate follow-up sequence triggered               │
+  │  Human notified if lead responds                                │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+
+
+  WHAT TO BUILD FOR PHASE 3:
+  ──────────────────────────
+  □ High-accuracy brain (trained on Phase 2 feedback)
+  □ Auto-send capability with review option
+  □ Automated follow-up sequences
+  □ Analytics dashboard per segment
+  □ A/B testing framework for templates
+  ```
+
+  ---
+
+  ### Phase Transition Criteria
+
+  | Move From | Move To | When |
+  |-----------|---------|------|
+  | Phase 1 | Phase 2 | Brain can detect segments with 70%+ accuracy |
+  | Phase 2 | Phase 3 | Override rate drops below 10%, conversion stable |
+
+  ---
+
+  ### Phase 1 Checklist (Start Here)
+
+  ```
+  □ Create dropdown fields in CRM:
+  □ Segment (5 options)
+  □ Job Type (3 options)
+  □ Quotability (3 options)
+
+  □ Build quote templates:
+  □ BUSY PRO: Single + Priority 3-Tier
+  □ PROP MGR: Single + Partner Offer
+  □ SMALL BIZ: Single + After-Hours 3-Tier
+  □ DIY DEFERRER: Single + Batch Bundle
+  □ BUDGET: Single only
+
+  □ Template selection logic:
+  □ Segment + Job Type → Template mapping
+  □ Segment → Framing language
+  □ Segment → Anchor tier
+
+  □ Train team:
+  □ Qualification questions (Q1, Q2, Q3)
+  □ Segment identification
+  □ When to use each dropdown option
+
+  □ Tracking:
+  □ Log segment, job type, template per quote
+  □ Track outcomes (accepted/rejected/ghosted)
+  □ Weekly review of conversion by segment
+  ```
+   

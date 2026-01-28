@@ -73,6 +73,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             title: "SALES & FINANCE",
                             items: [
                                 { icon: DollarSign, label: "Quote Generator", href: "/admin/generate-quote" },
+                                { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
+                                { icon: Wrench, label: "Booking Visits", href: "/admin/visits" },
                                 { icon: FileText, label: "Invoices", href: "/admin/invoices" },
                                 { icon: Package, label: "SKU Manager", href: "/admin/skus" },
                             ]

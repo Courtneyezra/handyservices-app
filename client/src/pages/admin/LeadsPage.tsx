@@ -20,7 +20,7 @@ export default function LeadsPage() {
     const { data: leads, isLoading } = useQuery<Lead[]>({
         queryKey: ["admin-leads"],
         queryFn: async () => {
-            const res = await fetch("/leads");
+            const res = await fetch("/api/leads");
             if (!res.ok) throw new Error("Failed to fetch leads");
             return res.json();
         },

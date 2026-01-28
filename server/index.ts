@@ -19,6 +19,8 @@ import { twilioClient } from "./twilio-client";
 import { createCall, findCallByTwilioSid, updateCall, finalizeCall } from './call-logger';
 import { determineCallRouting, CallRoutingSettings, AgentMode, FallbackAction } from "./call-routing-engine";
 import { quotesRouter } from "./quotes";
+import routeAnalysisRouter from "./route-analysis";
+import extractCallDataRouter from "./extract-call-data";
 import { leadsRouter } from "./leads";
 import voiceRouter from "./voice";
 import { testRouter } from "./test-routes";
@@ -223,6 +225,12 @@ app.get('/api/diagnostics', async (req, res) => {
         res.json(checks);
     }
 });
+
+// Register Route Analysis Router (for human-in-loop route selection)
+app.use(routeAnalysisRouter);
+
+// Register Extraction Agent Router (B4: Smart data extraction from calls)
+app.use(extractCallDataRouter);
 
 // Register Quotes Router (Migrated from V5)
 // app.use(express.static(path.join(__dirname, '../client/dist'))); // REMOVED: Conflicts with Vite Dev Server
@@ -503,7 +511,7 @@ app.post('/api/twilio/voice', async (req, res) => {
                 phoneNumber: req.body.From,
                 direction: "inbound",
                 status: "ringing",
-                customerName: "Unknown Caller",
+                customerName: req.body.CallerName || "Unknown Caller",
             });
             console.log(`[Twilio] Initial call logged for ${req.body.CallSid}`);
 

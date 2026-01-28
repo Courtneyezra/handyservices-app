@@ -8,6 +8,7 @@ import { useContractorAuth } from '@/hooks/use-contractor-auth';
 import { VoiceDictation } from '@/components/VoiceDictation';
 import { motion } from 'framer-motion';
 import ContractorAppShell from '@/components/layout/ContractorAppShell';
+import { RouteRecommendation } from '@/components/RouteRecommendation';
 
 type Complexity = 'trivial' | 'low' | 'medium' | 'high';
 type ClientType = 'homeowner' | 'landlord' | 'commercial';
@@ -19,6 +20,13 @@ interface JobAnalysis {
     basePricePounds: number;
     tasks: { description: string, estimatedHours: number, category?: string, appliedRate?: number }[];
     optionalExtras: { label: string, pricePence: number, description: string, isRecommended: boolean }[];
+    suggestedSkus?: {
+        taskDescription: string;
+        skuName: string;
+        pricePence: number;
+        confidence: number;
+        id: string;
+    }[];
 }
 
 export default function NewQuotePage() {
@@ -50,6 +58,10 @@ export default function NewQuotePage() {
     const [urgency, setUrgency] = useState<Urgency>('med');
     const [complexity, setComplexity] = useState<Complexity>('low');
 
+    // Route Selection State (Human-in-Loop)
+    const [selectedRoute, setSelectedRoute] = useState<'instant' | 'tiers' | 'assessment' | null>(null);
+    const [routeOverridden, setRouteOverridden] = useState(false);
+
     // Calculate Rate Card from Skills
     const rateCard = useMemo(() => {
         if (!contractor?.profile?.skills) return {};
@@ -61,6 +73,46 @@ export default function NewQuotePage() {
         });
         return card;
     }, [contractor]);
+
+    // Handle Accepting a Suggested SKU
+    const handleAcceptSku = (sku: NonNullable<JobAnalysis['suggestedSkus']>[0]) => {
+        if (!analysis) return;
+
+        const taskIndex = analysis.tasks.findIndex(t => t.description === sku.taskDescription);
+        let newTasks = [...analysis.tasks];
+
+        if (taskIndex >= 0) {
+            newTasks[taskIndex] = {
+                ...newTasks[taskIndex],
+                description: sku.skuName,
+                category: "Fixed Price",
+                appliedRate: sku.pricePence / 100,
+                estimatedHours: 1
+            };
+        } else {
+            newTasks.push({
+                description: sku.skuName,
+                category: "Fixed Price",
+                appliedRate: sku.pricePence / 100,
+                estimatedHours: 1
+            });
+        }
+
+        const newSuggestions = analysis.suggestedSkus?.filter(s => s.id !== sku.id);
+        const newBasePrice = newTasks.reduce((acc, t) => acc + (t.estimatedHours * (t.appliedRate || 0)), 0) + 40;
+
+        setAnalysis({
+            ...analysis,
+            tasks: newTasks,
+            suggestedSkus: newSuggestions,
+            basePricePounds: newBasePrice
+        });
+
+        toast({
+            title: "Price Fixed",
+            description: `Applied fixed price of £${(sku.pricePence / 100).toFixed(0)} for ${sku.skuName}`,
+        });
+    };
 
     // AI Analysis Mutation
     const analyzeMutation = useMutation({
@@ -82,7 +134,7 @@ export default function NewQuotePage() {
         onSuccess: (data) => {
             setAnalysis(data);
             setIsAnalyzing(false);
-            setStep(2); // Auto-advance
+            setStep(1.5); // Go to route selection step
         },
         onError: (error) => {
             console.warn("Analysis failed API call, falling back to client-side mock.", error);
@@ -96,11 +148,18 @@ export default function NewQuotePage() {
                     category: 'General',
                     appliedRate: contractor?.profile?.hourlyRate || 50
                 }],
-                optionalExtras: []
+                optionalExtras: [],
+                suggestedSkus: [{
+                    taskDescription: "General task",
+                    skuName: "Mock Service (Offline)",
+                    pricePence: 5000,
+                    confidence: 100,
+                    id: "mock-sku"
+                }]
             };
             setAnalysis(mockAnalysis);
             setIsAnalyzing(false);
-            setStep(2);
+            setStep(1.5); // Go to route selection step
             toast({ title: "AI Analysis Unavailable", description: "Using standard defaults instead.", variant: "default" });
         }
     });
@@ -134,6 +193,10 @@ export default function NewQuotePage() {
                 jobComplexity: complexity,
                 quoteMode: quoteMode,
                 analyzedJobData: analysis,
+
+                // Human-in-Loop Route Selection
+                selectedRoute: selectedRoute || undefined,
+                routeOverridden: routeOverridden,
             };
 
             const res = await fetch('/api/personalized-quotes/value', {
@@ -279,6 +342,27 @@ export default function NewQuotePage() {
                     </div>
                 )}
 
+                {/* STEP 1.5: ROUTE SELECTION (Human-in-Loop) */}
+                {step === 1.5 && (
+                    <div className="space-y-6 animate-in slide-in-from-right-8 fade-in duration-500">
+                        <div>
+                            <h2 className="text-3xl font-bold mb-2 text-slate-900 tracking-tight">Choose Quote Type</h2>
+                            <p className="text-slate-500 text-base leading-relaxed">
+                                Let AI recommend the best quote type, or select manually.
+                            </p>
+                        </div>
+
+                        <RouteRecommendation
+                            jobDescription={jobDescription}
+                            onRouteSelected={(route, overridden) => {
+                                setSelectedRoute(route);
+                                setRouteOverridden(overridden);
+                                setStep(2); // Continue to next step
+                            }}
+                        />
+                    </div>
+                )}
+
                 {/* STEP 2: VERIFICATION & ADJUSTMENTS */}
                 {step === 2 && analysis && (
                     <div className="space-y-6 animate-in slide-in-from-right duration-300">
@@ -333,6 +417,34 @@ export default function NewQuotePage() {
                         </div>
 
                         {/* Analysis List */}
+                        {analysis.suggestedSkus && analysis.suggestedSkus.length > 0 && (
+                            <div className="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100 rounded-xl p-4 shadow-sm mb-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <Sparkles className="w-4 h-4 text-indigo-600" />
+                                    <h4 className="text-xs font-bold text-indigo-700 uppercase tracking-wider">Suggested Fixed Prices</h4>
+                                </div>
+                                <div className="space-y-2">
+                                    {analysis.suggestedSkus.map((sku) => (
+                                        <div key={sku.id} className="flex justify-between items-center bg-white p-2 rounded-lg border border-indigo-100 shadow-sm">
+                                            <div>
+                                                <div className="font-semibold text-sm text-slate-800">{sku.skuName}</div>
+                                                <div className="text-xs text-slate-500">Replaces: {sku.taskDescription}</div>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="font-bold text-slate-900">£{(sku.pricePence / 100).toFixed(0)}</span>
+                                                <button
+                                                    onClick={() => handleAcceptSku(sku)}
+                                                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-md transition-colors"
+                                                >
+                                                    Accept
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                             <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 tracking-wider">Detected Tasks</h4>
                             <ul className="space-y-3">

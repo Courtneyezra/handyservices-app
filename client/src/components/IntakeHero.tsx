@@ -13,9 +13,10 @@ interface IntakeHeroProps {
   bannerText?: string;
   heroImage?: string;
   onConversion?: (source: string) => void;
+  transparentBg?: boolean;
 }
 
-export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText, desktopCtaText, bannerText, heroImage, onConversion }: IntakeHeroProps) {
+export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText, desktopCtaText, bannerText, heroImage, onConversion, transparentBg }: IntakeHeroProps) {
 
   // Simplified Hero - Direct to Call/WhatsApp
 
@@ -29,19 +30,21 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
         </div>
       )}
 
-      <section id="hero" className="relative bg-slate-900 px-4 lg:px-8 py-12 lg:py-20 font-poppins font-medium min-h-[600px] lg:min-h-[750px] flex items-center overflow-hidden">
+      <section id="hero" className={`relative px-4 lg:px-8 py-12 lg:py-20 font-poppins font-medium min-h-[600px] lg:min-h-[750px] flex items-center overflow-hidden ${transparentBg ? 'bg-transparent' : 'bg-slate-900'}`}>
 
-        {/* Background Image & Overlay */}
-        <div className="absolute inset-0 z-0">
-          <img
-            src={heroImage || defaultHeroImage}
-            alt="Background"
-            className="w-full h-full object-cover object-top"
-            loading="eager"
-          />
-          <div className="absolute inset-0 bg-slate-900/80 backdrop-grayscale-[30%]"></div>
-          <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/80 to-transparent"></div>
-        </div>
+        {/* Background Image & Overlay - Only show if not transparentBg */}
+        {!transparentBg && (
+          <div className="absolute inset-0 z-0">
+            <img
+              src={heroImage || defaultHeroImage}
+              alt="Background"
+              className="w-full h-full object-cover object-top"
+              loading="eager"
+            />
+            <div className="absolute inset-0 bg-slate-900/80 backdrop-grayscale-[30%]"></div>
+            <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/80 to-transparent"></div>
+          </div>
+        )}
 
         <div className="max-w-7xl mx-auto relative z-10 w-full">
           <div className="grid lg:grid-cols-2 gap-12 items-center">

@@ -78,7 +78,11 @@ elevenLabsWebhookRouter.post('/webhooks/elevenlabs', async (req, res) => {
 
         // Update Call Record
 
-        // --- AGENTIC LAYER START ---
+        // --- AGENTIC LAYER (DISABLED PER USER REQUEST) ---
+        // We are currently relying solely on ElevenLabs for extraction to save latency/cost.
+        // To re-enable the "Brain" (SKU Detection), uncomment the block below.
+
+        /*
         // Trigger the "Brain" to analyze the transcript immediately
         const { analyzeLeadActionPlan } = await import('../services/agentic-service');
         let agentPlan = null;
@@ -89,11 +93,13 @@ elevenLabsWebhookRouter.post('/webhooks/elevenlabs', async (req, res) => {
         } catch (err) {
             console.error(`[Agentic-Layer] Analysis failed:`, err);
         }
+        */
+        const agentPlan = null; // Force null so we use ElevenLabs summary
         // --- AGENTIC LAYER END ---
 
         await updateCall(callRecordId, {
             transcription: fullTranscript,
-            jobSummary: agentPlan?.reasoning || analysis.summary,
+            jobSummary: analysis.summary, // Use ElevenLabs summary directly
             recordingUrl: recording_url,
             elevenLabsConversationId: conversation_id,
             customerName: customerName,

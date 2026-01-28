@@ -149,10 +149,272 @@ const TIER_CORE_DEFINITIONS: Record<string, TierDefinition> = {
 };
 
 // ============================================================================
+// SEGMENT TIER CONFIGURATION (Strategy Doc)
+// ============================================================================
+
+// B2.2: Segment-Specific Tier Configuration (Phase 1 Master Plan)
+export function getSegmentTierConfig(segment: string) {
+  switch (segment) {
+    case 'BUSY_PRO':
+      return {
+        essential: {
+          name: 'Standard',
+          description: 'Quality finish, scheduled slot',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            '30-day guarantee',
+            'Scheduled within 2 weeks'
+          ]
+        },
+        hassleFree: {
+          name: 'Priority Service',
+          description: 'Same-week, photo updates, 90-day guarantee',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            'Same-week scheduling',
+            'Photo updates during job',
+            '90-day guarantee',
+            'Direct contact line',
+            'Free small fix "while I\'m there" (under 10 min)'
+          ]
+        },
+        highStandard: {
+          name: 'Priority Service',
+          description: 'Next-day priority, premium finish',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            'Same-week scheduling',
+            'Photo updates during job',
+            '90-day guarantee',
+            'Direct contact line',
+            'Free small fix "while I\'m there" (under 10 min)'
+          ]
+        },
+      };
+
+    case 'PROP_MGR':
+      return {
+        essential: {
+          name: 'Single Job',
+          description: 'Standard service with tenant coordination',
+          deliverables: [
+            'Quality workmanship',
+            'Scheduled within 1 week',
+            'Invoice on completion',
+            'Tenant coordination'
+          ]
+        },
+        hassleFree: {
+          name: 'Partner Program',
+          description: 'Priority response, dedicated contact, Net 30',
+          deliverables: [
+            'Quality workmanship',
+            'Tenant coordination',
+            'Priority 24-48hr response',
+            'Dedicated contact (skip the queue)',
+            'Monthly invoicing (Net 30)',
+            '10% volume discount',
+            'Quarterly property walk-through'
+          ]
+        },
+        highStandard: {
+          name: 'Partner Program',
+          description: 'Priority response, dedicated contact, Net 30',
+          deliverables: [
+            'Quality workmanship',
+            'Tenant coordination',
+            'Priority 24-48hr response',
+            'Dedicated contact (skip the queue)',
+            'Monthly invoicing (Net 30)',
+            '10% volume discount',
+            'Quarterly property walk-through'
+          ]
+        },
+      };
+
+    case 'SMALL_BIZ':
+      return {
+        essential: {
+          name: 'Standard',
+          description: 'Business hours service',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            'Business hours (M-F)',
+            'Proper invoicing'
+          ]
+        },
+        hassleFree: {
+          name: 'After-Hours',
+          description: 'Evening/weekend, zero disruption',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            'Proper invoicing',
+            'Evening/weekend availability',
+            'Zero business disruption',
+            '"Open to a finished job"'
+          ]
+        },
+        highStandard: {
+          name: 'Emergency',
+          description: 'Same-day response, priority service',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            'Proper invoicing',
+            'Evening/weekend availability',
+            'Zero business disruption',
+            '"Open to a finished job"',
+            'Same-day response',
+            'Priority over other jobs',
+            'Direct emergency line'
+          ]
+        },
+      };
+
+    case 'DIY_DEFERRER':
+      return {
+        essential: {
+          name: 'Basic',
+          description: 'Quality work, flexible timing',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            'Scheduled within 2-3 weeks'
+          ]
+        },
+        hassleFree: {
+          name: 'Standard',
+          description: 'Faster scheduling, 30-day guarantee',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            'Faster scheduling (1-2 weeks)',
+            '30-day guarantee'
+          ]
+        },
+        highStandard: {
+          name: 'Premium',
+          description: 'Priority scheduling, 90-day guarantee',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            'Faster scheduling (1-2 weeks)',
+            '30-day guarantee',
+            'Priority scheduling',
+            '90-day guarantee',
+            'Free small fix while there'
+          ]
+        },
+      };
+
+    case 'BUDGET':
+      return {
+        essential: {
+          name: 'Single Price',
+          description: 'Quality work at fair price',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            'Scheduled when available'
+          ]
+        },
+        hassleFree: {
+          name: 'Single Price',
+          description: 'Quality work at fair price',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            'Scheduled when available'
+          ]
+        },
+        highStandard: {
+          name: 'Single Price',
+          description: 'Quality work at fair price',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            'Scheduled when available'
+          ]
+        },
+      };
+
+    // Default / UNKNOWN (uses generic names)
+    default:
+      return {
+        essential: {
+          name: 'Essential',
+          description: 'Basic finish, 30-day cover',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            '30-day guarantee'
+          ]
+        },
+        hassleFree: {
+          name: 'Hassle-Free',
+          description: 'Tidy finish, 2-hour window',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            'Tidy finish',
+            '2-hour arrival window',
+            '60-day guarantee'
+          ]
+        },
+        highStandard: {
+          name: 'High Standard',
+          description: 'Premium finish, 90-day cover',
+          deliverables: [
+            'Quality workmanship',
+            'Cleanup included',
+            'Premium finish',
+            '1-hour arrival window',
+            '90-day guarantee',
+            'Photo documentation'
+          ]
+        },
+      };
+  }
+}
+
+
+// ============================================================================
 // VALUE MULTIPLIER CALCULATION
 // ============================================================================
 
 export function calculateValueMultiplier(inputs: ValuePricingInputs): number {
+  // B2.1: Segment-Specific Multipliers (Phase 1 Master Plan)
+  // If segment is provided, use segment-specific multiplier instead of value signals
+  if (inputs.segment) {
+    switch (inputs.segment) {
+      case 'BUSY_PRO':
+        // Priority service: 1.4x multiplier
+        return 1.40;
+      case 'SMALL_BIZ':
+        // After-Hours: 1.4x, Emergency: 1.8x (default to After-Hours)
+        if (inputs.urgencyReason === 'high') {
+          return 1.80; // Emergency
+        }
+        return 1.40; // After-Hours
+      case 'DIY_DEFERRER':
+      case 'PROP_MGR':
+        // Batch/Partner discount: 0.9x
+        return 0.90;
+      case 'BUDGET':
+        // No multiplier for budget segment
+        return 1.00;
+      default:
+        // Fall through to value-based calculation
+        break;
+    }
+  }
+
+  // Original value-based multiplier calculation (fallback)
   const urgencyMult = URGENCY_MULTIPLIERS[inputs.urgencyReason];
   const ownershipMult = OWNERSHIP_MULTIPLIERS[inputs.ownershipContext];
   const timeframeMult = TIMEFRAME_MULTIPLIERS[inputs.desiredTimeframe];
@@ -349,6 +611,19 @@ export function generateValuePricingQuote(inputs: ValuePricingInputs): PricingRe
     perks: [...TIER_CORE_DEFINITIONS.highStandard.basePerks, ...selectDynamicPerks(inputs, 'highStandard')],
     isRecommended: recommendedTier === 'highStandard',
   };
+
+  // 4. APPLY SEGMENT SPECIFIC NAMING
+  const segmentConfig = getSegmentTierConfig(inputs.segment);
+
+  // Override names and descriptions based on segment
+  essential.name = segmentConfig.essential.name;
+  essential.coreDescription = segmentConfig.essential.description;
+
+  hassleFree.name = segmentConfig.hassleFree.name;
+  hassleFree.coreDescription = segmentConfig.hassleFree.description;
+
+  highStandard.name = segmentConfig.highStandard.name;
+  highStandard.coreDescription = segmentConfig.highStandard.description;
 
   return {
     valueMultiplier,

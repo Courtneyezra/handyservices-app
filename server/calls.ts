@@ -188,6 +188,9 @@ router.get("/", async (req: Request, res: Response) => {
                 missedReason: call.missedReason,
                 recordingUrl: finalRecordingUrl,
                 transcription: call.transcription,
+                // Expose full AI context for frontend "Smart Actions"
+                detectedSkusJson: call.detectedSkusJson,
+                metadataJson: call.metadataJson || call.detectedSkusJson, // Fallback mapping for frontend compatibility
             };
         });
 
