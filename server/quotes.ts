@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "./db";
-import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices } from "@shared/schema";
+import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, segmentEnum } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -46,7 +46,7 @@ const valuePricingInputSchema = z.object({
 
     // Manual Overrides
     manualClassification: z.any().optional(),
-    manualSegment: z.enum(['BUSY_PRO', 'PROP_MGR', 'SMALL_BIZ', 'DIY_DEFERRER', 'BUDGET', 'UNKNOWN']).optional(),
+    manualSegment: segmentEnum.optional(),
 });
 
 export const quotesRouter = Router();

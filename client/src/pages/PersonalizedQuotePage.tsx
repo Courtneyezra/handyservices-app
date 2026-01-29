@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRoute, useLocation } from 'wouter';
+import { useScroll, motion, AnimatePresence, useInView, useSpring, useTransform } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import { queryClient } from '@/lib/queryClient';
 import { Card, CardContent } from '@/components/ui/card';
@@ -32,6 +33,17 @@ import { ExpertAssessmentQuote } from '@/components/ExpertAssessmentQuote';
 
 import { SectionWrapper } from '@/components/SectionWrapper';
 import { StickyCTA } from '@/components/StickyCTA';
+
+export type EEEPackageTier = 'essential' | 'enhanced' | 'elite';
+
+export interface EEEPackage {
+  tier: EEEPackageTier;
+  name: string;
+  price: number;
+  warrantyMonths: number;
+  description: string;
+  isPopular?: boolean;
+}
 
 // Fixed value bullets per tier (hardcoded, not from database)
 const HHH_FIXED_VALUE_BULLETS = {
@@ -360,6 +372,7 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
         author: "Sarah T.",
         detail: "Marketing Director"
       },
+      description: "Join thousands of busy professionals who trust us with their homes.",
       stats: [
         { value: "78%", label: "choose Priority", subtext: "of professionals" },
         { value: "4.9", label: "Google rating", subtext: "★★★★★" },
@@ -444,6 +457,48 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
         { label: 'Quality', value: 'Commercial', icon: 'Star' }
       ]
     }
+  },
+  OLDER_WOMAN: {
+    hero: {
+      title: "Safe, Trusted & Recommended",
+      subtitle: <>We've reviewed your request.<br />Our verified staff are ready to help.</>,
+      scrollText: "View your quote"
+    },
+    // Trust & Safety Focus (Risk Reduction)
+    proof: {
+      title: "CUSTOMER TESTIMONIAL",
+      mainTitle: "See what our customers say.",
+      testimonial: {
+        text: "Such a polite young man. He explained everything clearly, wore overshoes, and even fixed my gate latch while he was here.",
+        author: "Mary P.",
+        detail: "Retired Teacher"
+      },
+      description: "Watch a short video to hear directly from a customer about how happy she was with our service.",
+      stats: [
+        { value: "100%", label: "DBS Checked", subtext: "Safe & Verified" },
+        { value: "50s+", label: "Discount", subtext: "Available" },
+        { value: "4.9", label: "Rating", subtext: "Local Reviews" }
+      ]
+    },
+    // Peace of Mind Guarantee
+    guarantee: {
+      title: "PEACE OF MIND",
+      mainTitle: <span className="font-bold block leading-tight">Respect for you <br className="md:hidden" /> and your home.</span>,
+      description: "We understand inviting someone into your home requires trust. We take that seriously.",
+      image: "/assets/quote-images/older-person-door.jpg",
+      boxText: "Polite. Clean. Safe.",
+      guaranteeItems: [
+        { icon: 'Shield', title: "Safety First", text: "All staff are ID-verified and background checked for your peace of mind." },
+        { icon: 'Sparkles', title: "We Keep It Clean", text: "We wear overshoes and use dust sheets. We leave no mess behind." },
+        { icon: 'MessageCircle', title: "Patient Explanations", text: "No jargon. We explain exactly what needs doing before we start." }
+      ],
+      badges: [
+        { label: 'Safety', value: 'Verified', icon: 'Shield' },
+        { label: 'Tidiness', value: 'Spotless', icon: 'Sparkles' },
+        { label: 'Service', value: 'Polite', icon: 'Star' },
+        { label: 'Payment', value: 'Easy', icon: 'Lock' }
+      ]
+    },
   },
   DIY_DEFERRER: {
     hero: {
@@ -610,18 +665,7 @@ const DateStrip = ({ tier, availableDates }: { tier: 'essential' | 'enhanced' | 
   );
 };
 
-type EEEPackageTier = 'essential' | 'enhanced' | 'elite';
 
-interface EEEPackage {
-  tier: EEEPackageTier;
-  name: string;
-  price: number;
-  warrantyMonths: number;
-  description: string;
-  isPopular?: boolean;
-}
-
-import { motion, useScroll, useSpring, useTransform, useInView } from 'framer-motion';
 
 // --- NEW VERTICAL VALUE SECTIONS ---
 
@@ -693,7 +737,8 @@ const AnimatedStat = ({ value, delay }: { value: string, delay: number }) => {
 // Quick Social Proof for Warm Leads (Cialdini 1984)
 const ValueSocialProof = ({ quote }: { quote: PersonalizedQuote }) => {
   console.log('ValueSocialProof: Mounting...');
-  const content = SEGMENT_CONTENT_MAP.BUSY_PRO.proof;
+  const segmentKey = quote.segment && SEGMENT_CONTENT_MAP[quote.segment] ? quote.segment : 'BUSY_PRO';
+  const content = SEGMENT_CONTENT_MAP[segmentKey].proof;
 
   // Icon mapping for stats
   const statIcons = [Zap, Star, UserCheck];
@@ -739,10 +784,10 @@ const ValueSocialProof = ({ quote }: { quote: PersonalizedQuote }) => {
             Proven Reliability
           </div>
           <h2 className="text-3xl md:text-4xl font-bold text-[#1D2D3D] mb-4">
-            {locationName}'s Trusted Handyman
+            {content.mainTitle}
           </h2>
           <p className="text-slate-500 mb-8">
-            Join thousands of busy professionals who trust us with their homes.
+            {content.description}
           </p>
 
           {/* Social Proof Video - Trust Builder */}
@@ -1168,19 +1213,38 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
       >
         {!isBusyPro && (
           <div className="flex justify-center mb-10">
-            <div className="relative">
-              <div className="absolute inset-0 bg-[#7DB00E]/20 blur-3xl rounded-full" />
-              <div className={`p-1.5 bg-[#1D2D3D] rounded-full border-2 border-[#7DB00E] relative overflow-hidden w-24 h-24 flex items-center justify-center group shadow-xl`}>
+            {content.image ? (
+              // Rectangular 'Embed-style' Image for Older Woman / Custom Images
+              <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-slate-900 shadow-xl border-4 border-white/10 ring-1 ring-slate-900/10 group">
+                <div className="absolute inset-0 bg-gradient-to-t from-[#1D2D3D] via-transparent to-transparent opacity-60 z-10" />
                 <img
-                  src="/assets/quote-images/plumber-smile.jpg"
+                  src={content.image}
                   alt="Guarantee"
-                  className="w-full h-full object-cover rounded-full group-hover:scale-110 transition-transform duration-500 opacity-90"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                 />
+                {/* Badge Overlay */}
+                <div className="absolute bottom-4 right-4 z-20">
+                  <div className="bg-[#7DB00E] text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg border border-white/20">
+                    Verified Pro
+                  </div>
+                </div>
               </div>
-              <div className="absolute -bottom-2 -right-2 bg-[#7DB00E] text-white text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#1D2D3D]">
-                PRO
+            ) : (
+              // Default Circular Badge
+              <div className="relative">
+                <div className="absolute inset-0 bg-[#7DB00E]/20 blur-3xl rounded-full" />
+                <div className={`p-1.5 bg-[#1D2D3D] rounded-full border-2 border-[#7DB00E] relative overflow-hidden w-24 h-24 flex items-center justify-center group shadow-xl`}>
+                  <img
+                    src="/assets/quote-images/plumber-smile.jpg"
+                    alt="Guarantee"
+                    className="w-full h-full object-cover rounded-full group-hover:scale-110 transition-transform duration-500 opacity-90"
+                  />
+                </div>
+                <div className="absolute -bottom-2 -right-2 bg-[#7DB00E] text-white text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#1D2D3D]">
+                  PRO
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -1863,7 +1927,7 @@ export default function PersonalizedQuotePage() {
         {/* BUSY_PRO: Streamlined for warm leads - they've already engaged */}
         {(() => {
           console.log('Rendering Quote Segment:', quote.segment);
-          return quote.segment === 'BUSY_PRO' ? (
+          return (quote.segment === 'BUSY_PRO' || quote.segment === 'OLDER_WOMAN') ? (
             <ValueSocialProof quote={quote} />
           ) : (
             <ValueProof quote={quote} config={config} />
@@ -1996,10 +2060,53 @@ export default function PersonalizedQuotePage() {
                                   "Workspace cleanup included"
                                 ];
                               }
+                            } else if (quote.segment === 'OLDER_WOMAN') {
+                              if (pkg.tier === 'enhanced') {
+                                // PRIORITY = Helpfulness + Safety
+                                pkg.name = "Peace of Mind";
+                                rawFeatures = [
+                                  "⏱️ Exact Arrival Appointment (No waiting)",
+                                  "🛋️ Assistance Moving Furniture",
+                                  "💡 10-min 'Helpful Hand' (Lightbulbs etc)",
+                                  "📄 Paper Invoice Provided",
+                                  "✨ Full Cleanup & Waste Removal",
+                                  "🛡️ 12-Month Warranty"
+                                ];
+                              } else if (pkg.tier === 'elite') {
+                                // ELITE = VIP
+                                pkg.name = "VIP Service";
+                                rawFeatures = [
+                                  "🚀 Immediate Priority Booking",
+                                  "💬 Dedicated Office Contact",
+                                  "🛡️ Extended 2-Year Warranty",
+                                  "📹 Video Confirmation for Family",
+                                  "✨ Deep Clean of Work Area",
+                                  "🎁 Seasonal Maintenance Check"
+                                ];
+                              } else if (pkg.tier === 'essential') {
+                                // STANDARD
+                                pkg.name = "Standard Service";
+                                rawFeatures = [
+                                  `Available from ${getFutureDate(14)}`,
+                                  "Standard Arrival Window",
+                                  "Quality Workmanhip",
+                                  "Cleanup Included",
+                                  "Digital Invoice Only"
+                                ];
+                              }
                             }
 
                             // [STRATEGY] Emoji Stripper: Regex to remove emoji characters from features
-                            const stripEmojis = (str: string) => str.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1F018}-\u{1F270}\u{238C}\u{2B00}-\u{2BFF}\u{1F004}]/gu, '').trim();
+                            // [STRATEGY] Emoji Stripper: Safer regex for broad compatibility
+                            const stripEmojis = (str: string) => {
+                              try {
+                                // Simply remove everything that isn't ASCII text, numbers, punctuation, or common symbols
+                                // This is safer than targetting specific emoji ranges which varies by browser/engine
+                                return str.replace(/[^\x00-\x7F\u00A0-\u00FF]/g, '').trim().replace(/\s\s+/g, ' ');
+                              } catch (e) {
+                                return str;
+                              }
+                            };
 
                             // Icon mapping for BUSY_PRO features (high quality Lucide icons)
                             const getFeatureIcon = (feature: string): React.ComponentType<{ className?: string }> => {
@@ -2017,7 +2124,7 @@ export default function PersonalizedQuotePage() {
                               return Check; // Default fallback
                             };
 
-                            const features = Array.from(new Set(rawFeatures.map(f => typeof f === 'string' ? stripEmojis(f) : f)));
+                            const features = Array.from(new Set((rawFeatures || []).map(f => typeof f === 'string' ? stripEmojis(f) : f)));
                             const isExpanded = expandedTiers.has(pkg.tier);
                             // Show all features for Enhanced (Priority) tier by default, otherwise limit to 4
                             const showAllByDefault = pkg.tier === 'enhanced';

@@ -454,7 +454,7 @@ export const ownershipContextEnum = z.enum(['tenant', 'homeowner', 'landlord', '
 export const desiredTimeframeEnum = z.enum(['flex', 'week', 'asap']);
 
 // B1.1: Segmentation Enums (Phase 1 Master Plan)
-export const segmentEnum = z.enum(['BUSY_PRO', 'PROP_MGR', 'SMALL_BIZ', 'DIY_DEFERRER', 'BUDGET', 'UNKNOWN']);
+export const segmentEnum = z.enum(['BUSY_PRO', 'PROP_MGR', 'SMALL_BIZ', 'DIY_DEFERRER', 'BUDGET', 'OLDER_WOMAN', 'UNKNOWN']);
 export const jobTypeEnum = z.enum(['SINGLE', 'COMPLEX', 'MULTIPLE']);
 export const quotabilityEnum = z.enum(['INSTANT', 'VIDEO', 'VISIT']);
 
