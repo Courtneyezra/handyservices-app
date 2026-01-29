@@ -248,16 +248,15 @@ export async function extractJobSummary(transcription: string): Promise<string> 
                     role: "system",
                     content: `You are an expert at extracting job descriptions from service call transcripts.
 
-Analyze the transcript and extract ONLY the main job/task the customer needs help with.
+Analyze the transcript and extract a short, generalized summary of the job.
 
 Rules:
-- Return 2-4 words maximum
-- Be specific and customer-friendly
-- Examples: "TV mounting", "fence repair", "Ring doorbell installation", "window resealing"
-- Do NOT return technical metadata or routing decisions
-- Focus on what the customer actually needs done
-
-If multiple tasks are mentioned, focus on the primary/first one.`
+- Return a single, short sentence fragment (max 10 words)
+- Start with a verb (e.g., "Fixing...", "Replacing...", "Investigating...")
+- Be customer-friendly and generalized (tease the solution)
+- Examples: "Fixing the leak under the kitchen sink", "Replacing the broken fence panel", "Investigating the odd noise from the boiler"
+- Do NOT return technical metadata
+- Focus on the main outcome desired`
                 },
                 {
                     role: "user",

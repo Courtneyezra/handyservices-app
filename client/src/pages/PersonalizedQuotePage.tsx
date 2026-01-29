@@ -369,13 +369,13 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
     // Certainty Effect - Reduce Decision Anxiety (Kahneman & Tversky, 1979)
     guarantee: {
       title: "NO SURPRISES",
-      mainTitle: <span className="font-bold block leading-tight">What you see <br className="md:hidden" /> is what you get.</span>,
-      description: "We've reviewed your images/videos. The price below is the price you pay.",
-      boxText: "Fixed price. Fixed time slot. 90-day guarantee.",
+      mainTitle: <span className="font-bold block leading-tight">Zero hassle. <br className="md:hidden" /> Zero hidden fees.</span>,
+      description: "You're busy. We respect that. The price is fixed, the time slot is yours, and the result is guaranteed.",
+      boxText: "Zero hassle. Zero ambiguity. 100% Guaranteed.",
       guaranteeItems: [
-        { icon: 'Lock', title: "Fixed Price", text: "No 'it costs more once I open it up'" },
-        { icon: 'Clock', title: "Your Time Slot", text: "You pick when, we show up on time" },
-        { icon: 'Shield', title: "90-Day Guarantee", text: "Any issues, we come back free" }
+        { icon: 'Lock', title: "Upfront Pricing", text: "The price you see is the price you pay. No last-minute add-ons." },
+        { icon: 'Clock', title: "We Respect Your Calendar", text: "You pick the slot. We arrive on time, every time." },
+        { icon: 'Shield', title: "Total Peace of Mind", text: "If it's not perfect, we return for free. 90-day warranty." }
       ],
       badges: [
         { label: 'Price', value: 'Fixed', icon: 'Lock' },
@@ -778,28 +778,73 @@ const ValueSocialProof = ({ quote }: { quote: PersonalizedQuote }) => {
         </div>
 
         {/* Single Testimonial with Image Placeholder */}
-        <div className="bg-slate-50 border border-slate-100 rounded-xl p-6 max-w-lg mx-auto">
-          <p className="text-slate-600 text-sm leading-relaxed mb-4 italic">
-            "{content.testimonial.text}"
-          </p>
-          <div className="flex items-center gap-3">
-            {/* [TESTIMONIAL_AVATAR] - Stock photo: Professional headshot, friendly expression, 30s-40s, casual business attire */}
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center overflow-hidden">
-              <img
-                src="/assets/testimonials/busy-pro-avatar.jpg"
-                alt={content.testimonial.author}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                  e.currentTarget.parentElement!.innerHTML = `<span class="text-slate-500 text-sm font-bold">${content.testimonial.author.charAt(0)}</span>`;
-                }}
-              />
-            </div>
-            <div>
-              <div className="text-sm font-medium text-[#1D2D3D]">{content.testimonial.author}</div>
-              <div className="text-xs text-slate-400">{content.testimonial.detail}</div>
-            </div>
-          </div>
+        <div className="max-w-lg mx-auto">
+          {(() => {
+            const { data: reviewsData, isLoading } = useQuery({
+              queryKey: ['google-reviews-social', quote.postcode], // Unique query key
+              queryFn: async () => {
+                const location = quote.postcode ? quote.postcode.split(' ')[0] : 'nottingham';
+                const res = await fetch(`/api/google-reviews?location=${location}`);
+                if (!res.ok) throw new Error('Failed to fetch reviews');
+                return res.json();
+              },
+              staleTime: 1000 * 60 * 60,
+            });
+
+            const [activeIndex, setActiveIndex] = useState(0);
+
+            useEffect(() => {
+              if (!reviewsData?.reviews?.length) return;
+              const interval = setInterval(() => {
+                setActiveIndex((prev) => (prev + 1) % reviewsData.reviews.length);
+              }, 6000); // Slightly slower cycle for variety
+              return () => clearInterval(interval);
+            }, [reviewsData]);
+
+            const reviews = reviewsData?.reviews || [];
+            const currentReview = reviews[activeIndex];
+
+            if (isLoading || !currentReview) {
+              return (
+                <div className="bg-slate-50 border border-slate-100 rounded-xl p-6 animate-pulse">
+                  <div className="h-4 bg-slate-200 rounded w-3/4 mb-4"></div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-slate-200"></div>
+                    <div className="h-3 bg-slate-200 rounded w-1/3"></div>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div className="bg-slate-50 border border-slate-100 rounded-xl p-6 transition-all duration-500">
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex gap-1 text-[#F4B400]">
+                    {[...Array(5)].map((_, i) => (
+                      <Star key={i} className={`w-3.5 h-3.5 ${i < currentReview.rating ? 'fill-current' : 'text-slate-300'}`} />
+                    ))}
+                  </div>
+                  <SiGoogle className="w-4 h-4 text-slate-400" />
+                </div>
+                <p className="text-slate-600 text-sm leading-relaxed mb-4 italic">
+                  "{currentReview.text.length > 140 ? currentReview.text.substring(0, 140) + '...' : currentReview.text}"
+                </p>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden border border-white shadow-sm">
+                    {currentReview.profile_photo_url ? (
+                      <img src={currentReview.profile_photo_url} alt={currentReview.authorName} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-slate-500 font-bold">{currentReview.authorName.charAt(0)}</span>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-[#1D2D3D]">{currentReview.authorName}</div>
+                    <div className="text-xs text-slate-400">{currentReview.relativeTime}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </SectionWrapper>
@@ -863,7 +908,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
                   <p className="text-[#7DB00E] text-xs font-bold uppercase tracking-widest mb-1">
                     Job Summary
                   </p>
-                  <p className="text-white font-medium mb-1 leading-snug">
+                  <p className="text-white font-medium mb-1 leading-snug line-clamp-2 text-ellipsis overflow-hidden">
                     {(() => {
                       const aiSummary = quote.jobs?.[0]?.summary;
                       const isInvalidSummary = !aiSummary ||
@@ -878,8 +923,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
                         displayText = quote.jobs?.[0]?.description || quote.jobDescription || "Your project";
                       }
 
-                      // Truncate if too long (approx 2 lines)
-                      return displayText.length > 80 ? displayText.substring(0, 80) + '...' : displayText;
+                      return displayText;
                     })()}
                   </p>
                 </div>
@@ -1016,22 +1060,79 @@ const ValueProof = ({ quote, config }: { quote: PersonalizedQuote, config: any }
             </p>
 
             <div className="space-y-4">
-              {/* Testimonial */}
-              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 relative shadow-sm">
-                <div className="flex gap-1 text-[#7DB00E] mb-3">
-                  {[...Array(5)].map((_, i) => <Star key={i} className="w-3 h-3 fill-current" />)}
-                </div>
-                <p className="text-slate-600 text-sm italic mb-4">"{content.testimonial.text}"</p>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-slate-200 border border-[#7DB00E]/20 overflow-hidden">
-                    <img src={mikeProfilePhoto} alt="Review" className="w-full h-full object-cover" />
+              {/* Dynamic Google Reviews Carousel */}
+              {(() => {
+                const { data: reviewsData, isLoading } = useQuery({
+                  queryKey: ['google-reviews', quote.postcode],
+                  queryFn: async () => {
+                    // Default to Nottingham if no postcode, or extract town from postcode
+                    const location = quote.postcode ? quote.postcode.split(' ')[0] : 'nottingham';
+                    const res = await fetch(`/api/google-reviews?location=${location}`);
+                    if (!res.ok) throw new Error('Failed to fetch reviews');
+                    return res.json();
+                  },
+                  staleTime: 1000 * 60 * 60, // 1 hour
+                });
+
+                const [activeIndex, setActiveIndex] = useState(0);
+
+                // Auto-cycle reviews
+                useEffect(() => {
+                  if (!reviewsData?.reviews?.length) return;
+                  const interval = setInterval(() => {
+                    setActiveIndex((prev) => (prev + 1) % reviewsData.reviews.length);
+                  }, 5000);
+                  return () => clearInterval(interval);
+                }, [reviewsData]);
+
+                const reviews = reviewsData?.reviews || [];
+                const currentReview = reviews[activeIndex];
+
+                if (isLoading || !currentReview) {
+                  // Loading Skeleton or Fallback
+                  return (
+                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 relative shadow-sm animate-pulse">
+                      <div className="h-4 bg-slate-200 rounded w-1/3 mb-4"></div>
+                      <div className="space-y-2">
+                        <div className="h-2 bg-slate-200 rounded w-full"></div>
+                        <div className="h-2 bg-slate-200 rounded w-5/6"></div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 relative shadow-md transition-all duration-500">
+                    <div className="absolute -top-3 -right-3 bg-white p-1.5 rounded-full shadow-sm border border-slate-100">
+                      <SiGoogle className="w-6 h-6 text-[#4285F4]" />
+                    </div>
+
+                    <div className="flex gap-1 text-[#F4B400] mb-3">
+                      {[...Array(5)].map((_, i) => (
+                        <Star key={i} className={`w-3.5 h-3.5 ${i < currentReview.rating ? 'fill-current' : 'text-slate-300'}`} />
+                      ))}
+                    </div>
+
+                    <div className="min-h-[80px]">
+                      <p className="text-slate-700 text-sm italic mb-4 leading-relaxed">"{currentReview.text.length > 120 ? currentReview.text.substring(0, 120) + '...' : currentReview.text}"</p>
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-2 border-t border-slate-200/50">
+                      <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-500 overflow-hidden">
+                        {currentReview.profile_photo_url ? (
+                          <img src={currentReview.profile_photo_url} alt={currentReview.authorName} className="w-full h-full object-cover" />
+                        ) : (
+                          currentReview.authorName.charAt(0)
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-[#1D2D3D]">{currentReview.authorName}</div>
+                        <div className="text-[9px] text-slate-400 font-medium">{currentReview.relativeTime}</div>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-xs font-bold text-[#1D2D3D]">{content.testimonial.author}</div>
-                    <div className="text-[9px] text-slate-400 uppercase">{content.testimonial.detail}</div>
-                  </div>
-                </div>
-              </div>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1575,7 +1676,8 @@ export default function PersonalizedQuotePage() {
 
   // Check if quote has expired (initial check only, mostly visual now via component)
   // const [isExpiredState, setIsExpiredState] = useState(false); // MOVED TO TOP
-  const isActuallyExpired = isQuoteExpiredOnLoad || isExpiredState || (quote?.expiresAt && new Date(quote.expiresAt) < new Date());
+  // [STRATEGY] BUSY_PRO: Never expire. Treat as "Live Availability" to reduce friction.
+  const isActuallyExpired = quote.segment !== 'BUSY_PRO' && (isQuoteExpiredOnLoad || isExpiredState || (quote?.expiresAt && new Date(quote.expiresAt) < new Date()));
 
   // Create packages array safely checking for existence of each tier
   const packages: EEEPackage[] = [];
@@ -1783,7 +1885,15 @@ export default function PersonalizedQuotePage() {
             >
               <div className="text-center space-y-4">
 
-                <h2 className="text-4xl md:text-6xl font-extrabold tracking-tight text-[#1D2D3D]">Choose Your Service Level</h2>
+                {/* Pay in 3 Banner - Top Placement */}
+                <div className="rounded-xl overflow-hidden shadow-sm border border-slate-200 mb-8 max-w-lg mx-auto transform -rotate-1 hover:rotate-0 transition-transform duration-300">
+                  <img src={payIn3PromoImage} className="w-full h-auto object-cover" alt="Pay in 3 Interest Free" />
+                </div>
+
+                <div>
+                  <h3 className="text-xl md:text-2xl font-bold text-slate-500 mb-2">We can't work with everyone,</h3>
+                  <h2 className="text-4xl md:text-6xl font-extrabold tracking-tight text-[#1D2D3D]">Secure Your Slot?</h2>
+                </div>
                 <p className="text-slate-600 text-lg max-w-2xl mx-auto">Based on quality materials and insured labour, here's what proper workmanship costs:</p>
 
                 {/* Price Confidence Statement */}
@@ -1845,38 +1955,45 @@ export default function PersonalizedQuotePage() {
                               getPerksForTier(quote, pkg.tier as 'essential' | 'enhanced' | 'elite');
 
                             // [STRATEGY] BUSY_PRO Feature Overrides - Leaders/Killers/Fillers (Ramanujam)
-                            console.log('[DEBUG] Tier:', pkg.tier, 'Segment:', quote.segment, 'Features BEFORE override:', rawFeatures);
+                            // Helper for dynamic dates (Simulating live contractor availability)
+                            const getFutureDate = (days: number) => {
+                              const date = new Date();
+                              date.setDate(date.getDate() + days);
+                              return date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+                            };
+
                             if (quote.segment === 'BUSY_PRO') {
                               if (pkg.tier === 'enhanced') {
                                 // PRIORITY = Killers + Leaders + Fillers (the draw)
                                 pkg.name = "Priority Service";
                                 rawFeatures = [
-                                  "⚡ Same-week scheduling (3 slots left)",
-                                  "📸 Photo updates during job",
-                                  "🛡️ 90-day guarantee",
-                                  "📞 Direct contact line",
-                                  "🔧 Free small fix while there",
-                                  "✨ Full cleanup included"
+                                  `⚡ Guaranteed Slot: ${getFutureDate(4)}`, // T+4 days
+                                  "⏱️ Precise 1-Hour Arrival Window",
+                                  "🛡️ 90-day workmanship guarantee",
+                                  "📞 Direct specialist contact number",
+                                  "📅 Evening & Weekend slots available",
+                                  "✨ Full cleanup & waste removal"
                                 ];
                               } else if (pkg.tier === 'elite') {
                                 // ELITE = Premium extras
                                 pkg.name = "Premium Express";
                                 rawFeatures = [
-                                  "🚀 48-hour scheduling",
-                                  "📞 Direct WhatsApp to your pro",
-                                  "🛡️ 12-month guarantee",
-                                  "📸 Video walkthrough on completion",
-                                  "🔧 Unlimited small fixes while there",
-                                  "✨ Full cleanup included"
+                                  `🚀 VIP Slot: ${getFutureDate(2)}`, // T+2 days
+                                  "💬 Dedicated PM (WhatsApp Access)",
+                                  "🛡️ 12-Month Premium Warranty",
+                                  "📹 Video walkthrough on completion",
+                                  "🔧 Unlimited small fixes on site",
+                                  "✨ Full cleanup & waste removal"
                                 ];
                               } else if (pkg.tier === 'essential') {
                                 // STANDARD = Killers only (table stakes)
                                 pkg.name = "Standard Service";
                                 rawFeatures = [
-                                  "Scheduled within 2 weeks",
-                                  "30-day guarantee",
-                                  "Quality workmanship",
-                                  "Cleanup included"
+                                  `Available from ${getFutureDate(14)}`, // T+14 days
+                                  "Standard 8am-5pm window",
+                                  "30-day workmanship guarantee",
+                                  "Quality workmanship involved",
+                                  "Workspace cleanup included"
                                 ];
                               }
                             }
@@ -1887,6 +2004,7 @@ export default function PersonalizedQuotePage() {
                             // Icon mapping for BUSY_PRO features (high quality Lucide icons)
                             const getFeatureIcon = (feature: string): React.ComponentType<{ className?: string }> => {
                               const f = feature.toLowerCase();
+                              if (f.includes('arrival') || f.includes('window') || f.includes('time')) return Clock;
                               if (f.includes('scheduling') || f.includes('week') || f.includes('slot')) return Calendar;
                               if (f.includes('photo') || f.includes('video')) return Camera;
                               if (f.includes('guarantee') || f.includes('warranty')) return Shield;
@@ -1927,7 +2045,7 @@ export default function PersonalizedQuotePage() {
                             const tierStyles = {
                               essential: { bg: 'bg-slate-50 border-slate-200', badge: null, badgeColor: '', badgeText: '' },
                               enhanced: { bg: 'bg-white border-[#7DB00E]', badge: 'MOST POPULAR', badgeColor: 'bg-[#7DB00E]', badgeText: 'text-[#1D2D3D]' },
-                              elite: { bg: 'bg-slate-900 text-white', badge: 'PREMIUM', badgeColor: 'bg-[#1D2D3D]', badgeText: 'text-white' }
+                              elite: { bg: 'bg-white border-slate-200', badge: 'PREMIUM', badgeColor: 'bg-[#1D2D3D]', badgeText: 'text-white' }
                             };
                             const style = tierStyles[pkg.tier as keyof typeof tierStyles];
                             const isDisabled = isTier1 && paymentMode === 'installments';
@@ -1956,9 +2074,9 @@ export default function PersonalizedQuotePage() {
                                           {pkg.tier === 'essential' && <Wrench className="w-4 h-4 text-slate-400" />}
                                           {pkg.tier === 'enhanced' && <Zap className="w-4 h-4 text-[#7DB00E]" />}
                                           {pkg.tier === 'elite' && <Crown className="w-4 h-4 text-amber-500" />}
-                                          <h3 className={`text-xl font-bold ${pkg.tier === 'elite' ? 'text-white' : 'text-slate-900'}`}>{pkg.name}</h3>
+                                          <h3 className="text-xl font-bold text-slate-900">{pkg.name}</h3>
                                         </div>
-                                        <p className={`${pkg.tier === 'elite' ? 'text-slate-300' : 'text-slate-500'} text-xs`}>{pkg.description}</p>
+                                        <p className="text-slate-500 text-xs">{pkg.description}</p>
                                       </div>
                                       <div className="flex flex-col items-end gap-2">
                                         {pkg.tier === 'enhanced' && (
@@ -1990,9 +2108,89 @@ export default function PersonalizedQuotePage() {
                                       </div>
                                     </div>
 
+                                    {/* Date Slot Slider - Interactive Availability */}
+                                    <div className="mb-6">
+                                      <div className="flex justify-between items-baseline mb-3">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                          {pkg.tier === 'elite' ? 'VIP Availability' : pkg.tier === 'enhanced' ? 'Priority Slots' : 'Estimated Start'}
+                                        </p>
+                                        {pkg.tier === 'elite' && (
+                                          <span className="text-[9px] font-bold text-[#7DB00E] bg-[#7DB00E]/10 px-1.5 py-0.5 rounded-full animate-pulse">
+                                            LIVE
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="-mx-1 overflow-x-auto pb-4 pt-2 flex gap-2 no-scrollbar snap-x">
+                                        {(() => {
+                                          // Scarcity Logic & Extended Range
+                                          const startOffset = pkg.tier === 'elite' ? 1 : pkg.tier === 'enhanced' ? 4 : 14;
+                                          let currentDate = new Date();
+                                          currentDate.setDate(currentDate.getDate() + startOffset);
+
+                                          // Generate 12 days to show full scope
+                                          const dates = [];
+                                          let daysAdded = 0;
+                                          while (daysAdded < 12) {
+                                            // Handle "No Sundays" rule globally if needed, currently we skip them in loop if we want business days only
+                                            // But for scarcity visuals, showing weekends as "Booked" is better for Standard tier
+                                            const d = new Date(currentDate);
+                                            dates.push(d);
+                                            currentDate.setDate(currentDate.getDate() + 1);
+                                            daysAdded++;
+                                          }
+
+                                          return dates.map((slotDate, idx) => {
+                                            const isWeekend = slotDate.getDay() === 0 || slotDate.getDay() === 6;
+                                            // Standard (essential) cannot book weekends
+                                            const isRestrictedWeekend = pkg.tier === 'essential' && isWeekend;
+
+                                            // Fake "Booked" status for scarcity (30% chance), but never the first slot
+                                            const isFullyBooked = idx > 0 && (Math.random() < 0.3 || isRestrictedWeekend);
+
+                                            const isAvailable = !isFullyBooked;
+                                            const isSelected = idx === 0;
+
+                                            return (
+                                              <div
+                                                key={idx}
+                                                className={`snap-start flex-shrink-0 border rounded-lg p-2 min-w-[90px] text-center relative overflow-hidden transition-all ${!isAvailable
+                                                  ? 'border-slate-100 bg-slate-50 opacity-60 grayscale border-dashed'
+                                                  : isSelected
+                                                    ? 'border-[#7DB00E]/30 bg-[#7DB00E]/5'
+                                                    : 'border-slate-100 bg-white/80'
+                                                  }`}
+                                              >
+                                                <div className={`text-[10px] uppercase font-bold mb-0.5 ${!isAvailable ? 'text-slate-300' : isSelected ? 'text-[#7DB00E]' : 'text-slate-400'}`}>
+                                                  {idx === 0 && pkg.tier === 'elite' ? 'Tomrw' : slotDate.toLocaleDateString('en-GB', { weekday: 'short' })}
+                                                </div>
+
+                                                <div className={`text-lg font-bold leading-none mb-1 ${!isAvailable ? 'text-slate-300' : isSelected ? 'text-slate-900' : 'text-slate-600'}`}>
+                                                  {slotDate.getDate()}
+                                                </div>
+
+                                                <div className={`text-[9px] font-medium ${!isAvailable ? 'text-slate-300' : 'text-slate-400'}`}>
+                                                  {!isAvailable
+                                                    ? (isRestrictedWeekend ? 'Unavailable' : 'Fully Booked')
+                                                    : slotDate.toLocaleDateString('en-GB', { month: 'short' })
+                                                  }
+                                                </div>
+
+                                                {/* Strikethrough for booked dates */}
+                                                {!isAvailable && (
+                                                  <div className="absolute inset-0 flex items-center justify-center">
+                                                    <div className="w-full h-[1px] bg-slate-200 -rotate-12"></div>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            );
+                                          });
+                                        })()}
+                                      </div>
+                                    </div>
+
                                     <div className="mb-6">
                                       <div className="flex items-baseline gap-2">
-                                        <span className={`text-3xl font-bold ${pkg.tier === 'elite' ? 'text-white' : 'text-slate-900'}`}>£{formatPrice(showInstallments ? depositAmount : pkg.price)}</span>
+                                        <span className={`text-3xl font-bold text-slate-900`}>£{formatPrice(showInstallments ? depositAmount : pkg.price)}</span>
                                         <span className="text-slate-400 text-xs font-medium">{showInstallments ? 'deposit' : 'fixed price'}</span>
                                       </div>
 
@@ -2028,7 +2226,7 @@ export default function PersonalizedQuotePage() {
                                       {visibleFeatures.map((f, i) => {
                                         const FeatureIcon = getFeatureIcon(f as string);
                                         return (
-                                          <div key={i} className={`flex gap-3 text-sm ${pkg.tier === 'elite' ? 'text-gray-300' : 'text-slate-600'}`}>
+                                          <div key={i} className="flex gap-3 text-sm text-slate-600">
                                             <FeatureIcon className="w-4 h-4 text-[#7DB00E] mt-0.5 flex-shrink-0" />
                                             <span>{f}</span>
                                           </div>
