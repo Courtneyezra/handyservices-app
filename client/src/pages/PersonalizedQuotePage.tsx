@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar, Sun, Clipboard, Calculator, CreditCard, Gift, Play, Truck } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar, Sun, Clipboard, Calculator, CreditCard, Gift, Play, Truck, Award, Sparkles, Package } from 'lucide-react';
 import { SiGoogle, SiVisa, SiMastercard, SiAmericanexpress, SiApplepay, SiStripe, SiKlarna } from 'react-icons/si';
 import { FaWhatsapp, FaPaypal } from 'react-icons/fa';
 import { useToast } from '@/hooks/use-toast';
@@ -73,25 +73,31 @@ const HHH_FIXED_VALUE_BULLETS = {
 
 // Segment-specific overrides for tier bullets
 // Segment-specific overrides for tier bullets
+// Based on Madhavan Ramanujam's Leaders/Killers/Fillers framework
 const SEGMENT_TIER_CONFIG: Record<string, { handyFix: string[]; hassleFree: string[]; highStandard: string[] }> = {
   BUSY_PRO: {
+    // STANDARD = Killers only (table stakes)
     handyFix: [
       'Quality workmanship',
       'Full cleanup included',
-      'Standard scheduling',
-      '30-day workmanship guarantee',
+      'Scheduled within 2 weeks',
+      '30-day guarantee',
     ],
+    // PRIORITY = Killers + Leaders + Fillers (the draw)
     hassleFree: [
-      'Guaranteed This-Week Slot',
-      'Evening & Weekend Slots',
-      'Material sourcing included',
-      '6-Month workmanship guarantee',
+      '⚡ Same-week scheduling',
+      '📸 Photo updates during job',
+      '🛡️ 90-day guarantee',
+      '📞 Direct contact line',
+      '🔧 Free small fix while there',
     ],
+    // ELITE = Premium extras for those who want the best
     highStandard: [
-      'Priority Allocation',
-      'Concierge Service',
-      '90-Day Warranty',
-      'Split payment available',
+      '🚀 48-hour scheduling',
+      '📞 Direct WhatsApp to your pro',
+      '🛡️ 12-month guarantee',
+      '📸 Video walkthrough on completion',
+      '🔧 Unlimited small fixes while there',
     ]
   }
 };
@@ -1558,6 +1564,15 @@ export default function PersonalizedQuotePage() {
   // Service Tiers Route - Existing HHH tiers UI (default)
   // Continue with existing PersonalizedQuotePage rendering below...
 
+  // [DEBUG] Log all conditions for BUSY_PRO feature overrides
+  console.log('[QUOTE DEBUG] =====================================');
+  console.log('[QUOTE DEBUG] segment:', quote.segment);
+  console.log('[QUOTE DEBUG] proposalModeEnabled:', quote.proposalModeEnabled);
+  console.log('[QUOTE DEBUG] quoteMode:', quote.quoteMode);
+  console.log('[QUOTE DEBUG] recommendedRoute:', quote.recommendedRoute);
+  console.log('[QUOTE DEBUG] For BUSY_PRO overrides, need: segment=BUSY_PRO, proposalModeEnabled=true, quoteMode=hhh');
+  console.log('[QUOTE DEBUG] =====================================');
+
   // Check if quote has expired (initial check only, mostly visual now via component)
   // const [isExpiredState, setIsExpiredState] = useState(false); // MOVED TO TOP
   const isActuallyExpired = isQuoteExpiredOnLoad || isExpiredState || (quote?.expiresAt && new Date(quote.expiresAt) < new Date());
@@ -1829,34 +1844,37 @@ export default function PersonalizedQuotePage() {
                             let rawFeatures = quote.tierDeliverables?.[pkg.tier === 'essential' ? 'essential' : pkg.tier === 'enhanced' ? 'hassleFree' : 'highStandard'] ||
                               getPerksForTier(quote, pkg.tier as 'essential' | 'enhanced' | 'elite');
 
-                            // [STRATEGY] BUSY_PRO Feature Overrides to ensure high conversion on value drivers
+                            // [STRATEGY] BUSY_PRO Feature Overrides - Leaders/Killers/Fillers (Ramanujam)
+                            console.log('[DEBUG] Tier:', pkg.tier, 'Segment:', quote.segment, 'Features BEFORE override:', rawFeatures);
                             if (quote.segment === 'BUSY_PRO') {
                               if (pkg.tier === 'enhanced') {
-                                pkg.name = "Priority Service"; // Enforce distinct name
+                                // PRIORITY = Killers + Leaders + Fillers (the draw)
+                                pkg.name = "Priority Service";
                                 rawFeatures = [
-                                  "⚡ 3 slots left this week",
-                                  "📅 Evening & Weekend Slots",
-                                  "🛡️ 90-Day Guarantee",
-                                  "✨ Cleanup included",
-                                  "📱 Direct PM WhatsApp",
-                                  "🏗️ Materials Handling"
+                                  "⚡ Same-week scheduling (3 slots left)",
+                                  "📸 Photo updates during job",
+                                  "🛡️ 90-day guarantee",
+                                  "📞 Direct contact line",
+                                  "🔧 Free small fix while there",
+                                  "✨ Full cleanup included"
                                 ];
                               } else if (pkg.tier === 'elite') {
-                                pkg.name = "Premium Express"; // Enforce distinct name
+                                // ELITE = Premium extras
+                                pkg.name = "Premium Express";
                                 rawFeatures = [
-                                  "🚀 Start ASAP",
-                                  "⚡ 3 slots left this week",
-                                  "📅 Evening & Weekend Slots",
-                                  "📱 Direct PM WhatsApp",
-                                  "🛡️ 90-Day Guarantee",
-                                  "✨ Cleanup included",
-                                  "🏗️ Materials Handling"
+                                  "🚀 48-hour scheduling",
+                                  "📞 Direct WhatsApp to your pro",
+                                  "🛡️ 12-month guarantee",
+                                  "📸 Video walkthrough on completion",
+                                  "🔧 Unlimited small fixes while there",
+                                  "✨ Full cleanup included"
                                 ];
                               } else if (pkg.tier === 'essential') {
-                                pkg.name = "Standard Fix"; // Enforce distinct name
+                                // STANDARD = Killers only (table stakes)
+                                pkg.name = "Standard Service";
                                 rawFeatures = [
                                   "Scheduled within 2 weeks",
-                                  "Standard 30-day guarantee",
+                                  "30-day guarantee",
                                   "Quality workmanship",
                                   "Cleanup included"
                                 ];
@@ -1865,6 +1883,21 @@ export default function PersonalizedQuotePage() {
 
                             // [STRATEGY] Emoji Stripper: Regex to remove emoji characters from features
                             const stripEmojis = (str: string) => str.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1F018}-\u{1F270}\u{238C}\u{2B00}-\u{2BFF}\u{1F004}]/gu, '').trim();
+
+                            // Icon mapping for BUSY_PRO features (high quality Lucide icons)
+                            const getFeatureIcon = (feature: string): React.ComponentType<{ className?: string }> => {
+                              const f = feature.toLowerCase();
+                              if (f.includes('scheduling') || f.includes('week') || f.includes('slot')) return Calendar;
+                              if (f.includes('photo') || f.includes('video')) return Camera;
+                              if (f.includes('guarantee') || f.includes('warranty')) return Shield;
+                              if (f.includes('contact') || f.includes('whatsapp') || f.includes('phone')) return Phone;
+                              if (f.includes('small fix') || f.includes('fixes')) return Wrench;
+                              if (f.includes('cleanup') || f.includes('clean')) return Sparkles;
+                              if (f.includes('quality') || f.includes('workmanship')) return Award;
+                              if (f.includes('48-hour') || f.includes('asap') || f.includes('express')) return Zap;
+                              if (f.includes('materials')) return Package;
+                              return Check; // Default fallback
+                            };
 
                             const features = Array.from(new Set(rawFeatures.map(f => typeof f === 'string' ? stripEmojis(f) : f)));
                             const isExpanded = expandedTiers.has(pkg.tier);
@@ -1906,7 +1939,7 @@ export default function PersonalizedQuotePage() {
                                 initial={{ opacity: 0, x: -20 }}
                                 whileInView={{ opacity: 1, x: 0 }}
                                 transition={{ duration: 0.5 }}
-                                className={`relative ${isDisabled ? 'opacity-30 pointer-events-none' : ''}`}
+                                className={`relative transition-all duration-300 ${isDisabled ? 'opacity-50 pointer-events-none grayscale blur-[2px] scale-95' : ''}`}
                               >
                                 <div id={`package-tier-card-${pkg.tier}`} className={`${style.bg} rounded-2xl overflow-hidden border ${pkg.tier === 'enhanced' ? 'border-2 shadow-xl scale-[1.03] z-10' : 'shadow-sm hover:shadow-md'} transition-all duration-300`}>
                                   {style.badge && (
@@ -1992,12 +2025,15 @@ export default function PersonalizedQuotePage() {
                                     </div>
 
                                     <div className="space-y-3 mb-6">
-                                      {visibleFeatures.map((f, i) => (
-                                        <div key={i} className={`flex gap-3 text-sm ${pkg.tier === 'elite' ? 'text-gray-300' : 'text-slate-600'}`}>
-                                          <Check className="w-4 h-4 text-[#7DB00E] mt-0.5 flex-shrink-0" />
-                                          <span>{f}</span>
-                                        </div>
-                                      ))}
+                                      {visibleFeatures.map((f, i) => {
+                                        const FeatureIcon = getFeatureIcon(f as string);
+                                        return (
+                                          <div key={i} className={`flex gap-3 text-sm ${pkg.tier === 'elite' ? 'text-gray-300' : 'text-slate-600'}`}>
+                                            <FeatureIcon className="w-4 h-4 text-[#7DB00E] mt-0.5 flex-shrink-0" />
+                                            <span>{f}</span>
+                                          </div>
+                                        );
+                                      })}
                                       {hasMoreFeatures && (
                                         <button
                                           onClick={() => setExpandedTiers(prev => {

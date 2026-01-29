@@ -508,7 +508,7 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     segment: varchar("segment", { length: 20 }).default('UNKNOWN'), // BUSY_PRO, PROP_MGR, SMALL_BIZ, DIY_DEFERRER, BUDGET
     jobType: varchar("job_type", { length: 20 }).default('SINGLE'), // SINGLE, COMPLEX, MULTIPLE
     quotability: varchar("quotability", { length: 20 }).default('VISIT'), // INSTANT, VIDEO, VISIT
-    proposalModeEnabled: boolean("proposal_mode_enabled").default(false), // Enable weighted scroll value primer
+    proposalModeEnabled: boolean("proposal_mode_enabled").default(true), // Standard for all quotes - weighted scroll value primer
 
     // Multi-Job Support (value-anchored pricing) - DEPRECATED
     jobs: jsonb("jobs"), // Array of individual job objects with their own PVS scores

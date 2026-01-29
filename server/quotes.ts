@@ -42,7 +42,7 @@ const valuePricingInputSchema = z.object({
     // Human-in-loop route selection
     selectedRoute: z.enum(['instant', 'tiers', 'assessment']).optional(),
     routeOverridden: z.boolean().optional(), // Track if human overrode AI recommendation
-    proposalModeEnabled: z.boolean().default(false).optional(),
+    proposalModeEnabled: z.boolean().default(true).optional(), // Now standard for all quotes
 
     // Manual Overrides
     manualClassification: z.any().optional(),
@@ -325,8 +325,8 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             jobType: mappedJobType,
             quotability: mappedQuotability,
 
-            // Proposal Mode - Enable if we have a valid segment
-            proposalModeEnabled: input.proposalModeEnabled ?? ((input.manualSegment || leadClassification?.segment) && (input.manualSegment || leadClassification?.segment) !== 'UNKNOWN'),
+            // Proposal Mode - Now standard for all quotes (always enabled)
+            proposalModeEnabled: input.proposalModeEnabled ?? true,
 
 
             createdAt: new Date(),

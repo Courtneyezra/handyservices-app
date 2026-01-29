@@ -206,7 +206,7 @@ export default function GenerateQuoteLink() {
   const [classification, setClassification] = useState<RouteAnalysis['classification'] | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<'instant' | 'tiers' | 'assessment' | undefined>(undefined);
   const [segment, setSegment] = useState<'BUSY_PRO' | 'PROP_MGR' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | undefined>(undefined);
-  const [proposalModeEnabled, setProposalModeEnabled] = useState(false);
+  const [proposalModeEnabled, setProposalModeEnabled] = useState(true); // Now standard for all quotes
   const [isQuickLink, setIsQuickLink] = useState(false);
 
   // Effective base price (override or AI-calculated)
@@ -2062,19 +2062,8 @@ export default function GenerateQuoteLink() {
                 </div>
 
                 {/* Toggles Row */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Proposal Mode Toggle */}
-                  <div className="flex items-center justify-between p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
-                    <div className="space-y-0.5">
-                      <Label htmlFor="proposal-mode" className="text-base font-semibold text-slate-800">Proposal Mode</Label>
-                      <p className="text-xs text-slate-500">Enable cinematic intro experience for customer</p>
-                    </div>
-                    <Switch
-                      id="proposal-mode"
-                      checked={proposalModeEnabled}
-                      onCheckedChange={setProposalModeEnabled}
-                    />
-                  </div>
+                <div className="grid grid-cols-1 gap-4">
+                  {/* Proposal Mode is now standard - removed toggle */}
 
                   {/* Quick Link Toggle */}
                   <div className="flex items-center justify-between p-4 bg-white rounded-lg border border-slate-200 shadow-sm">
