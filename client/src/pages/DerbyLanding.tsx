@@ -1,15 +1,23 @@
-import { useState, useEffect } from "react";
-import { Phone, Star, Wrench, Paintbrush, Hammer, Droplets, Shield, Clock, CheckCircle, ArrowRight, AlertCircle, MapPin, Leaf, Package } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Link } from "wouter";
+import { Phone, Star, Wrench, Paintbrush, Hammer, Droplets, Shield, Clock, CheckCircle, ArrowRight, AlertCircle, MapPin, Leaf, Package, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SiWhatsapp, SiGoogle } from "react-icons/si";
 import { SocialProofSection } from "@/components/SocialProofSection";
 import { IntakeHero } from "@/components/IntakeHero";
 import { GoogleReviewsSection } from "@/components/GoogleReviewsSection";
 import { StickyCTA } from "@/components/StickyCTA";
+import { LocalTrustSection } from "@/components/AnimatedMap";
+import { SegmentSwitcher } from "@/components/SegmentSwitcher";
+import { PropertyManagerView } from "@/components/PropertyManagerView";
+import { BusinessView } from "@/components/BusinessView";
 
 import teamMember1 from "@assets/Untitled design (22)_1764599239600.webp";
 import teamMember2 from "@assets/Untitled design (23)_1764599239600.webp";
 import teamMember3 from "@assets/Untitled design (24)_1764599239599.webp";
+import teamMember4 from "@assets/Untitled design (25)_1764599239599.webp";
+import teamMember5 from "@assets/Untitled design (26)_1764599239599.webp";
+import teamMember6 from "@assets/Untitled design (27)_1764599239595.webp";
 import heroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
 import videoQuoteImage from "@assets/123d3462-a11d-42b8-9fad-fdb2d6f29b11_1764600237774.webp";
 import handyLogo from "@assets/Copy of Copy of Add a heading-3_1764600628729.webp";
@@ -24,78 +32,13 @@ import beforeImage from "@assets/74cb4082-17d2-48b1-bd98-bf51f85bc7a5_(1)_176469
 import afterImage from "@assets/cb5e8951-9d46-4023-9909-510a89d3da60_1764693845208.webp";
 import payIn3Image from "@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.webp";
 import { useLandingPage } from "@/hooks/useLandingPage";
-import { LocalTrustSection } from "@/components/AnimatedMap";
 
 const WHATSAPP_NUMBER = "+447508744402";
 const WHATSAPP_MESSAGE = encodeURIComponent("I'm interested in Handy Services - Derby");
 const PHONE_NUMBER = "+447449501762";
 
-function HandLogo({ className = "w-12 h-12" }: { className?: string }) {
-    return (
-        <img
-            src={handyLogo}
-            alt="Handy Services"
-            className={`${className} object-contain`}
-        />
-    );
-}
-
-function GoogleReviewsBadge({ dark = false }: { dark?: boolean }) {
-    return (
-        <div className={`flex items-center gap-2 ${dark ? "text-slate-800" : "text-white"}`}>
-            <SiGoogle className="w-5 h-5" />
-            <div className="flex items-center gap-0.5">
-                {[...Array(5)].map((_, i) => (
-                    <Star key={i} className={`w-4 h-4 ${dark ? "fill-white text-white" : "fill-amber-400 text-amber-400"}`} />
-                ))}
-            </div>
-            <span className="text-sm font-medium">4.9 from 300+ Reviews</span>
-        </div>
-    );
-}
-
-function Header() {
-    return (
-        <header className="sticky top-0 z-50 bg-slate-800 px-4 lg:px-8 py-3">
-            <div className="max-w-7xl mx-auto flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <HandLogo className="w-10 h-10 md:w-12 md:h-12" />
-                    <span className="text-white font-bold text-lg md:text-xl">Handy Services</span>
-                </div>
-
-                <div className="hidden md:flex items-center gap-8">
-                    <nav className="flex items-center gap-6">
-                        <a href="#services" className="text-white/80 hover:text-white transition-colors">Services</a>
-                        <a href="#team" className="text-white/80 hover:text-white transition-colors">Our Team</a>
-                        <a href="#reviews" className="text-white/80 hover:text-white transition-colors">Reviews</a>
-                    </nav>
-                    <GoogleReviewsBadge />
-                </div>
-
-                <div className="flex items-center gap-3">
-                    <a
-                        href={`tel:${PHONE_NUMBER}`}
-                        className="hidden lg:flex items-center gap-2 px-4 py-2 text-white border border-white/30 rounded-full hover:bg-white/10 transition-colors"
-                        data-testid="button-header-call"
-                    >
-                        <Phone className="w-4 h-4" />
-                        <span>07449 501762</span>
-                    </a>
-                    <a
-                        href={`https://wa.me/${WHATSAPP_NUMBER.replace('+', '')}?text=${WHATSAPP_MESSAGE}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex lg:hidden items-center gap-2 px-4 py-2 bg-amber-400 hover:bg-amber-500 text-slate-900 font-semibold rounded-full transition-colors"
-                        data-testid="button-header-whatsapp"
-                    >
-                        <SiWhatsapp className="w-4 h-4" />
-                        <span className="hidden sm:inline">Chat Now</span>
-                    </a>
-                </div>
-            </div>
-        </header>
-    );
-}
+import { LandingHeader } from "@/components/LandingHeader";
+import { GoogleReviewsBadge } from "@/components/LandingShared";
 
 
 
@@ -118,9 +61,9 @@ function TeamSection() {
                     </p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 md:gap-8 lg:gap-12">
+                <div className="grid grid-cols-3 gap-2 md:gap-8 lg:gap-12 items-stretch">
                     {team.map((member, idx) => (
-                        <div key={idx} className="bg-slate-700/50 rounded-xl md:rounded-3xl p-2 md:p-8 text-center hover:bg-slate-700 transition-colors">
+                        <div key={idx} className="bg-slate-700/50 rounded-xl md:rounded-3xl p-2 md:p-8 text-center hover:bg-slate-700 transition-colors h-full flex flex-col">
                             <img
                                 src={member.image}
                                 alt={member.name}
@@ -856,14 +799,31 @@ function EcoFriendlySection() {
     );
 }
 
-export default function DerbyLanding() {
-    // Master Page Architecture: Use "landing" slug for content, but "Derby" for location
-    const { variant } = useLandingPage("landing");
+interface HandymanLandingProps {
+    headline?: string;
+    subhead?: string;
+}
+
+export default function HandymanLanding({
+    headline,
+    subhead,
+}: HandymanLandingProps) {
+    const { variant, trackConversion } = useLandingPage("landing");
     const [showSticky, setShowSticky] = useState(false);
+    const [activeSegment, setActiveSegment] = useState<'residential' | 'property-manager' | 'business'>('residential');
+    const contentRef = useRef<HTMLDivElement>(null);
+
+    const handleSegmentChange = (segment: 'residential' | 'property-manager' | 'business') => {
+        setActiveSegment(segment);
+        // Small timeout to allow state update and render to start, then scroll
+        setTimeout(() => {
+            contentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+    };
 
     useEffect(() => {
         const handleScroll = () => {
-            // Show sticky CTA after scrolling past hero (approx 600px)
+            // ... existing scroll logic
             if (window.scrollY > 600) {
                 setShowSticky(true);
             } else {
@@ -875,36 +835,79 @@ export default function DerbyLanding() {
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
+    // ... existing variants logic ...
+    const finalHeadline = headline || "The Easiest Way to Book a Handyman in {{location}}";
+    const finalSubhead = subhead || "Speed + reliability for busy professionals.";
+
     return (
         <div className="min-h-screen bg-slate-50 font-poppins text-slate-900 font-medium">
-            <Header />
-            <IntakeHero
-                location="Derby"
-                headline={variant?.content?.heroHeadline}
-                subhead={variant?.content?.heroSubhead}
-                ctaText={variant?.content?.ctaText}
-                mobileCtaText={variant?.content?.mobileCtaText}
-                desktopCtaText={variant?.content?.desktopCtaText}
-                bannerText={variant?.content?.bannerText}
-            />
+            <LandingHeader onConversion={trackConversion} />
+
+            {/* Shared Background Container for Hero + Map */}
+            <div className="relative bg-slate-900">
+                {/* Global Background for this section group */}
+                <div className="absolute inset-0 z-0">
+                    <img
+                        src={heroImage}
+                        alt="Background"
+                        className="w-full h-full object-cover object-top"
+                        loading="eager"
+                    />
+                    <div className="absolute inset-0 bg-slate-900/80 backdrop-grayscale-[30%]"></div>
+                    <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/80 to-transparent"></div>
+                    {/* Gradient fade at bottom to blend into next section if needed */}
+                    <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-slate-900 to-transparent"></div>
+                </div>
+
+                <div className="relative z-10">
+                    <IntakeHero
+                        location="Derby"
+                        headline={finalHeadline}
+                        subhead={finalSubhead}
+                        ctaText={variant?.content?.ctaText || "Get Instant Quote"}
+                        mobileCtaText={variant?.content?.mobileCtaText || "Call Now"}
+                        desktopCtaText={variant?.content?.desktopCtaText || "Get a Price"}
+                        bannerText="⚡️ Fastest growing property services team in {{location}}"
+                        onConversion={trackConversion}
+                        transparentBg={true}
+                    />
+
+                    <SegmentSwitcher activeSegment={activeSegment} onSegmentChange={handleSegmentChange} />
+
+                    <LocalTrustSection location="derby" />
+                </div>
+            </div>
+
             <SocialProofSection location="derby" />
-            <LocalTrustSection location="derby" />
-            <EmergencyServiceSection />
-            <TeamSection />
-            <ProcessSection />
-            <RealTimeTrackingSection />
-            <RealJobsSection />
-            <MultiTaskJobsSection />
-            <VideoQuoteSection />
-            <BeforeAfterSection />
-            <ServicesSection />
-            <GoogleReviewsSection location="derby" darkMode={true} />
-            <EcoFriendlySection />
-            <PayIn3Section />
-            <TestimonialsSection />
-            <GuaranteesSection />
-            <FooterCTA />
-            <StickyCTA isVisible={showSticky} />
+
+            <div ref={contentRef} key={activeSegment} className="animate-in fade-in slide-in-from-bottom-4 duration-700 scroll-mt-24">
+                {activeSegment === 'residential' && (
+                    <>
+                        <TeamSection />
+                        <EmergencyServiceSection />
+                        <ProcessSection />
+                        <VideoQuoteSection />
+                        <ServicesSection />
+                        <RealJobsSection />
+                        <BeforeAfterSection />
+                        <PayIn3Section />
+                        <TestimonialsSection />
+                        <GuaranteesSection />
+                        <RealTimeTrackingSection />
+                        <MultiTaskJobsSection />
+                        <div className="bg-white">
+                            <GoogleReviewsSection location="derby" darkMode={false} />
+                        </div>
+                        <EcoFriendlySection />
+                        <FooterCTA />
+                    </>
+                )}
+
+                {activeSegment === 'property-manager' && <PropertyManagerView />}
+                {activeSegment === 'business' && <BusinessView />}
+            </div>
+
+            <StickyCTA isVisible={showSticky} onConversion={trackConversion} />
         </div>
     );
 }

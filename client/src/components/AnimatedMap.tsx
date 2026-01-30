@@ -183,7 +183,7 @@ export function LocalTrustSection({ location = "derby" }: LocalTrustSectionProps
                     </div>
 
                     {/* Description */}
-                    <p className="text-slate-400 text-lg mb-8 max-w-lg mx-auto lg:mx-0">
+                    <p className="text-slate-400 text-lg mb-8 max-w-lg mx-auto lg:ml-auto lg:mr-0">
                         We're active across {cityName} & the surrounding areas every single day. From neighborhoods to city center, our team is busy helping neighbors just like you.
                     </p>
 

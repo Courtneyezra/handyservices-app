@@ -61,9 +61,9 @@ function TeamSection() {
                     </p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 md:gap-8 lg:gap-12">
+                <div className="grid grid-cols-3 gap-2 md:gap-8 lg:gap-12 items-stretch">
                     {team.map((member, idx) => (
-                        <div key={idx} className="bg-slate-700/50 rounded-xl md:rounded-3xl p-2 md:p-8 text-center hover:bg-slate-700 transition-colors">
+                        <div key={idx} className="bg-slate-700/50 rounded-xl md:rounded-3xl p-2 md:p-8 text-center hover:bg-slate-700 transition-colors h-full flex flex-col">
                             <img
                                 src={member.image}
                                 alt={member.name}
@@ -867,16 +867,18 @@ export default function HandymanLanding({
                         ctaText={variant?.content?.ctaText || "Get Instant Quote"}
                         mobileCtaText={variant?.content?.mobileCtaText || "Call Now"}
                         desktopCtaText={variant?.content?.desktopCtaText || "Get a Price"}
-                        bannerText={variant?.content?.bannerText || "⚡️ Fastest growing property services team in {{location}}"}
+                        bannerText="⚡️ Fastest growing property services team in {{location}}"
                         onConversion={trackConversion}
                         transparentBg={true}
                     />
 
                     <SegmentSwitcher activeSegment={activeSegment} onSegmentChange={handleSegmentChange} />
 
-                    <LocalTrustSection />
+                    <LocalTrustSection location="nottingham" />
                 </div>
             </div>
+
+            <SocialProofSection location="nottingham" />
 
             <div ref={contentRef} key={activeSegment} className="animate-in fade-in slide-in-from-bottom-4 duration-700 scroll-mt-24">
                 {activeSegment === 'residential' && (
@@ -891,11 +893,13 @@ export default function HandymanLanding({
                         <PayIn3Section />
                         <TestimonialsSection />
                         <GuaranteesSection />
-                        <FooterCTA />
                         <RealTimeTrackingSection />
                         <MultiTaskJobsSection />
-                        <GoogleReviewsSection />
+                        <div className="bg-white">
+                            <GoogleReviewsSection darkMode={false} />
+                        </div>
                         <EcoFriendlySection />
+                        <FooterCTA />
                     </>
                 )}
 
