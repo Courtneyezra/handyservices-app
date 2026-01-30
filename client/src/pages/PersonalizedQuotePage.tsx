@@ -1996,8 +1996,7 @@ export default function PersonalizedQuotePage() {
                                 }`}
                             >
                               Pay in 3
-                              <div className="relative overflow-hidden bg-[#1D2D3D] text-[#7DB00E] text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm">
-                                <div className="absolute inset-0 bg-white/20 skew-x-[-15deg] animate-shimmer" style={{ animation: 'shimmer 2s infinite' }} />
+                              <div className="bg-gradient-to-r from-amber-400 to-yellow-400 text-gray-900 text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md shadow-md">
                                 Try
                               </div>
                             </button>
@@ -2717,8 +2716,8 @@ export default function PersonalizedQuotePage() {
                 <button
                   onClick={() => setPaymentMode('full')}
                   className={`px-4 py-1.5 rounded-full text-[10px] uppercase tracking-wider font-bold transition-all duration-300 ${paymentMode === 'full'
-                      ? 'bg-[#2a3f54] text-white shadow-md'
-                      : 'text-gray-500 hover:text-gray-300'
+                    ? 'bg-[#2a3f54] text-white shadow-md'
+                    : 'text-gray-500 hover:text-gray-300'
                     }`}
                 >
                   Pay in Full
@@ -2726,13 +2725,12 @@ export default function PersonalizedQuotePage() {
                 <button
                   onClick={() => setPaymentMode('installments')}
                   className={`px-4 py-1.5 rounded-full text-[10px] uppercase tracking-wider font-bold transition-all duration-300 flex items-center gap-1.5 ${paymentMode === 'installments'
-                      ? 'bg-[#7DB00E] text-[#1D2D3D] shadow-lg shadow-[#7DB00E]/30'
-                      : 'text-gray-500 hover:text-gray-300'
+                    ? 'bg-[#7DB00E] text-[#1D2D3D] shadow-lg shadow-[#7DB00E]/30'
+                    : 'text-gray-500 hover:text-gray-300'
                     }`}
                 >
                   Pay Monthly
-                  <div className="relative overflow-hidden bg-[#1D2D3D] text-[#7DB00E] text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm">
-                    <div className="absolute inset-0 bg-white/20 skew-x-[-15deg] animate-shimmer" style={{ animation: 'shimmer 2s infinite' }} />
+                  <div className="bg-gradient-to-r from-amber-400 to-yellow-400 text-gray-900 text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md shadow-md">
                     Try
                   </div>
                 </button>
