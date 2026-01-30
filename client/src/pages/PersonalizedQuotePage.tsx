@@ -28,6 +28,7 @@ import { format } from 'date-fns';
 import { CountdownTimer } from '@/components/CountdownTimer';
 import { ExpertStickyNote } from '@/components/ExpertStickyNote';
 import { ExpertSpecSheet } from '@/components/ExpertSpecSheet';
+import { PaymentToggle } from '@/components/quote/PaymentToggle';
 import { getExpertNoteText } from "@/lib/quote-helpers";
 import { InstantActionQuote } from '@/components/InstantActionQuote';
 import { ExpertAssessmentQuote } from '@/components/ExpertAssessmentQuote';
@@ -1978,29 +1979,12 @@ export default function PersonalizedQuotePage() {
                       <div className="space-y-8">
                         {/* Payment Mode Toggle */}
                         <div className="flex items-center justify-center mb-6">
-                          <div className="bg-slate-100 p-1 rounded-full inline-flex gap-1">
-                            <button
-                              onClick={() => setPaymentMode('full')}
-                              className={`px-6 py-2 rounded-full text-sm font-bold transition-all duration-300 ${paymentMode === 'full'
-                                ? 'bg-white text-slate-900 shadow-md'
-                                : 'text-slate-500 hover:text-slate-700'
-                                }`}
-                            >
-                              Pay in Full
-                            </button>
-                            <button
-                              onClick={() => setPaymentMode('installments')}
-                              className={`px-6 py-2 rounded-full text-sm font-bold transition-all duration-300 flex items-center gap-2 ${paymentMode === 'installments'
-                                ? 'bg-[#7DB00E] text-[#1D2D3D] shadow-lg shadow-[#7DB00E]/30'
-                                : 'text-slate-500 hover:text-slate-700'
-                                }`}
-                            >
-                              Pay in 3
-                              <div className="bg-gradient-to-r from-amber-400 to-yellow-400 text-gray-900 text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md shadow-md">
-                                Try
-                              </div>
-                            </button>
-                          </div>
+                          <PaymentToggle
+                            paymentMode={paymentMode}
+                            setPaymentMode={setPaymentMode}
+                            theme="light"
+                            size="default"
+                          />
                         </div>
 
                         {/* HHH Mode: Packages List */}
@@ -2392,26 +2376,13 @@ export default function PersonalizedQuotePage() {
 
                       {/* Toggle */}
                       <div className="flex items-center justify-center mt-4">
-                        <div className="bg-gray-800 p-1 rounded-full inline-flex gap-1">
-                          <button
-                            onClick={() => setPaymentMode('full')}
-                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 ${paymentMode === 'full'
-                              ? 'bg-gray-700 text-white shadow-md'
-                              : 'text-gray-500 hover:text-gray-300'
-                              }`}
-                          >
-                            Pay in Full
-                          </button>
-                          <button
-                            onClick={() => setPaymentMode('installments')}
-                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 ${paymentMode === 'installments'
-                              ? 'bg-[#7DB00E] text-[#1D2D3D] shadow-lg shadow-[#7DB00E]/30'
-                              : 'text-gray-500 hover:text-gray-300'
-                              }`}
-                          >
-                            Pay in 3
-                          </button>
-                        </div>
+                        <PaymentToggle
+                          paymentMode={paymentMode}
+                          setPaymentMode={setPaymentMode}
+                          theme="dark"
+                          size="compact"
+                          showTryBadge={false}
+                        />
                       </div>
                     </div>
 
@@ -2712,29 +2683,12 @@ export default function PersonalizedQuotePage() {
           <div className="px-2 py-3 bg-[#1D2D3D]">
             {/* Payment Toggle Row */}
             <div className="flex items-center justify-center mb-3">
-              <div className="bg-[#0f1a27] p-0.5 rounded-full inline-flex gap-0.5">
-                <button
-                  onClick={() => setPaymentMode('full')}
-                  className={`px-4 py-1.5 rounded-full text-[10px] uppercase tracking-wider font-bold transition-all duration-300 ${paymentMode === 'full'
-                    ? 'bg-[#2a3f54] text-white shadow-md'
-                    : 'text-gray-500 hover:text-gray-300'
-                    }`}
-                >
-                  Pay in Full
-                </button>
-                <button
-                  onClick={() => setPaymentMode('installments')}
-                  className={`px-4 py-1.5 rounded-full text-[10px] uppercase tracking-wider font-bold transition-all duration-300 flex items-center gap-1.5 ${paymentMode === 'installments'
-                    ? 'bg-[#7DB00E] text-[#1D2D3D] shadow-lg shadow-[#7DB00E]/30'
-                    : 'text-gray-500 hover:text-gray-300'
-                    }`}
-                >
-                  Pay Monthly
-                  <div className="bg-gradient-to-r from-amber-400 to-yellow-400 text-gray-900 text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md shadow-md">
-                    Try
-                  </div>
-                </button>
-              </div>
+              <PaymentToggle
+                paymentMode={paymentMode}
+                setPaymentMode={setPaymentMode}
+                theme="dark"
+                size="compact"
+              />
             </div>
 
             {/* Package Selection Row */}
