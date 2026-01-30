@@ -1977,30 +1977,30 @@ export default function PersonalizedQuotePage() {
                     {quote.quoteMode === 'hhh' && packages.length > 0 && (
                       <div className="space-y-8">
                         {/* Payment Mode Toggle */}
-                        <div className="flex items-center justify-center gap-4 mb-6">
-                          <span className={`text-sm font-medium ${paymentMode === 'full' ? 'text-slate-500' : 'text-slate-400'}`}>
-                            Pay in Full
-                          </span>
-                          <button
-                            onClick={() => setPaymentMode(paymentMode === 'installments' ? 'full' : 'installments')}
-                            className={`relative inline-flex h-8 w-14 items-center rounded-full transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-[#7DB00E]/30 focus:ring-offset-2 ${paymentMode === 'installments' ? 'bg-[#7DB00E] shadow-[0_0_15px_rgba(125,176,14,0.6)] scale-110' : 'bg-slate-200'}`}
-                          >
-                            {/* Shimmer effect for active toggle */}
-                            {paymentMode === 'installments' && (
-                              <div className="absolute inset-0 overflow-hidden rounded-full">
-                                <div className="absolute top-0 left-[-100%] h-full w-[50%] skew-x-[-20deg] bg-white/30 blur-sm animate-shimmer" style={{ animationDuration: '1.5s' }}></div>
-                              </div>
-                            )}
-                            <span className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition-transform duration-200 ease-in-out ${paymentMode === 'installments' ? 'translate-x-7' : 'translate-x-1'}`} />
-                          </button>
-                          <div className="flex items-center gap-2">
-                            <span className={`text-sm font-bold ${paymentMode === 'installments' ? 'text-slate-900' : 'text-slate-400'}`}>
+                        <div className="flex items-center justify-center mb-6">
+                          <div className="bg-slate-100 p-1 rounded-full inline-flex gap-1">
+                            <button
+                              onClick={() => setPaymentMode('full')}
+                              className={`px-6 py-2 rounded-full text-sm font-bold transition-all duration-300 ${paymentMode === 'full'
+                                ? 'bg-white text-slate-900 shadow-md'
+                                : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                            >
+                              Pay in Full
+                            </button>
+                            <button
+                              onClick={() => setPaymentMode('installments')}
+                              className={`px-6 py-2 rounded-full text-sm font-bold transition-all duration-300 flex items-center gap-2 ${paymentMode === 'installments'
+                                ? 'bg-[#7DB00E] text-[#1D2D3D] shadow-lg shadow-[#7DB00E]/30'
+                                : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                            >
                               Pay in 3
-                            </span>
-                            <div className="relative overflow-hidden group bg-[#7DB00E] text-[#1D2D3D] text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-sm">
-                              <div className="absolute inset-0 bg-white/40 skew-x-[-15deg] group-hover:animate-shimmer" style={{ animation: 'shimmer 2s infinite' }} />
-                              Try
-                            </div>
+                              <div className="relative overflow-hidden bg-[#1D2D3D] text-[#7DB00E] text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm">
+                                <div className="absolute inset-0 bg-white/20 skew-x-[-15deg] animate-shimmer" style={{ animation: 'shimmer 2s infinite' }} />
+                                Try
+                              </div>
+                            </button>
                           </div>
                         </div>
 
@@ -2142,9 +2142,9 @@ export default function PersonalizedQuotePage() {
                             const installmentAmount = Math.round(remainingBalance / 3);
 
                             const tierStyles = {
-                              essential: { bg: 'bg-slate-50 border-slate-200', badge: null, badgeColor: '', badgeText: '' },
-                              enhanced: { bg: 'bg-white border-[#7DB00E]', badge: 'MOST POPULAR', badgeColor: 'bg-[#7DB00E]', badgeText: 'text-[#1D2D3D]' },
-                              elite: { bg: 'bg-white border-slate-200', badge: 'PREMIUM', badgeColor: 'bg-[#1D2D3D]', badgeText: 'text-white' }
+                              essential: { bg: 'bg-gradient-to-br from-slate-50 via-white to-green-50/30 border-slate-200', badge: null, badgeColor: '', badgeText: '' },
+                              enhanced: { bg: 'bg-gradient-to-br from-green-100 via-emerald-50 to-white border-[#7DB00E]', badge: 'MOST POPULAR', badgeColor: 'bg-[#7DB00E]', badgeText: 'text-[#1D2D3D]' },
+                              elite: { bg: 'bg-gradient-to-br from-amber-50 via-white to-yellow-50/40 border-slate-200', badge: 'PREMIUM', badgeColor: 'bg-[#1D2D3D]', badgeText: 'text-white' }
                             };
                             const style = tierStyles[pkg.tier as keyof typeof tierStyles];
                             const isDisabled = isTier1 && paymentMode === 'installments';
@@ -2158,7 +2158,7 @@ export default function PersonalizedQuotePage() {
                                 transition={{ duration: 0.5 }}
                                 className={`relative transition-all duration-300 ${isDisabled ? 'opacity-50 pointer-events-none grayscale blur-[2px] scale-95' : ''}`}
                               >
-                                <div id={`package-tier-card-${pkg.tier}`} className={`${style.bg} rounded-2xl overflow-hidden border ${pkg.tier === 'enhanced' ? 'border-2 shadow-xl scale-[1.03] z-10' : 'shadow-sm hover:shadow-md'} transition-all duration-300`}>
+                                <div id={`package-tier-card-${pkg.tier}`} className={`${style.bg} rounded-2xl overflow-hidden border ${pkg.tier === 'enhanced' ? 'border-2 shadow-2xl ring-4 ring-[#7DB00E]/20 scale-[1.05] z-10' : 'shadow-sm hover:shadow-md'} transition-all duration-300`}>
                                   {style.badge && (
                                     <div className={`${style.badgeColor} ${style.badgeText} text-center py-1.5 text-[10px] font-black tracking-wider uppercase flex justify-center items-center gap-2 whitespace-nowrap`}>
                                       {pkg.tier === 'enhanced' && <Star className="w-3 h-3 fill-current" />}
@@ -2392,19 +2392,27 @@ export default function PersonalizedQuotePage() {
                       </div>
 
                       {/* Toggle */}
-                      <div className="flex items-center justify-center gap-3 mt-4">
-                        <span className={`text-xs font-medium ${paymentMode === 'full' ? 'text-white' : 'text-gray-500'}`}>
-                          Pay in Full
-                        </span>
-                        <button
-                          onClick={() => setPaymentMode(paymentMode === 'installments' ? 'full' : 'installments')}
-                          className={`relative inline-flex h-6 w-12 items-center rounded-full transition-colors ${paymentMode === 'installments' ? 'bg-[#7DB00E]' : 'bg-gray-600'}`}
-                        >
-                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform ${paymentMode === 'installments' ? 'translate-x-7' : 'translate-x-1'}`} />
-                        </button>
-                        <span className={`text-xs font-medium ${paymentMode === 'installments' ? 'text-white' : 'text-gray-500'}`}>
-                          Pay in 3
-                        </span>
+                      <div className="flex items-center justify-center mt-4">
+                        <div className="bg-gray-800 p-1 rounded-full inline-flex gap-1">
+                          <button
+                            onClick={() => setPaymentMode('full')}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 ${paymentMode === 'full'
+                              ? 'bg-gray-700 text-white shadow-md'
+                              : 'text-gray-500 hover:text-gray-300'
+                              }`}
+                          >
+                            Pay in Full
+                          </button>
+                          <button
+                            onClick={() => setPaymentMode('installments')}
+                            className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 ${paymentMode === 'installments'
+                              ? 'bg-[#7DB00E] text-[#1D2D3D] shadow-lg shadow-[#7DB00E]/30'
+                              : 'text-gray-500 hover:text-gray-300'
+                              }`}
+                          >
+                            Pay in 3
+                          </button>
+                        </div>
                       </div>
                     </div>
 
@@ -2704,24 +2712,30 @@ export default function PersonalizedQuotePage() {
         >
           <div className="px-2 py-3 bg-[#1D2D3D]">
             {/* Payment Toggle Row */}
-            <div className="flex items-center justify-center gap-3 mb-3">
-              <span className={`text-[10px] uppercase tracking-wider font-bold ${paymentMode === 'full' ? 'text-white' : 'text-gray-500'}`}>
-                Pay in Full
-              </span>
-              <button
-                onClick={() => setPaymentMode(paymentMode === 'installments' ? 'full' : 'installments')}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${paymentMode === 'installments' ? 'bg-[#7DB00E]' : 'bg-gray-600'}`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform ${paymentMode === 'installments' ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
-              <div className="flex items-center gap-1.5">
-                <span className={`text-[10px] uppercase tracking-wider font-bold ${paymentMode === 'installments' ? 'text-[#7DB00E]' : 'text-gray-500'}`}>
+            <div className="flex items-center justify-center mb-3">
+              <div className="bg-[#0f1a27] p-0.5 rounded-full inline-flex gap-0.5">
+                <button
+                  onClick={() => setPaymentMode('full')}
+                  className={`px-4 py-1.5 rounded-full text-[10px] uppercase tracking-wider font-bold transition-all duration-300 ${paymentMode === 'full'
+                      ? 'bg-[#2a3f54] text-white shadow-md'
+                      : 'text-gray-500 hover:text-gray-300'
+                    }`}
+                >
+                  Pay in Full
+                </button>
+                <button
+                  onClick={() => setPaymentMode('installments')}
+                  className={`px-4 py-1.5 rounded-full text-[10px] uppercase tracking-wider font-bold transition-all duration-300 flex items-center gap-1.5 ${paymentMode === 'installments'
+                      ? 'bg-[#7DB00E] text-[#1D2D3D] shadow-lg shadow-[#7DB00E]/30'
+                      : 'text-gray-500 hover:text-gray-300'
+                    }`}
+                >
                   Pay Monthly
-                </span>
-                <div className="relative overflow-hidden group bg-[#7DB00E] text-[#1D2D3D] text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm">
-                  <div className="absolute inset-0 bg-white/40 skew-x-[-15deg] group-hover:animate-shimmer" style={{ animation: 'shimmer 2s infinite' }} />
-                  Try
-                </div>
+                  <div className="relative overflow-hidden bg-[#1D2D3D] text-[#7DB00E] text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm">
+                    <div className="absolute inset-0 bg-white/20 skew-x-[-15deg] animate-shimmer" style={{ animation: 'shimmer 2s infinite' }} />
+                    Try
+                  </div>
+                </button>
               </div>
             </div>
 
