@@ -2653,17 +2653,6 @@ export default function PersonalizedQuotePage() {
               </div>
             </div>
 
-            {/* Mini Reviews */}
-            <div className="flex flex-col gap-3 max-w-sm">
-              <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <div className="flex gap-1 text-[#7DB00E] mb-2">
-                  {[...Array(5)].map((_, i) => <Star key={i} className="w-3 h-3 fill-current" />)}
-                </div>
-                <p className="text-slate-600 text-xs italic mb-2">"Transparent pricing and great work. The payment plan was a lifesaver."</p>
-                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">- Sarah J, Verified Customer</div>
-              </div>
-            </div>
-
           </div>
 
           <div className="mt-12 text-center text-gray-600 text-[10px]">
@@ -2725,9 +2714,15 @@ export default function PersonalizedQuotePage() {
               >
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform ${paymentMode === 'installments' ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
-              <span className={`text-[10px] uppercase tracking-wider font-bold ${paymentMode === 'installments' ? 'text-[#7DB00E]' : 'text-gray-500'}`}>
-                Pay Monthly
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className={`text-[10px] uppercase tracking-wider font-bold ${paymentMode === 'installments' ? 'text-[#7DB00E]' : 'text-gray-500'}`}>
+                  Pay Monthly
+                </span>
+                <div className="relative overflow-hidden group bg-[#7DB00E] text-[#1D2D3D] text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm">
+                  <div className="absolute inset-0 bg-white/40 skew-x-[-15deg] group-hover:animate-shimmer" style={{ animation: 'shimmer 2s infinite' }} />
+                  Try
+                </div>
+              </div>
             </div>
 
             {/* Package Selection Row */}
@@ -2797,12 +2792,6 @@ export default function PersonalizedQuotePage() {
                 ? 'Approve & Pay in Instalments'
                 : 'Approve & Pay Deposit'}
             </Button>
-            <div className="flex items-center justify-center gap-3 mt-3 opacity-60 grayscale hover:grayscale-0 transition-all duration-300">
-              <SiVisa className="w-6 h-6 text-white" />
-              <SiMastercard className="w-6 h-6 text-white" />
-              <SiAmericanexpress className="w-6 h-6 text-white" />
-              <SiApplepay className="w-6 h-6 text-white" />
-            </div>
           </div>
         </StickyCTA>
       </div >
@@ -3482,69 +3471,6 @@ export default function PersonalizedQuotePage() {
               </div>
             )
           }
-
-          {/* Google Reviews Banner */}
-          <div className="mt-6 px-4">
-            <div className="bg-gray-800/80 border border-gray-700 rounded-lg p-4">
-              <div className="flex items-center justify-center gap-3 mb-4">
-                <SiGoogle className="h-10 w-10 text-white" />
-                <div className="flex items-center gap-2">
-                  {[1, 2, 3, 4].map((i) => (
-                    <Star key={i} className="h-5 w-5 fill-[#e8b323] text-[#e8b323]" />
-                  ))}
-                  <Star className="h-5 w-5 fill-[#e8b323] text-[#e8b323]" style={{ clipPath: 'inset(0 10% 0 0)' }} />
-                </div>
-                <div className="text-white">
-                  <span className="text-2xl font-bold">4.9</span>
-                  <span className="text-gray-400 ml-2">from 300+ Reviews</span>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm text-gray-300">
-                  <Lock className="h-4 w-4 text-blue-400" />
-                  <span>Secure quote backed by guarantee</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-gray-300">
-                  <Clock className="h-4 w-4 text-amber-400" />
-                  <span>Takes less than 30 seconds</span>
-                </div>
-              </div>
-
-              {/* Customer Reviews */}
-              <div className="mt-4 pt-4 border-t border-gray-700 space-y-3">
-                <div className="bg-gray-900/50 rounded-lg p-3">
-                  <div className="flex items-center gap-1 mb-1">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <Star key={i} className="h-3 w-3 fill-[#e8b323] text-[#e8b323]" />
-                    ))}
-                  </div>
-                  <p className="text-gray-300 text-sm italic">"Brilliant service! Turned up on time and did a fantastic job. Highly recommend."</p>
-                  <p className="text-gray-500 text-xs mt-1">— Sarah M., Verified Customer</p>
-                </div>
-
-                <div className="bg-gray-900/50 rounded-lg p-3">
-                  <div className="flex items-center gap-1 mb-1">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <Star key={i} className="h-3 w-3 fill-[#e8b323] text-[#e8b323]" />
-                    ))}
-                  </div>
-                  <p className="text-gray-300 text-sm italic">"The pay in 3 option was perfect for Christmas. Got my shelves up without breaking the bank!"</p>
-                  <p className="text-gray-500 text-xs mt-1">— James T., Verified Customer</p>
-                </div>
-
-                <div className="bg-gray-900/50 rounded-lg p-3">
-                  <div className="flex items-center gap-1 mb-1">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <Star key={i} className="h-3 w-3 fill-[#e8b323] text-[#e8b323]" />
-                    ))}
-                  </div>
-                  <p className="text-gray-300 text-sm italic">"Professional, friendly and reasonably priced. Will definitely use again!"</p>
-                  <p className="text-gray-500 text-xs mt-1">— Emma W., Verified Customer</p>
-                </div>
-              </div>
-            </div>
-          </div>
 
           {/* Pay in 3 Section - Simple Pie Chart Design */}
           {
