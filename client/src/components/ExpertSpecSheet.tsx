@@ -49,7 +49,7 @@ export function ExpertSpecSheet({
             {/* Main Card */}
             <div className="bg-white rounded-r-xl border-l-4 border-[#7DB00E] shadow-xl overflow-hidden">
                 {/* Header Bar */}
-                <div className="bg-slate-50 border-b border-slate-100 flex justify-between items-center px-6 py-3">
+                <div className="bg-slate-50 border-b border-slate-100 flex justify-between items-center px-4 md:px-6 py-3">
                     <div className="flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full bg-[#7DB00E] animate-pulse" />
                         <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Specification Sheet</span>
@@ -60,7 +60,7 @@ export function ExpertSpecSheet({
                     </div>
                 </div>
 
-                <div className="p-6 md:p-8">
+                <div className="p-4 md:p-8">
                     {/* Client & Site Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 pb-6 border-b border-slate-100 border-dashed">
                         <div>

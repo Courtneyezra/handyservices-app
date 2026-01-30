@@ -16,6 +16,7 @@ import { FaWhatsapp, FaPaypal } from 'react-icons/fa';
 import { useToast } from '@/hooks/use-toast';
 import { PaymentForm } from '@/components/PaymentForm';
 import { DateSelectionForm } from '@/components/DateSelectionForm';
+import { QuoteSkeleton } from '@/components/QuoteSkeleton';
 import { Elements } from '@stripe/react-stripe-js';
 import { stripePromise } from '@/lib/stripe';
 // import handymanPhoto from '@assets/Untitled design (27)_1762913661129.png';
@@ -1678,16 +1679,7 @@ export default function PersonalizedQuotePage() {
   };
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 flex items-center justify-center">
-        <div className="relative">
-          <Wrench className="h-14 w-14 animate-spin text-[#e8b323]" strokeWidth={1.5} />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="h-4 w-4 bg-gray-900 rounded-full" />
-          </div>
-        </div>
-      </div>
-    );
+    return <QuoteSkeleton />;
   }
 
   // If quote expired on load, show expired popup
@@ -1938,7 +1930,7 @@ export default function PersonalizedQuotePage() {
 
 
         {/* The Final Reveal: Quote Section */}
-        <section id="packages-section" className="min-h-screen bg-slate-50 pt-20 pb-40 px-8 relative overflow-visible">
+        <section id="packages-section" className="min-h-screen bg-slate-50 pt-20 pb-40 px-4 md:px-8 relative overflow-visible">
           <div className="max-w-2xl mx-auto">
             <motion.div
               initial={{ opacity: 0, y: 50 }}
