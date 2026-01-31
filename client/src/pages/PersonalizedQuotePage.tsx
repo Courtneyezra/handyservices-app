@@ -2528,10 +2528,10 @@ export default function PersonalizedQuotePage() {
                       </div>
                     </div>
 
-                    <div className="bg-white/5 rounded-2xl p-6 mb-6">
-                      <h4 className="text-white font-semibold mb-4 flex items-center gap-2">
-                        <Check className="w-5 h-5 text-[#7DB00E]" />
-                        What's Included
+                    <div className="bg-gradient-to-br from-white/10 to-white/5 rounded-2xl p-6 mb-6 border border-white/10">
+                      <h4 className="text-white font-bold mb-4 text-lg flex items-center gap-2">
+                        <div className="w-1.5 h-6 bg-[#7DB00E] rounded-full"></div>
+                        Scope of Works
                       </h4>
                       <div className="space-y-3">
                         {(() => {
@@ -2550,10 +2550,10 @@ export default function PersonalizedQuotePage() {
                           const allItems = [...deliverables, ...serviceGuarantees];
                           return allItems.map((item, idx) => (
                             <div key={idx} className="flex items-start gap-3">
-                              <div className="flex-shrink-0 w-5 h-5 rounded-full bg-[#7DB00E]/20 flex items-center justify-center mt-0.5">
-                                <Check className="w-3 h-3 text-[#7DB00E]" />
+                              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#7DB00E] flex items-center justify-center mt-0.5">
+                                <Check className="w-3.5 h-3.5 text-white" />
                               </div>
-                              <span className="text-white/80 text-sm leading-relaxed">{item}</span>
+                              <span className="text-white text-base font-medium leading-relaxed">{item}</span>
                             </div>
                           ));
                         })()}
