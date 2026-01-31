@@ -94,13 +94,13 @@ export function MobilePricingCard({
             layout
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
+            style={isDisabledInInstallments ? { opacity: 0.3, filter: 'grayscale(100%)', pointerEvents: 'none' } : {}}
             className={`
         relative bg-gradient-to-br ${style.gradient} 
         rounded-2xl border-2 ${style.border} ${style.ring}
         overflow-hidden transition-all duration-300
         ${isSelected ? 'ring-4 ring-green-500/30' : ''}
         ${isExpanded ? 'shadow-2xl' : 'shadow-md'}
-        ${isDisabledInInstallments ? 'opacity-40 pointer-events-none' : ''}
       `}
         >
             {/* Badge */}
