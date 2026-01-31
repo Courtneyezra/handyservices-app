@@ -5,7 +5,9 @@ import { format, addDays } from 'date-fns';
 interface DateSelectorProps {
     startDate: Date; // Earliest available date for this tier
     selectedDate?: Date;
+    selectedTimeSlot?: 'AM' | 'PM';
     onDateSelect: (date: Date) => void;
+    onTimeSlotSelect?: (timeSlot: 'AM' | 'PM') => void;
     className?: string;
 }
 
@@ -17,7 +19,9 @@ interface DateSelectorProps {
 export function DateSelector({
     startDate,
     selectedDate,
+    selectedTimeSlot,
     onDateSelect,
+    onTimeSlotSelect,
     className = ''
 }: DateSelectorProps) {
     const [scrollIndex, setScrollIndex] = useState(0);
@@ -118,9 +122,46 @@ export function DateSelector({
                 </button>
             </div>
 
+            {/* Time Slot Selection - Only shown when date is selected */}
+            {selectedDate && onTimeSlotSelect && (
+                <div className="mt-4 pt-4 border-t border-slate-200">
+                    <p className="text-xs font-medium text-slate-600 mb-2 text-center">
+                        Preferred Time
+                    </p>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => onTimeSlotSelect('AM')}
+                            className={`
+                                flex-1 py-2.5 px-4 rounded-lg font-medium text-sm transition-all
+                                ${selectedTimeSlot === 'AM'
+                                    ? 'bg-[#7DB00E] text-white shadow-md'
+                                    : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                                }
+                            `}
+                        >
+                            Morning
+                            <span className="block text-xs opacity-80 mt-0.5">8am - 12pm</span>
+                        </button>
+                        <button
+                            onClick={() => onTimeSlotSelect('PM')}
+                            className={`
+                                flex-1 py-2.5 px-4 rounded-lg font-medium text-sm transition-all
+                                ${selectedTimeSlot === 'PM'
+                                    ? 'bg-[#7DB00E] text-white shadow-md'
+                                    : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                                }
+                            `}
+                        >
+                            Afternoon
+                            <span className="block text-xs opacity-80 mt-0.5">12pm - 5pm</span>
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Helper Text */}
             <p className="text-xs text-slate-500 mt-3 text-center">
-                Tap a date to select • All times subject to availability
+                {selectedDate ? 'Select your preferred time slot' : 'Tap a date to select'}
             </p>
         </div>
     );
