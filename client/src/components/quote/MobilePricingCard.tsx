@@ -95,8 +95,12 @@ export function MobilePricingCard({
             id={`mobile-card-${tier}`}
             layout
             initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            style={isDisabledInInstallments ? { opacity: 0.3, filter: 'grayscale(100%)', pointerEvents: 'none' } : {}}
+            animate={{
+                opacity: isDisabledInInstallments ? 0.3 : 1,
+                y: 0,
+                filter: isDisabledInInstallments ? 'grayscale(100%)' : 'grayscale(0%)'
+            }}
+            style={{ pointerEvents: isDisabledInInstallments ? 'none' : 'auto' }}
             className={`
         relative bg-gradient-to-br ${style.gradient} 
         rounded-2xl border-2 ${style.border} ${style.ring}
