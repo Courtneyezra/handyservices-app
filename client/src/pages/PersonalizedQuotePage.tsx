@@ -3411,9 +3411,12 @@ export default function PersonalizedQuotePage() {
                     </div>
 
                     {/* Job Deliverables */}
-                    <div className="bg-gray-700/50 rounded-lg p-4 mb-4">
-                      <h4 className="text-white font-semibold mb-3 text-sm">What You'll Get:</h4>
-                      <div className="space-y-2">
+                    <div className="bg-gradient-to-br from-gray-700/70 to-gray-800/70 rounded-xl p-5 mb-4 border border-gray-600/50">
+                      <h4 className="text-white font-bold mb-4 text-lg flex items-center gap-2">
+                        <div className="w-1.5 h-6 bg-[#7DB00E] rounded-full"></div>
+                        Scope of Works
+                      </h4>
+                      <div className="space-y-2.5">
                         {(() => {
                           // Extract all deliverables from jobs
                           const deliverables: string[] = [];
@@ -3443,13 +3446,13 @@ export default function PersonalizedQuotePage() {
                           const allItems = [...deliverables, ...serviceGuarantees];
 
                           return allItems.map((item, idx) => (
-                            <div key={idx} className="flex items-center gap-3">
-                              <div className="flex-shrink-0 w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
-                                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <div key={idx} className="flex items-start gap-3 group">
+                              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#7DB00E] flex items-center justify-center mt-0.5">
+                                <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                                 </svg>
                               </div>
-                              <span className="text-gray-200 text-sm">{item}</span>
+                              <span className="text-white text-base font-medium leading-relaxed">{item}</span>
                             </div>
                           ));
                         })()}
