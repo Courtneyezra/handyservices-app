@@ -224,8 +224,9 @@ export function MobilePricingCard({
                 )}
             </AnimatePresence>
 
-            {/* CTA Button - Always Visible */}
-            <div className="p-4 pt-0">
+            {/* CTA Buttons - Always Visible */}
+            <div className="p-4 pt-0 space-y-2">
+                {/* Select Package Button */}
                 <Button
                     onClick={(e) => {
                         e.stopPropagation();
@@ -246,6 +247,27 @@ export function MobilePricingCard({
                         </span>
                     ) : (
                         'Select Package'
+                    )}
+                </Button>
+
+                {/* View Details / Collapse Button */}
+                <Button
+                    onClick={onToggleExpand}
+                    variant="outline"
+                    className="w-full font-medium text-sm py-2.5 rounded-xl transition-all duration-200 bg-white hover:bg-slate-50 border-2 border-slate-200 text-slate-700 flex items-center justify-center gap-2"
+                    aria-expanded={isExpanded}
+                    aria-label={`${isExpanded ? 'Hide' : 'View'} ${name} package details`}
+                >
+                    {isExpanded ? (
+                        <>
+                            Hide Details
+                            <ChevronDown className="w-4 h-4 rotate-180" />
+                        </>
+                    ) : (
+                        <>
+                            View Full Details
+                            <ChevronDown className="w-4 h-4" />
+                        </>
                     )}
                 </Button>
             </div>
