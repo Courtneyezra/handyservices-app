@@ -29,6 +29,7 @@ import { CountdownTimer } from '@/components/CountdownTimer';
 import { ExpertStickyNote } from '@/components/ExpertStickyNote';
 import { ExpertSpecSheet } from '@/components/ExpertSpecSheet';
 import { PaymentToggle } from '@/components/quote/PaymentToggle';
+import { MobilePricingCard } from '@/components/quote/MobilePricingCard';
 import { getExpertNoteText } from "@/lib/quote-helpers";
 import { InstantActionQuote } from '@/components/InstantActionQuote';
 import { ExpertAssessmentQuote } from '@/components/ExpertAssessmentQuote';
@@ -1335,6 +1336,7 @@ export default function PersonalizedQuotePage() {
   const [showPriceIncreaseNotice, setShowPriceIncreaseNotice] = useState(false); // Show banner when prices increased
   const [isQuoteExpiredOnLoad, setIsQuoteExpiredOnLoad] = useState(false); // Track if quote was expired when loaded
   const [paymentMode, setPaymentMode] = useState<'full' | 'installments'>('full'); // Track payment mode selection - default to full
+  const [expandedMobileCard, setExpandedMobileCard] = useState<EEEPackageTier | null>('enhanced'); // Track which mobile card is expanded (accordion)
   const [isExpiredState, setIsExpiredState] = useState(false); // Track visual expiration state
   const [showPaymentForm, setShowPaymentForm] = useState(false); // Controls visibility of the payment section
 
@@ -1987,8 +1989,88 @@ export default function PersonalizedQuotePage() {
                           />
                         </div>
 
-                        {/* HHH Mode: Packages List */}
-                        <div className="space-y-12">
+                        {/* HHH Mode: Packages List - Responsive */}
+
+                        {/* Mobile View: Accordion-style compact cards */}
+                        <div className="md:hidden space-y-3">
+                          {packages.map((pkg) => {
+                            let rawFeatures = quote.tierDeliverables?.[pkg.tier === 'essential' ? 'essential' : pkg.tier === 'enhanced' ? 'hassleFree' : 'highStandard'] ||
+                              getPerksForTier(quote, pkg.tier as 'essential' | 'enhanced' | 'elite');
+
+                            // Apply segment-specific feature overrides (same logic as desktop)
+                            const getFutureDate = (days: number) => {
+                              const date = new Date();
+                              date.setDate(date.getDate() + days);
+                              return date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+                            };
+
+                            if (quote.segment === 'BUSY_PRO') {
+                              if (pkg.tier === 'enhanced') {
+                                pkg.name = "Priority Service";
+                                rawFeatures = [
+                                  `⚡ Guaranteed Slot: ${getFutureDate(4)}`,
+                                  "⏱️ Precise 1-Hour Arrival Window",
+                                  "🛡️ 90-day workmanship guarantee",
+                                  "📞 Direct specialist contact number",
+                                  "📅 Evening & Weekend slots available",
+                                  "✨ Full cleanup & waste removal"
+                                ];
+                              } else if (pkg.tier === 'elite') {
+                                pkg.name = "Premium Express";
+                                rawFeatures = [
+                                  `🚀 Next-Day Slot: ${getFutureDate(1)}`,
+                                  "📸 Before/after photo documentation",
+                                  "⭐ Senior craftsman assignment",
+                                  "🎁 Priority material sourcing",
+                                  "📋 Detailed completion report",
+                                  "🔧 12-month priority callback"
+                                ];
+                              }
+                            }
+
+                            const features = Array.isArray(rawFeatures) ? rawFeatures : [];
+                            const installmentAmount = pkg.tier === 'essential' ? null : Math.round(pkg.price / 3);
+                            const showInstallments = paymentMode === 'installments' && installmentAmount;
+                            const isTier1 = pkg.tier === 'essential';
+
+                            return (
+                              <MobilePricingCard
+                                key={pkg.tier}
+                                tier={pkg.tier}
+                                name={pkg.name}
+                                price={pkg.price}
+                                tagline={pkg.description}
+                                features={features}
+                                isRecommended={pkg.tier === 'enhanced'}
+                                isPremium={pkg.tier === 'elite'}
+                                isExpanded={expandedMobileCard === pkg.tier}
+                                isSelected={selectedEEEPackage === pkg.tier}
+                                onToggleExpand={() => {
+                                  setExpandedMobileCard(expandedMobileCard === pkg.tier ? null : pkg.tier);
+                                  // Scroll card into view on expand
+                                  if (expandedMobileCard !== pkg.tier) {
+                                    setTimeout(() => {
+                                      document.getElementById(`mobile-card-${pkg.tier}`)?.scrollIntoView({
+                                        behavior: 'smooth',
+                                        block: 'start'
+                                      });
+                                    }, 100);
+                                  }
+                                }}
+                                onSelect={() => {
+                                  if (!isTier1 || paymentMode !== 'installments') {
+                                    setSelectedEEEPackage(pkg.tier);
+                                  }
+                                }}
+                                paymentMode={paymentMode}
+                                installmentPrice={showInstallments ? installmentAmount : undefined}
+                              />
+                            );
+                          })}
+                        </div>
+
+                        {/* Desktop View: Existing grid cards */}
+                        <div className="hidden md:block space-y-12">
                           {packages.map((pkg) => {
                             let rawFeatures = quote.tierDeliverables?.[pkg.tier === 'essential' ? 'essential' : pkg.tier === 'enhanced' ? 'hassleFree' : 'highStandard'] ||
                               getPerksForTier(quote, pkg.tier as 'essential' | 'enhanced' | 'elite');
