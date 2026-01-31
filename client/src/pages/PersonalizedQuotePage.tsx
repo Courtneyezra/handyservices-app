@@ -1988,7 +1988,7 @@ export default function PersonalizedQuotePage() {
 
 
         {/* The Final Reveal: Quote Section */}
-        <section id="packages-section" className="min-h-screen bg-slate-50 pt-20 pb-40 px-0 relative overflow-visible">
+        <section id="packages-section" className="min-h-screen bg-slate-50 pt-20 pb-40 px-4 md:px-6 lg:px-8 relative overflow-visible">
           <div className="w-full max-w-full">
             <motion.div
               initial={{ opacity: 0, y: 50 }}
