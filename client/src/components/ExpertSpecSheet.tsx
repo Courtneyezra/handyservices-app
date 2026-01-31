@@ -31,7 +31,7 @@ export function ExpertSpecSheet({
                 return (
                     <div key={i} className="flex items-start gap-2 mb-1.5 pl-2">
                         <div className="w-1.5 h-1.5 rounded-full bg-[#7DB00E] mt-2 shrink-0 opacity-60" />
-                        <p className="text-slate-700 leading-relaxed">{trimmed.replace(/^[•\-\d\.]+\s*/, '')}</p>
+                        <p className="text-slate-700 font-bold leading-relaxed">{trimmed.replace(/^[•\-\d\.]+\s*/, '')}</p>
                     </div>
                 );
             }
@@ -72,7 +72,7 @@ export function ExpertSpecSheet({
                         </div>
                         <div>
                             <label className="text-[10px] font-bold uppercase tracking-widest text-[#7DB00E] mb-1.5 block">Site Location</label>
-                            <div className="flex items-center gap-2 text-slate-900 font-medium text-lg">
+                            <div className="flex items-center gap-2 text-slate-900 text-lg">
                                 <MapPin className="w-4 h-4 text-slate-400" />
                                 {address || 'Remote Assessment'}
                             </div>
