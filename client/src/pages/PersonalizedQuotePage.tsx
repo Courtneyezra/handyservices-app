@@ -2553,7 +2553,7 @@ export default function PersonalizedQuotePage() {
                               <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#7DB00E] flex items-center justify-center mt-0.5">
                                 <Check className="w-3.5 h-3.5 text-white" />
                               </div>
-                              <span className="text-white text-base font-medium leading-relaxed">{item}</span>
+                              <span className="text-white text-base font-bold leading-relaxed">{item}</span>
                             </div>
                           ));
                         })()}
@@ -3452,7 +3452,7 @@ export default function PersonalizedQuotePage() {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                                 </svg>
                               </div>
-                              <span className="text-white text-base font-medium leading-relaxed">{item}</span>
+                              <span className="text-white text-base font-bold leading-relaxed">{item}</span>
                             </div>
                           ));
                         })()}
