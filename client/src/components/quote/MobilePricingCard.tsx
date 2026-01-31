@@ -26,6 +26,8 @@ export interface MobilePricingCardProps {
     onSelect: () => void;
     onDateSelect?: (date: Date) => void; // NEW: Date selection callback
     selectedDate?: Date; // NEW: Currently selected date
+    selectedTimeSlot?: 'AM' | 'PM'; // NEW: Time slot selection
+    onTimeSlotSelect?: (timeSlot: 'AM' | 'PM') => void; // NEW: Time slot callback
     paymentMode?: 'full' | 'installments';
     installmentPrice?: number;
 }
