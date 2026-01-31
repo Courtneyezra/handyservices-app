@@ -29,7 +29,7 @@ import { CountdownTimer } from '@/components/CountdownTimer';
 import { ExpertStickyNote } from '@/components/ExpertStickyNote';
 import { ExpertSpecSheet } from '@/components/ExpertSpecSheet';
 import { PaymentToggle } from '@/components/quote/PaymentToggle';
-import { MobilePricingCard } from '@/components/quote/MobilePricingCard';
+import { MobilePricingCard, KeyFeature } from '@/components/quote/MobilePricingCard';
 import { getExpertNoteText } from "@/lib/quote-helpers";
 import { InstantActionQuote } from '@/components/InstantActionQuote';
 import { ExpertAssessmentQuote } from '@/components/ExpertAssessmentQuote';
@@ -153,6 +153,59 @@ const getPerksForTier = (quote: PersonalizedQuote | undefined, tier: 'essential'
   };
   return staticMap[tier] as unknown as string[];
 };
+
+/**
+ * Get 2-3 killer features with Lucide icons for mobile card collapsed state.
+ * These are the "information scent" that helps users decide if they should expand.
+ */
+const getKeyFeaturesForTier = (tier: 'essential' | 'enhanced' | 'elite'): KeyFeature[] => {
+  const featureMap: Record<typeof tier, KeyFeature[]> = {
+    essential: [
+      { icon: UserCheck, label: 'Qualified' },
+      { icon: ShieldCheck, label: 'Reliable' }
+    ],
+    enhanced: [
+      { icon: Zap, label: 'Priority' },
+      { icon: Shield, label: '90-day' }
+    ],
+    elite: [
+      { icon: Sparkles, label: 'Express' },
+      { icon: Camera, label: 'Photos' }
+    ]
+  };
+
+  return featureMap[tier];
+};
+
+/**
+ * Calculate next available date based on tier priority.
+ * Enhanced = T+4, Elite = T+1, Essential = T+7
+ */
+const getNextAvailableDate = (tier: 'essential' | 'enhanced' | 'elite'): string => {
+  const daysMap = { essential: 7, enhanced: 4, elite: 1 };
+  const futureDate = new Date();
+  futureDate.setDate(futureDate.getDate() + daysMap[tier]);
+
+  // Format as "Thu 6 Feb"
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short'
+  });
+
+  return formatter.format(futureDate);
+};
+
+/**
+ * Get start date for date picker based on tier.
+ */
+const getDateSelectionStartDate = (tier: 'essential' | 'enhanced' | 'elite'): Date => {
+  const daysMap = { essential: 7, enhanced: 4, elite: 1 };
+  const futureDate = new Date();
+  futureDate.setDate(futureDate.getDate() + daysMap[tier]);
+  return futureDate;
+};
+
 
 
 
@@ -1337,6 +1390,7 @@ export default function PersonalizedQuotePage() {
   const [isQuoteExpiredOnLoad, setIsQuoteExpiredOnLoad] = useState(false); // Track if quote was expired when loaded
   const [paymentMode, setPaymentMode] = useState<'full' | 'installments'>('full'); // Track payment mode selection - default to full
   const [expandedMobileCard, setExpandedMobileCard] = useState<EEEPackageTier | null>('enhanced'); // Track which mobile card is expanded (accordion)
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined); // Track selected date from mobile dateselect
   const [isExpiredState, setIsExpiredState] = useState(false); // Track visual expiration state
   const [showPaymentForm, setShowPaymentForm] = useState(false); // Controls visibility of the payment section
 
@@ -2041,6 +2095,9 @@ export default function PersonalizedQuotePage() {
                                 price={pkg.price}
                                 tagline={pkg.description}
                                 features={features}
+                                keyFeatures={getKeyFeaturesForTier(pkg.tier)}
+                                nextAvailableDate={getNextAvailableDate(pkg.tier)}
+                                dateSelectionStartDate={getDateSelectionStartDate(pkg.tier)}
                                 isRecommended={pkg.tier === 'enhanced'}
                                 isPremium={pkg.tier === 'elite'}
                                 isExpanded={expandedMobileCard === pkg.tier}
@@ -2062,6 +2119,8 @@ export default function PersonalizedQuotePage() {
                                     setSelectedEEEPackage(pkg.tier);
                                   }
                                 }}
+                                onDateSelect={(date) => setSelectedDate(date)}
+                                selectedDate={selectedDate}
                                 paymentMode={paymentMode}
                                 installmentPrice={showInstallments ? installmentAmount : undefined}
                               />

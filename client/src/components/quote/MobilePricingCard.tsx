@@ -1,7 +1,13 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, Check, Star, Crown } from 'lucide-react';
+import { ChevronDown, Check, Star, Crown, Calendar, LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { DateSelector } from './DateSelector';
+
+export interface KeyFeature {
+    icon: LucideIcon;
+    label: string;
+}
 
 export interface MobilePricingCardProps {
     tier: 'essential' | 'enhanced' | 'elite';
@@ -9,12 +15,17 @@ export interface MobilePricingCardProps {
     price: number;
     tagline: string;
     features: string[];
+    keyFeatures?: KeyFeature[]; // NEW: 2-3 killer features with icons
+    nextAvailableDate?: string; // NEW: e.g., "Thu 6 Feb"
+    dateSelectionStartDate?: Date; // NEW: Start date for date picker
     isRecommended?: boolean;
     isPremium?: boolean;
     isExpanded: boolean;
     isSelected: boolean;
     onToggleExpand: () => void;
     onSelect: () => void;
+    onDateSelect?: (date: Date) => void; // NEW: Date selection callback
+    selectedDate?: Date; // NEW: Currently selected date
     paymentMode?: 'full' | 'installments';
     installmentPrice?: number;
 }
@@ -31,12 +42,17 @@ export function MobilePricingCard({
     price,
     tagline,
     features,
+    keyFeatures = [],
+    nextAvailableDate,
+    dateSelectionStartDate,
     isRecommended = false,
     isPremium = false,
     isExpanded,
     isSelected,
     onToggleExpand,
     onSelect,
+    onDateSelect,
+    selectedDate,
     paymentMode = 'full',
     installmentPrice
 }: MobilePricingCardProps) {
@@ -120,6 +136,32 @@ export function MobilePricingCard({
 
                         {/* Tagline */}
                         <p className="text-xs text-slate-600">{tagline}</p>
+
+                        {/* Key Features Badges - Only in collapsed state */}
+                        {!isExpanded && (keyFeatures.length > 0 || nextAvailableDate) && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                {keyFeatures.map((feature, idx) => {
+                                    const Icon = feature.icon;
+                                    return (
+                                        <div
+                                            key={idx}
+                                            className="bg-[#7DB00E]/10 text-[#7DB00E] text-xs px-2 py-1 rounded-full font-medium flex items-center gap-1"
+                                        >
+                                            <Icon className="w-3 h-3" />
+                                            {feature.label}
+                                        </div>
+                                    );
+                                })}
+
+                                {/* Next Available Date Badge */}
+                                {nextAvailableDate && (
+                                    <div className="bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded-full font-medium flex items-center gap-1">
+                                        <Calendar className="w-3 h-3" />
+                                        {nextAvailableDate}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     {/* Expand/Collapse Indicator */}
@@ -166,6 +208,16 @@ export function MobilePricingCard({
                                         <span className="font-semibold">£{Math.round(price / 100)}</span>
                                     </div>
                                 </div>
+                            )}
+
+                            {/* Date Selector - Only in expanded state */}
+                            {dateSelectionStartDate && onDateSelect && (
+                                <DateSelector
+                                    startDate={dateSelectionStartDate}
+                                    selectedDate={selectedDate}
+                                    onDateSelect={onDateSelect}
+                                    className="mt-3"
+                                />
                             )}
                         </div>
                     </motion.div>
