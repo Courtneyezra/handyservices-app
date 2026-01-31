@@ -44,7 +44,7 @@ export function ExpertSpecSheet({
         <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className={`max-w-2xl mx-auto ${className}`}
+            className={`w-full px-4 md:px-8 lg:px-12 ${className}`}
         >
             {/* Main Card */}
             <div className="bg-white rounded-r-xl border-l-4 border-[#7DB00E] shadow-xl overflow-hidden">
