@@ -47,7 +47,7 @@ export function ExpertSpecSheet({
             className={`w-full ${className}`}
         >
             {/* Main Card */}
-            <div className="bg-white rounded-r-xl border-l-4 border-[#7DB00E] shadow-xl overflow-hidden mx-4 md:mx-8 lg:mx-12">
+            <div className="bg-white rounded-r-xl border-l-4 border-[#7DB00E] shadow-xl overflow-hidden mx-4 md:mx-0">
                 {/* Header Bar */}
                 <div className="bg-slate-50 border-b border-slate-100 flex justify-between items-center px-4 md:px-6 py-3">
                     <div className="flex items-center gap-2">
