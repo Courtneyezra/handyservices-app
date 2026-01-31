@@ -80,8 +80,11 @@ export function MobilePricingCard({
     };
 
     const style = tierStyles[tier];
+
+    // Installment mode: Essential tier is disabled (can't pay monthly on tier 1)
+    const isDisabledInInstallments = paymentMode === 'installments' && tier === 'essential';
     const displayPrice = paymentMode === 'installments' && installmentPrice ? installmentPrice : price;
-    const priceLabel = paymentMode === 'installments' ? '/month' : '';
+    const priceLabel = paymentMode === 'installments' && installmentPrice ? '/month' : '';
 
     return (
         <motion.div
@@ -95,6 +98,7 @@ export function MobilePricingCard({
         overflow-hidden transition-all duration-300
         ${isSelected ? 'ring-4 ring-green-500/30' : ''}
         ${isExpanded ? 'shadow-2xl' : 'shadow-md'}
+        ${isDisabledInInstallments ? 'opacity-40 pointer-events-none' : ''}
       `}
         >
             {/* Badge */}
