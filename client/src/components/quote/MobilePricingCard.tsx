@@ -53,6 +53,8 @@ export function MobilePricingCard({
     onSelect,
     onDateSelect,
     selectedDate,
+    selectedTimeSlot,
+    onTimeSlotSelect,
     paymentMode = 'full',
     installmentPrice
 }: MobilePricingCardProps) {
