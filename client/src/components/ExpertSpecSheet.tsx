@@ -60,7 +60,7 @@ export function ExpertSpecSheet({
                     </div>
                 </div>
 
-                <div className="p-4 md:p-8">
+                <div className="p-4 md:py-8 md:px-0">
                     {/* Client & Site Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 pb-6 border-b border-slate-100 border-dashed">
                         <div>
@@ -89,7 +89,7 @@ export function ExpertSpecSheet({
 
                     {/* Integrated Content (Tiers/Toggle) */}
                     {children && (
-                        <div className="mb-8 pt-6 border-t border-slate-100 border-dashed">
+                        <div className="mb-8 pt-6 border-t border-slate-100 border-dashed px-4 md:px-6">
                             {children}
                         </div>
                     )}
