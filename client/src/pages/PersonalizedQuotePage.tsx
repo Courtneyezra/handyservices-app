@@ -2130,7 +2130,7 @@ export default function PersonalizedQuotePage() {
                         </div>
 
                         {/* Desktop View: Existing grid cards */}
-                        <div className="hidden md:block space-y-12">
+                        <div className="hidden md:grid md:grid-cols-3 md:gap-6 md:items-start">
                           {packages.map((pkg) => {
                             let rawFeatures = quote.tierDeliverables?.[pkg.tier === 'essential' ? 'essential' : pkg.tier === 'enhanced' ? 'hassleFree' : 'highStandard'] ||
                               getPerksForTier(quote, pkg.tier as 'essential' | 'enhanced' | 'elite');
