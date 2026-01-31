@@ -1389,7 +1389,7 @@ export default function PersonalizedQuotePage() {
   const [showPriceIncreaseNotice, setShowPriceIncreaseNotice] = useState(false); // Show banner when prices increased
   const [isQuoteExpiredOnLoad, setIsQuoteExpiredOnLoad] = useState(false); // Track if quote was expired when loaded
   const [paymentMode, setPaymentMode] = useState<'full' | 'installments'>('full'); // Track payment mode selection - default to full
-  const [expandedMobileCard, setExpandedMobileCard] = useState<EEEPackageTier | null>('enhanced'); // Track which mobile card is expanded (accordion)
+  const [expandedMobileCard, setExpandedMobileCard] = useState<EEEPackageTier | null>(null); // Track which mobile card is expanded (accordion) - all start collapsed
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined); // Track selected date from mobile dateselect
   const [isExpiredState, setIsExpiredState] = useState(false); // Track visual expiration state
   const [showPaymentForm, setShowPaymentForm] = useState(false); // Controls visibility of the payment section
