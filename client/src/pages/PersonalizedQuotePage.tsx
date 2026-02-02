@@ -38,6 +38,9 @@ import { TimeSlotSelector, TimeSlotType } from '@/components/TimeSlotSelector';
 
 import { SectionWrapper } from '@/components/SectionWrapper';
 import { StickyCTA } from '@/components/StickyCTA';
+import { SingleProductQuote } from '@/components/quote/SingleProductQuote';
+import { BudgetQuoteInline } from '@/components/quote/BudgetQuoteInline';
+import { UnifiedQuoteCard } from '@/components/quote/UnifiedQuoteCard';
 
 export type EEEPackageTier = 'essential' | 'enhanced' | 'elite';
 
@@ -89,7 +92,6 @@ const HHH_FIXED_VALUE_BULLETS = {
 } as const;
 
 // Segment-specific overrides for tier bullets
-// Segment-specific overrides for tier bullets
 // Based on Madhavan Ramanujam's Leaders/Killers/Fillers framework
 const SEGMENT_TIER_CONFIG: Record<string, { handyFix: string[]; hassleFree: string[]; highStandard: string[] }> = {
   BUSY_PRO: {
@@ -116,25 +118,239 @@ const SEGMENT_TIER_CONFIG: Record<string, { handyFix: string[]; hassleFree: stri
       '📸 Video walkthrough on completion',
       '🔧 Unlimited small fixes while there',
     ]
+  },
+  PROP_MGR: {
+    // SINGLE JOB = Basic reactive service
+    handyFix: [
+      'Quality workmanship',
+      'Scheduled within 1 week',
+      'Invoice on completion',
+      'Tenant coordination included',
+    ],
+    // PARTNER PROGRAM = Priority response + PM conveniences
+    hassleFree: [
+      '⚡ Priority 24-48hr response',
+      '📞 Dedicated contact (skip the queue)',
+      '📄 Monthly invoicing (Net 30)',
+      '🔧 Tenant scheduling handled',
+      '📸 Photo documentation for records',
+    ],
+    // PREMIUM PARTNER = Full white-glove service
+    highStandard: [
+      '🚀 Same-day emergency response',
+      '📊 Quarterly property walk-through',
+      '💰 10% volume discount',
+      '📋 Compliance certificates included',
+      '🛡️ Priority aftercare support',
+    ]
+  },
+  SMALL_BIZ: {
+    // STANDARD HOURS = Basic business service
+    handyFix: [
+      'Quality workmanship',
+      'Cleanup included',
+      'Business hours (M-F)',
+      'Proper invoicing',
+    ],
+    // AFTER-HOURS = Zero disruption service
+    hassleFree: [
+      '🌙 Evening/weekend availability',
+      '🏪 Zero business disruption',
+      '✨ "Open to a finished job"',
+      '📸 Photo documentation',
+      '🧹 Thorough cleanup',
+    ],
+    // EMERGENCY = Same-day priority
+    highStandard: [
+      '⚡ Same-day response',
+      '🚨 Priority over other jobs',
+      '📞 Direct emergency line',
+      '🛡️ Extended warranty',
+      '📋 Full compliance docs',
+    ]
+  },
+  DIY_DEFERRER: {
+    // BASIC = Anchor tier (get it done properly)
+    handyFix: [
+      'Quality workmanship',
+      'Cleanup included',
+      'Scheduled within 2-3 weeks',
+      'Gets it all done properly',
+    ],
+    // STANDARD = Faster scheduling + extras
+    hassleFree: [
+      '📅 Faster scheduling (1-2 weeks)',
+      '🛡️ 30-day guarantee',
+      '📸 Before/after photos',
+      '🔧 Minor extras while there',
+    ],
+    // PRIORITY = Premium service
+    highStandard: [
+      '⚡ Priority scheduling',
+      '🛡️ 90-day guarantee',
+      '🔧 Free small fix while there',
+      '📞 Direct contact line',
+    ]
+  },
+  BUDGET: {
+    // SINGLE PRICE = Only option shown
+    handyFix: [
+      'Quality workmanship',
+      'Cleanup included',
+      'Scheduled when available',
+      'Gets the job done right',
+    ],
+    // Not shown for BUDGET segment
+    hassleFree: [],
+    // Not shown for BUDGET segment
+    highStandard: [],
+  },
+  OLDER_WOMAN: {
+    // STANDARD = Basic reliable service
+    handyFix: [
+      'Quality workmanship',
+      'Full cleanup included',
+      'Scheduled within 2 weeks',
+      'Clear communication throughout',
+    ],
+    // PEACE OF MIND = Anchor tier (trust + safety)
+    hassleFree: [
+      '🛡️ Vetted & background-checked staff',
+      '📞 Direct contact with your technician',
+      '📸 Before/after photos sent to you',
+      '🧹 Thorough cleanup guaranteed',
+      '✅ 90-day workmanship guarantee',
+    ],
+    // VIP = Premium white-glove service
+    highStandard: [
+      '⭐ Senior technician assigned',
+      '📅 Flexible scheduling (your choice)',
+      '📞 Priority phone support',
+      '🛡️ 12-month guarantee',
+      '🔧 Free check-up in 30 days',
+    ]
   }
+};
+
+// Segment display configuration: controls which tiers to show and how
+// Based on Ramanujam principle: "Productize by segment, not tier one product"
+const SEGMENT_DISPLAY_CONFIG: Record<string, {
+  showTiers: ('essential' | 'enhanced' | 'elite')[];
+  anchorTier: 'essential' | 'enhanced' | 'elite';
+  showAlternatives: boolean;
+  ctaText: string;
+  alternativeLabel: string | null;
+}> = {
+  BUSY_PRO: {
+    showTiers: ['enhanced', 'essential'], // Priority first, Standard as backup
+    anchorTier: 'enhanced',
+    showAlternatives: false,
+    ctaText: 'Book Priority Service',
+    alternativeLabel: 'Need more flexibility? Choose timing below',
+  },
+  PROP_MGR: {
+    showTiers: ['enhanced'], // Partner Program only
+    anchorTier: 'enhanced',
+    showAlternatives: false,
+    ctaText: 'Join Partner Program',
+    alternativeLabel: null,
+  },
+  SMALL_BIZ: {
+    showTiers: ['enhanced', 'essential', 'elite'], // After-Hours anchor, show options
+    anchorTier: 'enhanced',
+    showAlternatives: true,
+    ctaText: 'Book After-Hours',
+    alternativeLabel: 'Need standard hours or emergency?',
+  },
+  DIY_DEFERRER: {
+    showTiers: ['essential', 'enhanced', 'elite'], // Basic anchor, show upgrades
+    anchorTier: 'essential',
+    showAlternatives: true,
+    ctaText: 'Book Basic Service',
+    alternativeLabel: 'Want faster scheduling?',
+  },
+  BUDGET: {
+    showTiers: ['essential'], // Basic only
+    anchorTier: 'essential',
+    showAlternatives: false,
+    ctaText: 'Book Now',
+    alternativeLabel: null,
+  },
+  OLDER_WOMAN: {
+    showTiers: ['enhanced', 'essential', 'elite'], // Peace of Mind anchor
+    anchorTier: 'enhanced',
+    showAlternatives: true,
+    ctaText: 'Book Peace of Mind Service',
+    alternativeLabel: 'See other options',
+  },
+  DEFAULT: {
+    showTiers: ['essential', 'enhanced', 'elite'], // Show all
+    anchorTier: 'enhanced',
+    showAlternatives: true,
+    ctaText: 'Select Package',
+    alternativeLabel: null,
+  },
+};
+
+// Segment-specific tier names mapping
+const SEGMENT_TIER_NAMES: Record<string, { essential: string; enhanced: string; elite: string }> = {
+  BUSY_PRO: {
+    essential: 'Standard Service',
+    enhanced: 'Priority Service',
+    elite: 'Express Service',
+  },
+  PROP_MGR: {
+    essential: 'Single Job',
+    enhanced: 'Partner Program',
+    elite: 'Premium Partner',
+  },
+  SMALL_BIZ: {
+    essential: 'Standard Hours',
+    enhanced: 'After-Hours Service',
+    elite: 'Emergency Service',
+  },
+  DIY_DEFERRER: {
+    essential: 'Basic Service',
+    enhanced: 'Standard Service',
+    elite: 'Priority Service',
+  },
+  BUDGET: {
+    essential: 'Service',
+    enhanced: '',
+    elite: '',
+  },
+  OLDER_WOMAN: {
+    essential: 'Standard Service',
+    enhanced: 'Peace of Mind',
+    elite: 'VIP Service',
+  },
+  DEFAULT: {
+    essential: 'Essential',
+    enhanced: 'Enhanced',
+    elite: 'Elite',
+  },
 };
 
 // Helper: Choose dynamic perks or fallback to static bullets
 const getPerksForTier = (quote: PersonalizedQuote | undefined, tier: 'essential' | 'enhanced' | 'elite'): string[] => {
   if (!quote) return [];
 
-  // Check for segment-specific configuration first - PRIORITY OVERRIDE for BUSY_PRO to ensure clean copy
-  if (quote.segment === 'BUSY_PRO' && SEGMENT_TIER_CONFIG.BUSY_PRO) {
-    const segmentConfig = SEGMENT_TIER_CONFIG.BUSY_PRO;
-    const tierKeyMap = {
-      essential: 'handyFix',
-      enhanced: 'hassleFree',
-      elite: 'highStandard'
-    } as const;
+  const tierKeyMap = {
+    essential: 'handyFix',
+    enhanced: 'hassleFree',
+    elite: 'highStandard'
+  } as const;
 
-    // Type assertion to access properties safely
+  // Check for segment-specific configuration first
+  const segment = quote.segment || 'DEFAULT';
+  if (segment && SEGMENT_TIER_CONFIG[segment]) {
+    const segmentConfig = SEGMENT_TIER_CONFIG[segment];
     const key = tierKeyMap[tier] as keyof typeof segmentConfig;
-    return segmentConfig[key] as unknown as string[];
+    const features = segmentConfig[key];
+    // Only use segment config if it has features for this tier
+    if (features && features.length > 0) {
+      return features as unknown as string[];
+    }
   }
 
   // Use dynamic perks if available (value pricing quotes)
@@ -361,7 +577,7 @@ export interface PersonalizedQuote {
   recommendedRoute?: 'instant' | 'tiers' | 'assessment' | null;
   proposalModeEnabled?: boolean;
   clientType?: 'residential' | 'commercial';
-  segment?: 'BUSY_PRO' | 'PROP_MGR' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'UNKNOWN';
+  segment?: 'BUSY_PRO' | 'PROP_MGR' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'OLDER_WOMAN' | 'UNKNOWN';
 
   // Dynamic Tier Config (from Value Pricing Engine)
   essential?: { name: string; description: string };
@@ -858,6 +1074,7 @@ const ValueSocialProof = ({ quote }: { quote: PersonalizedQuote }) => {
         </div>
 
         {/* Stats Row with Icons */}
+        {content.stats && content.stats.length > 0 && (
         <div className="flex justify-center gap-6 md:gap-12 mb-10">
           {content.stats.map((stat: any, i: number) => {
             const IconComponent = statIcons[i] || Star;
@@ -879,6 +1096,7 @@ const ValueSocialProof = ({ quote }: { quote: PersonalizedQuote }) => {
             );
           })}
         </div>
+        )}
 
         {/* Single Testimonial with Image Placeholder */}
         <div className="max-w-lg mx-auto">
@@ -1907,8 +2125,31 @@ export default function PersonalizedQuotePage() {
           }));
 
       case 'OLDER_WOMAN':
-        // Keep existing behavior for this segment
-        return allPackages;
+        // Show all 3 tiers with Peace of Mind (enhanced) as anchor
+        // Trust & safety focused naming
+        return allPackages.map(pkg => {
+          if (pkg.tier === 'enhanced') {
+            return {
+              ...pkg,
+              name: "Peace of Mind",
+              description: "Trusted, vetted & reliable service",
+              isPopular: true,
+            };
+          } else if (pkg.tier === 'essential') {
+            return {
+              ...pkg,
+              name: "Standard Service",
+              description: "Quality work at a fair price",
+            };
+          } else if (pkg.tier === 'elite') {
+            return {
+              ...pkg,
+              name: "VIP Service",
+              description: "Premium care with extra attention",
+            };
+          }
+          return pkg;
+        });
 
       default:
         // Fallback: show all tiers for unknown/legacy segments
@@ -2092,15 +2333,8 @@ export default function PersonalizedQuotePage() {
         {/* Value Sections Flow */}
         <ValueHero quote={quote} config={config} />
 
-        {/* BUSY_PRO: Streamlined for warm leads - they've already engaged */}
-        {(() => {
-          console.log('Rendering Quote Segment:', quote.segment);
-          return (quote.segment === 'BUSY_PRO' || quote.segment === 'OLDER_WOMAN') ? (
-            <ValueSocialProof quote={quote} />
-          ) : (
-            <ValueProof quote={quote} config={config} />
-          );
-        })()}
+        {/* Unified Social Proof Section - Same for all segments */}
+        <ValueSocialProof quote={quote} />
 
         <ValueGuarantee quote={quote} config={config} />
 
@@ -2152,109 +2386,56 @@ export default function PersonalizedQuotePage() {
                   >
                     {quote.quoteMode === 'hhh' && packagesToShow.length > 0 && (
                       <div className="space-y-8">
-                        {/* [RAMANUJAM] BUSY_PRO: Simple product summary (not package cards) */}
-                        {quote.segment === 'BUSY_PRO' ? (
-                          <div className="space-y-6">
-                            {/* Product Summary Card */}
-                            <div className="bg-gradient-to-br from-green-50 via-white to-emerald-50/30 border-2 border-[#7DB00E] rounded-2xl overflow-hidden shadow-lg">
-                              {/* Badge */}
-                              <div className="bg-[#7DB00E] text-[#1D2D3D] text-center py-2.5 font-black text-xs tracking-wider uppercase flex justify-center items-center gap-2">
-                                <Star className="w-3.5 h-3.5 fill-current" />
-                                PRIORITY SERVICE
-                                <Star className="w-3.5 h-3.5 fill-current" />
-                              </div>
+                        {/* [RAMANUJAM] Unified Quote Card for segments with single-product flow */}
+                        {['BUSY_PRO', 'BUDGET', 'OLDER_WOMAN', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR'].includes(quote.segment || '') ? (
+                          <Elements stripe={stripePromise}>
+                            <UnifiedQuoteCard
+                              segment={quote.segment || 'BUDGET'}
+                              basePrice={packagesToShow[0]?.price || 0}
+                              customerName={quote.customerName}
+                              customerEmail={quote.email || undefined}
+                              quoteId={quote.id}
+                              jobDescription={quote.jobDescription}
+                              location={quote.postcode?.split(' ')[0]}
+                              optionalExtras={quote.optionalExtras}
+                              isBooking={isBooking}
+                              onBook={async (config) => {
+                                setIsBooking(true);
+                                setSelectedEEEPackage(quote.segment === 'BUDGET' ? 'essential' : 'enhanced');
+                                setHasApprovedProduct(true);
+                                if (config.selectedDate) {
+                                  setSelectedCalendarDate(config.selectedDate);
+                                }
+                                if (config.timeSlot) {
+                                  setTimeSlotType(config.timeSlot as TimeSlotType);
+                                }
 
-                              {/* Content */}
-                              <div className="p-6 md:p-8">
-                                <div className="text-center mb-6">
-                                  <h3 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">
-                                    Priority Service
-                                  </h3>
-                                  <p className="text-slate-600">
-                                    For busy professionals who value speed and convenience
-                                  </p>
-                                </div>
+                                // Map add-ons to bundle type
+                                if (config.addOns.includes('quick_task')) {
+                                  setWhileImThereBundle('quick');
+                                }
 
-                                {/* Price */}
-                                <div className="text-center mb-6 bg-white/60 rounded-xl p-4 border border-slate-200">
-                                  <div className="text-sm text-slate-600 mb-1">Starting from</div>
-                                  <div className="text-4xl font-black text-[#7DB00E]">
-                                    £{Math.round((packagesToShow[0]?.price || 0) / 100)}
-                                  </div>
-                                  <div className="text-xs text-slate-500 mt-1">Configure your timing below</div>
-                                </div>
-
-                                {/* What's ALWAYS Included */}
-                                <div className="mb-6">
-                                  <h4 className="text-sm font-bold text-slate-700 uppercase tracking-wide mb-3">
-                                    What's Included:
-                                  </h4>
-                                  <div className="grid gap-2.5">
-                                    <div className="flex items-center gap-3">
-                                      <div className="w-5 h-5 rounded-full bg-[#7DB00E] flex items-center justify-center flex-shrink-0">
-                                        <Check className="w-3 h-3 text-white" />
-                                      </div>
-                                      <span className="text-slate-700">Quality workmanship & materials</span>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                      <div className="w-5 h-5 rounded-full bg-[#7DB00E] flex items-center justify-center flex-shrink-0">
-                                        <Check className="w-3 h-3 text-white" />
-                                      </div>
-                                      <span className="text-slate-700">90-day workmanship guarantee</span>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                      <div className="w-5 h-5 rounded-full bg-[#7DB00E] flex items-center justify-center flex-shrink-0">
-                                        <Check className="w-3 h-3 text-white" />
-                                      </div>
-                                      <span className="text-slate-700">Direct specialist contact number</span>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                      <div className="w-5 h-5 rounded-full bg-[#7DB00E] flex items-center justify-center flex-shrink-0">
-                                        <Check className="w-3 h-3 text-white" />
-                                      </div>
-                                      <span className="text-slate-700">Full cleanup & waste removal</span>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                      <div className="w-5 h-5 rounded-full bg-[#7DB00E] flex items-center justify-center flex-shrink-0">
-                                        <Check className="w-3 h-3 text-white" />
-                                      </div>
-                                      <span className="text-slate-700">Photo updates during job</span>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Social Proof */}
-                                <div className="flex items-center justify-center gap-2 bg-blue-500/10 text-blue-600 px-4 py-2.5 rounded-lg">
-                                  <User className="w-4 h-4" />
-                                  <span className="text-sm font-semibold">
-                                    78% of busy professionals choose this
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Approve Button */}
-                            {!hasApprovedProduct && (
-                              <Button
-                                onClick={() => {
-                                  setHasApprovedProduct(true);
-                                  setSelectedEEEPackage('enhanced'); // Auto-select the package
+                                // Show payment form (for non-flexible timing)
+                                if (!config.usedDownsell) {
+                                  setShowPaymentForm(true);
                                   setTimeout(() => {
-                                    document.getElementById('timing-choices')?.scrollIntoView({
+                                    document.getElementById('payment-section')?.scrollIntoView({
                                       behavior: 'smooth',
                                       block: 'start'
                                     });
                                   }, 100);
-                                }}
-                                className="w-full h-14 rounded-2xl font-bold text-lg bg-[#7DB00E] hover:bg-[#6da000] shadow-lg"
-                              >
-                                Approve and check dates →
-                              </Button>
-                            )}
-                          </div>
+                                }
+                                setIsBooking(false);
+                              }}
+                              onPaymentSuccess={async (paymentIntentId) => {
+                                // Handle successful inline payment (flexible timing)
+                                await handleBooking(paymentIntentId);
+                              }}
+                            />
+                          </Elements>
                         ) : (
                           <>
-                            {/* Original package cards for non-BUSY_PRO segments */}
+                            {/* Original package cards for other segments */}
                             {/* Payment Mode Toggle */}
                             <div className="flex items-center justify-center mb-6">
                               <PaymentToggle
@@ -2766,220 +2947,15 @@ export default function PersonalizedQuotePage() {
               )}
             </motion.div>
 
-            {/* [RAMANUJAM] BUSY_PRO Productization Choices */}
-            {/* Only show AFTER user has approved the base product */}
-            {quote.segment === 'BUSY_PRO' && selectedEEEPackage && quote.quoteMode === 'hhh' && hasApprovedProduct && (
+            {/* [RAMANUJAM] Unified Payment Section */}
+            {/* Shows after user books via UnifiedQuoteCard */}
+            {['BUSY_PRO', 'BUDGET', 'OLDER_WOMAN', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR'].includes(quote.segment || '') && selectedEEEPackage && quote.quoteMode === 'hhh' && hasApprovedProduct && (
               <motion.div
-                id="timing-choices"
+                id="payment-section"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="mt-12 space-y-8"
               >
-                {/* SECTION 1: When Do You Need It? (Date Selection) */}
-                <div className="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-sm">
-                  <h3 className="text-2xl font-bold mb-2 text-slate-900 flex items-center gap-2">
-                    <Calendar className="w-6 h-6 text-[#7DB00E]" />
-                    When Do You Need It?
-                  </h3>
-                  <p className="text-slate-600 text-sm mb-6">
-                    Select your preferred date. Pricing varies by urgency and day of week.
-                  </p>
-
-                  {!hasApprovedProduct ? (
-                    // Locked state - show message prompting user to click CTA
-                    <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl p-8 text-center">
-                      <Lock className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-                      <p className="text-slate-600 font-medium mb-2">
-                        Date selection is locked
-                      </p>
-                      <p className="text-slate-500 text-sm">
-                        Click "Approve and check dates" above to unlock date selection
-                      </p>
-                    </div>
-                  ) : (
-                    // Unlocked state - show calendar only
-                    <DatePricingCalendar
-                      onDateSelect={(date, tier, fee, isWeekend) => {
-                        setSelectedCalendarDate(date);
-                        setSchedulingTier(tier);
-                        setDateFee(fee);
-                        setIsWeekendBooking(isWeekend);
-                      }}
-                    />
-                  )}
-                </div>
-
-                {/* SECTION 2: What Time Works Best? (Time Selection) */}
-                {selectedCalendarDate && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-sm"
-                  >
-                    <h3 className="text-2xl font-bold mb-2 text-slate-900 flex items-center gap-2">
-                      <Clock className="w-6 h-6 text-[#7DB00E]" />
-                      What Time Works Best?
-                    </h3>
-                    <p className="text-slate-600 text-sm mb-6">
-                      Select your preferred arrival time window
-                    </p>
-
-                    {/* Always show time selector since this section only appears when date is selected */}
-                    <TimeSlotSelector
-                      selectedDate={selectedCalendarDate}
-                      onTimeSelect={(type, exactTimeStr, fee) => {
-                        setTimeSlotType(type);
-                        setExactTime(exactTimeStr);
-                        setTimeFee(fee);
-                      }}
-                    />
-                  </motion.div>
-                )}
-
-                {/* SECTION 3: While I'm There - Add More Jobs? */}
-                {selectedCalendarDate && (timeSlotType || exactTime) && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                  >
-                    <div className="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-sm">
-                      <h3 className="text-2xl font-bold mb-2 text-slate-900 flex items-center gap-2">
-                        <Wrench className="w-6 h-6 text-[#7DB00E]" />
-                        While I'm There - Add More Jobs?
-                      </h3>
-                      <p className="text-slate-600 text-sm mb-6">Bundle other tasks - avoid another trip fee</p>
-
-                      <div className="space-y-3">
-                        {/* No Extra Tasks */}
-                        <label
-                          className={`flex items-start gap-4 p-5 rounded-xl cursor-pointer transition-all border-2 ${whileImThereBundle === 'none'
-                            ? 'bg-[#7DB00E]/10 border-[#7DB00E] shadow-lg'
-                            : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-                            }`}>
-                          <input
-                            type="radio"
-                            name="bundle"
-                            checked={whileImThereBundle === 'none'}
-                            onChange={() => setWhileImThereBundle('none')}
-                            className="mt-1 w-5 h-5 text-[#7DB00E] focus:ring-[#7DB00E]"
-                          />
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="font-bold text-lg text-slate-900">Just the Main Job</span>
-                              <span className="text-slate-500 font-bold text-lg">£0</span>
-                            </div>
-                            <p className="text-slate-600 text-sm">No additional tasks</p>
-                          </div>
-                        </label>
-
-                        {/* 1 Quick Task */}
-                        <label
-                          className={`flex items-start gap-4 p-5 rounded-xl cursor-pointer transition-all border-2 ${whileImThereBundle === 'quick'
-                            ? 'bg-[#7DB00E]/10 border-[#7DB00E] shadow-lg'
-                            : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-                            }`}>
-                          <input
-                            type="radio"
-                            name="bundle"
-                            checked={whileImThereBundle === 'quick'}
-                            onChange={() => setWhileImThereBundle('quick')}
-                            className="mt-1 w-5 h-5 text-[#7DB00E] focus:ring-[#7DB00E]"
-                          />
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="font-bold text-lg text-slate-900">1 Quick Task (up to 10 mins)</span>
-                              <span className="text-[#7DB00E] font-bold text-xl">+£20</span>
-                            </div>
-                            <p className="text-slate-600 text-sm">Hang mirror, lightbulb, shelf, etc.</p>
-                          </div>
-                        </label>
-
-                        {/* 2-3 Small Tasks */}
-                        <label
-                          className={`flex items-start gap-4 p-5 rounded-xl cursor-pointer transition-all border-2 ${whileImThereBundle === 'small'
-                            ? 'bg-[#7DB00E]/10 border-[#7DB00E] shadow-lg'
-                            : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-                            }`}>
-                          <input
-                            type="radio"
-                            name="bundle"
-                            checked={whileImThereBundle === 'small'}
-                            onChange={() => setWhileImThereBundle('small')}
-                            className="mt-1 w-5 h-5 text-[#7DB00E] focus:ring-[#7DB00E]"
-                          />
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="font-bold text-lg text-slate-900">2-3 Small Tasks (up to 20 mins)</span>
-                              <span className="text-[#7DB00E] font-bold text-xl">+£45</span>
-                            </div>
-                            <p className="text-slate-600 text-sm">Your "honey-do" list done in one visit</p>
-                          </div>
-                        </label>
-
-                        {/* Half-Hour Bundle */}
-                        <label
-                          className={`flex items-start gap-4 p-5 rounded-xl cursor-pointer transition-all border-2 ${whileImThereBundle === 'half_hour'
-                            ? 'bg-[#7DB00E]/10 border-[#7DB00E] shadow-lg'
-                            : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-                            }`}>
-                          <input
-                            type="radio"
-                            name="bundle"
-                            checked={whileImThereBundle === 'half_hour'}
-                            onChange={() => setWhileImThereBundle('half_hour')}
-                            className="mt-1 w-5 h-5 text-[#7DB00E] focus:ring-[#7DB00E]"
-                          />
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="font-bold text-lg text-slate-900">Half-Hour Job Bundle</span>
-                              <span className="text-[#7DB00E] font-bold text-xl">+£75</span>
-                            </div>
-                            <p className="text-slate-600 text-sm">Multiple tasks - maximum efficiency</p>
-                          </div>
-                        </label>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-                )
-
-
-                {/* Optional Extras for HHH Mode */}
-                {quote.optionalExtras && quote.optionalExtras.length > 0 && selectedEEEPackage && quote.quoteMode === 'hhh' && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="mt-12"
-                  >
-                    <h3 className="text-2xl font-bold mb-6 text-center text-slate-900">Popular Add-Ons</h3>
-                    <div className="space-y-4">
-                      {quote.optionalExtras.map((extra: any, idx: number) => (
-                        <label
-                          key={idx}
-                          className={`flex items-start gap-4 p-6 rounded-2xl cursor-pointer transition-all border-2 ${selectedExtras.includes(extra.label)
-                            ? 'bg-[#7DB00E]/10 border-[#7DB00E]'
-                            : 'bg-white border-slate-200 hover:border-slate-300'
-                            }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedExtras.includes(extra.label)}
-                            onChange={() => toggleExtra(extra.label)}
-                            className="mt-1 w-5 h-5 rounded border-gray-500 text-[#7DB00E] focus:ring-[#7DB00E]"
-                          />
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="font-bold text-lg text-slate-900">{extra.label}</span>
-                              <span className="text-[#7DB00E] font-bold text-xl">+£{formatPrice(extra.priceInPence)}</span>
-                            </div>
-                            <p className="text-slate-600 text-sm">{extra.description}</p>
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-
                 {/* Payment Section */}
                 {showPaymentForm && (
                   <motion.div

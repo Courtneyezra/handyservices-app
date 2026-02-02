@@ -204,7 +204,7 @@ export default function GenerateQuoteLink() {
 
   // NEW STATE for Redesign
   const [classification, setClassification] = useState<RouteAnalysis['classification'] | null>(null);
-  const [selectedRoute, setSelectedRoute] = useState<'instant' | 'tiers' | 'assessment' | undefined>(undefined);
+  // selectedRoute removed - segment determines pricing mode automatically
   const [segment, setSegment] = useState<'BUSY_PRO' | 'PROP_MGR' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'OLDER_WOMAN' | undefined>(undefined);
   const [proposalModeEnabled, setProposalModeEnabled] = useState(true); // Now standard for all quotes
   const [isQuickLink, setIsQuickLink] = useState(false);
@@ -269,6 +269,11 @@ export default function GenerateQuoteLink() {
     highDemand: false,
     staffHoliday: false,
   });
+
+  // WhatsApp conversation context for seamless quote delivery
+  const [conversationContext, setConversationContext] = useState('');
+  const [aiGeneratedMessage, setAiGeneratedMessage] = useState<string | null>(null);
+  const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
 
 
 
@@ -759,8 +764,7 @@ export default function GenerateQuoteLink() {
         postcode,
         address: address || undefined,
         coordinates: coordinates || undefined,
-        quoteMode: finalQuoteMode,
-        selectedRoute: selectedRoute, // Pass manual selection
+        quoteMode: 'hhh', // Always use HHH - segment controls display
         visitTierMode: finalQuoteMode === 'consultation' ? visitTierMode : 'standard', // Pass the tier preference
         clientType,
         assessmentReason: finalAssessmentReason || undefined,
@@ -857,6 +861,36 @@ export default function GenerateQuoteLink() {
         : `${baseUrl}/quote-link/${response.shortSlug}`;
 
       setGeneratedUrl(url);
+      setAiGeneratedMessage(null); // Reset AI message for new quote
+
+      // Auto-generate AI message if conversation context is provided
+      if (conversationContext.trim()) {
+        setIsGeneratingMessage(true);
+        try {
+          const msgResponse = await fetch('/api/generate-quote-message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              conversationContext,
+              customerName,
+              jobDescription,
+              segment: segment || 'BUSY_PRO',
+              priceRange: primingPriceRange,
+              quoteUrl: url,
+            }),
+          });
+
+          if (msgResponse.ok) {
+            const msgData = await msgResponse.json();
+            setAiGeneratedMessage(msgData.message);
+          }
+        } catch (msgError) {
+          console.error('Error generating AI message:', msgError);
+          // Silently fail - user can still use default message
+        } finally {
+          setIsGeneratingMessage(false);
+        }
+      }
 
       toast({
         title: 'Link Generated!',
@@ -914,8 +948,48 @@ export default function GenerateQuoteLink() {
     }
   };
 
+  // Generate AI-powered WhatsApp message with conversation context
+  const generateAiMessage = async () => {
+    if (!conversationContext.trim() || !generatedUrl) return;
+
+    setIsGeneratingMessage(true);
+    try {
+      const response = await fetch('/api/generate-quote-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationContext,
+          customerName,
+          jobDescription,
+          segment: segment || 'BUSY_PRO',
+          priceRange: primingPriceRange,
+          quoteUrl: generatedUrl,
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to generate message');
+
+      const data = await response.json();
+      setAiGeneratedMessage(data.message);
+    } catch (error) {
+      console.error('Error generating AI message:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to generate message. Using default template.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsGeneratingMessage(false);
+    }
+  };
+
   // Generate WhatsApp message based on inputs
   const generateWhatsAppMessage = () => {
+    // If we have an AI-generated message, use it
+    if (aiGeneratedMessage) {
+      return aiGeneratedMessage;
+    }
+
     let message = `Thanks ${customerName}!\n\n`;
 
     // 1. Excuses (Universal - applied to all modes)
@@ -993,6 +1067,9 @@ export default function GenerateQuoteLink() {
       highDemand: false,
       staffHoliday: false,
     });
+    // Reset conversation context
+    setConversationContext('');
+    setAiGeneratedMessage(null);
   };
 
   const formatPrice = (priceInPounds: number) => {
@@ -1059,6 +1136,37 @@ export default function GenerateQuoteLink() {
                 </button>
               </div>
 
+              {/* WhatsApp Conversation Context - ALWAYS VISIBLE (both tabs) */}
+              <Card className="jobber-card shadow-sm border-2 border-green-500/30 bg-green-50/50">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-lg text-green-800">
+                    <FaWhatsapp className="h-6 w-6 text-green-600" />
+                    Paste WhatsApp Conversation
+                  </CardTitle>
+                  <p className="text-sm text-green-700">
+                    Paste the last few messages for a contextual, segment-styled reply
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <textarea
+                    id="conversationContextMain"
+                    value={conversationContext}
+                    onChange={(e) => {
+                      setConversationContext(e.target.value);
+                      setAiGeneratedMessage(null);
+                    }}
+                    placeholder="Paste your WhatsApp conversation here...
+
+Example:
+[Customer]: Hi, can you help with a dripping tap?
+[You]: Hi! Yes absolutely. Which tap is it?
+[Customer]: Kitchen sink, it's been getting worse
+[You]: No problem, I'll get you a quote now"
+                    className="w-full h-32 px-4 py-3 text-sm bg-white border-2 border-green-300 rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
+                  />
+                </CardContent>
+              </Card>
+
               {/* Value Pricing Card (Estimator Only) */}
               {generatorTab === 'estimator' && (
                 <Card className="jobber-card shadow-sm">
@@ -1084,9 +1192,6 @@ export default function GenerateQuoteLink() {
                         data-testid="input-job-description"
                       />
                     </div>
-
-
-
 
                     {/* AI Job Analysis & Pricing */}
                     <div className="space-y-3">
@@ -1541,28 +1646,7 @@ export default function GenerateQuoteLink() {
                       </Card>
                     )}
 
-                    {/* --- NEW: Route Selection --- */}
-                    {/* Replaces old Quote Mode buttons */}
-                    <div className="mb-8">
-                      <h3 className="text-lg font-semibold mb-4">Select Quote Strategy</h3>
-                      <RouteRecommendation
-                        analysisResult={classification ? {
-                          classification: classification,
-                          recommendedRoute: selectedRoute || 'tiers',
-                          reasoning: "AI analysis based on job description.",
-                          confidence: 'high'
-                        } : null}
-                        selectedRoute={selectedRoute}
-                        onSelectRoute={(route) => {
-                          setSelectedRoute(route);
-                          // Map to legacy modes
-                          if (route === 'instant') setQuoteMode('simple');
-                          else if (route === 'tiers') setQuoteMode('hhh');
-                          else if (route === 'assessment') setQuoteMode('consultation');
-                        }}
-                        isAnalyzing={analysisStatus === 'loading'}
-                      />
-                    </div>
+                    {/* Quote Strategy removed - segment selection determines pricing mode automatically */}
 
                     {/* 3 Value Questions */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2286,6 +2370,43 @@ export default function GenerateQuoteLink() {
                         <FaWhatsapp className="h-5 w-5 text-green-500" />
                         WhatsApp Message Settings
                       </h3>
+
+                      {/* AI Message Status & Regenerate */}
+                      {conversationContext.trim() && (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-sm">
+                              {aiGeneratedMessage ? (
+                                <>
+                                  <Check className="h-4 w-4 text-green-400" />
+                                  <span className="text-green-400 font-medium">AI message ready</span>
+                                </>
+                              ) : isGeneratingMessage ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 text-slate-400 animate-spin" />
+                                  <span className="text-slate-400">Generating...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="h-4 w-4 text-slate-500" />
+                                  <span className="text-slate-500">Conversation context provided</span>
+                                </>
+                              )}
+                            </div>
+                            {aiGeneratedMessage && (
+                              <Button
+                                onClick={generateAiMessage}
+                                disabled={isGeneratingMessage}
+                                variant="ghost"
+                                size="sm"
+                                className="text-slate-400 hover:text-green-400"
+                              >
+                                <RefreshCw className={`h-4 w-4 ${isGeneratingMessage ? 'animate-spin' : ''}`} />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Priming Price Range (Auto-calculated) */}
                       {primingPriceRange && (

@@ -343,6 +343,42 @@ export function getSegmentTierConfig(segment: string) {
         },
       };
 
+    case 'OLDER_WOMAN':
+      return {
+        essential: {
+          name: 'Standard Service',
+          description: 'Quality work at a fair price',
+          deliverables: [
+            'Quality workmanship',
+            'Full cleanup included',
+            'Scheduled within 2 weeks',
+            'Clear communication throughout'
+          ]
+        },
+        hassleFree: {
+          name: 'Peace of Mind',
+          description: 'Trusted, vetted & reliable service',
+          deliverables: [
+            'Vetted & background-checked staff',
+            'Direct contact with your technician',
+            'Before/after photos sent to you',
+            'Thorough cleanup guaranteed',
+            '90-day workmanship guarantee'
+          ]
+        },
+        highStandard: {
+          name: 'VIP Service',
+          description: 'Premium care with extra attention',
+          deliverables: [
+            'Senior technician assigned',
+            'Flexible scheduling (your choice)',
+            'Priority phone support',
+            '12-month guarantee',
+            'Free check-up in 30 days'
+          ]
+        },
+      };
+
     // Default / UNKNOWN (uses generic names)
     default:
       return {

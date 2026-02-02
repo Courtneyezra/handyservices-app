@@ -20,6 +20,7 @@ export interface MobilePricingCardProps {
     dateSelectionStartDate?: Date; // NEW: Start date for date picker
     isRecommended?: boolean;
     isPremium?: boolean;
+    isAnchor?: boolean; // NEW: Whether this is the anchor/primary tier for the segment
     isExpanded: boolean;
     isSelected: boolean;
     onToggleExpand: () => void;
@@ -30,6 +31,8 @@ export interface MobilePricingCardProps {
     onTimeSlotSelect?: (timeSlot: 'AM' | 'PM') => void; // NEW: Time slot callback
     paymentMode?: 'full' | 'installments';
     installmentPrice?: number;
+    ctaText?: string; // NEW: Custom CTA button text
+    badgeText?: string; // NEW: Custom badge text (overrides default MOST POPULAR/PREMIUM)
 }
 
 /**
@@ -49,6 +52,7 @@ export function MobilePricingCard({
     dateSelectionStartDate,
     isRecommended = false,
     isPremium = false,
+    isAnchor = false,
     isExpanded,
     isSelected,
     onToggleExpand,
@@ -58,16 +62,18 @@ export function MobilePricingCard({
     selectedTimeSlot,
     onTimeSlotSelect,
     paymentMode = 'full',
-    installmentPrice
+    installmentPrice,
+    ctaText,
+    badgeText
 }: MobilePricingCardProps) {
 
-    // Tier-specific styling
+    // Tier-specific styling - anchor tier gets enhanced styling regardless of which tier it is
     const tierStyles = {
         essential: {
-            gradient: 'from-slate-50 via-white to-green-50/30',
-            border: 'border-slate-200',
-            accentColor: 'text-slate-600',
-            ring: ''
+            gradient: isAnchor ? 'from-green-100 via-emerald-50 to-white' : 'from-slate-50 via-white to-green-50/30',
+            border: isAnchor ? 'border-[#7DB00E]' : 'border-slate-200',
+            accentColor: isAnchor ? 'text-[#7DB00E]' : 'text-slate-600',
+            ring: isAnchor && isExpanded ? 'ring-4 ring-[#7DB00E]/20' : ''
         },
         enhanced: {
             gradient: 'from-green-100 via-emerald-50 to-white',
@@ -76,14 +82,18 @@ export function MobilePricingCard({
             ring: isExpanded ? 'ring-4 ring-[#7DB00E]/20' : ''
         },
         elite: {
-            gradient: 'from-amber-50 via-white to-yellow-50/40',
-            border: 'border-slate-200',
-            accentColor: 'text-amber-600',
-            ring: ''
+            gradient: isAnchor ? 'from-green-100 via-emerald-50 to-white' : 'from-amber-50 via-white to-yellow-50/40',
+            border: isAnchor ? 'border-[#7DB00E]' : 'border-slate-200',
+            accentColor: isAnchor ? 'text-[#7DB00E]' : 'text-amber-600',
+            ring: isAnchor && isExpanded ? 'ring-4 ring-[#7DB00E]/20' : ''
         }
     };
 
     const style = tierStyles[tier];
+
+    // Determine if we should show a badge (anchor tiers, recommended, or premium)
+    const showBadge = isAnchor || isRecommended || isPremium;
+    const displayBadgeText = badgeText || (isRecommended ? 'MOST POPULAR' : isPremium ? 'PREMIUM' : isAnchor ? 'RECOMMENDED' : '');
 
     // Installment mode: Essential tier is disabled (can't pay monthly on tier 1)
     const isDisabledInInstallments = paymentMode === 'installments' && tier === 'essential';
@@ -110,15 +120,15 @@ export function MobilePricingCard({
       `}
         >
             {/* Badge */}
-            {(isRecommended || isPremium) && (
+            {showBadge && displayBadgeText && (
                 <div className={`
-          ${isRecommended ? 'bg-[#7DB00E]' : 'bg-[#1D2D3D]'}
+          ${(isRecommended || isAnchor) ? 'bg-[#7DB00E]' : 'bg-[#1D2D3D]'}
           text-white text-center py-1.5 text-[10px] font-black tracking-wider uppercase
           flex justify-center items-center gap-2
         `}>
-                    {isRecommended && <Star className="w-3 h-3 fill-current" />}
-                    {isPremium && <Crown className="w-3 h-3 fill-current" />}
-                    {isRecommended ? 'MOST POPULAR' : 'PREMIUM'}
+                    {(isRecommended || isAnchor) && <Star className="w-3 h-3 fill-current" />}
+                    {isPremium && !isAnchor && <Crown className="w-3 h-3 fill-current" />}
+                    {displayBadgeText}
                 </div>
             )}
 
@@ -248,7 +258,9 @@ export function MobilePricingCard({
             w-full font-bold text-sm py-3 rounded-xl transition-all duration-200
             ${isSelected
                             ? 'bg-green-600 hover:bg-green-700 text-white'
-                            : `${style.accentColor} bg-white hover:bg-slate-50 border-2 ${style.border}`
+                            : isAnchor
+                                ? 'bg-[#7DB00E] hover:bg-[#6da000] text-white'
+                                : `${style.accentColor} bg-white hover:bg-slate-50 border-2 ${style.border}`
                         }
           `}
                 >
@@ -258,7 +270,7 @@ export function MobilePricingCard({
                             Selected
                         </span>
                     ) : (
-                        'Select Package'
+                        ctaText || 'Select Package'
                     )}
                 </Button>
 

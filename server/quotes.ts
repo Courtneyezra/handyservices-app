@@ -94,6 +94,101 @@ quotesRouter.post('/api/generate-personalized-note', async (req, res) => {
     }
 });
 
+// Generate contextual WhatsApp message from conversation context
+quotesRouter.post('/api/generate-quote-message', async (req, res) => {
+    try {
+        const { conversationContext, customerName, jobDescription, segment, priceRange, quoteUrl } = req.body;
+
+        if (!conversationContext || !quoteUrl) {
+            return res.status(400).json({ error: "Conversation context and quote URL are required" });
+        }
+
+        const firstName = customerName?.split(' ')[0] || 'there';
+
+        // Segment-specific tone and style guidelines
+        const segmentStyles: Record<string, string> = {
+            'BUSY_PRO': `TONE: Efficient, no-nonsense, respectful of their time.
+STYLE: Brief, confident, action-oriented. Get straight to the point.
+EXAMPLE VIBE: "Got that sorted for you - here's the quote, just pick a slot that works."`,
+
+            'BUDGET': `TONE: Friendly, value-focused, reassuring about price.
+STYLE: Warm but emphasize transparency and no hidden costs.
+EXAMPLE VIBE: "Here's your quote - everything's included, no surprises."`,
+
+            'OLDER_WOMAN': `TONE: Warm, patient, trustworthy, reassuring.
+STYLE: Slightly more formal, emphasize reliability and that you'll take care of everything.
+EXAMPLE VIBE: "I've put together your quote - take your time to look through it, and I'm here if you have any questions at all."`,
+
+            'DIY_DEFERRER': `TONE: Understanding, encouraging, low-pressure.
+STYLE: Acknowledge they've been meaning to sort this, make it easy.
+EXAMPLE VIBE: "Finally getting this sorted! Here's the quote - nice and simple."`,
+
+            'PROP_MGR': `TONE: Professional, efficient, business-like.
+STYLE: Crisp, minimal fluff, just the facts.
+EXAMPLE VIBE: "Quote attached for the job at [address]. Let me know if you need anything adjusted."`,
+
+            'SMALL_BIZ': `TONE: Professional but personable, understand business needs.
+STYLE: Emphasize minimal disruption, flexible scheduling.
+EXAMPLE VIBE: "Here's your quote - we can work around your opening hours, just let me know what suits."`
+        };
+
+        const styleGuide = segmentStyles[segment] || segmentStyles['BUSY_PRO'];
+
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                {
+                    role: "system",
+                    content: `You are crafting a WhatsApp message to send a quote to a customer. You're continuing an existing conversation.
+
+SEGMENT: ${segment || 'BUSY_PRO'}
+${styleGuide}
+
+STRUCTURE YOUR MESSAGE:
+1. Brief, natural opening that flows from the conversation (reference what they discussed)
+2. Present the quote link
+3. ALWAYS end with: "If you have any questions, just give me a shout" (or similar warm invitation to ask questions)
+
+RULES:
+- Keep it SHORT (under 80 words)
+- Sound human, not like a template
+- Reference specific details from their conversation
+- Include the quote URL on its own line
+- ONE emoji maximum (optional)
+- NO price amounts (quote page shows that)
+- NO formal greetings ("Dear", "Hi there")
+- NO sign-offs or names at the end`
+                },
+                {
+                    role: "user",
+                    content: `CONVERSATION:
+${conversationContext}
+
+---
+Customer: ${firstName}
+Job: ${jobDescription || 'As discussed'}
+Quote URL: ${quoteUrl}
+
+Write the WhatsApp reply:`
+                }
+            ],
+            temperature: 0.7,
+            max_tokens: 200,
+        });
+
+        const message = response.choices[0]?.message?.content?.trim() || '';
+
+        if (!message) {
+            throw new Error('No message generated');
+        }
+
+        res.json({ message });
+    } catch (error: any) {
+        console.error("[generate-quote-message] Error:", error);
+        res.status(500).json({ error: "Failed to generate message" });
+    }
+});
+
 // Create Quote Endpoint
 quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
     try {
@@ -174,6 +269,13 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
                 };
             }
             leadClassification.segment = input.manualSegment;
+
+            // [RAMANUJAM] Segment determines pricing mode automatically
+            // All segments use HHH/tiers mode - frontend controls which tiers to show
+            if (!input.selectedRoute) {
+                finalRoute = 'tiers';
+                console.log('[Routing Brain] Segment-based routing: auto-selecting tiers route for segment', input.manualSegment);
+            }
         }
 
         // FORCE QUOTE MODE synchronization with Route

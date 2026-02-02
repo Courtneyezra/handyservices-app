@@ -22,7 +22,7 @@ import HandymanMap from "@/pages/HandymanMap";
 import HandymanDashboard from "@/pages/HandymanDashboard"; // Legacy
 import { ThemeProvider } from "@/components/theme-provider";
 import ContractorFleetDashboard from "@/pages/ContractorFleetDashboard";
-import GenerateQuoteLink from "@/pages/GenerateQuoteLink";
+import GenerateQuoteLink from "@/pages/GenerateQuoteLinkSimple";
 import MainDashboard from "@/pages/MainDashboard";
 import CallsPage from "@/pages/CallsPage";
 import TestLab from "./pages/TestLab";
