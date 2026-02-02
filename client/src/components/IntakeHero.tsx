@@ -50,7 +50,7 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Left Column - Text */}
             <div className="text-center lg:text-left order-2 lg:order-1">
-              <div className="inline-flex items-center gap-2 bg-amber-400/20 px-4 py-2 rounded-full mb-6 backdrop-blur-sm border border-amber-400/10">
+              <div className="flex items-center gap-2 bg-amber-400/20 px-4 py-2 rounded-full mb-6 backdrop-blur-sm border border-amber-400/10 w-fit mx-auto lg:mx-0">
                 <CheckCircle className="w-4 h-4 text-amber-400" />
                 <span className="text-amber-400 font-medium text-sm">Trusted by 300+ {location} Homeowners</span>
               </div>
@@ -62,25 +62,79 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                 </div>
               </div>
 
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6 leading-tight font-poppins drop-shadow-lg">
-                {headline ?
-                  headline.replace("{{location}}", location).split(location).map((part, i, arr) => (
-                    <span key={i}>
-                      {part}
-                      {i < arr.length - 1 && <span className="text-amber-400">{location}</span>}
-                    </span>
-                  ))
-                  :
-                  <>The Easiest Way to Book a Handyman in <span className="text-amber-400">{location}</span></>
-                }
-              </h1>
+              {/* Dynamic H1: Supports both single-line and three-tier formats */}
+              {(() => {
+                // Parse headline for multi-tier support
+                const parseHeadline = (text: string | undefined) => {
+                  if (!text) {
+                    return {
+                      tier1: location,
+                      tier2: "Handyman Service",
+                      tier3: "Next-day slots • Fast & reliable"
+                    };
+                  }
+
+                  // Replace location placeholder
+                  const processed = text.replace(/\{\{location\}\}/g, location);
+
+                  // Check for delimiter (||)
+                  if (processed.includes("||")) {
+                    const parts = processed.split("||").map(s => s.trim());
+                    return {
+                      tier1: parts[0] || location,
+                      tier2: parts[1] || null,
+                      tier3: parts[2] || null
+                    };
+                  }
+
+                  // Single-line fallback (backward compatible)
+                  return {
+                    tier1: processed,
+                    tier2: null,
+                    tier3: null
+                  };
+                };
+
+                const parsedHeadline = parseHeadline(headline);
+
+                return (
+                  <h1 className="font-poppins font-bold leading-[0.95] mb-6 max-w-3xl mx-auto lg:mx-0">
+                    {parsedHeadline.tier2 ? (
+                      // Three-tier mode
+                      <>
+                        {/* Tier 1: Location/Main (Biggest, White) */}
+                        <span className="block text-5xl md:text-6xl lg:text-7xl xl:text-8xl text-white mb-2 drop-shadow-xl">
+                          {parsedHeadline.tier1}
+                        </span>
+
+                        {/* Tier 2: Service (Large, Amber) */}
+                        <span className="block text-3xl md:text-4xl lg:text-5xl xl:text-6xl text-amber-400 mb-4 drop-shadow-lg">
+                          {parsedHeadline.tier2}
+                        </span>
+
+                        {/* Tier 3: Benefits (Medium, Muted) */}
+                        {parsedHeadline.tier3 && (
+                          <span className="block text-lg md:text-xl lg:text-2xl xl:text-3xl text-slate-200 font-medium drop-shadow-md">
+                            {parsedHeadline.tier3}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      // Single-line mode (backward compatible)
+                      <span className="block text-4xl md:text-5xl lg:text-6xl xl:text-7xl text-white drop-shadow-xl">
+                        {parsedHeadline.tier1}
+                      </span>
+                    )}
+                  </h1>
+                );
+              })()}
 
               <p className="text-xl text-slate-200 font-medium mb-10 max-w-xl mx-auto lg:mx-0 drop-shadow-md">
-                {subhead ? subhead.replace("{{location}}", location) : "Call or WhatsApp for an instant fixed quote."}
+                {subhead ? subhead.replace("{{location}}", location) : "Call or WhatsApp for an instant fixed-price quote"}
               </p>
 
               {/* Primary Actions: Call & WhatsApp (Mobile Only) */}
-              <div className="lg:hidden flex flex-col sm:flex-row gap-4 max-w-xl mx-auto lg:mx-0 mb-10 text-xl md:text-2xl">
+              <div className="lg:hidden flex flex-col sm:flex-row gap-4 max-w-xl mx-auto mb-10 text-xl md:text-2xl">
                 <Button
                   type="button"
                   onClick={() => {

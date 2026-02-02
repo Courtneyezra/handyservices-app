@@ -380,7 +380,12 @@ function VariantEditor({ variant, onSave, onDelete, isOnly }: any) {
                                 <Input
                                     value={formData.content.heroHeadline || ""}
                                     onChange={(e) => updateContent("heroHeadline", e.target.value)}
+                                    placeholder="{{location}}||Handyman Service||Next-day slots • Fast & reliable"
                                 />
+                                <p className="text-xs text-muted-foreground">
+                                    💡 Use <code className="bg-muted px-1 py-0.5 rounded">||</code> to create multi-tier headlines.
+                                    Format: <code className="bg-muted px-1 py-0.5 rounded">Line 1||Line 2||Line 3</code>
+                                </p>
                             </div>
 
                             <div className="grid gap-2">

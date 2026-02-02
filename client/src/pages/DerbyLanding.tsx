@@ -835,9 +835,9 @@ export default function HandymanLanding({
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
-    // ... existing variants logic ...
-    const finalHeadline = headline || "The Easiest Way to Book a Handyman in {{location}}";
-    const finalSubhead = subhead || "Speed + reliability for busy professionals.";
+    // Use variant content from admin, then props, then defaults
+    const finalHeadline = variant?.content?.heroHeadline || headline || "The Easiest Way to Book a Handyman in {{location}}";
+    const finalSubhead = variant?.content?.heroSubhead || subhead || "Speed + reliability for busy professionals.";
 
     return (
         <div className="min-h-screen bg-slate-50 font-poppins text-slate-900 font-medium">
