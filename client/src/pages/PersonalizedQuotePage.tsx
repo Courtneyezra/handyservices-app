@@ -34,7 +34,7 @@ import { getExpertNoteText } from "@/lib/quote-helpers";
 import { InstantActionQuote } from '@/components/InstantActionQuote';
 import { ExpertAssessmentQuote } from '@/components/ExpertAssessmentQuote';
 import { DatePricingCalendar, SchedulingTier } from '@/components/DatePricingCalendar';
-import { TimeSlotSelector, TimeSlotType } from '@/components/TimeSlotSelector';
+import { TimeSlotSelector, TimeSlotType } from '@/components/TimeSlotSelector.tsx';
 
 import { SectionWrapper } from '@/components/SectionWrapper';
 import { StickyCTA } from '@/components/StickyCTA';
