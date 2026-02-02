@@ -835,9 +835,9 @@ export default function HandymanLanding({
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
-    // Use variant content from admin, then props, then defaults
-    const finalHeadline = variant?.content?.heroHeadline || headline || "The Easiest Way to Book a Handyman in {{location}}";
-    const finalSubhead = variant?.content?.heroSubhead || subhead || "Speed + reliability for busy professionals.";
+    // Use variant content from admin, then props, then defaults (multi-tier format with ||)
+    const finalHeadline = variant?.content?.heroHeadline || headline || "{{location}}||Handyman Service||Next-day slots • Fast & reliable";
+    const finalSubhead = variant?.content?.heroSubhead || subhead || "Call or WhatsApp for an instant fixed-price quote";
 
     // Prevent flicker: wait for variant data to load before rendering hero
     if (isLoading) {
