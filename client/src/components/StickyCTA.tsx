@@ -95,9 +95,11 @@ export function StickyCTA({
                         <div className="absolute top-2 left-3 w-1.5 h-1.5 bg-slate-700 rounded-full shadow-inner opacity-50"></div>
                         <div className="absolute top-2 right-3 w-1.5 h-1.5 bg-slate-700 rounded-full shadow-inner opacity-50"></div>
 
-                        {/* Tool Icon Badge - Top Right */}
-                        <div className="absolute -top-6 right-4 bg-slate-800 rounded-lg p-2 shadow-lg border border-slate-700">
+                        {/* Tool Icon Tab - Top Right - Integrated */}
+                        <div className="absolute -top-[26px] right-6 bg-slate-900 border-t border-x border-slate-700/50 rounded-t-lg px-3 py-1.5 pb-2 shadow-none">
                             <Shield className="w-5 h-5 text-amber-400" />
+                            {/* Connector patch to hide the main border line underneath */}
+                            <div className="absolute -bottom-[2px] left-[1px] right-[1px] h-[4px] bg-slate-900"></div>
                         </div>
 
                         {/* Selected Package Echo */}
