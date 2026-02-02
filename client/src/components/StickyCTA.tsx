@@ -96,8 +96,8 @@ export function StickyCTA({
                         <div className="absolute top-2 right-3 w-1.5 h-1.5 bg-slate-700 rounded-full shadow-inner opacity-50"></div>
 
                         {/* Tool Icon Badge - Top Right */}
-                        <div className="absolute -top-6 right-4 bg-amber-400 rounded-lg p-2 shadow-lg border-2 border-amber-500">
-                            <Shield className="w-5 h-5 text-slate-900" />
+                        <div className="absolute -top-6 right-4 bg-slate-800 rounded-lg p-2 shadow-lg border border-slate-700">
+                            <Shield className="w-5 h-5 text-amber-400" />
                         </div>
 
                         {/* Selected Package Echo */}
