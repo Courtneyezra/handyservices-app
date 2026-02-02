@@ -81,9 +81,14 @@ export function StickyCTA({
                     animate={{ y: 0, opacity: 1 }}
                     exit={{ y: 20, opacity: 0 }}
                     transition={{ duration: 0.4, ease: "easeInOut" }}
-                    className="fixed bottom-4 left-0 right-0 z-[9999] lg:hidden"
+                    className="fixed bottom-0 left-0 right-0 z-[9999] lg:hidden"
                 >
-                    <div className="bg-slate-900/95 backdrop-blur-lg border-t border-slate-700 shadow-2xl overflow-hidden">\
+                    <div className="bg-slate-900/95 backdrop-blur-lg border-t border-slate-700 shadow-2xl overflow-visible relative">
+
+                        {/* Decorative Toolbox Icon - Top Right Corner */}
+                        <div className="absolute -top-8 right-4 bg-amber-400 rounded-t-xl p-2 shadow-lg">
+                            <Shield className="w-6 h-6 text-slate-900" />
+                        </div>
 
                         {/* Selected Package Echo */}
                         {selectedPackage && selectedPrice && (
@@ -98,7 +103,7 @@ export function StickyCTA({
                         {children ? (
                             children
                         ) : (
-                            <div className="p-3 flex gap-3">
+                            <div className="p-3 pb-4 flex gap-3">
                                 <Button
                                     onClick={(e) => {
                                         // Override if booking mode
