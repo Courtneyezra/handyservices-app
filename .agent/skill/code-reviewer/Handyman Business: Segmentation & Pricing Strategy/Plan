@@ -12,6 +12,60 @@
 
   ---
 
+  ## ⚠️ CRITICAL: Productize BY Segment, NOT Tier ONE Product
+
+  **Common Mistake**: Creating 3 tiers (Basic/Standard/Premium) and showing them to everyone.
+
+  **Ramanujam's Principle**: Create DIFFERENT products for DIFFERENT segments.
+
+  ### ❌ WRONG APPROACH
+  ```
+  BUSY PRO sees:
+    □ Basic Service     $300
+    □ Standard Service  $360
+    □ Premium Service   $420
+    → Which tier do you want?
+  ```
+  This forces customers to decode arbitrary tiers.
+
+  ### ✅ RIGHT APPROACH
+  ```
+  BUSY PRO sees:
+    → Priority Service  $420
+    (THE product designed for busy professionals)
+
+    Choices offered (if any):
+    • When: This week vs Next week (-$60)
+    • Add-on: Photo updates (+$30)
+  ```
+
+  ### Key Distinction
+
+  | Tiering (Wrong) | Productization (Right) |
+  |-----------------|------------------------|
+  | One generic service with 3 quality levels | Distinct products per segment |
+  | "Choose your tier" | "Here's YOUR product" |
+  | Features differentiate tiers | Value proposition differentiates products |
+  | Busy Pro picks from Basic/Standard/Premium | Busy Pro gets "Priority Service" only |
+
+  ### Implementation Rule
+
+  **Each segment sees ONE primary product designed for them:**
+  - BUSY PRO → "Priority Service" (speed, convenience)
+  - PROP MGR → "Partner Program" (reliability, volume)
+  - SMALL BIZ → "After-Hours Service" (zero disruption)
+  - DIY DEFERRER → "Batch Service" (efficiency, value)
+  - BUDGET → "Standard Service" (gets it done)
+
+  **Optional choices within a product:**
+  - Timing variables (this week vs next week)
+  - Specific add-ons (photo updates, extended guarantee)
+  - Commitment level (one-time vs ongoing)
+
+  **NOT choices of arbitrary quality tiers.**
+
+  ---
+
   ## Priority Segments
 
   | Segment | Profile | WTP Level | Value Driver |
@@ -292,26 +346,34 @@
 
   ────────────────────────────────────────
 
-  ⭐ PRIORITY SERVICE (Recommended)         $XXX
+  PRIORITY SERVICE FOR BUSY PROFESSIONALS
+
+  Base Price: $420
   • Scheduled within 5 business days
   • Photo updates sent during job
   • 90-day workmanship guarantee
   • Direct line for any questions
+  • Quality workmanship & full cleanup
 
-  STANDARD SERVICE                       $XXX
-  • Scheduled within 2 weeks
-  • Quality workmanship
-  • 30-day guarantee
+  ────────────────────────────────────────
+
+  TIMING OPTIONS:
+  ⚡ This week (Mon-Fri):     $420 (as shown)
+  📅 Next week (flexible):    $360 (-$60)
+
+  OPTIONAL ADD-ONS:
+  □ Photo documentation package:  +$30
+  □ Extended 12-month guarantee:  +$40
 
   ────────────────────────────────────────
   Includes: [materials, labor, cleanup]
   Valid for: 14 days
 
-  Ready to book? Just reply "Priority" or "Standard"
+  Ready to book? Reply with your preferred timing.
   ```
 
-  **Anchor on**: Priority tier
-  **Key framing**: Time savings, hands-off convenience
+  **Key framing**: ONE product (Priority Service), choices are timing variables
+  **No arbitrary tiers**: They're not choosing quality levels, just when they need it done
 
   ---
 

@@ -600,6 +600,14 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     depositAmountPence: integer("deposit_amount_pence"), // Calculated deposit amount in pence
     selectedTierPricePence: integer("selected_tier_price_pence"), // The tier price at time of selection in pence
 
+    // BUSY_PRO Calendar-Based Scheduling (Dynamic Pricing)
+    schedulingTier: varchar("scheduling_tier", { length: 20 }), // 'express' | 'priority' | 'standard' | 'flexible'
+    selectedDate: timestamp("selected_date"), // The date customer selected for service
+    isWeekendBooking: boolean("is_weekend_booking").default(false), // Whether the selected date is a weekend
+    timeSlotType: varchar("time_slot_type", { length: 20 }), // 'am' | 'pm' | 'exact' | 'out_of_hours'
+    exactTimeRequested: varchar("exact_time_requested", { length: 10 }), // e.g., "10:00" if exact time selected
+    schedulingFeeInPence: integer("scheduling_fee_in_pence").default(0), // Total scheduling fee (date + time combined)
+
     // Creation timestamp
     createdAt: timestamp("created_at").defaultNow(),
 });

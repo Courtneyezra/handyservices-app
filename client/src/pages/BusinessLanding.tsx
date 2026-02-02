@@ -331,7 +331,7 @@ function PayIn3Section() {
         <section className="bg-slate-700 px-4 lg:px-8 py-16 lg:py-24">
             <div className="max-w-7xl mx-auto">
                 <div className="grid lg:grid-cols-2 gap-12 items-center">
-                    <div className="order-2 lg:order-1">
+                    <div className="lg:order-1">
                         <div className="relative rounded-3xl overflow-hidden max-w-xl shadow-2xl">
                             <img
                                 src={payIn3Image}
@@ -341,7 +341,7 @@ function PayIn3Section() {
                         </div>
                     </div>
 
-                    <div className="order-1 lg:order-2 text-center lg:text-left">
+                    <div className="lg:order-2 text-center lg:text-left">
                         <div className="inline-flex items-center gap-2 bg-blue-500/20 px-4 py-2 rounded-full mb-6">
                             <span className="text-blue-400 font-bold text-sm">FLEXIBLE PAYMENTS</span>
                         </div>
@@ -385,57 +385,7 @@ function PayIn3Section() {
     );
 }
 
-function TestimonialsSection() {
-    const testimonials = [
-        { name: "Sarah M.", area: "NG1", text: "Absolutely brilliant service. Richard was punctual, professional and did an amazing job on our bathroom. Would highly recommend!", rating: 5 },
-        { name: "James T.", area: "NG5", text: "Used Handy Services for multiple jobs now. Always reliable, fair prices and great quality work. Won't go anywhere else.", rating: 5 },
-        { name: "Michelle K.", area: "NG7", text: "Barry fitted our new kitchen cabinets perfectly. Clean, tidy and finished ahead of schedule. 5 stars!", rating: 5 },
-    ];
 
-    return (
-        <section id="reviews" className="bg-white px-4 lg:px-8 py-16 lg:py-24">
-            <div className="max-w-7xl mx-auto">
-                <div className="text-center mb-12 lg:mb-16">
-                    <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-slate-800 mb-4">
-                        What Nottingham <span className="text-amber-500">Says About Us</span>
-                    </h2>
-                    <div className="flex items-center justify-center gap-2 mt-4">
-                        <SiGoogle className="w-6 h-6 text-slate-800" />
-                        <div className="flex items-center gap-0.5">
-                            {[...Array(5)].map((_, i) => (
-                                <Star key={i} className="w-5 h-5 fill-amber-400 text-amber-400" />
-                            ))}
-                        </div>
-                        <span className="text-slate-800 font-bold text-lg">4.9 from 300+ Reviews</span>
-                    </div>
-                </div>
-
-                <div className="grid md:grid-cols-3 gap-6 lg:gap-8">
-                    {testimonials.map((testimonial, idx) => (
-                        <div key={idx} className="bg-slate-50 rounded-3xl p-8 relative">
-                            <div className="flex items-center gap-0.5 mb-4">
-                                {[...Array(testimonial.rating)].map((_, i) => (
-                                    <Star key={i} className="w-5 h-5 fill-amber-400 text-amber-400" />
-                                ))}
-                            </div>
-                            <p className="text-slate-700 mb-6 text-lg italic">"{testimonial.text}"</p>
-                            <div className="flex items-center gap-3">
-                                <div className="w-12 h-12 bg-slate-300 rounded-full flex items-center justify-center">
-                                    <span className="text-xl">👤</span>
-                                </div>
-                                <div>
-                                    <p className="font-bold text-slate-800">{testimonial.name}</p>
-                                    <p className="text-slate-500 text-sm">{testimonial.area}</p>
-                                </div>
-                            </div>
-                            <SiGoogle className="absolute top-6 right-6 w-6 h-6 text-slate-300" />
-                        </div>
-                    ))}
-                </div>
-            </div>
-        </section>
-    );
-}
 
 function GuaranteesSection() {
     const guarantees = [
@@ -534,53 +484,7 @@ function FooterCTA() {
     );
 }
 
-function RealTimeTrackingSection() {
-    const trackingSteps = [
-        { icon: <CheckCircle className="w-6 h-6" />, title: "Booking Confirmed", description: "Instant notification", color: "bg-green-500" },
-        { icon: <Wrench className="w-6 h-6" />, title: "Handyman Assigned", description: "Meet your pro", color: "bg-blue-500" },
-        { icon: <MapPin className="w-6 h-6" />, title: "On the Way", description: "Live location & ETA", color: "bg-amber-500" },
-        { icon: <Clock className="w-6 h-6" />, title: "Job in Progress", description: "Photo updates", color: "bg-purple-500" },
-        { icon: <Star className="w-6 h-6" />, title: "Complete", description: "Rate & review", color: "bg-pink-500" },
-    ];
 
-    return (
-        <section className="bg-white px-4 lg:px-8 py-16 lg:py-24">
-            <div className="max-w-7xl mx-auto">
-                <div className="text-center mb-12 lg:mb-16">
-                    <div className="inline-flex items-center gap-2 bg-blue-500/10 px-4 py-2 rounded-full mb-6">
-                        <MapPin className="w-5 h-5 text-blue-600" />
-                        <span className="text-blue-600 font-bold text-sm">TRACK EVERY STEP</span>
-                    </div>
-                    <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-slate-800 mb-4">
-                        Know Exactly What's <span className="text-blue-600">Happening</span>
-                    </h2>
-                    <p className="text-slate-600 text-lg max-w-2xl mx-auto">
-                        From booking to completion, stay informed with real-time updates via SMS and email
-                    </p>
-                </div>
-
-                <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-6">
-                    {trackingSteps.map((step, idx) => (
-                        <div key={idx} className="relative">
-                            <div className="bg-slate-50 rounded-2xl p-6 text-center hover:bg-slate-100 transition-colors">
-                                <div className={`w-16 h-16 ${step.color} rounded-2xl flex items-center justify-center mx-auto mb-4 text-white shadow-lg`}>
-                                    {step.icon}
-                                </div>
-                                <h3 className="font-bold text-slate-800 mb-2">{step.title}</h3>
-                                <p className="text-slate-500 text-sm">{step.description}</p>
-                            </div>
-                            {idx < trackingSteps.length - 1 && (
-                                <div className="hidden lg:block absolute top-1/2 -right-3 transform -translate-y-1/2">
-                                    <ArrowRight className="w-6 h-6 text-slate-300" />
-                                </div>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            </div>
-        </section>
-    );
-}
 
 function EmergencyServiceSection() {
     return (
@@ -731,71 +635,7 @@ function MultiTaskJobsSection() {
     );
 }
 
-function EcoFriendlySection() {
-    const greenServices = [
-        { icon: <Droplets className="w-6 h-6" />, title: "Water-Saving Fixtures", description: "Low-flow taps & toilets" },
-        { icon: <Shield className="w-6 h-6" />, title: "Energy Efficiency", description: "LED lighting & sealing" },
-        { icon: <Leaf className="w-6 h-6" />, title: "Sustainable Materials", description: "Eco-friendly products" },
-        { icon: <Clock className="w-6 h-6" />, title: "Draught Proofing", description: "Reduce heat loss" },
-    ];
 
-    return (
-        <section className="bg-slate-800 px-4 lg:px-8 py-16 lg:py-24">
-            <div className="max-w-7xl mx-auto">
-                <div className="grid lg:grid-cols-2 gap-12 items-center">
-                    <div className="order-2 lg:order-1">
-                        <div className="grid sm:grid-cols-2 gap-4">
-                            {greenServices.map((service, idx) => (
-                                <div key={idx} className="bg-slate-700 rounded-2xl p-6 hover:bg-slate-600 transition-colors">
-                                    <div className="w-14 h-14 bg-green-500 rounded-2xl flex items-center justify-center mx-auto mb-4 text-white">
-                                        {service.icon}
-                                    </div>
-                                    <h3 className="text-white font-bold text-center mb-2">{service.title}</h3>
-                                    <p className="text-white/60 text-sm text-center">{service.description}</p>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="order-1 lg:order-2 text-center lg:text-left">
-                        <div className="inline-flex items-center gap-2 bg-green-500/20 px-4 py-2 rounded-full mb-6">
-                            <Leaf className="w-5 h-5 text-green-400" />
-                            <span className="text-green-400 font-bold text-sm">ECO-FRIENDLY OPTIONS</span>
-                        </div>
-                        <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-6 leading-tight">
-                            Good for Your Home. <span className="text-green-400">Great for the Planet.</span>
-                        </h2>
-                        <p className="text-white/70 text-lg mb-8">
-                            Choose sustainable solutions that reduce your energy bills and environmental impact. From water-saving fixtures to draught-proofing, we help make your Nottingham home greener.
-                        </p>
-
-                        <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-                            <a href="#hero" className="scroll-smooth">
-                                <Button
-                                    className="w-full sm:w-auto px-8 py-6 bg-green-500 hover:bg-green-600 text-white font-bold rounded-full text-lg"
-                                    data-testid="button-eco-quote"
-                                >
-                                    Get Green Quote
-                                    <ArrowRight className="w-5 h-5 ml-2" />
-                                </Button>
-                            </a>
-                        </div>
-
-                        <div className="mt-8 p-6 bg-slate-700/50 rounded-2xl border border-green-500/20">
-                            <div className="flex items-start gap-3">
-                                <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-1" />
-                                <div>
-                                    <p className="text-white font-semibold mb-1">Available for All Jobs</p>
-                                    <p className="text-white/60 text-sm">Just mention you'd like eco-friendly options when booking - no extra charge to discuss!</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-    );
-}
 
 export default function BusinessLanding() {
     const { variant, trackConversion } = useLandingPage("landing");
@@ -842,14 +682,14 @@ export default function BusinessLanding() {
             <ProcessSection />
             <RealJobsSection />
             <BeforeAfterSection />
-            <TestimonialsSection />
+
             <GuaranteesSection />
             <FooterCTA />
-            <RealTimeTrackingSection />
+
             <MultiTaskJobsSection />
             <LocalTrustSection />
             <GoogleReviewsSection location="nottingham" darkMode={true} />
-            <EcoFriendlySection />
+
             <StickyCTA isVisible={showSticky} onConversion={trackConversion} />
         </div>
     );
