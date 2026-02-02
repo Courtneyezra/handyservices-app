@@ -81,19 +81,32 @@ export function StickyCTA({
                     animate={{ y: 0, opacity: 1 }}
                     exit={{ y: 20, opacity: 0 }}
                     transition={{ duration: 0.4, ease: "easeInOut" }}
-                    className="fixed bottom-0 left-0 right-0 z-[9999] lg:hidden"
+                    className="fixed bottom-0 left-0 right-0 z-[9999] lg:hidden px-2"
                 >
-                    <div className="bg-slate-900/95 backdrop-blur-lg border-t border-slate-700 shadow-2xl overflow-visible relative">
+                    {/* Toolbox Design */}
+                    <div className="relative bg-gradient-to-b from-red-600 to-red-700 rounded-t-2xl shadow-2xl overflow-visible border-t-4 border-red-800/50">
 
-                        {/* Decorative Toolbox Icon - Top Right Corner */}
-                        <div className="absolute -top-8 right-4 bg-amber-400 rounded-t-xl p-2 shadow-lg">
-                            <Shield className="w-6 h-6 text-slate-900" />
+                        {/* Top Handle */}
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-800 rounded-full px-6 py-1 border-2 border-slate-700 shadow-lg">
+                            <div className="w-12 h-1.5 bg-slate-600 rounded-full"></div>
                         </div>
+
+                        {/* Corner Rivets */}
+                        <div className="absolute top-2 left-3 w-2 h-2 bg-slate-400 rounded-full border border-slate-500 shadow-inner"></div>
+                        <div className="absolute top-2 right-3 w-2 h-2 bg-slate-400 rounded-full border border-slate-500 shadow-inner"></div>
+
+                        {/* Tool Icon Badge - Top Right */}
+                        <div className="absolute -top-6 right-4 bg-amber-400 rounded-lg p-2 shadow-lg border-2 border-amber-500">
+                            <Shield className="w-5 h-5 text-red-700" />
+                        </div>
+
+                        {/* Metal texture overlay */}
+                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent rounded-t-2xl pointer-events-none"></div>
 
                         {/* Selected Package Echo */}
                         {selectedPackage && selectedPrice && (
-                            <div className="flex items-center justify-center gap-2 py-2 px-3 bg-slate-800 border-b border-slate-700">
-                                <Calendar className="w-3 h-3 text-[#7DB00E]" />
+                            <div className="flex items-center justify-center gap-2 py-2 px-3 bg-red-800/50 border-b border-red-900/50">
+                                <Calendar className="w-3 h-3 text-amber-400" />
                                 <span className="text-xs text-white font-medium">
                                     {selectedPackage} Package Selected - £{(selectedPrice / 100).toFixed(0)}
                                 </span>
@@ -103,7 +116,7 @@ export function StickyCTA({
                         {children ? (
                             children
                         ) : (
-                            <div className="p-3 pb-4 flex gap-3">
+                            <div className="p-3 pb-4 flex gap-3">\
                                 <Button
                                     onClick={(e) => {
                                         // Override if booking mode
