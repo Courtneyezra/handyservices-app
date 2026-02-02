@@ -81,7 +81,7 @@ export function StickyCTA({
                     animate={{ y: 0, opacity: 1 }}
                     exit={{ y: 20, opacity: 0 }}
                     transition={{ duration: 0.4, ease: "easeInOut" }}
-                    className="fixed bottom-0 left-0 right-0 z-[9999] pb-4 lg:hidden"
+                    className="fixed bottom-4 left-0 right-0 z-[9999] lg:hidden"
                 >
                     <div className="bg-slate-900/95 backdrop-blur-lg border-t border-slate-700 shadow-2xl overflow-hidden">\
 
