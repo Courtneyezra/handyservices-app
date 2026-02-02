@@ -33,6 +33,8 @@ import { MobilePricingCard, KeyFeature } from '@/components/quote/MobilePricingC
 import { getExpertNoteText } from "@/lib/quote-helpers";
 import { InstantActionQuote } from '@/components/InstantActionQuote';
 import { ExpertAssessmentQuote } from '@/components/ExpertAssessmentQuote';
+import { DatePricingCalendar, SchedulingTier } from '@/components/DatePricingCalendar';
+import { TimeSlotSelector, TimeSlotType } from '@/components/TimeSlotSelector';
 
 import { SectionWrapper } from '@/components/SectionWrapper';
 import { StickyCTA } from '@/components/StickyCTA';
@@ -1382,6 +1384,20 @@ export default function PersonalizedQuotePage() {
   const [isBooking, setIsBooking] = useState(false);
   const [hasReserved, setHasReserved] = useState(false); // Track if user clicked "Book Now"
 
+  // [RAMANUJAM] Productization choices for BUSY_PRO segment
+  const [timingChoice, setTimingChoice] = useState<'this_week' | 'next_week'>('this_week'); // Default to this week (premium option)
+  const [whileImThereBundle, setWhileImThereBundle] = useState<'none' | 'quick' | 'small' | 'half_hour'>('none'); // "While I'm There" task bundle
+  const [hasApprovedProduct, setHasApprovedProduct] = useState(false); // Track if user has approved the base product (shows upsells after)
+
+  // [CALENDAR] Calendar-based scheduling state (replaces timingChoice for BUSY_PRO)
+  const [schedulingTier, setSchedulingTier] = useState<SchedulingTier | null>(null);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<Date | null>(null);
+  const [isWeekendBooking, setIsWeekendBooking] = useState(false);
+  const [dateFee, setDateFee] = useState(0); // in pence
+  const [timeSlotType, setTimeSlotType] = useState<TimeSlotType | null>(null);
+  const [exactTime, setExactTime] = useState<string | null>(null);
+  const [timeFee, setTimeFee] = useState(0); // in pence
+
   const [showSocialProof, setShowSocialProof] = useState(false); // Social proof overlay disabled elsewhere
   const [expandedTiers, setExpandedTiers] = useState<Set<EEEPackageTier>>(new Set<EEEPackageTier>(['enhanced'])); // Track which tier's "What's included" is expanded
   const [bookedLeadId, setBookedLeadId] = useState<string | null>(null); // Store lead ID after booking
@@ -1715,6 +1731,9 @@ export default function PersonalizedQuotePage() {
             selectedPackage: (quote.quoteMode === 'simple' || quote.quoteMode === 'pick_and_mix') ? undefined : selectedEEEPackage,
             selectedExtras: selectedExtras.length > 0 ? selectedExtras : undefined,
             paymentType: effectivePaymentType,
+            // [RAMANUJAM] Include BUSY_PRO productization choices
+            timingChoice: quote.segment === 'BUSY_PRO' ? timingChoice : undefined,
+            whileImThereBundle: quote.segment === 'BUSY_PRO' ? whileImThereBundle : undefined,
           }),
         });
 
@@ -1826,6 +1845,86 @@ export default function PersonalizedQuotePage() {
     }
   }
 
+  // [RAMANUJAM PRINCIPLE] Productize BY segment, NOT tier ONE product
+  // Each segment sees ONLY their product, not 3 arbitrary tiers to choose from
+  const getProductsForSegment = (segment: string | undefined, allPackages: EEEPackage[]): EEEPackage[] => {
+    if (!segment || allPackages.length === 0) return allPackages;
+
+    switch (segment) {
+      case 'BUSY_PRO':
+        // ONLY show Priority Service (enhanced tier)
+        return allPackages
+          .filter(pkg => pkg.tier === 'enhanced')
+          .map(pkg => ({
+            ...pkg,
+            name: "Priority Service",
+            description: "For busy professionals who value speed and convenience",
+            isPopular: true,
+          }));
+
+      case 'PROP_MGR':
+        // ONLY show Partner Program (enhanced tier)
+        return allPackages
+          .filter(pkg => pkg.tier === 'enhanced')
+          .map(pkg => ({
+            ...pkg,
+            name: "Partner Program",
+            description: "Ongoing reliability for property managers",
+            isPopular: true,
+          }));
+
+      case 'SMALL_BIZ':
+        // ONLY show After-Hours Service (enhanced tier)
+        return allPackages
+          .filter(pkg => pkg.tier === 'enhanced')
+          .map(pkg => ({
+            ...pkg,
+            name: "After-Hours Service",
+            description: "Zero disruption to your business",
+            isPopular: true,
+          }));
+
+      case 'DIY_DEFERRER':
+        // ONLY show Batch Service (essential tier with value framing)
+        return allPackages
+          .filter(pkg => pkg.tier === 'essential')
+          .map(pkg => ({
+            ...pkg,
+            name: "Batch Service",
+            description: "Get multiple jobs done efficiently",
+            isPopular: true,
+          }));
+
+      case 'BUDGET':
+        // ONLY show Standard Service (essential tier)
+        return allPackages
+          .filter(pkg => pkg.tier === 'essential')
+          .map(pkg => ({
+            ...pkg,
+            name: "Standard Service",
+            description: "Quality work at fair pricing",
+            isPopular: true,
+          }));
+
+      case 'OLDER_WOMAN':
+        // Keep existing behavior for this segment
+        return allPackages;
+
+      default:
+        // Fallback: show all tiers for unknown/legacy segments
+        return allPackages;
+    }
+  };
+
+  // Apply segment-based product filtering
+  const packagesToShow = getProductsForSegment(quote.segment, packages);
+
+  // [DEBUG] Log filtering results
+  console.log('[PRODUCTIZATION] Segment:', quote.segment);
+  console.log('[PRODUCTIZATION] All packages:', packages.length);
+  console.log('[PRODUCTIZATION] Filtered packages to show:', packagesToShow.length);
+  console.log('[PRODUCTIZATION] Package names:', packagesToShow.map(p => p.name));
+
   // Calculate total for simple mode (with Bundle & Save logic for Pick & Mix)
   const calculateSimpleTotal = () => {
     // For Pick & Mix, ignore basePrice (strict itemization)
@@ -1871,6 +1970,25 @@ export default function PersonalizedQuotePage() {
     const subtotal = calculateSubtotal();
     const finalTotal = calculateSimpleTotal();
     return subtotal - finalTotal;
+  };
+
+  // [RAMANUJAM] Calculate BUSY_PRO productization adjustments
+  const calculateBusyProAdjustments = () => {
+    if (quote.segment !== 'BUSY_PRO') return { schedulingFee: 0, bundlePrice: 0 };
+
+    // [CALENDAR] Use calendar-based scheduling fees (date + time combined)
+    const schedulingFee = dateFee + timeFee;
+
+    // "While I'm There" bundle pricing
+    const bundlePrices = {
+      none: 0,
+      quick: 2000,      // £20
+      small: 4500,      // £45
+      half_hour: 7500   // £75
+    };
+    const bundlePrice = bundlePrices[whileImThereBundle] || 0;
+
+    return { schedulingFee, bundlePrice };
   };
 
   // Shared helper: Calculate deposit amount (100% materials + 30% labour)
@@ -2032,449 +2150,521 @@ export default function PersonalizedQuotePage() {
                     mikePhotoUrl={mikeProfilePhoto}
                     className="mt-6 md:mt-0 transition-transform duration-300"
                   >
-                    {quote.quoteMode === 'hhh' && packages.length > 0 && (
+                    {quote.quoteMode === 'hhh' && packagesToShow.length > 0 && (
                       <div className="space-y-8">
-                        {/* Payment Mode Toggle */}
-                        <div className="flex items-center justify-center mb-6">
-                          <PaymentToggle
-                            paymentMode={paymentMode}
-                            setPaymentMode={setPaymentMode}
-                            theme="light"
-                            size="default"
-                          />
-                        </div>
+                        {/* [RAMANUJAM] BUSY_PRO: Simple product summary (not package cards) */}
+                        {quote.segment === 'BUSY_PRO' ? (
+                          <div className="space-y-6">
+                            {/* Product Summary Card */}
+                            <div className="bg-gradient-to-br from-green-50 via-white to-emerald-50/30 border-2 border-[#7DB00E] rounded-2xl overflow-hidden shadow-lg">
+                              {/* Badge */}
+                              <div className="bg-[#7DB00E] text-[#1D2D3D] text-center py-2.5 font-black text-xs tracking-wider uppercase flex justify-center items-center gap-2">
+                                <Star className="w-3.5 h-3.5 fill-current" />
+                                PRIORITY SERVICE
+                                <Star className="w-3.5 h-3.5 fill-current" />
+                              </div>
 
-                        {/* HHH Mode: Packages List - Responsive */}
+                              {/* Content */}
+                              <div className="p-6 md:p-8">
+                                <div className="text-center mb-6">
+                                  <h3 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">
+                                    Priority Service
+                                  </h3>
+                                  <p className="text-slate-600">
+                                    For busy professionals who value speed and convenience
+                                  </p>
+                                </div>
 
-                        {/* Mobile View: Accordion-style compact cards */}
-                        <div className="md:hidden space-y-3">
-                          {packages.map((pkg) => {
-                            let rawFeatures = quote.tierDeliverables?.[pkg.tier === 'essential' ? 'essential' : pkg.tier === 'enhanced' ? 'hassleFree' : 'highStandard'] ||
-                              getPerksForTier(quote, pkg.tier as 'essential' | 'enhanced' | 'elite');
+                                {/* Price */}
+                                <div className="text-center mb-6 bg-white/60 rounded-xl p-4 border border-slate-200">
+                                  <div className="text-sm text-slate-600 mb-1">Starting from</div>
+                                  <div className="text-4xl font-black text-[#7DB00E]">
+                                    £{Math.round((packagesToShow[0]?.price || 0) / 100)}
+                                  </div>
+                                  <div className="text-xs text-slate-500 mt-1">Configure your timing below</div>
+                                </div>
 
-                            // Apply segment-specific feature overrides (same logic as desktop)
-                            const getFutureDate = (days: number) => {
-                              const date = new Date();
-                              date.setDate(date.getDate() + days);
-                              return date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-                            };
-
-                            if (quote.segment === 'BUSY_PRO') {
-                              if (pkg.tier === 'enhanced') {
-                                pkg.name = "Priority Service";
-                                rawFeatures = [
-                                  `⚡ Guaranteed Slot: ${getFutureDate(4)}`,
-                                  "⏱️ Precise 1-Hour Arrival Window",
-                                  "🛡️ 90-day workmanship guarantee",
-                                  "📞 Direct specialist contact number",
-                                  "📅 Evening & Weekend slots available",
-                                  "✨ Full cleanup & waste removal"
-                                ];
-                              } else if (pkg.tier === 'elite') {
-                                pkg.name = "Premium Express";
-                                rawFeatures = [
-                                  `🚀 Next-Day Slot: ${getFutureDate(1)}`,
-                                  "📸 Before/after photo documentation",
-                                  "⭐ Senior craftsman assignment",
-                                  "🎁 Priority material sourcing",
-                                  "📋 Detailed completion report",
-                                  "🔧 12-month priority callback"
-                                ];
-                              }
-                            }
-
-                            const features = Array.isArray(rawFeatures) ? rawFeatures : [];
-                            const installmentAmount = pkg.tier === 'essential' ? null : Math.round(pkg.price / 3);
-                            const showInstallments = paymentMode === 'installments' && installmentAmount;
-                            const isTier1 = pkg.tier === 'essential';
-
-                            return (
-                              <MobilePricingCard
-                                key={pkg.tier}
-                                tier={pkg.tier}
-                                name={pkg.name}
-                                price={pkg.price}
-                                tagline={pkg.description}
-                                features={features}
-                                keyFeatures={getKeyFeaturesForTier(pkg.tier)}
-                                nextAvailableDate={getNextAvailableDate(pkg.tier)}
-                                dateSelectionStartDate={getDateSelectionStartDate(pkg.tier)}
-                                isRecommended={pkg.tier === 'enhanced'}
-                                isPremium={pkg.tier === 'elite'}
-                                isExpanded={expandedMobileCard === pkg.tier}
-                                isSelected={selectedEEEPackage === pkg.tier}
-                                onToggleExpand={() => {
-                                  setExpandedMobileCard(expandedMobileCard === pkg.tier ? null : pkg.tier);
-                                  // Scroll card into view on expand
-                                  if (expandedMobileCard !== pkg.tier) {
-                                    setTimeout(() => {
-                                      document.getElementById(`mobile-card-${pkg.tier}`)?.scrollIntoView({
-                                        behavior: 'smooth',
-                                        block: 'start'
-                                      });
-                                    }, 100);
-                                  }
-                                }}
-                                onSelect={() => {
-                                  if (!isTier1 || paymentMode !== 'installments') {
-                                    setSelectedEEEPackage(pkg.tier);
-                                  }
-                                }}
-                                onDateSelect={(date) => setSelectedDate(date)}
-                                selectedDate={selectedDate}
-                                paymentMode={paymentMode}
-                                installmentPrice={showInstallments ? installmentAmount : undefined}
-                              />
-                            );
-                          })}
-                        </div>
-
-                        {/* Desktop View: Existing grid cards */}
-                        <div className="hidden md:grid md:grid-cols-3 md:gap-6 md:items-start">
-                          {packages.map((pkg) => {
-                            let rawFeatures = quote.tierDeliverables?.[pkg.tier === 'essential' ? 'essential' : pkg.tier === 'enhanced' ? 'hassleFree' : 'highStandard'] ||
-                              getPerksForTier(quote, pkg.tier as 'essential' | 'enhanced' | 'elite');
-
-                            // [STRATEGY] BUSY_PRO Feature Overrides - Leaders/Killers/Fillers (Ramanujam)
-                            // Helper for dynamic dates (Simulating live contractor availability)
-                            const getFutureDate = (days: number) => {
-                              const date = new Date();
-                              date.setDate(date.getDate() + days);
-                              return date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-                            };
-
-                            if (quote.segment === 'BUSY_PRO') {
-                              if (pkg.tier === 'enhanced') {
-                                // PRIORITY = Killers + Leaders + Fillers (the draw)
-                                pkg.name = "Priority Service";
-                                rawFeatures = [
-                                  `⚡ Guaranteed Slot: ${getFutureDate(4)}`, // T+4 days
-                                  "⏱️ Precise 1-Hour Arrival Window",
-                                  "🛡️ 90-day workmanship guarantee",
-                                  "📞 Direct specialist contact number",
-                                  "📅 Evening & Weekend slots available",
-                                  "✨ Full cleanup & waste removal"
-                                ];
-                              } else if (pkg.tier === 'elite') {
-                                // ELITE = Premium extras
-                                pkg.name = "Premium Express";
-                                rawFeatures = [
-                                  `🚀 VIP Slot: ${getFutureDate(2)}`, // T+2 days
-                                  "💬 Dedicated PM (WhatsApp Access)",
-                                  "🛡️ 12-Month Premium Warranty",
-                                  "📹 Video walkthrough on completion",
-                                  "🔧 Unlimited small fixes on site",
-                                  "✨ Full cleanup & waste removal"
-                                ];
-                              } else if (pkg.tier === 'essential') {
-                                // STANDARD = Killers only (table stakes)
-                                pkg.name = "Standard Service";
-                                rawFeatures = [
-                                  `Available from ${getFutureDate(14)}`, // T+14 days
-                                  "Standard 8am-5pm window",
-                                  "30-day workmanship guarantee",
-                                  "Quality workmanship involved",
-                                  "Workspace cleanup included"
-                                ];
-                              }
-                            } else if (quote.segment === 'OLDER_WOMAN') {
-                              if (pkg.tier === 'enhanced') {
-                                // PRIORITY = Helpfulness + Safety
-                                pkg.name = "Peace of Mind";
-                                rawFeatures = [
-                                  "⏱️ Exact Arrival Appointment (No waiting)",
-                                  "🛋️ Assistance Moving Furniture",
-                                  "💡 10-min 'Helpful Hand' (Lightbulbs etc)",
-                                  "📄 Paper Invoice Provided",
-                                  "✨ Full Cleanup & Waste Removal",
-                                  "🛡️ 12-Month Warranty"
-                                ];
-                              } else if (pkg.tier === 'elite') {
-                                // ELITE = VIP
-                                pkg.name = "VIP Service";
-                                rawFeatures = [
-                                  "🚀 Immediate Priority Booking",
-                                  "💬 Dedicated Office Contact",
-                                  "🛡️ Extended 2-Year Warranty",
-                                  "📹 Video Confirmation for Family",
-                                  "✨ Deep Clean of Work Area",
-                                  "🎁 Seasonal Maintenance Check"
-                                ];
-                              } else if (pkg.tier === 'essential') {
-                                // STANDARD
-                                pkg.name = "Standard Service";
-                                rawFeatures = [
-                                  `Available from ${getFutureDate(14)}`,
-                                  "Standard Arrival Window",
-                                  "Quality Workmanhip",
-                                  "Cleanup Included",
-                                  "Digital Invoice Only"
-                                ];
-                              }
-                            }
-
-                            // [STRATEGY] Emoji Stripper: Regex to remove emoji characters from features
-                            // [STRATEGY] Emoji Stripper: Safer regex for broad compatibility
-                            const stripEmojis = (str: string) => {
-                              try {
-                                // Simply remove everything that isn't ASCII text, numbers, punctuation, or common symbols
-                                // This is safer than targetting specific emoji ranges which varies by browser/engine
-                                return str.replace(/[^\x00-\x7F\u00A0-\u00FF]/g, '').trim().replace(/\s\s+/g, ' ');
-                              } catch (e) {
-                                return str;
-                              }
-                            };
-
-                            // Icon mapping for BUSY_PRO features (high quality Lucide icons)
-                            const getFeatureIcon = (feature: string): React.ComponentType<{ className?: string }> => {
-                              const f = feature.toLowerCase();
-                              if (f.includes('arrival') || f.includes('window') || f.includes('time')) return Clock;
-                              if (f.includes('scheduling') || f.includes('week') || f.includes('slot')) return Calendar;
-                              if (f.includes('photo') || f.includes('video')) return Camera;
-                              if (f.includes('guarantee') || f.includes('warranty')) return Shield;
-                              if (f.includes('contact') || f.includes('whatsapp') || f.includes('phone')) return Phone;
-                              if (f.includes('small fix') || f.includes('fixes')) return Wrench;
-                              if (f.includes('cleanup') || f.includes('clean')) return Sparkles;
-                              if (f.includes('quality') || f.includes('workmanship')) return Award;
-                              if (f.includes('48-hour') || f.includes('asap') || f.includes('express')) return Zap;
-                              if (f.includes('materials')) return Package;
-                              return Check; // Default fallback
-                            };
-
-                            const features = Array.from(new Set((rawFeatures || []).map(f => typeof f === 'string' ? stripEmojis(f) : f)));
-                            const isExpanded = expandedTiers.has(pkg.tier);
-                            // Show all features for Enhanced (Priority) tier by default, otherwise limit to 4
-                            const showAllByDefault = pkg.tier === 'enhanced';
-                            const visibleFeatures = showAllByDefault || isExpanded ? features : features.slice(0, 4);
-                            const hasMoreFeatures = !showAllByDefault && features.length > 4;
-
-                            const isTier1 = pkg.tier === 'essential';
-                            const isTier2or3 = pkg.tier === 'enhanced' || pkg.tier === 'elite';
-                            const showInstallments = isTier2or3 && paymentMode === 'installments';
-
-                            const extrasTotal = selectedExtras.reduce((sum, label) => {
-                              const extra = quote.optionalExtras?.find(e => e.label === label);
-                              return sum + (extra?.priceInPence || 0);
-                            }, 0);
-
-                            const baseJobPrice = pkg.price + extrasTotal;
-                            const LENIENCY_FEE_RATE = 0.10;
-                            const convenienceFee = showInstallments ? Math.round(baseJobPrice * LENIENCY_FEE_RATE) : 0;
-                            const totalWithFee = baseJobPrice + convenienceFee;
-
-                            const depositAmount = calculateDeposit(pkg.price);
-                            const remainingBalance = Math.max(0, (showInstallments ? totalWithFee : baseJobPrice) - depositAmount);
-                            const installmentAmount = Math.round(remainingBalance / 3);
-
-                            const tierStyles = {
-                              essential: { bg: 'bg-gradient-to-br from-slate-50 via-white to-green-50/30 border-slate-200', badge: null, badgeColor: '', badgeText: '' },
-                              enhanced: { bg: 'bg-gradient-to-br from-green-100 via-emerald-50 to-white border-[#7DB00E]', badge: 'MOST POPULAR', badgeColor: 'bg-[#7DB00E]', badgeText: 'text-[#1D2D3D]' },
-                              elite: { bg: 'bg-gradient-to-br from-amber-50 via-white to-yellow-50/40 border-slate-200', badge: 'PREMIUM', badgeColor: 'bg-[#1D2D3D]', badgeText: 'text-white' }
-                            };
-                            const style = tierStyles[pkg.tier as keyof typeof tierStyles];
-                            const isDisabled = isTier1 && paymentMode === 'installments';
-
-                            return (
-                              <motion.div
-                                key={pkg.tier}
-                                id={`package-tier-card-${pkg.tier}`} // ID for scroll target
-                                initial={{ opacity: 0, x: -20 }}
-                                whileInView={{ opacity: 1, x: 0 }}
-                                transition={{ duration: 0.5 }}
-                                className={`relative transition-all duration-300 ${isDisabled ? 'opacity-50 pointer-events-none grayscale blur-[2px] scale-95' : ''}`}
-                              >
-                                <div id={`package-tier-card-${pkg.tier}`} className={`${style.bg} rounded-2xl overflow-hidden border ${pkg.tier === 'enhanced' ? 'border-2 shadow-2xl ring-4 ring-[#7DB00E]/20 scale-[1.05] z-10' : 'shadow-sm hover:shadow-md'} transition-all duration-300`}>
-                                  {style.badge && (
-                                    <div className={`${style.badgeColor} ${style.badgeText} text-center py-1.5 text-[10px] font-black tracking-wider uppercase flex justify-center items-center gap-2 whitespace-nowrap`}>
-                                      {pkg.tier === 'enhanced' && <Star className="w-3 h-3 fill-current" />}
-                                      {style.badge}
-                                      {pkg.tier === 'enhanced' && <Star className="w-3 h-3 fill-current" />}
+                                {/* What's ALWAYS Included */}
+                                <div className="mb-6">
+                                  <h4 className="text-sm font-bold text-slate-700 uppercase tracking-wide mb-3">
+                                    What's Included:
+                                  </h4>
+                                  <div className="grid gap-2.5">
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-5 h-5 rounded-full bg-[#7DB00E] flex items-center justify-center flex-shrink-0">
+                                        <Check className="w-3 h-3 text-white" />
+                                      </div>
+                                      <span className="text-slate-700">Quality workmanship & materials</span>
                                     </div>
-                                  )}
-                                  <div className="p-6 md:p-8">
-                                    <div className="flex justify-between items-start mb-4">
-                                      <div>
-                                        <div className="flex items-center gap-2 mb-1">
-                                          {pkg.tier === 'essential' && <Wrench className="w-4 h-4 text-slate-400" />}
-                                          {pkg.tier === 'enhanced' && <Zap className="w-4 h-4 text-[#7DB00E]" />}
-                                          {pkg.tier === 'elite' && <Crown className="w-4 h-4 text-amber-500" />}
-                                          <h3 className="text-xl font-bold text-slate-900">{pkg.name}</h3>
-                                        </div>
-                                        <p className="text-slate-500 text-xs">{pkg.description}</p>
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-5 h-5 rounded-full bg-[#7DB00E] flex items-center justify-center flex-shrink-0">
+                                        <Check className="w-3 h-3 text-white" />
                                       </div>
-                                      <div className="flex flex-col items-end gap-2">
-                                        {pkg.tier === 'enhanced' && (
-                                          <>
-                                            <NeonBadge
-                                              text={
-                                                quote.segment === 'BUSY_PRO' ? 'Priority' :
-                                                  (quote.segment === 'SMALL_BIZ' || quote.segment === 'PROP_MGR') ? 'Disruption-Free' :
-                                                    'Best Value'
-                                              }
-                                              color="green"
-                                              icon={Zap}
-                                            />
-                                            {/* Social Proof (Decoy Effect - Cialdini 1984) */}
-                                            {quote.segment === 'BUSY_PRO' ? (
-                                              <div className="flex items-center gap-1.5 bg-blue-500/20 text-blue-400 px-2 py-1 rounded-lg text-[10px] font-bold">
-                                                <User className="w-3 h-3" />
-                                                78% choose this
-                                              </div>
-                                            ) : (
-                                              <div className="flex items-center gap-1.5 bg-amber-500/20 text-amber-400 px-2 py-1 rounded-lg text-[10px] font-bold">
-                                                <User className="w-3 h-3" />
-                                                Mike Recommends
-                                              </div>
-                                            )}
-                                          </>
-                                        )}
-                                        {pkg.tier === 'elite' && <NeonBadge text="Fast Track" color="amber" icon={Clock} />}
-                                      </div>
+                                      <span className="text-slate-700">90-day workmanship guarantee</span>
                                     </div>
-
-                                    {/* Date Slot Slider - Interactive Availability */}
-                                    <div className="mb-6">
-                                      <div className="flex justify-between items-baseline mb-3">
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                          {pkg.tier === 'elite' ? 'VIP Availability' : pkg.tier === 'enhanced' ? 'Priority Slots' : 'Estimated Start'}
-                                        </p>
-                                        {pkg.tier === 'elite' && (
-                                          <span className="text-[9px] font-bold text-[#7DB00E] bg-[#7DB00E]/10 px-1.5 py-0.5 rounded-full animate-pulse">
-                                            LIVE
-                                          </span>
-                                        )}
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-5 h-5 rounded-full bg-[#7DB00E] flex items-center justify-center flex-shrink-0">
+                                        <Check className="w-3 h-3 text-white" />
                                       </div>
-                                      <div className="-mx-1 overflow-x-auto pb-4 pt-2 flex gap-2 no-scrollbar snap-x">
-                                        {(() => {
-                                          // Scarcity Logic & Extended Range
-                                          const startOffset = pkg.tier === 'elite' ? 1 : pkg.tier === 'enhanced' ? 4 : 14;
-                                          let currentDate = new Date();
-                                          currentDate.setDate(currentDate.getDate() + startOffset);
-
-                                          // Generate 12 days to show full scope
-                                          const dates = [];
-                                          let daysAdded = 0;
-                                          while (daysAdded < 12) {
-                                            // Handle "No Sundays" rule globally if needed, currently we skip them in loop if we want business days only
-                                            // But for scarcity visuals, showing weekends as "Booked" is better for Standard tier
-                                            const d = new Date(currentDate);
-                                            dates.push(d);
-                                            currentDate.setDate(currentDate.getDate() + 1);
-                                            daysAdded++;
-                                          }
-
-                                          return dates.map((slotDate, idx) => {
-                                            const isWeekend = slotDate.getDay() === 0 || slotDate.getDay() === 6;
-                                            // Standard (essential) cannot book weekends
-                                            const isRestrictedWeekend = pkg.tier === 'essential' && isWeekend;
-
-                                            // Fake "Booked" status for scarcity (30% chance), but never the first slot
-                                            const isFullyBooked = idx > 0 && (Math.random() < 0.3 || isRestrictedWeekend);
-
-                                            const isAvailable = !isFullyBooked;
-                                            const isSelected = idx === 0;
-
-                                            return (
-                                              <div
-                                                key={idx}
-                                                className={`snap-start flex-shrink-0 border rounded-lg p-2 min-w-[90px] text-center relative overflow-hidden transition-all ${!isAvailable
-                                                  ? 'border-slate-100 bg-slate-50 opacity-60 grayscale border-dashed'
-                                                  : isSelected
-                                                    ? 'border-[#7DB00E]/30 bg-[#7DB00E]/5'
-                                                    : 'border-slate-100 bg-white/80'
-                                                  }`}
-                                              >
-                                                <div className={`text-[10px] uppercase font-bold mb-0.5 ${!isAvailable ? 'text-slate-300' : isSelected ? 'text-[#7DB00E]' : 'text-slate-400'}`}>
-                                                  {idx === 0 && pkg.tier === 'elite' ? 'Tomrw' : slotDate.toLocaleDateString('en-GB', { weekday: 'short' })}
-                                                </div>
-
-                                                <div className={`text-lg font-bold leading-none mb-1 ${!isAvailable ? 'text-slate-300' : isSelected ? 'text-slate-900' : 'text-slate-600'}`}>
-                                                  {slotDate.getDate()}
-                                                </div>
-
-                                                <div className={`text-[9px] font-medium ${!isAvailable ? 'text-slate-300' : 'text-slate-400'}`}>
-                                                  {!isAvailable
-                                                    ? (isRestrictedWeekend ? 'Unavailable' : 'Fully Booked')
-                                                    : slotDate.toLocaleDateString('en-GB', { month: 'short' })
-                                                  }
-                                                </div>
-
-                                                {/* Strikethrough for booked dates */}
-                                                {!isAvailable && (
-                                                  <div className="absolute inset-0 flex items-center justify-center">
-                                                    <div className="w-full h-[1px] bg-slate-200 -rotate-12"></div>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            );
-                                          });
-                                        })()}
-                                      </div>
+                                      <span className="text-slate-700">Direct specialist contact number</span>
                                     </div>
-
-                                    <div className="mb-6">
-                                      <div className="flex items-baseline gap-2">
-                                        <span className={`text-3xl font-bold text-slate-900`}>£{formatPrice(showInstallments ? depositAmount : pkg.price)}</span>
-                                        <span className="text-slate-400 text-xs font-medium">{showInstallments ? 'deposit' : 'fixed price'}</span>
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-5 h-5 rounded-full bg-[#7DB00E] flex items-center justify-center flex-shrink-0">
+                                        <Check className="w-3 h-3 text-white" />
                                       </div>
-
-                                      {/* Per-week breakdown - Only show if not installments */}
-                                      {!showInstallments && (
-                                        <div className="mt-1 text-slate-400/70 text-[10px]">
-                                          Just £{(pkg.price / 100 / 52).toFixed(2)}/week over warranty period
-                                        </div>
-                                      )}
-
-                                      {/* Warranty end date */}
-                                      <div className="mt-2 flex items-center gap-1.5 text-slate-500 text-[10px]">
-                                        <Shield className="w-3 h-3 text-[#7DB00E]" />
-                                        <span>Covered until {format(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), 'MMMM yyyy')}</span>
-                                      </div>
-
-                                      {/* Money Back Guarantee Badge */}
-                                      <div className="mt-2 flex items-center gap-1.5 text-[9px] uppercase font-bold text-[#7DB00E] bg-[#7DB00E]/10 px-2 py-1 rounded w-fit">
-                                        <ShieldCheck className="w-3 h-3" />
-                                        100% Money Back Guarantee
-                                      </div>
-
-                                      {/* Installments info */}
-                                      {showInstallments && (
-                                        <div className="mt-2 flex items-center gap-2 text-[#7DB00E] font-medium text-sm">
-                                          <SiKlarna className="w-4 h-4" />
-                                          <span>+ 3 payments of £{formatPrice(installmentAmount)}</span>
-                                        </div>
-                                      )}
+                                      <span className="text-slate-700">Full cleanup & waste removal</span>
                                     </div>
-
-                                    <div className="space-y-3 mb-6">
-                                      {visibleFeatures.map((f, i) => {
-                                        const FeatureIcon = getFeatureIcon(f as string);
-                                        return (
-                                          <div key={i} className="flex gap-3 text-sm text-slate-600">
-                                            <FeatureIcon className="w-4 h-4 text-[#7DB00E] mt-0.5 flex-shrink-0" />
-                                            <span>{f}</span>
-                                          </div>
-                                        );
-                                      })}
-                                      {hasMoreFeatures && (
-                                        <button
-                                          onClick={() => setExpandedTiers(prev => {
-                                            const n = new Set(prev);
-                                            n.has(pkg.tier) ? n.delete(pkg.tier) : n.add(pkg.tier);
-                                            return n;
-                                          })}
-                                          className="text-xs text-slate-400 hover:text-slate-500 underline underline-offset-4"
-                                        >
-                                          {isExpanded ? 'Show less' : `+${features.length - 4} more details`}
-                                        </button>
-                                      )}
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-5 h-5 rounded-full bg-[#7DB00E] flex items-center justify-center flex-shrink-0">
+                                        <Check className="w-3 h-3 text-white" />
+                                      </div>
+                                      <span className="text-slate-700">Photo updates during job</span>
                                     </div>
                                   </div>
                                 </div>
-                              </motion.div>
-                            );
-                          })}
-                        </div>
+
+                                {/* Social Proof */}
+                                <div className="flex items-center justify-center gap-2 bg-blue-500/10 text-blue-600 px-4 py-2.5 rounded-lg">
+                                  <User className="w-4 h-4" />
+                                  <span className="text-sm font-semibold">
+                                    78% of busy professionals choose this
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Approve Button */}
+                            {!hasApprovedProduct && (
+                              <Button
+                                onClick={() => {
+                                  setHasApprovedProduct(true);
+                                  setSelectedEEEPackage('enhanced'); // Auto-select the package
+                                  setTimeout(() => {
+                                    document.getElementById('timing-choices')?.scrollIntoView({
+                                      behavior: 'smooth',
+                                      block: 'start'
+                                    });
+                                  }, 100);
+                                }}
+                                className="w-full h-14 rounded-2xl font-bold text-lg bg-[#7DB00E] hover:bg-[#6da000] shadow-lg"
+                              >
+                                Approve and check dates →
+                              </Button>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            {/* Original package cards for non-BUSY_PRO segments */}
+                            {/* Payment Mode Toggle */}
+                            <div className="flex items-center justify-center mb-6">
+                              <PaymentToggle
+                                paymentMode={paymentMode}
+                                setPaymentMode={setPaymentMode}
+                                theme="light"
+                                size="default"
+                              />
+                            </div>
+
+                            {/* HHH Mode: Packages List - Responsive */}
+
+                            {/* Mobile View: Accordion-style compact cards */}
+                            <div className="md:hidden space-y-3">
+                              {packagesToShow.map((pkg) => {
+                                let rawFeatures = quote.tierDeliverables?.[pkg.tier === 'essential' ? 'essential' : pkg.tier === 'enhanced' ? 'hassleFree' : 'highStandard'] ||
+                                  getPerksForTier(quote, pkg.tier as 'essential' | 'enhanced' | 'elite');
+
+                                // Apply segment-specific feature overrides
+                                // NOTE: With segment-based filtering, each segment only sees ONE package now
+                                const getFutureDate = (days: number) => {
+                                  const date = new Date();
+                                  date.setDate(date.getDate() + days);
+                                  return date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+                                };
+
+                                // Customize features for BUSY_PRO (will only be 'enhanced' tier due to filtering)
+                                if (quote.segment === 'BUSY_PRO') {
+                                  rawFeatures = [
+                                    `⚡ Guaranteed Slot: ${getFutureDate(4)}`,
+                                    "⏱️ Precise 1-Hour Arrival Window",
+                                    "🛡️ 90-day workmanship guarantee",
+                                    "📞 Direct specialist contact number",
+                                    "📅 Evening & Weekend slots available",
+                                    "✨ Full cleanup & waste removal"
+                                  ];
+                                }
+
+                                const features = Array.isArray(rawFeatures) ? rawFeatures : [];
+                                const installmentAmount = pkg.tier === 'essential' ? null : Math.round(pkg.price / 3);
+                                const showInstallments = paymentMode === 'installments' && installmentAmount;
+                                const isTier1 = pkg.tier === 'essential';
+
+                                return (
+                                  <MobilePricingCard
+                                    key={pkg.tier}
+                                    tier={pkg.tier}
+                                    name={pkg.name}
+                                    price={pkg.price}
+                                    tagline={pkg.description}
+                                    features={features}
+                                    keyFeatures={getKeyFeaturesForTier(pkg.tier)}
+                                    nextAvailableDate={getNextAvailableDate(pkg.tier)}
+                                    dateSelectionStartDate={getDateSelectionStartDate(pkg.tier)}
+                                    isRecommended={pkg.tier === 'enhanced'}
+                                    isPremium={pkg.tier === 'elite'}
+                                    isExpanded={expandedMobileCard === pkg.tier}
+                                    isSelected={selectedEEEPackage === pkg.tier}
+                                    onToggleExpand={() => {
+                                      setExpandedMobileCard(expandedMobileCard === pkg.tier ? null : pkg.tier);
+                                      // Scroll card into view on expand
+                                      if (expandedMobileCard !== pkg.tier) {
+                                        setTimeout(() => {
+                                          document.getElementById(`mobile-card-${pkg.tier}`)?.scrollIntoView({
+                                            behavior: 'smooth',
+                                            block: 'start'
+                                          });
+                                        }, 100);
+                                      }
+                                    }}
+                                    onSelect={() => {
+                                      if (!isTier1 || paymentMode !== 'installments') {
+                                        setSelectedEEEPackage(pkg.tier);
+                                      }
+                                    }}
+                                    onDateSelect={(date) => setSelectedDate(date)}
+                                    selectedDate={selectedDate}
+                                    paymentMode={paymentMode}
+                                    installmentPrice={showInstallments ? installmentAmount : undefined}
+                                  />
+                                );
+                              })}
+                            </div>
+
+                            {/* Desktop View: Existing grid cards */}
+                            {/* Dynamic grid: centers when 1 package, spreads when multiple */}
+                            <div className={`hidden md:grid md:gap-6 md:items-start ${packagesToShow.length === 1 ? 'md:grid-cols-1 max-w-md mx-auto' : packagesToShow.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
+                              {packagesToShow.map((pkg) => {
+                                let rawFeatures = quote.tierDeliverables?.[pkg.tier === 'essential' ? 'essential' : pkg.tier === 'enhanced' ? 'hassleFree' : 'highStandard'] ||
+                                  getPerksForTier(quote, pkg.tier as 'essential' | 'enhanced' | 'elite');
+
+                                // [STRATEGY] Productize BY Segment (Ramanujam)
+                                // Each segment sees ONLY their product, not multiple tiers
+                                // Feature customization per segment
+                                const getFutureDate = (days: number) => {
+                                  const date = new Date();
+                                  date.setDate(date.getDate() + days);
+                                  return date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+                                };
+
+                                // BUSY_PRO: Only sees Priority Service (filtered to 'enhanced' tier)
+                                if (quote.segment === 'BUSY_PRO') {
+                                  rawFeatures = [
+                                    `⚡ Guaranteed Slot: ${getFutureDate(4)}`,
+                                    "⏱️ Precise 1-Hour Arrival Window",
+                                    "🛡️ 90-day workmanship guarantee",
+                                    "📞 Direct specialist contact number",
+                                    "📅 Evening & Weekend slots available",
+                                    "✨ Full cleanup & waste removal"
+                                  ];
+                                } else if (quote.segment === 'OLDER_WOMAN') {
+                                  if (pkg.tier === 'enhanced') {
+                                    // PRIORITY = Helpfulness + Safety
+                                    pkg.name = "Peace of Mind";
+                                    rawFeatures = [
+                                      "⏱️ Exact Arrival Appointment (No waiting)",
+                                      "🛋️ Assistance Moving Furniture",
+                                      "💡 10-min 'Helpful Hand' (Lightbulbs etc)",
+                                      "📄 Paper Invoice Provided",
+                                      "✨ Full Cleanup & Waste Removal",
+                                      "🛡️ 12-Month Warranty"
+                                    ];
+                                  } else if (pkg.tier === 'elite') {
+                                    // ELITE = VIP
+                                    pkg.name = "VIP Service";
+                                    rawFeatures = [
+                                      "🚀 Immediate Priority Booking",
+                                      "💬 Dedicated Office Contact",
+                                      "🛡️ Extended 2-Year Warranty",
+                                      "📹 Video Confirmation for Family",
+                                      "✨ Deep Clean of Work Area",
+                                      "🎁 Seasonal Maintenance Check"
+                                    ];
+                                  } else if (pkg.tier === 'essential') {
+                                    // STANDARD
+                                    pkg.name = "Standard Service";
+                                    rawFeatures = [
+                                      `Available from ${getFutureDate(14)}`,
+                                      "Standard Arrival Window",
+                                      "Quality Workmanhip",
+                                      "Cleanup Included",
+                                      "Digital Invoice Only"
+                                    ];
+                                  }
+                                }
+
+                                // [STRATEGY] Emoji Stripper: Regex to remove emoji characters from features
+                                // [STRATEGY] Emoji Stripper: Safer regex for broad compatibility
+                                const stripEmojis = (str: string) => {
+                                  try {
+                                    // Simply remove everything that isn't ASCII text, numbers, punctuation, or common symbols
+                                    // This is safer than targetting specific emoji ranges which varies by browser/engine
+                                    return str.replace(/[^\x00-\x7F\u00A0-\u00FF]/g, '').trim().replace(/\s\s+/g, ' ');
+                                  } catch (e) {
+                                    return str;
+                                  }
+                                };
+
+                                // Icon mapping for BUSY_PRO features (high quality Lucide icons)
+                                const getFeatureIcon = (feature: string): React.ComponentType<{ className?: string }> => {
+                                  const f = feature.toLowerCase();
+                                  if (f.includes('arrival') || f.includes('window') || f.includes('time')) return Clock;
+                                  if (f.includes('scheduling') || f.includes('week') || f.includes('slot')) return Calendar;
+                                  if (f.includes('photo') || f.includes('video')) return Camera;
+                                  if (f.includes('guarantee') || f.includes('warranty')) return Shield;
+                                  if (f.includes('contact') || f.includes('whatsapp') || f.includes('phone')) return Phone;
+                                  if (f.includes('small fix') || f.includes('fixes')) return Wrench;
+                                  if (f.includes('cleanup') || f.includes('clean')) return Sparkles;
+                                  if (f.includes('quality') || f.includes('workmanship')) return Award;
+                                  if (f.includes('48-hour') || f.includes('asap') || f.includes('express')) return Zap;
+                                  if (f.includes('materials')) return Package;
+                                  return Check; // Default fallback
+                                };
+
+                                const features = Array.from(new Set((rawFeatures || []).map(f => typeof f === 'string' ? stripEmojis(f) : f)));
+                                const isExpanded = expandedTiers.has(pkg.tier);
+                                // Show all features for Enhanced (Priority) tier by default, otherwise limit to 4
+                                const showAllByDefault = pkg.tier === 'enhanced';
+                                const visibleFeatures = showAllByDefault || isExpanded ? features : features.slice(0, 4);
+                                const hasMoreFeatures = !showAllByDefault && features.length > 4;
+
+                                const isTier1 = pkg.tier === 'essential';
+                                const isTier2or3 = pkg.tier === 'enhanced' || pkg.tier === 'elite';
+                                const showInstallments = isTier2or3 && paymentMode === 'installments';
+
+                                const extrasTotal = selectedExtras.reduce((sum, label) => {
+                                  const extra = quote.optionalExtras?.find(e => e.label === label);
+                                  return sum + (extra?.priceInPence || 0);
+                                }, 0);
+
+                                const baseJobPrice = pkg.price + extrasTotal;
+                                const LENIENCY_FEE_RATE = 0.10;
+                                const convenienceFee = showInstallments ? Math.round(baseJobPrice * LENIENCY_FEE_RATE) : 0;
+                                const totalWithFee = baseJobPrice + convenienceFee;
+
+                                const depositAmount = calculateDeposit(pkg.price);
+                                const remainingBalance = Math.max(0, (showInstallments ? totalWithFee : baseJobPrice) - depositAmount);
+                                const installmentAmount = Math.round(remainingBalance / 3);
+
+                                const tierStyles = {
+                                  essential: { bg: 'bg-gradient-to-br from-slate-50 via-white to-green-50/30 border-slate-200', badge: null, badgeColor: '', badgeText: '' },
+                                  enhanced: { bg: 'bg-gradient-to-br from-green-100 via-emerald-50 to-white border-[#7DB00E]', badge: 'MOST POPULAR', badgeColor: 'bg-[#7DB00E]', badgeText: 'text-[#1D2D3D]' },
+                                  elite: { bg: 'bg-gradient-to-br from-amber-50 via-white to-yellow-50/40 border-slate-200', badge: 'PREMIUM', badgeColor: 'bg-[#1D2D3D]', badgeText: 'text-white' }
+                                };
+                                const style = tierStyles[pkg.tier as keyof typeof tierStyles];
+                                const isDisabled = isTier1 && paymentMode === 'installments';
+
+                                return (
+                                  <motion.div
+                                    key={pkg.tier}
+                                    id={`package-tier-card-${pkg.tier}`} // ID for scroll target
+                                    initial={{ opacity: 0, x: -20 }}
+                                    whileInView={{ opacity: 1, x: 0 }}
+                                    transition={{ duration: 0.5 }}
+                                    className={`relative transition-all duration-300 ${isDisabled ? 'opacity-50 pointer-events-none grayscale blur-[2px] scale-95' : ''}`}
+                                  >
+                                    <div id={`package-tier-card-${pkg.tier}`} className={`${style.bg} rounded-2xl overflow-hidden border ${pkg.tier === 'enhanced' ? 'border-2 shadow-2xl ring-4 ring-[#7DB00E]/20 scale-[1.05] z-10' : 'shadow-sm hover:shadow-md'} transition-all duration-300`}>
+                                      {style.badge && (
+                                        <div className={`${style.badgeColor} ${style.badgeText} text-center py-1.5 text-[10px] font-black tracking-wider uppercase flex justify-center items-center gap-2 whitespace-nowrap`}>
+                                          {pkg.tier === 'enhanced' && <Star className="w-3 h-3 fill-current" />}
+                                          {style.badge}
+                                          {pkg.tier === 'enhanced' && <Star className="w-3 h-3 fill-current" />}
+                                        </div>
+                                      )}
+                                      <div className="p-6 md:p-8">
+                                        <div className="flex justify-between items-start mb-4">
+                                          <div>
+                                            <div className="flex items-center gap-2 mb-1">
+                                              {pkg.tier === 'essential' && <Wrench className="w-4 h-4 text-slate-400" />}
+                                              {pkg.tier === 'enhanced' && <Zap className="w-4 h-4 text-[#7DB00E]" />}
+                                              {pkg.tier === 'elite' && <Crown className="w-4 h-4 text-amber-500" />}
+                                              <h3 className="text-xl font-bold text-slate-900">{pkg.name}</h3>
+                                            </div>
+                                            <p className="text-slate-500 text-xs">{pkg.description}</p>
+                                          </div>
+                                          <div className="flex flex-col items-end gap-2">
+                                            {pkg.tier === 'enhanced' && (
+                                              <>
+                                                <NeonBadge
+                                                  text={
+                                                    quote.segment === 'BUSY_PRO' ? 'Priority' :
+                                                      (quote.segment === 'SMALL_BIZ' || quote.segment === 'PROP_MGR') ? 'Disruption-Free' :
+                                                        'Best Value'
+                                                  }
+                                                  color="green"
+                                                  icon={Zap}
+                                                />
+                                                {/* Social Proof (Decoy Effect - Cialdini 1984) */}
+                                                {quote.segment === 'BUSY_PRO' ? (
+                                                  <div className="flex items-center gap-1.5 bg-blue-500/20 text-blue-400 px-2 py-1 rounded-lg text-[10px] font-bold">
+                                                    <User className="w-3 h-3" />
+                                                    78% choose this
+                                                  </div>
+                                                ) : (
+                                                  <div className="flex items-center gap-1.5 bg-amber-500/20 text-amber-400 px-2 py-1 rounded-lg text-[10px] font-bold">
+                                                    <User className="w-3 h-3" />
+                                                    Mike Recommends
+                                                  </div>
+                                                )}
+                                              </>
+                                            )}
+                                            {pkg.tier === 'elite' && <NeonBadge text="Fast Track" color="amber" icon={Clock} />}
+                                          </div>
+                                        </div>
+
+                                        {/* Date Slot Slider - Interactive Availability */}
+                                        <div className="mb-6">
+                                          <div className="flex justify-between items-baseline mb-3">
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                              {pkg.tier === 'elite' ? 'VIP Availability' : pkg.tier === 'enhanced' ? 'Priority Slots' : 'Estimated Start'}
+                                            </p>
+                                            {pkg.tier === 'elite' && (
+                                              <span className="text-[9px] font-bold text-[#7DB00E] bg-[#7DB00E]/10 px-1.5 py-0.5 rounded-full animate-pulse">
+                                                LIVE
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="-mx-1 overflow-x-auto pb-4 pt-2 flex gap-2 no-scrollbar snap-x">
+                                            {(() => {
+                                              // Scarcity Logic & Extended Range
+                                              const startOffset = pkg.tier === 'elite' ? 1 : pkg.tier === 'enhanced' ? 4 : 14;
+                                              let currentDate = new Date();
+                                              currentDate.setDate(currentDate.getDate() + startOffset);
+
+                                              // Generate 12 days to show full scope
+                                              const dates = [];
+                                              let daysAdded = 0;
+                                              while (daysAdded < 12) {
+                                                // Handle "No Sundays" rule globally if needed, currently we skip them in loop if we want business days only
+                                                // But for scarcity visuals, showing weekends as "Booked" is better for Standard tier
+                                                const d = new Date(currentDate);
+                                                dates.push(d);
+                                                currentDate.setDate(currentDate.getDate() + 1);
+                                                daysAdded++;
+                                              }
+
+                                              return dates.map((slotDate, idx) => {
+                                                const isWeekend = slotDate.getDay() === 0 || slotDate.getDay() === 6;
+                                                // Standard (essential) cannot book weekends
+                                                const isRestrictedWeekend = pkg.tier === 'essential' && isWeekend;
+
+                                                // Fake "Booked" status for scarcity (30% chance), but never the first slot
+                                                const isFullyBooked = idx > 0 && (Math.random() < 0.3 || isRestrictedWeekend);
+
+                                                const isAvailable = !isFullyBooked;
+                                                const isSelected = idx === 0;
+
+                                                return (
+                                                  <div
+                                                    key={idx}
+                                                    className={`snap-start flex-shrink-0 border rounded-lg p-2 min-w-[90px] text-center relative overflow-hidden transition-all ${!isAvailable
+                                                      ? 'border-slate-100 bg-slate-50 opacity-60 grayscale border-dashed'
+                                                      : isSelected
+                                                        ? 'border-[#7DB00E]/30 bg-[#7DB00E]/5'
+                                                        : 'border-slate-100 bg-white/80'
+                                                      }`}
+                                                  >
+                                                    <div className={`text-[10px] uppercase font-bold mb-0.5 ${!isAvailable ? 'text-slate-300' : isSelected ? 'text-[#7DB00E]' : 'text-slate-400'}`}>
+                                                      {idx === 0 && pkg.tier === 'elite' ? 'Tomrw' : slotDate.toLocaleDateString('en-GB', { weekday: 'short' })}
+                                                    </div>
+
+                                                    <div className={`text-lg font-bold leading-none mb-1 ${!isAvailable ? 'text-slate-300' : isSelected ? 'text-slate-900' : 'text-slate-600'}`}>
+                                                      {slotDate.getDate()}
+                                                    </div>
+
+                                                    <div className={`text-[9px] font-medium ${!isAvailable ? 'text-slate-300' : 'text-slate-400'}`}>
+                                                      {!isAvailable
+                                                        ? (isRestrictedWeekend ? 'Unavailable' : 'Fully Booked')
+                                                        : slotDate.toLocaleDateString('en-GB', { month: 'short' })
+                                                      }
+                                                    </div>
+
+                                                    {/* Strikethrough for booked dates */}
+                                                    {!isAvailable && (
+                                                      <div className="absolute inset-0 flex items-center justify-center">
+                                                        <div className="w-full h-[1px] bg-slate-200 -rotate-12"></div>
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                );
+                                              });
+                                            })()}
+                                          </div>
+                                        </div>
+
+                                        <div className="mb-6">
+                                          <div className="flex items-baseline gap-2">
+                                            <span className={`text-3xl font-bold text-slate-900`}>£{formatPrice(showInstallments ? depositAmount : pkg.price)}</span>
+                                            <span className="text-slate-400 text-xs font-medium">{showInstallments ? 'deposit' : 'fixed price'}</span>
+                                          </div>
+
+                                          {/* Per-week breakdown - Only show if not installments */}
+                                          {!showInstallments && (
+                                            <div className="mt-1 text-slate-400/70 text-[10px]">
+                                              Just £{(pkg.price / 100 / 52).toFixed(2)}/week over warranty period
+                                            </div>
+                                          )}
+
+                                          {/* Warranty end date */}
+                                          <div className="mt-2 flex items-center gap-1.5 text-slate-500 text-[10px]">
+                                            <Shield className="w-3 h-3 text-[#7DB00E]" />
+                                            <span>Covered until {format(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), 'MMMM yyyy')}</span>
+                                          </div>
+
+                                          {/* Money Back Guarantee Badge */}
+                                          <div className="mt-2 flex items-center gap-1.5 text-[9px] uppercase font-bold text-[#7DB00E] bg-[#7DB00E]/10 px-2 py-1 rounded w-fit">
+                                            <ShieldCheck className="w-3 h-3" />
+                                            100% Money Back Guarantee
+                                          </div>
+
+                                          {/* Installments info */}
+                                          {showInstallments && (
+                                            <div className="mt-2 flex items-center gap-2 text-[#7DB00E] font-medium text-sm">
+                                              <SiKlarna className="w-4 h-4" />
+                                              <span>+ 3 payments of £{formatPrice(installmentAmount)}</span>
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        <div className="space-y-3 mb-6">
+                                          {visibleFeatures.map((f, i) => {
+                                            const FeatureIcon = getFeatureIcon(f as string);
+                                            return (
+                                              <div key={i} className="flex gap-3 text-sm text-slate-600">
+                                                <FeatureIcon className="w-4 h-4 text-[#7DB00E] mt-0.5 flex-shrink-0" />
+                                                <span>{f}</span>
+                                              </div>
+                                            );
+                                          })}
+                                          {hasMoreFeatures && (
+                                            <button
+                                              onClick={() => setExpandedTiers(prev => {
+                                                const n = new Set(prev);
+                                                n.has(pkg.tier) ? n.delete(pkg.tier) : n.add(pkg.tier);
+                                                return n;
+                                              })}
+                                              className="text-xs text-slate-400 hover:text-slate-500 underline underline-offset-4"
+                                            >
+                                              {isExpanded ? 'Show less' : `+${features.length - 4} more details`}
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </motion.div>
+                                );
+                              })}
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
                   </ExpertSpecSheet>
@@ -2574,179 +2764,361 @@ export default function PersonalizedQuotePage() {
                   </div>
                 </div>
               )}
-
-              {/* Optional Extras for HHH Mode */}
-              {quote.optionalExtras && quote.optionalExtras.length > 0 && selectedEEEPackage && quote.quoteMode === 'hhh' && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mt-12"
-                >
-                  <h3 className="text-2xl font-bold mb-6 text-center">Popular Add-Ons</h3>
-                  <div className="space-y-4">
-                    {quote.optionalExtras.map((extra: any, idx: number) => (
-                      <label
-                        key={idx}
-                        className={`flex items-start gap-4 p-6 rounded-2xl cursor-pointer transition-all border-2 ${selectedExtras.includes(extra.label)
-                          ? 'bg-[#7DB00E]/10 border-[#7DB00E]'
-                          : 'bg-white/5 border-white/10 hover:border-white/20'
-                          }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedExtras.includes(extra.label)}
-                          onChange={() => toggleExtra(extra.label)}
-                          className="mt-1 w-5 h-5 rounded border-gray-500 text-[#7DB00E] focus:ring-[#7DB00E]"
-                        />
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-bold text-lg">{extra.label}</span>
-                            <span className="text-[#7DB00E] font-bold text-xl">+£{formatPrice(extra.priceInPence)}</span>
-                          </div>
-                          <p className="text-white/60 text-sm">{extra.description}</p>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Payment Section */}
-              {showPaymentForm && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`mt-16 rounded-3xl p-8 border ${quote.clientType === 'commercial' ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200 shadow-xl'}`}
-                  id="confirm-button"
-                >
-                  <h3 className={`text-2xl font-bold mb-6 text-center ${quote.clientType === 'commercial' ? 'text-white' : 'text-slate-900'}`}>Complete Your Booking</h3>
-
-                  {(() => {
-                    // Theme Logic
-                    const isDarkTheme = quote.clientType === 'commercial';
-                    const styles = {
-                      container: isDarkTheme ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200 shadow-xl',
-                      label: isDarkTheme ? 'text-gray-400' : 'text-slate-500',
-                      subLabel: isDarkTheme ? 'text-gray-300' : 'text-slate-600',
-                      value: isDarkTheme ? 'text-white' : 'text-slate-900',
-                      depositBox: 'bg-[#7DB00E]/10',
-                      depositLabel: isDarkTheme ? 'text-white' : 'text-[#1D2D3D]',
-                      depositValue: 'text-[#7DB00E]'
-                    };
-
-                    // For HHH mode, use selected package
-                    const selectedPackage = quote.quoteMode === 'hhh' ? packages.find(p => p.tier === selectedEEEPackage) : null;
-
-                    // For simple mode, use basePrice
-                    const basePrice = quote.quoteMode === 'simple' ? (quote.basePrice || 0) : (selectedPackage?.price || 0);
-
-                    if (quote.quoteMode === 'hhh' && !selectedPackage) return null;
-
-                    const extrasTotal = selectedExtras.reduce((sum, label) => {
-                      const extra = quote.optionalExtras?.find(e => e.label === label);
-                      return sum + (extra?.priceInPence || 0);
-                    }, 0);
-
-                    const baseJobPrice = basePrice + extrasTotal;
-                    const isTier1 = selectedPackage?.tier === 'essential';
-                    const isInstallmentsMode = !isTier1 && paymentMode === 'installments';
-
-                    const LENIENCY_FEE_RATE = 0.10;
-                    const convenienceFee = isInstallmentsMode ? Math.round(baseJobPrice * LENIENCY_FEE_RATE) : 0;
-                    const totalWithFee = baseJobPrice + convenienceFee;
-
-                    const materialsCost = quote.materialsCostWithMarkupPence || 0;
-                    const jobCostExcludingMaterials = Math.max(0, baseJobPrice - materialsCost);
-                    const totalDeposit = materialsCost + Math.round(jobCostExcludingMaterials * 0.30);
-                    const remainingBalance = Math.max(0, (isInstallmentsMode ? totalWithFee : baseJobPrice) - totalDeposit);
-                    const monthlyInstallment = Math.round(remainingBalance / 3);
-
-                    return (
-                      <>
-                        <div className={`mb-6 space-y-4 p-4 rounded-lg block ${styles.container} !p-0 !bg-transparent !border-0 !shadow-none`}>
-                          {/* Note: The outer container styles are applied to the parent motion.div, we override here just in case but really we need to act on the PARENT of this h3 */}
-
-                          {isInstallmentsMode ? (
-                            <>
-                              <div className="space-y-2 mb-3">
-                                <div className={`text-xs ${styles.label} mb-2`}>Deposit breakdown:</div>
-                                <div className="flex justify-between gap-4 text-sm">
-                                  <span className={`${styles.subLabel}`}>Materials (100% upfront):</span>
-                                  <span className={`${styles.value}`}>£{Math.round(materialsCost / 100)}</span>
-                                </div>
-                                <div className="flex justify-between gap-4 text-sm">
-                                  <span className={`${styles.subLabel}`}>Labour booking fee (30%):</span>
-                                  <span className={`${styles.value}`}>£{Math.round((jobCostExcludingMaterials * 0.30) / 100)}</span>
-                                </div>
-                                <div className={`flex justify-between gap-4 ${styles.depositBox} -mx-2 px-2 py-2 rounded mt-2`}>
-                                  <span className={`font-bold ${styles.depositLabel}`}>Total deposit today:</span>
-                                  <span className={`font-bold ${styles.depositValue} text-lg`}>£{Math.round(totalDeposit / 100)}</span>
-                                </div>
-                              </div>
-                              <div className="space-y-2">
-                                <div className={`text-sm ${styles.label} mb-1`}>Then 3 monthly payments of:</div>
-                                <div className="flex justify-between gap-4 bg-gray-600/50 -mx-2 px-2 py-2 rounded">
-                                  <span className="font-semibold text-white">Monthly payment:</span>
-                                  <span className="font-semibold text-white text-lg">£{Math.round(monthlyInstallment / 100)}</span>
-                                </div>
-                              </div>
-                            </>
-                          ) : (
-                            <>
-                              <div className="space-y-2 mb-3">
-                                <div className={`text-xs ${styles.label} mb-2`}>Deposit breakdown:</div>
-                                <div className="flex justify-between gap-4 text-sm">
-                                  <span className={`${styles.subLabel}`}>Materials (100% upfront):</span>
-                                  <span className={`${styles.value}`}>£{Math.round(materialsCost / 100)}</span>
-                                </div>
-                                <div className="flex justify-between gap-4 text-sm">
-                                  <span className={`${styles.subLabel}`}>Labour booking fee (30%):</span>
-                                  <span className={`${styles.value}`}>£{Math.round((jobCostExcludingMaterials * 0.30) / 100)}</span>
-                                </div>
-                              </div>
-                              <div className={`flex justify-between gap-4 ${styles.depositBox} -mx-2 px-2 py-2 rounded`}>
-                                <span className={`font-bold ${styles.depositLabel}`}>Total deposit today:</span>
-                                <span className={`font-bold ${styles.depositValue} text-xl`}>£{Math.round(totalDeposit / 100)}</span>
-                              </div>
-                            </>
-                          )}
-                        </div>
-
-                        {stripePromise ? (
-                          <Elements
-                            stripe={stripePromise}
-                            key={`${selectedEEEPackage}-${isInstallmentsMode ? 'installments' : 'full'}-${selectedExtras.join(',')}`}
-                          >
-                            <PaymentForm
-                              amount={totalDeposit}
-                              customerName={quote.customerName || ''}
-                              customerEmail={quote.email || ''}
-                              quoteId={quote.id}
-                              selectedTier={selectedEEEPackage || 'essential'}
-                              selectedTierPrice={totalWithFee}
-                              selectedExtras={selectedExtras}
-                              paymentType={isInstallmentsMode ? 'installments' : 'full'}
-                              onSuccess={handleBooking}
-                              onError={(error) => {
-                                toast({
-                                  title: 'Payment Failed',
-                                  description: error,
-                                  variant: 'destructive',
-                                });
-                              }}
-                            />
-                          </Elements>
-                        ) : (
-                          <div className="text-center p-4 bg-red-900/20 border border-red-500 rounded-lg">
-                            <p className="text-red-400">Payment system is not configured. Please contact support.</p>
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
-                </motion.div>
-              )}
             </motion.div>
+
+            {/* [RAMANUJAM] BUSY_PRO Productization Choices */}
+            {/* Only show AFTER user has approved the base product */}
+            {quote.segment === 'BUSY_PRO' && selectedEEEPackage && quote.quoteMode === 'hhh' && hasApprovedProduct && (
+              <motion.div
+                id="timing-choices"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-12 space-y-8"
+              >
+                {/* SECTION 1: When Do You Need It? (Date Selection) */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-sm">
+                  <h3 className="text-2xl font-bold mb-2 text-slate-900 flex items-center gap-2">
+                    <Calendar className="w-6 h-6 text-[#7DB00E]" />
+                    When Do You Need It?
+                  </h3>
+                  <p className="text-slate-600 text-sm mb-6">
+                    Select your preferred date. Pricing varies by urgency and day of week.
+                  </p>
+
+                  {!hasApprovedProduct ? (
+                    // Locked state - show message prompting user to click CTA
+                    <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl p-8 text-center">
+                      <Lock className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+                      <p className="text-slate-600 font-medium mb-2">
+                        Date selection is locked
+                      </p>
+                      <p className="text-slate-500 text-sm">
+                        Click "Approve and check dates" above to unlock date selection
+                      </p>
+                    </div>
+                  ) : (
+                    // Unlocked state - show calendar only
+                    <DatePricingCalendar
+                      onDateSelect={(date, tier, fee, isWeekend) => {
+                        setSelectedCalendarDate(date);
+                        setSchedulingTier(tier);
+                        setDateFee(fee);
+                        setIsWeekendBooking(isWeekend);
+                      }}
+                    />
+                  )}
+                </div>
+
+                {/* SECTION 2: What Time Works Best? (Time Selection) */}
+                {selectedCalendarDate && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-sm"
+                  >
+                    <h3 className="text-2xl font-bold mb-2 text-slate-900 flex items-center gap-2">
+                      <Clock className="w-6 h-6 text-[#7DB00E]" />
+                      What Time Works Best?
+                    </h3>
+                    <p className="text-slate-600 text-sm mb-6">
+                      Select your preferred arrival time window
+                    </p>
+
+                    {/* Always show time selector since this section only appears when date is selected */}
+                    <TimeSlotSelector
+                      selectedDate={selectedCalendarDate}
+                      onTimeSelect={(type, exactTimeStr, fee) => {
+                        setTimeSlotType(type);
+                        setExactTime(exactTimeStr);
+                        setTimeFee(fee);
+                      }}
+                    />
+                  </motion.div>
+                )}
+
+                {/* SECTION 3: While I'm There - Add More Jobs? */}
+                {selectedCalendarDate && (timeSlotType || exactTime) && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                  >
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6 md:p-8 shadow-sm">
+                      <h3 className="text-2xl font-bold mb-2 text-slate-900 flex items-center gap-2">
+                        <Wrench className="w-6 h-6 text-[#7DB00E]" />
+                        While I'm There - Add More Jobs?
+                      </h3>
+                      <p className="text-slate-600 text-sm mb-6">Bundle other tasks - avoid another trip fee</p>
+
+                      <div className="space-y-3">
+                        {/* No Extra Tasks */}
+                        <label
+                          className={`flex items-start gap-4 p-5 rounded-xl cursor-pointer transition-all border-2 ${whileImThereBundle === 'none'
+                            ? 'bg-[#7DB00E]/10 border-[#7DB00E] shadow-lg'
+                            : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                            }`}>
+                          <input
+                            type="radio"
+                            name="bundle"
+                            checked={whileImThereBundle === 'none'}
+                            onChange={() => setWhileImThereBundle('none')}
+                            className="mt-1 w-5 h-5 text-[#7DB00E] focus:ring-[#7DB00E]"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-bold text-lg text-slate-900">Just the Main Job</span>
+                              <span className="text-slate-500 font-bold text-lg">£0</span>
+                            </div>
+                            <p className="text-slate-600 text-sm">No additional tasks</p>
+                          </div>
+                        </label>
+
+                        {/* 1 Quick Task */}
+                        <label
+                          className={`flex items-start gap-4 p-5 rounded-xl cursor-pointer transition-all border-2 ${whileImThereBundle === 'quick'
+                            ? 'bg-[#7DB00E]/10 border-[#7DB00E] shadow-lg'
+                            : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                            }`}>
+                          <input
+                            type="radio"
+                            name="bundle"
+                            checked={whileImThereBundle === 'quick'}
+                            onChange={() => setWhileImThereBundle('quick')}
+                            className="mt-1 w-5 h-5 text-[#7DB00E] focus:ring-[#7DB00E]"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-bold text-lg text-slate-900">1 Quick Task (up to 10 mins)</span>
+                              <span className="text-[#7DB00E] font-bold text-xl">+£20</span>
+                            </div>
+                            <p className="text-slate-600 text-sm">Hang mirror, lightbulb, shelf, etc.</p>
+                          </div>
+                        </label>
+
+                        {/* 2-3 Small Tasks */}
+                        <label
+                          className={`flex items-start gap-4 p-5 rounded-xl cursor-pointer transition-all border-2 ${whileImThereBundle === 'small'
+                            ? 'bg-[#7DB00E]/10 border-[#7DB00E] shadow-lg'
+                            : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                            }`}>
+                          <input
+                            type="radio"
+                            name="bundle"
+                            checked={whileImThereBundle === 'small'}
+                            onChange={() => setWhileImThereBundle('small')}
+                            className="mt-1 w-5 h-5 text-[#7DB00E] focus:ring-[#7DB00E]"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-bold text-lg text-slate-900">2-3 Small Tasks (up to 20 mins)</span>
+                              <span className="text-[#7DB00E] font-bold text-xl">+£45</span>
+                            </div>
+                            <p className="text-slate-600 text-sm">Your "honey-do" list done in one visit</p>
+                          </div>
+                        </label>
+
+                        {/* Half-Hour Bundle */}
+                        <label
+                          className={`flex items-start gap-4 p-5 rounded-xl cursor-pointer transition-all border-2 ${whileImThereBundle === 'half_hour'
+                            ? 'bg-[#7DB00E]/10 border-[#7DB00E] shadow-lg'
+                            : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                            }`}>
+                          <input
+                            type="radio"
+                            name="bundle"
+                            checked={whileImThereBundle === 'half_hour'}
+                            onChange={() => setWhileImThereBundle('half_hour')}
+                            className="mt-1 w-5 h-5 text-[#7DB00E] focus:ring-[#7DB00E]"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-bold text-lg text-slate-900">Half-Hour Job Bundle</span>
+                              <span className="text-[#7DB00E] font-bold text-xl">+£75</span>
+                            </div>
+                            <p className="text-slate-600 text-sm">Multiple tasks - maximum efficiency</p>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+                )
+
+
+                {/* Optional Extras for HHH Mode */}
+                {quote.optionalExtras && quote.optionalExtras.length > 0 && selectedEEEPackage && quote.quoteMode === 'hhh' && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-12"
+                  >
+                    <h3 className="text-2xl font-bold mb-6 text-center text-slate-900">Popular Add-Ons</h3>
+                    <div className="space-y-4">
+                      {quote.optionalExtras.map((extra: any, idx: number) => (
+                        <label
+                          key={idx}
+                          className={`flex items-start gap-4 p-6 rounded-2xl cursor-pointer transition-all border-2 ${selectedExtras.includes(extra.label)
+                            ? 'bg-[#7DB00E]/10 border-[#7DB00E]'
+                            : 'bg-white border-slate-200 hover:border-slate-300'
+                            }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedExtras.includes(extra.label)}
+                            onChange={() => toggleExtra(extra.label)}
+                            className="mt-1 w-5 h-5 rounded border-gray-500 text-[#7DB00E] focus:ring-[#7DB00E]"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-bold text-lg text-slate-900">{extra.label}</span>
+                              <span className="text-[#7DB00E] font-bold text-xl">+£{formatPrice(extra.priceInPence)}</span>
+                            </div>
+                            <p className="text-slate-600 text-sm">{extra.description}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Payment Section */}
+                {showPaymentForm && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`mt-16 rounded-3xl p-8 border ${quote.clientType === 'commercial' ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200 shadow-xl'}`}
+                    id="confirm-button"
+                  >
+                    <h3 className={`text-2xl font-bold mb-6 text-center ${quote.clientType === 'commercial' ? 'text-white' : 'text-slate-900'}`}>Complete Your Booking</h3>
+
+                    {(() => {
+                      // Theme Logic
+                      const isDarkTheme = quote.clientType === 'commercial';
+                      const styles = {
+                        container: isDarkTheme ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200 shadow-xl',
+                        label: isDarkTheme ? 'text-gray-400' : 'text-slate-500',
+                        subLabel: isDarkTheme ? 'text-gray-300' : 'text-slate-600',
+                        value: isDarkTheme ? 'text-white' : 'text-slate-900',
+                        depositBox: 'bg-[#7DB00E]/10',
+                        depositLabel: isDarkTheme ? 'text-white' : 'text-[#1D2D3D]',
+                        depositValue: 'text-[#7DB00E]'
+                      };
+
+                      // For HHH mode, use selected package
+                      const selectedPackage = quote.quoteMode === 'hhh' ? packages.find(p => p.tier === selectedEEEPackage) : null;
+
+                      // For simple mode, use basePrice
+                      const basePrice = quote.quoteMode === 'simple' ? (quote.basePrice || 0) : (selectedPackage?.price || 0);
+
+                      if (quote.quoteMode === 'hhh' && !selectedPackage) return null;
+
+                      const extrasTotal = selectedExtras.reduce((sum, label) => {
+                        const extra = quote.optionalExtras?.find(e => e.label === label);
+                        return sum + (extra?.priceInPence || 0);
+                      }, 0);
+
+                      // [RAMANUJAM] Add BUSY_PRO productization adjustments
+                      const busyProAdjustments = calculateBusyProAdjustments();
+                      const baseJobPrice = basePrice + extrasTotal + busyProAdjustments.schedulingFee + busyProAdjustments.bundlePrice;
+                      const isTier1 = selectedPackage?.tier === 'essential';
+                      const isInstallmentsMode = !isTier1 && paymentMode === 'installments';
+
+                      const LENIENCY_FEE_RATE = 0.10;
+                      const convenienceFee = isInstallmentsMode ? Math.round(baseJobPrice * LENIENCY_FEE_RATE) : 0;
+                      const totalWithFee = baseJobPrice + convenienceFee;
+
+                      const materialsCost = quote.materialsCostWithMarkupPence || 0;
+                      const jobCostExcludingMaterials = Math.max(0, baseJobPrice - materialsCost);
+                      const totalDeposit = materialsCost + Math.round(jobCostExcludingMaterials * 0.30);
+                      const remainingBalance = Math.max(0, (isInstallmentsMode ? totalWithFee : baseJobPrice) - totalDeposit);
+                      const monthlyInstallment = Math.round(remainingBalance / 3);
+
+                      return (
+                        <>
+                          <div className={`mb-6 space-y-4 p-4 rounded-lg block ${styles.container} !p-0 !bg-transparent !border-0 !shadow-none`}>
+                            {/* Note: The outer container styles are applied to the parent motion.div, we override here just in case but really we need to act on the PARENT of this h3 */}
+
+                            {isInstallmentsMode ? (
+                              <>
+                                <div className="space-y-2 mb-3">
+                                  <div className={`text-xs ${styles.label} mb-2`}>Deposit breakdown:</div>
+                                  <div className="flex justify-between gap-4 text-sm">
+                                    <span className={`${styles.subLabel}`}>Materials (100% upfront):</span>
+                                    <span className={`${styles.value}`}>£{Math.round(materialsCost / 100)}</span>
+                                  </div>
+                                  <div className="flex justify-between gap-4 text-sm">
+                                    <span className={`${styles.subLabel}`}>Labour booking fee (30%):</span>
+                                    <span className={`${styles.value}`}>£{Math.round((jobCostExcludingMaterials * 0.30) / 100)}</span>
+                                  </div>
+                                  <div className={`flex justify-between gap-4 ${styles.depositBox} -mx-2 px-2 py-2 rounded mt-2`}>
+                                    <span className={`font-bold ${styles.depositLabel}`}>Total deposit today:</span>
+                                    <span className={`font-bold ${styles.depositValue} text-lg`}>£{Math.round(totalDeposit / 100)}</span>
+                                  </div>
+                                </div>
+                                <div className="space-y-2">
+                                  <div className={`text-sm ${styles.label} mb-1`}>Then 3 monthly payments of:</div>
+                                  <div className="flex justify-between gap-4 bg-gray-600/50 -mx-2 px-2 py-2 rounded">
+                                    <span className="font-semibold text-white">Monthly payment:</span>
+                                    <span className="font-semibold text-white text-lg">£{Math.round(monthlyInstallment / 100)}</span>
+                                  </div>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="space-y-2 mb-3">
+                                  <div className={`text-xs ${styles.label} mb-2`}>Deposit breakdown:</div>
+                                  <div className="flex justify-between gap-4 text-sm">
+                                    <span className={`${styles.subLabel}`}>Materials (100% upfront):</span>
+                                    <span className={`${styles.value}`}>£{Math.round(materialsCost / 100)}</span>
+                                  </div>
+                                  <div className="flex justify-between gap-4 text-sm">
+                                    <span className={`${styles.subLabel}`}>Labour booking fee (30%):</span>
+                                    <span className={`${styles.value}`}>£{Math.round((jobCostExcludingMaterials * 0.30) / 100)}</span>
+                                  </div>
+                                </div>
+                                <div className={`flex justify-between gap-4 ${styles.depositBox} -mx-2 px-2 py-2 rounded`}>
+                                  <span className={`font-bold ${styles.depositLabel}`}>Total deposit today:</span>
+                                  <span className={`font-bold ${styles.depositValue} text-xl`}>£{Math.round(totalDeposit / 100)}</span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          {stripePromise ? (
+                            <Elements
+                              stripe={stripePromise}
+                              key={`${selectedEEEPackage}-${isInstallmentsMode ? 'installments' : 'full'}-${selectedExtras.join(',')}`}
+                            >
+                              <PaymentForm
+                                amount={totalDeposit}
+                                customerName={quote.customerName || ''}
+                                customerEmail={quote.email || ''}
+                                quoteId={quote.id}
+                                selectedTier={selectedEEEPackage || 'essential'}
+                                selectedTierPrice={totalWithFee}
+                                selectedExtras={selectedExtras}
+                                paymentType={isInstallmentsMode ? 'installments' : 'full'}
+                                onSuccess={handleBooking}
+                                onError={(error) => {
+                                  toast({
+                                    title: 'Payment Failed',
+                                    description: error,
+                                    variant: 'destructive',
+                                  });
+                                }}
+                              />
+                            </Elements>
+                          ) : (
+                            <div className="text-center p-4 bg-red-900/20 border border-red-500 rounded-lg">
+                              <p className="text-red-400">Payment system is not configured. Please contact support.</p>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </motion.div>
+                )}
+              </motion.div>
+            )}
           </div>
         </section >
 
@@ -2805,103 +3177,6 @@ export default function PersonalizedQuotePage() {
             </div>
           )
         }
-
-        {/* Phase 4: Dynamic Sticky CTA (Proposal Mode) */}
-        <StickyCTA
-          isVisible={hasViewedPackages}
-          scrollPhase={scrollPhase}
-          selectedPackage={selectedEEEPackage ? packages.find(p => p.tier === selectedEEEPackage)?.name : null}
-          selectedPrice={selectedEEEPackage ? packages.find(p => p.tier === selectedEEEPackage)?.price : undefined}
-          onConversion={(source) => {
-            console.log('Converted via', source);
-          }}
-          onBook={() => {
-            const target = quote?.optionalExtras && quote.optionalExtras.length > 0
-              ? document.getElementById('optional-extras')
-              : document.getElementById('confirm-button');
-            target?.scrollIntoView({ behavior: 'smooth' });
-          }}
-        >
-          <div className="px-2 py-3 bg-[#1D2D3D]">
-            {/* Payment Toggle Row */}
-            <div className="flex items-center justify-center mb-3">
-              <PaymentToggle
-                paymentMode={paymentMode}
-                setPaymentMode={setPaymentMode}
-                theme="dark"
-                size="compact"
-              />
-            </div>
-
-            {/* Package Selection Row */}
-            <div className="flex gap-2 mb-3">
-              {packages.map((pkg) => {
-                const isSelected = selectedEEEPackage === pkg.tier;
-                const isTier1 = pkg.tier === 'essential';
-                const isDisabledByPaymentMode = isTier1 && paymentMode === 'installments';
-
-                const LENIENCY_FEE_RATE = 0.10;
-                const showInstallments = !isTier1 && paymentMode === 'installments';
-                const convenienceFee = showInstallments ? Math.round(pkg.price * LENIENCY_FEE_RATE) : 0;
-                const displayPrice = pkg.price + convenienceFee;
-
-                const depositAmount = calculateDeposit(pkg.price);
-                const remainingBalance = Math.max(0, displayPrice - depositAmount);
-                const monthlyInstallment = Math.round(remainingBalance / 3);
-
-                return (
-                  <button
-                    key={pkg.tier}
-                    onClick={() => {
-                      if (!isDisabledByPaymentMode) {
-                        setSelectedEEEPackage(pkg.tier);
-                      }
-                    }}
-                    disabled={isDisabledByPaymentMode}
-                    className={`flex-1 py-2 px-1 rounded-lg text-center transition-all relative overflow-hidden ${isDisabledByPaymentMode
-                      ? 'bg-gray-800/50 opacity-40 cursor-not-allowed'
-                      : isSelected
-                        ? 'bg-[#7DB00E] text-[#1D2D3D] shadow-lg ring-1 ring-[#7DB00E] font-bold'
-                        : 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
-                      }`}
-                  >
-                    <div className={`text-[10px] uppercase tracking-wider opacity-80 truncate mb-0.5 ${isSelected ? 'text-[#1D2D3D]' : 'text-white'}`}>
-                      {pkg.name}
-                    </div>
-                    <div className="text-xs leading-none">
-                      {showInstallments ? (
-                        <div className="flex flex-col items-center">
-                          <span className={`font-black text-[11px] ${isSelected ? 'text-[#1D2D3D]' : 'text-white'}`}>£{Math.round(depositAmount / 100)} Now</span>
-                        </div>
-                      ) : (
-                        <span className={`font-bold ${isSelected ? 'text-[#1D2D3D]' : 'text-white'}`}>£{Math.round(displayPrice / 100)}</span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Approve Button */}
-            <Button
-              onClick={() => {
-                setHasReserved(true);
-                setTimeout(() => {
-                  const target = quote?.optionalExtras && quote.optionalExtras.length > 0
-                    ? document.getElementById('optional-extras')
-                    : document.getElementById('confirm-button');
-                  target?.scrollIntoView({ behavior: 'smooth' });
-                }, 100);
-              }}
-              className="w-full bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold text-sm py-6 shadow-xl"
-            >
-              <Check className="h-5 w-5 mr-2" />
-              {paymentMode === 'installments'
-                ? 'Approve & Pay in Instalments'
-                : 'Approve & Pay Deposit'}
-            </Button>
-          </div>
-        </StickyCTA>
       </div >
     );
   }
@@ -3856,8 +4131,11 @@ export default function PersonalizedQuotePage() {
                           return sum + (extra?.priceInPence || 0);
                         }, 0);
 
+                        // [RAMANUJAM] Add BUSY_PRO productization adjustments
+                        const busyProAdjustments = calculateBusyProAdjustments();
+
                         // Calculate total job price (before convenience fee)
-                        const baseJobPrice = baseTierPrice + extrasTotal;
+                        const baseJobPrice = baseTierPrice + extrasTotal + busyProAdjustments.schedulingFee + busyProAdjustments.bundlePrice;
 
                         // Calculate installment-related values - match footer exactly
                         const isTier1 = selectedEEEPackage === 'essential';
@@ -3924,27 +4202,47 @@ export default function PersonalizedQuotePage() {
                               </div>
                               <div className="bg-gray-700/50 rounded-lg p-5 inline-block text-left border border-gray-600 w-full max-w-sm">
                                 <div className="space-y-2 mb-3 pb-3 border-b-2 border-gray-600">
-                                  {extrasTotal > 0 ? (
+                                  {/* Base price */}
+                                  <div className="flex justify-between gap-4">
+                                    <span className="text-gray-300">{quote.quoteMode === 'simple' ? 'Job price' : getPackageDisplayName(selectedEEEPackage || 'essential')}:</span>
+                                    <span className="text-white">£{Math.round(baseTierPrice / 100)}</span>
+                                  </div>
+
+                                  {/* [RAMANUJAM] BUSY_PRO choices */}
+                                  {quote.segment === 'BUSY_PRO' && (
                                     <>
-                                      <div className="flex justify-between gap-4">
-                                        <span className="text-gray-300">{quote.quoteMode === 'simple' ? 'Job price' : getPackageDisplayName(selectedEEEPackage || 'essential')}:</span>
-                                        <span className="text-white">£{Math.round(baseTierPrice / 100)}</span>
-                                      </div>
-                                      <div className="flex justify-between gap-4">
-                                        <span className="text-gray-300">+ Optional extras ({selectedExtras.length}):</span>
-                                        <span className="text-white">£{Math.round(extrasTotal / 100)}</span>
-                                      </div>
-                                      <div className="flex justify-between gap-4 pt-2 border-t border-gray-500">
-                                        <span className="font-semibold text-gray-200">Total:</span>
-                                        <span className="font-semibold text-white">£{Math.round(totalWithFee / 100)}</span>
-                                      </div>
+                                      {timingChoice === 'next_week' && (
+                                        <div className="flex justify-between gap-4">
+                                          <span className="text-green-400">Next week discount:</span>
+                                          <span className="text-green-400">-£60</span>
+                                        </div>
+                                      )}
+                                      {whileImThereBundle !== 'none' && (
+                                        <div className="flex justify-between gap-4">
+                                          <span className="text-gray-300">
+                                            + "While I'm There" bundle:
+                                          </span>
+                                          <span className="text-white">
+                                            +£{Math.round(busyProAdjustments.bundlePrice / 100)}
+                                          </span>
+                                        </div>
+                                      )}
                                     </>
-                                  ) : (
+                                  )}
+
+                                  {/* Optional extras */}
+                                  {extrasTotal > 0 && (
                                     <div className="flex justify-between gap-4">
-                                      <span className="font-semibold text-gray-200">{quote.quoteMode === 'simple' ? 'Job price' : getPackageDisplayName(selectedEEEPackage || 'essential')}:</span>
-                                      <span className="font-semibold text-white">£{Math.round(totalWithFee / 100)}</span>
+                                      <span className="text-gray-300">+ Optional extras ({selectedExtras.length}):</span>
+                                      <span className="text-white">£{Math.round(extrasTotal / 100)}</span>
                                     </div>
                                   )}
+
+                                  {/* Total */}
+                                  <div className="flex justify-between gap-4 pt-2 border-t border-gray-500">
+                                    <span className="font-semibold text-gray-200">Total:</span>
+                                    <span className="font-semibold text-white">£{Math.round(totalWithFee / 100)}</span>
+                                  </div>
                                 </div>
 
                                 {isInstallmentsMode ? (
@@ -4073,322 +4371,32 @@ export default function PersonalizedQuotePage() {
               </div>
             ) : null
           }
-        </div>
 
-        {/* Sticky Footer - Package Selection Bar (HHH Mode Only) */}
-        {
-          quote.quoteMode !== 'simple' && packages.length > 0 && !hasBooked && (
-            <div className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900/98 backdrop-blur-lg border-t border-gray-700 shadow-2xl">
-              <div className="max-w-2xl mx-auto px-2 py-2">
-                {/* Payment Toggle Row */}
-                <div className="flex items-center justify-center gap-2 mb-1.5">
-                  <span className={`text-[10px] uppercase tracking-wider ${paymentMode === 'full' ? 'text-white font-medium' : 'text-gray-500'}`}>
-                    Pay in Full
-                  </span>
-                  <button
-                    onClick={() => setPaymentMode(paymentMode === 'installments' ? 'full' : 'installments')}
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${paymentMode === 'installments' ? 'bg-[#e8b323]' : 'bg-gray-600'
-                      }`}
-                    data-testid="footer-payment-toggle"
-                  >
-                    <span
-                      className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-md transition-transform ${paymentMode === 'installments' ? 'translate-x-5' : 'translate-x-0.5'
-                        }`}
-                    />
-                  </button>
-                  <span className={`text-[10px] uppercase tracking-wider ${paymentMode === 'installments' ? 'text-white font-medium' : 'text-gray-500'}`}>
-                    Pay Monthly
-                  </span>
-                </div>
-
-                {/* Package Selection Row */}
-                <div className="flex gap-1.5 mb-2">
-                  {packages.map((pkg) => {
-                    const isSelected = selectedEEEPackage === pkg.tier;
-                    const isTier1 = pkg.tier === 'essential';
-                    const isDisabledByPaymentMode = isTier1 && paymentMode === 'installments';
-
-                    const LENIENCY_FEE_RATE = 0.10; // 10% convenience fee for 3 monthly payments
-                    const showInstallments = !isTier1 && paymentMode === 'installments';
-                    const convenienceFee = showInstallments ? Math.round(pkg.price * LENIENCY_FEE_RATE) : 0;
-                    const displayPrice = pkg.price + convenienceFee;
-
-                    // Calculate deposit from base price (without fee), then monthly from total with fee
-                    const depositAmount = calculateDeposit(pkg.price);
-                    const remainingBalance = Math.max(0, displayPrice - depositAmount);
-                    const monthlyInstallment = Math.round(remainingBalance / 3);
-
-                    return (
-                      <button
-                        key={pkg.tier}
-                        onClick={() => {
-                          if (!isDisabledByPaymentMode) {
-                            setSelectedEEEPackage(pkg.tier);
-                          }
-                        }}
-                        disabled={isDisabledByPaymentMode}
-                        tabIndex={isDisabledByPaymentMode ? -1 : 0}
-                        aria-disabled={isDisabledByPaymentMode}
-                        className={`flex-1 py-1.5 px-1 rounded-md text-center transition-all ${isDisabledByPaymentMode
-                          ? 'bg-gray-800/50 opacity-40 cursor-not-allowed'
-                          : isSelected
-                            ? 'bg-[#e8b323] text-gray-900 shadow-lg ring-1 ring-[#e8b323]'
-                            : 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-600'
-                          }`}
-                        data-testid={`footer-package-${pkg.tier}`}
-                      >
-                        <div className="text-[10px] font-medium opacity-80 truncate uppercase tracking-tight">
-                          {pkg.name}
-                        </div>
-                        <div className="text-xs font-bold leading-tight">
-                          {showInstallments ? (
-                            <div className="flex flex-col items-center justify-center leading-none">
-                              <span className={`font-black tracking-tight text-[11px] ${isSelected ? 'text-gray-900' : 'text-lime-400'}`}>
-                                £{Math.round(depositAmount / 100)} Today
-                              </span>
-                              <span className={`text-[9px] font-medium mt-0.5 ${isSelected ? 'text-gray-800/80' : 'text-gray-400'}`}>
-                                then 3x £{Math.round(monthlyInstallment / 100)}
-                              </span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center justify-center gap-1">
-                              <span>£{Math.round(displayPrice / 100)}</span>
-                            </div>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Approve Button */}
-                <div className="flex gap-2">
-                  <Button
-                    onClick={() => {
-                      setHasReserved(true);
-                      setTimeout(() => {
-                        const target = quote.optionalExtras && quote.optionalExtras.length > 0
-                          ? document.getElementById('optional-extras')
-                          : document.getElementById('confirm-button');
-                        target?.scrollIntoView({ behavior: 'smooth' });
-                      }, 100);
-                    }}
-                    className="flex-1 bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold text-sm py-2.5 h-auto shadow-lg"
-                    data-testid="button-approve-footer"
-                  >
-                    <Check className="h-4 w-4 mr-1.5" />
-                    Approve & Pay Deposit
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-      </div>
-
-      {/* Sticky Footer - Simple Mode */}
-      {
-        quote?.quoteMode === 'simple' && !hasBooked && (
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900/98 backdrop-blur-lg border-t border-gray-700 shadow-2xl safe-area-bottom">
-            <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-              <div className="flex flex-col gap-1">
-                {/* Pay in 3 Toggle */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPaymentMode(paymentMode === 'installments' ? 'full' : 'installments')}
-                    className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${paymentMode === 'installments' ? 'bg-[#e8b323]' : 'bg-gray-600'}`}
-                  >
-                    <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow-md transition-transform ${paymentMode === 'installments' ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
-                  </button>
-                  <span className="text-[10px] uppercase tracking-wider text-gray-400">
-                    {paymentMode === 'installments' ? 'Pay Monthly' : 'Pay in Full'}
-                  </span>
-                </div>
-
-                {/* Price Display */}
-                <div>
-                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wider mb-0.5">
-                    {paymentMode === 'installments' ? 'Deposit Today' : 'Total'}
-                  </p>
-                  <p className="text-2xl font-bold text-white leading-none">
-                    {(() => {
-                      const total = calculateSimpleTotal();
-                      if (paymentMode === 'installments') {
-                        return `£${formatPrice(calculateDeposit(quote?.basePrice || 0))}`;
-                      }
-                      return `£${formatPrice(total)}`;
-                    })()}
-                  </p>
-                  {paymentMode === 'installments' && (
-                    <p className="text-[10px] text-gray-400 mt-0.5">
-                      then 3x £{formatPrice(Math.round((calculateSimpleTotal() - calculateDeposit(quote?.basePrice || 0)) / 3))}
+          {/* Sticky Running Total - Shows after "Approve and check dates" is clicked */}
+          {
+            quote?.segment === 'BUSY_PRO' && hasApprovedProduct && !hasBooked && (
+              <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#7DB00E] backdrop-blur-lg border-t border-[#6da000] shadow-2xl safe-area-bottom">
+                <div className="max-w-2xl mx-auto px-6 py-4 flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <p className="text-xs text-white/80 font-medium uppercase tracking-wider">Running Total</p>
+                    <p className="text-3xl font-bold text-white leading-none mt-1">
+                      £{formatPrice(calculateSimpleTotal())}
                     </p>
-                  )}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-white/80">Complete your selections above</p>
+                  </div>
                 </div>
               </div>
+            )
+          }
 
-              <Button
-                onClick={() => {
-                  setHasReserved(true);
-                  setTimeout(() => {
-                    const target = document.getElementById('confirm-button');
-                    target?.scrollIntoView({ behavior: 'smooth' });
-                  }, 100);
-                }}
-                className="flex-1 bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold shadow-lg"
-              >
-                Accept & Pay Deposit
-              </Button>
-            </div>
-          </div>
-        )
-      }
-
-      {/* Sticky Footer - Pick & Mix Mode */}
-      {
-        quote?.quoteMode === 'pick_and_mix' && !hasBooked && (
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900/98 backdrop-blur-lg border-t border-gray-700 shadow-2xl safe-area-bottom">
-            <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-              <div>
-                <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Total</p>
-                <p className="text-2xl font-bold text-white leading-none">
-                  £{formatPrice(calculateSimpleTotal())}
-                </p>
-              </div>
-
-              <Button
-                onClick={() => {
-                  setHasReserved(true);
-                  setTimeout(() => {
-                    const target = document.getElementById('confirm-button');
-                    target?.scrollIntoView({ behavior: 'smooth' });
-                  }, 100);
-                }}
-                disabled={calculateSimpleTotal() === 0}
-                className="flex-1 bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold shadow-lg"
-                data-testid="button-book-pm-footer"
-              >
-                {calculateSimpleTotal() === 0 ? 'Select Items' : 'Book Now'}
-                <ChevronRight className="ml-1 h-5 w-5" />
-              </Button>
-            </div>
-          </div>
-        )
-      }
-
-      {/* Phase 4: Dynamic Sticky CTA */}
-      <StickyCTA
-        isVisible={true}
-        scrollPhase={scrollPhase}
-        selectedPackage={selectedEEEPackage ? packages.find(p => p.tier === selectedEEEPackage)?.name : null}
-        selectedPrice={selectedEEEPackage ? packages.find(p => p.tier === selectedEEEPackage)?.price : undefined}
-        onConversion={(source) => {
-          // Handle conversion tracking if needed
-          console.log('Converted via', source);
-        }}
-        onBook={() => {
-          const target = quote.optionalExtras && quote.optionalExtras.length > 0
-            ? document.getElementById('optional-extras')
-            : document.getElementById('confirm-button');
-          target?.scrollIntoView({ behavior: 'smooth' });
-        }}
-      >
-        <div className="px-2 py-3 bg-[#1D2D3D]">
-          {/* Payment Toggle Row */}
-          <div className="flex items-center justify-center gap-3 mb-3">
-            <span className={`text-[10px] uppercase tracking-wider font-bold ${paymentMode === 'full' ? 'text-white' : 'text-gray-500'}`}>
-              Pay in Full
-            </span>
-            <button
-              onClick={() => setPaymentMode(paymentMode === 'installments' ? 'full' : 'installments')}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${paymentMode === 'installments' ? 'bg-[#7DB00E]' : 'bg-gray-600'}`}
-            >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform ${paymentMode === 'installments' ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
-            <span className={`text-[10px] uppercase tracking-wider font-bold ${paymentMode === 'installments' ? 'text-[#7DB00E]' : 'text-gray-500'}`}>
-              Pay Monthly
-            </span>
-          </div>
-
-          {/* Package Selection Row */}
-          <div className="flex gap-2 mb-3">
-            {packages.map((pkg) => {
-              const isSelected = selectedEEEPackage === pkg.tier;
-              const isTier1 = pkg.tier === 'essential';
-              const isDisabledByPaymentMode = isTier1 && paymentMode === 'installments';
-
-              const LENIENCY_FEE_RATE = 0.10;
-              const showInstallments = !isTier1 && paymentMode === 'installments';
-              const convenienceFee = showInstallments ? Math.round(pkg.price * LENIENCY_FEE_RATE) : 0;
-              const displayPrice = pkg.price + convenienceFee;
-
-              const depositAmount = calculateDeposit(pkg.price);
-              const remainingBalance = Math.max(0, displayPrice - depositAmount);
-              const monthlyInstallment = Math.round(remainingBalance / 3);
-
-              return (
-                <button
-                  key={pkg.tier}
-                  onClick={() => {
-                    if (!isDisabledByPaymentMode) {
-                      setSelectedEEEPackage(pkg.tier);
-                    }
-                  }}
-                  disabled={isDisabledByPaymentMode}
-                  className={`flex-1 py-2 px-1 rounded-lg text-center transition-all relative overflow-hidden ${isDisabledByPaymentMode
-                    ? 'bg-gray-800/50 opacity-40 cursor-not-allowed'
-                    : isSelected
-                      ? 'bg-[#7DB00E] text-[#1D2D3D] shadow-lg ring-1 ring-[#7DB00E] font-bold'
-                      : 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
-                    }`}
-                >
-                  <div className={`text-[10px] uppercase tracking-wider opacity-80 truncate mb-0.5 ${isSelected ? 'text-[#1D2D3D]' : 'text-white'}`}>
-                    {pkg.name}
-                  </div>
-                  <div className="text-xs leading-none">
-                    {showInstallments ? (
-                      <div className="flex flex-col items-center">
-                        <span className={`font-black text-[11px] ${isSelected ? 'text-[#1D2D3D]' : 'text-white'}`}>£{Math.round(depositAmount / 100)} Now</span>
-                      </div>
-                    ) : (
-                      <span className={`font-bold ${isSelected ? 'text-[#1D2D3D]' : 'text-white'}`}>£{Math.round(displayPrice / 100)}</span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Approve Button */}
-          <Button
-            onClick={() => {
-              setHasReserved(true);
-              setTimeout(() => {
-                const target = quote?.optionalExtras && quote.optionalExtras.length > 0
-                  ? document.getElementById('optional-extras')
-                  : document.getElementById('confirm-button');
-                target?.scrollIntoView({ behavior: 'smooth' });
-              }, 100);
-            }}
-            className="w-full bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold text-sm py-6 shadow-xl"
-          >
-            <Check className="h-5 w-5 mr-2" />
-            {paymentMode === 'installments'
-              ? 'Approve & Pay in Instalments'
-              : 'Approve & Pay Deposit'}
-          </Button>
-          <div className="flex items-center justify-center gap-3 mt-3 opacity-60 grayscale hover:grayscale-0 transition-all duration-300">
-            <SiVisa className="w-6 h-6 text-white" />
-            <SiMastercard className="w-6 h-6 text-white" />
-            <SiAmericanexpress className="w-6 h-6 text-white" />
-            <SiApplepay className="w-6 h-6 text-white" />
-          </div>
+          <style>{`
+            .scrollbar-hide::-webkit-scrollbar { display: none; }
+            .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+          `}</style>
         </div>
-      </StickyCTA>
-
-      <style>{`
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-      `}</style>
-    </div >
+      </div>
+    </div>
   );
 }
