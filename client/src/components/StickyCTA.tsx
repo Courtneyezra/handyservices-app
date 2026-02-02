@@ -43,29 +43,9 @@ export function StickyCTA({
         if (scrollPhase !== 'early' || (selectedPackage)) {
             onBook?.();
         } else {
-            // Early stage: Encourage Call? Or just Scroll to Options?
-            // "See Your Quote" implies scrolling down. 
-            // "Call Now" implies calling. 
-            // The button text is "Call Now" if not late phase.
-            // Wait, logic below says: {scrollPhase === 'late' ? getCtaText() : 'Call Now'}
-            // So if NOT late, it says Call Now. So it SHOULD call.
-
-            // Correction: "See Your Quote" is returned by getCtaText('early').
-            // But the button label logic was: {scrollPhase === 'late' ? getCtaText() : 'Call Now'}
-            // This ignores 'early'/'mid' text return values. 
-
-            // Let's use getCtaText() for ALL phases if we want dynamic text.
-            // But if the user wants "Review -> Book", then:
-            // Early: "Review Quote" (Scroll down)
-            // Late: "Secure Slot" (Open Booking)
-
-            if (scrollPhase === 'late') {
-                onBook?.();
-            } else {
-                // Default to Call for now if text is "Call Now"
-                onConversion?.('sticky_call');
-                window.location.href = "tel:+447449501762";
-            }
+            // Early stage: Default to Call
+            onConversion?.('sticky_call');
+            window.location.href = "tel:+447449501762";
         }
     };
 
@@ -84,7 +64,8 @@ export function StickyCTA({
                     className="fixed bottom-0 left-0 right-0 z-[9999] lg:hidden"
                 >
                     {/* Subtle Toolbox Design - Slate Theme */}
-                    <div className="relative bg-slate-900/95 backdrop-blur-lg shadow-2xl overflow-visible border-t border-slate-700/50">
+                    {/* Changed to solid bg-slate-900 for seamless tab merger */}
+                    <div className="relative bg-slate-900 shadow-2xl overflow-visible border-t border-slate-700/50">
 
                         {/* Top Handle (Subtle) */}
                         <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-800 rounded-full px-6 py-1 border border-slate-700 shadow-lg" />
@@ -94,17 +75,20 @@ export function StickyCTA({
                         <div className="absolute top-2 right-3 w-1.5 h-1.5 bg-slate-700 rounded-full shadow-inner opacity-50"></div>
 
                         {/* Google Reviews Tab - Top Right - Integrated */}
-                        <div className="absolute -top-[28px] right-2 bg-slate-900 border-t border-x border-slate-700/50 rounded-t-lg px-3 py-1.5 pb-2 shadow-none flex items-center gap-2">
-                            <div className="flex flex-col items-end leading-none">
-                                <div className="flex gap-0.5 mb-1">
-                                    {[1, 2, 3, 4, 5].map(i => (
-                                        <Star key={i} className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
-                                    ))}
+                        {/* -bottom-[1px] moves it down to cover the border line perfectly */}
+                        <div className="absolute -top-[27px] right-4 flex flex-col items-end">
+                            <div className="bg-slate-900 border-t border-x border-slate-700/50 rounded-t-lg px-3 py-1.5 flex items-center gap-2 relative z-20">
+                                <div className="flex flex-col items-end leading-none">
+                                    <div className="flex gap-0.5 mb-1">
+                                        {[1, 2, 3, 4, 5].map(i => (
+                                            <Star key={i} className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                                        ))}
+                                    </div>
+                                    <span className="text-[10px] text-slate-300 font-bold tracking-wide">GOOGLE REVIEWS</span>
                                 </div>
-                                <span className="text-[10px] text-slate-300 font-bold tracking-wide">GOOGLE REVIEWS</span>
+                                {/* The Patch: Extends down to cover the parent's border line */}
+                                <div className="absolute -bottom-[2px] left-0 right-0 h-[4px] bg-slate-900 z-30"></div>
                             </div>
-                            {/* Connector patch to hide the main border line underneath */}
-                            <div className="absolute -bottom-[2px] left-[1px] right-[1px] h-[4px] bg-slate-900"></div>
                         </div>
 
                         {/* Selected Package Echo */}
