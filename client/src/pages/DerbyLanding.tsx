@@ -808,7 +808,7 @@ export default function HandymanLanding({
     headline,
     subhead,
 }: HandymanLandingProps) {
-    const { variant, trackConversion } = useLandingPage("landing");
+    const { variant, isLoading, trackConversion } = useLandingPage("derby");
     const [showSticky, setShowSticky] = useState(false);
     const [activeSegment, setActiveSegment] = useState<'residential' | 'property-manager' | 'business'>('residential');
     const contentRef = useRef<HTMLDivElement>(null);
@@ -838,6 +838,18 @@ export default function HandymanLanding({
     // Use variant content from admin, then props, then defaults
     const finalHeadline = variant?.content?.heroHeadline || headline || "The Easiest Way to Book a Handyman in {{location}}";
     const finalSubhead = variant?.content?.heroSubhead || subhead || "Speed + reliability for busy professionals.";
+
+    // Prevent flicker: wait for variant data to load before rendering hero
+    if (isLoading) {
+        return (
+            <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+                <div className="text-white text-center">
+                    <div className="w-16 h-16 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-lg font-medium">Loading...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-slate-50 font-poppins text-slate-900 font-medium">
