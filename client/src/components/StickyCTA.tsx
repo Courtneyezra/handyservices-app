@@ -74,11 +74,10 @@ export function StickyCTA({
                         <div className="absolute top-2 left-3 w-1.5 h-1.5 bg-slate-700 rounded-full shadow-inner opacity-50"></div>
                         <div className="absolute top-2 right-3 w-1.5 h-1.5 bg-slate-700 rounded-full shadow-inner opacity-50"></div>
 
-                        {/* Google Reviews Tag - Integrated Tab (Sits on Top) */}
-                        {/* -top-[27px] moves it exactly above the border line */}
-                        <div className="absolute -top-[27px] right-4 flex flex-col items-end z-40">
-                            <div className="bg-slate-900 border-t border-x border-slate-700/50 rounded-t-lg px-3 py-1.5 flex items-center gap-2 relative shadow-none">
-                                <div className="flex flex-col items-end leading-none relative z-50">
+                        {/* Google Reviews Tag - Integrated Tab (Seamless) */}
+                        <div className="absolute top-0 right-4 z-50 transform -translate-y-full">
+                            <div className="bg-slate-900 border-t border-x border-slate-700/50 rounded-t-lg px-3 py-1.5 pb-2.5 -mb-[1px] flex items-center gap-2 relative shadow-none">
+                                <div className="flex flex-col items-end leading-none">
                                     <div className="flex gap-0.5 mb-1">
                                         {[1, 2, 3, 4, 5].map(i => (
                                             <Star key={i} className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
@@ -86,8 +85,8 @@ export function StickyCTA({
                                     </div>
                                     <span className="text-[10px] text-slate-300 font-bold tracking-wide">GOOGLE REVIEWS</span>
                                 </div>
-                                {/* The Patch: A solid block that extends drastically down to block the border line */}
-                                <div className="absolute -bottom-[4px] left-[1px] right-[1px] h-[5px] bg-slate-900 z-40"></div>
+                                {/* No patch needed if we overlap correctly with background and sizing */}
+                                {/* We extend bg-slate-900 down over the line with pb-2.5 and -mb-[1px] */}
                             </div>
                         </div>
 
