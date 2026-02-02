@@ -839,18 +839,6 @@ export default function HandymanLanding({
     const finalHeadline = variant?.content?.heroHeadline || headline || "{{location}}||Handyman Service||Next-day slots • Fast & reliable";
     const finalSubhead = variant?.content?.heroSubhead || subhead || "Call or WhatsApp for an instant fixed-price quote";
 
-    // Prevent flicker: wait for variant data to load before rendering hero
-    if (isLoading) {
-        return (
-            <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-                <div className="text-white text-center">
-                    <div className="w-16 h-16 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-lg font-medium">Loading...</p>
-                </div>
-            </div>
-        );
-    }
-
     return (
         <div className="min-h-screen bg-slate-50 font-poppins text-slate-900 font-medium">
             <LandingHeader onConversion={trackConversion} />
