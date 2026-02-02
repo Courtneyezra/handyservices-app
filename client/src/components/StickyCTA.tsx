@@ -74,10 +74,9 @@ export function StickyCTA({
                         <div className="absolute top-2 left-3 w-1.5 h-1.5 bg-slate-700 rounded-full shadow-inner opacity-50"></div>
                         <div className="absolute top-2 right-3 w-1.5 h-1.5 bg-slate-700 rounded-full shadow-inner opacity-50"></div>
 
-                        {/* Google Reviews Tab - Top Right - Integrated */}
-                        {/* -bottom-[1px] moves it down to cover the border line perfectly */}
-                        <div className="absolute -top-[27px] right-4 flex flex-col items-end">
-                            <div className="bg-slate-900 border-t border-x border-slate-700/50 rounded-t-lg px-3 py-1.5 flex items-center gap-2 relative z-20">
+                        {/* Google Reviews Tag - Integrated Inside (Flush Top) */}
+                        <div className="absolute top-0 right-12 flex flex-col items-end z-20">
+                            <div className="bg-slate-900 border-b border-x border-slate-700/50 rounded-b-lg px-3 py-1.5 flex items-center gap-2 shadow-sm">
                                 <div className="flex flex-col items-end leading-none">
                                     <div className="flex gap-0.5 mb-1">
                                         {[1, 2, 3, 4, 5].map(i => (
@@ -86,8 +85,6 @@ export function StickyCTA({
                                     </div>
                                     <span className="text-[10px] text-slate-300 font-bold tracking-wide">GOOGLE REVIEWS</span>
                                 </div>
-                                {/* The Patch: Extends down to cover the parent's border line */}
-                                <div className="absolute -bottom-[2px] left-0 right-0 h-[4px] bg-slate-900 z-30"></div>
                             </div>
                         </div>
 
