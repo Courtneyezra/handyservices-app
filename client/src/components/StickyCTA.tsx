@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Phone, MessageCircle, Shield, Calendar } from "lucide-react";
+import { Phone, MessageCircle, Shield, Calendar, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface StickyCTAProps {
@@ -87,17 +87,22 @@ export function StickyCTA({
                     <div className="relative bg-slate-900/95 backdrop-blur-lg shadow-2xl overflow-visible border-t border-slate-700/50">
 
                         {/* Top Handle (Subtle) */}
-                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-800 rounded-full px-6 py-1 border border-slate-700 shadow-lg">
-                            <div className="w-12 h-1.5 bg-slate-700/50 rounded-full"></div>
-                        </div>
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-800 rounded-full px-6 py-1 border border-slate-700 shadow-lg" />
 
                         {/* Corner Rivets (Subtle) */}
                         <div className="absolute top-2 left-3 w-1.5 h-1.5 bg-slate-700 rounded-full shadow-inner opacity-50"></div>
                         <div className="absolute top-2 right-3 w-1.5 h-1.5 bg-slate-700 rounded-full shadow-inner opacity-50"></div>
 
-                        {/* Tool Icon Tab - Top Right - Integrated */}
-                        <div className="absolute -top-[26px] right-6 bg-slate-900 border-t border-x border-slate-700/50 rounded-t-lg px-3 py-1.5 pb-2 shadow-none">
-                            <Shield className="w-5 h-5 text-amber-400" />
+                        {/* Google Reviews Tab - Top Right - Integrated */}
+                        <div className="absolute -top-[28px] right-2 bg-slate-900 border-t border-x border-slate-700/50 rounded-t-lg px-3 py-1.5 pb-2 shadow-none flex items-center gap-2">
+                            <div className="flex flex-col items-end leading-none">
+                                <div className="flex gap-0.5 mb-1">
+                                    {[1, 2, 3, 4, 5].map(i => (
+                                        <Star key={i} className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                                    ))}
+                                </div>
+                                <span className="text-[10px] text-slate-300 font-bold tracking-wide">GOOGLE REVIEWS</span>
+                            </div>
                             {/* Connector patch to hide the main border line underneath */}
                             <div className="absolute -bottom-[2px] left-[1px] right-[1px] h-[4px] bg-slate-900"></div>
                         </div>
