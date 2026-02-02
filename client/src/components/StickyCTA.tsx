@@ -81,10 +81,10 @@ export function StickyCTA({
                     animate={{ y: 0, opacity: 1 }}
                     exit={{ y: 20, opacity: 0 }}
                     transition={{ duration: 0.4, ease: "easeInOut" }}
-                    className="fixed bottom-0 left-0 right-0 z-[9999] lg:hidden px-2"
+                    className="fixed bottom-0 left-0 right-0 z-[9999] lg:hidden"
                 >
                     {/* Subtle Toolbox Design - Slate Theme */}
-                    <div className="relative bg-slate-900/95 backdrop-blur-lg rounded-t-2xl shadow-2xl overflow-visible border-t border-slate-700/50">
+                    <div className="relative bg-slate-900/95 backdrop-blur-lg shadow-2xl overflow-visible border-t border-slate-700/50">
 
                         {/* Top Handle (Subtle) */}
                         <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-800 rounded-full px-6 py-1 border border-slate-700 shadow-lg">
