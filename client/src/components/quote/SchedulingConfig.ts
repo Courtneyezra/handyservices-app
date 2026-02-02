@@ -50,8 +50,9 @@ export interface SegmentSchedulingConfig {
 
 export const BASE_SCHEDULING_RULES = {
   weekendFee: 2500, // £25 for Saturdays
+  nextDayFee: 2500, // £25 for next-day booking
   sundaysClosed: true,
-  minDaysOut: 2, // Earliest booking is 2 days from now
+  minDaysOut: 1, // Earliest booking is tomorrow (next day)
 };
 
 export const BASE_TIME_SLOTS: TimeSlotOption[] = [

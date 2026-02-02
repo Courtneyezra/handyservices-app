@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Check, Calendar, Clock, Tag, Shield, Zap,
@@ -74,19 +74,32 @@ export function UnifiedQuoteCard({
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [isLoadingPaymentIntent, setIsLoadingPaymentIntent] = useState(false);
 
+  // Refs for scroll behavior
+  const timeSectionRef = useRef<HTMLDivElement>(null);
+  const addOnsSectionRef = useRef<HTMLDivElement>(null);
+  const bookSectionRef = useRef<HTMLDivElement>(null);
+
   // Generate available dates
   const availableDates = useMemo(() => {
-    const dates: { date: Date; label: string; isWeekend: boolean; fee: number }[] = [];
+    const dates: { date: Date; label: string; isWeekend: boolean; isNextDay: boolean; fee: number }[] = [];
     for (let i = BASE_SCHEDULING_RULES.minDaysOut; i <= config.maxDaysOut; i++) {
       const date = addDays(new Date(), i);
       if (BASE_SCHEDULING_RULES.sundaysClosed && date.getDay() === 0) continue; // Skip Sundays
 
       const isSaturday = date.getDay() === 6;
+      const isNextDay = i === 1; // Tomorrow
+
+      // Calculate fee: next-day and weekend fees can stack
+      let fee = 0;
+      if (isNextDay) fee += BASE_SCHEDULING_RULES.nextDayFee;
+      if (isSaturday && config.showWeekendFee) fee += BASE_SCHEDULING_RULES.weekendFee;
+
       dates.push({
         date,
         label: format(date, 'EEE d MMM'),
         isWeekend: isSaturday,
-        fee: isSaturday && config.showWeekendFee ? BASE_SCHEDULING_RULES.weekendFee : 0,
+        isNextDay,
+        fee,
       });
     }
     return dates;
@@ -120,13 +133,17 @@ export function UnifiedQuoteCard({
       items.push({ label: config.downsell.label, amount: -discount });
     }
 
-    // Date fee (weekend)
+    // Date fees (next-day and/or weekend)
     const dateInfo = availableDates.find(d =>
       selectedDate && d.date.toDateString() === selectedDate.toDateString()
     );
-    if (dateInfo?.fee) {
-      amount += dateInfo.fee;
-      items.push({ label: 'Weekend booking', amount: dateInfo.fee });
+    if (dateInfo?.isNextDay) {
+      amount += BASE_SCHEDULING_RULES.nextDayFee;
+      items.push({ label: 'Priority (next day)', amount: BASE_SCHEDULING_RULES.nextDayFee });
+    }
+    if (dateInfo?.isWeekend && config.showWeekendFee) {
+      amount += BASE_SCHEDULING_RULES.weekendFee;
+      items.push({ label: 'Weekend', amount: BASE_SCHEDULING_RULES.weekendFee });
     }
 
     // Time slot fee
@@ -388,11 +405,20 @@ export function UnifiedQuoteCard({
                 type="checkbox"
                 checked={useDownsell}
                 onChange={() => {
-                  setUseDownsell(!useDownsell);
+                  const newValue = !useDownsell;
+                  setUseDownsell(newValue);
                   // Clear date/time selection when toggling downsell
-                  if (!useDownsell) {
+                  if (newValue) {
                     setSelectedDate(null);
                     setSelectedTimeSlot(null);
+                    // Scroll to add-ons or book section
+                    setTimeout(() => {
+                      if (allAddOns.length > 0) {
+                        addOnsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      } else {
+                        bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }
+                    }, 150);
                   }
                 }}
                 className="w-5 h-5 rounded border-slate-300 text-[#7DB00E] focus:ring-[#7DB00E]"
@@ -440,15 +466,30 @@ export function UnifiedQuoteCard({
             {visibleDates.map((d) => (
               <button
                 key={d.date.toISOString()}
-                onClick={() => setSelectedDate(d.date)}
-                className={`p-3 rounded-xl text-center transition-all ${
+                onClick={() => {
+                  setSelectedDate(d.date);
+                  // Scroll to time section after a brief delay for animation
+                  setTimeout(() => {
+                    timeSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }, 150);
+                }}
+                className={`p-3 rounded-xl text-center transition-all relative ${
                   selectedDate?.toDateString() === d.date.toDateString()
                     ? 'bg-[#7DB00E] text-slate-900 ring-2 ring-[#7DB00E] ring-offset-2' + (isDarkTheme ? ' ring-offset-slate-900' : '')
-                    : isDarkTheme
-                      ? 'bg-white/10 text-white hover:bg-white/20'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    : d.isNextDay
+                      ? isDarkTheme
+                        ? 'bg-amber-500/20 text-white hover:bg-amber-500/30 border border-amber-500/50'
+                        : 'bg-amber-50 text-slate-700 hover:bg-amber-100 border border-amber-300'
+                      : isDarkTheme
+                        ? 'bg-white/10 text-white hover:bg-white/20'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
+                {d.isNextDay && (
+                  <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 text-[8px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded">
+                    PRIORITY
+                  </div>
+                )}
                 <div className="text-xs font-medium">{format(d.date, 'EEE')}</div>
                 <div className="text-lg font-bold">{format(d.date, 'd')}</div>
                 {d.fee > 0 && (
@@ -472,6 +513,7 @@ export function UnifiedQuoteCard({
         <AnimatePresence>
           {!useDownsell && selectedDate && (
             <motion.div
+              ref={timeSectionRef}
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
@@ -484,7 +526,17 @@ export function UnifiedQuoteCard({
                 {timeSlots.map((slot) => (
                   <button
                     key={slot.id}
-                    onClick={() => setSelectedTimeSlot(slot.id)}
+                    onClick={() => {
+                      setSelectedTimeSlot(slot.id);
+                      // Scroll to add-ons or book section after a brief delay
+                      setTimeout(() => {
+                        if (allAddOns.length > 0) {
+                          addOnsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        } else {
+                          bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                      }, 150);
+                    }}
                     className={`p-3 rounded-xl text-left transition-all ${
                       selectedTimeSlot === slot.id
                         ? 'bg-[#7DB00E] text-slate-900'
@@ -513,6 +565,7 @@ export function UnifiedQuoteCard({
         <AnimatePresence>
           {(useDownsell || selectedTimeSlot) && allAddOns.length > 0 && (
             <motion.div
+              ref={addOnsSectionRef}
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
@@ -600,6 +653,7 @@ export function UnifiedQuoteCard({
         </AnimatePresence>
 
         {/* Payment/Book Section */}
+        <div ref={bookSectionRef}>
         {showInlinePayment && stripe ? (
           /* Inline Stripe Payment (for BUDGET after date+time, or for flexible timing) */
           <div className="space-y-4">
@@ -687,33 +741,36 @@ export function UnifiedQuoteCard({
             </div>
           </div>
         ) : (
-          /* Regular Book Button */
-          <Button
-            onClick={handleBook}
-            disabled={!canBook || isBooking}
-            className={`w-full h-14 rounded-2xl font-bold text-lg transition-all ${
-              canBook
-                ? 'bg-[#7DB00E] hover:bg-[#6da000] text-slate-900'
-                : isDarkTheme
-                  ? 'bg-white/10 text-slate-500 cursor-not-allowed'
-                  : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-            }`}
-          >
-            {isBooking ? (
-              <span className="flex items-center gap-2">
-                <Timer className="w-5 h-5 animate-spin" />
-                Booking...
-              </span>
-            ) : canBook ? (
-              <span className="flex items-center gap-2">
-                Book for £{Math.round(total / 100)}
-                <ChevronRight className="w-5 h-5" />
-              </span>
-            ) : (
-              'Select date & time to book'
-            )}
-          </Button>
+          /* Regular Book Button - hide disabled state for BUSY_PRO */
+          (canBook || segment !== 'BUSY_PRO') && (
+            <Button
+              onClick={handleBook}
+              disabled={!canBook || isBooking}
+              className={`w-full h-14 rounded-2xl font-bold text-lg transition-all ${
+                canBook
+                  ? 'bg-[#7DB00E] hover:bg-[#6da000] text-slate-900'
+                  : isDarkTheme
+                    ? 'bg-white/10 text-slate-500 cursor-not-allowed'
+                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              }`}
+            >
+              {isBooking ? (
+                <span className="flex items-center gap-2">
+                  <Timer className="w-5 h-5 animate-spin" />
+                  Booking...
+                </span>
+              ) : canBook ? (
+                <span className="flex items-center gap-2">
+                  Book for £{Math.round(total / 100)}
+                  <ChevronRight className="w-5 h-5" />
+                </span>
+              ) : (
+                'Select date & time to book'
+              )}
+            </Button>
+          )
         )}
+        </div>
 
         {/* Trust Footer */}
         <div className={`flex items-center justify-center gap-4 text-xs ${isDarkTheme ? 'text-slate-500' : 'text-slate-500'}`}>
