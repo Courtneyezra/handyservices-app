@@ -228,3 +228,41 @@ export function getTimeSlotsForSegment(segment: string | null | undefined): Time
   const config = getSchedulingConfig(segment);
   return BASE_TIME_SLOTS.filter(slot => config.showTimeSlots.includes(slot.id));
 }
+
+// Psychological pricing: avoid round numbers that signal "made up pricing"
+// Ramanujam principle: prices like £97 or £143 feel calculated and real
+// Avoids: £50, £100, £150, £200, £250, £300 etc.
+const PSYCHOLOGICAL_BARRIERS = [5000, 10000, 15000, 20000, 25000, 30000, 35000, 40000, 45000, 50000]; // in pence
+
+export function applyPsychologicalPricing(priceInPence: number): number {
+  // Check if price is within £3 of a psychological barrier
+  for (const barrier of PSYCHOLOGICAL_BARRIERS) {
+    const diff = priceInPence - barrier;
+
+    // If exactly on or very close to barrier (within £3), adjust
+    if (Math.abs(diff) <= 300) {
+      // Go £3 below the barrier (e.g., £100 → £97)
+      return barrier - 300;
+    }
+  }
+
+  // Also avoid prices ending in 00 (e.g., £120, £180)
+  const pounds = Math.round(priceInPence / 100);
+  if (pounds % 10 === 0 && priceInPence > 5000) {
+    // Adjust by -£3 (e.g., £120 → £117)
+    return priceInPence - 300;
+  }
+
+  return priceInPence;
+}
+
+// Format price for display (applies psychological pricing)
+export function formatPriceDisplay(priceInPence: number, applyPsychological: boolean = true): string {
+  const adjustedPrice = applyPsychological ? applyPsychologicalPricing(priceInPence) : priceInPence;
+  return `£${Math.round(adjustedPrice / 100)}`;
+}
+
+// Get the adjusted price in pence (for calculations)
+export function getAdjustedPrice(priceInPence: number): number {
+  return applyPsychologicalPricing(priceInPence);
+}

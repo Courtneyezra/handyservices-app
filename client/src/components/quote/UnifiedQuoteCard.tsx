@@ -15,6 +15,7 @@ import {
   BASE_TIME_SLOTS,
   getSchedulingConfig,
   getTimeSlotsForSegment,
+  applyPsychologicalPricing,
   type TimeSlotOption,
   type AddOnOption,
 } from './SchedulingConfig';
@@ -162,11 +163,14 @@ export function UnifiedQuoteCard({
       }
     });
 
+    // Apply psychological pricing to avoid round numbers (Ramanujam principle)
+    const adjustedAmount = applyPsychologicalPricing(amount);
+
     // Calculate "was" price for discount badge (BUDGET segment)
     const was = Math.round(basePrice * 1.18);
-    const savings = Math.round(((was - basePrice) / was) * 100);
+    const savings = Math.round(((was - adjustedAmount) / was) * 100);
 
-    return { total: amount, breakdown: items, wasPrice: was, savingsPercent: savings };
+    return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings };
   }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, availableDates, allAddOns, config]);
 
   // Determine if we should show inline payment

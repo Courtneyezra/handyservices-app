@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar, Sun, Clipboard, Calculator, CreditCard, Gift, Play, Truck, Award, Sparkles, Package } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar, Sun, Clipboard, Calculator, CreditCard, Gift, Play, Truck, Award, Sparkles, Package, Download } from 'lucide-react';
 import { SiGoogle, SiVisa, SiMastercard, SiAmericanexpress, SiApplepay, SiStripe, SiKlarna } from 'react-icons/si';
 import { FaWhatsapp, FaPaypal } from 'react-icons/fa';
 import { useToast } from '@/hooks/use-toast';
@@ -31,6 +31,7 @@ import { ExpertSpecSheet } from '@/components/ExpertSpecSheet';
 import { PaymentToggle } from '@/components/quote/PaymentToggle';
 import { MobilePricingCard, KeyFeature } from '@/components/quote/MobilePricingCard';
 import { getExpertNoteText } from "@/lib/quote-helpers";
+import { generateQuotePDF } from "@/lib/quote-pdf-generator";
 import { InstantActionQuote } from '@/components/InstantActionQuote';
 import { ExpertAssessmentQuote } from '@/components/ExpertAssessmentQuote';
 import { DatePricingCalendar, SchedulingTier } from '@/components/DatePricingCalendar';
@@ -2377,6 +2378,27 @@ export default function PersonalizedQuotePage() {
               {/* Expert Sticky Note integration */}
               {quote.quoteMode !== 'simple' && (
                 <>
+                  {/* PDF Download Button */}
+                  <div className="flex justify-end mb-2 px-2 md:px-0">
+                    <button
+                      onClick={() => generateQuotePDF({
+                        quoteId: quote.id,
+                        customerName: quote.customerName || 'Customer',
+                        address: quote.address,
+                        postcode: quote.postcode,
+                        jobDescription: getExpertNoteText(quote as any),
+                        priceInPence: packagesToShow[0]?.price || 0,
+                        segment: quote.segment || undefined,
+                        validityHours: 48,
+                        createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
+                      })}
+                      className="flex items-center gap-2 text-sm text-slate-500 hover:text-[#7DB00E] transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-100"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Download PDF</span>
+                    </button>
+                  </div>
+
                   <ExpertSpecSheet
                     text={getExpertNoteText(quote as any)}
                     customerName={quote.customerName || ''}
