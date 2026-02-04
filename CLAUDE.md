@@ -82,6 +82,10 @@ Key tables: `users`, `leads`, `calls`, `personalized_quotes`, `productized_servi
 - Add-ons: Tenant Coordination (free), Photo Report (free), Key Collection (£30)
 - Partner Program = post-job upsell (not first-quote pitch)
 - Added PDF download buttons to QuoteCard and QuotesList
+- Added PROP_MGR BOF conversion boosters (Feb 4, 2025):
+  - Trust badge strip: £2M Insured • 4.9★ Google (127 reviews) • 230+ properties serviced
+  - Risk reversal statement: "Not right? We return and fix it free. No questions."
+  - Landlord PDF download button: "Download quote for landlord approval"
 
 **Key files changed**:
 - `client/src/pages/PersonalizedQuotePage.tsx` - Segment content & features

@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar, Sun, Clipboard, Calculator, CreditCard, Gift, Play, Truck, Award, Sparkles, Package, Download } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar, Sun, Clipboard, Calculator, CreditCard, Gift, Play, Truck, Award, Sparkles, Package, Download, Building, FileText } from 'lucide-react';
 import { SiGoogle, SiVisa, SiMastercard, SiAmericanexpress, SiApplepay, SiStripe, SiKlarna } from 'react-icons/si';
 import { FaWhatsapp, FaPaypal } from 'react-icons/fa';
 import { useToast } from '@/hooks/use-toast';
@@ -2410,6 +2410,7 @@ export default function PersonalizedQuotePage() {
                       <div className="space-y-8">
                         {/* [RAMANUJAM] Unified Quote Card for segments with single-product flow */}
                         {['BUSY_PRO', 'BUDGET', 'OLDER_WOMAN', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR'].includes(quote.segment || '') ? (
+                          <>
                           <Elements stripe={stripePromise}>
                             <UnifiedQuoteCard
                               segment={quote.segment || 'BUDGET'}
@@ -2455,6 +2456,56 @@ export default function PersonalizedQuotePage() {
                               }}
                             />
                           </Elements>
+
+                          {/* PROP_MGR Conversion Boosters */}
+                          {quote.segment === 'PROP_MGR' && (
+                            <div className="mt-6 space-y-4">
+                              {/* Trust Badge Strip */}
+                              <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-600 bg-slate-50 rounded-lg py-3 px-4">
+                                <span className="flex items-center gap-1.5">
+                                  <ShieldCheck className="w-4 h-4 text-[#7DB00E]" />
+                                  £2M Insured
+                                </span>
+                                <span className="text-slate-300">•</span>
+                                <span className="flex items-center gap-1.5">
+                                  <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                                  4.9 Google (127 reviews)
+                                </span>
+                                <span className="text-slate-300">•</span>
+                                <span className="flex items-center gap-1.5">
+                                  <Building className="w-4 h-4 text-[#7DB00E]" />
+                                  230+ properties serviced
+                                </span>
+                              </div>
+
+                              {/* Risk Reversal Statement */}
+                              <div className="text-center py-3 px-4 bg-[#7DB00E]/5 border border-[#7DB00E]/20 rounded-lg">
+                                <p className="text-sm text-slate-700 font-medium">
+                                  Not right? We return and fix it free. No questions.
+                                </p>
+                              </div>
+
+                              {/* Landlord PDF Download */}
+                              <button
+                                onClick={() => generateQuotePDF({
+                                  quoteId: quote.id,
+                                  customerName: quote.customerName || 'Customer',
+                                  address: quote.address,
+                                  postcode: quote.postcode,
+                                  jobDescription: getExpertNoteText(quote as any),
+                                  priceInPence: packagesToShow[0]?.price || 0,
+                                  segment: quote.segment || undefined,
+                                  validityHours: 48,
+                                  createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
+                                })}
+                                className="w-full flex items-center justify-center gap-2 text-sm text-slate-600 hover:text-[#7DB00E] transition-colors py-3 px-4 rounded-lg border border-slate-200 hover:border-[#7DB00E]/30 hover:bg-[#7DB00E]/5"
+                              >
+                                <FileText className="w-4 h-4" />
+                                <span>Download quote for landlord approval</span>
+                              </button>
+                            </div>
+                          )}
+                          </>
                         ) : (
                           <>
                             {/* Original package cards for other segments */}
