@@ -2408,6 +2408,31 @@ export default function PersonalizedQuotePage() {
                   >
                     {quote.quoteMode === 'hhh' && packagesToShow.length > 0 && (
                       <div className="space-y-8">
+                        {/* PROP_MGR: WhatsApp Quick Action CTA */}
+                        {quote.segment === 'PROP_MGR' && (
+                          <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4 mb-2">
+                            <div className="flex items-center gap-4">
+                              <div className="bg-green-500 rounded-full p-3 flex-shrink-0">
+                                <FaWhatsapp className="w-6 h-6 text-white" />
+                              </div>
+                              <div className="flex-1">
+                                <p className="font-bold text-gray-900 text-sm">Got a tenant issue?</p>
+                                <p className="text-gray-600 text-xs">Just forward their message to us</p>
+                              </div>
+                              <a
+                                href={`https://wa.me/447508744402?text=${encodeURIComponent(`Property: ${quote.address || quote.postcode || 'TBC'}\n\nTenant reported: `)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bg-green-500 hover:bg-green-600 text-white font-bold text-sm px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+                              >
+                                <FaWhatsapp className="w-4 h-4" />
+                                <span className="hidden sm:inline">Forward Issue</span>
+                                <span className="sm:hidden">Send</span>
+                              </a>
+                            </div>
+                          </div>
+                        )}
+
                         {/* [RAMANUJAM] Unified Quote Card for segments with single-product flow */}
                         {['BUSY_PRO', 'BUDGET', 'OLDER_WOMAN', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR'].includes(quote.segment || '') ? (
                           <Elements stripe={stripePromise}>
