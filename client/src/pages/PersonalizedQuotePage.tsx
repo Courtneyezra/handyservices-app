@@ -121,28 +121,27 @@ const SEGMENT_TIER_CONFIG: Record<string, { handyFix: string[]; hassleFree: stri
     ]
   },
   PROP_MGR: {
-    // SINGLE JOB = Basic reactive service
+    // Single product - job-focused features for PMs
     handyFix: [
       'Quality workmanship',
-      'Scheduled within 1 week',
+      'Scheduled within 5 working days',
       'Invoice on completion',
-      'Tenant coordination included',
+      'Full cleanup included',
     ],
-    // PARTNER PROGRAM = Priority response + PM conveniences
+    // This is the tier shown (enhanced = "Property Service")
     hassleFree: [
-      '⚡ Priority 24-48hr response',
-      '📞 Dedicated contact (skip the queue)',
-      '📄 Monthly invoicing (Net 30)',
-      '🔧 Tenant scheduling handled',
-      '📸 Photo documentation for records',
+      '⚡ Scheduled within 48-72 hours',
+      '📸 Photo report on completion',
+      '🔑 Tenant coordination available',
+      '📄 Invoice emailed same day',
+      '✨ Full cleanup included',
     ],
-    // PREMIUM PARTNER = Full white-glove service
     highStandard: [
-      '🚀 Same-day emergency response',
-      '📊 Quarterly property walk-through',
-      '💰 10% volume discount',
-      '📋 Compliance certificates included',
-      '🛡️ Priority aftercare support',
+      '🚀 Same-day emergency callout',
+      '📸 Full photo documentation',
+      '🔑 Tenant coordination included',
+      '📄 Invoice emailed immediately',
+      '✨ Full cleanup included',
     ]
   },
   SMALL_BIZ: {
@@ -675,31 +674,31 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
   },
   PROP_MGR: {
     hero: {
-      title: "Partner Program",
-      subtitle: "One text. Problem solved.",
+      title: "Your Maintenance Team",
+      subtitle: "One text. Every property sorted.",
       scrollText: "See Partner Benefits"
     },
     proof: {
-      title: "PM SPECIALISTS",
-      mainTitle: "We handle the tenant.",
-      description: "From scheduling access to detailed invoicing, we take the admin off your plate.",
-      mapOverlayText: "We handle the tenant",
+      title: "BUILT FOR PORTFOLIOS",
+      mainTitle: "We handle the tenant headache.",
+      description: "Direct tenant coordination, scheduled access, photo reports for your records. You forward the text, we handle the rest.",
+      mapOverlayText: "Covering your portfolio",
       testimonial: {
-        text: "The only trade that actually coordinates with the tenant directly. Saves me 3 calls per job.",
+        text: "I manage 34 units. They're the only trade I don't have to chase. Text in, invoice out, done.",
         author: "Sarah Jenkins",
-        detail: "Property Manager"
+        detail: "Portfolio Manager, 34 units"
       }
     },
     guarantee: {
-      title: "LANDLORD SAFETY NET",
-      mainTitle: "The Landlord Safety Net",
-      description: "Liability protection, photo documentation for disputes, and compliance certificates included.",
-      boxText: "Priority 24-48hr response for all partner accounts.",
+      title: "PORTFOLIO PARTNER",
+      mainTitle: "Your Maintenance Department",
+      description: "Priority response, monthly invoicing, and photo documentation for every job. Built for scale.",
+      boxText: "One vendor. Every property. Zero chasing.",
       badges: [
-        { label: 'Response', value: '24-48hr Priority', icon: 'Clock' },
-        { label: 'Invoicing', value: 'Net 30 Terms', icon: 'Lock' },
-        { label: 'Liability', value: '£2M Cover', icon: 'Shield' },
-        { label: 'Compliance', value: 'Certified', icon: 'Star' }
+        { label: 'Response', value: '24-48hr SLA', icon: 'Clock' },
+        { label: 'Billing', value: 'Monthly Net 30', icon: 'Lock' },
+        { label: 'Reports', value: 'Photo Docs', icon: 'Camera' },
+        { label: 'Scale', value: 'Multi-Property', icon: 'Shield' }
       ]
     }
   },
@@ -2082,13 +2081,14 @@ export default function PersonalizedQuotePage() {
           }));
 
       case 'PROP_MGR':
-        // ONLY show Partner Program (enhanced tier)
+        // Single product: Job price with PM-friendly service
+        // Partner Program is a retention upsell AFTER first job, not on quote
         return allPackages
           .filter(pkg => pkg.tier === 'enhanced')
           .map(pkg => ({
             ...pkg,
-            name: "Partner Program",
-            description: "Ongoing reliability for property managers",
+            name: "Property Service",
+            description: "Fast turnaround, tenant coordination available",
             isPopular: true,
           }));
 
@@ -2494,6 +2494,15 @@ export default function PersonalizedQuotePage() {
                                     "📅 Evening & Weekend slots available",
                                     "✨ Full cleanup & waste removal"
                                   ];
+                                } else if (quote.segment === 'PROP_MGR') {
+                                  // PROP_MGR: Single product - job-focused
+                                  rawFeatures = [
+                                    "⚡ Scheduled within 48-72 hours",
+                                    "📸 Photo report on completion",
+                                    "🔑 Tenant coordination available",
+                                    "📄 Invoice emailed same day",
+                                    "✨ Full cleanup included"
+                                  ];
                                 }
 
                                 const features = Array.isArray(rawFeatures) ? rawFeatures : [];
@@ -2567,6 +2576,16 @@ export default function PersonalizedQuotePage() {
                                     "📞 Direct specialist contact number",
                                     "📅 Evening & Weekend slots available",
                                     "✨ Full cleanup & waste removal"
+                                  ];
+                                } else if (quote.segment === 'PROP_MGR') {
+                                  // PROP_MGR: Single product - job-focused
+                                  pkg.name = "Property Service";
+                                  rawFeatures = [
+                                    "⚡ Scheduled within 48-72 hours",
+                                    "📸 Photo report on completion",
+                                    "🔑 Tenant coordination available",
+                                    "📄 Invoice emailed same day",
+                                    "✨ Full cleanup included"
                                   ];
                                 } else if (quote.segment === 'OLDER_WOMAN') {
                                   if (pkg.tier === 'enhanced') {
@@ -2699,8 +2718,9 @@ export default function PersonalizedQuotePage() {
                                                 <NeonBadge
                                                   text={
                                                     quote.segment === 'BUSY_PRO' ? 'Priority' :
-                                                      (quote.segment === 'SMALL_BIZ' || quote.segment === 'PROP_MGR') ? 'Disruption-Free' :
-                                                        'Best Value'
+                                                      quote.segment === 'PROP_MGR' ? 'Partner' :
+                                                        quote.segment === 'SMALL_BIZ' ? 'Disruption-Free' :
+                                                          'Best Value'
                                                   }
                                                   color="green"
                                                   icon={Zap}

@@ -169,28 +169,36 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
   },
 
   PROP_MGR: {
-    showTimeSlots: ['morning', 'afternoon'],
+    showTimeSlots: ['morning', 'afternoon'], // Simple slots
     addOns: [
       {
         id: 'tenant_coord',
         name: 'Tenant Coordination',
-        description: 'We handle all tenant communication',
-        price: 0, // Included for PMs
+        description: 'We arrange access directly with the occupant',
+        price: 0, // Free - but optional (empty properties don't need it)
+        popular: true,
       },
       {
         id: 'photo_report',
-        name: 'Photo Documentation',
-        description: 'Full report for your records',
-        price: 1000, // £10
+        name: 'Photo Report',
+        description: 'Before/after documentation for your records',
+        price: 0, // Free for Partner tier, £10 for Single Job
+        popular: true,
+      },
+      {
+        id: 'key_collection',
+        name: 'Key Collection',
+        description: 'Pickup & return from your office or lockbox',
+        price: 3000, // £30
       },
     ],
-    addOnsLabel: 'Property manager essentials:',
+    addOnsLabel: 'Property access & documentation:',
     downsell: null,
     showWeekendFee: false,
     showDiscountBadge: false,
-    maxDaysOut: 14,
-    useCardWrapper: true, // Card format for PM quotes
-    priceLabel: 'Partner Service',
+    maxDaysOut: 10,
+    useCardWrapper: true,
+    priceLabel: 'Job Price',
   },
 
   SMALL_BIZ: {

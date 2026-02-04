@@ -39,11 +39,11 @@ export const SEGMENT_PROFILES: Record<SegmentType, SegmentProfile> = {
   PROP_MGR: {
     id: 'PROP_MGR',
     name: 'Property Manager',
-    description: 'Managing 3-50+ rental units, needs consistency and billing',
+    description: 'Managing 3-50+ rental units professionally, needs reliability and simplified billing',
     wtpLevel: 'MEDIUM_HIGH',
-    valueDriver: 'Response time, consistency, volume pricing',
-    anchorTier: 'standard', // Partner program is the real anchor
-    keyPhrase: 'Ongoing needs',
+    valueDriver: 'Response time SLA, tenant coordination, zero-chase workflow',
+    anchorTier: 'partner', // Partner program is the anchor - show value of ongoing relationship
+    keyPhrase: 'One text, sorted',
     priority: 2,
   },
   SMALL_BIZ: {
@@ -259,44 +259,28 @@ const BUSY_PRO_TIERS: SegmentTierStructure = {
   batchDiscountPercent: 0,
 };
 
-// PROPERTY MANAGER TIERS
+// PROPERTY MANAGER TIERS - Single product (Partner Program is post-job upsell)
 const PROP_MGR_TIERS: SegmentTierStructure = {
   tiers: [
     {
-      id: 'single',
-      name: 'Single Job',
-      shortDescription: 'Quality work with tenant coordination',
+      id: 'property-service',
+      name: 'Property Service',
+      shortDescription: 'Fast turnaround for property professionals',
       features: [
         { label: 'Quality workmanship', description: 'Professional finish', type: 'killer' },
-        { label: 'Scheduled within 1 week', description: 'Quick turnaround', type: 'killer' },
-        { label: 'Invoice on completion', description: 'For your records', type: 'killer' },
-        { label: 'Tenant coordination', description: 'We handle scheduling with them', type: 'killer' },
+        { label: 'Scheduled within 48-72 hours', description: 'Fast turnaround', type: 'killer' },
+        { label: 'Photo report on completion', description: 'For your records', type: 'killer' },
+        { label: 'Invoice emailed same day', description: 'No chasing', type: 'killer' },
+        { label: 'Tenant coordination available', description: 'Add if property is occupied', type: 'filler' },
       ],
       multiplier: 1.0,
-      isRecommended: false,
+      isRecommended: true,
       warrantyDays: 30,
     },
-    {
-      id: 'partner',
-      name: 'Partner Program',
-      shortDescription: 'For ongoing property needs',
-      features: [
-        { label: 'Quality workmanship', description: 'Professional finish', type: 'killer' },
-        { label: 'Tenant coordination', description: 'We handle scheduling', type: 'killer' },
-        { label: 'Priority 24-48hr response', description: 'Fast reaction time', type: 'leader' },
-        { label: 'Dedicated contact', description: 'Skip the queue', type: 'leader' },
-        { label: 'Monthly invoicing (Net 30)', description: 'Simplified billing', type: 'leader' },
-        { label: '10% volume discount', description: 'On all jobs', type: 'filler' },
-        { label: 'Quarterly property walk-through', description: 'Preventive maintenance', type: 'filler' },
-      ],
-      multiplier: 0.9, // Volume discount built in
-      isRecommended: true,
-      warrantyDays: 90,
-    },
   ],
-  quoteStyle: 'package',
-  showBatchDiscount: true,
-  batchDiscountPercent: 10,
+  quoteStyle: 'single',
+  showBatchDiscount: false,
+  batchDiscountPercent: 0,
 };
 
 // SMALL BUSINESS TIERS
@@ -588,15 +572,16 @@ export const SEGMENT_FRAMING: Record<SegmentType, QuoteFramingGuide> = {
     toneGuidance: 'Professional, efficient, emphasize time savings and convenience',
   },
   PROP_MGR: {
-    anchorDescription: 'Property Partner Program - One vendor for all your properties',
+    anchorDescription: 'Property Service - Fast turnaround for property professionals',
     keyBenefits: [
-      'Priority 24-48hr response',
-      'We handle tenant scheduling',
-      'Monthly invoicing (Net 30)',
+      'Scheduled within 48-72 hours',
+      'Photo report on completion',
+      'Tenant coordination available',
+      'Invoice emailed same day',
     ],
-    closingCTA: 'Reply "Partner" to learn more about the program',
-    addOnsToShow: ['tenant_coordination', 'bulk_scheduling', 'preventive_maintenance'],
-    toneGuidance: 'Business-like, emphasize reliability and simplified management',
+    closingCTA: 'Ready to book? Select a date that works.',
+    addOnsToShow: ['tenant_coordination', 'photo_report', 'key_collection'],
+    toneGuidance: 'Professional, efficient. Job-focused - solve this problem fast. Partner Program upsell comes AFTER first job is completed well.',
   },
   SMALL_BIZ: {
     anchorDescription: 'After-Hours Service - Zero disruption to your business',

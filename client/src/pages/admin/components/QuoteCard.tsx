@@ -3,8 +3,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Copy, Eye, Phone, RefreshCw, X, AlertCircle } from 'lucide-react';
+import { Copy, Eye, Phone, RefreshCw, X, AlertCircle, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { generateQuotePDF } from '@/lib/quote-pdf-generator';
 
 interface PersonalizedQuote {
     id: string;
@@ -12,6 +13,9 @@ interface PersonalizedQuote {
     customerName: string;
     phone: string;
     postcode: string | null;
+    address?: string | null;
+    jobDescription?: string;
+    segment?: string | null;
     createdAt: string;
     viewedAt: string | null;
     bookedAt: string | null;
@@ -122,6 +126,38 @@ export function QuoteCard({ quote, onDelete, onRegenerate }: QuoteCardProps) {
                         <Eye className="h-4 w-4 mr-1" />
                         View
                     </Button>
+
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-slate-600 hover:text-[#7DB00E] hover:bg-green-50"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        const price = quote.enhancedPrice || quote.essentialPrice || quote.basePrice || 0;
+                                        generateQuotePDF({
+                                            quoteId: quote.id,
+                                            customerName: quote.customerName || 'Customer',
+                                            address: quote.address,
+                                            postcode: quote.postcode,
+                                            jobDescription: quote.jobDescription || 'As discussed',
+                                            priceInPence: price,
+                                            segment: quote.segment || undefined,
+                                            validityHours: 48,
+                                            createdAt: new Date(quote.createdAt),
+                                        });
+                                    }}
+                                >
+                                    <Download className="h-4 w-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>Download PDF</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
 
                     {(isExpired || !isBooked) && (
                         <TooltipProvider>
