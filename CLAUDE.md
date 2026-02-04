@@ -72,23 +72,30 @@ Key tables: `users`, `leads`, `calls`, `personalized_quotes`, `productized_servi
 
 ## Current Work in Progress
 
-### Quoting System Enhancements
-**Last session**: Adding PDF download functionality to quote cards
-
-**Uncommitted changes**:
-- `client/src/pages/admin/components/QuoteCard.tsx` - Added Download PDF button
-- `client/src/pages/admin/components/QuotesList.tsx` - Added Download PDF button
+### Quoting System - PROP_MGR Segment (Completed Feb 4, 2025)
 
 **What was done**:
-- Imported `Download` icon from lucide-react
-- Imported `generateQuotePDF` from `@/lib/quote-pdf-generator`
-- Added `address`, `jobDescription`, `segment` fields to PersonalizedQuote interface
-- Added tooltip-wrapped download button that calls `generateQuotePDF()`
+- Improved PROP_MGR segment following Madhavan's single-product framework
+- Updated hero/proof/guarantee messaging (removed "Landlord Safety Net")
+- Single product "Property Service" instead of tier comparison
+- Job-focused features: 48-72hr scheduling, photo report, tenant coordination
+- Add-ons: Tenant Coordination (free), Photo Report (free), Key Collection (£30)
+- Partner Program = post-job upsell (not first-quote pitch)
+- Added PDF download buttons to QuoteCard and QuotesList
+
+**Key files changed**:
+- `client/src/pages/PersonalizedQuotePage.tsx` - Segment content & features
+- `client/src/components/quote/SchedulingConfig.ts` - Add-ons config
+- `server/segmentation/config.ts` - Tier structure & framing
+
+**Design decisions**:
+- Tenant coordination is OPTIONAL (property may be empty/Airbnb)
+- First quote = win the job, Partner Program = retention upsell after proving value
+- "Land and expand" strategy
 
 **Next steps**:
-- Test PDF generation works correctly
-- Commit changes if working
-- Continue with quoting system improvements
+- Test PROP_MGR quote flow end-to-end
+- Consider Partner Program upsell automation (after X completed jobs)
 
 ---
 
