@@ -44,7 +44,7 @@ export interface LeadClassification {
     jobClarity: 'known' | 'vague' | 'complex';
     jobType: 'commodity' | 'subjective' | 'fault' | 'project';
     urgency: 'asap' | 'normal' | 'flexible';
-    segment: 'BUSY_PRO' | 'PROP_MGR' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'UNKNOWN';
+    segment: 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'UNKNOWN';
     reasoning: string;
 }
 
@@ -746,7 +746,7 @@ OUTPUT JSON ONLY:
   "jobClarity": "known" | "vague" | "complex",
   "jobType": "commodity" | "subjective" | "fault" | "project",
   "urgency": "asap" | "normal" | "flexible",
-  "segment": "BUSY_PRO" | "PROP_MGR" | "SMALL_BIZ" | "DIY_DEFERRER" | "BUDGET" | "UNKNOWN",
+  "segment": "BUSY_PRO" | "PROP_MGR" | "LANDLORD" | "SMALL_BIZ" | "DIY_DEFERRER" | "BUDGET" | "UNKNOWN",
   "reasoning": "Brief explanation (max 10 words)"
 }
 

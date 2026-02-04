@@ -46,6 +46,16 @@ export const SEGMENT_PROFILES: Record<SegmentType, SegmentProfile> = {
     keyPhrase: 'One text, sorted',
     priority: 2,
   },
+  LANDLORD: {
+    id: 'LANDLORD',
+    name: 'Landlord',
+    description: 'Individual landlords with 1-3 properties, often remote, need photo proof and hassle-free service',
+    wtpLevel: 'MEDIUM',
+    valueDriver: 'Photo proof, tenant coordination, tax-ready invoice, zero hassle',
+    anchorTier: 'standard',
+    keyPhrase: 'One text, sorted',
+    priority: 3,
+  },
   SMALL_BIZ: {
     id: 'SMALL_BIZ',
     name: 'Small Business',
@@ -132,6 +142,25 @@ export const SEGMENT_SIGNALS: Record<SegmentType, DetectionSignal> = {
       /company name/i,
     ],
     weight: 0.95,
+  },
+  LANDLORD: {
+    keywords: [
+      'landlord', 'my rental', 'my property', 'rental property',
+      'i rent out', 'i let', 'letting out',
+      'tenant', 'my tenant', 'the tenant',
+      'buy to let', 'btl', 'investment property',
+      'i live away', 'live far', 'not local',
+      'photo', 'photos', 'send me photos',
+    ],
+    patterns: [
+      /my (rental|rented|let) (property|flat|house)/i,
+      /i('m| am) (a |the )?landlord/i,
+      /tenant (lives|is living|moved)/i,
+      /\d+ (hour|mile|minute)s? away/i,
+      /can('t| not) be there/i,
+      /send.*(photo|picture|update)/i,
+    ],
+    weight: 0.85,
   },
   SMALL_BIZ: {
     keywords: [
@@ -272,6 +301,30 @@ const PROP_MGR_TIERS: SegmentTierStructure = {
         { label: 'Photo report on completion', description: 'For your records', type: 'killer' },
         { label: 'Invoice emailed same day', description: 'No chasing', type: 'killer' },
         { label: 'Tenant coordination available', description: 'Add if property is occupied', type: 'filler' },
+      ],
+      multiplier: 1.0,
+      isRecommended: true,
+      warrantyDays: 30,
+    },
+  ],
+  quoteStyle: 'single',
+  showBatchDiscount: false,
+  batchDiscountPercent: 0,
+};
+
+// LANDLORD TIERS (Single product - hassle-free service)
+const LANDLORD_TIERS: SegmentTierStructure = {
+  tiers: [
+    {
+      id: 'landlord-service',
+      name: 'Landlord Service',
+      shortDescription: 'Hassle-free service for rental properties',
+      features: [
+        { label: 'Quality workmanship', description: 'Professional finish', type: 'killer' },
+        { label: 'Scheduled within 48-72 hours', description: 'Fast turnaround', type: 'killer' },
+        { label: 'Photo report included', description: 'See the completed work', type: 'killer' },
+        { label: 'Tax-ready invoice', description: 'Proper documentation for your records', type: 'killer' },
+        { label: 'Tenant coordination available', description: 'We arrange access if needed', type: 'filler' },
       ],
       multiplier: 1.0,
       isRecommended: true,
@@ -471,6 +524,8 @@ export function getSegmentTierStructure(segment: SegmentType): SegmentTierStruct
       return BUSY_PRO_TIERS;
     case 'PROP_MGR':
       return PROP_MGR_TIERS;
+    case 'LANDLORD':
+      return LANDLORD_TIERS;
     case 'SMALL_BIZ':
       return SMALL_BIZ_TIERS;
     case 'DIY_DEFERRER':
@@ -512,6 +567,14 @@ export const SEGMENT_PRICING: Record<SegmentType, SegmentPricingConfig> = {
     emergencyPremium: 0.5,
     volumeDiscount: 0.1, // 10% for volume
     partnerDiscount: 0.1, // 10% for partner program
+  },
+  LANDLORD: {
+    baseMultiplier: 1.0,
+    urgencyPremium: 0.25,
+    afterHoursPremium: 0.25,
+    emergencyPremium: 0.5,
+    volumeDiscount: 0.05, // Small discount for repeat landlords
+    partnerDiscount: 0,
   },
   SMALL_BIZ: {
     baseMultiplier: 1.0,
@@ -582,6 +645,18 @@ export const SEGMENT_FRAMING: Record<SegmentType, QuoteFramingGuide> = {
     closingCTA: 'Ready to book? Select a date that works.',
     addOnsToShow: ['tenant_coordination', 'photo_report', 'key_collection'],
     toneGuidance: 'Professional, efficient. Job-focused - solve this problem fast. Partner Program upsell comes AFTER first job is completed well.',
+  },
+  LANDLORD: {
+    anchorDescription: 'Landlord Service - Your rental handled, hassle-free',
+    keyBenefits: [
+      'Photo report so you can see the work',
+      'Tenant coordination if needed',
+      'Tax-ready invoice for your records',
+      'Scheduled within 48-72 hours',
+    ],
+    closingCTA: 'Ready to book? We\'ll handle everything.',
+    addOnsToShow: ['tenant_coordination', 'photo_report', 'key_collection'],
+    toneGuidance: 'Reassuring, hassle-free. Emphasize they don\'t need to be there - we handle it.',
   },
   SMALL_BIZ: {
     anchorDescription: 'After-Hours Service - Zero disruption to your business',

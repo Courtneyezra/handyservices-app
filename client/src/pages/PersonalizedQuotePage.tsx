@@ -144,6 +144,30 @@ const SEGMENT_TIER_CONFIG: Record<string, { handyFix: string[]; hassleFree: stri
       '✨ Full cleanup included',
     ]
   },
+  LANDLORD: {
+    // Single product - hassle-free landlord service
+    handyFix: [
+      'Quality workmanship',
+      'Scheduled within 5 working days',
+      'Invoice on completion',
+      'Full cleanup included',
+    ],
+    // This is the tier shown (enhanced = "Landlord Service")
+    hassleFree: [
+      '⚡ Scheduled within 48-72 hours',
+      '📸 Photo report included',
+      '🔑 Tenant coordination available',
+      '📄 Tax-ready invoice',
+      '✨ Full cleanup included',
+    ],
+    highStandard: [
+      '🚀 Same-day emergency callout',
+      '📸 Full photo documentation',
+      '🔑 Tenant coordination included',
+      '📄 Invoice emailed immediately',
+      '✨ Full cleanup included',
+    ]
+  },
   SMALL_BIZ: {
     // STANDARD HOURS = Basic business service
     handyFix: [
@@ -577,7 +601,7 @@ export interface PersonalizedQuote {
   recommendedRoute?: 'instant' | 'tiers' | 'assessment' | null;
   proposalModeEnabled?: boolean;
   clientType?: 'residential' | 'commercial';
-  segment?: 'BUSY_PRO' | 'PROP_MGR' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'OLDER_WOMAN' | 'UNKNOWN';
+  segment?: 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'OLDER_WOMAN' | 'UNKNOWN';
 
   // Dynamic Tier Config (from Value Pricing Engine)
   essential?: { name: string; description: string };
@@ -699,6 +723,36 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
         { label: 'Billing', value: 'Monthly Net 30', icon: 'Lock' },
         { label: 'Reports', value: 'Photo Docs', icon: 'Camera' },
         { label: 'Scale', value: 'Multi-Property', icon: 'Shield' }
+      ]
+    }
+  },
+  LANDLORD: {
+    hero: {
+      title: "Your Rental. Handled.",
+      subtitle: "One text. We sort it.",
+      scrollText: "See what's included"
+    },
+    proof: {
+      title: "BUILT FOR LANDLORDS",
+      mainTitle: "You don't need to be there.",
+      description: "Photo proof of every job, tenant coordination if needed, and a proper invoice for your records. Text us the problem, we handle the rest.",
+      mapOverlayText: "Covering your area",
+      testimonial: {
+        text: "I live 2 hours away. They coordinated with my tenant, sent photos, invoice was in my email by 5pm. Exactly what I needed.",
+        author: "Mark T.",
+        detail: "Landlord, 2 rental properties"
+      }
+    },
+    guarantee: {
+      title: "LANDLORD READY",
+      mainTitle: "Protect Your Investment",
+      description: "Fast turnaround, photo documentation, and proper invoicing. We handle the hassle so you don't have to.",
+      boxText: "Photo proof. Proper invoice. Zero chasing.",
+      badges: [
+        { label: 'Response', value: '48-72hr', icon: 'Clock' },
+        { label: 'Proof', value: 'Photo Report', icon: 'Camera' },
+        { label: 'Invoice', value: 'Tax-Ready', icon: 'Lock' },
+        { label: 'Access', value: 'Tenant Coord', icon: 'Shield' }
       ]
     }
   },
@@ -2092,6 +2146,17 @@ export default function PersonalizedQuotePage() {
             isPopular: true,
           }));
 
+      case 'LANDLORD':
+        // Single product: Hassle-free landlord service
+        return allPackages
+          .filter(pkg => pkg.tier === 'enhanced')
+          .map(pkg => ({
+            ...pkg,
+            name: "Landlord Service",
+            description: "Photo proof, tenant coordination, tax-ready invoice",
+            isPopular: true,
+          }));
+
       case 'SMALL_BIZ':
         // ONLY show After-Hours Service (enhanced tier)
         return allPackages
@@ -2409,7 +2474,7 @@ export default function PersonalizedQuotePage() {
                     {quote.quoteMode === 'hhh' && packagesToShow.length > 0 && (
                       <div className="space-y-8">
                         {/* [RAMANUJAM] Unified Quote Card for segments with single-product flow */}
-                        {['BUSY_PRO', 'BUDGET', 'OLDER_WOMAN', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR'].includes(quote.segment || '') ? (
+                        {['BUSY_PRO', 'BUDGET', 'OLDER_WOMAN', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR', 'LANDLORD'].includes(quote.segment || '') ? (
                           <>
                           <Elements stripe={stripePromise}>
                             <UnifiedQuoteCard
@@ -2505,6 +2570,55 @@ export default function PersonalizedQuotePage() {
                               </button>
                             </div>
                           )}
+
+                          {/* LANDLORD Conversion Boosters */}
+                          {quote.segment === 'LANDLORD' && (
+                            <div className="mt-6 space-y-4">
+                              {/* Trust Badge Strip */}
+                              <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-600 bg-slate-50 rounded-lg py-3 px-4">
+                                <span className="flex items-center gap-1.5">
+                                  <ShieldCheck className="w-4 h-4 text-[#7DB00E]" />
+                                  £2M Insured
+                                </span>
+                                <span className="text-slate-300">•</span>
+                                <span className="flex items-center gap-1.5">
+                                  <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                                  4.9 Google (127 reviews)
+                                </span>
+                                <span className="text-slate-300">•</span>
+                                <span className="flex items-center gap-1.5">
+                                  <Building className="w-4 h-4 text-[#7DB00E]" />
+                                  180+ landlords trust us
+                                </span>
+                              </div>
+
+                              {/* Risk Reversal Statement */}
+                              <div className="text-center py-3 px-4 bg-[#7DB00E]/5 border border-[#7DB00E]/20 rounded-lg">
+                                <p className="text-sm text-slate-700 font-medium">
+                                  Not right? We return and fix it free. No questions.
+                                </p>
+                              </div>
+
+                              {/* PDF Download */}
+                              <button
+                                onClick={() => generateQuotePDF({
+                                  quoteId: quote.id,
+                                  customerName: quote.customerName || 'Customer',
+                                  address: quote.address,
+                                  postcode: quote.postcode,
+                                  jobDescription: getExpertNoteText(quote as any),
+                                  priceInPence: packagesToShow[0]?.price || 0,
+                                  segment: quote.segment || undefined,
+                                  validityHours: 48,
+                                  createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
+                                })}
+                                className="w-full flex items-center justify-center gap-2 text-sm text-slate-600 hover:text-[#7DB00E] transition-colors py-3 px-4 rounded-lg border border-slate-200 hover:border-[#7DB00E]/30 hover:bg-[#7DB00E]/5"
+                              >
+                                <FileText className="w-4 h-4" />
+                                <span>Download quote for your records</span>
+                              </button>
+                            </div>
+                          )}
                           </>
                         ) : (
                           <>
@@ -2552,6 +2666,15 @@ export default function PersonalizedQuotePage() {
                                     "📸 Photo report on completion",
                                     "🔑 Tenant coordination available",
                                     "📄 Invoice emailed same day",
+                                    "✨ Full cleanup included"
+                                  ];
+                                } else if (quote.segment === 'LANDLORD') {
+                                  // LANDLORD: Single product - hassle-free
+                                  rawFeatures = [
+                                    "⚡ Scheduled within 48-72 hours",
+                                    "📸 Photo report included",
+                                    "🔑 Tenant coordination available",
+                                    "📄 Tax-ready invoice",
                                     "✨ Full cleanup included"
                                   ];
                                 }
@@ -2636,6 +2759,16 @@ export default function PersonalizedQuotePage() {
                                     "📸 Photo report on completion",
                                     "🔑 Tenant coordination available",
                                     "📄 Invoice emailed same day",
+                                    "✨ Full cleanup included"
+                                  ];
+                                } else if (quote.segment === 'LANDLORD') {
+                                  // LANDLORD: Single product - hassle-free
+                                  pkg.name = "Landlord Service";
+                                  rawFeatures = [
+                                    "⚡ Scheduled within 48-72 hours",
+                                    "📸 Photo report included",
+                                    "🔑 Tenant coordination available",
+                                    "📄 Tax-ready invoice",
                                     "✨ Full cleanup included"
                                   ];
                                 } else if (quote.segment === 'OLDER_WOMAN') {
@@ -3042,7 +3175,7 @@ export default function PersonalizedQuotePage() {
 
             {/* [RAMANUJAM] Unified Payment Section */}
             {/* Shows after user books via UnifiedQuoteCard */}
-            {['BUSY_PRO', 'BUDGET', 'OLDER_WOMAN', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR'].includes(quote.segment || '') && selectedEEEPackage && quote.quoteMode === 'hhh' && hasApprovedProduct && (
+            {['BUSY_PRO', 'BUDGET', 'OLDER_WOMAN', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR', 'LANDLORD'].includes(quote.segment || '') && selectedEEEPackage && quote.quoteMode === 'hhh' && hasApprovedProduct && (
               <motion.div
                 id="payment-section"
                 initial={{ opacity: 0, y: 20 }}

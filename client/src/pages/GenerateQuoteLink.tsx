@@ -63,7 +63,7 @@ interface PersonalizedQuote {
   leadId: string | null;
   createdAt: string;
   visitTierMode?: 'tiers' | 'fixed' | null;
-  segment?: 'BUSY_PRO' | 'PROP_MGR' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'OLDER_WOMAN' | 'UNKNOWN';
+  segment?: 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'OLDER_WOMAN' | 'UNKNOWN';
 }
 
 export default function GenerateQuoteLink() {
@@ -205,7 +205,7 @@ export default function GenerateQuoteLink() {
   // NEW STATE for Redesign
   const [classification, setClassification] = useState<RouteAnalysis['classification'] | null>(null);
   // selectedRoute removed - segment determines pricing mode automatically
-  const [segment, setSegment] = useState<'BUSY_PRO' | 'PROP_MGR' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'OLDER_WOMAN' | undefined>(undefined);
+  const [segment, setSegment] = useState<'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'OLDER_WOMAN' | undefined>(undefined);
   const [proposalModeEnabled, setProposalModeEnabled] = useState(true); // Now standard for all quotes
   const [isQuickLink, setIsQuickLink] = useState(false);
 
@@ -1635,6 +1635,7 @@ Example:
                                   <SelectItem value="BUSY_PRO">Busy Professional</SelectItem>
                                   <SelectItem value="OLDER_WOMAN">Older Woman (Retired)</SelectItem>
                                   <SelectItem value="PROP_MGR">Property Manager</SelectItem>
+                                  <SelectItem value="LANDLORD">Landlord</SelectItem>
                                   <SelectItem value="SMALL_BIZ">Small Business</SelectItem>
                                   <SelectItem value="DIY_DEFERRER">DIY Deferrer</SelectItem>
                                   <SelectItem value="BUDGET">Budget/Economy</SelectItem>

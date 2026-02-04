@@ -10,7 +10,7 @@ import { Copy, Check, Loader2, Send, Users, FileText, PoundSterling, Sparkles, C
 import { FaWhatsapp } from 'react-icons/fa';
 import Autocomplete from "react-google-autocomplete";
 
-type Segment = 'BUSY_PRO' | 'PROP_MGR' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'OLDER_WOMAN';
+type Segment = 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'OLDER_WOMAN';
 
 interface TaskItem {
   id: string;
@@ -26,6 +26,7 @@ const SEGMENT_OPTIONS: { value: Segment; label: string; description: string }[] 
   { value: 'BUSY_PRO', label: 'Busy Professional', description: 'Time-poor, values speed & convenience' },
   { value: 'OLDER_WOMAN', label: 'Older Customer', description: 'Values trust, safety & reliability' },
   { value: 'PROP_MGR', label: 'Property Manager', description: 'Manages multiple properties, needs fast response' },
+  { value: 'LANDLORD', label: 'Landlord', description: '1-3 properties, needs photo proof & hassle-free service' },
   { value: 'SMALL_BIZ', label: 'Small Business', description: 'Needs after-hours, minimal disruption' },
   { value: 'DIY_DEFERRER', label: 'DIY Deferrer', description: 'Has a list of jobs, price-conscious' },
   { value: 'BUDGET', label: 'Budget Customer', description: 'Most price-sensitive, single tier only' },

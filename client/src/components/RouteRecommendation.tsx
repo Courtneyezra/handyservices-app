@@ -11,7 +11,7 @@ export interface RouteAnalysis {
         jobClarity: 'clear' | 'vague';
         jobType: 'standard' | 'complex' | 'emergency';
         urgency: 'low' | 'medium' | 'high';
-        segment?: 'BUSY_PRO' | 'PROP_MGR' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'UNKNOWN';
+        segment?: 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'UNKNOWN';
         reasoning: string;
     };
     recommendedRoute: 'instant' | 'tiers' | 'assessment';

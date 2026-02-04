@@ -201,6 +201,39 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
     priceLabel: 'Job Price',
   },
 
+  LANDLORD: {
+    showTimeSlots: ['morning', 'afternoon'], // Simple slots
+    addOns: [
+      {
+        id: 'tenant_coord',
+        name: 'Tenant Coordination',
+        description: 'We arrange access directly with your tenant',
+        price: 0, // Free - optional if property is empty
+        popular: true,
+      },
+      {
+        id: 'photo_report',
+        name: 'Photo Report',
+        description: 'Before/after photos so you can see the work',
+        price: 0, // Free - included
+        popular: true,
+      },
+      {
+        id: 'key_collection',
+        name: 'Key Collection',
+        description: 'Pickup & return from lockbox or neighbour',
+        price: 3000, // £30
+      },
+    ],
+    addOnsLabel: 'Access & documentation:',
+    downsell: null,
+    showWeekendFee: false,
+    showDiscountBadge: false,
+    maxDaysOut: 14,
+    useCardWrapper: true,
+    priceLabel: 'Job Price',
+  },
+
   SMALL_BIZ: {
     showTimeSlots: ['morning', 'afternoon', 'exact'],
     addOns: [

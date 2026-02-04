@@ -101,6 +101,41 @@ Key tables: `users`, `leads`, `calls`, `personalized_quotes`, `productized_servi
 - Test PROP_MGR quote flow end-to-end
 - Consider Partner Program upsell automation (after X completed jobs)
 
+### Quoting System - LANDLORD Segment (Added Feb 4, 2025)
+
+**What was done**:
+- Created new LANDLORD segment following Madhavan's single-product framework
+- Distinct from PROP_MGR: Individual landlords with 1-3 properties (not portfolio managers)
+- "Hassle-Free Landlord" angle: "Your Rental. Handled. One text. We sort it."
+
+**Segment Configuration**:
+- Hero: "Your Rental. Handled." / "One text. We sort it."
+- Proof: "You don't need to be there." - Photo proof, tenant coordination, tax-ready invoice
+- Guarantee: "Protect Your Investment" - 48-72hr response, photo report, tax-ready invoice
+- Testimonial: "I live 2 hours away. They coordinated with my tenant, sent photos, invoice was in my email by 5pm."
+
+**Single Product**: "Landlord Service"
+- Features: 48-72hr scheduling, photo report included, tenant coordination available, tax-ready invoice
+- Add-ons: Tenant Coordination (free), Photo Report (free), Key Collection (£30)
+
+**Conversion Boosters**:
+- Trust strip: £2M Insured • 4.9★ Google (127 reviews) • 180+ landlords trust us
+- Risk reversal: "Not right? We return and fix it free. No questions."
+- PDF download: "Download quote for your records"
+
+**Key files changed**:
+- `shared/schema.ts` - Added LANDLORD to segmentEnum
+- `server/segmentation/config.ts` - Profile, detection signals, tier structure, pricing, framing
+- `client/src/pages/PersonalizedQuotePage.tsx` - Segment content, features, conversion boosters
+- `client/src/components/quote/SchedulingConfig.ts` - Add-ons config
+- `server/openai.ts` - Added to segment types
+- `client/src/pages/GenerateQuoteLink.tsx` - Added to dropdown selector
+- `client/src/pages/GenerateQuoteLinkSimple.tsx` - Added to segment options
+
+**Detection signals**:
+- Keywords: landlord, my rental, buy to let, btl, tenant, investment property
+- Patterns: "my rental property", "I'm a landlord", "can't be there", "send me photos"
+
 ---
 
 ## Session Notes
