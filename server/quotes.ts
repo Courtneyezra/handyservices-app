@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { db } from "./db";
-import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, segmentEnum } from "@shared/schema";
+import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, segmentEnum, invoices, invoiceTokens, contractorJobs } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
+import crypto from 'crypto';
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { openai, polishAssessmentReason, generatePersonalizedNote, determineQuoteStrategy, classifyLead, determineOptimalRoute } from "./openai";
@@ -9,6 +10,8 @@ import { generateValuePricingQuote, createAnalyticsLog, generateTierDeliverables
 import { geocodeAddress } from "./lib/geocoding";
 import { findBestContractors, checkNetworkAvailability } from "./availability-engine";
 import { detectMultipleTasks } from "./skuDetector";
+import { findDuplicateLead } from "./lead-deduplication";
+import { normalizePhoneNumber } from "./phone-utils";
 
 // Define input schema for value pricing
 const valuePricingInputSchema = z.object({
@@ -317,6 +320,41 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
         const shortSlug = nanoid(8);
         const id = `quote_${nanoid()}`;
 
+        // --- LEAD LINKING: Find or create lead to link quote ---
+        let linkedLeadId: string | null = null;
+        const normalizedPhone = normalizePhoneNumber(input.phone);
+
+        if (normalizedPhone) {
+            // Check for existing lead by phone (and other signals)
+            const duplicateCheck = await findDuplicateLead(normalizedPhone, {
+                customerName: input.customerName,
+                postcode: input.postcode,
+            });
+
+            if (duplicateCheck.isDuplicate && duplicateCheck.existingLead) {
+                // Link to existing lead
+                linkedLeadId = duplicateCheck.existingLead.id;
+                console.log(`[Quote→Lead] Linked to existing lead ${linkedLeadId} (${duplicateCheck.matchReason})`);
+            } else {
+                // Create new lead from quote data
+                linkedLeadId = `lead_quote_${Date.now()}`;
+                await db.insert(leads).values({
+                    id: linkedLeadId,
+                    customerName: input.customerName,
+                    phone: normalizedPhone,
+                    email: input.email || null,
+                    source: 'quote_creation',
+                    jobDescription: input.jobDescription,
+                    postcode: input.postcode,
+                    addressRaw: input.address || null,
+                    status: 'quote_sent',
+                });
+                console.log(`[Quote→Lead] Created new lead ${linkedLeadId} from quote`);
+            }
+        } else {
+            console.warn(`[Quote→Lead] Could not normalize phone: ${input.phone}, quote will be unlinked`);
+        }
+
         // B3.1: Map AI classification to schema enums
         // Map AI jobType ('commodity'/'subjective'/'fault'/'project') to schema enum
         let mappedJobType: 'SINGLE' | 'COMPLEX' | 'MULTIPLE' = 'SINGLE';
@@ -376,6 +414,7 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
         const quoteInsertData = {
             id,
             shortSlug,
+            leadId: linkedLeadId, // Link to lead (fixes orphaned quotes)
             contractorId: input.contractorId || null, // Capture contractor ID
             customerName: input.customerName,
             phone: input.phone,
@@ -432,7 +471,7 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
 
 
             createdAt: new Date(),
-            expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes from creation
+            // expiresAt removed - quotes no longer expire
         };
 
         // Insert into DB
@@ -855,16 +894,19 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
         const laborCost = Math.max(0, selectedTierPricePence - materialsCost);
         const depositAmountPence = materialsCost + Math.round(laborCost * 0.30);
 
+        // NOTE: depositPaidAt is NOT set here - it will be set by the Stripe webhook
+        // when the payment is confirmed. This prevents race conditions and false positives.
         await db.update(personalizedQuotes)
             .set({
                 leadId,
                 selectedPackage,
                 selectedExtras: selectedExtras || [],
-                bookedAt: new Date(),
+                selectedAt: new Date(), // Track when package was selected
                 paymentType,
                 selectedTierPricePence,
                 depositAmountPence,
-                depositPaidAt: new Date(),
+                // depositPaidAt is set by Stripe webhook after payment confirmation
+                // bookedAt is set by Stripe webhook after payment confirmation
             })
             .where(eq(personalizedQuotes.id, id));
 
@@ -881,18 +923,19 @@ quotesRouter.put('/api/personalized-quotes/:id/track-visit-booking', async (req,
         const { id } = req.params;
         const { leadId, tierId, amountPence, paymentIntentId, slot } = req.body;
 
+        // NOTE: depositPaidAt and bookedAt are NOT set here - they will be set by the Stripe webhook
+        // when the payment is confirmed. This prevents race conditions and false positives.
         await db.update(personalizedQuotes)
             .set({
                 leadId,
                 selectedPackage: tierId, // standard, priority, emergency
-                bookedAt: new Date(),
+                selectedAt: new Date(), // Track when package was selected
                 paymentType: 'full',
                 selectedTierPricePence: amountPence,
-                depositAmountPence: amountPence, // Full payment
-                depositPaidAt: new Date(),
+                depositAmountPence: amountPence, // Full payment amount (will be confirmed by webhook)
                 stripePaymentIntentId: paymentIntentId,
-                // We can't easily store slot in existing columns, but lead will have it.
-                // Or updates 'jobDescription' to include it? No, keep original description.
+                // depositPaidAt is set by Stripe webhook after payment confirmation
+                // bookedAt is set by Stripe webhook after payment confirmation
             })
             .where(eq(personalizedQuotes.id, id));
 
@@ -949,23 +992,22 @@ quotesRouter.get('/api/personalized-quotes/:id/invoice-data', async (req, res) =
     }
 });
 
-// Admin: Manually expire a quote
+// Admin: Manually expire a quote (DEPRECATED - quotes no longer expire)
+// Kept for backwards compatibility but effectively a no-op now
 quotesRouter.post('/api/admin/personalized-quotes/:id/expire', async (req, res) => {
     try {
         const { id } = req.params;
-
-        await db.update(personalizedQuotes)
-            .set({ expiresAt: new Date() }) // Set expiry to now = expired
-            .where(eq(personalizedQuotes.id, id));
-
-        res.json({ success: true, expired: true });
+        // Quotes no longer expire, so this is now a no-op
+        // Could be repurposed for "archive" functionality in the future
+        res.json({ success: true, message: "Quotes no longer expire" });
     } catch (error) {
         console.error("Expire quote error:", error);
         res.status(500).json({ error: "Failed to expire quote" });
     }
 });
 
-// Admin: Regenerate an expired quote with price increase and fresh timer
+// Admin: Regenerate a quote with price increase
+// Note: expiresAt no longer set since quotes don't expire
 quotesRouter.post('/api/admin/personalized-quotes/:id/regenerate', async (req, res) => {
     try {
         const { id } = req.params;
@@ -981,14 +1023,13 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/regenerate', async (req, r
 
         const multiplier = 1 + (percentageIncrease / 100);
 
-        // Update the quote with new prices and fresh 15-minute timer
+        // Update the quote with new prices (no expiration timer)
         await db.update(personalizedQuotes)
             .set({
                 essentialPrice: original.essentialPrice ? Math.round(original.essentialPrice * multiplier) : null,
                 enhancedPrice: original.enhancedPrice ? Math.round(original.enhancedPrice * multiplier) : null,
                 elitePrice: original.elitePrice ? Math.round(original.elitePrice * multiplier) : null,
                 basePrice: original.basePrice ? Math.round(original.basePrice * multiplier) : null,
-                expiresAt: new Date(Date.now() + 15 * 60 * 1000), // Fresh 15 min timer
                 regenerationCount: (original.regenerationCount || 0) + 1,
             })
             .where(eq(personalizedQuotes.id, id));
@@ -1036,5 +1077,488 @@ quotesRouter.post("/api/quotes/:id/share", async (req, res) => {
     await new Promise(r => setTimeout(r, 1000));
 
     res.json({ success: true, message: `Quote sent to ${target}` });
+});
+
+// Update selected date before payment
+quotesRouter.patch('/api/personalized-quotes/:id/update-date', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { selectedDate } = req.body;
+
+        if (!selectedDate) {
+            return res.status(400).json({ error: "selectedDate is required" });
+        }
+
+        await db.update(personalizedQuotes)
+            .set({ selectedDate: new Date(selectedDate) })
+            .where(eq(personalizedQuotes.id, id));
+
+        console.log(`[Quote] Updated selectedDate for quote ${id}: ${selectedDate}`);
+        res.json({ success: true });
+    } catch (error) {
+        console.error("Update date error:", error);
+        res.status(500).json({ error: "Failed to update date" });
+    }
+});
+
+// ==========================================
+// PAYMENT ANALYTICS ENDPOINTS
+// ==========================================
+
+import { and, gte, isNotNull, sql, count, sum } from "drizzle-orm";
+
+// GET /api/admin/payments/summary
+// Aggregate payment stats (today, week, month)
+quotesRouter.get('/api/admin/payments/summary', async (req, res) => {
+    try {
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const weekStart = new Date(todayStart);
+        weekStart.setDate(weekStart.getDate() - 7);
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        // Get all paid quotes
+        const paidQuotes = await db.select({
+            depositAmountPence: personalizedQuotes.depositAmountPence,
+            depositPaidAt: personalizedQuotes.depositPaidAt,
+        })
+            .from(personalizedQuotes)
+            .where(isNotNull(personalizedQuotes.depositPaidAt));
+
+        // Calculate totals
+        let todayTotal = 0;
+        let weekTotal = 0;
+        let monthTotal = 0;
+        let todayCount = 0;
+        let weekCount = 0;
+        let monthCount = 0;
+
+        for (const quote of paidQuotes) {
+            const paidDate = new Date(quote.depositPaidAt!);
+            const amount = quote.depositAmountPence || 0;
+
+            if (paidDate >= todayStart) {
+                todayTotal += amount;
+                todayCount++;
+            }
+            if (paidDate >= weekStart) {
+                weekTotal += amount;
+                weekCount++;
+            }
+            if (paidDate >= monthStart) {
+                monthTotal += amount;
+                monthCount++;
+            }
+        }
+
+        res.json({
+            today: { total: todayTotal, count: todayCount },
+            week: { total: weekTotal, count: weekCount },
+            month: { total: monthTotal, count: monthCount },
+            allTime: { total: paidQuotes.reduce((sum, q) => sum + (q.depositAmountPence || 0), 0), count: paidQuotes.length }
+        });
+    } catch (error) {
+        console.error('Failed to fetch payment summary:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// GET /api/admin/payments/recent
+// Recent payments list
+quotesRouter.get('/api/admin/payments/recent', async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit as string) || 20;
+
+        const recentPayments = await db.select({
+            id: personalizedQuotes.id,
+            shortSlug: personalizedQuotes.shortSlug,
+            customerName: personalizedQuotes.customerName,
+            phone: personalizedQuotes.phone,
+            depositAmountPence: personalizedQuotes.depositAmountPence,
+            depositPaidAt: personalizedQuotes.depositPaidAt,
+            paymentType: personalizedQuotes.paymentType,
+            stripePaymentIntentId: personalizedQuotes.stripePaymentIntentId,
+            selectedPackage: personalizedQuotes.selectedPackage,
+            segment: personalizedQuotes.segment,
+        })
+            .from(personalizedQuotes)
+            .where(isNotNull(personalizedQuotes.depositPaidAt))
+            .orderBy(desc(personalizedQuotes.depositPaidAt))
+            .limit(limit);
+
+        res.json(recentPayments);
+    } catch (error) {
+        console.error('Failed to fetch recent payments:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ==========================================
+// BOOKING CONFIRMATION DATA ENDPOINT
+// ==========================================
+
+// GET /api/personalized-quotes/:id/confirmation
+// Returns all data needed for the post-payment confirmation page
+quotesRouter.get('/api/personalized-quotes/:id/confirmation', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Get quote with all details
+        const [quote] = await db.select().from(personalizedQuotes)
+            .where(eq(personalizedQuotes.id, id));
+
+        if (!quote) {
+            return res.status(404).json({ error: 'Quote not found' });
+        }
+
+        // Check if quote is actually booked/paid
+        if (!quote.depositPaidAt) {
+            return res.status(400).json({ error: 'Quote not yet booked - payment required' });
+        }
+
+        // Get associated invoice
+        const [invoice] = await db.select().from(invoices)
+            .where(eq(invoices.quoteId, id))
+            .limit(1);
+
+        // Get or create invoice token for portal access
+        let portalToken: string | null = null;
+        if (invoice) {
+            const existingTokens = await db.select()
+                .from(invoiceTokens)
+                .where(eq(invoiceTokens.invoiceId, invoice.id))
+                .limit(1);
+
+            if (existingTokens.length > 0) {
+                portalToken = existingTokens[0].token;
+            } else {
+                // Create new token
+                const newToken = crypto.randomBytes(32).toString('hex');
+                await db.insert(invoiceTokens).values({
+                    id: crypto.randomUUID(),
+                    invoiceId: invoice.id,
+                    token: newToken,
+                    viewCount: 0,
+                });
+                portalToken = newToken;
+            }
+        }
+
+        // Get job if created
+        const [job] = await db.select().from(contractorJobs)
+            .where(eq(contractorJobs.quoteId, id))
+            .limit(1);
+
+        // Get contractor info if assigned
+        let contractor = null;
+        if (quote.contractorId) {
+            const [profile] = await db.select({
+                businessName: handymanProfiles.businessName,
+                profileImageUrl: handymanProfiles.profileImageUrl,
+            }).from(handymanProfiles)
+                .where(eq(handymanProfiles.id, quote.contractorId))
+                .limit(1);
+
+            if (profile) {
+                contractor = {
+                    name: profile.businessName || 'Your Technician',
+                    imageUrl: profile.profileImageUrl,
+                };
+            }
+        }
+
+        res.json({
+            quote: {
+                id: quote.id,
+                shortSlug: quote.shortSlug,
+                customerName: quote.customerName,
+                phone: quote.phone,
+                email: quote.email,
+                jobDescription: quote.jobDescription,
+                postcode: quote.postcode,
+                address: quote.address,
+                segment: quote.segment || 'UNKNOWN',
+                selectedPackage: quote.selectedPackage,
+                selectedExtras: quote.selectedExtras || [],
+                selectedDate: quote.selectedDate,
+                depositAmountPence: quote.depositAmountPence,
+                depositPaidAt: quote.depositPaidAt,
+            },
+            invoice: invoice ? {
+                id: invoice.id,
+                invoiceNumber: invoice.invoiceNumber,
+                totalAmount: invoice.totalAmount,
+                depositPaid: invoice.depositPaid,
+                balanceDue: invoice.balanceDue,
+                status: invoice.status,
+            } : null,
+            portalToken,
+            job: job ? {
+                id: job.id,
+                status: job.status,
+                scheduledDate: job.scheduledDate,
+            } : null,
+            contractor,
+        });
+    } catch (error) {
+        console.error('Failed to fetch confirmation data:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ==========================================
+// LIVE CALL ACTION ENDPOINTS
+// ==========================================
+
+import { twilioClient } from './twilio-client';
+import { sendWhatsAppMessage } from './meta-whatsapp';
+import { calls } from '@shared/schema';
+
+const instantQuoteSchema = z.object({
+    customerName: z.string().min(1, 'Customer name is required'),
+    phone: z.string().min(1, 'Phone number is required'),
+    email: z.string().email().optional().or(z.literal('')),
+    address: z.string().optional(),
+    skus: z.array(z.object({
+        id: z.string().optional(),
+        name: z.string(),
+        pricePence: z.number(),
+        confidence: z.number().optional(),
+        source: z.enum(['detected', 'manual']),
+    })),
+    totalPricePence: z.number(),
+    selectedDate: z.string().optional(),
+    sendVia: z.enum(['sms', 'whatsapp']),
+    callId: z.string().optional(),
+});
+
+// POST /api/quotes/instant
+// Creates a simple quote from live call and sends booking link
+quotesRouter.post('/api/quotes/instant', async (req, res) => {
+    try {
+        const input = instantQuoteSchema.parse(req.body);
+        const normalizedPhone = normalizePhoneNumber(input.phone);
+
+        if (!normalizedPhone) {
+            return res.status(400).json({ error: 'Invalid phone number' });
+        }
+
+        // Generate short slug and ID
+        const shortSlug = nanoid(8);
+        const id = `quote_${nanoid()}`;
+
+        // Build job description from SKUs
+        const jobDescription = input.skus.map(s => s.name).join(', ');
+
+        // Create or link lead
+        let linkedLeadId: string | null = null;
+        const duplicateCheck = await findDuplicateLead(normalizedPhone, {
+            customerName: input.customerName,
+        });
+
+        if (duplicateCheck.isDuplicate && duplicateCheck.existingLead) {
+            linkedLeadId = duplicateCheck.existingLead.id;
+            console.log(`[InstantQuote] Linked to existing lead ${linkedLeadId}`);
+        } else {
+            linkedLeadId = `lead_instant_${Date.now()}`;
+            await db.insert(leads).values({
+                id: linkedLeadId,
+                customerName: input.customerName,
+                phone: normalizedPhone,
+                email: input.email || null,
+                source: 'instant_quote',
+                jobDescription,
+                status: 'quote_sent',
+            });
+            console.log(`[InstantQuote] Created new lead ${linkedLeadId}`);
+        }
+
+        // Create simple quote
+        const quoteData = {
+            id,
+            shortSlug,
+            leadId: linkedLeadId,
+            customerName: input.customerName,
+            phone: normalizedPhone,
+            email: input.email || null,
+            address: input.address || null,
+            jobDescription,
+            quoteMode: 'simple' as const,
+            basePrice: input.totalPricePence,
+            optionalExtras: input.skus.map(s => ({
+                label: s.name,
+                description: s.name,
+                priceInPence: s.pricePence,
+                source: s.source,
+            })),
+            selectedDate: input.selectedDate ? new Date(input.selectedDate) : null,
+            segment: 'UNKNOWN',
+            createdAt: new Date(),
+        };
+
+        await db.insert(personalizedQuotes).values(quoteData);
+        console.log(`[InstantQuote] Created quote ${shortSlug}`);
+
+        // Generate quote URL
+        const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+        const quoteUrl = `${baseUrl}/q/${shortSlug}`;
+
+        // Send booking link
+        const message = `Hi ${input.customerName.split(' ')[0] || 'there'}! Here's your quote for £${(input.totalPricePence / 100).toFixed(2)}. Click to view and book: ${quoteUrl}`;
+
+        if (input.sendVia === 'sms') {
+            // Send via Twilio SMS
+            await twilioClient.messages.create({
+                to: normalizedPhone,
+                from: process.env.TWILIO_PHONE_NUMBER,
+                body: message,
+            });
+            console.log(`[InstantQuote] SMS sent to ${normalizedPhone}`);
+        } else {
+            // Send via WhatsApp
+            await sendWhatsAppMessage(normalizedPhone, message);
+            console.log(`[InstantQuote] WhatsApp sent to ${normalizedPhone}`);
+        }
+
+        // Update call record if provided
+        if (input.callId) {
+            await db.update(calls)
+                .set({
+                    outcome: 'INSTANT_PRICE',
+                    actionTakenAt: new Date(),
+                    bookingLinkSent: true,
+                    leadId: linkedLeadId,
+                })
+                .where(eq(calls.id, input.callId));
+            console.log(`[InstantQuote] Updated call ${input.callId} with INSTANT_PRICE outcome`);
+        }
+
+        res.json({
+            success: true,
+            quoteId: id,
+            shortSlug,
+            quoteUrl,
+            leadId: linkedLeadId,
+        });
+
+    } catch (error: any) {
+        console.error('[InstantQuote] Error:', error);
+        if (error.name === 'ZodError') {
+            return res.status(400).json({ error: 'Invalid input', details: error.errors });
+        }
+        res.status(500).json({ error: error.message || 'Failed to create instant quote' });
+    }
+});
+
+// Site Visit Request Schema
+const siteVisitRequestSchema = z.object({
+    customerName: z.string().min(1),
+    phone: z.string().min(1),
+    address: z.string().optional(),
+    reason: z.enum(['complex', 'commercial', 'safety', 'customer_prefers', 'multiple_tasks', 'other']),
+    reasonOther: z.string().optional(),
+    sendVia: z.enum(['sms', 'whatsapp']),
+    callId: z.string().optional(),
+});
+
+// POST /api/site-visits/request
+// Creates a site visit request and sends booking link
+quotesRouter.post('/api/site-visits/request', async (req, res) => {
+    try {
+        const input = siteVisitRequestSchema.parse(req.body);
+        const normalizedPhone = normalizePhoneNumber(input.phone);
+
+        if (!normalizedPhone) {
+            return res.status(400).json({ error: 'Invalid phone number' });
+        }
+
+        // Map reason to human-readable text
+        const reasonLabels: Record<string, string> = {
+            'complex': 'Complex job - needs assessment',
+            'commercial': 'Commercial property',
+            'safety': 'Safety/structural concern',
+            'customer_prefers': 'Customer prefers in-person',
+            'multiple_tasks': 'Multiple tasks - needs walkthrough',
+            'other': input.reasonOther || 'Other',
+        };
+        const reasonText = reasonLabels[input.reason] || input.reason;
+
+        // Create or link lead
+        let linkedLeadId: string | null = null;
+        const duplicateCheck = await findDuplicateLead(normalizedPhone, {
+            customerName: input.customerName,
+        });
+
+        if (duplicateCheck.isDuplicate && duplicateCheck.existingLead) {
+            linkedLeadId = duplicateCheck.existingLead.id;
+            // Update lead status
+            await db.update(leads)
+                .set({
+                    status: 'site_visit_pending',
+                    siteVisitScheduledAt: new Date(),
+                })
+                .where(eq(leads.id, linkedLeadId));
+        } else {
+            linkedLeadId = `lead_visit_${Date.now()}`;
+            await db.insert(leads).values({
+                id: linkedLeadId,
+                customerName: input.customerName,
+                phone: normalizedPhone,
+                source: 'site_visit_request',
+                jobDescription: `Site visit requested: ${reasonText}`,
+                status: 'site_visit_pending',
+                siteVisitScheduledAt: new Date(),
+            });
+        }
+
+        console.log(`[SiteVisit] Created/linked lead ${linkedLeadId}`);
+
+        // Generate booking link (TBD: proper site visit booking page)
+        const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+        const bookingUrl = `${baseUrl}/book-visit?lead=${linkedLeadId}`;
+
+        // Send message
+        const firstName = input.customerName.split(' ')[0] || 'there';
+        const message = `Hi ${firstName}! We'd like to schedule a site visit to assess your job properly. Book a convenient time: ${bookingUrl}`;
+
+        if (input.sendVia === 'sms') {
+            await twilioClient.messages.create({
+                to: normalizedPhone,
+                from: process.env.TWILIO_PHONE_NUMBER,
+                body: message,
+            });
+            console.log(`[SiteVisit] SMS sent to ${normalizedPhone}`);
+        } else {
+            await sendWhatsAppMessage(normalizedPhone, message);
+            console.log(`[SiteVisit] WhatsApp sent to ${normalizedPhone}`);
+        }
+
+        // Update call record if provided
+        if (input.callId) {
+            await db.update(calls)
+                .set({
+                    outcome: 'SITE_VISIT',
+                    siteVisitReason: input.reason === 'other' ? input.reasonOther : input.reason,
+                    actionTakenAt: new Date(),
+                    bookingLinkSent: true,
+                    leadId: linkedLeadId,
+                })
+                .where(eq(calls.id, input.callId));
+            console.log(`[SiteVisit] Updated call ${input.callId} with SITE_VISIT outcome`);
+        }
+
+        res.json({
+            success: true,
+            leadId: linkedLeadId,
+            bookingUrl,
+        });
+
+    } catch (error: any) {
+        console.error('[SiteVisit] Error:', error);
+        if (error.name === 'ZodError') {
+            return res.status(400).json({ error: 'Invalid input', details: error.errors });
+        }
+        res.status(500).json({ error: error.message || 'Failed to schedule site visit' });
+    }
 });
 

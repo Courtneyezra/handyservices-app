@@ -37,9 +37,14 @@ const LandingPageBuilder = lazy(() => import("@/pages/admin/LandingPageBuilder")
 const Banners = lazy(() => import("@/pages/admin/Banners"));
 const LeadsPage = lazy(() => import("@/pages/admin/LeadsPage"));
 const InvoicesPage = lazy(() => import("@/pages/admin/InvoicesPage"));
+const LiveCallPage = lazy(() => import("@/pages/admin/LiveCallPage"));
 const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
 const QuotesPage = lazy(() => import("@/pages/admin/QuotesPage"));
 const BookingVisitsPage = lazy(() => import("@/pages/admin/BookingVisitsPage"));
+const MasterAvailabilityPage = lazy(() => import("@/pages/admin/MasterAvailabilityPage"));
+const ContractorsPage = lazy(() => import("@/pages/admin/ContractorsPage"));
+const PaymentsDashboardPage = lazy(() => import("@/pages/admin/PaymentsDashboardPage"));
+const DashboardPage = lazy(() => import("@/pages/admin/DashboardPage"));
 const LandingPageRender = lazy(() => import("@/pages/LandingPageRender"));
 import SmartBanner from "@/components/SmartBanner";
 
@@ -47,8 +52,16 @@ import SmartBanner from "@/components/SmartBanner";
 const VideoQuote = lazy(() => import("@/pages/VideoQuote"));
 const VideoReview = lazy(() => import("@/pages/VideoReview"));
 const PersonalizedQuotePage = lazy(() => import("@/pages/PersonalizedQuotePage"));
+const BookingConfirmedPage = lazy(() => import("@/pages/BookingConfirmedPage"));
 const DiagnosticVisitPage = lazy(() => import("@/pages/DiagnosticVisitPage"));
 const SeasonalMenu = lazy(() => import("@/pages/SeasonalMenu"));
+
+// Client Portal Pages (public, token-based access)
+const InvoiceView = lazy(() => import("@/pages/client/InvoiceView"));
+const LeaveReview = lazy(() => import("@/pages/client/LeaveReview"));
+const PaymentPage = lazy(() => import("@/pages/client/PaymentPage"));
+const ClientDashboard = lazy(() => import("@/pages/client/ClientDashboard"));
+const JobHistoryPage = lazy(() => import("@/pages/client/JobHistoryPage"));
 
 // Contractor Portal - Lazy loaded (separate user flow)
 const ContractorLogin = lazy(() => import("./pages/ContractorLogin"));
@@ -85,6 +98,13 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 
 // Public Contractor Profiles
 const ContractorPublicProfile = lazy(() => import("@/pages/public/ContractorPublicProfile"));
+
+// Pitch/Sales Pages
+const PitchIndex = lazy(() => import("@/pages/pitch/PitchIndex"));
+const CustomerJourney = lazy(() => import("@/pages/pitch/CustomerJourney"));
+const ROICalculator = lazy(() => import("@/pages/pitch/ROICalculator"));
+const Roadmap = lazy(() => import("@/pages/pitch/Roadmap"));
+const CompetitorAnalysis = lazy(() => import("@/pages/pitch/CompetitorAnalysis"));
 
 // Loading fallback for lazy-loaded components
 // Loading fallback for lazy-loaded components
@@ -166,6 +186,9 @@ function Router() {
                 <Route path="/quote-link/:slug">
                     <PersonalizedQuotePage />
                 </Route>
+                <Route path="/booking-confirmed/:quoteId">
+                    <BookingConfirmedPage />
+                </Route>
                 <Route path="/video-quote">
                     <VideoQuote />
                 </Route>
@@ -176,6 +199,23 @@ function Router() {
                 {/* Paid Diagnostic Visit */}
                 <Route path="/visit-link/:slug">
                     <DiagnosticVisitPage />
+                </Route>
+
+                {/* Client Portal - Token-based access */}
+                <Route path="/client/:token">
+                    <ClientDashboard />
+                </Route>
+                <Route path="/client/:token/jobs/:jobId">
+                    <JobHistoryPage />
+                </Route>
+                <Route path="/invoice/:token">
+                    <InvoiceView />
+                </Route>
+                <Route path="/review/:token">
+                    <LeaveReview />
+                </Route>
+                <Route path="/pay/:shortCode">
+                    <PaymentPage />
                 </Route>
 
                 {/* Coming soon */}
@@ -190,6 +230,13 @@ function Router() {
                 <Route path="/handy/:slug">
                     <ContractorPublicProfile />
                 </Route>
+
+                {/* Pitch/Sales Presentation Pages */}
+                <Route path="/pitch" component={PitchIndex} />
+                <Route path="/pitch/journey" component={CustomerJourney} />
+                <Route path="/pitch/roi" component={ROICalculator} />
+                <Route path="/pitch/roadmap" component={Roadmap} />
+                <Route path="/pitch/competitors" component={CompetitorAnalysis} />
 
 
                 {/* Auth Routes */}
@@ -297,7 +344,14 @@ function Router() {
                 <Route path="/admin">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
-                            <MainDashboard />
+                            <DashboardPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/dashboard">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <DashboardPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
@@ -311,7 +365,7 @@ function Router() {
                 <Route path="/admin/live-call">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
-                            <AudioUploadPage />
+                            <LiveCallPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
@@ -347,6 +401,27 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <DispatchPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/availability">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <MasterAvailabilityPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/contractors">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <ContractorsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/payments">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <PaymentsDashboardPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

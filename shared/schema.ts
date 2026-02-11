@@ -1,4 +1,4 @@
-import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, serial, vector } from "drizzle-orm/pg-core";
+import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, serial, vector, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -126,6 +126,11 @@ export const leads = pgTable("leads", {
     elevenLabsRecordingUrl: text("eleven_labs_recording_url"),
     elevenLabsSuccessScore: integer("eleven_labs_success_score"), // 0-100
 
+    // Live Call Action Fields
+    awaitingVideo: boolean("awaiting_video").default(false), // Whether we're waiting for customer video
+    videoReceivedAt: timestamp("video_received_at"), // When customer sent video
+    siteVisitScheduledAt: timestamp("site_visit_scheduled_at"), // When site visit was scheduled
+
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -188,6 +193,12 @@ export const calls = pgTable("calls", {
     actionUrgency: integer("action_urgency").default(3), // 1=Critical, 2=High, 3=Normal, 4=Low
     missedReason: varchar("missed_reason"), // 'out_of_hours', 'busy_agent', 'no_answer', 'user_hangup'
     tags: text("tags").array(), // ['ai_incomplete', 'no_lead_info']
+
+    // Live Call Action Fields
+    siteVisitReason: varchar("site_visit_reason"), // Reason for site visit if outcome is SITE_VISIT
+    actionTakenAt: timestamp("action_taken_at"), // When VA took action (Book Now, Request Video, Site Visit)
+    bookingLinkSent: boolean("booking_link_sent").default(false), // Whether booking link was sent
+    videoRequestSentAt: timestamp("video_request_sent_at"), // When video request was sent via WhatsApp
 
     createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
@@ -275,6 +286,11 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     stripeAccountId: varchar("stripe_account_id"),
     stripeAccountStatus: varchar("stripe_account_status", { length: 20 }).default('unverified'), // 'unverified' | 'pending' | 'active' | 'rejected'
 
+    // Freemium Tier Fields
+    subscriptionTier: varchar("subscription_tier", { length: 20 }).default('free'), // 'free' | 'partner'
+    partnerStatus: varchar("partner_status", { length: 30 }).default('not_started'), // Partner application status
+    partnerActivatedAt: timestamp("partner_activated_at"), // When they became a partner
+
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -346,6 +362,27 @@ export const contractorAvailabilityDatesRelations = relations(contractorAvailabi
         references: [handymanProfiles.id],
     }),
 }));
+
+// Master Availability - System-wide default availability patterns
+export const masterAvailability = pgTable("master_availability", {
+    id: serial("id").primaryKey(),
+    dayOfWeek: integer("day_of_week").notNull(), // 0-6 (Sunday-Saturday)
+    startTime: varchar("start_time", { length: 5 }), // "HH:mm"
+    endTime: varchar("end_time", { length: 5 }), // "HH:mm"
+    isActive: boolean("is_active").default(true),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Master Blocked Dates - System-wide blocked dates (holidays, etc.)
+export const masterBlockedDates = pgTable("master_blocked_dates", {
+    id: serial("id").primaryKey(),
+    date: date("date").notNull(),
+    reason: varchar("reason", { length: 255 }),
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_master_blocked_dates_date").on(table.date),
+]);
 
 // Contractor Jobs - Job assignments to contractors
 export const contractorJobs = pgTable("contractor_jobs", {
@@ -433,6 +470,16 @@ export const insertContractorAvailabilityDateSchema = createInsertSchema(contrac
 export type ContractorAvailabilityDate = typeof contractorAvailabilityDates.$inferSelect;
 export type InsertContractorAvailabilityDate = z.infer<typeof insertContractorAvailabilityDateSchema>;
 
+// Master Availability Types
+export const insertMasterAvailabilitySchema = createInsertSchema(masterAvailability);
+export type MasterAvailability = typeof masterAvailability.$inferSelect;
+export type InsertMasterAvailability = z.infer<typeof insertMasterAvailabilitySchema>;
+
+// Master Blocked Dates Types
+export const insertMasterBlockedDateSchema = createInsertSchema(masterBlockedDates);
+export type MasterBlockedDate = typeof masterBlockedDates.$inferSelect;
+export type InsertMasterBlockedDate = z.infer<typeof insertMasterBlockedDateSchema>;
+
 // Contractor Jobs Types
 export const insertContractorJobSchema = createInsertSchema(contractorJobs);
 export type ContractorJob = typeof contractorJobs.$inferSelect;
@@ -455,6 +502,7 @@ export const desiredTimeframeEnum = z.enum(['flex', 'week', 'asap']);
 
 // B1.1: Segmentation Enums (Phase 1 Master Plan)
 export const segmentEnum = z.enum(['BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'DIY_DEFERRER', 'BUDGET', 'OLDER_WOMAN', 'UNKNOWN']);
+export type SegmentType = z.infer<typeof segmentEnum>;
 export const jobTypeEnum = z.enum(['SINGLE', 'COMPLEX', 'MULTIPLE']);
 export const quotabilityEnum = z.enum(['INSTANT', 'VIDEO', 'VISIT']);
 
@@ -765,6 +813,8 @@ export const contractorBookingRequests = pgTable("contractor_booking_requests", 
     // Evidence/Completion
     evidenceUrls: text("evidence_urls").array(), // Photos uploaded on completion
     completionNotes: text("completion_notes"), // Notes from contractor on completion
+    signatureDataUrl: text("signature_data_url"), // Customer signature as base64 PNG
+    timeOnJobSeconds: integer("time_on_job_seconds"), // Tracked time in seconds
 
     // Financial
     invoiceId: varchar("invoice_id").references(() => invoices.id), // Link to generated invoice
@@ -986,3 +1036,191 @@ export type LandingPageVariant = typeof landingPageVariants.$inferSelect;
 export type InsertLandingPageVariant = typeof insertLandingPageVariantSchema.$inferInsert;
 export type Banner = typeof banners.$inferSelect;
 export type InsertBanner = typeof insertBannerSchema.$inferInsert;
+
+// ==========================================
+// FREEMIUM PRODUCT - CONTRACTOR APP
+// ==========================================
+
+// Partner Applications - Track 5-step accreditation process
+export const partnerApplications = pgTable("partner_applications", {
+    id: varchar("id").primaryKey().notNull(),
+    contractorId: varchar("contractor_id").references(() => handymanProfiles.id).notNull(),
+    status: varchar("status", { length: 30 }).default("not_started").notNull(),
+
+    // Step 1: Insurance Verification
+    insuranceStatus: varchar("insurance_status", { length: 20 }).default("pending"),
+    insuranceDocumentUrl: text("insurance_document_url"),
+    insurancePolicyNumber: varchar("insurance_policy_number", { length: 100 }),
+    insuranceExpiryDate: timestamp("insurance_expiry_date"),
+    insuranceVerifiedAt: timestamp("insurance_verified_at"),
+
+    // Step 2: Identity & Background
+    identityStatus: varchar("identity_status", { length: 20 }).default("pending"),
+    identityDocumentUrl: text("identity_document_url"),
+    dbsCertificateUrl: text("dbs_certificate_url"),
+    identityVerifiedAt: timestamp("identity_verified_at"),
+
+    // Step 3: Client References
+    referencesStatus: varchar("references_status", { length: 20 }).default("pending"),
+    referencesVerifiedAt: timestamp("references_verified_at"),
+
+    // Step 4: Training
+    trainingStatus: varchar("training_status", { length: 20 }).default("incomplete"),
+    trainingCompletedAt: timestamp("training_completed_at"),
+
+    // Step 5: Agreement & Activation
+    agreementSignedAt: timestamp("agreement_signed_at"),
+    highvisSize: varchar("highvis_size", { length: 10 }),
+    activatedAt: timestamp("activated_at"),
+    adminNotes: text("admin_notes"),
+
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+    index("idx_partner_applications_contractor").on(table.contractorId),
+    index("idx_partner_applications_status").on(table.status),
+]);
+
+export const insertPartnerApplicationSchema = createInsertSchema(partnerApplications);
+export type PartnerApplication = typeof partnerApplications.$inferSelect;
+export type InsertPartnerApplication = z.infer<typeof insertPartnerApplicationSchema>;
+
+// Client References - For partner verification
+export const clientReferences = pgTable("client_references", {
+    id: varchar("id").primaryKey().notNull(),
+    applicationId: varchar("application_id").references(() => partnerApplications.id).notNull(),
+    clientName: varchar("client_name").notNull(),
+    clientEmail: varchar("client_email").notNull(),
+    clientPhone: varchar("client_phone", { length: 20 }),
+    jobDescription: text("job_description"),
+    requestSentAt: timestamp("request_sent_at"),
+    requestToken: varchar("request_token", { length: 64 }),
+    responseReceivedAt: timestamp("response_received_at"),
+    rating: integer("rating"),
+    feedback: text("feedback"),
+    wouldRecommend: boolean("would_recommend"),
+    verified: boolean("verified").default(false),
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_client_references_application").on(table.applicationId),
+    index("idx_client_references_token").on(table.requestToken),
+]);
+
+export const insertClientReferenceSchema = createInsertSchema(clientReferences);
+export type ClientReference = typeof clientReferences.$inferSelect;
+export type InsertClientReference = z.infer<typeof insertClientReferenceSchema>;
+
+// Training Modules - Education content for partners
+export const trainingModules = pgTable("training_modules", {
+    id: varchar("id").primaryKey().notNull(),
+    slug: varchar("slug", { length: 50 }).unique().notNull(),
+    title: varchar("title", { length: 200 }).notNull(),
+    description: text("description"),
+    durationMinutes: integer("duration_minutes").default(10),
+    videoUrl: text("video_url"),
+    thumbnailUrl: text("thumbnail_url"),
+    quizQuestions: jsonb("quiz_questions"),
+    passThreshold: integer("pass_threshold").default(80),
+    orderIndex: integer("order_index").notNull(),
+    isRequired: boolean("is_required").default(true),
+    isActive: boolean("is_active").default(true),
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_training_modules_order").on(table.orderIndex),
+]);
+
+export const insertTrainingModuleSchema = createInsertSchema(trainingModules);
+export type TrainingModule = typeof trainingModules.$inferSelect;
+export type InsertTrainingModule = z.infer<typeof insertTrainingModuleSchema>;
+
+// Training Progress - Track contractor progress
+export const trainingProgress = pgTable("training_progress", {
+    id: varchar("id").primaryKey().notNull(),
+    contractorId: varchar("contractor_id").references(() => handymanProfiles.id).notNull(),
+    moduleId: varchar("module_id").references(() => trainingModules.id).notNull(),
+    startedAt: timestamp("started_at"),
+    videoWatchedAt: timestamp("video_watched_at"),
+    completedAt: timestamp("completed_at"),
+    quizScore: integer("quiz_score"),
+    passed: boolean("passed").default(false),
+    attempts: integer("attempts").default(0),
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_training_progress_contractor").on(table.contractorId),
+    index("idx_training_progress_module").on(table.moduleId),
+]);
+
+export const insertTrainingProgressSchema = createInsertSchema(trainingProgress);
+export type TrainingProgress = typeof trainingProgress.$inferSelect;
+export type InsertTrainingProgress = z.infer<typeof insertTrainingProgressSchema>;
+
+// Contractor Reviews - Customer reviews
+export const contractorReviews = pgTable("contractor_reviews", {
+    id: varchar("id").primaryKey().notNull(),
+    contractorId: varchar("contractor_id").references(() => handymanProfiles.id).notNull(),
+    customerName: varchar("customer_name").notNull(),
+    customerEmail: varchar("customer_email"),
+    quoteId: varchar("quote_id").references(() => personalizedQuotes.id),
+    overallRating: integer("overall_rating").notNull(),
+    qualityRating: integer("quality_rating"),
+    timelinessRating: integer("timeliness_rating"),
+    communicationRating: integer("communication_rating"),
+    valueRating: integer("value_rating"),
+    reviewText: text("review_text"),
+    reviewToken: varchar("review_token", { length: 64 }),
+    isVerified: boolean("is_verified").default(false),
+    isPublic: boolean("is_public").default(true),
+    contractorResponse: text("contractor_response"),
+    respondedAt: timestamp("responded_at"),
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_contractor_reviews_contractor").on(table.contractorId),
+    index("idx_contractor_reviews_token").on(table.reviewToken),
+]);
+
+export const insertContractorReviewSchema = createInsertSchema(contractorReviews);
+export type ContractorReview = typeof contractorReviews.$inferSelect;
+export type InsertContractorReview = z.infer<typeof insertContractorReviewSchema>;
+
+// Payment Links - For instant payments
+export const paymentLinks = pgTable("payment_links", {
+    id: varchar("id").primaryKey().notNull(),
+    contractorId: varchar("contractor_id").references(() => handymanProfiles.id).notNull(),
+    quoteId: varchar("quote_id").references(() => personalizedQuotes.id),
+    invoiceId: varchar("invoice_id").references(() => invoices.id),
+    shortCode: varchar("short_code", { length: 10 }).unique().notNull(),
+    amountPence: integer("amount_pence").notNull(),
+    description: text("description"),
+    customerName: varchar("customer_name"),
+    customerEmail: varchar("customer_email"),
+    status: varchar("status", { length: 20 }).default("active").notNull(),
+    stripePaymentIntentId: varchar("stripe_payment_intent_id"),
+    expiresAt: timestamp("expires_at"),
+    paidAt: timestamp("paid_at"),
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_payment_links_contractor").on(table.contractorId),
+    index("idx_payment_links_short_code").on(table.shortCode),
+    index("idx_payment_links_status").on(table.status),
+]);
+
+export const insertPaymentLinkSchema = createInsertSchema(paymentLinks);
+export type PaymentLink = typeof paymentLinks.$inferSelect;
+export type InsertPaymentLink = z.infer<typeof insertPaymentLinkSchema>;
+
+// Invoice Tokens - For client portal access
+export const invoiceTokens = pgTable("invoice_tokens", {
+    id: varchar("id").primaryKey().notNull(),
+    invoiceId: varchar("invoice_id").references(() => invoices.id).notNull(),
+    token: varchar("token", { length: 64 }).unique().notNull(),
+    viewCount: integer("view_count").default(0),
+    lastViewedAt: timestamp("last_viewed_at"),
+    expiresAt: timestamp("expires_at"),
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_invoice_tokens_token").on(table.token),
+]);
+
+export const insertInvoiceTokenSchema = createInsertSchema(invoiceTokens);
+export type InvoiceToken = typeof invoiceTokens.$inferSelect;
+export type InsertInvoiceToken = z.infer<typeof insertInvoiceTokenSchema>;

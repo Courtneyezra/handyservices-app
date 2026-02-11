@@ -48,7 +48,7 @@ whatsappRouter.post('/send', async (req, res) => {
 // POST /api/whatsapp/send-template - Send a template message
 whatsappRouter.post('/send-template', async (req, res) => {
     try {
-        const { number, template, customerName, context, contentSid } = req.body;
+        const { number, template, customerName, context, contentSid, callId } = req.body;
 
         if (!number || !template) {
             return res.status(400).json({ error: "Missing number or template" });
@@ -82,6 +82,51 @@ whatsappRouter.post('/send-template', async (req, res) => {
             templateSid,
             templateVars
         });
+
+        // Update call record if callId provided (for video request tracking)
+        if (callId && template === 'request_video') {
+            const { db } = await import('./db');
+            const { calls, leads } = await import('@shared/schema');
+            const { eq } = await import('drizzle-orm');
+            const { normalizePhoneNumber } = await import('./phone-utils');
+            const { findDuplicateLead } = await import('./lead-deduplication');
+
+            const normalizedPhone = normalizePhoneNumber(number);
+
+            // Create or find lead
+            let linkedLeadId: string | null = null;
+            if (normalizedPhone) {
+                const duplicateCheck = await findDuplicateLead(normalizedPhone, { customerName: name });
+                if (duplicateCheck.isDuplicate && duplicateCheck.existingLead) {
+                    linkedLeadId = duplicateCheck.existingLead.id;
+                    await db.update(leads)
+                        .set({ status: 'awaiting_video', awaitingVideo: true })
+                        .where(eq(leads.id, linkedLeadId));
+                } else {
+                    linkedLeadId = `lead_video_${Date.now()}`;
+                    await db.insert(leads).values({
+                        id: linkedLeadId,
+                        customerName: name,
+                        phone: normalizedPhone,
+                        source: 'video_request',
+                        jobDescription: `Video requested: ${ctx}`,
+                        status: 'awaiting_video',
+                        awaitingVideo: true,
+                    });
+                }
+            }
+
+            await db.update(calls)
+                .set({
+                    outcome: 'VIDEO_QUOTE',
+                    actionTakenAt: new Date(),
+                    videoRequestSentAt: new Date(),
+                    leadId: linkedLeadId,
+                })
+                .where(eq(calls.id, callId));
+
+            console.log(`[WhatsApp API] Updated call ${callId} with VIDEO_QUOTE outcome`);
+        }
 
         res.json({ success: true, message: "Template sent", sid: result.sid });
     } catch (error) {
