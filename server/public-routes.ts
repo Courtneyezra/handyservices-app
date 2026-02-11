@@ -6,11 +6,296 @@ import {
     users,
     contractorAvailabilityDates,
     handymanAvailability,
-    contractorBookingRequests
+    contractorBookingRequests,
+    masterAvailability,
+    masterBlockedDates,
+    handymanSkills,
+    contractorJobs
 } from '../shared/schema';
-import { eq, and, gte, lte } from 'drizzle-orm';
+import { eq, and, gte, lte, or, isNull, inArray } from 'drizzle-orm';
 
 const router = Router();
+
+// ============================================================================
+// SYSTEM-WIDE AVAILABILITY API (For Quote Page Date Pickers)
+// ============================================================================
+
+interface DateAvailability {
+    date: string;
+    isAvailable: boolean;
+    reason?: 'master_blocked' | 'day_inactive' | 'no_contractors' | 'available';
+    slots: ('am' | 'pm' | 'full')[];
+    contractorCount?: number;
+    isWeekend?: boolean;
+}
+
+/**
+ * GET /api/public/availability
+ * Returns available dates for quote page date pickers
+ *
+ * Logic:
+ * 1. Check masterBlockedDates - if blocked, isAvailable: false
+ * 2. Check masterAvailability - if day not active, isAvailable: false
+ * 3. Query contractors with matching skills/location that have availability
+ * 4. If ANY contractor available → isAvailable: true
+ */
+router.get('/availability', async (req: Request, res: Response) => {
+    try {
+        const days = parseInt(req.query.days as string) || 28;
+        const postcode = req.query.postcode as string | undefined;
+        const serviceIds = req.query.serviceIds
+            ? (req.query.serviceIds as string).split(',')
+            : undefined;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const endDate = new Date(today);
+        endDate.setDate(endDate.getDate() + days);
+
+        // 1. Fetch master blocked dates
+        const blockedDates = await db.select()
+            .from(masterBlockedDates)
+            .where(and(
+                gte(masterBlockedDates.date, today.toISOString().split('T')[0]),
+                lte(masterBlockedDates.date, endDate.toISOString().split('T')[0])
+            ));
+
+        const blockedDateSet = new Set(blockedDates.map(b => b.date));
+        const blockedReasonMap = new Map(blockedDates.map(b => [b.date, b.reason]));
+
+        // 2. Fetch master weekly patterns
+        const masterPatterns = await db.select()
+            .from(masterAvailability);
+
+        const masterPatternMap = new Map(masterPatterns.map(p => [p.dayOfWeek, p]));
+
+        // 3. Fetch all active contractors
+        let contractors = await db.select({
+            id: handymanProfiles.id,
+            postcode: handymanProfiles.postcode,
+            radiusMiles: handymanProfiles.radiusMiles,
+            availabilityStatus: handymanProfiles.availabilityStatus,
+        })
+        .from(handymanProfiles)
+        .where(
+            or(
+                eq(handymanProfiles.availabilityStatus, 'available'),
+                isNull(handymanProfiles.availabilityStatus)
+            )
+        );
+
+        // Filter by skills if serviceIds provided
+        if (serviceIds && serviceIds.length > 0) {
+            const contractorsWithSkills = await db.select({ handymanId: handymanSkills.handymanId })
+                .from(handymanSkills)
+                .where(inArray(handymanSkills.serviceId, serviceIds));
+
+            const skillContractorIds = new Set(contractorsWithSkills.map(c => c.handymanId));
+            contractors = contractors.filter(c => skillContractorIds.has(c.id));
+        }
+
+        // 4. Fetch contractor availability patterns and overrides
+        const contractorIds = contractors.map(c => c.id);
+
+        const contractorPatterns = contractorIds.length > 0
+            ? await db.select()
+                .from(handymanAvailability)
+                .where(inArray(handymanAvailability.handymanId, contractorIds))
+            : [];
+
+        const contractorOverrides = contractorIds.length > 0
+            ? await db.select()
+                .from(contractorAvailabilityDates)
+                .where(and(
+                    inArray(contractorAvailabilityDates.contractorId, contractorIds),
+                    gte(contractorAvailabilityDates.date, today),
+                    lte(contractorAvailabilityDates.date, endDate)
+                ))
+            : [];
+
+        // 5. Fetch booked jobs to exclude busy slots
+        const bookedJobs = contractorIds.length > 0
+            ? await db.select({
+                contractorId: contractorJobs.contractorId,
+                scheduledDate: contractorJobs.scheduledDate,
+                scheduledTime: contractorJobs.scheduledTime,
+            })
+            .from(contractorJobs)
+            .where(and(
+                inArray(contractorJobs.contractorId, contractorIds),
+                gte(contractorJobs.scheduledDate, today),
+                lte(contractorJobs.scheduledDate, endDate),
+                inArray(contractorJobs.status, ['pending', 'accepted', 'in_progress'])
+            ))
+            : [];
+
+        // Build job lookup by date and contractor
+        const jobsByDateContractor = new Map<string, Set<string>>();
+        for (const job of bookedJobs) {
+            if (!job.scheduledDate) continue;
+            const dateStr = new Date(job.scheduledDate).toISOString().split('T')[0];
+            const key = `${dateStr}:${job.contractorId}`;
+            if (!jobsByDateContractor.has(key)) {
+                jobsByDateContractor.set(key, new Set());
+            }
+            // Determine which slot is booked
+            if (job.scheduledTime) {
+                const hour = parseInt(job.scheduledTime.split(':')[0]);
+                jobsByDateContractor.get(key)!.add(hour < 12 ? 'am' : 'pm');
+            } else {
+                jobsByDateContractor.get(key)!.add('full');
+            }
+        }
+
+        // 6. Build availability for each day
+        const results: DateAvailability[] = [];
+
+        for (let i = 0; i < days; i++) {
+            const date = new Date(today);
+            date.setDate(date.getDate() + i);
+            const dateStr = date.toISOString().split('T')[0];
+            const dayOfWeek = date.getDay();
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+            // Check master blocked
+            if (blockedDateSet.has(dateStr)) {
+                results.push({
+                    date: dateStr,
+                    isAvailable: false,
+                    reason: 'master_blocked',
+                    slots: [],
+                    isWeekend,
+                });
+                continue;
+            }
+
+            // Check master pattern for this day
+            const masterPattern = masterPatternMap.get(dayOfWeek);
+            if (!masterPattern || !masterPattern.isActive) {
+                results.push({
+                    date: dateStr,
+                    isAvailable: false,
+                    reason: 'day_inactive',
+                    slots: [],
+                    isWeekend,
+                });
+                continue;
+            }
+
+            // Count available contractors for this date
+            let availableContractorCount = 0;
+            const availableSlots = new Set<'am' | 'pm' | 'full'>();
+
+            for (const contractor of contractors) {
+                // Check for date override
+                const override = contractorOverrides.find(o =>
+                    o.contractorId === contractor.id &&
+                    new Date(o.date).toISOString().split('T')[0] === dateStr
+                );
+
+                let isContractorAvailable = false;
+                let contractorSlots: ('am' | 'pm' | 'full')[] = [];
+
+                if (override) {
+                    if (override.isAvailable) {
+                        isContractorAvailable = true;
+                        contractorSlots = determineSlots(override.startTime, override.endTime);
+                    }
+                } else {
+                    // Check weekly pattern
+                    const pattern = contractorPatterns.find(p =>
+                        p.handymanId === contractor.id &&
+                        p.dayOfWeek === dayOfWeek &&
+                        p.isActive
+                    );
+
+                    if (pattern) {
+                        isContractorAvailable = true;
+                        contractorSlots = determineSlots(pattern.startTime, pattern.endTime);
+                    } else if (masterPattern) {
+                        // Fall back to master pattern
+                        isContractorAvailable = true;
+                        contractorSlots = determineSlots(masterPattern.startTime, masterPattern.endTime);
+                    }
+                }
+
+                if (isContractorAvailable) {
+                    // Filter out booked slots
+                    const bookedSlots = jobsByDateContractor.get(`${dateStr}:${contractor.id}`);
+                    if (bookedSlots) {
+                        if (bookedSlots.has('full')) {
+                            contractorSlots = [];
+                        } else {
+                            contractorSlots = contractorSlots.filter(s => {
+                                if (s === 'full') return !bookedSlots.has('am') && !bookedSlots.has('pm');
+                                return !bookedSlots.has(s);
+                            });
+                        }
+                    }
+
+                    if (contractorSlots.length > 0) {
+                        availableContractorCount++;
+                        contractorSlots.forEach(s => availableSlots.add(s));
+                    }
+                }
+            }
+
+            if (availableContractorCount === 0) {
+                results.push({
+                    date: dateStr,
+                    isAvailable: false,
+                    reason: 'no_contractors',
+                    slots: [],
+                    contractorCount: 0,
+                    isWeekend,
+                });
+            } else {
+                results.push({
+                    date: dateStr,
+                    isAvailable: true,
+                    reason: 'available',
+                    slots: Array.from(availableSlots),
+                    contractorCount: availableContractorCount,
+                    isWeekend,
+                });
+            }
+        }
+
+        res.json({ dates: results });
+
+    } catch (error: any) {
+        console.error('[PublicAPI] Get system availability error:', error);
+        console.error('[PublicAPI] Error stack:', error?.stack);
+        res.status(500).json({ error: 'Failed to fetch availability', details: error?.message });
+    }
+});
+
+/**
+ * Determine time slots from start/end times
+ */
+function determineSlots(startTime?: string | null, endTime?: string | null): ('am' | 'pm' | 'full')[] {
+    if (!startTime || !endTime) return ['full', 'am', 'pm'];
+
+    const startHour = parseInt(startTime.split(':')[0]);
+    const endHour = parseInt(endTime.split(':')[0]);
+
+    if (startHour < 12 && endHour > 12) {
+        return ['full', 'am', 'pm'];
+    }
+    if (startHour < 12 && endHour <= 13) {
+        return ['am'];
+    }
+    if (startHour >= 12) {
+        return ['pm'];
+    }
+
+    return ['full', 'am', 'pm'];
+}
+
+// ============================================================================
+// CONTRACTOR PUBLIC PROFILE ROUTES
+// ============================================================================
 
 // GET /api/public/contractor/:slug
 // Get contractor public profile by slug

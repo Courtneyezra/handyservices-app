@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Copy, Eye, Phone, RefreshCw, X, AlertCircle, Download } from 'lucide-react';
+import { Copy, Eye, Phone, RefreshCw, X, AlertCircle, Download, CreditCard } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { generateQuotePDF } from '@/lib/quote-pdf-generator';
 
@@ -26,6 +26,11 @@ interface PersonalizedQuote {
     enhancedPrice: number | null;
     elitePrice: number | null;
     visitTierMode?: 'tiers' | 'fixed' | null;
+    // Payment fields
+    depositPaidAt: string | null;
+    depositAmountPence: number | null;
+    paymentType: string | null;
+    stripePaymentIntentId: string | null;
 }
 
 interface QuoteCardProps {
@@ -39,6 +44,7 @@ export function QuoteCard({ quote, onDelete, onRegenerate }: QuoteCardProps) {
 
     const isExpired = quote.expiresAt ? new Date(quote.expiresAt) < new Date() : false;
     const isBooked = !!quote.bookedAt;
+    const isPaid = !!quote.depositPaidAt;
 
     const copyLink = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -72,6 +78,12 @@ export function QuoteCard({ quote, onDelete, onRegenerate }: QuoteCardProps) {
                             )}
                             {isBooked && (
                                 <Badge className="bg-green-600 text-[10px]">Booked</Badge>
+                            )}
+                            {isPaid && (
+                                <Badge className="bg-blue-600 text-[10px]">
+                                    <CreditCard className="h-3 w-3 mr-1" />
+                                    Paid
+                                </Badge>
                             )}
                             {isExpired && !isBooked && (
                                 <Badge variant="secondary" className="bg-red-100 text-red-600 dark:bg-red-900/30 text-[10px]">Expired</Badge>
@@ -113,6 +125,12 @@ export function QuoteCard({ quote, onDelete, onRegenerate }: QuoteCardProps) {
                     <p className="text-xs text-muted-foreground/50 mt-1">
                         Created: {format(new Date(quote.createdAt), 'dd MMM yyyy')}
                     </p>
+                    {isPaid && quote.depositAmountPence && (
+                        <p className="text-xs text-blue-600 mt-1">
+                            <CreditCard className="h-3 w-3 inline mr-1" />
+                            Paid: {"\u00A3"}{(quote.depositAmountPence / 100).toFixed(2)} on {format(new Date(quote.depositPaidAt!), 'dd MMM yyyy')}
+                        </p>
+                    )}
                 </div>
 
                 {/* Actions Footer */}

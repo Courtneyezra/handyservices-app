@@ -15,7 +15,6 @@ import { SiGoogle, SiVisa, SiMastercard, SiAmericanexpress, SiApplepay, SiStripe
 import { FaWhatsapp, FaPaypal } from 'react-icons/fa';
 import { useToast } from '@/hooks/use-toast';
 import { PaymentForm } from '@/components/PaymentForm';
-import { DateSelectionForm } from '@/components/DateSelectionForm';
 import { QuoteSkeleton } from '@/components/QuoteSkeleton';
 import { Elements } from '@stripe/react-stripe-js';
 import { stripePromise } from '@/lib/stripe';
@@ -25,7 +24,7 @@ import payIn3PromoImage from '../assets/pay-in-3-banner-original.jpg';
 import mikeProfilePhoto from '../assets/mike-profile-photo.png';
 import { NeonBadge } from '@/components/ui/neon-badge';
 import { format } from 'date-fns';
-import { CountdownTimer } from '@/components/CountdownTimer';
+// CountdownTimer removed - quotes no longer expire
 import { ExpertStickyNote } from '@/components/ExpertStickyNote';
 import { ExpertSpecSheet } from '@/components/ExpertSpecSheet';
 import { PaymentToggle } from '@/components/quote/PaymentToggle';
@@ -42,6 +41,7 @@ import { StickyCTA } from '@/components/StickyCTA';
 import { SingleProductQuote } from '@/components/quote/SingleProductQuote';
 import { BudgetQuoteInline } from '@/components/quote/BudgetQuoteInline';
 import { UnifiedQuoteCard } from '@/components/quote/UnifiedQuoteCard';
+import { BookingConfirmation } from '@/components/quote/BookingConfirmation';
 
 export type EEEPackageTier = 'essential' | 'enhanced' | 'elite';
 
@@ -582,6 +582,9 @@ export interface PersonalizedQuote {
   selectedExtras?: string[];
   selectedAt?: Date;
   bookedAt?: Date;
+  depositPaidAt?: Date | string;
+  depositAmountPence?: number;
+  selectedDate?: Date | string | null;
   leadId?: string;
   expiresAt?: Date | string;
   createdAt: Date;
@@ -1673,14 +1676,14 @@ export default function PersonalizedQuotePage() {
   const [showSocialProof, setShowSocialProof] = useState(false); // Social proof overlay disabled elsewhere
   const [expandedTiers, setExpandedTiers] = useState<Set<EEEPackageTier>>(new Set<EEEPackageTier>(['enhanced'])); // Track which tier's "What's included" is expanded
   const [bookedLeadId, setBookedLeadId] = useState<string | null>(null); // Store lead ID after booking
-  const [datePreferencesSubmitted, setDatePreferencesSubmitted] = useState(false); // Track if date preferences are submitted
   const [showPriceIncreaseNotice, setShowPriceIncreaseNotice] = useState(false); // Show banner when prices increased
-  const [isQuoteExpiredOnLoad, setIsQuoteExpiredOnLoad] = useState(false); // Track if quote was expired when loaded
+  // Quote expiration removed - quotes no longer expire
+  // const [isQuoteExpiredOnLoad, setIsQuoteExpiredOnLoad] = useState(false);
   const [paymentMode, setPaymentMode] = useState<'full' | 'installments'>('full'); // Track payment mode selection - default to full
   const [expandedMobileCard, setExpandedMobileCard] = useState<EEEPackageTier | null>(null); // Track which mobile card is expanded (accordion) - all start collapsed
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined); // Track selected date from mobile dateselect
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<'AM' | 'PM' | undefined>(undefined); // Track selected time slot (AM/PM)
-  const [isExpiredState, setIsExpiredState] = useState(false); // Track visual expiration state
+  // const [isExpiredState, setIsExpiredState] = useState(false); // Removed - quotes no longer expire
   const [showPaymentForm, setShowPaymentForm] = useState(false); // Controls visibility of the payment section
 
   // Cinematic Intro State
@@ -1720,17 +1723,17 @@ export default function PersonalizedQuotePage() {
   }, [scrollY, hasViewedPackages]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const dateSelectionRef = useRef<HTMLDivElement>(null);
+  const confirmationRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to date selection form after booking
+  // Auto-scroll to confirmation after booking
   useEffect(() => {
-    if (hasBooked && !datePreferencesSubmitted && bookedLeadId && dateSelectionRef.current) {
-      // Small delay to ensure the form is rendered
+    if (hasBooked && confirmationRef.current) {
+      // Small delay to ensure the component is rendered
       setTimeout(() => {
-        dateSelectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        confirmationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 300);
     }
-  }, [hasBooked, datePreferencesSubmitted, bookedLeadId]);
+  }, [hasBooked]);
 
   // Fetch personalized quote data
   const { data: quote, isLoading, error } = useQuery<PersonalizedQuote>({
@@ -1738,14 +1741,7 @@ export default function PersonalizedQuotePage() {
     queryFn: async () => {
       const response = await fetch(`/api/personalized-quotes/${params?.slug}`);
 
-      // Handle expired quote (410 Gone)
-      if (response.status === 410) {
-        const errorData = await response.json();
-        if (errorData.expired === true) {
-          setIsQuoteExpiredOnLoad(true);
-          throw new Error('QUOTE_EXPIRED');
-        }
-      }
+      // 410 handling removed - quotes no longer expire
 
       if (!response.ok) {
         throw new Error('Quote not found');
@@ -1762,6 +1758,17 @@ export default function PersonalizedQuotePage() {
     },
   });
 
+  // Fetch invoice data for confirmation screen
+  const { data: invoiceData } = useQuery<{ invoiceNumber: string }>({
+    queryKey: ['invoice-by-quote', quote?.id],
+    queryFn: async () => {
+      const response = await fetch(`/api/invoices/by-quote/${quote?.id}`);
+      if (!response.ok) return null;
+      return response.json();
+    },
+    enabled: !!quote?.id && !!quote?.depositPaidAt,
+  });
+
   // Effect to check if cinematic intro should be shown
   useEffect(() => {
     if (quote?.proposalModeEnabled && !introDismissed) {
@@ -1773,6 +1780,21 @@ export default function PersonalizedQuotePage() {
   useEffect(() => {
     if (quote?.selectedExtras && quote.selectedExtras.length > 0) {
       setSelectedExtras(quote.selectedExtras);
+    }
+  }, [quote?.id]); // Only run when quote ID changes (quote loaded)
+
+  // Initialize booking state from quote data (for returning customers who already paid)
+  useEffect(() => {
+    if (quote?.depositPaidAt || quote?.bookedAt) {
+      setHasBooked(true);
+      setHasApprovedProduct(true);
+      // Hydrate selected package from quote
+      if (quote.selectedPackage) {
+        setSelectedEEEPackage(quote.selectedPackage as EEEPackageTier);
+      } else {
+        // Default to enhanced if no package was stored
+        setSelectedEEEPackage('enhanced');
+      }
     }
   }, [quote?.id]); // Only run when quote ID changes (quote loaded)
 
@@ -1817,7 +1839,6 @@ export default function PersonalizedQuotePage() {
     const prefix = `quote_${params.slug}`;
     const storedHasBooked = sessionStorage.getItem(`${prefix}_hasBooked`);
     const storedLeadId = sessionStorage.getItem(`${prefix}_bookedLeadId`);
-    const storedDatePrefsSubmitted = sessionStorage.getItem(`${prefix}_datePreferencesSubmitted`);
 
     if (storedHasBooked === 'true') {
       setHasBooked(true);
@@ -1825,69 +1846,7 @@ export default function PersonalizedQuotePage() {
     if (storedLeadId) {
       setBookedLeadId(storedLeadId);
     }
-    if (storedDatePrefsSubmitted === 'true') {
-      setDatePreferencesSubmitted(true);
-    }
   }, [params?.slug]);
-
-  // Date preferences submission handler
-  const handleDatePreferencesSubmit = async (preferences: Array<{ preferredDate: string; timeSlot: 'AM' | 'PM'; preferenceOrder: number }>) => {
-    if (!bookedLeadId) {
-      toast({
-        title: 'Error',
-        description: 'Booking information is missing. Please contact us.',
-        variant: 'destructive',
-      });
-      throw new Error('Missing lead ID');
-    }
-
-    if (!params?.slug) {
-      throw new Error('Missing quote slug');
-    }
-
-    try {
-      // Preferences already include preferenceOrder, preferredDate, and timeSlot from DateSelectionForm
-      // No transformation needed - pass directly to API
-      const response = await fetch(`/api/leads/${bookedLeadId}/date-preferences`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preferences }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to save date preferences');
-      }
-
-      // Only mark success if API call succeeded
-      const prefix = `quote_${params.slug}`;
-      setDatePreferencesSubmitted(true);
-      sessionStorage.setItem(`${prefix}_datePreferencesSubmitted`, 'true');
-
-      toast({
-        title: 'Dates Submitted',
-        description: 'Your preferred dates have been saved successfully!',
-      });
-    } catch (error: any) {
-      console.error('Error submitting date preferences:', error);
-      toast({
-        title: 'Submission Failed',
-        description: error.message || 'Failed to save your date preferences. Please try again.',
-        variant: 'destructive',
-      });
-      throw error; // Re-throw so DateSelectionForm can handle the error state
-    }
-  };
-
-  // Map EEE tier to H/HH/HHH tier for DateSelectionForm
-  const mapTierToHHH = (tier: EEEPackageTier): 'H' | 'HH' | 'HHH' => {
-    const tierMap: Record<EEEPackageTier, 'H' | 'HH' | 'HHH'> = {
-      essential: 'H',
-      enhanced: 'HH',
-      elite: 'HHH',
-    };
-    return tierMap[tier];
-  };
 
   /* REMOVED: formatTime moved to CountdownTimer */
 
@@ -1984,14 +1943,11 @@ export default function PersonalizedQuotePage() {
 
       const lead: any = await leadResponse.json();
 
-      // Store lead ID for date preferences (scoped by quote slug)
+      // Store lead ID for confirmation (scoped by quote slug)
       const prefix = `quote_${params?.slug}`;
       setBookedLeadId(lead.id);
       sessionStorage.setItem(`${prefix}_bookedLeadId`, lead.id);
       sessionStorage.setItem(`${prefix}_hasBooked`, 'true');
-      // Clear any existing date preferences from previous bookings
-      sessionStorage.removeItem(`${prefix}_datePreferencesSubmitted`);
-      setDatePreferencesSubmitted(false);
 
       // Track booking with mode-specific data including payment type
       if (quote?.id) {
@@ -2016,6 +1972,9 @@ export default function PersonalizedQuotePage() {
 
       setHasBooked(true);
       setIsBooking(false);
+
+      // Redirect to the new confirmation page after successful booking
+      window.location.href = `/booking-confirmed/${quote.id}`;
     } catch (error) {
       console.error('Error booking:', error);
       toast({
@@ -2031,14 +1990,7 @@ export default function PersonalizedQuotePage() {
     return <QuoteSkeleton />;
   }
 
-  // If quote expired on load, show expired popup
-  if (isQuoteExpiredOnLoad && params?.slug) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800">
-        <QuoteExpiredPopup />
-      </div>
-    );
-  }
+  // Quote expiration check removed - quotes no longer expire
 
   if (!quote) {
     return (
@@ -2079,10 +2031,8 @@ export default function PersonalizedQuotePage() {
   console.log('[QUOTE DEBUG] For BUSY_PRO overrides, need: segment=BUSY_PRO, proposalModeEnabled=true, quoteMode=hhh');
   console.log('[QUOTE DEBUG] =====================================');
 
-  // Check if quote has expired (initial check only, mostly visual now via component)
-  // const [isExpiredState, setIsExpiredState] = useState(false); // MOVED TO TOP
-  // [STRATEGY] BUSY_PRO: Never expire. Treat as "Live Availability" to reduce friction.
-  const isActuallyExpired = quote.segment !== 'BUSY_PRO' && (isQuoteExpiredOnLoad || isExpiredState || (quote?.expiresAt && new Date(quote.expiresAt) < new Date()));
+  // Quote expiration removed - quotes no longer expire
+  // const isActuallyExpired = false;
 
   // Create packages array safely checking for existence of each tier
   const packages: EEEPackage[] = [];
@@ -2394,7 +2344,6 @@ export default function PersonalizedQuotePage() {
   if (quote.proposalModeEnabled) {
     return (
       <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
-        {isActuallyExpired && <QuoteExpiredPopup />}
 
         {/* Value Sections Flow */}
         <ValueHero quote={quote} config={config} />
@@ -2471,7 +2420,7 @@ export default function PersonalizedQuotePage() {
                     mikePhotoUrl={mikeProfilePhoto}
                     className="mt-6 md:mt-0 transition-transform duration-300"
                   >
-                    {quote.quoteMode === 'hhh' && packagesToShow.length > 0 && (
+                    {quote.quoteMode === 'hhh' && packagesToShow.length > 0 && !hasBooked && (
                       <div className="space-y-8">
                         {/* [RAMANUJAM] Unified Quote Card for segments with single-product flow */}
                         {['BUSY_PRO', 'BUDGET', 'OLDER_WOMAN', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR', 'LANDLORD'].includes(quote.segment || '') ? (
@@ -3319,6 +3268,8 @@ export default function PersonalizedQuotePage() {
                     })()}
                   </motion.div>
                 )}
+
+                {/* Booking Confirmation - Handled by BookingConfirmation component in footer section */}
               </motion.div>
             )}
           </div>
@@ -3467,7 +3418,7 @@ export default function PersonalizedQuotePage() {
         </div>
       )}
 
-      {isActuallyExpired && <QuoteExpiredPopup />}
+      {/* QuoteExpiredPopup removed - quotes no longer expire */}
 
       {!quote.bookedAt && (
         <div className="sticky top-0 z-50 bg-gradient-to-r from-gray-950 via-gray-900 to-gray-950 border-b border-amber-500/30 px-3 py-2.5">
@@ -3478,14 +3429,7 @@ export default function PersonalizedQuotePage() {
                 <span className="text-[#e8b323] font-bold">New Year Offer:</span> Pay in 3 Interest-Free available today.
               </p>
             </div>
-            {
-              quote.expiresAt && (
-                <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-full border border-white/10 flex-shrink-0">
-                  <Clock className="w-3.5 h-3.5 text-[#e8b323]" />
-                  <CountdownTimer expiresAt={quote.expiresAt} className="text-[#7DB00E] text-sm font-bold" />
-                </div>
-              )
-            }
+            {/* Countdown timer removed - quotes no longer expire */}
           </div >
         </div >
       )
@@ -3500,7 +3444,7 @@ export default function PersonalizedQuotePage() {
                   <Zap className="h-5 w-5 text-white flex-shrink-0" />
                   <h3 className="text-white font-bold">Prices Updated</h3>
                 </div>
-                <p className="text-white/90 text-sm">Your quote expired, so we've refreshed it.</p>
+                <p className="text-white/90 text-sm">Your quote has been updated with new pricing.</p>
               </div>
               <button onClick={() => setShowPriceIncreaseNotice(false)} className="text-white/80"><X className="h-5 w-5" /></button>
             </div>
@@ -4060,9 +4004,9 @@ export default function PersonalizedQuotePage() {
             )
           }
 
-          {/* Pay in 3 Section - Simple Pie Chart Design */}
+          {/* Pay in 3 Section - Simple Pie Chart Design - Hide when already booked */}
           {
-            !hasReserved && (
+            !hasReserved && !hasBooked && (
               <div className="mt-8 px-4" data-testid="pay-in-3-section">
                 <div className="bg-gradient-to-br from-amber-900/20 to-orange-900/10 border border-amber-500/30 rounded-2xl p-8 flex flex-col md:flex-row items-center justify-center gap-6">
                   {/* Pie Chart SVG - 3 equal segments */}
@@ -4125,9 +4069,9 @@ export default function PersonalizedQuotePage() {
             )
           }
 
-          {/* FAQ Section - Hide when payment form is shown */}
+          {/* FAQ Section - Hide when payment form is shown or already booked */}
           {
-            !hasReserved && (
+            !hasReserved && !hasBooked && (
               <div className="mt-8 px-4">
                 <div className="bg-gray-900/60 border border-gray-700 rounded-lg p-6">
                   <div className="text-center mb-6">
@@ -4255,9 +4199,9 @@ export default function PersonalizedQuotePage() {
             )
           }
 
-          {/* Payment Methods Section - Hide when payment form is shown, will move inside payment section */}
+          {/* Payment Methods Section - Hide when payment form is shown or already booked */}
           {
-            !hasReserved && (
+            !hasReserved && !hasBooked && (
               <div className="mt-6 px-4">
                 <div className="bg-gray-900/60 border border-gray-700 rounded-lg p-6">
                   <h3 className="text-xl font-bold text-white mb-4 text-center">Secure Payment Methods</h3>
@@ -4282,36 +4226,34 @@ export default function PersonalizedQuotePage() {
 
           {/* Confirm Button or Confirmation */}
           {
-            hasBooked && !datePreferencesSubmitted ? (
-              /* Tenant View or Direct Booking flow when leadId exists */
-              <div ref={dateSelectionRef} className="mt-8">
-                <Card className="border-[#e8b323] bg-gray-800 border-2">
-                  <CardContent className="p-8">
-                    <h3 className="text-xl font-bold text-[#e8b323] mb-4 text-center">
-                      Schedule the Repair
-                    </h3>
-                    <DateSelectionForm
-                      tier={mapTierToHHH(selectedEEEPackage || 'essential')}
-                      onSubmit={handleDatePreferencesSubmit}
-                    />
-                  </CardContent>
-                </Card>
+            hasBooked ? (
+              /* Payment confirmed - show full summary */
+              <div ref={confirmationRef} className="mt-8">
+                <BookingConfirmation
+                  customerName={quote.customerName}
+                  depositPaidPence={quote.depositAmountPence || (() => {
+                    // Fallback calculation if depositAmountPence not set
+                    const selectedPkg = packages.find(p => p.tier === selectedEEEPackage);
+                    const baseTierPrice = selectedPkg?.price || 0;
+                    const extrasTotal = selectedExtras.reduce((sum, label) => {
+                      const extra = quote.optionalExtras?.find(e => e.label === label);
+                      return sum + (extra?.priceInPence || 0);
+                    }, 0);
+                    const materialsCost = quote.materialsCostWithMarkupPence || 0;
+                    const baseJobPrice = baseTierPrice + extrasTotal;
+                    const jobCostExcludingMaterials = Math.max(0, baseJobPrice - materialsCost);
+                    return materialsCost + Math.round(jobCostExcludingMaterials * 0.30);
+                  })()}
+                  jobDescription={quote.jobDescription}
+                  postcode={quote.postcode || ''}
+                  selectedDate={quote.selectedDate || selectedCalendarDate}
+                  invoiceNumber={invoiceData?.invoiceNumber}
+                  quoteSlug={quote.shortSlug || quote.id}
+                  email={quote.email}
+                  selectedPackage={quote.selectedPackage || selectedEEEPackage || undefined}
+                  selectedExtras={quote.selectedExtras || selectedExtras}
+                />
               </div>
-            ) : hasBooked && datePreferencesSubmitted ? (
-              <Card className="mt-8 border-green-500 bg-green-900/30 border-2">
-                <CardContent className="p-8 text-center">
-                  <div className="inline-flex items-center justify-center w-20 h-20 bg-green-500 rounded-full mb-4">
-                    <Check className="h-12 w-12 text-white" />
-                  </div>
-                  <h3 className="text-4xl font-bold text-green-400 mb-2">Thank You!</h3>
-                  <p className="text-xl text-gray-200 mb-4">
-                    We will be in contact shortly.
-                  </p>
-                  <p className="text-gray-300">
-                    We'll call you at {quote.phone} to confirm the details and schedule your job.
-                  </p>
-                </CardContent>
-              </Card>
             ) : hasReserved ? (
               <div id="confirm-button" className="mt-8">
                 <Card className="bg-gray-800 border-gray-700">

@@ -1,8 +1,18 @@
 import { Router } from 'express';
+import Stripe from 'stripe';
 import { db } from './db';
 import { invoices, contractorBookingRequests, personalizedQuotes } from '../shared/schema';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+
+// Helper to get Stripe instance lazily
+const getStripe = () => {
+    const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || '').replace(/^["']|["']$/g, '').trim();
+    if (!stripeSecretKey || !stripeSecretKey.startsWith('sk_')) {
+        return null;
+    }
+    return new Stripe(stripeSecretKey, { apiVersion: '2024-06-20' });
+};
 
 export const invoiceRouter = Router();
 
@@ -106,12 +116,11 @@ invoiceRouter.post('/api/invoices/generate', async (req, res) => {
 
         const balanceDue = totalAmount - depositPaid;
 
-        // Generate invoice number (simple sequential for now)
+        // Generate invoice number using COUNT (optimized)
         const year = new Date().getFullYear();
-        const existingInvoices = await db.select()
-            .from(invoices)
-            .orderBy(invoices.createdAt);
-        const invoiceNumber = `INV-${year}-${String(existingInvoices.length + 1).padStart(4, '0')}`;
+        const [countResult] = await db.select({ count: sql<number>`count(*)` }).from(invoices);
+        const invoiceCount = Number(countResult?.count || 0);
+        const invoiceNumber = `INV-${year}-${String(invoiceCount + 1).padStart(4, '0')}`;
 
         // Create line items
         const lineItems = [];
@@ -204,10 +213,11 @@ invoiceRouter.post('/api/invoices', async (req, res) => {
             };
         });
 
-        // Generate invoice number
+        // Generate invoice number using COUNT (optimized)
         const year = new Date().getFullYear();
-        const existingInvoices = await db.select().from(invoices); // Optimizable: usage of count
-        const invoiceNumber = `INV-${year}-${String(existingInvoices.length + 1).padStart(4, '0')}`;
+        const [countResult] = await db.select({ count: sql<number>`count(*)` }).from(invoices);
+        const invoiceCount = Number(countResult?.count || 0);
+        const invoiceNumber = `INV-${year}-${String(invoiceCount + 1).padStart(4, '0')}`;
 
         const newInvoice = {
             id: uuidv4(),
@@ -259,6 +269,27 @@ invoiceRouter.get('/api/invoices/:id', async (req, res) => {
         res.json(results[0]);
     } catch (error: any) {
         console.error('[Invoices] Error fetching invoice:', error);
+        res.status(500).json({ error: error.message || 'Failed to fetch invoice' });
+    }
+});
+
+// Get invoice by quote ID (for confirmation screen)
+invoiceRouter.get('/api/invoices/by-quote/:quoteId', async (req, res) => {
+    try {
+        const { quoteId } = req.params;
+
+        const results = await db.select()
+            .from(invoices)
+            .where(eq(invoices.quoteId, quoteId))
+            .limit(1);
+
+        if (results.length === 0) {
+            return res.status(404).json({ error: 'Invoice not found for this quote' });
+        }
+
+        res.json(results[0]);
+    } catch (error: any) {
+        console.error('[Invoices] Error fetching invoice by quote:', error);
         res.status(500).json({ error: error.message || 'Failed to fetch invoice' });
     }
 });
@@ -347,6 +378,68 @@ invoiceRouter.post('/api/invoices/:id/send', async (req, res) => {
     } catch (error: any) {
         console.error('[Invoices] Error sending invoice:', error);
         res.status(500).json({ error: error.message || 'Failed to send invoice' });
+    }
+});
+
+// Pay invoice balance via Stripe
+invoiceRouter.post('/api/invoices/:id/pay', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { payerEmail } = req.body;
+
+        const stripe = getStripe();
+        if (!stripe) {
+            return res.status(500).json({ error: 'Payment processing not configured' });
+        }
+
+        // Fetch invoice
+        const results = await db.select()
+            .from(invoices)
+            .where(eq(invoices.id, id))
+            .limit(1);
+
+        if (results.length === 0) {
+            return res.status(404).json({ error: 'Invoice not found' });
+        }
+
+        const invoice = results[0];
+
+        if (invoice.status === 'paid') {
+            return res.status(400).json({ error: 'Invoice already paid' });
+        }
+
+        if (invoice.balanceDue <= 0) {
+            return res.status(400).json({ error: 'No balance due' });
+        }
+
+        // Create payment intent for balance
+        const paymentIntent = await stripe.paymentIntents.create({
+            amount: invoice.balanceDue,
+            currency: 'gbp',
+            automatic_payment_methods: {
+                enabled: true,
+            },
+            metadata: {
+                invoiceId: id,
+                invoiceNumber: invoice.invoiceNumber,
+                paymentType: 'balance_payment',
+            },
+            receipt_email: payerEmail || invoice.customerEmail || undefined,
+            description: `Balance payment for ${invoice.invoiceNumber}`,
+        });
+
+        console.log(`[Invoices] Created payment intent ${paymentIntent.id} for invoice ${invoice.invoiceNumber}`);
+
+        res.json({
+            success: true,
+            clientSecret: paymentIntent.client_secret,
+            amount: invoice.balanceDue,
+            invoiceNumber: invoice.invoiceNumber,
+        });
+
+    } catch (error: any) {
+        console.error('[Invoices] Error creating payment:', error);
+        res.status(500).json({ error: error.message || 'Failed to create payment' });
     }
 });
 

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from './db';
-import { contractorAvailabilityDates, handymanAvailability, handymanProfiles } from '../shared/schema';
-import { eq, and, gte, lte } from 'drizzle-orm';
+import { contractorAvailabilityDates, handymanAvailability, handymanProfiles, masterAvailability, masterBlockedDates } from '../shared/schema';
+import { eq, and, gte, lte, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { requireContractorAuth } from './contractor-auth';
 
@@ -34,7 +34,15 @@ router.get('/upcoming', requireContractorAuth, async (req: Request, res: Respons
         const end = new Date(start);
         end.setDate(end.getDate() + days);
 
-        // 1. Fetch Date Overrides
+        // 1. Fetch Master Blocked Dates (highest priority)
+        const blockedDates = await db.select()
+            .from(masterBlockedDates)
+            .where(and(
+                gte(masterBlockedDates.date, start.toISOString().split('T')[0]),
+                lte(masterBlockedDates.date, end.toISOString().split('T')[0])
+            ));
+
+        // 2. Fetch Contractor Date Overrides
         const overrides = await db.select()
             .from(contractorAvailabilityDates)
             .where(and(
@@ -43,12 +51,17 @@ router.get('/upcoming', requireContractorAuth, async (req: Request, res: Respons
                 lte(contractorAvailabilityDates.date, end)
             ));
 
-        // 2. Fetch Weekly Pattern
+        // 3. Fetch Contractor Weekly Pattern
         const patterns = await db.select()
             .from(handymanAvailability)
             .where(eq(handymanAvailability.handymanId, contractorId));
 
-        // 3. Merge Logic (Date Override wins)
+        // 4. Fetch Master Weekly Pattern (fallback defaults)
+        const masterPatterns = await db.select()
+            .from(masterAvailability)
+            .where(eq(masterAvailability.isActive, true));
+
+        // 5. Merge Logic (Priority: Master Blocked > Contractor Override > Contractor Pattern > Master Pattern)
         const result = [];
         for (let i = 0; i < days; i++) {
             const date = new Date(start);
@@ -56,7 +69,19 @@ router.get('/upcoming', requireContractorAuth, async (req: Request, res: Respons
             const dateStr = date.toISOString().split('T')[0];
             const dayOfWeek = date.getDay(); // 0-6
 
-            // Check override
+            // Check master blocked dates (highest priority)
+            const blocked = blockedDates.find(b => b.date === dateStr);
+            if (blocked) {
+                result.push({
+                    date: dateStr,
+                    isAvailable: false,
+                    source: 'master_blocked',
+                    reason: blocked.reason
+                });
+                continue;
+            }
+
+            // Check contractor date override
             const override = overrides.find(o =>
                 new Date(o.date).toISOString().split('T')[0] === dateStr
             );
@@ -71,7 +96,7 @@ router.get('/upcoming', requireContractorAuth, async (req: Request, res: Respons
                     notes: override.notes
                 });
             } else {
-                // Check pattern
+                // Check contractor pattern
                 const pattern = patterns.find(p => p.dayOfWeek === dayOfWeek && p.isActive);
                 if (pattern) {
                     result.push({
@@ -82,11 +107,23 @@ router.get('/upcoming', requireContractorAuth, async (req: Request, res: Respons
                         endTime: pattern.endTime
                     });
                 } else {
-                    result.push({
-                        date: dateStr,
-                        isAvailable: false,
-                        source: 'default_off'
-                    });
+                    // Check master pattern (fallback default)
+                    const masterPattern = masterPatterns.find(p => p.dayOfWeek === dayOfWeek);
+                    if (masterPattern) {
+                        result.push({
+                            date: dateStr,
+                            isAvailable: true,
+                            source: 'master_pattern',
+                            startTime: masterPattern.startTime,
+                            endTime: masterPattern.endTime
+                        });
+                    } else {
+                        result.push({
+                            date: dateStr,
+                            isAvailable: false,
+                            source: 'default_off'
+                        });
+                    }
                 }
             }
         }
@@ -372,6 +409,123 @@ router.post('/weekly', requireContractorAuth, async (req: Request, res: Response
 
     } catch (error) {
         console.error('Failed to save weekly pattern:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ==========================================
+// MASTER AVAILABILITY ADMIN ROUTES
+// ==========================================
+
+// Create a separate admin router for master availability
+export const adminAvailabilityRouter = Router();
+
+// GET /api/admin/availability/master
+// Get master weekly pattern settings
+adminAvailabilityRouter.get('/master', async (req: Request, res: Response) => {
+    try {
+        const patterns = await db.select()
+            .from(masterAvailability)
+            .orderBy(masterAvailability.dayOfWeek);
+
+        res.json(patterns);
+    } catch (error) {
+        console.error('Failed to fetch master availability:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// POST /api/admin/availability/master
+// Update master weekly pattern
+adminAvailabilityRouter.post('/master', async (req: Request, res: Response) => {
+    try {
+        const { patterns } = req.body;
+        // patterns: [{ dayOfWeek: 0-6, startTime: 'HH:mm', endTime: 'HH:mm', isActive: boolean }]
+
+        if (!Array.isArray(patterns)) {
+            return res.status(400).json({ error: 'patterns array required' });
+        }
+
+        await db.transaction(async (tx) => {
+            // Delete existing patterns
+            await tx.delete(masterAvailability);
+
+            // Insert new patterns
+            for (const pattern of patterns) {
+                if (pattern.dayOfWeek >= 0 && pattern.dayOfWeek <= 6) {
+                    await tx.insert(masterAvailability).values({
+                        dayOfWeek: pattern.dayOfWeek,
+                        startTime: pattern.startTime || '09:00',
+                        endTime: pattern.endTime || '17:00',
+                        isActive: pattern.isActive !== false,
+                    });
+                }
+            }
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Failed to update master availability:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// GET /api/admin/availability/blocked-dates
+// List all master blocked dates
+adminAvailabilityRouter.get('/blocked-dates', async (req: Request, res: Response) => {
+    try {
+        const blocked = await db.select()
+            .from(masterBlockedDates)
+            .orderBy(masterBlockedDates.date);
+
+        res.json(blocked);
+    } catch (error) {
+        console.error('Failed to fetch blocked dates:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// POST /api/admin/availability/blocked-dates
+// Add a new blocked date
+adminAvailabilityRouter.post('/blocked-dates', async (req: Request, res: Response) => {
+    try {
+        const { date, reason } = req.body;
+
+        if (!date) {
+            return res.status(400).json({ error: 'date required' });
+        }
+
+        const [inserted] = await db.insert(masterBlockedDates)
+            .values({
+                date,
+                reason: reason || null,
+            })
+            .returning();
+
+        res.json(inserted);
+    } catch (error) {
+        console.error('Failed to add blocked date:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// DELETE /api/admin/availability/blocked-dates/:id
+// Remove a blocked date
+adminAvailabilityRouter.delete('/blocked-dates/:id', async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const numId = parseInt(id);
+
+        if (isNaN(numId)) {
+            return res.status(400).json({ error: 'Invalid id' });
+        }
+
+        await db.delete(masterBlockedDates)
+            .where(eq(masterBlockedDates.id, numId));
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Failed to delete blocked date:', error);
         res.status(500).json({ error: 'Server error' });
     }
 });

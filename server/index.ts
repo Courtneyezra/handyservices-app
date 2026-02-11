@@ -35,7 +35,7 @@ import { searchAddresses, validatePostcode } from './google-places'; // B8: Addr
 import { devRouter } from './dev-tools';
 import { settingsRouter, getTwilioSettings } from './settings';
 import contractorAuthRouter from './contractor-auth';
-import contractorAvailabilityRouter from './availability-routes';
+import contractorAvailabilityRouter, { adminAvailabilityRouter } from './availability-routes';
 import contractorJobsRouter from './job-routes';
 import contractorDashboardRouter from './contractor-dashboard-routes';
 import placesRouter from './places-routes';
@@ -50,7 +50,14 @@ import reviewsRouter from "./reviews-routes";
 
 
 import publicRoutes from './public-routes';
+import adminContractorsRouter from './admin-contractors-routes';
+import adminDashboardRouter from './admin-dashboard-routes';
 import mediaRouter from './media-upload';
+// Freemium Product Routes
+import { paymentLinksRouter } from './payment-links';
+import { clientPortalRouter } from './client-portal';
+import { partnerApplicationRouter } from './partner-application';
+import { trainingRouter as partnerTrainingRouter } from './training';
 import session from "express-session";
 import passport from "passport";
 import authRouter, { requireAdmin } from "./auth";
@@ -59,6 +66,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// IMPORTANT: Raw body middleware for Stripe webhook MUST come BEFORE express.json()
+// Stripe webhook signature verification requires the raw request body
+app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
+
 app.use(express.json({ limit: '10mb' })); // Increased limit for large transcriptions
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -253,8 +265,8 @@ app.use(stripeRouter); // Stripe payment routes
 app.use('/api', elevenLabsWebhookRouter); // ElevenLabs Webhooks
 app.use('/api', contentRouter); // Landing Pages & Banners
 app.use('/api', uploadRouter);
-app.use('/api', invoiceRouter); // B2: Invoice management
-app.use('/api', jobAssignmentRouter); // B5: Job assignment/dispatch
+app.use(invoiceRouter); // B2: Invoice management
+app.use(jobAssignmentRouter); // B5: Job assignment/dispatch
 app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
 
 // Contractor Portal Routes
@@ -263,9 +275,18 @@ app.use('/api/contractor', contractorDashboardRouter);
 app.use('/api/contractor/media', mediaRouter);
 app.use('/api/contractor/availability', contractorAvailabilityRouter);
 app.use('/api/contractor/jobs', contractorJobsRouter);
+app.use('/api/admin/availability', requireAdmin, adminAvailabilityRouter); // Master availability admin routes
+app.use('/api/admin/contractors', requireAdmin, adminContractorsRouter); // Admin contractors management
+app.use('/api/admin/dashboard', requireAdmin, adminDashboardRouter); // Admin dashboard analytics
 app.use('/api/public', publicRoutes); // Public API Routes
 app.use('/api/auth', authRouter); // Auth Routes
 // app.use('/api/places', placesRouter); // API: Places Search (Moved to register before catch-all)
+
+// Freemium Product Routes
+app.use(paymentLinksRouter); // Payment links for instant payments
+app.use(clientPortalRouter); // Client portal (invoice viewing, reviews)
+app.use(partnerApplicationRouter); // Partner application wizard
+app.use(partnerTrainingRouter); // Partner training modules
 
 // Serve static assets (for hold music)
 app.use('/assets', express.static(path.join(__dirname, '../public/assets')));

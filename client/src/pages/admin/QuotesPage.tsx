@@ -37,6 +37,8 @@ export interface PersonalizedQuote {
     regenerationCount: number | null;
     paymentType: string | null;
     depositPaidAt: string | null;
+    depositAmountPence: number | null;
+    stripePaymentIntentId: string | null;
     leadId: string | null;
     createdAt: string;
     visitTierMode?: 'tiers' | 'fixed' | null;

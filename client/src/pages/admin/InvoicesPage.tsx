@@ -16,16 +16,16 @@ import {
 import { useToast } from "@/hooks/use-toast";
 
 interface Invoice {
-    id: number;
+    id: string;
     invoiceNumber: string;
     customerName: string;
     customerEmail: string | null;
-    totalAmount: string;
-    balanceDue: string;
+    totalAmount: number;
+    balanceDue: number;
     status: string;
     createdAt: string;
     pdfUrl: string | null;
-    jobId: number | null;
+    jobId: string | null;
 }
 
 export default function InvoicesPage() {
@@ -42,7 +42,7 @@ export default function InvoicesPage() {
     });
 
     const markPaidMutation = useMutation({
-        mutationFn: async (id: number) => {
+        mutationFn: async (id: string) => {
             const res = await fetch(`/api/invoices/${id}/mark-paid`, {
                 method: "POST",
             });
@@ -66,7 +66,7 @@ export default function InvoicesPage() {
     });
 
     const sendInvoiceMutation = useMutation({
-        mutationFn: async (id: number) => {
+        mutationFn: async (id: string) => {
             const res = await fetch(`/api/invoices/${id}/send`, {
                 method: "POST",
             });
@@ -104,11 +104,13 @@ export default function InvoicesPage() {
         }
     };
 
-    const formatCurrency = (amount: string) => {
-        return new Intl.NumberFormat("en-US", {
+    const formatCurrency = (amount: string | number) => {
+        // Amounts are stored in pence, convert to pounds
+        const pence = typeof amount === 'string' ? parseFloat(amount) : amount;
+        return new Intl.NumberFormat("en-GB", {
             style: "currency",
-            currency: "USD",
-        }).format(parseFloat(amount));
+            currency: "GBP",
+        }).format(pence / 100);
     };
 
     if (isLoading) {

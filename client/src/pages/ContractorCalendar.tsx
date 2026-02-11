@@ -44,11 +44,22 @@ export default function ContractorCalendar() {
     const currentMonth = currentDate.getMonth() + 1;
     const currentYear = currentDate.getFullYear();
 
+    // Get auth token
+    const getAuthHeaders = () => {
+        const token = localStorage.getItem('contractorToken');
+        return {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        };
+    };
+
     // Fetch month data
     const { data: monthData, isLoading } = useQuery({
         queryKey: ['contractor-availability', currentYear, currentMonth],
         queryFn: async () => {
-            const res = await fetch(`/api/contractor/availability/${currentYear}/${currentMonth}`);
+            const res = await fetch(`/api/contractor/availability/${currentYear}/${currentMonth}`, {
+                headers: getAuthHeaders()
+            });
             if (!res.ok) throw new Error('Failed to fetch availability');
             return res.json();
         }
@@ -59,7 +70,7 @@ export default function ContractorCalendar() {
         mutationFn: async (data: { dates: string[], isAvailable: boolean }) => {
             const res = await fetch('/api/contractor/availability/dates', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify(data)
             });
             if (!res.ok) throw new Error('Failed to save dates');
@@ -76,7 +87,7 @@ export default function ContractorCalendar() {
         mutationFn: async (patterns: any[]) => {
             const res = await fetch('/api/contractor/availability/weekly', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ patterns })
             });
             if (!res.ok) throw new Error('Failed to save weekly pattern');

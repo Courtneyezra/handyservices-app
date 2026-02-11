@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { db } from './db';
-import { contractorBookingRequests, handymanAvailability, contractorAvailabilityDates } from '../shared/schema';
+import { contractorBookingRequests, handymanAvailability, contractorAvailabilityDates, handymanProfiles, users, personalizedQuotes } from '../shared/schema';
 import { eq, and, gte, lte } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import { sendJobAssignmentEmail } from './email-service';
+import { requireContractor } from './auth';
 
 export const jobAssignmentRouter = Router();
 
@@ -120,8 +122,56 @@ jobAssignmentRouter.post('/api/jobs/:id/assign', async (req, res) => {
             .where(eq(contractorBookingRequests.id, id))
             .returning();
 
-        // TODO: Send notification to contractor (email/SMS)
+        // Send notification to contractor (async/non-blocking)
         console.log(`[Job Assignment] Job ${id} assigned to contractor ${contractorId} for ${scheduledDate}`);
+
+        // Fetch contractor details for email notification
+        (async () => {
+            try {
+                const contractorData = await db.select({
+                    firstName: users.firstName,
+                    lastName: users.lastName,
+                    email: users.email,
+                })
+                .from(handymanProfiles)
+                .innerJoin(users, eq(handymanProfiles.userId, users.id))
+                .where(eq(handymanProfiles.id, contractorId))
+                .limit(1);
+
+                if (contractorData.length > 0 && contractorData[0].email) {
+                    const contractor = contractorData[0];
+                    const contractorName = [contractor.firstName, contractor.lastName].filter(Boolean).join(' ') || 'Contractor';
+
+                    // Fetch address from linked quote if available
+                    let address = '';
+                    if (updatedJob.quoteId) {
+                        const quoteData = await db.select({ address: personalizedQuotes.address })
+                            .from(personalizedQuotes)
+                            .where(eq(personalizedQuotes.id, updatedJob.quoteId))
+                            .limit(1);
+                        if (quoteData.length > 0 && quoteData[0].address) {
+                            address = quoteData[0].address;
+                        }
+                    }
+
+                    await sendJobAssignmentEmail({
+                        contractorName,
+                        contractorEmail: contractor.email,
+                        customerName: updatedJob.customerName || 'Customer',
+                        address,
+                        jobDescription: updatedJob.description || '',
+                        scheduledDate: scheduledDate,
+                        scheduledStartTime: updatedJob.scheduledStartTime || undefined,
+                        scheduledEndTime: updatedJob.scheduledEndTime || undefined,
+                        jobId: id,
+                    });
+                } else {
+                    console.log(`[Job Assignment] No email found for contractor ${contractorId}`);
+                }
+            } catch (emailError) {
+                console.error('[Job Assignment] Failed to send assignment email:', emailError);
+            }
+        })();
 
         res.json({
             success: true,
@@ -135,12 +185,11 @@ jobAssignmentRouter.post('/api/jobs/:id/assign', async (req, res) => {
     }
 });
 
-// Contractor accepts job
-jobAssignmentRouter.post('/api/jobs/:id/accept', async (req, res) => {
+// Contractor accepts job (authenticated)
+jobAssignmentRouter.post('/api/jobs/:id/accept', requireContractor, async (req, res) => {
     try {
         const { id } = req.params;
-        // TODO: Get contractor ID from auth token
-        const contractorId = req.body.contractorId; // Temporary - should come from auth
+        const contractorId = (req as any).contractorId; // From auth middleware
 
         const jobResults = await db.select()
             .from(contractorBookingRequests)
@@ -183,13 +232,12 @@ jobAssignmentRouter.post('/api/jobs/:id/accept', async (req, res) => {
     }
 });
 
-// Contractor rejects job
-jobAssignmentRouter.post('/api/jobs/:id/reject', async (req, res) => {
+// Contractor rejects job (authenticated)
+jobAssignmentRouter.post('/api/jobs/:id/reject', requireContractor, async (req, res) => {
     try {
         const { id } = req.params;
         const { reason } = req.body;
-        // TODO: Get contractor ID from auth token
-        const contractorId = req.body.contractorId; // Temporary - should come from auth
+        const contractorId = (req as any).contractorId; // From auth middleware
 
         const jobResults = await db.select()
             .from(contractorBookingRequests)
@@ -229,15 +277,10 @@ jobAssignmentRouter.post('/api/jobs/:id/reject', async (req, res) => {
     }
 });
 
-// Get jobs assigned to contractor
-jobAssignmentRouter.get('/api/jobs/assigned', async (req, res) => {
+// Get jobs assigned to contractor (authenticated)
+jobAssignmentRouter.get('/api/jobs/assigned', requireContractor, async (req, res) => {
     try {
-        // TODO: Get contractor ID from auth token
-        const contractorId = req.query.contractorId as string;
-
-        if (!contractorId) {
-            return res.status(400).json({ error: 'contractorId is required' });
-        }
+        const contractorId = (req as any).contractorId; // From auth middleware
 
         const jobs = await db.select()
             .from(contractorBookingRequests)
@@ -249,7 +292,6 @@ jobAssignmentRouter.get('/api/jobs/assigned', async (req, res) => {
         console.error('[Job Assignment] Error fetching assigned jobs:', error);
         res.status(500).json({ error: error.message || 'Failed to fetch assigned jobs' });
     }
-
 });
 
 // Get specific job details (secured by contractorId check is implicit in UI, but explicit here is better)
@@ -268,24 +310,74 @@ jobAssignmentRouter.get('/api/jobs/:id', async (req, res) => {
     }
 });
 
-// Complete job
-jobAssignmentRouter.post('/api/jobs/:id/complete', async (req, res) => {
+// Complete job with signature and time tracking (authenticated)
+jobAssignmentRouter.post('/api/jobs/:id/complete', requireContractor, async (req, res) => {
     try {
         const { id } = req.params;
-        // TODO: specific checks for photos?
+        const contractorId = (req as any).contractorId; // From auth middleware
+        const { signatureDataUrl, timeOnJobSeconds, completionNotes, evidenceUrls } = req.body;
+
+        // Fetch the job first to verify ownership
+        const jobResults = await db.select()
+            .from(contractorBookingRequests)
+            .where(eq(contractorBookingRequests.id, id))
+            .limit(1);
+
+        if (jobResults.length === 0) {
+            return res.status(404).json({ error: 'Job not found' });
+        }
+
+        const job = jobResults[0];
+
+        // Verify contractor ownership
+        if (job.assignedContractorId !== contractorId) {
+            return res.status(403).json({ error: 'This job is not assigned to you' });
+        }
+
+        // Verify job is in a completable state
+        if (job.status === 'completed' || job.assignmentStatus === 'completed') {
+            return res.status(400).json({ error: 'Job is already completed' });
+        }
+
+        // Build update object
+        const updateData: any = {
+            status: 'completed',
+            assignmentStatus: 'completed',
+            completedAt: new Date(),
+            updatedAt: new Date()
+        };
+
+        // Add signature if provided
+        if (signatureDataUrl) {
+            updateData.signatureDataUrl = signatureDataUrl;
+        }
+
+        // Add time tracking if provided
+        if (timeOnJobSeconds !== undefined && timeOnJobSeconds !== null) {
+            updateData.timeOnJobSeconds = timeOnJobSeconds;
+        }
+
+        // Add completion notes if provided
+        if (completionNotes) {
+            updateData.completionNotes = completionNotes;
+        }
+
+        // Add evidence URLs if provided
+        if (evidenceUrls && Array.isArray(evidenceUrls)) {
+            updateData.evidenceUrls = evidenceUrls;
+        }
+
         const [updatedJob] = await db.update(contractorBookingRequests)
-            .set({
-                status: 'completed',
-                assignmentStatus: 'completed',
-                completedAt: new Date(),
-                updatedAt: new Date()
-            })
+            .set(updateData)
             .where(eq(contractorBookingRequests.id, id))
             .returning();
 
+        console.log(`[Job Assignment] Job ${id} completed. Time: ${timeOnJobSeconds}s, Signature: ${signatureDataUrl ? 'Yes' : 'No'}`);
+
         res.json({ success: true, job: updatedJob });
     } catch (error: any) {
-        res.status(500).json({ error: "Failed to complete job" });
+        console.error('[Job Assignment] Error completing job:', error);
+        res.status(500).json({ error: error.message || "Failed to complete job" });
     }
 });
 
@@ -311,6 +403,138 @@ jobAssignmentRouter.get('/api/admin/jobs', async (req, res) => {
     } catch (error: any) {
         console.error('[Job Assignment] Error fetching admin jobs:', error);
         res.status(500).json({ error: 'Failed to fetch jobs' });
+    }
+});
+
+// B5: Get recommended contractors for a job
+// Uses skill-matching, location, and availability to rank contractors
+jobAssignmentRouter.get('/api/jobs/:id/recommend-contractors', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { date } = req.query; // Optional: specific date to check availability
+
+        // Fetch the job
+        const jobResults = await db.select()
+            .from(contractorBookingRequests)
+            .where(eq(contractorBookingRequests.id, id))
+            .limit(1);
+
+        if (jobResults.length === 0) {
+            return res.status(404).json({ error: 'Job not found' });
+        }
+
+        const job = jobResults[0];
+
+        // Get job location from linked quote if available
+        let jobLocation: { lat: number; lng: number } | undefined;
+        let jobCategories: string[] = [];
+
+        if (job.quoteId) {
+            const quoteData = await db.select({
+                coordinates: personalizedQuotes.coordinates,
+                categories: personalizedQuotes.categories
+            })
+            .from(personalizedQuotes)
+            .where(eq(personalizedQuotes.id, job.quoteId))
+            .limit(1);
+
+            if (quoteData.length > 0) {
+                if (quoteData[0].coordinates) {
+                    const coords = quoteData[0].coordinates as { lat: number; lng: number };
+                    if (coords.lat && coords.lng) {
+                        jobLocation = coords;
+                    }
+                }
+                if (quoteData[0].categories) {
+                    jobCategories = quoteData[0].categories as string[];
+                }
+            }
+        }
+
+        // Parse scheduled date
+        const scheduledDate = date
+            ? new Date(date as string)
+            : job.scheduledDate || job.requestedDate || undefined;
+
+        // Get recommendations
+        const { recommendContractorsForJob } = await import('./availability-engine');
+
+        const recommendations = await recommendContractorsForJob({
+            jobLocation,
+            jobCategories,
+            scheduledDate: scheduledDate ? new Date(scheduledDate) : undefined,
+            includeUnavailable: false
+        });
+
+        res.json({
+            jobId: id,
+            scheduledDate: scheduledDate?.toISOString().split('T')[0],
+            recommendations: recommendations.slice(0, 10), // Top 10
+            totalMatches: recommendations.length
+        });
+
+    } catch (error: any) {
+        console.error('[Job Assignment] Error getting recommendations:', error);
+        res.status(500).json({ error: error.message || 'Failed to get recommendations' });
+    }
+});
+
+// B5: Get available contractors for a specific date (admin dispatch helper)
+jobAssignmentRouter.get('/api/admin/contractors/available', async (req, res) => {
+    try {
+        const { date, lat, lng, categories } = req.query;
+
+        if (!date) {
+            return res.status(400).json({ error: 'date query parameter is required' });
+        }
+
+        const { recommendContractorsForJob } = await import('./availability-engine');
+
+        const jobLocation = (lat && lng)
+            ? { lat: parseFloat(lat as string), lng: parseFloat(lng as string) }
+            : undefined;
+
+        const jobCategories = categories
+            ? (categories as string).split(',').map(c => c.trim())
+            : [];
+
+        const recommendations = await recommendContractorsForJob({
+            jobLocation,
+            jobCategories,
+            scheduledDate: new Date(date as string),
+            includeUnavailable: false
+        });
+
+        res.json({
+            date: date,
+            availableContractors: recommendations,
+            count: recommendations.length
+        });
+
+    } catch (error: any) {
+        console.error('[Job Assignment] Error fetching available contractors:', error);
+        res.status(500).json({ error: error.message || 'Failed to fetch available contractors' });
+    }
+});
+
+// B5: Check specific contractor's availability for a date
+jobAssignmentRouter.get('/api/contractors/:contractorId/availability/:date', async (req, res) => {
+    try {
+        const { contractorId, date } = req.params;
+
+        const { checkContractorAvailability } = await import('./availability-engine');
+
+        const result = await checkContractorAvailability(contractorId, new Date(date));
+
+        res.json({
+            contractorId,
+            date,
+            ...result
+        });
+
+    } catch (error: any) {
+        console.error('[Job Assignment] Error checking availability:', error);
+        res.status(500).json({ error: error.message || 'Failed to check availability' });
     }
 });
 

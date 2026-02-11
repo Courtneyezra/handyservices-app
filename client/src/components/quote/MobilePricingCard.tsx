@@ -33,6 +33,7 @@ export interface MobilePricingCardProps {
     installmentPrice?: number;
     ctaText?: string; // NEW: Custom CTA button text
     badgeText?: string; // NEW: Custom badge text (overrides default MOST POPULAR/PREMIUM)
+    postcode?: string; // For availability lookup
 }
 
 /**
@@ -64,7 +65,8 @@ export function MobilePricingCard({
     paymentMode = 'full',
     installmentPrice,
     ctaText,
-    badgeText
+    badgeText,
+    postcode
 }: MobilePricingCardProps) {
 
     // Tier-specific styling - anchor tier gets enhanced styling regardless of which tier it is
@@ -239,6 +241,7 @@ export function MobilePricingCard({
                                     selectedDate={selectedDate}
                                     onDateSelect={onDateSelect}
                                     className="mt-3"
+                                    postcode={postcode}
                                 />
                             )}
                         </div>

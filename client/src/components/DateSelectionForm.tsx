@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -7,6 +7,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Calendar, Clock, ChevronLeft, ChevronRight, CheckCircle } from 'lucide-react';
+import { useAvailability, getUnavailableReason } from '@/hooks/useAvailability';
 
 interface DatePreference {
   preferredDate: string;
@@ -17,6 +18,8 @@ interface DatePreference {
 interface DateSelectionFormProps {
   tier: 'H' | 'HH' | 'HHH';
   onSubmit: (preferences: DatePreference[]) => Promise<void>;
+  postcode?: string;
+  serviceIds?: string[];
 }
 
 interface AvailableDate {
@@ -28,7 +31,7 @@ interface AvailableDate {
   isLocked: boolean;
 }
 
-export function DateSelectionForm({ tier, onSubmit }: DateSelectionFormProps) {
+export function DateSelectionForm({ tier, onSubmit, postcode, serviceIds }: DateSelectionFormProps) {
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [showTimeAssignment, setShowTimeAssignment] = useState(false);
   const [currentDateForTimeSelection, setCurrentDateForTimeSelection] = useState<string | null>(null);
@@ -36,6 +39,26 @@ export function DateSelectionForm({ tier, onSubmit }: DateSelectionFormProps) {
   const [dateOffset, setDateOffset] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Fetch system-wide availability
+  const { data: availabilityData } = useAvailability({
+    postcode,
+    serviceIds,
+    days: 60, // Look 60 days ahead for date selection form
+  });
+
+  // Build unavailable dates set for quick lookup
+  const unavailableDates = useMemo(() => {
+    const set = new Set<string>();
+    if (availabilityData?.dates) {
+      for (const d of availabilityData.dates) {
+        if (!d.isAvailable) {
+          set.add(d.date);
+        }
+      }
+    }
+    return set;
+  }, [availabilityData]);
 
   // Get minimum days based on tier
   const getMinimumDaysForTier = (): number => {
@@ -57,31 +80,34 @@ export function DateSelectionForm({ tier, onSubmit }: DateSelectionFormProps) {
   const getAvailableDates = (): AvailableDate[] => {
     const dates = [];
     const today = new Date();
-    
+
     const startOffset = Math.max(1, dateOffset + 1);
-    
+
     for (let i = startOffset; i <= startOffset + 13; i++) {
       const date = new Date(today);
       date.setDate(today.getDate() + i);
       const dateString = date.toISOString().split('T')[0];
-      
+
       // Check if this is a weekend (0 = Sunday, 6 = Saturday)
       const dayOfWeek = date.getDay();
       const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-      
+
       // Check if this date is available for the current tier
       const isAvailableForTier = i >= minimumDays;
-      
+
+      // Check system-wide availability (no contractors, master blocked, etc.)
+      const isSystemUnavailable = unavailableDates.has(dateString);
+
       dates.push({
         date: dateString,
         dayName: date.toLocaleDateString('en-GB', { weekday: 'short' }),
         dayNumber: date.getDate(),
         monthName: date.toLocaleDateString('en-GB', { month: 'short' }),
         daysFromNow: i,
-        isLocked: !isAvailableForTier || isWeekend
+        isLocked: !isAvailableForTier || isWeekend || isSystemUnavailable
       });
     }
-    
+
     return dates;
   };
 
@@ -246,16 +272,22 @@ export function DateSelectionForm({ tier, onSubmit }: DateSelectionFormProps) {
               // Generate tooltip message
               const getTooltipMessage = () => {
                 if (!isLocked) return '';
-                
+
                 // Check if it's a weekend
                 const dateObj = new Date(date.date);
                 const dayOfWeek = dateObj.getDay();
                 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-                
+
                 if (isWeekend) {
                   return 'Weekend dates are not available';
                 }
-                
+
+                // Check if system unavailable (master blocked, no contractors)
+                if (unavailableDates.has(date.date)) {
+                  const reason = getUnavailableReason(availabilityData?.dates, date.date);
+                  return reason || 'This date is unavailable';
+                }
+
                 const tierName = getTierName();
                 return `${tierName} tier requires ${minimumDays} days advance booking`;
               };

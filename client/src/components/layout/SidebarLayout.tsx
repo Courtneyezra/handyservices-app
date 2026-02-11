@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar } from "lucide-react";
 
 
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -64,6 +64,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                         {
                             title: "OPERATIONS",
                             items: [
+                                { icon: Users, label: "Contractors", href: "/admin/contractors" },
                                 { icon: Wrench, label: "Handyman Map", href: "/admin/handymen" },
                                 { icon: LayoutDashboard, label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },
                                 { icon: User, label: "Leads (Classic)", href: "/admin/leads" }, // Keeping for safety
@@ -82,6 +83,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                         {
                             title: "SYSTEM",
                             items: [
+                                { icon: Calendar, label: "Availability", href: "/admin/availability" },
                                 { icon: LayoutTemplate, label: "Marketing", href: "/admin/marketing" },
                                 { icon: Settings, label: "Settings", href: "/admin/settings" },
                             ]

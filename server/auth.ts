@@ -42,6 +42,67 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     next();
 }
 
+/**
+ * Middleware to authenticate contractor requests.
+ * Validates Bearer token, checks contractor role, and attaches user + profile to request.
+ */
+export async function requireContractor(req: Request, res: Response, next: NextFunction) {
+    const authHeader = req.headers.authorization;
+    const sessionToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+    if (!sessionToken) {
+        return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    try {
+        // Validate session
+        const sessionResult = await db.select()
+            .from(contractorSessions)
+            .where(eq(contractorSessions.sessionToken, sessionToken))
+            .limit(1);
+        const session = sessionResult[0];
+
+        if (!session || session.expiresAt < new Date()) {
+            if (session) {
+                await db.delete(contractorSessions).where(eq(contractorSessions.sessionToken, sessionToken));
+            }
+            return res.status(401).json({ error: 'Session expired' });
+        }
+
+        // Get user
+        const user = await db.query.users.findFirst({
+            where: eq(users.id, session.userId),
+        });
+
+        if (!user) {
+            return res.status(401).json({ error: 'User not found' });
+        }
+
+        if (user.role !== 'contractor' && user.role !== 'admin') {
+            return res.status(403).json({ error: 'Contractor access required' });
+        }
+
+        // Get contractor profile
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, user.id),
+        });
+
+        if (!profile) {
+            return res.status(403).json({ error: 'Contractor profile not found' });
+        }
+
+        // Attach to request for use in route handlers
+        (req as any).user = user;
+        (req as any).contractorId = profile.id;
+        (req as any).contractorProfile = profile;
+
+        next();
+    } catch (error) {
+        console.error('[Auth] Contractor auth error:', error);
+        return res.status(500).json({ error: 'Authentication failed' });
+    }
+}
+
 
 // Environment variables should be checked
 if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {

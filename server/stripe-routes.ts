@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import Stripe from 'stripe';
+import crypto from 'crypto';
 import { db } from './db';
-import { personalizedQuotes } from '../shared/schema';
-import { eq } from 'drizzle-orm';
+import { personalizedQuotes, contractorJobs, invoices, leads } from '../shared/schema';
+import { eq, sql } from 'drizzle-orm';
+import { v4 as uuidv4 } from 'uuid';
 
 // Helper to get Stripe instance lazily
 const getStripe = () => {
@@ -16,6 +18,12 @@ const getStripe = () => {
 };
 
 export const stripeRouter = Router();
+
+// Generate idempotency key from quote details to prevent duplicate payments
+function generateIdempotencyKey(quoteId: string, tier: string, extras: string[]): string {
+    const data = `${quoteId}-${tier}-${extras.sort().join(',')}`;
+    return crypto.createHash('sha256').update(data).digest('hex');
+}
 
 // Calculate deposit: 100% materials + 30% of labour
 function calculateDeposit(totalPrice: number, materialsCost: number): {
@@ -127,25 +135,33 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         // Minimum Stripe charge is 30p (£0.30)
         const chargeAmount = Math.max(depositBreakdown.total, 30);
 
-        // Create payment intent
-        const paymentIntent = await stripe.paymentIntents.create({
-            amount: chargeAmount,
-            currency: 'gbp',
-            automatic_payment_methods: {
-                enabled: true,
+        // Generate idempotency key to prevent duplicate payment intents
+        const idempotencyKey = generateIdempotencyKey(quoteId, selectedTier, selectedExtras);
+
+        // Create payment intent with idempotency key
+        const paymentIntent = await stripe.paymentIntents.create(
+            {
+                amount: chargeAmount,
+                currency: 'gbp',
+                automatic_payment_methods: {
+                    enabled: true,
+                },
+                metadata: {
+                    quoteId,
+                    customerName,
+                    selectedTier,
+                    paymentType,
+                    totalJobPrice: totalJobPrice.toString(),
+                    depositAmount: depositBreakdown.total.toString(),
+                    selectedExtras: selectedExtras.join(',')
+                },
+                receipt_email: customerEmail || undefined,
+                description: `Deposit for ${customerName} - ${selectedTier} package`
             },
-            metadata: {
-                quoteId,
-                customerName,
-                selectedTier,
-                paymentType,
-                totalJobPrice: totalJobPrice.toString(),
-                depositAmount: depositBreakdown.total.toString(),
-                selectedExtras: selectedExtras.join(',')
-            },
-            receipt_email: customerEmail || undefined,
-            description: `Deposit for ${customerName} - ${selectedTier} package`
-        });
+            {
+                idempotencyKey,
+            }
+        );
 
         console.log('[Stripe] Payment intent created:', paymentIntent.id);
 
@@ -168,6 +184,7 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
 });
 
 // B3: Webhook for handling Stripe events
+// IMPORTANT: This endpoint receives raw body from express.raw() middleware in index.ts
 stripeRouter.post('/api/stripe/webhook', async (req, res) => {
     const stripe = getStripe();
 
@@ -184,10 +201,15 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
         return res.status(500).json({ error: 'Webhook secret not configured' });
     }
 
+    if (!sig) {
+        console.error('[Stripe Webhook] Missing stripe-signature header');
+        return res.status(400).json({ error: 'Missing stripe-signature header' });
+    }
+
     let event;
 
     try {
-        // Verify webhook signature
+        // Verify webhook signature - req.body is raw Buffer from express.raw() middleware
         event = stripe.webhooks.constructEvent(
             req.body,
             sig as string,
@@ -207,18 +229,193 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                 const paymentIntent = event.data.object;
                 console.log('[Stripe Webhook] Payment succeeded:', paymentIntent.id);
 
-                // Import invoices table
-                const { invoices } = await import('../shared/schema');
-                const { eq } = await import('drizzle-orm');
+                const quoteId = paymentIntent.metadata?.quoteId;
+                const depositAmount = parseInt(paymentIntent.metadata?.depositAmount || '0', 10) || paymentIntent.amount;
+                const selectedTier = paymentIntent.metadata?.selectedTier;
+                const selectedExtras = paymentIntent.metadata?.selectedExtras?.split(',').filter(Boolean) || [];
 
-                // Find invoice by payment intent ID
+                // Update personalizedQuotes with depositPaidAt
+                if (quoteId) {
+                    const quoteResults = await db.select()
+                        .from(personalizedQuotes)
+                        .where(eq(personalizedQuotes.id, quoteId))
+                        .limit(1);
+
+                    if (quoteResults.length > 0) {
+                        const quote = quoteResults[0];
+
+                        // 1. Update Quote
+                        await db.update(personalizedQuotes)
+                            .set({
+                                depositPaidAt: new Date(),
+                                depositAmountPence: depositAmount,
+                                stripePaymentIntentId: paymentIntent.id,
+                                bookedAt: new Date(),
+                                selectedPackage: selectedTier || quote.selectedPackage,
+                                selectedExtras: selectedExtras.length > 0 ? selectedExtras : quote.selectedExtras,
+                            })
+                            .where(eq(personalizedQuotes.id, quoteId));
+
+                        console.log(`[Stripe Webhook] Quote ${quoteId} marked as paid. Deposit: £${(depositAmount / 100).toFixed(2)}`);
+
+                        // 2. Create Job for Dispatching
+                        const jobId = `job_${uuidv4().slice(0, 8)}`;
+
+                        // Calculate total job price
+                        let totalJobPrice = 0;
+                        if (quote.quoteMode === 'simple') {
+                            totalJobPrice = quote.basePrice || 0;
+                        } else {
+                            const tierPriceMap: Record<string, number | null | undefined> = {
+                                essential: quote.essentialPrice,
+                                enhanced: quote.enhancedPrice,
+                                elite: quote.elitePrice
+                            };
+                            totalJobPrice = tierPriceMap[selectedTier || 'essential'] || 0;
+                        }
+
+                        // Add extras
+                        const optionalExtras = (quote.optionalExtras as any[]) || [];
+                        for (const extraLabel of selectedExtras) {
+                            const extra = optionalExtras.find((e: any) => e.label === extraLabel);
+                            if (extra) totalJobPrice += extra.priceInPence || 0;
+                        }
+
+                        // Create job (pending assignment)
+                        await db.insert(contractorJobs).values({
+                            id: jobId,
+                            contractorId: quote.contractorId || 'unassigned',
+                            quoteId: quoteId,
+                            leadId: quote.leadId || null,
+                            customerName: quote.customerName,
+                            customerPhone: quote.phone,
+                            address: quote.address || '',
+                            postcode: quote.postcode || '',
+                            jobDescription: quote.jobDescription || '',
+                            status: quote.contractorId ? 'pending' : 'pending', // pending contractor acceptance
+                            scheduledDate: quote.selectedDate || null,
+                            estimatedDuration: null,
+                            payoutPence: Math.round(totalJobPrice * 0.7), // 70% payout to contractor
+                            paymentStatus: 'unpaid',
+                            notes: `Deposit paid: £${(depositAmount / 100).toFixed(2)} | Package: ${selectedTier || 'standard'}`,
+                        });
+
+                        console.log(`[Stripe Webhook] Job ${jobId} created for quote ${quoteId}`);
+
+                        // 3. Generate Invoice (using COUNT for efficiency)
+                        const year = new Date().getFullYear();
+                        const [countResult] = await db.select({ count: sql<number>`count(*)` }).from(invoices);
+                        const invoiceCount = Number(countResult?.count || 0);
+                        const invoiceNumber = `INV-${year}-${String(invoiceCount + 1).padStart(4, '0')}`;
+
+                        const balanceDue = totalJobPrice - depositAmount;
+
+                        const lineItems = [{
+                            description: quote.jobDescription || `${selectedTier || 'Standard'} Service`,
+                            quantity: 1,
+                            unitPrice: totalJobPrice,
+                            total: totalJobPrice
+                        }];
+
+                        const invoiceId = uuidv4();
+                        await db.insert(invoices).values({
+                            id: invoiceId,
+                            invoiceNumber,
+                            quoteId: quoteId,
+                            contractorId: quote.contractorId || null,
+                            customerName: quote.customerName,
+                            customerEmail: quote.email || null,
+                            customerPhone: quote.phone,
+                            customerAddress: quote.address || '',
+                            totalAmount: totalJobPrice,
+                            depositPaid: depositAmount,
+                            balanceDue: balanceDue,
+                            lineItems: lineItems as any,
+                            status: balanceDue <= 0 ? 'paid' : 'sent',
+                            dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days
+                            paidAt: balanceDue <= 0 ? new Date() : null,
+                            stripePaymentIntentId: paymentIntent.id,
+                            paymentMethod: 'stripe',
+                            notes: `Auto-generated from payment. Job ID: ${jobId}`,
+                        });
+
+                        console.log(`[Stripe Webhook] Invoice ${invoiceNumber} created (Balance: £${(balanceDue / 100).toFixed(2)})`);
+
+                        // 4. Update Lead Status to 'converted'
+                        if (quote.leadId) {
+                            await db.update(leads)
+                                .set({
+                                    status: 'converted',
+                                    updatedAt: new Date(),
+                                })
+                                .where(eq(leads.id, quote.leadId));
+
+                            console.log(`[Stripe Webhook] Lead ${quote.leadId} marked as converted`);
+                        }
+
+                        // 5. Send confirmation emails
+                        console.log(`[Stripe Webhook] ✅ PAYMENT COMPLETE:
+  - Quote: ${quoteId}
+  - Job: ${jobId}
+  - Invoice: ${invoiceNumber}
+  - Customer: ${quote.customerName}
+  - Email: ${quote.email || 'N/A'}
+  - Total: £${(totalJobPrice / 100).toFixed(2)}
+  - Deposit: £${(depositAmount / 100).toFixed(2)}
+  - Balance: £${(balanceDue / 100).toFixed(2)}`);
+
+                        // Send emails (async, don't block webhook response)
+                        (async () => {
+                            try {
+                                const { sendBookingConfirmationEmail, sendInternalBookingNotification } = await import('./email-service');
+
+                                // Customer confirmation
+                                if (quote.email) {
+                                    await sendBookingConfirmationEmail({
+                                        customerName: quote.customerName,
+                                        customerEmail: quote.email,
+                                        jobDescription: quote.jobDescription || '',
+                                        scheduledDate: quote.selectedDate ? String(quote.selectedDate) : null,
+                                        depositPaid: depositAmount,
+                                        totalJobPrice,
+                                        balanceDue,
+                                        invoiceNumber,
+                                        jobId,
+                                        quoteSlug: quote.shortSlug || undefined,
+                                    });
+                                }
+
+                                // Ops notification
+                                await sendInternalBookingNotification({
+                                    customerName: quote.customerName,
+                                    customerEmail: quote.email || '',
+                                    phone: quote.phone,
+                                    jobDescription: quote.jobDescription || '',
+                                    scheduledDate: quote.selectedDate ? String(quote.selectedDate) : null,
+                                    depositPaid: depositAmount,
+                                    totalJobPrice,
+                                    balanceDue,
+                                    invoiceNumber,
+                                    jobId,
+                                });
+                            } catch (emailError) {
+                                console.error('[Stripe Webhook] Email send error (non-blocking):', emailError);
+                            }
+                        })();
+
+                    } else {
+                        console.log('[Stripe Webhook] No quote found for quoteId:', quoteId);
+                    }
+                }
+
+                // Also check for direct invoice payments (existing logic)
                 const invoiceResults = await db.select()
                     .from(invoices)
                     .where(eq(invoices.stripePaymentIntentId, paymentIntent.id))
                     .limit(1);
 
-                if (invoiceResults.length > 0) {
-                    // Update invoice status to paid
+                if (invoiceResults.length > 0 && !quoteId) {
+                    // Only update if this wasn't already handled as a quote payment
                     await db.update(invoices)
                         .set({
                             status: 'paid',
@@ -229,8 +426,6 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         .where(eq(invoices.id, invoiceResults[0].id));
 
                     console.log('[Stripe Webhook] Invoice marked as paid:', invoiceResults[0].invoiceNumber);
-                } else {
-                    console.log('[Stripe Webhook] No invoice found for payment intent:', paymentIntent.id);
                 }
                 break;
             }
@@ -239,10 +434,22 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                 const paymentIntent = event.data.object;
                 console.log('[Stripe Webhook] Payment failed:', paymentIntent.id);
 
-                const { invoices } = await import('../shared/schema');
-                const { eq } = await import('drizzle-orm');
+                const quoteId = paymentIntent.metadata?.quoteId;
 
-                // Find and update invoice
+                // Update quote with failure status if applicable
+                if (quoteId) {
+                    await db.update(personalizedQuotes)
+                        .set({
+                            installmentStatus: 'failed',
+                        })
+                        .where(eq(personalizedQuotes.id, quoteId));
+
+                    console.log(`[Stripe Webhook] Quote ${quoteId} payment failed`);
+                }
+
+                // Also check for invoice payments (existing logic)
+                const { invoices } = await import('../shared/schema');
+
                 const invoiceResults = await db.select()
                     .from(invoices)
                     .where(eq(invoices.stripePaymentIntentId, paymentIntent.id))

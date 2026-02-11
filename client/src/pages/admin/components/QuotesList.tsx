@@ -10,7 +10,7 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Copy, Eye, RefreshCw, Trash2, ExternalLink, Download } from 'lucide-react';
+import { Copy, Eye, RefreshCw, Trash2, ExternalLink, Download, CreditCard } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { generateQuotePDF } from '@/lib/quote-pdf-generator';
 
@@ -34,6 +34,10 @@ interface PersonalizedQuote {
     elitePrice: number | null;
     visitTierMode?: 'tiers' | 'fixed' | null;
     regenerationCount?: number | null;
+    // Payment fields
+    depositPaidAt: string | null;
+    depositAmountPence: number | null;
+    paymentType: string | null;
 }
 
 interface QuotesListProps {
@@ -64,6 +68,7 @@ export function QuotesList({ quotes, onDelete, onRegenerate, linkPrefix = '/quot
                         <TableHead>Reference</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead className="text-right">Value</TableHead>
+                        <TableHead className="text-right">Payment</TableHead>
                         <TableHead className="text-right">Created</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -72,6 +77,7 @@ export function QuotesList({ quotes, onDelete, onRegenerate, linkPrefix = '/quot
                     {quotes.map((quote) => {
                         const isExpired = quote.expiresAt ? new Date(quote.expiresAt) < new Date() : false;
                         const isBooked = !!quote.bookedAt;
+                        const isPaid = !!quote.depositPaidAt;
 
                         // Determine display price
                         let displayPrice = quote.basePrice;
@@ -110,6 +116,12 @@ export function QuotesList({ quotes, onDelete, onRegenerate, linkPrefix = '/quot
                                         {isBooked && (
                                             <Badge className="bg-green-600 text-[10px]">Booked</Badge>
                                         )}
+                                        {isPaid && (
+                                            <Badge className="bg-blue-600 text-[10px]">
+                                                <CreditCard className="h-3 w-3 mr-1" />
+                                                Paid
+                                            </Badge>
+                                        )}
                                         {isExpired && !isBooked && (
                                             <Badge variant="secondary" className="bg-red-100 text-red-600 dark:bg-red-900/30 text-[10px]">Expired</Badge>
                                         )}
@@ -121,6 +133,18 @@ export function QuotesList({ quotes, onDelete, onRegenerate, linkPrefix = '/quot
                                 <TableCell className="text-right font-mono">
                                     {displayPrice ? `£${(displayPrice / 100).toFixed(2)}` : '-'}
                                     {(quote.quoteMode === 'hhh') && <span className="text-xs text-muted-foreground ml-1">(Essential)</span>}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                    {isPaid && quote.depositAmountPence ? (
+                                        <div className="text-sm">
+                                            <span className="font-mono text-green-600">{"\u00A3"}{(quote.depositAmountPence / 100).toFixed(2)}</span>
+                                            <span className="text-xs text-muted-foreground block">
+                                                {format(new Date(quote.depositPaidAt!), 'dd MMM')}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <span className="text-muted-foreground">-</span>
+                                    )}
                                 </TableCell>
                                 <TableCell className="text-right text-muted-foreground text-sm">
                                     {format(new Date(quote.createdAt), 'dd MMM yyyy')}

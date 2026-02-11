@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Calendar, Zap, Clock, TrendingDown } from 'lucide-react';
 import { format, addDays, differenceInDays, startOfDay } from 'date-fns';
+import { useAvailability, formatDateStr } from '@/hooks/useAvailability';
 
 export type SchedulingTier = 'express' | 'priority' | 'standard' | 'flexible';
 
@@ -19,6 +20,8 @@ interface DatePricingCalendarProps {
     onDateSelect: (date: Date, tier: SchedulingTier, fee: number, isWeekend: boolean) => void;
     minDate?: Date;
     maxWeeks?: number;
+    postcode?: string;
+    serviceIds?: string[];
 }
 
 const TIER_CONFIG = {
@@ -50,8 +53,30 @@ export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
     onDateSelect,
     minDate = new Date(),
     maxWeeks = 2,
+    postcode,
+    serviceIds,
 }) => {
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+
+    // Fetch system-wide availability
+    const { data: availabilityData, isLoading: isLoadingAvailability } = useAvailability({
+        postcode,
+        serviceIds,
+        days: maxWeeks * 7 + 1,
+    });
+
+    // Build a set of unavailable dates for quick lookup
+    const unavailableDates = useMemo(() => {
+        const set = new Set<string>();
+        if (availabilityData?.dates) {
+            for (const d of availabilityData.dates) {
+                if (!d.isAvailable) {
+                    set.add(d.date);
+                }
+            }
+        }
+        return set;
+    }, [availabilityData]);
 
     // Generate date options for 2 weeks (14 days) - memoized to prevent regeneration
     const dates = useMemo((): DateOption[] => {
@@ -60,6 +85,7 @@ export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
 
         for (let i = 1; i <= maxWeeks * 7; i++) {
             const date = addDays(today, i);
+            const dateStr = formatDateStr(date);
             const daysOut = differenceInDays(date, today);
             const tier = getTierForDate(daysOut);
             const dayOfWeek = date.getDay();
@@ -72,8 +98,8 @@ export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
 
             const totalFee = baseFee + weekendSurcharge;
 
-            // Use deterministic booking (stable across renders) instead of random
-            const isBooked = i === 2 || i === 7 || i === 13;
+            // Check system availability - if unavailable via API, mark as booked
+            const isBooked = unavailableDates.has(dateStr);
 
             dates.push({
                 date,
@@ -87,7 +113,7 @@ export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
         }
 
         return dates;
-    }, [minDate, maxWeeks]); // Only regenerate if minDate or maxWeeks changes
+    }, [minDate, maxWeeks, unavailableDates]); // Regenerate when availability changes
 
     // Find the FIRST priority weekday date that's not booked as the recommended date
     const recommendedDate = dates.find(

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import { format, addDays } from 'date-fns';
+import { useAvailability, formatDateStr } from '@/hooks/useAvailability';
 
 interface DateSelectorProps {
     startDate: Date; // Earliest available date for this tier
@@ -9,6 +10,8 @@ interface DateSelectorProps {
     onDateSelect: (date: Date) => void;
     onTimeSlotSelect?: (timeSlot: 'AM' | 'PM') => void;
     className?: string;
+    postcode?: string;
+    serviceIds?: string[];
 }
 
 /**
@@ -22,13 +25,36 @@ export function DateSelector({
     selectedTimeSlot,
     onDateSelect,
     onTimeSlotSelect,
-    className = ''
+    className = '',
+    postcode,
+    serviceIds
 }: DateSelectorProps) {
     const [scrollIndex, setScrollIndex] = useState(0);
     const datesPerView = 4;
 
-    // Generate 14 days starting from tier's earliest available
-    const availableDates = Array.from({ length: 14 }, (_, i) => addDays(startDate, i));
+    // Fetch system-wide availability
+    const { data: availabilityData } = useAvailability({
+        postcode,
+        serviceIds,
+        days: 21, // 3 weeks ahead
+    });
+
+    // Build unavailable dates set
+    const unavailableDatesSet = useMemo(() => {
+        const set = new Set<string>();
+        if (availabilityData?.dates) {
+            for (const d of availabilityData.dates) {
+                if (!d.isAvailable) {
+                    set.add(d.date);
+                }
+            }
+        }
+        return set;
+    }, [availabilityData]);
+
+    // Generate 14 days starting from tier's earliest available, filtering out unavailable
+    const allDates = Array.from({ length: 14 }, (_, i) => addDays(startDate, i));
+    const availableDates = allDates.filter(date => !unavailableDatesSet.has(formatDateStr(date)));
 
     // Get currently visible dates
     const visibleDates = availableDates.slice(scrollIndex, scrollIndex + datesPerView);
