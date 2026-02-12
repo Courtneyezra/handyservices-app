@@ -3,7 +3,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Copy, Eye, Phone, RefreshCw, X, AlertCircle, Download, CreditCard } from 'lucide-react';
+import { Copy, Eye, Phone, RefreshCw, X, AlertCircle, Download, CreditCard, Pencil, FileEdit } from 'lucide-react';
+import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
 import { generateQuotePDF } from '@/lib/quote-pdf-generator';
 
@@ -37,10 +38,12 @@ interface QuoteCardProps {
     quote: PersonalizedQuote;
     onDelete: (id: string) => void;
     onRegenerate: (quote: PersonalizedQuote) => void;
+    onEdit?: (quote: PersonalizedQuote) => void;
 }
 
-export function QuoteCard({ quote, onDelete, onRegenerate }: QuoteCardProps) {
+export function QuoteCard({ quote, onDelete, onRegenerate, onEdit }: QuoteCardProps) {
     const { toast } = useToast();
+    const [, setLocation] = useLocation();
 
     const isExpired = quote.expiresAt ? new Date(quote.expiresAt) < new Date() : false;
     const isBooked = !!quote.bookedAt;
@@ -144,6 +147,50 @@ export function QuoteCard({ quote, onDelete, onRegenerate }: QuoteCardProps) {
                         <Eye className="h-4 w-4 mr-1" />
                         View
                     </Button>
+
+                    {onEdit && (
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onEdit(quote);
+                                        }}
+                                    >
+                                        <Pencil className="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>Quick edit</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    )}
+
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setLocation(`/admin/quotes/${quote.shortSlug}/edit`);
+                                    }}
+                                >
+                                    <FileEdit className="h-4 w-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>Full edit (tasks & pricing)</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
 
                     <TooltipProvider>
                         <Tooltip>

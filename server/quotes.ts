@@ -868,7 +868,19 @@ quotesRouter.put('/api/personalized-quotes/:id/track-selection', async (req, res
 quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) => {
     try {
         const { id } = req.params;
-        const { leadId, selectedPackage, selectedExtras, paymentType } = req.body;
+        const {
+            leadId,
+            selectedPackage,
+            selectedExtras,
+            paymentType,
+            // Scheduling fields
+            selectedDate,
+            schedulingTier,
+            timeSlotType,
+            exactTimeRequested,
+            isWeekendBooking,
+            schedulingFeeInPence,
+        } = req.body;
 
         // Calculate selected tier price
         const [quote] = await db.select().from(personalizedQuotes)
@@ -905,6 +917,13 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
                 paymentType,
                 selectedTierPricePence,
                 depositAmountPence,
+                // Scheduling fields
+                selectedDate: selectedDate ? new Date(selectedDate) : undefined,
+                schedulingTier: schedulingTier || undefined,
+                timeSlotType: timeSlotType || undefined,
+                exactTimeRequested: exactTimeRequested || undefined,
+                isWeekendBooking: isWeekendBooking ?? false,
+                schedulingFeeInPence: schedulingFeeInPence || 0,
                 // depositPaidAt is set by Stripe webhook after payment confirmation
                 // bookedAt is set by Stripe webhook after payment confirmation
             })
@@ -989,6 +1008,321 @@ quotesRouter.get('/api/personalized-quotes/:id/invoice-data', async (req, res) =
     } catch (error) {
         console.error("Invoice data error:", error);
         res.status(500).json({ error: "Failed to fetch invoice data" });
+    }
+});
+
+// ===========================================
+// ADMIN: EDIT QUOTE
+// ===========================================
+
+// Task item schema for analyzed job data
+const taskItemSchema = z.object({
+    id: z.string(),
+    description: z.string(),
+    quantity: z.number().int().nonnegative().default(1),
+    hours: z.number().nonnegative().default(1),
+    materialCost: z.number().nonnegative().default(0),
+    complexity: z.enum(['low', 'medium', 'high']).default('medium'),
+});
+
+// Analyzed job data schema
+const analyzedJobDataSchema = z.object({
+    tasks: z.array(taskItemSchema),
+    summary: z.string().optional(),
+    totalEstimatedHours: z.number().nonnegative(),
+    basePricePounds: z.number().nonnegative(),
+});
+
+// Schema for editable quote fields
+const editQuoteSchema = z.object({
+    // Customer details
+    customerName: z.string().min(1).optional(),
+    phone: z.string().min(1).optional(),
+    email: z.string().email().optional().nullable(),
+    address: z.string().optional(),
+    postcode: z.string().optional(),
+
+    // Job details
+    jobDescription: z.string().min(10).optional(),
+    additionalNotes: z.string().optional().nullable(),
+    segment: z.enum(['BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'DIY_DEFERRER', 'BUDGET', 'UNKNOWN']).optional(),
+
+    // Pricing (HHH mode)
+    essentialPrice: z.number().int().nonnegative().optional(),
+    enhancedPrice: z.number().int().nonnegative().optional(),
+    elitePrice: z.number().int().nonnegative().optional(),
+
+    // Pricing (Simple mode)
+    basePrice: z.number().int().nonnegative().optional().nullable(),
+
+    // Materials & Extras
+    materialsCostWithMarkupPence: z.number().int().nonnegative().optional(),
+    optionalExtras: z.array(z.object({
+        label: z.string(),
+        priceInPence: z.number().int(),
+        description: z.string().optional(),
+        materialsCostInPence: z.number().int().optional(),
+    })).optional(),
+
+    // Scheduling
+    selectedDate: z.string().optional().nullable(), // ISO date string
+    schedulingTier: z.enum(['express', 'priority', 'standard', 'flexible']).optional().nullable(),
+
+    // Assessment/Visit quotes
+    assessmentReason: z.string().optional().nullable(),
+    tierStandardPrice: z.number().int().optional().nullable(),
+    tierPriorityPrice: z.number().int().optional().nullable(),
+    tierEmergencyPrice: z.number().int().optional().nullable(),
+
+    // NEW: Analyzed job data with tasks breakdown
+    analyzedJobData: analyzedJobDataSchema.optional(),
+    recalculatePricing: z.boolean().optional(), // Trigger tier price recalculation
+
+    // Edit metadata
+    editReason: z.string().optional(), // Why the edit was made
+});
+
+type EditQuoteInput = z.infer<typeof editQuoteSchema>;
+
+// Admin: Edit an existing quote
+quotesRouter.patch('/api/admin/personalized-quotes/:id/edit', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updates = editQuoteSchema.parse(req.body);
+
+        // 1. Fetch the existing quote
+        const [quote] = await db.select().from(personalizedQuotes)
+            .where(eq(personalizedQuotes.id, id));
+
+        if (!quote) {
+            return res.status(404).json({ error: "Quote not found" });
+        }
+
+        // 2. Check for blocking conditions
+        const warnings: string[] = [];
+        const blockers: string[] = [];
+
+        // Check if quote has active installment plan
+        if (quote.installmentStatus === 'active') {
+            blockers.push("Cannot edit quote with active installment plan. Cancel the plan first.");
+        }
+
+        // Check if prices are changing on a paid quote
+        const priceFieldsChanging = updates.essentialPrice !== undefined ||
+            updates.enhancedPrice !== undefined ||
+            updates.elitePrice !== undefined ||
+            updates.basePrice !== undefined;
+
+        if (quote.depositPaidAt && priceFieldsChanging) {
+            warnings.push("Quote has deposit paid. Price changes may require additional payment or refund.");
+        }
+
+        // If there are blockers, return error
+        if (blockers.length > 0) {
+            return res.status(400).json({
+                error: "Cannot edit quote",
+                blockers,
+            });
+        }
+
+        // 3. Build the update object (only include provided fields)
+        const updateData: Record<string, any> = {};
+
+        // Customer details
+        if (updates.customerName !== undefined) updateData.customerName = updates.customerName;
+        if (updates.phone !== undefined) updateData.phone = updates.phone;
+        if (updates.email !== undefined) updateData.email = updates.email;
+        if (updates.address !== undefined) updateData.address = updates.address;
+        if (updates.postcode !== undefined) updateData.postcode = updates.postcode;
+
+        // Job details
+        if (updates.jobDescription !== undefined) updateData.jobDescription = updates.jobDescription;
+        if (updates.additionalNotes !== undefined) updateData.additionalNotes = updates.additionalNotes;
+        if (updates.segment !== undefined) updateData.segment = updates.segment;
+
+        // Pricing (HHH)
+        if (updates.essentialPrice !== undefined) updateData.essentialPrice = updates.essentialPrice;
+        if (updates.enhancedPrice !== undefined) updateData.enhancedPrice = updates.enhancedPrice;
+        if (updates.elitePrice !== undefined) updateData.elitePrice = updates.elitePrice;
+
+        // Pricing (Simple)
+        if (updates.basePrice !== undefined) updateData.basePrice = updates.basePrice;
+
+        // Materials & Extras
+        if (updates.materialsCostWithMarkupPence !== undefined) updateData.materialsCostWithMarkupPence = updates.materialsCostWithMarkupPence;
+        if (updates.optionalExtras !== undefined) updateData.optionalExtras = updates.optionalExtras;
+
+        // Scheduling
+        if (updates.selectedDate !== undefined) {
+            updateData.selectedDate = updates.selectedDate ? new Date(updates.selectedDate) : null;
+        }
+        if (updates.schedulingTier !== undefined) updateData.schedulingTier = updates.schedulingTier;
+
+        // Assessment/Visit
+        if (updates.assessmentReason !== undefined) updateData.assessmentReason = updates.assessmentReason;
+        if (updates.tierStandardPrice !== undefined) updateData.tierStandardPrice = updates.tierStandardPrice;
+        if (updates.tierPriorityPrice !== undefined) updateData.tierPriorityPrice = updates.tierPriorityPrice;
+        if (updates.tierEmergencyPrice !== undefined) updateData.tierEmergencyPrice = updates.tierEmergencyPrice;
+
+        // Analyzed Job Data (tasks breakdown)
+        if (updates.analyzedJobData !== undefined) {
+            // Update the jobs JSONB field with new task breakdown
+            updateData.jobs = [updates.analyzedJobData];
+
+            // Also update base job price
+            if (updates.analyzedJobData.basePricePounds) {
+                updateData.baseJobPricePence = Math.round(updates.analyzedJobData.basePricePounds * 100);
+            }
+
+            console.log(`[Quote Edit] Updated jobs with ${updates.analyzedJobData.tasks?.length || 0} tasks`);
+        }
+
+        // 4. Recalculate deposit if pricing changed and not yet paid
+        if (priceFieldsChanging && !quote.depositPaidAt) {
+            const newEssential = updates.essentialPrice ?? quote.essentialPrice;
+            const newEnhanced = updates.enhancedPrice ?? quote.enhancedPrice;
+            const newElite = updates.elitePrice ?? quote.elitePrice;
+            const newBase = updates.basePrice ?? quote.basePrice;
+
+            // Use selected package price or default to essential/base
+            let selectedPrice = 0;
+            if (quote.selectedPackage === 'enhanced' && newEnhanced) {
+                selectedPrice = newEnhanced;
+            } else if (quote.selectedPackage === 'elite' && newElite) {
+                selectedPrice = newElite;
+            } else if (newEssential) {
+                selectedPrice = newEssential;
+            } else if (newBase) {
+                selectedPrice = newBase;
+            }
+
+            if (selectedPrice > 0) {
+                const materialsCost = updates.materialsCostWithMarkupPence ?? quote.materialsCostWithMarkupPence ?? 0;
+                const laborCost = Math.max(0, selectedPrice - materialsCost);
+                updateData.depositAmountPence = materialsCost + Math.round(laborCost * 0.30);
+                updateData.selectedTierPricePence = selectedPrice;
+            }
+        }
+
+        // 5. Reset selection if prices changed significantly (>10% difference)
+        if (priceFieldsChanging && quote.selectedPackage && !quote.depositPaidAt) {
+            const oldPrice = quote.selectedTierPricePence || 0;
+            const newPrice = updateData.selectedTierPricePence || oldPrice;
+            const priceDiff = Math.abs(newPrice - oldPrice) / Math.max(oldPrice, 1);
+
+            if (priceDiff > 0.10) {
+                // Reset selection so customer re-confirms at new price
+                updateData.selectedPackage = null;
+                updateData.selectedAt = null;
+                warnings.push("Price changed >10%. Customer selection has been reset.");
+            }
+        }
+
+        // 6. Track edit history
+        const editHistory = (quote.feedbackJson as any)?.editHistory || [];
+        editHistory.push({
+            editedAt: new Date().toISOString(),
+            editReason: updates.editReason || "Admin edit",
+            changedFields: Object.keys(updateData),
+        });
+        updateData.feedbackJson = {
+            ...(quote.feedbackJson as object || {}),
+            editHistory,
+            lastEditedAt: new Date().toISOString(),
+        };
+
+        // 7. Update the quote
+        const [updated] = await db.update(personalizedQuotes)
+            .set(updateData)
+            .where(eq(personalizedQuotes.id, id))
+            .returning();
+
+        // 8. Update related job if exists and relevant fields changed
+        if (quote.bookedAt) {
+            const jobUpdates: Record<string, any> = {};
+
+            if (updates.customerName) jobUpdates.customerName = updates.customerName;
+            if (updates.phone) jobUpdates.customerPhone = updates.phone;
+            if (updates.address) jobUpdates.address = updates.address;
+            if (updates.postcode) jobUpdates.postcode = updates.postcode;
+            if (updates.jobDescription) jobUpdates.jobDescription = updates.jobDescription;
+            if (updates.selectedDate) jobUpdates.scheduledDate = new Date(updates.selectedDate);
+
+            if (Object.keys(jobUpdates).length > 0) {
+                await db.update(contractorJobs)
+                    .set(jobUpdates)
+                    .where(eq(contractorJobs.quoteId, id));
+                warnings.push("Related job record updated.");
+            }
+        }
+
+        // 9. Update related invoice if exists and pricing changed
+        if (quote.depositPaidAt && priceFieldsChanging) {
+            const newTotal = updateData.selectedTierPricePence || quote.selectedTierPricePence || 0;
+            const depositPaid = quote.depositAmountPence || 0;
+            const newBalance = Math.max(0, newTotal - depositPaid);
+
+            await db.update(invoices)
+                .set({
+                    totalAmount: newTotal,
+                    balanceDue: newBalance,
+                    notes: `Updated via admin edit. Previous total: £${((quote.selectedTierPricePence || 0) / 100).toFixed(2)}`,
+                })
+                .where(eq(invoices.quoteId, id));
+
+            if (newBalance > (quote.selectedTierPricePence || 0) - depositPaid) {
+                warnings.push(`Invoice updated. Additional £${((newBalance - ((quote.selectedTierPricePence || 0) - depositPaid)) / 100).toFixed(2)} now due.`);
+            } else if (newBalance < (quote.selectedTierPricePence || 0) - depositPaid) {
+                warnings.push(`Invoice updated. Customer overpaid by £${((((quote.selectedTierPricePence || 0) - depositPaid) - newBalance) / 100).toFixed(2)}.`);
+            }
+        }
+
+        console.log(`[Quote Edit] Quote ${id} updated. Fields: ${Object.keys(updateData).join(', ')}`);
+
+        res.json({
+            success: true,
+            quote: updated,
+            warnings: warnings.length > 0 ? warnings : undefined,
+        });
+
+    } catch (error: any) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({
+                error: "Validation failed",
+                details: error.errors,
+            });
+        }
+        console.error("Edit quote error:", error);
+        res.status(500).json({ error: "Failed to edit quote" });
+    }
+});
+
+// Admin: Get quote edit history
+quotesRouter.get('/api/admin/personalized-quotes/:id/edit-history', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const [quote] = await db.select({
+            id: personalizedQuotes.id,
+            feedbackJson: personalizedQuotes.feedbackJson,
+            createdAt: personalizedQuotes.createdAt,
+        }).from(personalizedQuotes).where(eq(personalizedQuotes.id, id));
+
+        if (!quote) {
+            return res.status(404).json({ error: "Quote not found" });
+        }
+
+        const editHistory = (quote.feedbackJson as any)?.editHistory || [];
+
+        res.json({
+            quoteId: quote.id,
+            createdAt: quote.createdAt,
+            editHistory,
+        });
+
+    } catch (error) {
+        console.error("Get edit history error:", error);
+        res.status(500).json({ error: "Failed to get edit history" });
     }
 });
 

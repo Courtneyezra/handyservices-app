@@ -40,6 +40,7 @@ const InvoicesPage = lazy(() => import("@/pages/admin/InvoicesPage"));
 const LiveCallPage = lazy(() => import("@/pages/admin/LiveCallPage"));
 const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
 const QuotesPage = lazy(() => import("@/pages/admin/QuotesPage"));
+const EditQuotePage = lazy(() => import("@/pages/admin/EditQuotePage"));
 const BookingVisitsPage = lazy(() => import("@/pages/admin/BookingVisitsPage"));
 const MasterAvailabilityPage = lazy(() => import("@/pages/admin/MasterAvailabilityPage"));
 const ContractorsPage = lazy(() => import("@/pages/admin/ContractorsPage"));
@@ -380,6 +381,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <InvoicesPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/quotes/:slug/edit">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <EditQuotePage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

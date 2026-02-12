@@ -10,7 +10,8 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Copy, Eye, RefreshCw, Trash2, ExternalLink, Download, CreditCard } from 'lucide-react';
+import { Copy, Eye, RefreshCw, Trash2, ExternalLink, Download, CreditCard, Pencil, FileEdit } from 'lucide-react';
+import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
 import { generateQuotePDF } from '@/lib/quote-pdf-generator';
 
@@ -44,11 +45,13 @@ interface QuotesListProps {
     quotes: PersonalizedQuote[];
     onDelete: (id: string) => void;
     onRegenerate?: (quote: PersonalizedQuote) => void;
+    onEdit?: (quote: PersonalizedQuote) => void;
     linkPrefix?: string;
 }
 
-export function QuotesList({ quotes, onDelete, onRegenerate, linkPrefix = '/quote-link/' }: QuotesListProps) {
+export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix = '/quote-link/' }: QuotesListProps) {
     const { toast } = useToast();
+    const [, setLocation] = useLocation();
 
     // Ensure prefix is clean for use in both context
     const finalPrefix = linkPrefix.endsWith('/') ? linkPrefix.slice(0, -1) : linkPrefix;
@@ -193,6 +196,40 @@ export function QuotesList({ quotes, onDelete, onRegenerate, linkPrefix = '/quot
                                                     </Button>
                                                 </TooltipTrigger>
                                                 <TooltipContent>Download PDF</TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+
+                                        {onEdit && (
+                                            <TooltipProvider>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-8 w-8 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                                                            onClick={() => onEdit(quote)}
+                                                        >
+                                                            <Pencil className="h-4 w-4" />
+                                                        </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>Quick edit</TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
+                                        )}
+
+                                        <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                                                        onClick={() => setLocation(`/admin/quotes/${quote.shortSlug}/edit`)}
+                                                    >
+                                                        <FileEdit className="h-4 w-4" />
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent>Full edit (tasks & pricing)</TooltipContent>
                                             </Tooltip>
                                         </TooltipProvider>
 
