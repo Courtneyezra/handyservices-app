@@ -34,7 +34,8 @@ export class MediaStreamTranscriber {
     private callSid: string;
     private streamSid: string;
     private ws: WebSocket;
-    private dgLive: any;
+    private dgLiveInbound: any;  // Deepgram stream for caller audio
+    private dgLiveOutbound: any; // Deepgram stream for agent audio
     private fullTranscript: string = "";
     private isClosed = false;
     private broadcast: (message: any) => void;
@@ -62,6 +63,11 @@ export class MediaStreamTranscriber {
     private segments: any[] = []; // Store transcript segments
     private recordingPath: string | null = null;
     private recordingStream: fs.WriteStream | null = null;
+    // Dual-channel recording: separate streams for inbound (caller) and outbound (agent)
+    private inboundRecordingPath: string | null = null;
+    private outboundRecordingPath: string | null = null;
+    private inboundRecordingStream: fs.WriteStream | null = null;
+    private outboundRecordingStream: fs.WriteStream | null = null;
     private skipDeepgram: boolean = false; // Flag to skip Deepgram for Eleven Labs calls
 
     constructor(ws: WebSocket, callSid: string, streamSid: string, phoneNumber: string, broadcast: (message: any) => void, skipDeepgram: boolean = false) {
@@ -73,13 +79,19 @@ export class MediaStreamTranscriber {
         this.callStartTime = new Date();
         this.skipDeepgram = skipDeepgram;
 
-        // Setup local recording
+        // Setup local recording with dual-channel support
         const recordingDir = path.join(process.cwd(), 'storage/recordings');
         if (!fs.existsSync(recordingDir)) {
             fs.mkdirSync(recordingDir, { recursive: true });
         }
+        // Legacy single-channel path (for backwards compatibility with Deepgram)
         this.recordingPath = path.join(recordingDir, `call_${callSid}.raw`);
         this.recordingStream = fs.createWriteStream(this.recordingPath, { flags: 'a' });
+        // Dual-channel paths: inbound (caller) and outbound (agent)
+        this.inboundRecordingPath = path.join(recordingDir, `call_${callSid}_inbound.raw`);
+        this.outboundRecordingPath = path.join(recordingDir, `call_${callSid}_outbound.raw`);
+        this.inboundRecordingStream = fs.createWriteStream(this.inboundRecordingPath, { flags: 'a' });
+        this.outboundRecordingStream = fs.createWriteStream(this.outboundRecordingPath, { flags: 'a' });
 
         activeCallCount++;
 
@@ -88,7 +100,8 @@ export class MediaStreamTranscriber {
 
         // Only initialize Deepgram if not skipped (e.g., for Eleven Labs calls)
         if (!this.skipDeepgram) {
-            this.initializeDeepgram();
+            this.initializeDeepgram('inbound', 'Caller');
+            this.initializeDeepgram('outbound', 'Agent');
         } else {
             console.log(`[Deepgram] Skipping initialization for ${this.callSid} (Eleven Labs call)`);
         }
@@ -119,10 +132,10 @@ export class MediaStreamTranscriber {
         }
     }
 
-    private initializeDeepgram() {
-        console.log(`[Deepgram] Initializing live stream for ${this.callSid}`);
+    private initializeDeepgram(track: 'inbound' | 'outbound', speakerLabel: string) {
+        console.log(`[Deepgram] Initializing ${track} stream (${speakerLabel}) for ${this.callSid}`);
 
-        this.dgLive = deepgram.listen.live({
+        const dgLive = deepgram.listen.live({
             model: "nova-2",
             language: "en-GB", // Default to UK English since localized
             smart_format: true,
@@ -135,7 +148,7 @@ export class MediaStreamTranscriber {
 
             encoding: "mulaw",
             sample_rate: 8000,
-            diarize: true, // B3: Speaker separation
+            // No diarize needed - we know the speaker from the track
             keywords: [
                 "plumbing", "electrician", "handyman",
                 "socket", "tap", "leak", "boiler",
@@ -144,30 +157,38 @@ export class MediaStreamTranscriber {
             ],
         });
 
-        this.dgLive.on(LiveTranscriptionEvents.Open, () => {
-            console.log(`[Deepgram] Live connection opened for ${this.callSid}`);
-            this.broadcast({
-                type: 'voice:call_started',
-                data: { callSid: this.callSid, phoneNumber: this.phoneNumber }
-            });
+        // Store reference to the appropriate stream
+        if (track === 'inbound') {
+            this.dgLiveInbound = dgLive;
+        } else {
+            this.dgLiveOutbound = dgLive;
+        }
+
+        dgLive.on(LiveTranscriptionEvents.Open, () => {
+            console.log(`[Deepgram] ${track} (${speakerLabel}) connection opened for ${this.callSid}`);
+            // Only broadcast call_started once (from inbound)
+            if (track === 'inbound') {
+                this.broadcast({
+                    type: 'voice:call_started',
+                    data: { callSid: this.callSid, phoneNumber: this.phoneNumber }
+                });
+            }
         });
 
-        this.dgLive.on(LiveTranscriptionEvents.Transcript, (data: any) => {
+        dgLive.on(LiveTranscriptionEvents.Transcript, (data: any) => {
             const transcript = data.channel.alternatives[0].transcript;
             if (transcript && data.is_final) {
-                // B3: Speaker extraction
-                const word = data.channel.alternatives[0].words?.[0];
-                const speaker = word ? word.speaker : 0;
-
-                // Store segment with speaker ID
+                // Store segment with speaker label based on track
                 this.segments.push({
                     text: transcript,
-                    speaker: speaker,
+                    speaker: speakerLabel,
+                    track: track,
                     timestamp: new Date()
                 });
 
-                this.fullTranscript += transcript + " ";
-                console.log(`\n[Deepgram] Final Segment (Speaker ${speaker}): ${transcript}`);
+                // Add speaker label to full transcript
+                this.fullTranscript += `[${speakerLabel}]: ${transcript}\n`;
+                console.log(`\n[Deepgram] ${speakerLabel}: ${transcript}`);
 
                 // IMMEDIATELY broadcast transcript to UI (no debounce for display)
                 this.broadcast({
@@ -175,7 +196,8 @@ export class MediaStreamTranscriber {
                     data: {
                         callSid: this.callSid,
                         transcript: transcript,
-                        speaker: speaker, // Added speaker ID
+                        speaker: speakerLabel,
+                        track: track,
                         isFinal: true
                     }
                 });
@@ -192,24 +214,26 @@ export class MediaStreamTranscriber {
                 }, this.DEBOUNCE_MS);
             } else if (transcript) {
                 // Interim result
-                process.stdout.write(`\r[Deepgram] Interim: ${transcript} `);
+                process.stdout.write(`\r[Deepgram] ${speakerLabel} Interim: ${transcript} `);
                 this.broadcast({
                     type: 'voice:live_segment',
                     data: {
                         callSid: this.callSid,
                         transcript: transcript,
+                        speaker: speakerLabel,
+                        track: track,
                         isFinal: false
                     }
                 });
             }
         });
 
-        this.dgLive.on(LiveTranscriptionEvents.Error, (err: any) => {
-            console.error(`[Deepgram] Error: `, err);
+        dgLive.on(LiveTranscriptionEvents.Error, (err: any) => {
+            console.error(`[Deepgram] ${speakerLabel} Error: `, err);
         });
 
-        this.dgLive.on(LiveTranscriptionEvents.Close, () => {
-            console.log(`[Deepgram] Live connection closed for ${this.callSid}`);
+        dgLive.on(LiveTranscriptionEvents.Close, () => {
+            console.log(`[Deepgram] ${speakerLabel} connection closed for ${this.callSid}`);
         });
     }
 
@@ -346,16 +370,32 @@ export class MediaStreamTranscriber {
         }
     }
 
-    handleAudio(payload: string) {
-        if (this.isClosed || !this.dgLive) return;
+    handleAudio(payload: string, track?: string) {
+        if (this.isClosed) return;
 
         try {
             const buffer = Buffer.from(payload, 'base64');
-            this.dgLive.send(buffer);
 
-            // Write to local recording
-            if (this.recordingStream) {
+            // Send to appropriate Deepgram stream based on track
+            if (track === 'inbound' && this.dgLiveInbound) {
+                this.dgLiveInbound.send(buffer);
+            } else if (track === 'outbound' && this.dgLiveOutbound) {
+                this.dgLiveOutbound.send(buffer);
+            } else if (!track && this.dgLiveInbound) {
+                // Fallback for legacy single-track mode
+                this.dgLiveInbound.send(buffer);
+            }
+
+            // Write to legacy single-channel recording (inbound only for backwards compat)
+            if (this.recordingStream && (!track || track === 'inbound')) {
                 this.recordingStream.write(buffer);
+            }
+
+            // Write to dual-channel recordings based on track
+            if (track === 'inbound' && this.inboundRecordingStream) {
+                this.inboundRecordingStream.write(buffer);
+            } else if (track === 'outbound' && this.outboundRecordingStream) {
+                this.outboundRecordingStream.write(buffer);
             }
         } catch (e) {
             console.error("[Deepgram] Send error:", e);
@@ -396,42 +436,79 @@ export class MediaStreamTranscriber {
 
         const finalText = this.fullTranscript.trim();
 
-        // Close recording stream first to ensure flush
+        // Close Deepgram streams
+        if (this.dgLiveInbound) {
+            try {
+                this.dgLiveInbound.finish();
+                console.log(`[Deepgram] Closed inbound (Caller) stream`);
+            } catch (e) {
+                console.error(`[Deepgram] Error closing inbound stream:`, e);
+            }
+        }
+        if (this.dgLiveOutbound) {
+            try {
+                this.dgLiveOutbound.finish();
+                console.log(`[Deepgram] Closed outbound (Agent) stream`);
+            } catch (e) {
+                console.error(`[Deepgram] Error closing outbound stream:`, e);
+            }
+        }
+
+        // Close all recording streams to ensure flush
         if (this.recordingStream) {
             this.recordingStream.end();
             console.log(`[Recording] Saved raw audio to ${this.recordingPath}`);
-            await new Promise(resolve => setTimeout(resolve, 100)); // Small buffer to ensure flush
         }
+        if (this.inboundRecordingStream) {
+            this.inboundRecordingStream.end();
+            console.log(`[Recording] Saved inbound (caller) audio to ${this.inboundRecordingPath}`);
+        }
+        if (this.outboundRecordingStream) {
+            this.outboundRecordingStream.end();
+            console.log(`[Recording] Saved outbound (agent) audio to ${this.outboundRecordingPath}`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 100)); // Small buffer to ensure flush
 
         let finalRecordingUrl: string | undefined = undefined;
         let finalLocalPath: string | undefined = this.recordingPath || undefined;
+        let inboundRecordingUrl: string | undefined = undefined;
+        let outboundRecordingUrl: string | undefined = undefined;
 
-        // Upload/Persist Recording
+        // Upload/Persist Legacy Recording (for backwards compatibility)
         if (this.recordingPath && fs.existsSync(this.recordingPath)) {
             try {
-                const filename = `call_${this.callSid}.raw`; // Keep consistent naming
-                // This handles both S3 upload or safe local persistence
+                const filename = `call_${this.callSid}.raw`;
                 finalRecordingUrl = await storageService.uploadRecording(this.recordingPath, filename);
-
-                // If we got a URL back (S3) or a new path, update usage.
-                console.log(`[Recording] Persisted to: ${finalRecordingUrl}`);
-
-                // If using S3, we might want to treat the returned string as the recordingUrl
-                // If local, it might be the localRecordingPath. 
-                // For simplicity, let's assume if it starts with http, it's a URL.
+                console.log(`[Recording] Persisted legacy to: ${finalRecordingUrl}`);
                 if (finalRecordingUrl.startsWith('http')) {
-                    // It is an S3 URL
-                    finalLocalPath = undefined; // Clear local path reference if offloaded? 
-                    // Actually keep it if we want redundancy, but S3 usually implies we don't need local.
-                    // Optionally delete local file if successfully uploaded to cloud
-                    // fs.unlinkSync(this.recordingPath); 
+                    finalLocalPath = undefined;
                 } else {
-                    // It is a local path
                     finalLocalPath = finalRecordingUrl;
                 }
-
             } catch (error) {
-                console.error("[Recording] Failed to persist recording:", error);
+                console.error("[Recording] Failed to persist legacy recording:", error);
+            }
+        }
+
+        // Upload/Persist Inbound (caller) Recording
+        if (this.inboundRecordingPath && fs.existsSync(this.inboundRecordingPath)) {
+            try {
+                const filename = `call_${this.callSid}_inbound.raw`;
+                inboundRecordingUrl = await storageService.uploadRecording(this.inboundRecordingPath, filename);
+                console.log(`[Recording] Persisted inbound to: ${inboundRecordingUrl}`);
+            } catch (error) {
+                console.error("[Recording] Failed to persist inbound recording:", error);
+            }
+        }
+
+        // Upload/Persist Outbound (agent) Recording
+        if (this.outboundRecordingPath && fs.existsSync(this.outboundRecordingPath)) {
+            try {
+                const filename = `call_${this.callSid}_outbound.raw`;
+                outboundRecordingUrl = await storageService.uploadRecording(this.outboundRecordingPath, filename);
+                console.log(`[Recording] Persisted outbound to: ${outboundRecordingUrl}`);
+            } catch (error) {
+                console.error("[Recording] Failed to persist outbound recording:", error);
             }
         }
 
@@ -463,6 +540,8 @@ export class MediaStreamTranscriber {
                     segments: this.segments,
                     localRecordingPath: finalLocalPath,
                     recordingUrl: finalRecordingUrl || undefined,
+                    inboundRecordingUrl: inboundRecordingUrl || undefined,
+                    outboundRecordingUrl: outboundRecordingUrl || undefined,
                     detectedSkusJson: agentPlan ? agentPlan : undefined // Store the Brain Dump
                 });
                 console.log(`[CallLogger] Finalized call ${this.callRecordId} with duration ${duration}s`);
@@ -649,7 +728,8 @@ export function setupTwilioSocket(wss: WebSocketServer, broadcast: (message: any
                         break;
                     case 'media':
                         if (transcriber) {
-                            transcriber.handleAudio(msg.media.payload);
+                            // Pass track info for dual-channel recording ('inbound' = caller, 'outbound' = agent)
+                            transcriber.handleAudio(msg.media.payload, msg.media.track);
                         }
                         break;
                     case 'stop':

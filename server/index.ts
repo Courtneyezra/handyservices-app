@@ -606,9 +606,10 @@ app.post('/api/twilio/voice', async (req, res) => {
     <Response>`;
 
     // REAL-TIME TRANSCRIPTION: Always stream to Deepgram (even for Eleven Labs calls)
+    // track="both_tracks" captures both caller (inbound) and agent (outbound) audio
     twiml += `
       <Start>
-        <Stream url="${streamUrl}">
+        <Stream url="${streamUrl}" track="both_tracks">
             <Parameter name="phoneNumber" value="${req.body.From}" />
         </Stream>
       </Start>`;

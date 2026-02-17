@@ -150,6 +150,9 @@ export const calls = pgTable("calls", {
     recordingUrl: varchar("recording_url"),
     transcription: text("transcription"),
     localRecordingPath: varchar("local_recording_path"),
+    // Dual-channel recordings (both sides of conversation)
+    inboundRecordingUrl: varchar("inbound_recording_url"),  // Caller audio
+    outboundRecordingUrl: varchar("outbound_recording_url"), // Agent audio
     leadId: varchar("lead_id"),
 
     // Customer Information

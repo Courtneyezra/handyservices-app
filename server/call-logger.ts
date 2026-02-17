@@ -187,6 +187,9 @@ export async function finalizeCall(
         transcription?: string;
         segments?: any[];
         localRecordingPath?: string;
+        inboundRecordingUrl?: string;  // Caller audio
+        outboundRecordingUrl?: string; // Agent audio
+        detectedSkusJson?: any;        // AI-detected SKUs
     }
 ): Promise<void> {
 
@@ -208,6 +211,9 @@ export async function finalizeCall(
             segments: data.segments,
             status: 'completed',
             localRecordingPath: data.localRecordingPath,
+            inboundRecordingUrl: data.inboundRecordingUrl,
+            outboundRecordingUrl: data.outboundRecordingUrl,
+            detectedSkusJson: data.detectedSkusJson,
             lastEditedAt: new Date(),
         }).filter(([_, v]) => v !== undefined)
     );
