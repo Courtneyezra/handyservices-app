@@ -1917,8 +1917,17 @@ export default function PersonalizedQuotePage() {
     const effectivePaymentType = isTier1 ? 'full' : paymentMode;
 
     setIsBooking(true);
+
+    // Payment has already succeeded at this point (Stripe confirmed it)
+    // The webhook will create the job/invoice - we just need to:
+    // 1. Try to create lead (optional, webhook also handles this)
+    // 2. Track booking details
+    // 3. ALWAYS redirect to confirmation page
+
+    let leadId: string | null = null;
+
     try {
-      // Create lead with quote data (no form required)
+      // Create lead with quote data (non-blocking - webhook also creates lead)
       const leadData = {
         customerName: quote.customerName,
         phone: quote.phone,
@@ -1937,53 +1946,57 @@ export default function PersonalizedQuotePage() {
         body: JSON.stringify(leadData),
       });
 
-      if (!leadResponse.ok) {
-        throw new Error('Failed to create lead');
+      if (leadResponse.ok) {
+        const lead: any = await leadResponse.json();
+        leadId = lead.id;
+
+        // Store lead ID for confirmation (scoped by quote slug)
+        const prefix = `quote_${params?.slug}`;
+        setBookedLeadId(lead.id);
+        sessionStorage.setItem(`${prefix}_bookedLeadId`, lead.id);
+        sessionStorage.setItem(`${prefix}_hasBooked`, 'true');
+      } else {
+        console.warn('Lead creation failed but payment succeeded - webhook will handle it');
       }
+    } catch (leadError) {
+      console.warn('Lead creation error but payment succeeded:', leadError);
+      // Continue - payment is complete, webhook will handle lead creation
+    }
 
-      const lead: any = await leadResponse.json();
-
-      // Store lead ID for confirmation (scoped by quote slug)
-      const prefix = `quote_${params?.slug}`;
-      setBookedLeadId(lead.id);
-      sessionStorage.setItem(`${prefix}_bookedLeadId`, lead.id);
-      sessionStorage.setItem(`${prefix}_hasBooked`, 'true');
-
-      // Track booking with mode-specific data including payment type
+    // Track booking with mode-specific data (fire and forget)
+    try {
       if (quote?.id) {
-        const bookingResponse = await fetch(`/api/personalized-quotes/${quote.id}/track-booking`, {
+        await fetch(`/api/personalized-quotes/${quote.id}/track-booking`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            leadId: lead.id,
+            leadId: leadId,
             selectedPackage: (quote.quoteMode === 'simple' || quote.quoteMode === 'pick_and_mix') ? undefined : selectedEEEPackage,
             selectedExtras: selectedExtras.length > 0 ? selectedExtras : undefined,
             paymentType: effectivePaymentType,
+            // Scheduling fields
+            selectedDate: selectedDate || selectedCalendarDate || undefined,
+            schedulingTier: schedulingTier || undefined,
+            timeSlotType: timeSlotType || undefined,
+            exactTimeRequested: exactTime || undefined,
+            isWeekendBooking: isWeekendBooking,
+            schedulingFeeInPence: dateFee + timeFee,
             // [RAMANUJAM] Include BUSY_PRO productization choices
             timingChoice: quote.segment === 'BUSY_PRO' ? timingChoice : undefined,
             whileImThereBundle: quote.segment === 'BUSY_PRO' ? whileImThereBundle : undefined,
           }),
         });
-
-        if (!bookingResponse.ok) {
-          console.error('Failed to track booking:', bookingResponse.status);
-        }
       }
-
-      setHasBooked(true);
-      setIsBooking(false);
-
-      // Redirect to the new confirmation page after successful booking
-      window.location.href = `/booking-confirmed/${quote.id}`;
-    } catch (error) {
-      console.error('Error booking:', error);
-      toast({
-        title: 'Booking Failed',
-        description: 'Something went wrong. Please try calling us directly.',
-        variant: 'destructive',
-      });
-      setIsBooking(false);
+    } catch (trackError) {
+      console.warn('Booking tracking failed:', trackError);
+      // Continue - payment is complete
     }
+
+    setHasBooked(true);
+    setIsBooking(false);
+
+    // ALWAYS redirect to confirmation page - payment succeeded
+    window.location.href = `/booking-confirmed/${quote.id}`;
   };
 
   if (isLoading) {

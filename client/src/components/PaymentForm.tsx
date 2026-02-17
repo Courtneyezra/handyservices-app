@@ -183,14 +183,18 @@ export function PaymentForm({
       }
 
       if (paymentIntent?.status === 'succeeded') {
-        // Payment succeeded - await booking creation in parent component
+        // Payment succeeded - call onSuccess but DON'T throw if it fails
+        // The webhook will handle booking creation asynchronously
         try {
           await onSuccess(paymentIntentId);
-          // If we reach here, booking succeeded and parent will show success UI
         } catch (bookingError: any) {
-          // Payment succeeded but booking failed - show specific error
-          throw new Error(bookingError.message || 'Payment successful but booking failed. Please contact us.');
+          // Payment succeeded but booking call had issues - log but don't show error
+          // The Stripe webhook will create the booking anyway
+          console.warn('Payment succeeded but booking callback had issues:', bookingError);
+          // Still call onSuccess path - payment is complete
         }
+        // Don't throw - payment completed successfully
+        return;
       } else {
         throw new Error('Payment failed');
       }

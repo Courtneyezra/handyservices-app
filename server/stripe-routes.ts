@@ -258,10 +258,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
 
                         console.log(`[Stripe Webhook] Quote ${quoteId} marked as paid. Deposit: £${(depositAmount / 100).toFixed(2)}`);
 
-                        // 2. Create Job for Dispatching
-                        const jobId = `job_${uuidv4().slice(0, 8)}`;
-
-                        // Calculate total job price
+                        // 2. Calculate total job price
                         let totalJobPrice = 0;
                         if (quote.quoteMode === 'simple') {
                             totalJobPrice = quote.basePrice || 0;
@@ -281,28 +278,36 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             if (extra) totalJobPrice += extra.priceInPence || 0;
                         }
 
-                        // Create job (pending assignment)
-                        await db.insert(contractorJobs).values({
-                            id: jobId,
-                            contractorId: quote.contractorId || 'unassigned',
-                            quoteId: quoteId,
-                            leadId: quote.leadId || null,
-                            customerName: quote.customerName,
-                            customerPhone: quote.phone,
-                            address: quote.address || '',
-                            postcode: quote.postcode || '',
-                            jobDescription: quote.jobDescription || '',
-                            status: quote.contractorId ? 'pending' : 'pending', // pending contractor acceptance
-                            scheduledDate: quote.selectedDate || null,
-                            estimatedDuration: null,
-                            payoutPence: Math.round(totalJobPrice * 0.7), // 70% payout to contractor
-                            paymentStatus: 'unpaid',
-                            notes: `Deposit paid: £${(depositAmount / 100).toFixed(2)} | Package: ${selectedTier || 'standard'}`,
-                        });
+                        // 3. Create Job for Dispatching (only if contractor assigned)
+                        let jobId: string | null = null;
 
-                        console.log(`[Stripe Webhook] Job ${jobId} created for quote ${quoteId}`);
+                        if (quote.contractorId) {
+                            jobId = `job_${uuidv4().slice(0, 8)}`;
 
-                        // 3. Generate Invoice (using COUNT for efficiency)
+                            await db.insert(contractorJobs).values({
+                                id: jobId,
+                                contractorId: quote.contractorId,
+                                quoteId: quoteId,
+                                leadId: quote.leadId || null,
+                                customerName: quote.customerName,
+                                customerPhone: quote.phone,
+                                address: quote.address || '',
+                                postcode: quote.postcode || '',
+                                jobDescription: quote.jobDescription || '',
+                                status: 'pending',
+                                scheduledDate: quote.selectedDate || null,
+                                estimatedDuration: null,
+                                payoutPence: Math.round(totalJobPrice * 0.7), // 70% payout to contractor
+                                paymentStatus: 'unpaid',
+                                notes: `Deposit paid: £${(depositAmount / 100).toFixed(2)} | Package: ${selectedTier || 'standard'}`,
+                            });
+
+                            console.log(`[Stripe Webhook] Job ${jobId} created for quote ${quoteId}`);
+                        } else {
+                            console.log(`[Stripe Webhook] No contractor assigned - job will be created during dispatch`);
+                        }
+
+                        // 4. Generate Invoice (using COUNT for efficiency)
                         const year = new Date().getFullYear();
                         const [countResult] = await db.select({ count: sql<number>`count(*)` }).from(invoices);
                         const invoiceCount = Number(countResult?.count || 0);
@@ -336,12 +341,12 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             paidAt: balanceDue <= 0 ? new Date() : null,
                             stripePaymentIntentId: paymentIntent.id,
                             paymentMethod: 'stripe',
-                            notes: `Auto-generated from payment. Job ID: ${jobId}`,
+                            notes: jobId ? `Auto-generated from payment. Job ID: ${jobId}` : `Auto-generated from payment. Pending dispatch.`,
                         });
 
                         console.log(`[Stripe Webhook] Invoice ${invoiceNumber} created (Balance: £${(balanceDue / 100).toFixed(2)})`);
 
-                        // 4. Update Lead Status to 'converted'
+                        // 5. Update Lead Status to 'converted'
                         if (quote.leadId) {
                             await db.update(leads)
                                 .set({
@@ -353,7 +358,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             console.log(`[Stripe Webhook] Lead ${quote.leadId} marked as converted`);
                         }
 
-                        // 5. Send confirmation emails
+                        // 6. Send confirmation emails
                         console.log(`[Stripe Webhook] ✅ PAYMENT COMPLETE:
   - Quote: ${quoteId}
   - Job: ${jobId}
@@ -364,12 +369,27 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
   - Deposit: £${(depositAmount / 100).toFixed(2)}
   - Balance: £${(balanceDue / 100).toFixed(2)}`);
 
-                        // Send emails (async, don't block webhook response)
+                        // Send notifications (async, don't block webhook response)
                         (async () => {
                             try {
-                                const { sendBookingConfirmationEmail, sendInternalBookingNotification } = await import('./email-service');
+                                const { sendBookingConfirmationEmail, sendInternalBookingNotification, sendBookingConfirmationWhatsApp } = await import('./email-service');
 
-                                // Customer confirmation
+                                // Customer confirmation via WhatsApp (primary - always has phone)
+                                if (quote.phone) {
+                                    await sendBookingConfirmationWhatsApp({
+                                        customerName: quote.customerName,
+                                        customerPhone: quote.phone,
+                                        jobDescription: quote.jobDescription || '',
+                                        scheduledDate: quote.selectedDate ? String(quote.selectedDate) : null,
+                                        depositPaid: depositAmount,
+                                        totalJobPrice,
+                                        balanceDue,
+                                        invoiceNumber,
+                                        jobId,
+                                    });
+                                }
+
+                                // Customer confirmation via Email (secondary - if email provided)
                                 if (quote.email) {
                                     await sendBookingConfirmationEmail({
                                         customerName: quote.customerName,
@@ -398,8 +418,8 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                     invoiceNumber,
                                     jobId,
                                 });
-                            } catch (emailError) {
-                                console.error('[Stripe Webhook] Email send error (non-blocking):', emailError);
+                            } catch (notifyError) {
+                                console.error('[Stripe Webhook] Notification send error (non-blocking):', notifyError);
                             }
                         })();
 

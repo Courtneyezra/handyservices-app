@@ -1012,6 +1012,134 @@ quotesRouter.get('/api/personalized-quotes/:id/invoice-data', async (req, res) =
 });
 
 // ===========================================
+// ADMIN: QUICK BOOK (Manual booking for WhatsApp confirmations)
+// ===========================================
+
+quotesRouter.post('/api/admin/personalized-quotes/:id/quick-book', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            paymentMethod, // 'cash' | 'bank_transfer' | 'card_phone' | 'already_paid'
+            selectedPackage, // 'essential' | 'enhanced' | 'elite' or null for simple mode
+            depositAmountPence, // Optional - if not provided, calculates automatically
+            notes, // Admin notes
+        } = req.body;
+
+        // Get the quote
+        const [quote] = await db.select().from(personalizedQuotes)
+            .where(eq(personalizedQuotes.id, id));
+
+        if (!quote) {
+            return res.status(404).json({ error: "Quote not found" });
+        }
+
+        // Calculate prices
+        let selectedTierPricePence = 0;
+        const effectivePackage = selectedPackage || quote.selectedPackage;
+
+        if (effectivePackage === 'essential') {
+            selectedTierPricePence = quote.essentialPrice || quote.basePrice || 0;
+        } else if (effectivePackage === 'enhanced') {
+            selectedTierPricePence = quote.enhancedPrice || 0;
+        } else if (effectivePackage === 'elite') {
+            selectedTierPricePence = quote.elitePrice || 0;
+        } else if (quote.basePrice) {
+            selectedTierPricePence = quote.basePrice;
+        }
+
+        // Calculate deposit if not provided
+        const materialsCost = quote.materialsCostWithMarkupPence || 0;
+        const laborCost = Math.max(0, selectedTierPricePence - materialsCost);
+        const calculatedDeposit = materialsCost + Math.round(laborCost * 0.30);
+        const finalDeposit = depositAmountPence ?? calculatedDeposit;
+
+        // Update quote as booked
+        await db.update(personalizedQuotes)
+            .set({
+                selectedPackage: effectivePackage,
+                selectedTierPricePence,
+                depositAmountPence: finalDeposit,
+                depositPaidAt: new Date(),
+                bookedAt: new Date(),
+                paymentType: 'full', // Manual bookings are treated as full payment pending
+            })
+            .where(eq(personalizedQuotes.id, id));
+
+        // Generate invoice number
+        const invoiceNumber = `INV-${Date.now().toString(36).toUpperCase()}`;
+        const balanceDue = selectedTierPricePence - finalDeposit;
+
+        // Create invoice record
+        const invoiceId = `inv_${nanoid()}`;
+        await db.insert(invoices).values({
+            id: invoiceId,
+            invoiceNumber,
+            quoteId: id,
+            customerName: quote.customerName,
+            customerEmail: quote.email || null,
+            customerPhone: quote.phone,
+            address: quote.address || null,
+            jobDescription: quote.jobDescription,
+            totalAmountPence: selectedTierPricePence,
+            depositAmountPence: finalDeposit,
+            balanceDuePence: balanceDue,
+            status: paymentMethod === 'already_paid' ? 'paid' : 'pending',
+            paidAt: paymentMethod === 'already_paid' ? new Date() : null,
+            notes: notes ? `[${paymentMethod.toUpperCase()}] ${notes}` : `[${paymentMethod.toUpperCase()}] Manual booking via admin`,
+        });
+
+        // Create job record
+        const jobId = `job_${nanoid()}`;
+        await db.insert(contractorJobs).values({
+            id: jobId,
+            quoteId: id,
+            customerName: quote.customerName,
+            customerPhone: quote.phone,
+            address: quote.address || quote.postcode || '',
+            postcode: quote.postcode || '',
+            jobDescription: quote.jobDescription,
+            status: 'pending',
+            totalPricePence: selectedTierPricePence,
+            // Not assigned to contractor yet - admin will dispatch
+        });
+
+        // Send WhatsApp confirmation
+        try {
+            const { sendBookingConfirmationWhatsApp } = await import('./email-service');
+            await sendBookingConfirmationWhatsApp({
+                customerName: quote.customerName,
+                customerPhone: quote.phone,
+                jobDescription: quote.jobDescription,
+                depositPaid: finalDeposit,
+                totalJobPrice: selectedTierPricePence,
+                balanceDue,
+                invoiceNumber,
+                jobId,
+                scheduledDate: quote.selectedDate ? String(quote.selectedDate) : null,
+            });
+        } catch (notifyError) {
+            console.error('[QuickBook] Failed to send WhatsApp confirmation:', notifyError);
+            // Don't fail the booking if notification fails
+        }
+
+        console.log(`[Admin QuickBook] Quote ${id} booked manually via ${paymentMethod}`);
+
+        res.json({
+            success: true,
+            jobId,
+            invoiceId,
+            invoiceNumber,
+            depositAmountPence: finalDeposit,
+            totalAmountPence: selectedTierPricePence,
+            balanceDuePence: balanceDue,
+        });
+    } catch (error) {
+        console.error("Quick book error:", error);
+        res.status(500).json({ error: "Failed to quick book quote" });
+    }
+});
+
+// ===========================================
 // ADMIN: EDIT QUOTE
 // ===========================================
 

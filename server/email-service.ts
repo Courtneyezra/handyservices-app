@@ -331,3 +331,50 @@ export async function sendInternalBookingNotification(data: BookingConfirmationD
         console.error('[Email] Failed to send internal notification:', err);
     }
 }
+
+// WhatsApp booking confirmation (for customers without email)
+interface WhatsAppConfirmationData {
+    customerName: string;
+    customerPhone: string;
+    jobDescription: string;
+    depositPaid: number; // in pence
+    totalJobPrice: number; // in pence
+    balanceDue: number; // in pence
+    invoiceNumber: string;
+    jobId: string;
+    scheduledDate?: string | null;
+}
+
+export async function sendBookingConfirmationWhatsApp(data: WhatsAppConfirmationData): Promise<{ success: boolean; error?: string }> {
+    try {
+        // Import conversation engine to send WhatsApp
+        const { conversationEngine } = await import('./conversation-engine');
+
+        const formatCurrency = (pence: number) => `£${(pence / 100).toFixed(2)}`;
+
+        const message = `✅ *Booking Confirmed!*
+
+Hi ${data.customerName}, your booking is confirmed.
+
+📋 *Job:* ${data.jobDescription.substring(0, 100)}${data.jobDescription.length > 100 ? '...' : ''}
+
+💳 *Payment Received:* ${formatCurrency(data.depositPaid)}
+💰 *Total Job:* ${formatCurrency(data.totalJobPrice)}
+📊 *Balance Due:* ${formatCurrency(data.balanceDue)}
+
+🔖 *Reference:* ${data.invoiceNumber}
+${data.scheduledDate ? `📅 *Scheduled:* ${data.scheduledDate}` : '📅 *Scheduled:* We\\'ll confirm your date shortly'}
+
+We'll be in touch to confirm your appointment. Reply here if you have any questions!
+
+- Handy Services Team`;
+
+        await conversationEngine.sendMessage(data.customerPhone, message);
+
+        console.log(`[WhatsApp] Booking confirmation sent to ${data.customerPhone}`);
+        return { success: true };
+    } catch (err: any) {
+        console.error('[WhatsApp] Failed to send booking confirmation:', err);
+        return { success: false, error: err.message };
+    }
+}
