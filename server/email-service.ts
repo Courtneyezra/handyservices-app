@@ -363,7 +363,7 @@ Hi ${data.customerName}, your booking is confirmed.
 📊 *Balance Due:* ${formatCurrency(data.balanceDue)}
 
 🔖 *Reference:* ${data.invoiceNumber}
-${data.scheduledDate ? `📅 *Scheduled:* ${data.scheduledDate}` : '📅 *Scheduled:* We\\'ll confirm your date shortly'}
+📅 *Scheduled:* ${data.scheduledDate || "We will confirm your date shortly"}
 
 We'll be in touch to confirm your appointment. Reply here if you have any questions!
 
