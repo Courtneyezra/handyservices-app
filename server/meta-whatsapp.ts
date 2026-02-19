@@ -21,6 +21,11 @@ const WHATSAPP_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'handy_servic
 const GRAPH_API_VERSION = 'v18.0';
 const GRAPH_API_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
+// Twilio credentials (for sending via Twilio WhatsApp API)
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const TWILIO_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER || '+15557667036';
+
 export const metaWhatsAppRouter = Router();
 
 // Store WebSocket server reference
@@ -275,15 +280,17 @@ async function handleStatusUpdate(status: any) {
 }
 
 // ==========================================
-// SEND MESSAGE
+// SEND MESSAGE (via Twilio WhatsApp API)
 // ==========================================
 export async function sendWhatsAppMessage(to: string, body: string, options?: {
-    templateName?: string;
-    templateLanguage?: string;
-    templateComponents?: any[];
+    contentSid?: string;           // Twilio Content Template SID (e.g., HXxxxxx)
+    contentVariables?: Record<string, string>;  // Template variables {"1": "John", "2": "kitchen tap"}
+    templateName?: string;         // Deprecated - use contentSid
+    templateLanguage?: string;     // Deprecated - use contentSid
+    templateComponents?: any[];    // Deprecated - use contentVariables
 }) {
-    if (!WHATSAPP_PHONE_NUMBER_ID || !WHATSAPP_ACCESS_TOKEN) {
-        throw new Error('Missing WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN');
+    if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
+        throw new Error('Missing TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN');
     }
 
     // Clean the phone number (remove @c.us suffix if present)
@@ -291,55 +298,64 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
     const phoneNumber = `${cleanNumber}@c.us`;
     const now = new Date();
 
-    let payload: any;
+    // Format for Twilio WhatsApp
+    const twilioTo = `whatsapp:+${cleanNumber}`;
+    const twilioFrom = `whatsapp:${TWILIO_WHATSAPP_NUMBER}`;
 
-    if (options?.templateName) {
-        // Template message
-        payload = {
-            messaging_product: 'whatsapp',
-            to: cleanNumber,
-            type: 'template',
-            template: {
-                name: options.templateName,
-                language: { code: options.templateLanguage || 'en' },
-                components: options.templateComponents || []
-            }
-        };
+    const isTemplate = !!options?.contentSid;
+
+    console.log('[Twilio WhatsApp] Sending message to:', twilioTo);
+    console.log('[Twilio WhatsApp] From:', twilioFrom);
+    console.log('[Twilio WhatsApp] Type:', isTemplate ? 'Template' : 'Freeform');
+    if (isTemplate) {
+        console.log('[Twilio WhatsApp] ContentSid:', options?.contentSid);
+        console.log('[Twilio WhatsApp] Variables:', JSON.stringify(options?.contentVariables));
     } else {
-        // Regular text message
-        payload = {
-            messaging_product: 'whatsapp',
-            to: cleanNumber,
-            type: 'text',
-            text: { body }
-        };
+        console.log('[Twilio WhatsApp] Body:', body);
     }
 
-    console.log('[Meta WhatsApp] Sending message to:', cleanNumber);
+    // Use Twilio API
+    const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
+    const auth = Buffer.from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`).toString('base64');
 
-    const response = await fetch(
-        `${GRAPH_API_URL}/${WHATSAPP_PHONE_NUMBER_ID}/messages`,
-        {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload)
+    const formData = new URLSearchParams();
+    formData.append('From', twilioFrom);
+    formData.append('To', twilioTo);
+
+    if (isTemplate && options?.contentSid) {
+        // Template message
+        formData.append('ContentSid', options.contentSid);
+        if (options.contentVariables) {
+            formData.append('ContentVariables', JSON.stringify(options.contentVariables));
         }
-    );
+    } else {
+        // Freeform message
+        formData.append('Body', body);
+    }
+
+    const response = await fetch(twilioUrl, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Basic ${auth}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString()
+    });
 
     const result = await response.json();
 
     if (!response.ok) {
-        console.error('[Meta WhatsApp] Send error:', result);
-        throw new Error(result.error?.message || 'Failed to send message');
+        console.error('[Twilio WhatsApp] Send error:', result);
+        throw new Error(result.message || 'Failed to send message');
     }
 
-    console.log('[Meta WhatsApp] Message sent:', result);
-    const messageId = result.messages?.[0]?.id || uuidv4();
+    console.log('[Twilio WhatsApp] Message sent:', result.sid);
+    const messageId = result.sid || uuidv4();
 
     // Store outbound message
+    const messagePreview = isTemplate ? '[Template message]' : body.substring(0, 50);
+    const messageContent = isTemplate ? `[Template: ${options?.contentSid}]` : body;
+
     try {
         let conv = await db.query.conversations.findFirst({
             where: eq(conversations.phoneNumber, phoneNumber)
@@ -352,7 +368,7 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
                 status: 'active',
                 stage: 'active',
                 lastMessageAt: now,
-                lastMessagePreview: body.substring(0, 50),
+                lastMessagePreview: messagePreview,
             };
             await db.insert(conversations).values(newConv);
             conv = newConv as any;
@@ -360,7 +376,7 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
             await db.update(conversations)
                 .set({
                     lastMessageAt: now,
-                    lastMessagePreview: body.substring(0, 50),
+                    lastMessagePreview: messagePreview,
                     stage: 'active',
                     updatedAt: now,
                 })
@@ -371,8 +387,8 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
             id: messageId,
             conversationId: conv!.id,
             direction: 'outbound',
-            content: body,
-            type: options?.templateName ? 'template' : 'text',
+            content: messageContent,
+            type: isTemplate ? 'template' : 'text',
             status: 'sent',
             senderName: 'Agent',
             createdAt: now,
@@ -386,8 +402,8 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
             message: {
                 id: messageId,
                 direction: 'outbound',
-                content: body,
-                type: options?.templateName ? 'template' : 'text',
+                content: messageContent,
+                type: isTemplate ? 'template' : 'text',
                 status: 'sent',
                 senderName: 'Agent',
                 createdAt: now.toISOString(),
