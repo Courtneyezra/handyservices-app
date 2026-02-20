@@ -77,9 +77,10 @@ whatsappRouter.post('/send-template', async (req, res) => {
                 return res.status(400).json({ error: "Invalid template ID" });
         }
 
-        const result = await conversationEngine.sendMessage(number, templateBody, {
-            templateSid,
-            templateVars
+        // Use sendWhatsAppMessage for consistent from number
+        const result = await sendWhatsAppMessage(number, templateBody, {
+            contentSid: templateSid,
+            contentVariables: templateVars
         });
 
         // Update call record if callId provided (for video request tracking)
