@@ -66,10 +66,9 @@ whatsappRouter.post('/send-template', async (req, res) => {
         switch (template) {
             case 'request_video':
                 templateBody = `Hi ${name}, as discussed, please send us a video of ${ctx}. This will help us provide an accurate quote.`;
-                templateSid = contentSid; // Use approved template SID when available
-                if (templateSid) {
-                    templateVars = { "1": name, "2": ctx };
-                }
+                // Use approved Twilio Content Template
+                templateSid = contentSid || process.env.TWILIO_VIDEO_REQUEST_CONTENT_SID || 'HX3ecffe34fcde66b5a64a964a306026f2';
+                templateVars = { "1": name, "2": ctx };
                 break;
             case 'review_quote':
                 templateBody = "Hi! Your quote is ready for review. Please check the link we sent.";
