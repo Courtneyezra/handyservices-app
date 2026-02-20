@@ -17,6 +17,7 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { normalizePhoneNumber } from './phone-utils';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -356,9 +357,14 @@ export class ConversationEngine {
 
     public async sendMessage(to: string, body: string, options?: { templateSid?: string; templateVars?: Record<string, string> }) {
         try {
-            // Normalize phone number
-            const cleanNumber = to.replace('@c.us', '').replace(/\D/g, '');
-            const formattedNumber = `whatsapp:+${cleanNumber}`;
+            // Normalize phone number to E.164 format (+44...)
+            const rawNumber = to.replace('@c.us', '');
+            const normalized = normalizePhoneNumber(rawNumber);
+            if (!normalized) {
+                throw new Error(`Invalid phone number: ${to}`);
+            }
+            const cleanNumber = normalized.replace('+', '');
+            const formattedNumber = `whatsapp:${normalized}`;
             const phoneNumber = `${cleanNumber}@c.us`;
             const now = new Date();
 

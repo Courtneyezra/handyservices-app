@@ -13,6 +13,7 @@ import { conversations, messages, type InsertConversation, type InsertMessage } 
 import { eq, desc } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { WebSocketServer, WebSocket } from 'ws';
+import { normalizePhoneNumber } from './phone-utils';
 
 // Environment variables
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -293,13 +294,19 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
         throw new Error('Missing TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN');
     }
 
-    // Clean the phone number (remove @c.us suffix if present)
-    const cleanNumber = to.replace('@c.us', '').replace(/\D/g, '');
+    // Normalize the phone number to E.164 format (+44...)
+    const rawNumber = to.replace('@c.us', '');
+    const normalized = normalizePhoneNumber(rawNumber);
+    if (!normalized) {
+        throw new Error(`Invalid phone number: ${to}`);
+    }
+    // Remove the + for internal storage format
+    const cleanNumber = normalized.replace('+', '');
     const phoneNumber = `${cleanNumber}@c.us`;
     const now = new Date();
 
-    // Format for Twilio WhatsApp
-    const twilioTo = `whatsapp:+${cleanNumber}`;
+    // Format for Twilio WhatsApp (normalized already has +)
+    const twilioTo = `whatsapp:${normalized}`;
     const twilioFrom = `whatsapp:${TWILIO_WHATSAPP_NUMBER}`;
 
     const isTemplate = !!options?.contentSid;
