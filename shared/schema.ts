@@ -1,7 +1,67 @@
-import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, serial, vector, date } from "drizzle-orm/pg-core";
+import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, serial, vector, date, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
+
+// Lead Stage Enum - Formal funnel stages for Kanban view
+export const leadStageEnum = pgEnum('lead_stage', [
+    'new_lead',
+    'contacted',
+    'awaiting_video',
+    'video_received',
+    'visit_scheduled',
+    'visit_done',
+    'quote_sent',
+    'quote_viewed',
+    'awaiting_payment',
+    'booked',
+    'in_progress',
+    'completed',
+    'lost',
+    'expired',
+    'declined'
+]);
+
+// Lead Route Enum - Which path the lead is on (Tube Map)
+export const leadRouteEnum = pgEnum('lead_route', [
+    'video',
+    'instant_quote',
+    'site_visit'
+]);
+
+export const LeadStageValues = [
+    'new_lead',
+    'contacted',
+    'awaiting_video',
+    'video_received',
+    'visit_scheduled',
+    'visit_done',
+    'quote_sent',
+    'quote_viewed',
+    'awaiting_payment',
+    'booked',
+    'in_progress',
+    'completed',
+    'lost',
+    'expired',
+    'declined'
+] as const;
+
+export type LeadStage = typeof LeadStageValues[number];
+
+// Lead Route Values
+export const LeadRouteValues = ['video', 'instant_quote', 'site_visit'] as const;
+export type LeadRoute = typeof LeadRouteValues[number];
+
+// Lead Qualification Grade Enum
+export const qualificationGradeEnum = pgEnum('qualification_grade', ['HOT', 'WARM', 'COLD']);
+export const QualificationGradeValues = ['HOT', 'WARM', 'COLD'] as const;
+export type QualificationGrade = typeof QualificationGradeValues[number];
+
+// Lead Segment Enum (for database column)
+export const leadSegmentEnum = pgEnum('lead_segment', ['EMERGENCY', 'BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER', 'BUDGET', 'DEFAULT']);
+export const LeadSegmentValues = ['EMERGENCY', 'BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER', 'BUDGET', 'DEFAULT'] as const;
+export type LeadSegment = typeof LeadSegmentValues[number];
 
 // Session storage table for authentication
 export const sessions = pgTable(
@@ -131,12 +191,38 @@ export const leads = pgTable("leads", {
     videoReceivedAt: timestamp("video_received_at"), // When customer sent video
     siteVisitScheduledAt: timestamp("site_visit_scheduled_at"), // When site visit was scheduled
 
+    // Lead Funnel Stage (Kanban)
+    stage: leadStageEnum("stage").default('new_lead'), // Formal funnel stage
+    stageUpdatedAt: timestamp("stage_updated_at"), // When stage last changed
+
+    // Lead Tube Map - Route tracking
+    route: leadRouteEnum("route"), // Which path: video, instant_quote, site_visit
+    routeAssignedAt: timestamp("route_assigned_at"), // When route was assigned
+    snoozedUntil: timestamp("snoozed_until"), // For "call me later" cases
+    mergedIntoId: varchar("merged_into_id"), // ID of lead this was merged into
+
+    // Lead Qualification & Scoring
+    qualificationScore: integer("qualification_score"), // 0-100 score
+    qualificationGrade: qualificationGradeEnum("qualification_grade"), // HOT, WARM, COLD
+    segment: leadSegmentEnum("segment"), // Customer segment type
+    segmentConfidence: integer("segment_confidence"), // 0-100 confidence in segment detection
+    segmentSignals: jsonb("segment_signals"), // Evidence array e.g. ["mentioned rental property", "urgent"]
+    redFlags: jsonb("red_flags"), // Warning array e.g. ["price shopping", "no authority"]
+    scoredAt: timestamp("scored_at"), // When lead was last scored
+    scoredBy: varchar("scored_by", { length: 50 }), // 'ai_call_parser', 'ai_whatsapp_bot', 'webform', 'manual'
+
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
     index("idx_leads_phone").on(table.phone), // B1: Fast phone lookup
     index("idx_leads_place_id").on(table.placeId), // B6: Fast duplicate detection by address
     index("idx_leads_postcode").on(table.postcode), // B6: Postcode-based queries
+    index("idx_leads_stage").on(table.stage), // Funnel stage queries
+    index("idx_leads_stage_updated").on(table.stageUpdatedAt), // Stage update ordering
+    index("idx_leads_route").on(table.route), // Route-based queries
+    index("idx_leads_snoozed").on(table.snoozedUntil), // Snoozed leads queries
+    index("idx_leads_qualification_grade").on(table.qualificationGrade), // Qualification grade queries
+    index("idx_leads_segment").on(table.segment), // Segment-based queries
 ]);
 
 // Calls table - Twilio Webhook Log
@@ -504,7 +590,7 @@ export const ownershipContextEnum = z.enum(['tenant', 'homeowner', 'landlord', '
 export const desiredTimeframeEnum = z.enum(['flex', 'week', 'asap']);
 
 // B1.1: Segmentation Enums (Phase 1 Master Plan)
-export const segmentEnum = z.enum(['BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'DIY_DEFERRER', 'BUDGET', 'OLDER_WOMAN', 'UNKNOWN']);
+export const segmentEnum = z.enum(['EMERGENCY', 'BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER', 'BUDGET', 'DEFAULT']);
 export type SegmentType = z.infer<typeof segmentEnum>;
 export const jobTypeEnum = z.enum(['SINGLE', 'COMPLEX', 'MULTIPLE']);
 export const quotabilityEnum = z.enum(['INSTANT', 'VIDEO', 'VISIT']);
@@ -1227,3 +1313,208 @@ export const invoiceTokens = pgTable("invoice_tokens", {
 export const insertInvoiceTokenSchema = createInsertSchema(invoiceTokens);
 export type InvoiceToken = typeof invoiceTokens.$inferSelect;
 export type InsertInvoiceToken = z.infer<typeof insertInvoiceTokenSchema>;
+
+// ==========================================
+// CALL SCRIPT TUBE MAP SYSTEM
+// ==========================================
+
+// Station types - The 4 stages of the call flow
+export const CallScriptStationValues = ['LISTEN', 'SEGMENT', 'QUALIFY', 'DESTINATION'] as const;
+export type CallScriptStation = typeof CallScriptStationValues[number];
+
+// Segment types for call scripts (subset focused on common call scenarios)
+export const CallScriptSegmentValues = ['LANDLORD', 'BUSY_PRO', 'PROP_MGR', 'OAP', 'SMALL_BIZ', 'EMERGENCY', 'BUDGET'] as const;
+export type CallScriptSegment = typeof CallScriptSegmentValues[number];
+
+// Destination types - Where the call should end up
+export const CallScriptDestinationValues = ['INSTANT_QUOTE', 'VIDEO_REQUEST', 'SITE_VISIT', 'EMERGENCY_DISPATCH', 'EXIT'] as const;
+export type CallScriptDestination = typeof CallScriptDestinationValues[number];
+
+// Captured info interface for call script state
+export interface CallScriptCapturedInfo {
+    job: string | null;
+    postcode: string | null;
+    name: string | null;
+    contact: string | null;
+    isDecisionMaker: boolean | null;
+    isRemote: boolean | null;
+    hasTenant: boolean | null;
+}
+
+// Call script state for tracking progress through the tube map
+export interface CallScriptState {
+    callId: string;
+    currentStation: CallScriptStation;
+    completedStations: CallScriptStation[];
+
+    // Detected segment
+    detectedSegment: CallScriptSegment | null;
+    segmentConfidence: number;
+    segmentSignals: string[];
+
+    // Captured info
+    capturedInfo: CallScriptCapturedInfo;
+
+    // Qualification
+    isQualified: boolean | null;
+    qualificationNotes: string[];
+
+    // Destination
+    recommendedDestination: CallScriptDestination | null;
+    selectedDestination: CallScriptDestination | null;
+
+    // Timestamps
+    stationEnteredAt: Date;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+// Segment config for UI display
+export interface SegmentConfig {
+    id: CallScriptSegment;
+    name: string;
+    color: string;
+    oneLiner: string;
+    defaultDestination: CallScriptDestination;
+    detectionKeywords: string[];
+    watchForSignals: string[];
+}
+
+// Live Call Sessions table - Persistent storage for call script state
+export const liveCallSessions = pgTable('live_call_sessions', {
+    id: text('id').primaryKey(),
+    callId: text('call_id').notNull().references(() => calls.id),
+    phone: text('phone').notNull(),
+
+    // Current state
+    currentStation: text('current_station').notNull().default('LISTEN'),
+    completedStations: text('completed_stations').array().default([]),
+
+    // Segment detection
+    detectedSegment: text('detected_segment'),
+    segmentConfidence: integer('segment_confidence'),
+    segmentSignals: text('segment_signals').array(),
+
+    // Captured info (JSONB)
+    capturedInfo: jsonb('captured_info').default({}),
+
+    // Qualification
+    isQualified: boolean('is_qualified'),
+    qualificationNotes: text('qualification_notes').array(),
+
+    // Destination
+    recommendedDestination: text('recommended_destination'),
+    selectedDestination: text('selected_destination'),
+
+    // Timestamps
+    stationEnteredAt: timestamp('station_entered_at'),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+}, (table) => [
+    index("idx_live_call_sessions_call").on(table.callId),
+    index("idx_live_call_sessions_phone").on(table.phone),
+    index("idx_live_call_sessions_station").on(table.currentStation),
+]);
+
+export const liveCallSessionsRelations = relations(liveCallSessions, ({ one }) => ({
+    call: one(calls, {
+        fields: [liveCallSessions.callId],
+        references: [calls.id],
+    }),
+}));
+
+// Schema and types for live call sessions
+export const insertLiveCallSessionSchema = createInsertSchema(liveCallSessions);
+export type LiveCallSession = typeof liveCallSessions.$inferSelect;
+export type InsertLiveCallSession = z.infer<typeof insertLiveCallSessionSchema>;
+
+// ==========================================
+// SEGMENT JOURNEY TREE SYSTEM
+// ==========================================
+
+/**
+ * Station types in a segment journey
+ * - prompt: VA reads a prompt to customer
+ * - choice: Customer chooses from options
+ * - info_capture: VA captures specific info
+ * - destination: Final destination (quote fork)
+ */
+export type JourneyStationType = 'prompt' | 'choice' | 'info_capture' | 'destination';
+
+/**
+ * Conditions for station option availability
+ */
+export type StationOptionCondition = 'always' | 'sku_match' | 'has_video' | 'emergency_type';
+
+/**
+ * Action types for station options
+ */
+export type StationOptionAction = 'set_flag' | 'capture_info' | 'navigate' | 'fast_track';
+
+/**
+ * Station option - a choice within a journey station
+ */
+export interface StationOption {
+    id: string;
+    label: string;
+    icon?: string;
+    nextStation: string | null; // null = end journey
+    action?: StationOptionAction;
+    actionPayload?: Record<string, unknown>;
+    condition?: StationOptionCondition;
+}
+
+/**
+ * Journey station - a node in the segment journey tree
+ */
+export interface JourneyStation {
+    id: string;
+    type: JourneyStationType;
+    label: string;
+    vaPrompt: string; // What VA should say
+    description?: string; // Additional context for VA
+    options?: StationOption[];
+    nextStation?: string; // For non-choice stations
+    captureFields?: string[]; // For info_capture stations
+    skipCondition?: StationOptionCondition; // When to skip this station
+}
+
+/**
+ * Quote fork destination types
+ */
+export type QuoteForkDestination = 'INSTANT_QUOTE' | 'VIDEO_REQUEST' | 'SITE_VISIT' | 'EMERGENCY_DISPATCH' | 'EXIT';
+
+/**
+ * Final destination configuration
+ */
+export interface JourneyFinalDestination {
+    id: QuoteForkDestination;
+    label: string;
+    vaPrompt: string;
+    color: string;
+    icon: string;
+    condition?: StationOptionCondition;
+}
+
+/**
+ * Segment journey configuration
+ */
+export interface SegmentJourney {
+    segmentId: CallScriptSegment;
+    name: string;
+    primaryFear: string; // What the customer fears most
+    entryStation: string; // First station in journey
+    stations: Record<string, JourneyStation>;
+    optimizations: string[]; // Key phrases/behaviors for this segment
+    finalDestinations: JourneyFinalDestination[];
+}
+
+/**
+ * Extended CallScriptState with journey tracking
+ */
+export interface CallScriptStateWithJourney extends CallScriptState {
+    // Journey tracking
+    journeyPath: string[]; // Array of station IDs visited
+    currentJourneyStation: string | null; // Current station ID in segment journey
+    journeyFlags: Record<string, boolean | string>; // Flags set during journey
+}
