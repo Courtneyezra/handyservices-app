@@ -14,6 +14,7 @@ import {
     initializeCallScriptForCall,
     handleTranscriptChunk as handleCallScriptTranscript,
     endCallScriptSession,
+    getActiveSession,
 } from './call-script'; // Call Script Tube Map integration
 import { eq } from 'drizzle-orm';
 import fs from 'fs';
@@ -82,6 +83,12 @@ export class MediaStreamTranscriber {
 
     private phoneNumber: string;
     private callRecordId: string | null = null; // Track database call record ID
+
+    // Segment tracking for lead creation
+    private detectedSegment: string | null = null;
+    private segmentConfidence: number = 0;
+    private segmentSignals: string[] = [];
+    private vaWasPresent: boolean = false; // Did VA interact with HUD during call?
     private callStartTime: Date;
     private segments: any[] = []; // Store transcript segments
     private recordingPath: string | null = null;
@@ -832,6 +839,17 @@ export class MediaStreamTranscriber {
                     hasMultiple: multiTaskResult.matchedServices.length > 1
                 };
 
+                // Get segment data from call-script session
+                const callScriptSession = getActiveSession(this.callSid);
+                const sessionState = callScriptSession?.toJSON();
+                const detectedSegment = sessionState?.detectedSegment || null;
+                const segmentConfidence = sessionState?.segmentConfidence || 0;
+                const segmentSignals = sessionState?.segmentSignals || [];
+
+                // Determine if VA was present (confirmed a segment or took an action)
+                const segmentWasConfirmed = sessionState?.confirmedSegment !== null;
+                const needsSegmentApproval = detectedSegment && !segmentWasConfirmed;
+
                 // B9: Check for duplicate lead before creating
                 // Remove company info from name for cleaner match (e.g. "John (Acme)" -> "John")
                 const cleanNameForCheck = mergedMetadata.customerName
@@ -855,7 +873,13 @@ export class MediaStreamTranscriber {
                     await updateExistingLead(leadId, {
                         transcription: finalText,
                         jobDescription: finalText,
-                        metadata: mergedMetadata
+                        metadata: mergedMetadata,
+                        // Update segment if we have a detection
+                        ...(detectedSegment && {
+                            segment: detectedSegment,
+                            segmentConfidence: segmentConfidence,
+                            segmentSignals: segmentSignals,
+                        }),
                     });
 
                     /* 
@@ -889,16 +913,20 @@ export class MediaStreamTranscriber {
                         source: "voice_monitor",
                         jobDescription: finalText,
                         transcriptJson: routing as any,
-                        status: routing.matched ? "ready" : "review",
+                        status: needsSegmentApproval ? "needs_review" : (routing.matched ? "ready" : "review"),
                         // B5: Enhanced address fields
                         addressRaw: mergedMetadata.addressRaw,
                         addressCanonical: mergedMetadata.addressValidation?.canonicalAddress || null,
                         placeId: mergedMetadata.addressValidation?.placeId || null,
                         postcode: mergedMetadata.postcode, // Normalized
-                        coordinates: mergedMetadata.addressValidation?.coordinates || null
+                        coordinates: mergedMetadata.addressValidation?.coordinates || null,
+                        // Segment detection data
+                        segment: detectedSegment as any,
+                        segmentConfidence: segmentConfidence,
+                        segmentSignals: segmentSignals as any,
                     });
 
-                    console.log(`[Switchboard] Voice lead created: ${leadId} -> ${routing.nextRoute}`);
+                    console.log(`[Switchboard] Voice lead created: ${leadId} -> ${routing.nextRoute} | Segment: ${detectedSegment || 'UNKNOWN'} (${segmentConfidence}%) | Needs approval: ${needsSegmentApproval}`);
                 }
 
                 // Update call record with analysis results (outcome will be updated from UNKNOWN)
