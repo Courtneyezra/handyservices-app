@@ -9,18 +9,36 @@ import { validateExtractedAddress, AddressValidation } from './address-validatio
 import { findDuplicateLead, updateExistingLead } from './lead-deduplication'; // B9: Duplicate detection
 import { normalizePhoneNumber } from './phone-utils'; // B1: Phone normalization
 import { createCall, updateCall, addDetectedSkus, finalizeCall, findCallByTwilioSid } from './call-logger'; // Call logging integration
+import { analyzeCallTranscript } from './services/call-analyzer'; // Call analysis for lead scoring
+import {
+    initializeCallScriptForCall,
+    handleTranscriptChunk as handleCallScriptTranscript,
+    endCallScriptSession,
+} from './call-script'; // Call Script Tube Map integration
+import { eq } from 'drizzle-orm';
 import fs from 'fs';
 import path from 'path';
 import { storageService } from './storage';
 
-// Initialize Deepgram with logging
-const apiKey = process.env.DEEPGRAM_API_KEY || "";
-if (!apiKey) {
-    console.warn("[Deepgram] Warning: DEEPGRAM_API_KEY is not set");
+// WisprFlow imports
+import { createWisprFlowClient, WisprFlowClient, TranscriptEvent } from './wisprflow';
+import { convertTwilioToWisprFlow } from './audio-converter';
+
+// Determine which transcription service to use
+const WISPRFLOW_API_KEY = process.env.WISPRFLOW_API_KEY || "";
+const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || "";
+const USE_WISPRFLOW = !!WISPRFLOW_API_KEY;
+
+if (USE_WISPRFLOW) {
+    console.log(`[Transcription] Using WisprFlow (Key length: ${WISPRFLOW_API_KEY.length}, starts with: ${WISPRFLOW_API_KEY.substring(0, 4)}...)`);
+} else if (DEEPGRAM_API_KEY) {
+    console.log(`[Transcription] Using Deepgram fallback (Key length: ${DEEPGRAM_API_KEY.length}, starts with: ${DEEPGRAM_API_KEY.substring(0, 4)}...)`);
 } else {
-    console.log(`[Deepgram] Client initialized (Key length: ${apiKey.length}, starts with: ${apiKey.substring(0, 4)}...)`);
+    console.warn("[Transcription] Warning: Neither WISPRFLOW_API_KEY nor DEEPGRAM_API_KEY is set");
 }
-const deepgram = createClient(apiKey);
+
+// Initialize Deepgram (fallback)
+const deepgram = DEEPGRAM_API_KEY ? createClient(DEEPGRAM_API_KEY) : null;
 
 // Active Call Tracking
 let activeCallCount = 0;
@@ -34,8 +52,13 @@ export class MediaStreamTranscriber {
     private callSid: string;
     private streamSid: string;
     private ws: WebSocket;
-    private dgLiveInbound: any;  // Deepgram stream for caller audio
-    private dgLiveOutbound: any; // Deepgram stream for agent audio
+    private dgLiveInbound: any;  // Deepgram stream for caller audio (fallback)
+    private dgLiveOutbound: any; // Deepgram stream for agent audio (fallback)
+    // WisprFlow clients for dual-track transcription
+    private wisprInbound: WisprFlowClient | null = null;
+    private wisprOutbound: WisprFlowClient | null = null;
+    private wisprInboundConnected: boolean = false;
+    private wisprOutboundConnected: boolean = false;
     private fullTranscript: string = "";
     private isClosed = false;
     private broadcast: (message: any) => void;
@@ -68,23 +91,23 @@ export class MediaStreamTranscriber {
     private outboundRecordingPath: string | null = null;
     private inboundRecordingStream: fs.WriteStream | null = null;
     private outboundRecordingStream: fs.WriteStream | null = null;
-    private skipDeepgram: boolean = false; // Flag to skip Deepgram for Eleven Labs calls
+    private skipTranscription: boolean = false; // Flag to skip transcription for Eleven Labs calls
 
-    constructor(ws: WebSocket, callSid: string, streamSid: string, phoneNumber: string, broadcast: (message: any) => void, skipDeepgram: boolean = false) {
+    constructor(ws: WebSocket, callSid: string, streamSid: string, phoneNumber: string, broadcast: (message: any) => void, skipTranscription: boolean = false) {
         this.ws = ws;
         this.callSid = callSid;
         this.streamSid = streamSid;
         this.phoneNumber = phoneNumber;
         this.broadcast = broadcast;
         this.callStartTime = new Date();
-        this.skipDeepgram = skipDeepgram;
+        this.skipTranscription = skipTranscription;
 
         // Setup local recording with dual-channel support
         const recordingDir = path.join(process.cwd(), 'storage/recordings');
         if (!fs.existsSync(recordingDir)) {
             fs.mkdirSync(recordingDir, { recursive: true });
         }
-        // Legacy single-channel path (for backwards compatibility with Deepgram)
+        // Legacy single-channel path (for backwards compatibility)
         this.recordingPath = path.join(recordingDir, `call_${callSid}.raw`);
         this.recordingStream = fs.createWriteStream(this.recordingPath, { flags: 'a' });
         // Dual-channel paths: inbound (caller) and outbound (agent)
@@ -98,12 +121,34 @@ export class MediaStreamTranscriber {
         // Create call record immediately
         this.createCallRecord();
 
-        // Only initialize Deepgram if not skipped (e.g., for Eleven Labs calls)
-        if (!this.skipDeepgram) {
-            this.initializeDeepgram('inbound', 'Caller');
-            this.initializeDeepgram('outbound', 'Agent');
+        // Initialize transcription if not skipped (e.g., for Eleven Labs calls)
+        if (!this.skipTranscription) {
+            if (USE_WISPRFLOW) {
+                // Use WisprFlow for transcription
+                this.initializeWisprFlow('inbound', 'Caller');
+                this.initializeWisprFlow('outbound', 'Agent');
+            } else if (deepgram) {
+                // Fallback to Deepgram
+                this.initializeDeepgram('inbound', 'Caller');
+                this.initializeDeepgram('outbound', 'Agent');
+            } else {
+                console.warn(`[Transcription] No transcription service available for ${this.callSid}`);
+            }
         } else {
-            console.log(`[Deepgram] Skipping initialization for ${this.callSid} (Eleven Labs call)`);
+            console.log(`[Transcription] Skipping initialization for ${this.callSid} (Eleven Labs call)`);
+        }
+
+        // Initialize Call Script Tube Map session for VA coaching
+        this.initializeCallScript();
+    }
+
+    private async initializeCallScript() {
+        try {
+            await initializeCallScriptForCall(this.callSid, this.phoneNumber);
+            console.log(`[CallScript] Initialized session for call ${this.callSid}`);
+        } catch (error) {
+            console.error(`[CallScript] Failed to initialize session for ${this.callSid}:`, error);
+            // Non-fatal - call can still proceed without call script
         }
     }
 
@@ -132,7 +177,121 @@ export class MediaStreamTranscriber {
         }
     }
 
+    private initializeWisprFlow(track: 'inbound' | 'outbound', speakerLabel: string) {
+        console.log(`[WisprFlow] Initializing ${track} stream (${speakerLabel}) for ${this.callSid}`);
+
+        const client = createWisprFlowClient({
+            apiKey: WISPRFLOW_API_KEY,
+            language: 'en-GB', // Default to UK English
+            contextNames: [], // Could add customer name when detected
+        });
+
+        // Store reference to the appropriate stream
+        if (track === 'inbound') {
+            this.wisprInbound = client;
+        } else {
+            this.wisprOutbound = client;
+        }
+
+        // Handle connection events
+        client.on('connected', () => {
+            console.log(`[WisprFlow] ${track} (${speakerLabel}) connected for ${this.callSid}`);
+            if (track === 'inbound') {
+                this.wisprInboundConnected = true;
+                // Broadcast call_started once (from inbound)
+                this.broadcast({
+                    type: 'voice:call_started',
+                    data: { callSid: this.callSid, phoneNumber: this.phoneNumber }
+                });
+            } else {
+                this.wisprOutboundConnected = true;
+            }
+        });
+
+        // Handle transcript events - map to existing broadcast format
+        client.on('transcript', (event: TranscriptEvent) => {
+            if (event.isFinal && event.text) {
+                // Store segment with speaker label based on track
+                this.segments.push({
+                    text: event.text,
+                    speaker: speakerLabel,
+                    track: track,
+                    timestamp: new Date()
+                });
+
+                // Add speaker label to full transcript
+                this.fullTranscript += `[${speakerLabel}]: ${event.text}\n`;
+                console.log(`\n[WisprFlow] ${speakerLabel}: ${event.text}`);
+
+                // Broadcast final transcript to UI
+                this.broadcast({
+                    type: 'voice:live_segment',
+                    data: {
+                        callSid: this.callSid,
+                        transcript: event.text,
+                        speaker: speakerLabel,
+                        track: track,
+                        isFinal: true
+                    }
+                });
+
+                // Feed transcript to Call Script system for segment classification
+                handleCallScriptTranscript(this.callSid, event.text, speakerLabel);
+
+                // Debounce the analysis (not the display)
+                if (this.debounceTimer) {
+                    clearTimeout(this.debounceTimer);
+                }
+
+                this.debounceTimer = setTimeout(() => {
+                    console.log('[SKU Detector] Debounce timer fired - analyzing transcript');
+                    this.analyzeSegment(this.fullTranscript);
+                }, this.DEBOUNCE_MS);
+            } else if (event.text) {
+                // Interim result
+                process.stdout.write(`\r[WisprFlow] ${speakerLabel} Interim: ${event.text} `);
+                this.broadcast({
+                    type: 'voice:live_segment',
+                    data: {
+                        callSid: this.callSid,
+                        transcript: event.text,
+                        speaker: speakerLabel,
+                        track: track,
+                        isFinal: false
+                    }
+                });
+            }
+        });
+
+        client.on('error', (err: Error) => {
+            console.error(`[WisprFlow] ${speakerLabel} Error:`, err.message);
+        });
+
+        client.on('closed', () => {
+            console.log(`[WisprFlow] ${speakerLabel} connection closed for ${this.callSid}`);
+            if (track === 'inbound') {
+                this.wisprInboundConnected = false;
+            } else {
+                this.wisprOutboundConnected = false;
+            }
+        });
+
+        // Connect to WisprFlow
+        client.connect().catch((err) => {
+            console.error(`[WisprFlow] Failed to connect ${track} stream for ${this.callSid}:`, err);
+            // Fallback to Deepgram if WisprFlow fails
+            if (deepgram) {
+                console.log(`[WisprFlow] Falling back to Deepgram for ${track}`);
+                this.initializeDeepgram(track, speakerLabel);
+            }
+        });
+    }
+
     private initializeDeepgram(track: 'inbound' | 'outbound', speakerLabel: string) {
+        if (!deepgram) {
+            console.warn(`[Deepgram] Cannot initialize - client not available`);
+            return;
+        }
         console.log(`[Deepgram] Initializing ${track} stream (${speakerLabel}) for ${this.callSid}`);
 
         const dgLive = deepgram.listen.live({
@@ -201,6 +360,9 @@ export class MediaStreamTranscriber {
                         isFinal: true
                     }
                 });
+
+                // Feed transcript to Call Script system for segment classification and info extraction
+                handleCallScriptTranscript(this.callSid, transcript, speakerLabel);
 
                 // B4: Debounce ONLY the analysis (not the display)
                 // This keeps UI responsive while reducing API calls
@@ -376,14 +538,29 @@ export class MediaStreamTranscriber {
         try {
             const buffer = Buffer.from(payload, 'base64');
 
-            // Send to appropriate Deepgram stream based on track
-            if (track === 'inbound' && this.dgLiveInbound) {
-                this.dgLiveInbound.send(buffer);
-            } else if (track === 'outbound' && this.dgLiveOutbound) {
-                this.dgLiveOutbound.send(buffer);
-            } else if (!track && this.dgLiveInbound) {
-                // Fallback for legacy single-track mode
-                this.dgLiveInbound.send(buffer);
+            // Send to appropriate transcription service based on track
+            if (USE_WISPRFLOW) {
+                // WisprFlow: Convert mu-law to PCM before sending
+                const pcmBase64 = convertTwilioToWisprFlow(payload);
+
+                if (track === 'inbound' && this.wisprInbound && this.wisprInboundConnected) {
+                    this.wisprInbound.sendAudio(pcmBase64);
+                } else if (track === 'outbound' && this.wisprOutbound && this.wisprOutboundConnected) {
+                    this.wisprOutbound.sendAudio(pcmBase64);
+                } else if (!track && this.wisprInbound && this.wisprInboundConnected) {
+                    // Fallback for legacy single-track mode
+                    this.wisprInbound.sendAudio(pcmBase64);
+                }
+            } else {
+                // Deepgram fallback: Send mu-law directly
+                if (track === 'inbound' && this.dgLiveInbound) {
+                    this.dgLiveInbound.send(buffer);
+                } else if (track === 'outbound' && this.dgLiveOutbound) {
+                    this.dgLiveOutbound.send(buffer);
+                } else if (!track && this.dgLiveInbound) {
+                    // Fallback for legacy single-track mode
+                    this.dgLiveInbound.send(buffer);
+                }
             }
 
             // Write to legacy single-channel recording (inbound only for backwards compat)
@@ -398,7 +575,7 @@ export class MediaStreamTranscriber {
                 this.outboundRecordingStream.write(buffer);
             }
         } catch (e) {
-            console.error("[Deepgram] Send error:", e);
+            console.error("[Transcription] Send error:", e);
         }
     }
 
@@ -436,7 +613,32 @@ export class MediaStreamTranscriber {
 
         const finalText = this.fullTranscript.trim();
 
-        // Close Deepgram streams
+        // End Call Script session (persists state and cleans up)
+        endCallScriptSession(this.callSid).catch((err) => {
+            console.error(`[CallScript] Error ending session for ${this.callSid}:`, err);
+        });
+
+        // Close WisprFlow connections
+        if (this.wisprInbound) {
+            try {
+                this.wisprInbound.commit(); // Send final commit
+                this.wisprInbound.close();
+                console.log(`[WisprFlow] Closed inbound (Caller) stream`);
+            } catch (e) {
+                console.error(`[WisprFlow] Error closing inbound stream:`, e);
+            }
+        }
+        if (this.wisprOutbound) {
+            try {
+                this.wisprOutbound.commit(); // Send final commit
+                this.wisprOutbound.close();
+                console.log(`[WisprFlow] Closed outbound (Agent) stream`);
+            } catch (e) {
+                console.error(`[WisprFlow] Error closing outbound stream:`, e);
+            }
+        }
+
+        // Close Deepgram streams (fallback)
         if (this.dgLiveInbound) {
             try {
                 this.dgLiveInbound.finish();
@@ -674,8 +876,6 @@ export class MediaStreamTranscriber {
                         postcode: mergedMetadata.postcode,
                         urgency: mergedMetadata.urgency,
                         leadType: mergedMetadata.leadType,
-                        urgency: mergedMetadata.urgency,
-                        leadType: mergedMetadata.leadType,
                         outcome: routing.nextRoute,
                         metadataJson: mergedMetadata,
                         leadId: leadId
@@ -693,6 +893,61 @@ export class MediaStreamTranscriber {
 
                         await addDetectedSkus(this.callRecordId, skuData);
                     }
+                }
+
+                // === AUTO-VIDEO PROCESSING ===
+                // Fire-and-forget: Analyze transcript for video request agreement
+                // and auto-send WhatsApp if confidence is high enough
+                if (leadId && mergedMetadata.phoneNumber && finalText.length > 100) {
+                    (async () => {
+                        try {
+                            const { processCallForAutoVideo } = await import('./services/auto-video-service');
+                            console.log(`[AutoVideo] Processing call ${this.callRecordId} for lead ${leadId}...`);
+
+                            const result = await processCallForAutoVideo(
+                                this.callRecordId || '',
+                                leadId,
+                                finalText,
+                                mergedMetadata.phoneNumber,
+                                mergedMetadata.customerName || 'there'
+                            );
+
+                            if (result.sent) {
+                                console.log(`[AutoVideo] Video request auto-sent for lead ${leadId}`);
+                            } else {
+                                console.log(`[AutoVideo] Skipped for lead ${leadId}: ${result.reason}`);
+                            }
+                        } catch (err) {
+                            console.error(`[AutoVideo] Error processing:`, err);
+                        }
+                    })();
+                }
+
+                // === CALL ANALYZER & LEAD SCORING ===
+                // Fire-and-forget: Analyze transcript for lead qualification and segmentation
+                if (leadId && finalText.length > 50) {
+                    (async () => {
+                        try {
+                            console.log(`[CallAnalyzer] Analyzing call for lead ${leadId}...`);
+                            const analysis = await analyzeCallTranscript(finalText);
+
+                            // Update lead with analysis results
+                            await db.update(leads)
+                                .set({
+                                    qualificationScore: analysis.qualificationScore,
+                                    qualificationGrade: analysis.qualificationGrade,
+                                    segment: analysis.segment as any, // Cast to match enum type
+                                    segmentConfidence: analysis.segmentConfidence,
+                                    segmentSignals: analysis.segmentSignals,
+                                    redFlags: analysis.redFlags
+                                })
+                                .where(eq(leads.id, leadId));
+
+                            console.log(`[CallAnalyzer] Lead ${leadId} scored: ${analysis.qualificationGrade} (${analysis.qualificationScore}), segment: ${analysis.segment}`);
+                        } catch (err) {
+                            console.error('[CallAnalyzer] Error analyzing call:', err);
+                        }
+                    })();
                 }
 
                 // Broadcast final analysis update (call_ended was already sent immediately)
@@ -723,8 +978,10 @@ export function setupTwilioSocket(wss: WebSocketServer, broadcast: (message: any
                     case 'start':
                         console.log(`[Twilio] Stream started: ${msg.start.streamSid} `);
                         const phoneNumber = msg.start.customParameters?.phoneNumber || "Unknown";
-                        const skipDeepgram = msg.start.customParameters?.skipDeepgram === 'true';
-                        transcriber = new MediaStreamTranscriber(ws, msg.start.callSid, msg.start.streamSid, phoneNumber, broadcast, skipDeepgram);
+                        // Support both old and new parameter names for backwards compatibility
+                        const skipTranscription = msg.start.customParameters?.skipTranscription === 'true' ||
+                                                  msg.start.customParameters?.skipDeepgram === 'true';
+                        transcriber = new MediaStreamTranscriber(ws, msg.start.callSid, msg.start.streamSid, phoneNumber, broadcast, skipTranscription);
                         break;
                     case 'media':
                         if (transcriber) {
