@@ -518,6 +518,40 @@ export class MediaStreamTranscriber {
                     }
                 });
 
+                // Broadcast jobs update for CallHUD
+                const jobs = [
+                    ...multiTaskResult.matchedServices.map((s, i) => ({
+                        id: `job-${i}`,
+                        description: s.task.description || s.sku.name,
+                        matched: true,
+                        sku: { pricePence: s.sku.pricePence },
+                    })),
+                    ...multiTaskResult.unmatchedTasks.map((t, i) => ({
+                        id: `unmatched-${i}`,
+                        description: t.description,
+                        matched: false,
+                    })),
+                ];
+                if (jobs.length > 0) {
+                    this.broadcast({
+                        type: 'callscript:jobs_update',
+                        data: {
+                            callId: this.callSid,
+                            jobs,
+                        }
+                    });
+
+                    // Broadcast SKU match status for action button state
+                    this.broadcast({
+                        type: 'callscript:sku_match_update',
+                        data: {
+                            callId: this.callSid,
+                            matched: multiTaskResult.hasMatches,
+                            hasUnmatched: multiTaskResult.unmatchedTasks.length > 0,
+                        }
+                    });
+                }
+
                 // Persist live analysis to DB for reconnecting clients
                 if (this.callRecordId) {
                     updateCall(this.callRecordId, {
