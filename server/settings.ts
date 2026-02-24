@@ -74,8 +74,18 @@ router.get('/balance', async (req, res) => {
 });
 
 
+// Default settings for Call Timing (Live call chunk timing constants)
+const CALL_TIMING_DEFAULTS = {
+    'call_timing.sku_debounce_ms': { value: 300, description: 'SKU analysis delay - how long to wait after last transcript segment before analyzing (ms)' },
+    'call_timing.tier2_llm_debounce_ms': { value: 500, description: 'Tier 2 LLM delay - debounce time for segment classifier LLM calls (ms)' },
+    'call_timing.metadata_chunk_interval': { value: 5, description: 'Extract metadata every N transcript chunks' },
+    'call_timing.metadata_char_threshold': { value: 150, description: 'Extract metadata when transcript exceeds N characters' },
+};
+
 // Default settings for Twilio call routing
 const DEFAULT_SETTINGS = {
+    // Call Timing settings
+    ...CALL_TIMING_DEFAULTS,
     'twilio.business_name': { value: 'Handy Services', description: 'Business name for greetings' },
     'twilio.welcome_message': { value: 'Hello, thank you for calling {business_name}. One of our team will be with you shortly.', description: 'Welcome message played to callers' },
     'twilio.voice': { value: 'Polly.Amy-Neural', description: 'Twilio voice for TTS (UK Female)' },
@@ -503,6 +513,149 @@ export async function getSetting(key: string): Promise<any> {
         return null;
     }
 }
+
+// ============================================
+// CALL TIMING SETTINGS API
+// ============================================
+
+export interface CallTimingSettings {
+    skuDebounceMs: number;
+    tier2LlmDebounceMs: number;
+    metadataChunkInterval: number;
+    metadataCharThreshold: number;
+}
+
+// Cache for call timing settings (refreshed periodically)
+let callTimingCache: CallTimingSettings | null = null;
+let callTimingCacheTime = 0;
+const CACHE_TTL_MS = 60000; // 1 minute cache
+
+// Get call timing settings (with caching for performance)
+export async function getCallTimingSettings(): Promise<CallTimingSettings> {
+    const now = Date.now();
+
+    // Return cache if fresh
+    if (callTimingCache && (now - callTimingCacheTime) < CACHE_TTL_MS) {
+        return callTimingCache;
+    }
+
+    try {
+        const settings = await db.select().from(appSettings);
+        const settingsMap = new Map(settings.map(s => [s.key, s.value]));
+
+        callTimingCache = {
+            skuDebounceMs: (settingsMap.get('call_timing.sku_debounce_ms') ?? CALL_TIMING_DEFAULTS['call_timing.sku_debounce_ms'].value) as number,
+            tier2LlmDebounceMs: (settingsMap.get('call_timing.tier2_llm_debounce_ms') ?? CALL_TIMING_DEFAULTS['call_timing.tier2_llm_debounce_ms'].value) as number,
+            metadataChunkInterval: (settingsMap.get('call_timing.metadata_chunk_interval') ?? CALL_TIMING_DEFAULTS['call_timing.metadata_chunk_interval'].value) as number,
+            metadataCharThreshold: (settingsMap.get('call_timing.metadata_char_threshold') ?? CALL_TIMING_DEFAULTS['call_timing.metadata_char_threshold'].value) as number,
+        };
+        callTimingCacheTime = now;
+
+        return callTimingCache;
+    } catch (error) {
+        console.error('[Settings] Failed to get call timing settings:', error);
+        // Return defaults on error
+        return {
+            skuDebounceMs: CALL_TIMING_DEFAULTS['call_timing.sku_debounce_ms'].value as number,
+            tier2LlmDebounceMs: CALL_TIMING_DEFAULTS['call_timing.tier2_llm_debounce_ms'].value as number,
+            metadataChunkInterval: CALL_TIMING_DEFAULTS['call_timing.metadata_chunk_interval'].value as number,
+            metadataCharThreshold: CALL_TIMING_DEFAULTS['call_timing.metadata_char_threshold'].value as number,
+        };
+    }
+}
+
+// Invalidate cache (call after updating settings)
+export function invalidateCallTimingCache() {
+    callTimingCache = null;
+    callTimingCacheTime = 0;
+}
+
+// GET /api/settings/call-timing - Get current call timing settings
+router.get('/call-timing', async (req, res) => {
+    try {
+        const settings = await getCallTimingSettings();
+        const defaults = {
+            skuDebounceMs: CALL_TIMING_DEFAULTS['call_timing.sku_debounce_ms'].value,
+            tier2LlmDebounceMs: CALL_TIMING_DEFAULTS['call_timing.tier2_llm_debounce_ms'].value,
+            metadataChunkInterval: CALL_TIMING_DEFAULTS['call_timing.metadata_chunk_interval'].value,
+            metadataCharThreshold: CALL_TIMING_DEFAULTS['call_timing.metadata_char_threshold'].value,
+        };
+
+        res.json({
+            settings,
+            defaults,
+            descriptions: {
+                skuDebounceMs: CALL_TIMING_DEFAULTS['call_timing.sku_debounce_ms'].description,
+                tier2LlmDebounceMs: CALL_TIMING_DEFAULTS['call_timing.tier2_llm_debounce_ms'].description,
+                metadataChunkInterval: CALL_TIMING_DEFAULTS['call_timing.metadata_chunk_interval'].description,
+                metadataCharThreshold: CALL_TIMING_DEFAULTS['call_timing.metadata_char_threshold'].description,
+            }
+        });
+    } catch (error) {
+        console.error('[Settings] Failed to fetch call timing settings:', error);
+        res.status(500).json({ error: 'Failed to fetch call timing settings' });
+    }
+});
+
+// PUT /api/settings/call-timing - Update call timing settings
+router.put('/call-timing', async (req, res) => {
+    try {
+        const { skuDebounceMs, tier2LlmDebounceMs, metadataChunkInterval, metadataCharThreshold } = req.body;
+
+        const updates: Array<{ key: string; value: number }> = [];
+
+        if (skuDebounceMs !== undefined) {
+            const val = Math.max(50, Math.min(2000, Number(skuDebounceMs))); // Clamp 50-2000ms
+            updates.push({ key: 'call_timing.sku_debounce_ms', value: val });
+        }
+
+        if (tier2LlmDebounceMs !== undefined) {
+            const val = Math.max(100, Math.min(3000, Number(tier2LlmDebounceMs))); // Clamp 100-3000ms
+            updates.push({ key: 'call_timing.tier2_llm_debounce_ms', value: val });
+        }
+
+        if (metadataChunkInterval !== undefined) {
+            const val = Math.max(1, Math.min(20, Number(metadataChunkInterval))); // Clamp 1-20 chunks
+            updates.push({ key: 'call_timing.metadata_chunk_interval', value: val });
+        }
+
+        if (metadataCharThreshold !== undefined) {
+            const val = Math.max(50, Math.min(500, Number(metadataCharThreshold))); // Clamp 50-500 chars
+            updates.push({ key: 'call_timing.metadata_char_threshold', value: val });
+        }
+
+        // Apply updates
+        for (const { key, value } of updates) {
+            const [existing] = await db.select().from(appSettings).where(eq(appSettings.key, key));
+
+            if (existing) {
+                await db.update(appSettings)
+                    .set({ value, updatedAt: new Date() })
+                    .where(eq(appSettings.key, key));
+            } else {
+                const defaultSetting = CALL_TIMING_DEFAULTS[key as keyof typeof CALL_TIMING_DEFAULTS];
+                await db.insert(appSettings).values({
+                    id: uuidv4(),
+                    key,
+                    value,
+                    description: defaultSetting?.description || null,
+                });
+            }
+        }
+
+        // Invalidate cache
+        invalidateCallTimingCache();
+
+        console.log(`[Settings] Updated call timing: ${updates.map(u => `${u.key}=${u.value}`).join(', ')}`);
+
+        // Return updated settings
+        const newSettings = await getCallTimingSettings();
+        res.json({ success: true, settings: newSettings });
+    } catch (error) {
+        console.error('[Settings] Failed to update call timing settings:', error);
+        res.status(500).json({ error: 'Failed to update call timing settings' });
+    }
+});
 
 // Helper to get all Twilio settings at once
 export async function getTwilioSettings() {

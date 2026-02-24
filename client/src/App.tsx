@@ -36,8 +36,16 @@ const MarketingDashboard = lazy(() => import("@/pages/admin/MarketingDashboard")
 const LandingPageBuilder = lazy(() => import("@/pages/admin/LandingPageBuilder"));
 const Banners = lazy(() => import("@/pages/admin/Banners"));
 const LeadsPage = lazy(() => import("@/pages/admin/LeadsPage"));
+const LeadReviewPage = lazy(() => import("@/pages/admin/LeadReviewPage"));
+const LeadFunnelPage = lazy(() => import("@/pages/admin/LeadFunnelPage"));
+const LeadPipelinePage = lazy(() => import("@/pages/admin/LeadPipelinePage"));
+const LeadTubeMapPage = lazy(() => import("@/pages/admin/LeadTubeMapPage"));
+const PipelineHomePage = lazy(() => import("@/pages/admin/PipelineHomePage"));
 const InvoicesPage = lazy(() => import("@/pages/admin/InvoicesPage"));
 const LiveCallPage = lazy(() => import("@/pages/admin/LiveCallPage"));
+const LiveCallTestPage = lazy(() => import("@/pages/admin/LiveCallTestPage"));
+const LiveCallCoachTestPage = lazy(() => import("@/pages/admin/LiveCallCoachTestPage"));
+const CallHUDTestPage = lazy(() => import("@/pages/admin/CallHUDTestPage"));
 const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
 const QuotesPage = lazy(() => import("@/pages/admin/QuotesPage"));
 const EditQuotePage = lazy(() => import("@/pages/admin/EditQuotePage"));
@@ -342,13 +350,18 @@ function Router() {
                 </Route>
 
                 {/* ============ ADMIN ROUTES (Protected) ============ */}
+                {/* Pipeline Home - the main/only view for V6 Switchboard CRM */}
                 <Route path="/admin">
                     <ProtectedRoute role="admin">
-                        <SidebarLayout>
-                            <DashboardPage />
-                        </SidebarLayout>
+                        <PipelineHomePage />
                     </ProtectedRoute>
                 </Route>
+                <Route path="/admin/pipeline-home">
+                    <ProtectedRoute role="admin">
+                        <PipelineHomePage />
+                    </ProtectedRoute>
+                </Route>
+                {/* Legacy Dashboard - accessed via admin sidebar */}
                 <Route path="/admin/dashboard">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
@@ -368,6 +381,21 @@ function Router() {
                         <SidebarLayout>
                             <LiveCallPage />
                         </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/live-call-test">
+                    <ProtectedRoute role="admin">
+                        <LiveCallTestPage />
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/live-call-coach">
+                    <ProtectedRoute role="admin">
+                        <LiveCallCoachTestPage />
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/call-hud">
+                    <ProtectedRoute role="admin">
+                        <CallHUDTestPage />
                     </ProtectedRoute>
                 </Route>
                 <Route path="/admin/inbox">
@@ -497,10 +525,38 @@ function Router() {
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
+                <Route path="/admin/leads/review">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <LeadReviewPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
                 <Route path="/admin/leads">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <LeadsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/funnel">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <LeadFunnelPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/pipeline">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <LeadPipelinePage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/tube-map">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <LeadTubeMapPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

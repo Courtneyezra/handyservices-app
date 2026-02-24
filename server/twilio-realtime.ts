@@ -20,6 +20,7 @@ import { eq } from 'drizzle-orm';
 import fs from 'fs';
 import path from 'path';
 import { storageService } from './storage';
+import { getCallTimingSettings, CallTimingSettings } from './settings';
 
 // WisprFlow imports
 import { createWisprFlowClient, WisprFlowClient, TranscriptEvent } from './wisprflow';
@@ -65,9 +66,11 @@ export class MediaStreamTranscriber {
     private broadcast: (message: any) => void;
     private history: string[] = []; // Live session history
 
-    // B4: Debouncing
+    // B4: Debouncing - configurable via admin settings
     private debounceTimer: NodeJS.Timeout | null = null;
-    private readonly DEBOUNCE_MS = 300; // Wait 300ms after last segment
+    private debounceMs: number = 300; // Default, will be overridden by settings
+    private metadataChunkInterval: number = 5; // Extract metadata every N chunks
+    private metadataCharThreshold: number = 150; // Extract metadata when transcript > N chars
 
     private metadata: any = {
         customerName: null,
@@ -125,6 +128,9 @@ export class MediaStreamTranscriber {
 
         activeCallCount++;
 
+        // Load configurable timing settings
+        this.loadTimingSettings();
+
         // Create call record immediately
         this.createCallRecord();
 
@@ -156,6 +162,19 @@ export class MediaStreamTranscriber {
         } catch (error) {
             console.error(`[CallScript] Failed to initialize session for ${this.callSid}:`, error);
             // Non-fatal - call can still proceed without call script
+        }
+    }
+
+    private async loadTimingSettings() {
+        try {
+            const settings = await getCallTimingSettings();
+            this.debounceMs = settings.skuDebounceMs;
+            this.metadataChunkInterval = settings.metadataChunkInterval;
+            this.metadataCharThreshold = settings.metadataCharThreshold;
+            console.log(`[Timing] Loaded settings for ${this.callSid}: debounce=${this.debounceMs}ms, chunkInterval=${this.metadataChunkInterval}, charThreshold=${this.metadataCharThreshold}`);
+        } catch (error) {
+            console.error(`[Timing] Failed to load settings for ${this.callSid}, using defaults:`, error);
+            // Keep defaults already set in class properties
         }
     }
 
@@ -253,7 +272,7 @@ export class MediaStreamTranscriber {
                 this.debounceTimer = setTimeout(() => {
                     console.log('[SKU Detector] Debounce timer fired - analyzing transcript');
                     this.analyzeSegment(this.fullTranscript);
-                }, this.DEBOUNCE_MS);
+                }, this.debounceMs);
             } else if (event.text) {
                 // Interim result
                 process.stdout.write(`\r[WisprFlow] ${speakerLabel} Interim: ${event.text} `);
@@ -380,7 +399,7 @@ export class MediaStreamTranscriber {
                 this.debounceTimer = setTimeout(() => {
                     console.log('[SKU Detector] Debounce timer fired - analyzing transcript');
                     this.analyzeSegment(this.fullTranscript);
-                }, this.DEBOUNCE_MS);
+                }, this.debounceMs);
             } else if (transcript) {
                 // Interim result
                 process.stdout.write(`\r[Deepgram] ${speakerLabel} Interim: ${transcript} `);
@@ -434,10 +453,11 @@ export class MediaStreamTranscriber {
                 }
             }
 
-            // Extract name and address periodically (every 5 segments OR if transcript > 150 chars)
+            // Extract name and address periodically (every N segments OR if transcript > N chars)
             // But not more frequently than every 10 seconds to avoid excessive API calls
+            // Settings are configurable via admin panel
             const now = Date.now();
-            const shouldExtractMetadata = (this.segmentCount % 5 === 0 || this.fullTranscript.length > 150)
+            const shouldExtractMetadata = (this.segmentCount % this.metadataChunkInterval === 0 || this.fullTranscript.length > this.metadataCharThreshold)
                 && (now - this.lastMetadataExtraction > 10000);
 
             if (shouldExtractMetadata) {

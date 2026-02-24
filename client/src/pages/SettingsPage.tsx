@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Settings, Phone, Volume2, MessageSquare, CheckCircle, XCircle, Loader2, AlertCircle, PhoneForwarded, Clock } from 'lucide-react';
+import { Settings, Phone, Volume2, MessageSquare, CheckCircle, XCircle, Loader2, AlertCircle, PhoneForwarded, Clock, Timer, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DaySelector } from '@/components/ui/day-selector';
 import { LiveSchedulePreview } from '@/components/ui/live-schedule-preview';
@@ -94,7 +94,7 @@ export default function SettingsPage() {
     const getInitialTab = () => {
         const params = new URLSearchParams(window.location.search);
         const tab = params.get('tab');
-        return tab && ['routing', 'experience', 'fallback'].includes(tab) ? tab : 'routing';
+        return tab && ['routing', 'experience', 'fallback', 'timing'].includes(tab) ? tab : 'routing';
     };
     const [activeTab, setActiveTab] = useState(getInitialTab);
 
@@ -169,6 +169,97 @@ export default function SettingsPage() {
         },
         refetchInterval: 30000, // Refresh every 30s
     });
+
+    // ============================================
+    // CALL TIMING SETTINGS
+    // ============================================
+    interface CallTimingSettings {
+        skuDebounceMs: number;
+        tier2LlmDebounceMs: number;
+        metadataChunkInterval: number;
+        metadataCharThreshold: number;
+    }
+
+    interface CallTimingDefaults {
+        skuDebounceMs: number;
+        tier2LlmDebounceMs: number;
+        metadataChunkInterval: number;
+        metadataCharThreshold: number;
+    }
+
+    interface CallTimingDescriptions {
+        skuDebounceMs: string;
+        tier2LlmDebounceMs: string;
+        metadataChunkInterval: string;
+        metadataCharThreshold: string;
+    }
+
+    const [timingSettings, setTimingSettings] = useState<CallTimingSettings>({
+        skuDebounceMs: 300,
+        tier2LlmDebounceMs: 500,
+        metadataChunkInterval: 5,
+        metadataCharThreshold: 150,
+    });
+    const [timingDefaults, setTimingDefaults] = useState<CallTimingDefaults | null>(null);
+    const [timingDescriptions, setTimingDescriptions] = useState<CallTimingDescriptions | null>(null);
+    const [isTimingDirty, setIsTimingDirty] = useState(false);
+
+    // Fetch call timing settings
+    const { data: timingData, isLoading: isTimingLoading } = useQuery({
+        queryKey: ['call-timing-settings'],
+        queryFn: async () => {
+            const res = await fetch('/api/settings/call-timing');
+            if (!res.ok) throw new Error('Failed to fetch call timing settings');
+            return res.json();
+        },
+        staleTime: 60 * 1000, // 1 minute
+    });
+
+    // Load timing settings into local state
+    useEffect(() => {
+        if (timingData) {
+            setTimingSettings(timingData.settings);
+            setTimingDefaults(timingData.defaults);
+            setTimingDescriptions(timingData.descriptions);
+        }
+    }, [timingData]);
+
+    // Save call timing settings mutation
+    const saveTimingMutation = useMutation({
+        mutationFn: async (settings: Partial<CallTimingSettings>) => {
+            const res = await fetch('/api/settings/call-timing', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings),
+            });
+            if (!res.ok) throw new Error('Failed to save call timing settings');
+            return res.json();
+        },
+        onSuccess: () => {
+            toast({ title: 'Timing settings saved', description: 'Call timing constants have been updated.' });
+            queryClient.invalidateQueries({ queryKey: ['call-timing-settings'] });
+            setIsTimingDirty(false);
+        },
+        onError: () => {
+            toast({ title: 'Error', description: 'Failed to save timing settings', variant: 'destructive' });
+        },
+    });
+
+    const updateTimingSetting = <K extends keyof CallTimingSettings>(key: K, value: CallTimingSettings[K]) => {
+        setTimingSettings(prev => ({ ...prev, [key]: value }));
+        setIsTimingDirty(true);
+    };
+
+    const handleSaveTiming = () => {
+        saveTimingMutation.mutate(timingSettings);
+    };
+
+    const handleResetTiming = () => {
+        if (timingDefaults) {
+            setTimingSettings(timingDefaults);
+            setIsTimingDirty(true);
+        }
+    };
 
     // Check forward number status
     const checkForwardStatus = async (phoneNumber: string) => {
@@ -379,10 +470,11 @@ export default function SettingsPage() {
             </div>
 
             <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-                <TabsList className="grid w-full grid-cols-3 mb-8 bg-muted border border-border">
+                <TabsList className="grid w-full grid-cols-4 mb-8 bg-muted border border-border">
                     <TabsTrigger value="routing">Call Routing</TabsTrigger>
                     <TabsTrigger value="experience">Experience</TabsTrigger>
                     <TabsTrigger value="fallback">Fallback</TabsTrigger>
+                    <TabsTrigger value="timing">Call Timing</TabsTrigger>
                 </TabsList>
 
                 {/* Call Routing Tab */}
@@ -961,6 +1053,200 @@ export default function SettingsPage() {
                                         className="bg-background border-input text-foreground"
                                     />
                                     <p className="text-sm text-muted-foreground">Sent if you miss the call</p>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                {/* Call Timing Tab */}
+                <TabsContent value="timing" className="space-y-6 pt-2">
+                    <Card className="jobber-card shadow-sm">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Timer className="w-5 h-5 text-orange-600" />
+                                Live Call Timing Constants
+                            </CardTitle>
+                            <CardDescription>
+                                Fine-tune the timing for live call analysis. These settings affect how quickly the system responds during calls.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            {isTimingLoading ? (
+                                <div className="flex items-center justify-center py-8">
+                                    <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                                </div>
+                            ) : (
+                                <>
+                                    {/* SKU Debounce */}
+                                    <div className="space-y-3 p-4 bg-muted/30 rounded-lg border border-border">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <Label className="text-base font-medium text-foreground">SKU Analysis Delay</Label>
+                                                <p className="text-sm text-muted-foreground">
+                                                    {timingDescriptions?.skuDebounceMs || 'How long to wait after the last transcript segment before running SKU detection'}
+                                                </p>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-2xl font-bold text-foreground">{timingSettings.skuDebounceMs}</span>
+                                                <span className="text-sm text-muted-foreground ml-1">ms</span>
+                                            </div>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min={50}
+                                            max={1000}
+                                            step={50}
+                                            value={timingSettings.skuDebounceMs}
+                                            onChange={(e) => updateTimingSetting('skuDebounceMs', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                                        />
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                            <span>50ms (faster)</span>
+                                            <span className="text-orange-500">Default: {timingDefaults?.skuDebounceMs || 300}ms</span>
+                                            <span>1000ms (slower)</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Tier 2 LLM Debounce */}
+                                    <div className="space-y-3 p-4 bg-muted/30 rounded-lg border border-border">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <Label className="text-base font-medium text-foreground">Segment Classification Delay</Label>
+                                                <p className="text-sm text-muted-foreground">
+                                                    {timingDescriptions?.tier2LlmDebounceMs || 'Debounce time before calling the LLM for customer segment classification'}
+                                                </p>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-2xl font-bold text-foreground">{timingSettings.tier2LlmDebounceMs}</span>
+                                                <span className="text-sm text-muted-foreground ml-1">ms</span>
+                                            </div>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min={100}
+                                            max={2000}
+                                            step={100}
+                                            value={timingSettings.tier2LlmDebounceMs}
+                                            onChange={(e) => updateTimingSetting('tier2LlmDebounceMs', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                                        />
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                            <span>100ms (faster)</span>
+                                            <span className="text-orange-500">Default: {timingDefaults?.tier2LlmDebounceMs || 500}ms</span>
+                                            <span>2000ms (slower)</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Metadata Chunk Interval */}
+                                    <div className="space-y-3 p-4 bg-muted/30 rounded-lg border border-border">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <Label className="text-base font-medium text-foreground">Metadata Extraction Interval</Label>
+                                                <p className="text-sm text-muted-foreground">
+                                                    {timingDescriptions?.metadataChunkInterval || 'Extract name/address every N transcript chunks'}
+                                                </p>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-2xl font-bold text-foreground">{timingSettings.metadataChunkInterval}</span>
+                                                <span className="text-sm text-muted-foreground ml-1">chunks</span>
+                                            </div>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min={1}
+                                            max={15}
+                                            step={1}
+                                            value={timingSettings.metadataChunkInterval}
+                                            onChange={(e) => updateTimingSetting('metadataChunkInterval', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                                        />
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                            <span>1 (every chunk)</span>
+                                            <span className="text-orange-500">Default: {timingDefaults?.metadataChunkInterval || 5} chunks</span>
+                                            <span>15 (less frequent)</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Metadata Character Threshold */}
+                                    <div className="space-y-3 p-4 bg-muted/30 rounded-lg border border-border">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <Label className="text-base font-medium text-foreground">Metadata Character Threshold</Label>
+                                                <p className="text-sm text-muted-foreground">
+                                                    {timingDescriptions?.metadataCharThreshold || 'Also extract metadata when transcript exceeds this many characters'}
+                                                </p>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-2xl font-bold text-foreground">{timingSettings.metadataCharThreshold}</span>
+                                                <span className="text-sm text-muted-foreground ml-1">chars</span>
+                                            </div>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min={50}
+                                            max={400}
+                                            step={25}
+                                            value={timingSettings.metadataCharThreshold}
+                                            onChange={(e) => updateTimingSetting('metadataCharThreshold', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                                        />
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                            <span>50 (more frequent)</span>
+                                            <span className="text-orange-500">Default: {timingDefaults?.metadataCharThreshold || 150} chars</span>
+                                            <span>400 (less frequent)</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Action Buttons */}
+                                    <div className="flex items-center justify-between pt-4 border-t border-border">
+                                        <Button
+                                            variant="outline"
+                                            onClick={handleResetTiming}
+                                            disabled={!timingDefaults}
+                                            className="gap-2"
+                                        >
+                                            <RotateCcw className="w-4 h-4" />
+                                            Reset to Defaults
+                                        </Button>
+                                        <Button
+                                            onClick={handleSaveTiming}
+                                            disabled={!isTimingDirty || saveTimingMutation.isPending}
+                                            className="gap-2"
+                                        >
+                                            {saveTimingMutation.isPending ? (
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                            ) : (
+                                                <CheckCircle className="w-4 h-4" />
+                                            )}
+                                            Save Timing Settings
+                                        </Button>
+                                    </div>
+
+                                    {isTimingDirty && (
+                                        <div className="flex items-center gap-2 text-sm text-orange-600 bg-orange-500/10 px-3 py-2 rounded-md border border-orange-500/20">
+                                            <AlertCircle className="w-4 h-4" />
+                                            You have unsaved timing changes
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* Help Section */}
+                    <Card className="jobber-card shadow-sm border-blue-500/20 bg-blue-500/5">
+                        <CardContent className="pt-6">
+                            <div className="flex gap-3">
+                                <AlertCircle className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                                <div className="space-y-2 text-sm">
+                                    <p className="font-medium text-foreground">How these settings affect live calls:</p>
+                                    <ul className="space-y-1 text-muted-foreground list-disc list-inside">
+                                        <li><strong>Lower values</strong> = faster response, but more API calls (higher cost)</li>
+                                        <li><strong>Higher values</strong> = fewer API calls (lower cost), but slower updates</li>
+                                        <li>Changes take effect for new calls immediately (no restart needed)</li>
+                                        <li>Cached for 1 minute to reduce database load</li>
+                                    </ul>
                                 </div>
                             </div>
                         </CardContent>

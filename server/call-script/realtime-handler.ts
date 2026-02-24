@@ -15,6 +15,7 @@
 import { CallScriptStateMachine, sessionManager } from './index';
 import { StreamingClassifier } from '../services/segment-classifier';
 import { StreamingInfoExtractor, type ExtractedInfo } from '../services/info-extractor';
+import { getCallTimingSettings } from '../settings';
 import type {
     CallScriptSegment,
     CallScriptDestination,
@@ -83,6 +84,10 @@ export async function initializeCallScriptForCall(
     // Create session via session manager (handles DB persistence)
     const machine = await sessionManager.createSession(callId, phone);
 
+    // Load configurable timing settings
+    const timingSettings = await getCallTimingSettings();
+    console.log(`[CallScript-RT] Using tier2LlmDebounceMs=${timingSettings.tier2LlmDebounceMs} for call ${callId}`);
+
     // Create streaming classifier with update callback
     const classifier = new StreamingClassifier(
         (result) => {
@@ -104,7 +109,7 @@ export async function initializeCallScriptForCall(
             });
         },
         {
-            debounceMs: 500,
+            debounceMs: timingSettings.tier2LlmDebounceMs,
             useTier2: true,
             tier1MinConfidence: 70,
         }

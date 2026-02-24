@@ -47,7 +47,9 @@ import uploadRouter from "./upload";
 import invoiceRouter from './invoices'; // B2: Invoice management
 import jobAssignmentRouter from './job-assignment'; // B5: Job assignment/dispatch
 import reviewsRouter from "./reviews-routes";
-
+import { leadTubeMapRouter } from './lead-tube-map'; // Lead Tube Map API
+import { callScriptRouter, initializeRealtimeHandler, setSimulateBroadcast } from './call-script'; // Call Script Tube Map API
+import liveCallActionsRouter from './live-call-actions'; // Live Call HUD Actions
 
 import publicRoutes from './public-routes';
 import adminContractorsRouter from './admin-contractors-routes';
@@ -278,6 +280,9 @@ app.use('/api/contractor/jobs', contractorJobsRouter);
 app.use('/api/admin/availability', requireAdmin, adminAvailabilityRouter); // Master availability admin routes
 app.use('/api/admin/contractors', requireAdmin, adminContractorsRouter); // Admin contractors management
 app.use('/api/admin/dashboard', requireAdmin, adminDashboardRouter); // Admin dashboard analytics
+app.use(leadTubeMapRouter); // Lead Tube Map API (includes its own /api/admin prefix)
+app.use(callScriptRouter); // Call Script Tube Map API (VA call coaching)
+app.use(liveCallActionsRouter); // Live Call HUD Actions (send quote, video request, book visit)
 app.use('/api/public', publicRoutes); // Public API Routes
 app.use('/api/auth', authRouter); // Auth Routes
 // app.use('/api/places', placesRouter); // API: Places Search (Moved to register before catch-all)
@@ -1102,6 +1107,10 @@ wssClient.on('connection', (ws, req) => {
 setupTwilioSocket(wssTwilio, broadcastToClients);
 conversationEngine.attachWebSocket(wssClient);
 
+// Initialize Call Script realtime handler with broadcast function
+initializeRealtimeHandler(broadcastToClients);
+setSimulateBroadcast(broadcastToClients);
+
 // Setup Eleven Labs WebSocket handler
 import { ElevenLabsStreamHandler } from './eleven-labs/stream-handler';
 import { StreamConfig } from './eleven-labs/types';
@@ -1223,6 +1232,15 @@ async function startServer() {
             console.log('[V6 Switchboard] SKU cache ready');
         } catch (e) {
             console.error('[V6 Switchboard] SKU cache preload failed:', e);
+        }
+
+        // Start Lead Automations scheduler (runs every 5 minutes)
+        try {
+            const { startAutomationScheduler } = await import('./lead-automations');
+            startAutomationScheduler(5 * 60 * 1000); // 5 minutes
+            console.log('[V6 Switchboard] Lead automations scheduler started');
+        } catch (e) {
+            console.error('[V6 Switchboard] Failed to start automations scheduler:', e);
         }
     });
 }
