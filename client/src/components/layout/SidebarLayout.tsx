@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -123,6 +123,13 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             ]
                         },
                         {
+                            title: "PROPERTY MGMT",
+                            items: [
+                                { icon: AlertCircle, label: "Tenant Issues", href: "/admin/tenant-issues", badge: "NEW" },
+                                { icon: Building2, label: "Properties", href: "/admin/properties" },
+                            ]
+                        },
+                        {
                             title: "SYSTEM",
                             items: [
                                 { icon: Calendar, label: "Availability", href: "/admin/availability" },
@@ -242,6 +249,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                         { label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },
                                         { label: "Marketing", href: "/admin/marketing" },
                                         { label: "Settings", href: "/admin/settings" },
+                                        { label: "Tenant Issues", href: "/admin/tenant-issues" },
+                                        { label: "Properties", href: "/admin/properties" },
                                     ]
                                 }
                             ].flatMap(g => g.items).find(i => i.href === location)?.label || "Pipeline Home"}
