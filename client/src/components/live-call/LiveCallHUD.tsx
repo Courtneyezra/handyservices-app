@@ -13,7 +13,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLiveCall } from '@/contexts/LiveCallContext';
 import { CallHUD, CustomerInfo, DetectedJobHUD } from './CallHUD';
+import { QuoteSendPopup } from './QuoteSendPopup';
+import { BookVisitPopup } from './BookVisitPopup';
+import { AvailabilityPanel } from './AvailabilityPanel';
 import { useToast } from '@/hooks/use-toast';
+import { openWhatsApp, getWhatsAppErrorMessage, copyWhatsAppFallback } from '@/lib/whatsapp-helper';
 import type { CallScriptSegment } from '@shared/schema';
 
 type HUDSegment = Exclude<CallScriptSegment, 'EMERGENCY'>;
@@ -28,6 +32,7 @@ interface LiveCallHUDProps {
 }
 
 export function LiveCallHUD({ onQuote, onVideo, onVisit }: LiveCallHUDProps) {
+  const { toast } = useToast();
   const {
     extractedCustomerInfo,
     liveCallData,
@@ -36,9 +41,8 @@ export function LiveCallHUD({ onQuote, onVideo, onVisit }: LiveCallHUDProps) {
     setCurrentSegment,
     detectedJobs,
     activeCallSid,
+    routeRecommendation,
   } = useLiveCall();
-
-  const { toast } = useToast();
 
   // Local state for customer info that VA can edit
   const [customerInfo, setCustomerInfo] = useState<CustomerInfo>({
@@ -52,6 +56,12 @@ export function LiveCallHUD({ onQuote, onVideo, onVisit }: LiveCallHUDProps) {
   const [quoteState, setQuoteState] = useState<ActionState>('idle');
   const [videoState, setVideoState] = useState<ActionState>('idle');
   const [visitState, setVisitState] = useState<ActionState>('idle');
+
+  // Quote popup state
+  const [showQuotePopup, setShowQuotePopup] = useState(false);
+
+  // Visit popup state
+  const [showVisitPopup, setShowVisitPopup] = useState(false);
 
   // Track if user has manually edited fields (to avoid overwriting their input)
   const [userEditedFields, setUserEditedFields] = useState<Set<string>>(new Set());
@@ -110,12 +120,13 @@ export function LiveCallHUD({ onQuote, onVideo, onVisit }: LiveCallHUDProps) {
     ? segmentOptions[0].segment as HUDSegment
     : null;
 
-  // Convert detected jobs to HUD format with full SKU info
+  // Convert detected jobs to HUD format with full SKU info and traffic light
   const hudJobs: DetectedJobHUD[] = detectedJobs.map(job => ({
     id: job.id,
     description: job.description,
     matched: job.matched,
     pricePence: job.sku?.pricePence,
+    trafficLight: job.trafficLight,
   }));
 
   // Get calling number from metadata
@@ -166,139 +177,67 @@ export function LiveCallHUD({ onQuote, onVideo, onVisit }: LiveCallHUDProps) {
       setQuoteState('idle');
       setVideoState('idle');
       setVisitState('idle');
+      setShowQuotePopup(false);
+      setShowVisitPopup(false);
     }
   }, [liveCallData]);
 
   // ================================================================
-  // SEND QUOTE Action
+  // SEND QUOTE Action - Opens popup
   // ================================================================
-  const handleQuote = useCallback(async () => {
-    console.log('[LiveCallHUD] SEND QUOTE triggered', { customerInfo, detectedJobs, currentSegment });
-
-    // Validate required fields
-    if (!customerInfo.name.trim()) {
-      toast({
-        title: "Missing Customer Name",
-        description: "Please enter the customer's name before sending a quote.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const phone = getWhatsAppNumber();
-    if (!phone) {
-      toast({
-        title: "Missing Phone Number",
-        description: "Please confirm the WhatsApp number before sending a quote.",
-        variant: "destructive",
-      });
-      return;
-    }
+  const handleQuote = useCallback(() => {
+    console.log('[LiveCallHUD] SEND QUOTE triggered - opening popup');
 
     // Check for matched jobs
     const matchedJobs = detectedJobs.filter(j => j.matched && j.sku);
     if (matchedJobs.length === 0) {
-      toast({
-        title: "No Priced Jobs",
-        description: "No jobs are matched to SKUs. Use GET VIDEO for unmatched jobs.",
-        variant: "destructive",
-      });
+      setQuoteState('error');
+      setTimeout(() => setQuoteState('idle'), 2000);
       return;
     }
 
-    // Optimistic UI update
-    setQuoteState('pending');
-    toast({
-      title: "Sending Quote...",
-      description: `Creating quote for ${customerInfo.name}`,
-    });
+    // Open the popup
+    setShowQuotePopup(true);
+  }, [detectedJobs]);
 
-    try {
-      const response = await fetch('/api/live-call/send-quote', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerInfo: {
-            name: customerInfo.name,
-            phone: phone,
-            address: customerInfo.address || undefined,
-            postcode: extractPostcode(customerInfo.address),
-          },
-          jobs: detectedJobs.map(job => ({
-            id: job.id,
-            description: job.description,
-            matched: job.matched,
-            pricePence: job.sku?.pricePence,
-            sku: job.sku ? {
-              id: job.sku.id,
-              name: job.sku.name,
-              pricePence: job.sku.pricePence,
-              category: job.sku.category,
-            } : undefined,
-          })),
-          segment: currentSegment || undefined,
-          callSid: activeCallSid || undefined,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Failed to send quote');
-      }
-
-      setQuoteState('success');
-      toast({
-        title: "Quote Sent!",
-        description: result.message || `Quote sent to ${customerInfo.name} via WhatsApp`,
-      });
-
-      // Call parent callback if provided
-      onQuote?.();
-
-    } catch (error) {
-      console.error('[LiveCallHUD] SEND QUOTE error:', error);
-      setQuoteState('error');
-      toast({
-        title: "Failed to Send Quote",
-        description: error instanceof Error ? error.message : 'An unexpected error occurred',
-        variant: "destructive",
-      });
-    }
-  }, [customerInfo, detectedJobs, currentSegment, activeCallSid, getWhatsAppNumber, extractPostcode, toast, onQuote]);
+  // Handle successful quote send from popup
+  const handleQuoteSuccess = useCallback(() => {
+    setQuoteState('success');
+    // Reset to idle after 3 seconds so button can be used again
+    setTimeout(() => setQuoteState('idle'), 3000);
+    onQuote?.();
+  }, [onQuote]);
 
   // ================================================================
   // GET VIDEO Action
   // ================================================================
   const handleVideo = useCallback(async () => {
-    console.log('[LiveCallHUD] GET VIDEO triggered', { customerInfo, detectedJobs });
-
-    // Validate required fields
-    if (!customerInfo.name.trim()) {
-      toast({
-        title: "Missing Customer Name",
-        description: "Please enter the customer's name before requesting a video.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     const phone = getWhatsAppNumber();
-    if (!phone) {
-      toast({
-        title: "Missing Phone Number",
-        description: "Please confirm the WhatsApp number before requesting a video.",
-        variant: "destructive",
-      });
+    console.log('[LiveCallHUD] GET VIDEO triggered', {
+      customerInfo,
+      detectedJobs,
+      callingNumber,
+      phone,
+      liveCallData: liveCallData ? { metadata: liveCallData.metadata } : null
+    });
+
+    // Validate required fields - button feedback via state
+    if (!customerInfo.name.trim()) {
+      console.log('[LiveCallHUD] GET VIDEO failed: no name');
+      setVideoState('error');
+      setTimeout(() => setVideoState('idle'), 2000);
       return;
     }
 
-    // Optimistic UI update
+    if (!phone) {
+      console.log('[LiveCallHUD] GET VIDEO failed: no phone');
+      setVideoState('error');
+      setTimeout(() => setVideoState('idle'), 2000);
+      return;
+    }
+
+    // Show pending state
     setVideoState('pending');
-    toast({
-      title: "Requesting Video...",
-      description: `Sending video request to ${customerInfo.name}`,
-    });
 
     try {
       const response = await fetch('/api/live-call/get-video', {
@@ -333,135 +272,133 @@ export function LiveCallHUD({ onQuote, onVideo, onVisit }: LiveCallHUDProps) {
         throw new Error(result.error || 'Failed to request video');
       }
 
-      setVideoState('success');
-      toast({
-        title: "Video Request Sent!",
-        description: result.message || `Video request sent to ${customerInfo.name} via WhatsApp`,
-      });
+      // Open WhatsApp with pre-filled message (with error handling)
+      const { phone: resultPhone, whatsappMessage } = result;
+      if (resultPhone && whatsappMessage) {
+        const whatsAppResult = await openWhatsApp(resultPhone, whatsappMessage);
 
+        if (!whatsAppResult.success) {
+          // WhatsApp failed to open - show toast with fallback
+          const errorMsg = getWhatsAppErrorMessage(whatsAppResult);
+          toast({
+            title: errorMsg.title,
+            description: errorMsg.description,
+            variant: whatsAppResult.fallbackUsed ? 'default' : 'destructive',
+            action: !whatsAppResult.fallbackUsed ? (
+              <button
+                onClick={async () => {
+                  const copied = await copyWhatsAppFallback(resultPhone, whatsappMessage);
+                  if (copied) {
+                    toast({
+                      title: 'Copied!',
+                      description: `Message copied. Send to ${whatsAppResult.phone}`,
+                    });
+                  }
+                }}
+                className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border bg-transparent px-3 text-sm font-medium"
+              >
+                Copy
+              </button>
+            ) : undefined,
+          });
+          // Still mark as success since the backend action completed
+          // The WhatsApp part just needs manual intervention
+        }
+      }
+
+      setVideoState('success');
+      // Reset to idle after 3 seconds so button can be used again
+      setTimeout(() => setVideoState('idle'), 3000);
       // Call parent callback if provided
       onVideo?.();
 
     } catch (error) {
       console.error('[LiveCallHUD] GET VIDEO error:', error);
       setVideoState('error');
-      toast({
-        title: "Failed to Request Video",
-        description: error instanceof Error ? error.message : 'An unexpected error occurred',
-        variant: "destructive",
-      });
+      setTimeout(() => setVideoState('idle'), 3000);
     }
-  }, [customerInfo, detectedJobs, activeCallSid, getWhatsAppNumber, extractPostcode, toast, onVideo]);
+  }, [customerInfo, detectedJobs, activeCallSid, getWhatsAppNumber, extractPostcode, onVideo, callingNumber, liveCallData]);
 
   // ================================================================
-  // BOOK VISIT Action
+  // BOOK VISIT Action - Opens popup
   // ================================================================
-  const handleVisit = useCallback(async () => {
-    console.log('[LiveCallHUD] BOOK VISIT triggered', { customerInfo, detectedJobs });
+  const handleVisit = useCallback(() => {
+    console.log('[LiveCallHUD] BOOK VISIT triggered - opening popup', { customerInfo, detectedJobs });
 
-    // Validate required fields
+    // Validate required fields - button feedback via state
     if (!customerInfo.name.trim()) {
-      toast({
-        title: "Missing Customer Name",
-        description: "Please enter the customer's name before booking a visit.",
-        variant: "destructive",
-      });
+      setVisitState('error');
+      setTimeout(() => setVisitState('idle'), 2000);
       return;
     }
 
     const phone = getWhatsAppNumber();
     if (!phone) {
-      toast({
-        title: "Missing Phone Number",
-        description: "Please confirm the WhatsApp number before booking a visit.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!customerInfo.address.trim()) {
-      toast({
-        title: "Missing Address",
-        description: "Please enter the property address before booking a visit.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Optimistic UI update
-    setVisitState('pending');
-    toast({
-      title: "Booking Visit...",
-      description: `Scheduling diagnostic visit for ${customerInfo.name}`,
-    });
-
-    try {
-      const response = await fetch('/api/live-call/book-visit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerInfo: {
-            name: customerInfo.name,
-            phone: phone,
-            address: customerInfo.address || undefined,
-            postcode: extractPostcode(customerInfo.address),
-          },
-          jobs: detectedJobs.map(job => ({
-            id: job.id,
-            description: job.description,
-            matched: job.matched,
-            pricePence: job.sku?.pricePence,
-            sku: job.sku ? {
-              id: job.sku.id,
-              name: job.sku.name,
-              pricePence: job.sku.pricePence,
-              category: job.sku.category,
-            } : undefined,
-          })),
-          callSid: activeCallSid || undefined,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Failed to book visit');
-      }
-
-      setVisitState('success');
-      toast({
-        title: "Visit Booked!",
-        description: result.message || `Diagnostic visit confirmation sent to ${customerInfo.name}`,
-      });
-
-      // Call parent callback if provided
-      onVisit?.();
-
-    } catch (error) {
-      console.error('[LiveCallHUD] BOOK VISIT error:', error);
       setVisitState('error');
-      toast({
-        title: "Failed to Book Visit",
-        description: error instanceof Error ? error.message : 'An unexpected error occurred',
-        variant: "destructive",
-      });
+      setTimeout(() => setVisitState('idle'), 2000);
+      return;
     }
-  }, [customerInfo, detectedJobs, activeCallSid, getWhatsAppNumber, extractPostcode, toast, onVisit]);
+
+    // Open the popup
+    setShowVisitPopup(true);
+  }, [customerInfo, detectedJobs, getWhatsAppNumber]);
+
+  // Handle successful visit booking from popup
+  const handleVisitSuccess = useCallback(() => {
+    setVisitState('success');
+    // Reset to idle after 3 seconds so button can be used again
+    setTimeout(() => setVisitState('idle'), 3000);
+    onVisit?.();
+  }, [onVisit]);
+
+  // Get WhatsApp number for popup
+  const popupWhatsAppNumber = getWhatsAppNumber() || callingNumber || '';
 
   return (
-    <CallHUD
-      selectedSegment={currentSegment as HUDSegment | null}
-      aiRecommendedSegment={aiRecommendedSegment}
-      onSegmentSelect={handleSegmentSelect}
-      jobs={hudJobs}
-      customerInfo={customerInfo}
-      onCustomerInfoChange={handleCustomerInfoChange}
-      callingNumber={callingNumber}
-      onQuote={handleQuote}
-      onVideo={handleVideo}
-      onVisit={handleVisit}
-      callDuration={callDuration}
-    />
+    <>
+      <CallHUD
+        selectedSegment={currentSegment as HUDSegment | null}
+        aiRecommendedSegment={aiRecommendedSegment}
+        onSegmentSelect={handleSegmentSelect}
+        jobs={hudJobs}
+        routeRecommendation={routeRecommendation}
+        customerInfo={customerInfo}
+        onCustomerInfoChange={handleCustomerInfoChange}
+        callingNumber={callingNumber}
+        onQuote={handleQuote}
+        onVideo={handleVideo}
+        onVisit={handleVisit}
+        quoteState={quoteState}
+        videoState={videoState}
+        visitState={visitState}
+        callDuration={callDuration}
+      />
+
+      {/* Quote Send Popup */}
+      <QuoteSendPopup
+        isOpen={showQuotePopup}
+        onClose={() => setShowQuotePopup(false)}
+        onSuccess={handleQuoteSuccess}
+        customerName={customerInfo.name}
+        whatsappNumber={popupWhatsAppNumber}
+        address={customerInfo.address}
+        segment={currentSegment}
+        jobs={detectedJobs}
+        callSid={activeCallSid || undefined}
+      />
+
+      {/* Book Visit Popup */}
+      <BookVisitPopup
+        isOpen={showVisitPopup}
+        onClose={() => setShowVisitPopup(false)}
+        onSuccess={handleVisitSuccess}
+        customerName={customerInfo.name}
+        whatsappNumber={popupWhatsAppNumber}
+        address={customerInfo.address}
+        jobs={detectedJobs}
+        callSid={activeCallSid || undefined}
+      />
+    </>
   );
 }
 

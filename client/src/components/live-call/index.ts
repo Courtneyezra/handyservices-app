@@ -36,5 +36,16 @@ export type { TeleprompterPanelProps } from './TeleprompterPanel';
 export { CallHUD } from './CallHUD';
 export type { DetectedJobHUD, CustomerInfo } from './CallHUD';
 
+// AddressInput - Google Places Autocomplete address input
+export { AddressInput } from './AddressInput';
+export type { AddressInputProps, AddressDetails } from './AddressInput';
+
 // LiveCallHUD - Production wrapper with context integration
 export { LiveCallHUD } from './LiveCallHUD';
+
+// QuoteSendPopup - Scaled-down quote generator for live calls
+export { QuoteSendPopup } from './QuoteSendPopup';
+export type { QuoteSendPopupProps } from './QuoteSendPopup';
+
+// AvailabilityPanel - Slot availability display for VA during calls
+export { AvailabilityPanel } from './AvailabilityPanel';

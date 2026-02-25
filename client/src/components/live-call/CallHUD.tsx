@@ -24,9 +24,13 @@ import {
   HelpCircle,
   User,
   Phone,
-  MapPinned,
+  Loader2,
+  AlertCircle,
+  CheckCircle,
 } from 'lucide-react';
+import { AvailabilityPanel } from './AvailabilityPanel';
 import type { CallScriptSegment } from '@shared/schema';
+import { AddressInput, AddressDetails } from './AddressInput';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -37,6 +41,7 @@ export interface DetectedJobHUD {
   description: string;
   matched: boolean;
   pricePence?: number;
+  trafficLight?: 'green' | 'amber' | 'red'; // Complexity scoring: green=SKU match, amber=unmatched, red=complex/specialist
 }
 
 export interface CustomerInfo {
@@ -44,9 +49,22 @@ export interface CustomerInfo {
   whatsappSameAsCalling: boolean | null; // null = not asked yet
   whatsappNumber: string; // only if different
   address: string;
+  addressDetails?: AddressDetails; // Google Places validated address details
+  addressValidated?: boolean; // Whether address was validated via Google Places
 }
 
 type HUDSegment = Exclude<CallScriptSegment, 'EMERGENCY'>;
+
+// Action button states for visual feedback
+export type ActionState = 'idle' | 'pending' | 'success' | 'error';
+
+// Route recommendation from backend (Tier 2 classification)
+export interface RouteRecommendation {
+  route: 'instant' | 'video' | 'visit' | 'refer';
+  color: string;
+  reason: string;
+  confidence: number;
+}
 
 interface CallHUDProps {
   // Segment
@@ -57,6 +75,9 @@ interface CallHUDProps {
   // Jobs
   jobs: DetectedJobHUD[];
 
+  // Backend route recommendation (Tier 2 - overrides local calculation when available)
+  routeRecommendation?: RouteRecommendation | null;
+
   // Customer info
   customerInfo: CustomerInfo;
   onCustomerInfoChange: (info: CustomerInfo) => void;
@@ -66,6 +87,11 @@ interface CallHUDProps {
   onQuote: () => void;
   onVideo: () => void;
   onVisit: () => void;
+
+  // Action states for button feedback
+  quoteState?: ActionState;
+  videoState?: ActionState;
+  visitState?: ActionState;
 
   // Call info
   callDuration?: number;
@@ -119,21 +145,40 @@ export function CallHUD({
   aiRecommendedSegment,
   onSegmentSelect,
   jobs,
+  routeRecommendation,
   customerInfo,
   onCustomerInfoChange,
   callingNumber,
   onQuote,
   onVideo,
   onVisit,
+  quoteState = 'idle',
+  videoState = 'idle',
+  visitState = 'idle',
   callDuration = 0,
 }: CallHUDProps) {
   const segment = SEGMENTS.find(s => s.id === selectedSegment);
   const isListening = !selectedSegment;
 
-  // Calculate totals
+  // Calculate totals and traffic light status
   const matchedJobs = jobs.filter(j => j.matched);
   const unmatchedJobs = jobs.filter(j => !j.matched);
   const totalPence = matchedJobs.reduce((sum, j) => sum + (j.pricePence || 0), 0);
+
+  // Traffic light categorization (with backward compatibility for jobs without explicit trafficLight)
+  // Green: Explicitly green OR matched jobs without explicit traffic light
+  // Amber: Explicitly amber OR unmatched jobs without explicit traffic light (not red)
+  // Red: Only explicitly marked red (specialist/complex work)
+  const greenJobs = jobs.filter(j => j.trafficLight === 'green' || (j.matched && !j.trafficLight));
+  const amberJobs = jobs.filter(j => j.trafficLight === 'amber' || (!j.matched && !j.trafficLight));
+  const redJobs = jobs.filter(j => j.trafficLight === 'red');
+
+  // Determine button states based on traffic lights
+  const allGreen = jobs.length > 0 && greenJobs.length === jobs.length;
+  const hasAmber = amberJobs.length > 0;
+  const hasRed = redJobs.length > 0;
+
+  // Legacy flags (kept for backward compatibility)
   const hasUnmatched = unmatchedJobs.length > 0;
   const allMatched = jobs.length > 0 && !hasUnmatched;
 
@@ -286,35 +331,205 @@ export function CallHUD({
           </AnimatePresence>
         </div>
 
-        {/* ACTION BUTTONS */}
-        <div className="px-3 pb-4 pt-2 border-t border-white/10">
+        {/* AVAILABILITY PANEL */}
+        <div className="px-3 py-2">
+          <AvailabilityPanel defaultExpanded={false} />
+        </div>
+
+        {/* ROUTE RECOMMENDATION */}
+        <div className="px-3 py-2 border-t border-white/10">
+          {(() => {
+            // Use backend route recommendation if available, else calculate locally
+            let aiRecommendedAction: 'quote' | 'video' | 'visit' | null = null;
+            let recommendationReason = '';
+            let recommendationColor = '#6B7280';
+
+            if (routeRecommendation) {
+              // Backend Tier 2 recommendation available
+              const routeToAction: Record<string, 'quote' | 'video' | 'visit'> = {
+                instant: 'quote',
+                video: 'video',
+                visit: 'visit',
+                refer: 'visit', // Refer is also handled via visit flow
+              };
+              aiRecommendedAction = routeToAction[routeRecommendation.route];
+              recommendationReason = routeRecommendation.reason;
+              recommendationColor = routeRecommendation.color;
+            } else if (jobs.length === 0) {
+              recommendationReason = 'Listening for jobs...';
+            } else if (hasRed) {
+              aiRecommendedAction = 'visit';
+              recommendationReason = `${redJobs.length} specialist job${redJobs.length > 1 ? 's' : ''} detected`;
+              recommendationColor = '#3B82F6';
+            } else if (hasAmber) {
+              aiRecommendedAction = 'video';
+              recommendationReason = `${amberJobs.length} job${amberJobs.length > 1 ? 's' : ''} need visual confirmation`;
+              recommendationColor = '#F59E0B';
+            } else if (allGreen) {
+              aiRecommendedAction = 'quote';
+              recommendationReason = `All ${greenJobs.length} job${greenJobs.length > 1 ? 's' : ''} priced - ready to quote`;
+              recommendationColor = '#22C55E';
+            }
+
+            return (
+              <div className="flex items-center gap-2 mb-2">
+                <div
+                  className="w-2 h-2 rounded-full animate-pulse"
+                  style={{ backgroundColor: recommendationColor }}
+                />
+                <span className="text-xs text-white/60">
+                  {aiRecommendedAction ? (
+                    <>
+                      <span className="text-white font-medium" style={{ color: recommendationColor }}>
+                        {aiRecommendedAction === 'quote' ? 'SEND QUOTE' :
+                         aiRecommendedAction === 'video' ? 'GET VIDEO' : 'BOOK VISIT'}
+                      </span>
+                      <span className="text-white/40"> — {recommendationReason}</span>
+                    </>
+                  ) : (
+                    <span className="text-white/40">{recommendationReason}</span>
+                  )}
+                </span>
+              </div>
+            );
+          })()}
+
+          {/* ACTION BUTTONS */}
           <div className="grid grid-cols-3 gap-2">
-            {(['quote', 'video', 'visit'] as const).map((action, index) => {
+            {(['quote', 'video', 'visit'] as const).map((action) => {
               const config = ACTION_CONFIG[action];
               const Icon = config.icon;
-              const isPrimary = (allMatched && action === 'quote') || (!allMatched && action === 'video');
-              const isDisabled = action === 'quote' && hasUnmatched;
+
+              // Determine AI recommended action for pulsing border
+              // Use backend recommendation if available
+              let aiRecommendedAction: 'quote' | 'video' | 'visit' | null = null;
+              if (routeRecommendation) {
+                const routeToAction: Record<string, 'quote' | 'video' | 'visit'> = {
+                  instant: 'quote',
+                  video: 'video',
+                  visit: 'visit',
+                  refer: 'visit',
+                };
+                aiRecommendedAction = routeToAction[routeRecommendation.route];
+              } else if (hasRed) {
+                aiRecommendedAction = 'visit';
+              } else if (hasAmber) {
+                aiRecommendedAction = 'video';
+              } else if (allGreen && jobs.length > 0) {
+                aiRecommendedAction = 'quote';
+              }
+
+              const isAiPick = aiRecommendedAction === action;
+
+              // Get the state for this action
+              const stateMap = { quote: quoteState, video: videoState, visit: visitState };
+              const state = stateMap[action];
+
+              // Traffic light based enable/disable logic:
+              // SEND QUOTE: Enabled only if ALL jobs are GREEN (no amber, no red)
+              // GET VIDEO: Enabled if any AMBER jobs (and no RED)
+              // BOOK VISIT: Enabled if any RED jobs, or as fallback
+              let isDisabled = state === 'pending';
+              let disabledReason = '';
+
+              if (action === 'quote') {
+                // Quote only enabled when all green (or all matched with no traffic light)
+                const canQuote = jobs.length > 0 && allGreen;
+                isDisabled = isDisabled || !canQuote;
+                if (hasRed) {
+                  disabledReason = 'Site visit required';
+                } else if (hasAmber) {
+                  disabledReason = 'Video needed first';
+                } else if (jobs.length === 0) {
+                  disabledReason = 'No jobs detected';
+                }
+              } else if (action === 'video') {
+                // Video enabled if any amber (needs visual confirmation) and no red
+                const canVideo = hasAmber && !hasRed;
+                isDisabled = isDisabled || !canVideo;
+                if (hasRed) {
+                  disabledReason = 'Site visit required';
+                } else if (allGreen) {
+                  disabledReason = 'All jobs priced';
+                } else if (jobs.length === 0) {
+                  disabledReason = 'No jobs detected';
+                }
+              } else if (action === 'visit') {
+                // Visit enabled if any red, or as fallback when nothing else works
+                const canVisit = hasRed || (jobs.length > 0 && !allGreen && !hasAmber);
+                isDisabled = isDisabled || !canVisit;
+                if (allGreen) {
+                  disabledReason = 'All jobs priced';
+                } else if (hasAmber && !hasRed) {
+                  disabledReason = 'Try video first';
+                } else if (jobs.length === 0) {
+                  disabledReason = 'No jobs detected';
+                }
+              }
+
+              // Determine which button is primary (recommended action)
+              const isPrimary = (allGreen && action === 'quote') ||
+                               (hasAmber && !hasRed && action === 'video') ||
+                               (hasRed && action === 'visit');
+
+              // Determine button appearance based on state
+              const isSuccess = state === 'success';
+              const isError = state === 'error';
+              const isPending = state === 'pending';
+
+              // Get background color based on state
+              const getBgColor = () => {
+                if (isDisabled && !isPending) return '#1a1a1a';
+                if (isSuccess) return '#16A34A'; // Green
+                if (isError) return '#DC2626'; // Red
+                return config.color;
+              };
 
               return (
-                <motion.button
-                  key={action}
-                  onClick={() => handleAction(action)}
-                  disabled={isDisabled}
-                  whileTap={{ scale: isDisabled ? 1 : 0.95 }}
-                  className={cn(
-                    'flex flex-col items-center justify-center gap-1',
-                    'py-3 rounded-xl font-semibold text-xs transition-all',
-                    isDisabled && 'opacity-30 cursor-not-allowed'
+                <div key={action} className="flex flex-col items-center gap-1">
+                  <motion.button
+                    onClick={() => handleAction(action)}
+                    disabled={isDisabled}
+                    whileTap={{ scale: isDisabled ? 1 : 0.95 }}
+                    className={cn(
+                      'relative w-full flex flex-col items-center justify-center gap-1',
+                      'py-3 rounded-xl font-semibold text-xs transition-all',
+                      isDisabled && !isPending && 'opacity-30 cursor-not-allowed'
+                    )}
+                    style={{
+                      backgroundColor: getBgColor(),
+                      color: 'white',
+                    }}
+                  >
+                    {/* AI Pick pulsing border - like segment recommendation */}
+                    {isAiPick && !isDisabled && !isPending && !isSuccess && !isError && (
+                      <motion.div
+                        className="absolute inset-0 rounded-xl pointer-events-none"
+                        style={{ border: `2px solid ${config.color}` }}
+                        animate={{ opacity: [0.4, 1, 0.4] }}
+                        transition={{ duration: 1.2, repeat: Infinity }}
+                      />
+                    )}
+                    {isPending ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : isSuccess ? (
+                      <CheckCircle className="w-5 h-5" />
+                    ) : isError ? (
+                      <AlertCircle className="w-5 h-5" />
+                    ) : (
+                      <Icon className="w-5 h-5" />
+                    )}
+                    <span>
+                      {isPending ? 'SENDING...' : isSuccess ? 'SENT!' : isError ? 'FAILED' : config.label}
+                    </span>
+                  </motion.button>
+                  {/* Show reason when disabled */}
+                  {isDisabled && disabledReason && !isPending && (
+                    <span className="text-[10px] text-white/40 text-center leading-tight">
+                      {disabledReason}
+                    </span>
                   )}
-                  style={{
-                    backgroundColor: isDisabled ? '#1a1a1a' : config.color,
-                    color: 'white',
-                    boxShadow: isPrimary && !isDisabled ? '0 0 0 2px rgba(255,255,255,0.3)' : undefined,
-                  }}
-                >
-                  <Icon className="w-5 h-5" />
-                  <span>{config.label}</span>
-                </motion.button>
+                </div>
               );
             })}
           </div>
@@ -403,23 +618,26 @@ export function CallHUD({
         </div>
 
         {/* ADDRESS */}
-        <div>
-          <label className="flex items-center gap-2 text-white/40 text-xs mb-1.5">
-            <MapPinned className="w-3.5 h-3.5" />
-            Property Address
-          </label>
-          <textarea
-            value={customerInfo.address}
-            onChange={(e) => updateInfo({ address: e.target.value })}
-            placeholder="Full address or postcode..."
-            rows={2}
-            className={cn(
-              "w-full bg-white/5 border rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/30 resize-none",
-              "focus:outline-none focus:ring-2 focus:ring-white/20",
-              hasAddress ? "border-green-500/50" : "border-white/10"
-            )}
-          />
-        </div>
+        <AddressInput
+          value={customerInfo.address}
+          onChange={(value, details) => {
+            updateInfo({
+              address: value,
+              addressDetails: details,
+              addressValidated: !!details,
+            });
+          }}
+          isValidated={customerInfo.addressValidated}
+          onValidationChange={(validated) => {
+            if (!validated) {
+              updateInfo({
+                addressValidated: false,
+                addressDetails: undefined,
+              });
+            }
+          }}
+          placeholder="Full address or postcode..."
+        />
 
         {/* STATUS */}
         <div className="mt-auto pt-4 border-t border-white/10">
