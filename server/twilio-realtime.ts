@@ -11,6 +11,13 @@ import { normalizePhoneNumber } from './phone-utils'; // B1: Phone normalization
 import { createCall, updateCall, addDetectedSkus, finalizeCall, findCallByTwilioSid } from './call-logger'; // Call logging integration
 import { analyzeCallTranscript } from './services/call-analyzer'; // Call analysis for lead scoring
 import {
+    classifyJobComplexitySync,
+    classifyMultipleJobs,
+    getOverallRouteRecommendation,
+    type JobComplexityResult,
+    type DetectedJobInput,
+} from './services/job-complexity-classifier'; // Tiered job complexity classification
+import {
     initializeCallScriptForCall,
     handleTranscriptChunk as handleCallScriptTranscript,
     endCallScriptSession,
@@ -49,6 +56,26 @@ export function getActiveCallCount() {
     return activeCallCount;
 }
 
+/**
+ * Tiered traffic light classification using job-complexity-classifier
+ *
+ * Tier 1: Instant keyword matching (<50ms) - used for real-time UI
+ * Tier 2: LLM classification (<400ms) - used for refined recommendations
+ *
+ * GREEN = SKU matched (instant price available)
+ * AMBER = Needs video/visit for assessment
+ * RED = Specialist work, refer out
+ */
+function getTrafficLightSync(matched: boolean, description: string): {
+    trafficLight: 'green' | 'amber' | 'red';
+    result: JobComplexityResult;
+} {
+    const { result } = classifyJobComplexitySync(description, matched);
+    return {
+        trafficLight: result.trafficLight,
+        result,
+    };
+}
 
 export class MediaStreamTranscriber {
     private callSid: string;
@@ -102,6 +129,10 @@ export class MediaStreamTranscriber {
     private inboundRecordingStream: fs.WriteStream | null = null;
     private outboundRecordingStream: fs.WriteStream | null = null;
     private skipTranscription: boolean = false; // Flag to skip transcription for Eleven Labs calls
+
+    // Tier 2 job complexity classification debounce
+    private tier2DebounceTimer: NodeJS.Timeout | null = null;
+    private lastJobClassifications: Map<string, JobComplexityResult> = new Map();
 
     constructor(ws: WebSocket, callSid: string, streamSid: string, phoneNumber: string, broadcast: (message: any) => void, skipTranscription: boolean = false) {
         this.ws = ws;
@@ -534,8 +565,11 @@ export class MediaStreamTranscriber {
                 hasMultiple: multiTaskResult.matchedServices.length > 1
             };
 
-            if (result.matched || result.nextRoute !== 'VIDEO_QUOTE') {
-                console.log(`\n[Switchboard] Real-time detection: ${result.matchedServices?.length || 0} service(s) - ${result.sku?.name || result.nextRoute} (${result.confidence}%)`);
+            // Always broadcast analysis update and jobs when we have any tasks detected
+            const hasAnyTasks = multiTaskResult.matchedServices.length > 0 || multiTaskResult.unmatchedTasks.length > 0;
+
+            if (hasAnyTasks || result.matched || result.nextRoute !== 'VIDEO_QUOTE') {
+                console.log(`\n[Switchboard] Real-time detection: ${result.matchedServices?.length || 0} matched, ${result.unmatchedTasks?.length || 0} unmatched - ${result.sku?.name || result.nextRoute} (${result.confidence}%)`);
                 this.broadcast({
                     type: 'voice:analysis_update',
                     data: {
@@ -545,26 +579,48 @@ export class MediaStreamTranscriber {
                     }
                 });
 
-                // Broadcast jobs update for CallHUD
+                // Broadcast jobs update for CallHUD with tiered traffic light scoring
+                // Tier 1: Instant sync classification (<50ms) for real-time UI
                 const jobs = [
-                    ...multiTaskResult.matchedServices.map((s, i) => ({
-                        id: `job-${i}`,
-                        description: s.task.description || s.sku.name,
-                        matched: true,
-                        sku: { pricePence: s.sku.pricePence },
-                    })),
-                    ...multiTaskResult.unmatchedTasks.map((t, i) => ({
-                        id: `unmatched-${i}`,
-                        description: t.description,
-                        matched: false,
-                    })),
+                    ...multiTaskResult.matchedServices.map((s, i) => {
+                        const jobId = `job-${i}`;
+                        const { trafficLight, result } = getTrafficLightSync(true, s.task.description || s.sku.name);
+                        this.lastJobClassifications.set(jobId, result);
+                        return {
+                            id: jobId,
+                            description: s.task.description || s.sku.name,
+                            matched: true,
+                            sku: { pricePence: s.sku.pricePence, id: s.sku.id, name: s.sku.name },
+                            trafficLight,
+                            complexityScore: result.complexityScore,
+                            recommendedRoute: result.recommendedRoute,
+                        };
+                    }),
+                    ...multiTaskResult.unmatchedTasks.map((t, i) => {
+                        const jobId = `unmatched-${i}`;
+                        const { trafficLight, result } = getTrafficLightSync(false, t.description);
+                        this.lastJobClassifications.set(jobId, result);
+                        return {
+                            id: jobId,
+                            description: t.description,
+                            matched: false,
+                            trafficLight,
+                            complexityScore: result.complexityScore,
+                            recommendedRoute: result.recommendedRoute,
+                        };
+                    }),
                 ];
+
                 if (jobs.length > 0) {
+                    // Get overall route recommendation
+                    const routeRecommendation = getOverallRouteRecommendation(this.lastJobClassifications);
+
                     this.broadcast({
                         type: 'callscript:jobs_update',
                         data: {
                             callId: this.callSid,
                             jobs,
+                            routeRecommendation,
                         }
                     });
 
@@ -577,6 +633,60 @@ export class MediaStreamTranscriber {
                             hasUnmatched: multiTaskResult.unmatchedTasks.length > 0,
                         }
                     });
+
+                    // Tier 2: Debounced LLM classification for unmatched jobs (refinement)
+                    const unmatchedJobs = jobs.filter(j => !j.matched);
+                    if (unmatchedJobs.length > 0) {
+                        if (this.tier2DebounceTimer) {
+                            clearTimeout(this.tier2DebounceTimer);
+                        }
+                        this.tier2DebounceTimer = setTimeout(async () => {
+                            try {
+                                const jobInputs: DetectedJobInput[] = jobs.map(j => ({
+                                    id: j.id,
+                                    description: j.description,
+                                    matched: j.matched,
+                                    skuId: j.sku?.id,
+                                    skuName: j.sku?.name,
+                                    pricePence: j.sku?.pricePence,
+                                }));
+
+                                const tier2Results = await classifyMultipleJobs(jobInputs, { useTier2: true });
+
+                                // Update classifications and re-broadcast
+                                tier2Results.forEach((result, jobId) => {
+                                    this.lastJobClassifications.set(jobId, result);
+                                });
+
+                                // Re-broadcast with Tier 2 results
+                                const updatedJobs = jobs.map(j => ({
+                                    ...j,
+                                    trafficLight: this.lastJobClassifications.get(j.id)?.trafficLight || j.trafficLight,
+                                    complexityScore: this.lastJobClassifications.get(j.id)?.complexityScore,
+                                    recommendedRoute: this.lastJobClassifications.get(j.id)?.recommendedRoute,
+                                    needsSpecialist: this.lastJobClassifications.get(j.id)?.needsSpecialist,
+                                    reasoning: this.lastJobClassifications.get(j.id)?.reasoning,
+                                    tier: this.lastJobClassifications.get(j.id)?.tier,
+                                }));
+
+                                const updatedRouteRecommendation = getOverallRouteRecommendation(this.lastJobClassifications);
+
+                                this.broadcast({
+                                    type: 'callscript:jobs_update',
+                                    data: {
+                                        callId: this.callSid,
+                                        jobs: updatedJobs,
+                                        routeRecommendation: updatedRouteRecommendation,
+                                        tier: 2, // Indicate this is refined Tier 2 classification
+                                    }
+                                });
+
+                                console.log(`[JobComplexity] Tier 2 refinement complete for ${tier2Results.size} jobs`);
+                            } catch (err) {
+                                console.error('[JobComplexity] Tier 2 classification error:', err);
+                            }
+                        }, 800); // 800ms debounce for Tier 2 LLM
+                    }
                 }
 
                 // Persist live analysis to DB for reconnecting clients
@@ -643,6 +753,13 @@ export class MediaStreamTranscriber {
     async close() {
         if (this.isClosed) return;
         this.isClosed = true;
+
+        // Clear Tier 2 debounce timer
+        if (this.tier2DebounceTimer) {
+            clearTimeout(this.tier2DebounceTimer);
+            this.tier2DebounceTimer = null;
+        }
+        this.lastJobClassifications.clear();
 
         activeCallCount--;
 

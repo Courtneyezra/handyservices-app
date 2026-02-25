@@ -654,7 +654,8 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
             if (!isSimulatingRef.current) {
                 setIsRehydrating(true);
                 try {
-                    const activeCall = await fetchActiveCall();
+                    const response = await fetchActiveCall();
+                    const activeCall = response?.activeCall;
                     if (activeCall && activeCall.status === 'in-progress') {
                         console.log('[LiveCall] Rehydrating from active call:', activeCall.id);
                         setActiveCallSid(activeCall.callSid || activeCall.id);
@@ -680,6 +681,66 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                         });
                         if (activeCall.metadataJson?.postcode) {
                             setDetectedPostcode(activeCall.metadataJson.postcode);
+                        }
+
+                        // Rehydrate detected jobs from detectedSkusJson
+                        if (activeCall.detectedSkusJson?.tasks) {
+                            console.log('[LiveCall] Rehydrating jobs from detectedSkusJson:', activeCall.detectedSkusJson.tasks.length);
+                            const jobs: DetectedJob[] = activeCall.detectedSkusJson.tasks.map((task: any, i: number) => ({
+                                id: `rehydrated-${i}-${Date.now()}`,
+                                description: task.description || 'Unknown job',
+                                matched: task.confidence > 50, // Confidence > 50% = matched
+                                confidence: task.confidence || 0,
+                                // If there's price info, treat as having SKU match
+                                sku: task.priceEstimate > 0 ? {
+                                    id: `sku-${i}`,
+                                    name: task.description,
+                                    pricePence: task.priceEstimate,
+                                } : undefined,
+                                // Traffic light based on confidence: >70 = green, >30 = amber, else red
+                                trafficLight: task.confidence > 70 ? 'green' : task.confidence > 30 ? 'amber' : 'amber',
+                            }));
+                            setDetectedJobs(jobs);
+                            setSkuMatched(jobs.some(j => j.matched));
+                            setHasUnmatchedSku(jobs.some(j => !j.matched));
+
+                            // Set route recommendation based on recommendedAction
+                            const recommendedAction = activeCall.detectedSkusJson.recommendedAction;
+                            if (recommendedAction) {
+                                const routeMap: Record<string, RouteRecommendation> = {
+                                    'request_video': { route: 'video', color: '#F59E0B', reason: 'Video requested for unpriced jobs', confidence: 80 },
+                                    'send_quote': { route: 'instant', color: '#22C55E', reason: 'All jobs priced', confidence: 90 },
+                                    'book_visit': { route: 'visit', color: '#3B82F6', reason: 'Site visit required', confidence: 85 },
+                                };
+                                if (routeMap[recommendedAction]) {
+                                    setRouteRecommendation(routeMap[recommendedAction]);
+                                }
+                            }
+                        }
+
+                        // Rehydrate segment info if available
+                        if (activeCall.metadataJson?.leadType) {
+                            const leadTypeToSegment: Record<string, CallScriptSegment> = {
+                                'Landlord': 'LANDLORD',
+                                'Commercial': 'PROP_MGR',
+                                'Homeowner': 'BUSY_PRO',
+                            };
+                            const segment = leadTypeToSegment[activeCall.metadataJson.leadType];
+                            if (segment) {
+                                setCurrentSegmentState(segment);
+                                setSegmentConfidence(70);
+                            }
+                        }
+
+                        // Rehydrate customer info for CallHUD
+                        if (activeCall.metadataJson) {
+                            const postcode = activeCall.metadataJson.postcode || '';
+                            const address = activeCall.metadataJson.address || activeCall.address || '';
+                            setExtractedCustomerInfo({
+                                name: activeCall.metadataJson.customerName || activeCall.customerName || '',
+                                address: address,
+                                postcode: postcode,
+                            });
                         }
                     }
                 } catch (e) {
