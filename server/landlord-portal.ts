@@ -16,11 +16,12 @@ import {
     tenants,
     tenantIssues,
     landlordSettings,
+    messages,
     InsertProperty,
     InsertTenant,
     InsertLandlordSettings
 } from '@shared/schema';
-import { eq, and, desc, inArray, sql } from 'drizzle-orm';
+import { eq, and, desc, asc, inArray, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import crypto from 'crypto';
 
@@ -676,6 +677,53 @@ landlordPortalRouter.post('/:token/issues/:id/reject', verifyLandlordToken, asyn
     } catch (error) {
         console.error('[LandlordPortal] Error rejecting issue:', error);
         res.status(500).json({ error: 'Failed to reject issue' });
+    }
+});
+
+// GET /api/landlord/:token/issues/:id/messages
+// Get chat messages for an issue
+landlordPortalRouter.get('/:token/issues/:id/messages', verifyLandlordToken, async (req: Request, res: Response) => {
+    try {
+        const landlord = (req as any).landlord;
+        const issueId = req.params.id;
+
+        const issue = await db.query.tenantIssues.findFirst({
+            where: and(
+                eq(tenantIssues.id, issueId),
+                eq(tenantIssues.landlordLeadId, landlord.id)
+            )
+        });
+
+        if (!issue) {
+            return res.status(404).json({ error: 'Issue not found' });
+        }
+
+        if (!issue.conversationId) {
+            return res.json({ messages: [] });
+        }
+
+        // Fetch messages for this conversation
+        const chatMessages = await db.query.messages.findMany({
+            where: eq(messages.conversationId, issue.conversationId),
+            orderBy: [asc(messages.createdAt)],
+        });
+
+        res.json({
+            messages: chatMessages.map(m => ({
+                id: m.id,
+                direction: m.direction,
+                content: m.content,
+                type: m.type || 'text',
+                mediaUrl: m.mediaUrl,
+                mediaType: m.mediaType,
+                createdAt: m.createdAt,
+                senderName: m.senderName,
+            })),
+            conversationId: issue.conversationId,
+        });
+    } catch (error) {
+        console.error('[LandlordPortal] Error fetching messages:', error);
+        res.status(500).json({ error: 'Failed to fetch messages' });
     }
 });
 

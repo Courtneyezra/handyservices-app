@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "./db";
-import { tenantIssues, tenants, properties, leads, personalizedQuotes, landlordSettings } from "@shared/schema";
-import { eq, desc, sql, and, inArray, isNull, not } from "drizzle-orm";
+import { tenantIssues, tenants, properties, leads, personalizedQuotes, landlordSettings, conversations, messages } from "@shared/schema";
+import { eq, desc, sql, and, inArray, isNull, not, asc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 const router = Router();
@@ -226,6 +226,46 @@ router.post("/:id/assign", async (req, res) => {
     } catch (error) {
         console.error("[tenant-issues] Error assigning contractor:", error);
         res.status(500).json({ error: "Failed to assign contractor" });
+    }
+});
+
+// Admin: Get chat messages for an issue
+router.get("/:id/messages", async (req, res) => {
+    try {
+        const issue = await db.query.tenantIssues.findFirst({
+            where: eq(tenantIssues.id, req.params.id),
+        });
+
+        if (!issue) {
+            return res.status(404).json({ error: "Issue not found" });
+        }
+
+        if (!issue.conversationId) {
+            return res.json({ messages: [] });
+        }
+
+        // Fetch messages for this conversation
+        const chatMessages = await db.query.messages.findMany({
+            where: eq(messages.conversationId, issue.conversationId),
+            orderBy: [asc(messages.createdAt)],
+        });
+
+        res.json({
+            messages: chatMessages.map(m => ({
+                id: m.id,
+                direction: m.direction,
+                content: m.content,
+                type: m.type || 'text',
+                mediaUrl: m.mediaUrl,
+                mediaType: m.mediaType,
+                createdAt: m.createdAt,
+                senderName: m.senderName,
+            })),
+            conversationId: issue.conversationId,
+        });
+    } catch (error) {
+        console.error("[tenant-issues] Error fetching messages:", error);
+        res.status(500).json({ error: "Failed to fetch messages" });
     }
 });
 

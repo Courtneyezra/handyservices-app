@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import {
     FileWarning,
@@ -28,6 +28,8 @@ import {
     RefreshCw,
     ExternalLink,
     Bot,
+    Video,
+    Play,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -71,6 +73,17 @@ interface TenantIssue {
         totalPence: number;
         status: string;
     } | null;
+}
+
+interface ChatMessage {
+    id: string;
+    direction: 'inbound' | 'outbound';
+    content: string | null;
+    type: string;
+    mediaUrl: string | null;
+    mediaType: string | null;
+    createdAt: string;
+    senderName: string | null;
 }
 
 interface AdminIssuesData {
@@ -125,6 +138,18 @@ export default function TenantIssuesPage() {
             if (!res.ok) throw new Error("Failed to load issues");
             return res.json();
         },
+    });
+
+    // Fetch messages for selected issue
+    const { data: messagesData, isLoading: messagesLoading } = useQuery<{ messages: ChatMessage[] }>({
+        queryKey: ["tenant-issue-messages", selectedIssue?.id],
+        queryFn: async () => {
+            if (!selectedIssue?.id) return { messages: [] };
+            const res = await fetch(`/api/admin/tenant-issues/${selectedIssue.id}/messages`);
+            if (!res.ok) return { messages: [] };
+            return res.json();
+        },
+        enabled: !!selectedIssue,
     });
 
     const chaseMutation = useMutation({
@@ -623,29 +648,107 @@ export default function TenantIssuesPage() {
                                 </div>
                             </div>
 
-                            {/* Photos */}
+                            {/* Media (Photos & Videos) */}
                             {selectedIssue.photos && selectedIssue.photos.length > 0 && (
                                 <div>
                                     <h3 className="text-sm font-medium text-gray-400 mb-2 flex items-center gap-1">
                                         <Image className="h-4 w-4" />
-                                        Photos ({selectedIssue.photos.length})
+                                        Media ({selectedIssue.photos.length})
                                     </h3>
                                     <div className="flex gap-3 overflow-x-auto pb-2">
-                                        {selectedIssue.photos.map((photo, idx) => (
-                                            <a
-                                                key={idx}
-                                                href={photo}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="flex-shrink-0"
-                                            >
-                                                <img
-                                                    src={photo}
-                                                    alt={`Issue photo ${idx + 1}`}
-                                                    className="h-32 w-32 object-cover rounded-lg hover:opacity-80 transition-opacity"
-                                                />
-                                            </a>
-                                        ))}
+                                        {selectedIssue.photos.map((media, idx) => {
+                                            const isVideo = media.includes('.mp4') || media.includes('.mov') || media.includes('.webm') || media.includes('video');
+                                            return isVideo ? (
+                                                <a
+                                                    key={idx}
+                                                    href={media}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="flex-shrink-0 relative group"
+                                                >
+                                                    <div className="h-32 w-32 bg-gray-700 rounded-lg flex items-center justify-center group-hover:bg-gray-600 transition-colors">
+                                                        <Play className="h-12 w-12 text-white" />
+                                                    </div>
+                                                    <span className="absolute bottom-1 left-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                        <Video className="h-3 w-3" /> Video
+                                                    </span>
+                                                </a>
+                                            ) : (
+                                                <a
+                                                    key={idx}
+                                                    href={media}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="flex-shrink-0"
+                                                >
+                                                    <img
+                                                        src={media}
+                                                        alt={`Issue photo ${idx + 1}`}
+                                                        className="h-32 w-32 object-cover rounded-lg hover:opacity-80 transition-opacity"
+                                                    />
+                                                </a>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Chat Log */}
+                            {messagesData && messagesData.messages.length > 0 && (
+                                <div>
+                                    <h3 className="text-sm font-medium text-gray-400 mb-2 flex items-center gap-1">
+                                        <MessageCircle className="h-4 w-4" />
+                                        Chat History ({messagesData.messages.length} messages)
+                                    </h3>
+                                    <div className="bg-gray-700/50 rounded-lg p-3 max-h-64 overflow-y-auto space-y-3">
+                                        {messagesLoading ? (
+                                            <div className="flex justify-center py-4">
+                                                <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                                            </div>
+                                        ) : (
+                                            messagesData.messages.map((msg) => (
+                                                <div
+                                                    key={msg.id}
+                                                    className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
+                                                >
+                                                    <div
+                                                        className={`max-w-[80%] rounded-lg px-3 py-2 ${
+                                                            msg.direction === 'outbound'
+                                                                ? 'bg-yellow-500/20 text-yellow-100'
+                                                                : 'bg-gray-600 text-white'
+                                                        }`}
+                                                    >
+                                                        {msg.type === 'image' && msg.mediaUrl && (
+                                                            <a href={msg.mediaUrl} target="_blank" rel="noopener noreferrer">
+                                                                <img
+                                                                    src={msg.mediaUrl}
+                                                                    alt="Shared image"
+                                                                    className="max-h-32 rounded mb-2 hover:opacity-80"
+                                                                />
+                                                            </a>
+                                                        )}
+                                                        {msg.type === 'video' && msg.mediaUrl && (
+                                                            <a
+                                                                href={msg.mediaUrl}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="flex items-center gap-2 mb-2 text-blue-400 hover:text-blue-300"
+                                                            >
+                                                                <Video className="h-4 w-4" />
+                                                                View Video
+                                                            </a>
+                                                        )}
+                                                        {msg.content && (
+                                                            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                                                        )}
+                                                        <p className="text-[10px] text-gray-400 mt-1">
+                                                            {format(new Date(msg.createdAt), "HH:mm")}
+                                                            {msg.direction === 'outbound' && ' • AI'}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
                                     </div>
                                 </div>
                             )}
