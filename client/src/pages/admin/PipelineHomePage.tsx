@@ -151,8 +151,10 @@ type ActivityType =
     | 'call_incoming'
     | 'call_ended'
     | 'video_request_sent'
+    | 'video_requested'
     | 'video_received'
     | 'quote_viewed'
+    | 'quote_sent'
     | 'payment_received'
     | 'whatsapp_sent'
     | 'whatsapp_received'
@@ -248,8 +250,10 @@ const ACTIVITY_CONFIG: Record<ActivityType, { icon: typeof Phone; color: string;
     call_incoming: { icon: Phone, color: 'text-green-500', bg: 'bg-green-500/10' },
     call_ended: { icon: Phone, color: 'text-blue-500', bg: 'bg-blue-500/10' },
     video_request_sent: { icon: Video, color: 'text-purple-500', bg: 'bg-purple-500/10' },
+    video_requested: { icon: Video, color: 'text-purple-500', bg: 'bg-purple-500/10' },
     video_received: { icon: Video, color: 'text-indigo-500', bg: 'bg-indigo-500/10' },
     quote_viewed: { icon: Eye, color: 'text-cyan-500', bg: 'bg-cyan-500/10' },
+    quote_sent: { icon: FileText, color: 'text-blue-500', bg: 'bg-blue-500/10' },
     payment_received: { icon: CreditCard, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
     whatsapp_sent: { icon: Send, color: 'text-green-600', bg: 'bg-green-600/10' },
     whatsapp_received: { icon: MessageSquare, color: 'text-green-600', bg: 'bg-green-600/10' },
@@ -632,6 +636,7 @@ function LiveFeed({ activities, onActivityClick }: LiveFeedProps) {
             <div className="space-y-1 p-2">
                 {activities.map((activity, index) => {
                     const config = ACTIVITY_CONFIG[activity.type];
+                    if (!config) return null; // Skip unknown activity types
                     const Icon = config.icon;
 
                     return (
