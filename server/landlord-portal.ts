@@ -26,6 +26,103 @@ import crypto from 'crypto';
 
 export const landlordPortalRouter = Router();
 
+// ==========================================
+// PUBLIC ENDPOINTS (No Auth Required)
+// ==========================================
+
+// POST /api/landlord/signup
+// Create a new landlord account
+landlordPortalRouter.post('/signup', async (req: Request, res: Response) => {
+    try {
+        const { name, email, phone, propertyCount } = req.body;
+
+        if (!name || !email || !phone) {
+            return res.status(400).json({ error: 'Name, email, and phone are required' });
+        }
+
+        // Normalize phone number
+        let normalizedPhone = phone.replace(/[^\d+]/g, '');
+        if (normalizedPhone.startsWith('0')) {
+            normalizedPhone = '+44' + normalizedPhone.substring(1);
+        }
+        if (!normalizedPhone.startsWith('+')) {
+            normalizedPhone = '+' + normalizedPhone;
+        }
+
+        // Check if landlord already exists
+        const existing = await db.query.leads.findFirst({
+            where: eq(leads.phone, normalizedPhone)
+        });
+
+        if (existing) {
+            // If already a landlord, just return their token
+            if (['LANDLORD', 'PROP_MGR'].includes(existing.segment || '')) {
+                return res.json({
+                    token: existing.id,
+                    message: 'Welcome back!'
+                });
+            }
+            // Update existing lead to landlord
+            await db.update(leads)
+                .set({
+                    segment: propertyCount === '25+' || propertyCount === '11-25' ? 'PROP_MGR' : 'LANDLORD',
+                    customerName: name,
+                    email: email
+                })
+                .where(eq(leads.id, existing.id));
+
+            return res.json({
+                token: existing.id,
+                message: 'Account upgraded to landlord!'
+            });
+        }
+
+        // Create new landlord lead
+        const landlordId = `landlord-${nanoid(8)}`;
+        const segment = propertyCount === '25+' || propertyCount === '11-25' ? 'PROP_MGR' : 'LANDLORD';
+
+        await db.insert(leads).values({
+            id: landlordId,
+            customerName: name,
+            email: email,
+            phone: normalizedPhone,
+            segment: segment,
+            source: 'landlord_signup',
+            status: 'new',
+            createdAt: new Date()
+        });
+
+        // Create default settings
+        await db.insert(landlordSettings).values({
+            id: nanoid(),
+            landlordLeadId: landlordId,
+            autoApproveUnderPence: 15000, // £150
+            requireApprovalAbovePence: 50000, // £500
+            autoApproveCategories: ['plumbing_emergency', 'heating', 'security', 'water_leak'],
+            alwaysRequireApprovalCategories: ['cosmetic', 'upgrade'],
+            notifyOnAutoApprove: true,
+            notifyOnCompletion: true,
+            preferredChannel: 'whatsapp',
+            createdAt: new Date(),
+            updatedAt: new Date()
+        });
+
+        console.log(`[LandlordPortal] New landlord signup: ${name} (${normalizedPhone})`);
+
+        res.json({
+            token: landlordId,
+            message: 'Account created successfully!'
+        });
+    } catch (error) {
+        console.error('[LandlordPortal] Signup error:', error);
+        res.status(500).json({ error: 'Failed to create account' });
+    }
+});
+
+// ==========================================
+// AUTHENTICATED ENDPOINTS
+// ==========================================
+
 // Middleware to verify landlord access token
 async function verifyLandlordToken(req: Request, res: Response, next: Function) {
     const token = req.params.token;

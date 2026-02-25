@@ -77,6 +77,7 @@ const ClientDashboard = lazy(() => import("@/pages/client/ClientDashboard"));
 const JobHistoryPage = lazy(() => import("@/pages/client/JobHistoryPage"));
 
 // Landlord Portal Pages (public, token-based access)
+const LandlordOnboardingPage = lazy(() => import("@/pages/landlord/OnboardingPage"));
 const LandlordPropertiesPage = lazy(() => import("@/pages/landlord/PropertiesPage"));
 const LandlordSettingsPage = lazy(() => import("@/pages/landlord/SettingsPage"));
 const LandlordIssuesPage = lazy(() => import("@/pages/landlord/IssuesPage"));
@@ -241,6 +242,17 @@ function Router() {
                 </Route>
                 <Route path="/pay/:shortCode">
                     <PaymentPage />
+                </Route>
+
+                {/* Landlord Onboarding - Public */}
+                <Route path="/landlord">
+                    <LandlordOnboardingPage />
+                </Route>
+                <Route path="/landlord/signup">
+                    <LandlordOnboardingPage />
+                </Route>
+                <Route path="/for-landlords">
+                    <LandlordOnboardingPage />
                 </Route>
 
                 {/* Landlord Portal - Token-based access */}
