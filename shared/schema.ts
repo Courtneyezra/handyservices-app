@@ -2,6 +2,7 @@ import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, seri
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
+import crypto from "crypto";
 
 // Lead Stage Enum - Formal funnel stages for Kanban view
 export const leadStageEnum = pgEnum('lead_stage', [
@@ -1554,4 +1555,317 @@ export interface CallScriptStateWithJourney extends CallScriptState {
     journeyPath: string[]; // Array of station IDs visited
     currentJourneyStation: string | null; // Current station ID in segment journey
     journeyFlags: Record<string, boolean | string>; // Flags set during journey
+}
+
+// ==========================================
+// PROPERTY MAINTENANCE AI PLATFORM
+// ==========================================
+
+// Tenant Issue Status Enum
+export const tenantIssueStatusEnum = pgEnum("tenant_issue_status", [
+    "new",              // Just reported
+    "ai_helping",       // AI is attempting DIY resolution
+    "awaiting_details", // Waiting for photos/availability
+    "reported",         // Sent to landlord + hub
+    "quoted",           // Quote generated
+    "approved",         // Landlord approved
+    "scheduled",        // Job scheduled
+    "completed",        // Job done
+    "resolved_diy",     // Tenant fixed it themselves
+    "cancelled"         // Cancelled/invalid
+]);
+
+export const TenantIssueStatusValues = [
+    "new", "ai_helping", "awaiting_details", "reported", "quoted",
+    "approved", "scheduled", "completed", "resolved_diy", "cancelled"
+] as const;
+export type TenantIssueStatus = typeof TenantIssueStatusValues[number];
+
+// Tenant Issue Urgency Enum
+export const tenantIssueUrgencyEnum = pgEnum("tenant_issue_urgency", [
+    "low",        // Cosmetic, can wait
+    "medium",     // Functional issue, within 2 weeks
+    "high",       // Affecting daily life, within days
+    "emergency"   // Safety/habitability issue, ASAP
+]);
+
+export const TenantIssueUrgencyValues = ["low", "medium", "high", "emergency"] as const;
+export type TenantIssueUrgency = typeof TenantIssueUrgencyValues[number];
+
+// Issue Category Enum
+export const issueCategoryEnum = pgEnum("issue_category", [
+    "plumbing",
+    "plumbing_emergency",
+    "electrical",
+    "electrical_emergency",
+    "heating",
+    "carpentry",
+    "locksmith",
+    "security",
+    "water_leak",
+    "appliance",
+    "cosmetic",
+    "upgrade",
+    "pest_control",
+    "cleaning",
+    "garden",
+    "general",
+    "other"
+]);
+
+export const IssueCategoryValues = [
+    "plumbing", "plumbing_emergency", "electrical", "electrical_emergency",
+    "heating", "carpentry", "locksmith", "security", "water_leak",
+    "appliance", "cosmetic", "upgrade", "pest_control", "cleaning",
+    "garden", "general", "other"
+] as const;
+export type IssueCategory = typeof IssueCategoryValues[number];
+
+// Property Type Enum
+export const propertyTypeEnum = pgEnum("property_type", [
+    "flat",
+    "house",
+    "hmo",
+    "commercial",
+    "mixed_use"
+]);
+
+export const PropertyTypeValues = ["flat", "house", "hmo", "commercial", "mixed_use"] as const;
+export type PropertyType = typeof PropertyTypeValues[number];
+
+// Properties Table - Rental properties linked to landlords
+export const properties = pgTable("properties", {
+    id: text("id").primaryKey().notNull().$defaultFn(() => crypto.randomUUID()),
+    landlordLeadId: text("landlord_lead_id").references(() => leads.id).notNull(),
+    address: text("address").notNull(),
+    postcode: varchar("postcode", { length: 10 }).notNull(),
+    propertyType: propertyTypeEnum("property_type"),
+    nickname: text("nickname"), // "Baker Street Flat" for landlord reference
+    notes: text("notes"),
+    coordinates: jsonb("coordinates"), // { lat: number, lng: number }
+    isActive: boolean("is_active").default(true).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_properties_landlord").on(table.landlordLeadId),
+    index("idx_properties_postcode").on(table.postcode),
+]);
+
+// Tenants Table - Tenants linked to properties
+export const tenants = pgTable("tenants", {
+    id: text("id").primaryKey().notNull().$defaultFn(() => crypto.randomUUID()),
+    propertyId: text("property_id").references(() => properties.id).notNull(),
+    name: text("name").notNull(),
+    phone: varchar("phone", { length: 20 }).notNull(), // E.164 format for WhatsApp
+    email: text("email"),
+    isPrimary: boolean("is_primary").default(true), // Primary contact for property
+    isActive: boolean("is_active").default(true).notNull(),
+    whatsappOptIn: boolean("whatsapp_opt_in").default(false), // Has messaged us
+    lastContactAt: timestamp("last_contact_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_tenants_property").on(table.propertyId),
+    index("idx_tenants_phone").on(table.phone),
+]);
+
+// Tenant Issues Table - Issue reports from tenants
+export const tenantIssues = pgTable("tenant_issues", {
+    id: text("id").primaryKey().notNull().$defaultFn(() => crypto.randomUUID()),
+
+    // Relationships
+    tenantId: text("tenant_id").references(() => tenants.id).notNull(),
+    propertyId: text("property_id").references(() => properties.id).notNull(),
+    landlordLeadId: text("landlord_lead_id").references(() => leads.id).notNull(),
+
+    // Issue details
+    status: tenantIssueStatusEnum("status").default("new").notNull(),
+    issueDescription: text("issue_description"),
+    issueCategory: issueCategoryEnum("issue_category"),
+    urgency: tenantIssueUrgencyEnum("urgency"),
+
+    // AI resolution tracking
+    aiResolutionAttempted: boolean("ai_resolution_attempted").default(false),
+    aiSuggestions: jsonb("ai_suggestions"), // Array of suggestions given
+    aiResolutionAccepted: boolean("ai_resolution_accepted"),
+
+    // Media & details
+    photos: text("photos").array(), // S3 URLs
+    voiceNotes: text("voice_notes").array(), // S3 URLs for transcribed voice messages
+    tenantAvailability: text("tenant_availability"), // Free text for beta
+    additionalNotes: text("additional_notes"),
+    accessInstructions: text("access_instructions"), // Key location, alarm code, etc.
+
+    // Dispatch decision tracking
+    dispatchDecision: text("dispatch_decision"), // 'auto_dispatch' | 'request_approval' | 'escalate_admin'
+    dispatchReason: text("dispatch_reason"), // Why this decision was made
+    priceEstimateLowPence: integer("price_estimate_low_pence"),
+    priceEstimateHighPence: integer("price_estimate_high_pence"),
+
+    // Conversion tracking
+    quoteId: text("quote_id").references(() => personalizedQuotes.id),
+    jobId: text("job_id").references(() => contractorJobs.id),
+
+    // Conversation tracking
+    conversationId: text("conversation_id").references(() => conversations.id),
+
+    // Landlord notification tracking
+    landlordNotifiedAt: timestamp("landlord_notified_at"),
+    landlordReminderCount: integer("landlord_reminder_count").default(0),
+    landlordLastRemindedAt: timestamp("landlord_last_reminded_at"),
+    landlordApprovedAt: timestamp("landlord_approved_at"),
+    landlordRejectedAt: timestamp("landlord_rejected_at"),
+    landlordRejectionReason: text("landlord_rejection_reason"),
+
+    // Timestamps
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    reportedToLandlordAt: timestamp("reported_to_landlord_at"),
+    resolvedAt: timestamp("resolved_at"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_tenant_issues_tenant").on(table.tenantId),
+    index("idx_tenant_issues_property").on(table.propertyId),
+    index("idx_tenant_issues_landlord").on(table.landlordLeadId),
+    index("idx_tenant_issues_status").on(table.status),
+    index("idx_tenant_issues_urgency").on(table.urgency),
+    index("idx_tenant_issues_created").on(table.createdAt),
+]);
+
+// Landlord Settings Table - Auto-approval rules
+export const landlordSettings = pgTable("landlord_settings", {
+    id: text("id").primaryKey().notNull().$defaultFn(() => crypto.randomUUID()),
+    landlordLeadId: text("landlord_lead_id").references(() => leads.id).notNull().unique(),
+
+    // Price thresholds (in pence)
+    autoApproveUnderPence: integer("auto_approve_under_pence").default(15000), // £150
+    requireApprovalAbovePence: integer("require_approval_above_pence").default(50000), // £500
+
+    // Category rules
+    autoApproveCategories: text("auto_approve_categories").array().default([
+        'plumbing_emergency', 'heating', 'security', 'water_leak'
+    ]),
+    alwaysRequireApprovalCategories: text("always_require_approval_categories").array().default([
+        'cosmetic', 'upgrade'
+    ]),
+
+    // Emergency handling
+    emergencyAutoDispatch: boolean("emergency_auto_dispatch").default(true), // Auto-dispatch for emergencies
+    emergencyContactPhone: varchar("emergency_contact_phone", { length: 20 }), // Alternate emergency contact
+
+    // Budget tracking
+    monthlyBudgetPence: integer("monthly_budget_pence"),
+    budgetAlertThreshold: integer("budget_alert_threshold").default(80), // Alert at 80%
+    currentMonthSpendPence: integer("current_month_spend_pence").default(0),
+    budgetResetDay: integer("budget_reset_day").default(1), // Day of month to reset budget
+
+    // Notification preferences
+    notifyOnAutoApprove: boolean("notify_on_auto_approve").default(true),
+    notifyOnCompletion: boolean("notify_on_completion").default(true),
+    notifyOnNewIssue: boolean("notify_on_new_issue").default(true),
+    preferredChannel: text("preferred_channel").default('whatsapp'), // whatsapp, email, dashboard
+
+    // Partner program
+    isPartnerMember: boolean("is_partner_member").default(false),
+    partnerDiscountPercent: integer("partner_discount_percent").default(0),
+
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_landlord_settings_landlord").on(table.landlordLeadId),
+]);
+
+// Relations for Property Maintenance tables
+export const propertiesRelations = relations(properties, ({ one, many }) => ({
+    landlord: one(leads, { fields: [properties.landlordLeadId], references: [leads.id] }),
+    tenants: many(tenants),
+    issues: many(tenantIssues),
+}));
+
+export const tenantsRelations = relations(tenants, ({ one, many }) => ({
+    property: one(properties, { fields: [tenants.propertyId], references: [properties.id] }),
+    issues: many(tenantIssues),
+}));
+
+export const tenantIssuesRelations = relations(tenantIssues, ({ one }) => ({
+    tenant: one(tenants, { fields: [tenantIssues.tenantId], references: [tenants.id] }),
+    property: one(properties, { fields: [tenantIssues.propertyId], references: [properties.id] }),
+    landlord: one(leads, { fields: [tenantIssues.landlordLeadId], references: [leads.id] }),
+    quote: one(personalizedQuotes, { fields: [tenantIssues.quoteId], references: [personalizedQuotes.id] }),
+    job: one(contractorJobs, { fields: [tenantIssues.jobId], references: [contractorJobs.id] }),
+    conversation: one(conversations, { fields: [tenantIssues.conversationId], references: [conversations.id] }),
+}));
+
+export const landlordSettingsRelations = relations(landlordSettings, ({ one }) => ({
+    landlord: one(leads, { fields: [landlordSettings.landlordLeadId], references: [leads.id] }),
+}));
+
+// Insert schemas and types
+export const insertPropertySchema = createInsertSchema(properties);
+export type Property = typeof properties.$inferSelect;
+export type InsertProperty = z.infer<typeof insertPropertySchema>;
+
+export const insertTenantSchema = createInsertSchema(tenants);
+export type Tenant = typeof tenants.$inferSelect;
+export type InsertTenant = z.infer<typeof insertTenantSchema>;
+
+export const insertTenantIssueSchema = createInsertSchema(tenantIssues);
+export type TenantIssue = typeof tenantIssues.$inferSelect;
+export type InsertTenantIssue = z.infer<typeof insertTenantIssueSchema>;
+
+export const insertLandlordSettingsSchema = createInsertSchema(landlordSettings);
+export type LandlordSettings = typeof landlordSettings.$inferSelect;
+export type InsertLandlordSettings = z.infer<typeof insertLandlordSettingsSchema>;
+
+// ==========================================
+// RULES ENGINE TYPES
+// ==========================================
+
+/**
+ * Dispatch decision from the rules engine
+ */
+export interface DispatchDecision {
+    action: 'auto_dispatch' | 'request_approval' | 'escalate_admin';
+    reason: string;
+    notifyLandlord: boolean;
+    urgencyOverride?: boolean; // True if emergency override was applied
+}
+
+/**
+ * Price estimate from the triage worker
+ */
+export interface PriceEstimate {
+    lowPricePence: number;
+    highPricePence: number;
+    midPricePence: number;
+    confidence: number; // 0-100
+    matchedSkus?: string[];
+}
+
+/**
+ * AI worker response structure
+ */
+export interface WorkerResponse {
+    message: string;
+    nextWorker?: 'TENANT_WORKER' | 'TRIAGE_WORKER' | 'DISPATCH_WORKER' | 'LANDLORD_WORKER' | 'INSPECTOR_WORKER';
+    stateUpdates?: Partial<TenantIssue>;
+    toolCalls?: Array<{
+        tool: string;
+        args: Record<string, unknown>;
+        result?: unknown;
+    }>;
+}
+
+/**
+ * Worker context for AI agents
+ */
+export interface WorkerContext {
+    conversationId: string;
+    senderId: string;
+    senderType: 'tenant' | 'landlord' | 'admin';
+    tenant?: Tenant;
+    property?: Property;
+    landlord?: Lead;
+    landlordSettings?: LandlordSettings;
+    currentIssue?: TenantIssue;
+    conversationHistory: Message[];
 }

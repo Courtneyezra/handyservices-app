@@ -61,6 +61,8 @@ import { paymentLinksRouter } from './payment-links';
 import { clientPortalRouter } from './client-portal';
 import { partnerApplicationRouter } from './partner-application';
 import { trainingRouter as partnerTrainingRouter } from './training';
+import landlordPortalRouter from './landlord-portal'; // Property Maintenance AI Platform
+import tenantIssuesRouter from './tenant-issues'; // Admin Tenant Issues Hub
 import session from "express-session";
 import passport from "passport";
 import authRouter, { requireAdmin } from "./auth";
@@ -294,6 +296,10 @@ app.use(paymentLinksRouter); // Payment links for instant payments
 app.use(clientPortalRouter); // Client portal (invoice viewing, reviews)
 app.use(partnerApplicationRouter); // Partner application wizard
 app.use(partnerTrainingRouter); // Partner training modules
+
+// Property Maintenance AI Platform
+app.use('/api/landlord', landlordPortalRouter); // Landlord portal API
+app.use('/api/admin/tenant-issues', tenantIssuesRouter); // Admin Tenant Issues Hub
 
 // Serve static assets (for hold music)
 app.use('/assets', express.static(path.join(__dirname, '../public/assets')));

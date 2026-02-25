@@ -7,10 +7,56 @@ export const whatsappRouter = Router();
 // GET /api/whatsapp/test - Health check
 whatsappRouter.get('/test', (req, res) => res.json({ status: 'active' }));
 
-// POST /api/whatsapp/incoming - Twilio Webhook URL (legacy, kept for compatibility)
+// POST /api/whatsapp/incoming - Twilio Webhook URL
 whatsappRouter.post('/incoming', async (req, res) => {
     try {
-        console.log('[WhatsApp API] Incoming webhook:', req.body.From);
+        const { From, Body, MessageSid, ProfileName, NumMedia, MediaContentType0, MediaUrl0 } = req.body;
+        console.log('[WhatsApp API] Incoming webhook from:', From);
+        console.log('[WhatsApp API] Body:', Body);
+
+        // Extract phone number (remove whatsapp: prefix)
+        const phone = From?.replace('whatsapp:', '') || '';
+
+        // --- TENANT CHAT AI LAYER ---
+        try {
+            const { handleTenantChatMessage, getPhoneType } = await import('./tenant-chat');
+            const phoneType = await getPhoneType(phone);
+
+            if (phoneType === 'tenant' || phoneType === 'landlord') {
+                console.log(`[WhatsApp API] Routing to ${phoneType} AI handler...`);
+
+                // Determine message type
+                const hasMedia = parseInt(NumMedia || '0') > 0;
+                let messageType: 'text' | 'image' | 'audio' | 'video' = 'text';
+                if (hasMedia && MediaContentType0) {
+                    if (MediaContentType0.startsWith('image/')) messageType = 'image';
+                    else if (MediaContentType0.startsWith('audio/')) messageType = 'audio';
+                    else if (MediaContentType0.startsWith('video/')) messageType = 'video';
+                }
+
+                const result = await handleTenantChatMessage({
+                    from: phone,
+                    type: messageType,
+                    content: Body || '',
+                    mediaUrl: MediaUrl0,
+                    mimeType: MediaContentType0,
+                    profileName: ProfileName,
+                    messageId: MessageSid || `twilio_${Date.now()}`,
+                    timestamp: new Date()
+                });
+
+                if (result.handled) {
+                    console.log(`[WhatsApp API] Message handled by ${result.workerUsed}`);
+                    // Return empty TwiML - we send responses via API, not TwiML
+                    return res.status(200).type('text/xml').send('<Response></Response>');
+                }
+            }
+        } catch (err) {
+            console.error('[WhatsApp API] Tenant chat error:', err);
+        }
+        // --- END TENANT CHAT AI LAYER ---
+
+        // Fallback to legacy conversation engine for non-tenant messages
         await conversationEngine.handleInboundMessage(req.body);
 
         // Return TwiML empty response

@@ -25,7 +25,7 @@ const GRAPH_API_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 // Twilio credentials (for sending via Twilio WhatsApp API)
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER || '+15557667036';
+const TWILIO_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER || '+15558601738';
 
 export const metaWhatsAppRouter = Router();
 
@@ -46,6 +46,38 @@ function broadcast(type: string, data: any) {
             client.send(message);
         }
     });
+}
+
+// ==========================================
+// GET MEDIA URL FROM WHATSAPP
+// Downloads media file URL using Meta Graph API
+// ==========================================
+async function getMediaUrl(mediaId: string): Promise<string | undefined> {
+    if (!WHATSAPP_ACCESS_TOKEN) {
+        console.warn('[Meta WhatsApp] No access token for media download');
+        return undefined;
+    }
+
+    try {
+        // First, get the media URL from Meta
+        const mediaInfoUrl = `${GRAPH_API_URL}/${mediaId}`;
+        const response = await fetch(mediaInfoUrl, {
+            headers: {
+                'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`
+            }
+        });
+
+        if (!response.ok) {
+            console.error('[Meta WhatsApp] Failed to get media info:', response.status);
+            return undefined;
+        }
+
+        const data = await response.json();
+        return data.url; // This is the actual download URL
+    } catch (error) {
+        console.error('[Meta WhatsApp] Error getting media URL:', error);
+        return undefined;
+    }
 }
 
 // ==========================================
@@ -156,9 +188,39 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
     const now = new Date();
 
     try {
-        // --- AGENTIC LAYER START ---
+        // --- TENANT CHAT AI LAYER START ---
+        // Check if this is a registered tenant or landlord and route to AI
+        let tenantChatHandled = false;
+        try {
+            const { handleTenantChatMessage, getPhoneType } = await import('./tenant-chat');
+            const phoneType = await getPhoneType(from);
+
+            if (phoneType === 'tenant' || phoneType === 'landlord') {
+                console.log(`[WhatsApp-AI] Routing to ${phoneType} AI handler...`);
+                const result = await handleTenantChatMessage({
+                    from,
+                    type: type as any,
+                    content,
+                    mediaId: mediaUrl,
+                    mediaUrl: mediaUrl ? await getMediaUrl(mediaUrl) : undefined,
+                    mimeType: mediaType || undefined,
+                    profileName,
+                    messageId,
+                    timestamp
+                });
+                tenantChatHandled = result.handled;
+                if (tenantChatHandled) {
+                    console.log(`[WhatsApp-AI] Message handled by ${result.workerUsed}`);
+                }
+            }
+        } catch (err) {
+            console.error(`[WhatsApp-AI] Tenant chat handling failed:`, err);
+        }
+        // --- TENANT CHAT AI LAYER END ---
+
+        // --- AGENTIC LAYER START (fallback for non-tenant messages) ---
         let agentPlan = null;
-        if (type === 'text' && content.length > 10) {
+        if (!tenantChatHandled && type === 'text' && content.length > 10) {
             try {
                 const { analyzeLeadActionPlan } = await import('./services/agentic-service');
                 console.log(`[WhatsApp-Agent] Analyzing message from ${from}...`);

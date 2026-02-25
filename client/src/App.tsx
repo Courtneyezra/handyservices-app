@@ -50,6 +50,7 @@ const CallHUDTestPage = lazy(() => import("@/pages/admin/CallHUDTestPage"));
 const SKUSimulatorPage = lazy(() => import("@/pages/admin/SKUSimulatorPage"));
 const LiveCallTestWizard = lazy(() => import("@/pages/admin/LiveCallTestWizard"));
 const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
+const TenantIssuesPage = lazy(() => import("@/pages/admin/TenantIssuesPage"));
 const QuotesPage = lazy(() => import("@/pages/admin/QuotesPage"));
 const EditQuotePage = lazy(() => import("@/pages/admin/EditQuotePage"));
 const BookingVisitsPage = lazy(() => import("@/pages/admin/BookingVisitsPage"));
@@ -74,6 +75,11 @@ const LeaveReview = lazy(() => import("@/pages/client/LeaveReview"));
 const PaymentPage = lazy(() => import("@/pages/client/PaymentPage"));
 const ClientDashboard = lazy(() => import("@/pages/client/ClientDashboard"));
 const JobHistoryPage = lazy(() => import("@/pages/client/JobHistoryPage"));
+
+// Landlord Portal Pages (public, token-based access)
+const LandlordPropertiesPage = lazy(() => import("@/pages/landlord/PropertiesPage"));
+const LandlordSettingsPage = lazy(() => import("@/pages/landlord/SettingsPage"));
+const LandlordIssuesPage = lazy(() => import("@/pages/landlord/IssuesPage"));
 
 // Contractor Portal - Lazy loaded (separate user flow)
 const ContractorLogin = lazy(() => import("./pages/ContractorLogin"));
@@ -235,6 +241,20 @@ function Router() {
                 </Route>
                 <Route path="/pay/:shortCode">
                     <PaymentPage />
+                </Route>
+
+                {/* Landlord Portal - Token-based access */}
+                <Route path="/landlord/:token">
+                    <LandlordPropertiesPage />
+                </Route>
+                <Route path="/landlord/:token/properties">
+                    <LandlordPropertiesPage />
+                </Route>
+                <Route path="/landlord/:token/settings">
+                    <LandlordSettingsPage />
+                </Route>
+                <Route path="/landlord/:token/issues">
+                    <LandlordIssuesPage />
                 </Route>
 
                 {/* Coming soon */}
@@ -457,6 +477,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <DispatchPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/tenant-issues">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <TenantIssuesPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
