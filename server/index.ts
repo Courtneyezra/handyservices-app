@@ -1327,8 +1327,15 @@ async function startServer() {
             console.error("Failed to setup Vite middleware:", e);
         }
     } else {
-        // Production
-        app.use(express.static(path.resolve(__dirname, '../dist/public')));
+        // Production - serve static assets with long cache (they have content hashes)
+        app.use('/assets', express.static(path.resolve(__dirname, '../dist/public/assets'), {
+            maxAge: '1y',
+            immutable: true,
+        }));
+        // Other static files with shorter cache
+        app.use(express.static(path.resolve(__dirname, '../dist/public'), {
+            maxAge: '1h',
+        }));
         app.use('*', (req, res) => {
             res.sendFile(path.resolve(__dirname, '../dist/public/index.html'));
         });
