@@ -50,6 +50,7 @@ import reviewsRouter from "./reviews-routes";
 import { leadTubeMapRouter } from './lead-tube-map'; // Lead Tube Map API
 import { callScriptRouter, initializeRealtimeHandler, setSimulateBroadcast } from './call-script'; // Call Script Tube Map API
 import liveCallActionsRouter from './live-call-actions'; // Live Call HUD Actions
+import availabilityRouter from './availability'; // Availability Slots for Live Call HUD
 
 import publicRoutes from './public-routes';
 import adminContractorsRouter from './admin-contractors-routes';
@@ -283,6 +284,7 @@ app.use('/api/admin/dashboard', requireAdmin, adminDashboardRouter); // Admin da
 app.use(leadTubeMapRouter); // Lead Tube Map API (includes its own /api/admin prefix)
 app.use(callScriptRouter); // Call Script Tube Map API (VA call coaching)
 app.use(liveCallActionsRouter); // Live Call HUD Actions (send quote, video request, book visit)
+app.use('/api/availability', availabilityRouter); // Availability Slots for Live Call HUD
 app.use('/api/public', publicRoutes); // Public API Routes
 app.use('/api/auth', authRouter); // Auth Routes
 // app.use('/api/places', placesRouter); // API: Places Search (Moved to register before catch-all)
@@ -428,10 +430,17 @@ app.post('/api/addresses/lookup', async (req, res) => {
 // SKU / Services Management API
 // ------------------------------------------------------------------
 
-// 1. List all SKUs
+// 1. List all SKUs (active only by default, ?all=true for inactive too)
 app.get('/api/skus', async (req, res) => {
     try {
-        const skus = await db.select().from(productizedServices).orderBy(desc(productizedServices.skuCode));
+        const showAll = req.query.all === 'true';
+        let query = db.select().from(productizedServices);
+
+        if (!showAll) {
+            query = query.where(eq(productizedServices.isActive, true)) as typeof query;
+        }
+
+        const skus = await query.orderBy(productizedServices.category, productizedServices.name);
         res.json(skus);
     } catch (error) {
         console.error("Failed to fetch SKUs:", error);
@@ -516,9 +525,33 @@ app.post('/api/intake/decision', (req, res) => {
     });
 });
 
+// ============================================
+// SAFETY: Maximum concurrent call limit
+// ============================================
+const MAX_CONCURRENT_CALLS = 50;
+
 // Twilio Voice Webhook - Dynamic settings-based call routing
 app.post('/api/twilio/voice', async (req, res) => {
     console.log(`[Twilio] Incoming call from ${req.body.From}`);
+
+    // SAFETY: Check concurrent call limit to prevent OOM
+    const currentCalls = getActiveCallCount();
+    if (currentCalls >= MAX_CONCURRENT_CALLS) {
+        console.warn(`[Twilio] CALL REJECTED: At capacity (${currentCalls}/${MAX_CONCURRENT_CALLS} concurrent calls)`);
+
+        // Return busy TwiML - tell caller we're at capacity
+        const busyTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+        <Response>
+            <Say voice="alice">We're sorry, all lines are currently busy. Please try again in a few minutes.</Say>
+            <Reject reason="busy"/>
+        </Response>`;
+
+        res.type('text/xml');
+        return res.send(busyTwiml);
+    }
+
+    console.log(`[Twilio] Call accepted (${currentCalls + 1}/${MAX_CONCURRENT_CALLS} active calls)`);
+
     const host = req.headers.host;
     const wsProtocol = req.headers['x-forwarded-proto'] === 'https' ? 'wss' : 'ws';
     const httpProtocol = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
@@ -1080,12 +1113,36 @@ const wssTwilio = new WebSocketServer({ noServer: true });
 const wssClient = new WebSocketServer({ noServer: true });
 const wssElevenLabs = new WebSocketServer({ noServer: true });
 
+// Track alive clients for heartbeat mechanism
+const aliveClients = new WeakMap<import('ws').WebSocket, boolean>();
+
 export function broadcastToClients(message: any) {
     const data = JSON.stringify(message);
+    const deadClients: import('ws').WebSocket[] = [];
+
     wssClient.clients.forEach(client => {
         if (client.readyState === 1) { // WebSocket.OPEN
-            client.send(data);
+            try {
+                client.send(data);
+            } catch (error) {
+                console.error('[Client WS] Error sending to client:', error);
+                // Mark for cleanup
+                deadClients.push(client);
+            }
+        } else if (client.readyState !== 0) { // Not CONNECTING
+            // Connection is closing or closed, mark for cleanup
+            deadClients.push(client);
         }
+    });
+
+    // Clean up dead connections
+    deadClients.forEach(client => {
+        try {
+            client.terminate();
+        } catch (e) {
+            // Ignore termination errors
+        }
+        console.log(`[Client WS] Removed dead connection. Remaining clients: ${wssClient.clients.size}`);
     });
 }
 
@@ -1094,14 +1151,72 @@ wssClient.on('connection', (ws, req) => {
     console.log('[Client WS] Frontend client connected');
     console.log(`[Client WS] Total clients: ${wssClient.clients.size}`);
 
-    ws.on('close', () => {
-        console.log('[Client WS] Client disconnected');
+    // Mark client as alive for heartbeat tracking
+    aliveClients.set(ws, true);
+
+    // Handle pong responses (client is alive)
+    ws.on('pong', () => {
+        aliveClients.set(ws, true);
+    });
+
+    ws.on('close', (code, reason) => {
+        console.log(`[Client WS] Client disconnected (code: ${code}, reason: ${reason || 'none'})`);
         console.log(`[Client WS] Remaining clients: ${wssClient.clients.size}`);
     });
 
     ws.on('error', (error) => {
         console.error('[Client WS] WebSocket error:', error);
+        // Attempt to terminate the errored connection
+        try {
+            ws.terminate();
+        } catch (e) {
+            // Ignore termination errors
+        }
     });
+});
+
+// Heartbeat mechanism to detect stale/dead connections
+// Ping every 30 seconds, terminate connections that don't respond
+const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+
+const heartbeatInterval = setInterval(() => {
+    wssClient.clients.forEach((ws) => {
+        // Check if client responded to last ping
+        if (aliveClients.get(ws) === false) {
+            // Client didn't respond to ping, terminate connection
+            console.log('[Client WS] Terminating stale connection (no pong received)');
+            console.log(`[Client WS] Clients before termination: ${wssClient.clients.size}`);
+            try {
+                ws.terminate();
+            } catch (e) {
+                // Ignore termination errors
+            }
+            return;
+        }
+
+        // Mark as not alive, will be set to true when pong received
+        aliveClients.set(ws, false);
+
+        // Send ping
+        try {
+            if (ws.readyState === 1) { // WebSocket.OPEN
+                ws.ping();
+            }
+        } catch (error) {
+            console.error('[Client WS] Error sending ping:', error);
+            try {
+                ws.terminate();
+            } catch (e) {
+                // Ignore termination errors
+            }
+        }
+    });
+}, HEARTBEAT_INTERVAL);
+
+// Clean up heartbeat interval on server close
+wssClient.on('close', () => {
+    clearInterval(heartbeatInterval);
+    console.log('[Client WS] WebSocket server closed, heartbeat stopped');
 });
 
 setupTwilioSocket(wssTwilio, broadcastToClients);
@@ -1234,6 +1349,16 @@ async function startServer() {
             console.error('[V6 Switchboard] SKU cache preload failed:', e);
         }
 
+        // Initialize Job Complexity Classifier (load keywords from database)
+        console.log('[V6 Switchboard] Initializing job complexity classifier...');
+        try {
+            const { initializeClassifier } = await import('./services/job-complexity-classifier');
+            await initializeClassifier();
+            console.log('[V6 Switchboard] Job complexity classifier ready');
+        } catch (e) {
+            console.error('[V6 Switchboard] Job complexity classifier initialization failed:', e);
+        }
+
         // Start Lead Automations scheduler (runs every 5 minutes)
         try {
             const { startAutomationScheduler } = await import('./lead-automations');
@@ -1286,12 +1411,16 @@ server.on('error', (e: any) => {
 // Graceful shutdown handlers
 process.on('SIGINT', async () => {
     console.log('\n[V6 Switchboard] Received SIGINT, shutting down gracefully...');
+    clearInterval(heartbeatInterval);
+    wssClient.close();
     conversationEngine.destroy();
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
     console.log('\n[V6 Switchboard] Received SIGTERM, shutting down gracefully...');
+    clearInterval(heartbeatInterval);
+    wssClient.close();
     conversationEngine.destroy();
     process.exit(0);
 });

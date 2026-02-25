@@ -78,7 +78,7 @@ export default function GenerateQuoteLinkSimple() {
       }
 
       const result = await response.json();
-      const url = `${window.location.origin}/quote-link/${result.shortSlug}`;
+      const url = `${window.location.origin}/quote/${result.shortSlug}`;
       setGeneratedUrl(url);
 
       if (result.essential?.price) {

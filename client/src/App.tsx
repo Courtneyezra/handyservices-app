@@ -45,7 +45,10 @@ const InvoicesPage = lazy(() => import("@/pages/admin/InvoicesPage"));
 const LiveCallPage = lazy(() => import("@/pages/admin/LiveCallPage"));
 const LiveCallTestPage = lazy(() => import("@/pages/admin/LiveCallTestPage"));
 const LiveCallCoachTestPage = lazy(() => import("@/pages/admin/LiveCallCoachTestPage"));
+const CallReviewPage = lazy(() => import("@/pages/admin/CallReviewPage"));
 const CallHUDTestPage = lazy(() => import("@/pages/admin/CallHUDTestPage"));
+const SKUSimulatorPage = lazy(() => import("@/pages/admin/SKUSimulatorPage"));
+const LiveCallTestWizard = lazy(() => import("@/pages/admin/LiveCallTestWizard"));
 const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
 const QuotesPage = lazy(() => import("@/pages/admin/QuotesPage"));
 const EditQuotePage = lazy(() => import("@/pages/admin/EditQuotePage"));
@@ -191,8 +194,15 @@ function Router() {
                 <Route path="/seasonal-guide" component={SeasonalMenu} />
                 <Route path="/l/:slug" component={LandingPageRender} />
 
-                {/* Customer-facing quote views */}
+                {/* Customer-facing quote views - /quote is the canonical URL */}
+                <Route path="/quote/:slug">
+                    <PersonalizedQuotePage />
+                </Route>
+                {/* Legacy routes for backward compatibility */}
                 <Route path="/quote-link/:slug">
+                    <PersonalizedQuotePage />
+                </Route>
+                <Route path="/q/:slug">
                     <PersonalizedQuotePage />
                 </Route>
                 <Route path="/booking-confirmed/:quoteId">
@@ -398,6 +408,16 @@ function Router() {
                         <CallHUDTestPage />
                     </ProtectedRoute>
                 </Route>
+                <Route path="/admin/sku-simulator">
+                    <ProtectedRoute role="admin">
+                        <SKUSimulatorPage />
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/live-call-test">
+                    <ProtectedRoute role="admin">
+                        <LiveCallTestWizard />
+                    </ProtectedRoute>
+                </Route>
                 <Route path="/admin/inbox">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
@@ -486,6 +506,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <ContractorFleetDashboard />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/calls/:id/review">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <CallReviewPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

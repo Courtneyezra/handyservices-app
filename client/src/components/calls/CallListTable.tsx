@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React from "react";
+import { Link } from "wouter";
 import {
     Table,
     TableBody,
@@ -11,33 +12,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
     Phone,
-    Play,
-    FileText,
-    PhoneMissed,
-    User,
-    ArrowRight,
     Loader2,
-    Sparkles
+    Eye,
 } from "lucide-react";
 import { FaWhatsapp } from "react-icons/fa";
 import { format } from "date-fns";
-import { useLocation } from "wouter";
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 import { NameCorrection } from "@/components/NameCorrection";
 
@@ -67,139 +46,6 @@ interface CallListTableProps {
 }
 
 export function CallListTable({ calls, isLoading, onCallClick }: CallListTableProps) {
-    const [, setLocation] = useLocation();
-    const [extractingId, setExtractingId] = useState<string | null>(null);
-
-    const handleCreateQuote = async (e: React.MouseEvent, callId: string) => {
-        e.stopPropagation();
-        setExtractingId(callId);
-
-        try {
-            const response = await fetch("/api/extract-call-data", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ callId }),
-            });
-
-            if (!response.ok) throw new Error("Extraction failed");
-
-            const data = await response.json();
-
-            // Store extraction result in sessionStorage to pass to next page
-            sessionStorage.setItem("quoteFromCall", JSON.stringify({
-                ...data,
-                callId
-            }));
-
-            // Navigate to Quote Generator
-            setLocation("/admin/generate-quote");
-
-        } catch (error) {
-            console.error("Failed to extract call data:", error);
-            alert("Failed to analyze call. Please try again.");
-        } finally {
-            setExtractingId(null);
-        }
-    };
-
-    // Audio Player State
-    const audioRef = React.useRef<HTMLAudioElement | null>(null);
-    // playingId tracks which call ID is currently "active" (loaded) in the player
-    const [playingId, setPlayingId] = React.useState<string | null>(null);
-    // isAudioPlaying tracks if the audio is actually running (vs paused)
-    const [isAudioPlaying, setIsAudioPlaying] = React.useState(false);
-
-    // Cleanup audio on unmount
-    React.useEffect(() => {
-        return () => {
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current = null;
-            }
-        };
-    }, []);
-
-    const handlePlayRecording = async (e: React.MouseEvent, call: CallSummary) => {
-        e.stopPropagation();
-        if (!call.recordingUrl) return;
-
-        // Condition 1: Clicking the SAME call that is already active
-        if (playingId === call.id) {
-            if (audioRef.current) {
-                if (audioRef.current.paused) {
-                    audioRef.current.play().catch(err => console.error("Playback failed", err));
-                    setIsAudioPlaying(true);
-                } else {
-                    audioRef.current.pause();
-                    setIsAudioPlaying(false);
-                }
-            }
-            return;
-        }
-
-        // Condition 2: Clicking a DIFFERENT call (or first play)
-        // Stop existing
-        if (audioRef.current) {
-            audioRef.current.pause();
-        }
-
-        // Initialize new audio
-        const audio = new Audio(`/api/calls/${call.id}/recording`);
-        audioRef.current = audio;
-        setPlayingId(call.id);
-        setIsAudioPlaying(true); // Optimistic state
-
-        audio.addEventListener('ended', () => {
-            setIsAudioPlaying(false);
-            setPlayingId(null); // Reset ID on finish so icon reverts to Play
-        });
-
-        audio.addEventListener('pause', () => {
-            // Catch external pauses (like headphones removed)
-            setIsAudioPlaying(false);
-        });
-
-        audio.addEventListener('play', () => {
-            setIsAudioPlaying(true);
-        });
-
-        try {
-            await audio.play();
-        } catch (err) {
-            console.error("Failed to play audio:", err);
-            setIsAudioPlaying(false);
-            setPlayingId(null);
-            alert("Could not play recording. It may be unavailable.");
-        }
-    };
-
-    /**
-     * Generate dynamic WhatsApp link with message template
-     */
-    const getWhatsAppLink = (call: CallSummary) => {
-        const cleanNumber = call.phoneNumber.replace(/\D/g, '');
-        const firstName = call.customerName?.split(' ')[0] || "there";
-
-        let message = "";
-        const outcome = call.outcome?.toUpperCase();
-
-        // Template for Quote Requested / Video Quote
-        if (outcome === 'QUOTE_REQUESTED' || outcome === 'VIDEO_QUOTE') {
-            let jobSummary = call.jobSummary?.toLowerCase() || "the work you need";
-
-            // Ensure grammatical flow: "video of [the] leaking tap"
-            if (!jobSummary.startsWith("the ") && !jobSummary.startsWith("my ") && !jobSummary.startsWith("our ")) {
-                jobSummary = `the ${jobSummary}`;
-            }
-
-            message = `Hi ${firstName}\n\nAs discussed please send us a video of ${jobSummary} for us to take a look straight away😊\n\nCourtnee\nHandy Services`;
-        } else {
-            // Generic fallback for other outcomes
-            message = `Hi ${firstName}`;
-        }
-
-        return `https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`;
-    };
 
     if (isLoading) {
         return <div className="p-8 text-center flex justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div>;
@@ -276,166 +122,43 @@ export function CallListTable({ calls, isLoading, onCallClick }: CallListTablePr
                                 <div className="text-xs text-muted-foreground">{format(new Date(call.startTime), "HH:mm")}</div>
                             </TableCell>
 
-                            {/* 6. Actions */}
+                            {/* 6. Actions - Review and WhatsApp buttons */}
                             <TableCell className="text-right">
-                                <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                                    {/* Smart Quote Extraction Button */}
+                                <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                                    <Link href={`/admin/calls/${call.id}/review`}>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-8 px-3 gap-1.5"
+                                            title="Review Call"
+                                        >
+                                            <Eye className="h-4 w-4" />
+                                            <span className="text-xs font-medium">Review</span>
+                                        </Button>
+                                    </Link>
                                     <Button
                                         size="sm"
-                                        variant="outline"
-                                        disabled={extractingId === call.id}
-                                        className={`h-8 px-2 border-handy-gold/50 text-handy-gold hover:bg-handy-gold/10 ${extractingId === call.id ? 'opacity-80' : ''}`}
-                                        onClick={(e) => handleCreateQuote(e, call.id)}
-                                        title="Create Quote from Call (AI Extraction)"
+                                        className="h-8 px-3 bg-green-600 hover:bg-green-700 text-white border-0 shadow-sm gap-1.5"
+                                        onClick={() => {
+                                            const cleanNumber = call.phoneNumber.replace(/\D/g, '');
+                                            const firstName = call.customerName?.split(' ')[0] || "there";
+                                            let jobSummary = call.jobSummary?.toLowerCase() || "the work you need";
+
+                                            // Ensure grammatical flow: "video of [the] leaking tap"
+                                            if (!jobSummary.startsWith("the ") && !jobSummary.startsWith("my ") && !jobSummary.startsWith("our ")) {
+                                                jobSummary = `the ${jobSummary}`;
+                                            }
+
+                                            const message = `Hi ${firstName}\n\nAs discussed please send us a video of ${jobSummary} for us to take a look straight away😊\n\nCourtnee\nHandy Services`;
+
+                                            // Open in WhatsApp app (not web)
+                                            window.open(`https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`, '_blank');
+                                        }}
+                                        title="Send Video Request"
                                     >
-                                        {extractingId === call.id ? (
-                                            <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                                        ) : (
-                                            <Sparkles className="h-3.5 w-3.5 mr-1" />
-                                        )}
-                                        <span className="text-xs font-medium">Quote</span>
+                                        <FaWhatsapp className="h-4 w-4" />
+                                        <span className="text-xs font-medium">Video Request</span>
                                     </Button>
-                                    {/* Smart Action Dropdown (Human overrides AI) */}
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                            <Button
-                                                size="sm"
-                                                className={`h-8 px-2 text-white border-0 shadow-sm gap-1.5 transition-all
-                                                    ${call.metadataJson?.agentPlan?.draftReply
-                                                        ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
-                                                        : "bg-green-600 hover:bg-green-700"}`}
-                                            >
-                                                <FaWhatsapp className="h-4 w-4" />
-                                                <span className="text-xs font-medium hidden md:inline-block">Action</span>
-                                            </Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end" className="w-56" onClick={(e) => e.stopPropagation()}>
-                                            <DropdownMenuLabel>Choose Response</DropdownMenuLabel>
-                                            <DropdownMenuSeparator />
-
-                                            {/* 1. Request Video */}
-                                            <DropdownMenuItem onClick={() => {
-                                                const cleanNumber = call.phoneNumber.replace(/\D/g, '');
-                                                const firstName = call.customerName?.split(' ')[0] || "there";
-                                                const jobSummary = call.jobSummary || "the work you need";
-                                                const message = `Hi ${firstName}\n\nAs discussed please send us a video of ${jobSummary} for us to take a look straight away😊\n\nCourtnee\nHandy Services`;
-                                                window.open(`https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`, '_blank');
-                                            }}>
-                                                📹 Request Video
-                                            </DropdownMenuItem>
-
-                                            {/* 2. Instant Quote */}
-                                            <DropdownMenuItem onClick={() => {
-                                                const cleanNumber = call.phoneNumber.replace(/\D/g, '');
-                                                const firstName = call.customerName?.split(' ')[0] || "there";
-                                                const jobSummary = call.jobSummary || "the work you need";
-                                                // Placeholder price - user would edit before sending
-                                                const message = `Hi ${firstName}, great speaking with you. As discussed, we can do ${jobSummary}. Here is the link to secure your booking: [Link]. Let me know if you have any questions! - Courtnee, Handy Services`;
-                                                window.open(`https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`, '_blank');
-                                            }}>
-                                                ⚡ Instant Quote Link
-                                            </DropdownMenuItem>
-
-                                            {/* 3. Confirm Visit */}
-                                            <DropdownMenuItem onClick={() => {
-                                                const cleanNumber = call.phoneNumber.replace(/\D/g, '');
-                                                const firstName = call.customerName?.split(' ')[0] || "there";
-                                                const message = `Hi ${firstName}, confirming your booking for a diagnostic visit. Our engineer will arrive to assess the issue. You can track their arrival here: [Link] - Handy Services`;
-                                                window.open(`https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`, '_blank');
-                                            }}>
-                                                🏠 Confirm Visit
-                                            </DropdownMenuItem>
-
-                                            {/* 4. General Reply */}
-                                            <DropdownMenuItem onClick={() => {
-                                                const cleanNumber = call.phoneNumber.replace(/\D/g, '');
-                                                const firstName = call.customerName?.split(' ')[0] || "there";
-                                                const message = `Hi ${firstName}, thanks for your enquiry. I've checked with the team and...`;
-                                                window.open(`https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`, '_blank');
-                                            }}>
-                                                📝 General Reply
-                                            </DropdownMenuItem>
-
-                                            {/* 5. Missed Call (Smart Context) */}
-                                            <DropdownMenuItem onClick={() => {
-                                                const cleanNumber = call.phoneNumber.replace(/\D/g, '');
-                                                const firstName = call.customerName?.split(' ')[0] || "there";
-
-                                                // Intelligent Context: Did the AI speak to them?
-                                                // metadataJson stores the AgentActionPlan directly
-                                                const plan = call.metadataJson as any;
-
-                                                // Try to find a human-readable topic
-                                                let topic = call.jobSummary;
-
-                                                // 1. Try first task description (Best, e.g. "Fix Leaking Tap")
-                                                if (plan?.tasks && plan.tasks.length > 0) {
-                                                    topic = plan.tasks[0].description;
-                                                }
-                                                // 2. Fallback to reasoning if it's not a debug string
-                                                else if (plan?.reasoning && !plan.reasoning.startsWith("Tools Used")) {
-                                                    topic = plan.reasoning;
-                                                }
-                                                // 3. Cleanup fallback jobSummary if it's the debug string (from backend logic)
-                                                else if (topic?.startsWith("Tools Used")) {
-                                                    topic = "your enquiry";
-                                                }
-
-                                                let message = "";
-                                                if (topic && topic !== "your enquiry") {
-                                                    // Context-aware recovery
-                                                    message = `Hi ${firstName}, sorry I missed you! I see you called about ${topic.toLowerCase()}. I'm free now if you want to chat? - Courtnee`;
-                                                } else {
-                                                    // Generic fallback
-                                                    message = `Hi ${firstName}, sorry I missed your call just now! I'm on the other line. How can I help? (Feel free to send a voice note or video here) - Courtnee`;
-                                                }
-
-                                                window.open(`https://web.whatsapp.com/send?phone=${cleanNumber}&text=${encodeURIComponent(message)}`, '_blank');
-                                            }}>
-                                                👋 Missed Call Summary
-                                            </DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-
-                                    {/* Play Recording */}
-                                    {call.recordingUrl && (
-                                        <Button
-                                            size="icon"
-                                            variant="ghost"
-                                            className="h-8 w-8 hover:text-handy-gold hover:bg-amber-500/10"
-                                            onClick={(e) => handlePlayRecording(e, call)}
-                                            title={playingId === call.id && isAudioPlaying ? "Pause Recording" : "Play Recording"}
-                                        >
-                                            {/* Toggle Icon Logic */}
-                                            {playingId === call.id && isAudioPlaying ? (
-                                                /* Pause Icon (using literal or Lucide component if available, though Pause isn't imported yet) */
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
-                                            ) : (
-                                                <Play className="h-4 w-4" />
-                                            )}
-                                        </Button>
-                                    )}
-
-                                    {/* View Transcript */}
-                                    {call.transcription && (
-                                        <Dialog>
-                                            <DialogTrigger asChild>
-                                                <Button size="icon" variant="ghost" className="h-8 w-8 hover:text-blue-400 hover:bg-blue-500/10" title="View Transcript">
-                                                    <FileText className="h-4 w-4" />
-                                                </Button>
-                                            </DialogTrigger>
-                                            <DialogContent className="max-w-xl bg-background border-border text-foreground" onClick={(e) => e.stopPropagation()}>
-                                                <DialogHeader>
-                                                    <DialogTitle>Call Transcript</DialogTitle>
-                                                </DialogHeader>
-                                                <ScrollArea className="h-[400px] mt-4 p-4 rounded-md border border-border bg-muted/30">
-                                                    <div className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground font-mono">
-                                                        {call.transcription}
-                                                    </div>
-                                                </ScrollArea>
-                                            </DialogContent>
-                                        </Dialog>
-                                    )}
                                 </div>
                             </TableCell>
                         </TableRow>

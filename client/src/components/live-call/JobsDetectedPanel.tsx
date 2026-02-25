@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle2,
   AlertTriangle,
+  AlertOctagon,
   FileText,
   Video,
   MapPin,
@@ -25,6 +26,7 @@ export interface DetectedJob {
   id: string;
   description: string;        // What the customer said
   matched: boolean;           // SKU found?
+  quantity?: number;          // Quantity of this job (default 1)
   sku?: {
     id: string;
     name: string;
@@ -33,6 +35,13 @@ export interface DetectedJob {
   };
   confidence?: number;        // Match confidence 0-100
   timestamp?: Date;           // When detected
+  trafficLight?: 'green' | 'amber' | 'red'; // Complexity scoring: green=SKU match, amber=unmatched, red=complex/specialist
+  // Tier 2 classification results (from LLM)
+  complexityScore?: number;   // 1-10 complexity scale
+  recommendedRoute?: 'instant' | 'video' | 'visit' | 'refer';
+  needsSpecialist?: boolean;  // Requires licensed trade?
+  reasoning?: string;         // LLM explanation
+  tier?: 1 | 2;               // Which classification tier produced this
 }
 
 export interface JobsDetectedPanelProps {
@@ -45,9 +54,9 @@ function formatPrice(pence: number): string {
   return `£${(pence / 100).toFixed(0)}`;
 }
 
-// Get route recommendation based on jobs
+// Get route recommendation based on jobs and traffic light status
 function getRouteRecommendation(jobs: DetectedJob[]): {
-  route: 'INSTANT' | 'VIDEO' | 'VISIT';
+  route: 'INSTANT' | 'VIDEO' | 'VISIT' | 'REFER';
   color: string;
   icon: React.ElementType;
   reason: string;
@@ -58,6 +67,17 @@ function getRouteRecommendation(jobs: DetectedJob[]): {
       color: '#EAB308',
       icon: Video,
       reason: 'No jobs detected yet',
+    };
+  }
+
+  // Check for RED jobs first - specialist work that should be referred out
+  const redJobs = jobs.filter(j => j.trafficLight === 'red');
+  if (redJobs.length > 0) {
+    return {
+      route: 'REFER',
+      color: '#EF4444',
+      icon: AlertOctagon,
+      reason: `${redJobs.length} job${redJobs.length > 1 ? 's' : ''} need${redJobs.length === 1 ? 's' : ''} specialist referral`,
     };
   }
 
@@ -91,7 +111,8 @@ function getRouteRecommendation(jobs: DetectedJob[]): {
 export function JobsDetectedPanel({ jobs, className }: JobsDetectedPanelProps) {
   // Calculate totals
   const matchedJobs = jobs.filter(j => j.matched && j.sku);
-  const unmatchedJobs = jobs.filter(j => !j.matched);
+  const unmatchedJobs = jobs.filter(j => !j.matched && j.trafficLight !== 'red');
+  const redJobs = jobs.filter(j => j.trafficLight === 'red');
   const totalPence = matchedJobs.reduce((sum, j) => sum + (j.sku?.pricePence || 0), 0);
 
   // Get route recommendation
@@ -143,7 +164,10 @@ export function JobsDetectedPanel({ jobs, className }: JobsDetectedPanelProps) {
                 <div className="flex items-start justify-between gap-3">
                   {/* Left: Status + Description */}
                   <div className="flex items-start gap-2 flex-1 min-w-0">
-                    {job.matched ? (
+                    {/* Traffic light icon based on job complexity */}
+                    {job.trafficLight === 'red' ? (
+                      <AlertOctagon className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                    ) : job.trafficLight === 'green' || job.matched ? (
                       <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
                     ) : (
                       <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
@@ -151,7 +175,8 @@ export function JobsDetectedPanel({ jobs, className }: JobsDetectedPanelProps) {
                     <div className="flex-1 min-w-0">
                       <p className={cn(
                         'text-sm font-medium truncate',
-                        job.matched ? 'text-white' : 'text-amber-200'
+                        job.trafficLight === 'red' ? 'text-red-200' :
+                        job.trafficLight === 'green' || job.matched ? 'text-white' : 'text-amber-200'
                       )}>
                         {job.matched && job.sku ? job.sku.name : `"${job.description}"`}
                       </p>
@@ -159,6 +184,10 @@ export function JobsDetectedPanel({ jobs, className }: JobsDetectedPanelProps) {
                         <p className="text-xs text-white/40 mt-0.5">
                           SKU: {job.sku.id}
                           {job.sku.category && ` • ${job.sku.category}`}
+                        </p>
+                      ) : job.trafficLight === 'red' ? (
+                        <p className="text-xs text-red-500/70 mt-0.5">
+                          Specialist work - refer out
                         </p>
                       ) : (
                         <p className="text-xs text-amber-500/70 mt-0.5">
@@ -211,6 +240,16 @@ export function JobsDetectedPanel({ jobs, className }: JobsDetectedPanelProps) {
                 </span>
               </div>
             )}
+            {redJobs.length > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-white/60">
+                  Specialist
+                </span>
+                <span className="text-sm text-red-400">
+                  {redJobs.length} job{redJobs.length > 1 ? 's' : ''} - refer out
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Route Recommendation */}
@@ -232,6 +271,7 @@ export function JobsDetectedPanel({ jobs, className }: JobsDetectedPanelProps) {
                     {route.route === 'INSTANT' && '🟢 Instant Quote'}
                     {route.route === 'VIDEO' && '🟡 Video Quote'}
                     {route.route === 'VISIT' && '🔵 Site Visit'}
+                    {route.route === 'REFER' && '🔴 Refer Out'}
                   </p>
                   <p className="text-xs text-white/50">{route.reason}</p>
                 </div>

@@ -90,12 +90,24 @@ export interface ExtractedCustomerInfo {
     postcode: string;
 }
 
+// Route recommendation from tiered job classification
+export interface RouteRecommendation {
+    route: 'instant' | 'video' | 'visit' | 'refer';
+    color: string;
+    reason: string;
+    confidence: number;
+}
+
+// Connection state for WebSocket reconnection
+export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected';
+
 interface LiveCallContextType {
     isLive: boolean; // Derived: if liveCallData !== null
     activeCallSid: string | null; // Current call SID for tube map integration
     liveCallData: LiveCallData | null;
     interimTranscript: string;
     isSimulating: boolean;
+    connectionState: ConnectionState; // WebSocket connection state
     startSimulation: (options?: SimulationOptions) => void;
     startCallScriptSimulation: (transcript: string[]) => Promise<string | null>;
     clearCall: () => void;
@@ -124,6 +136,7 @@ interface LiveCallContextType {
 
     // Jobs detection state
     detectedJobs: DetectedJob[];
+    routeRecommendation: RouteRecommendation | null;
 }
 
 const LiveCallContext = createContext<LiveCallContextType | undefined>(undefined);
@@ -179,14 +192,20 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
 
     // Jobs detection state
     const [detectedJobs, setDetectedJobs] = useState<DetectedJob[]>([]);
+    const [routeRecommendation, setRouteRecommendation] = useState<RouteRecommendation | null>(null);
 
     // Extracted customer info from voice analysis
     const [extractedCustomerInfo, setExtractedCustomerInfo] = useState<ExtractedCustomerInfo>(DEFAULT_EXTRACTED_CUSTOMER_INFO);
 
     const isSimulatingRef = useRef(false);
     const wsRef = useRef<WebSocket | null>(null);
+    const reconnectAttemptsRef = useRef(0);
+    const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const queryClient = useQueryClient();
     const { toast } = useToast();
+
+    // WebSocket connection state
+    const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
 
     // Derived state
     const isLive = liveCallData !== null;
@@ -207,6 +226,7 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
         setSkuMatched(false);
         setHasUnmatchedSku(true);
         setDetectedJobs([]);
+        setRouteRecommendation(null);
         setExtractedCustomerInfo(DEFAULT_EXTRACTED_CUSTOMER_INFO);
     };
 
@@ -321,8 +341,11 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
             if (data.success && data.callId) {
                 // Set state directly to activate the UI
                 setActiveCallSid(data.callId);
+
+                const fullTranscript = transcript.join(' ');
+
                 setLiveCallData({
-                    transcription: transcript.join(' '),
+                    transcription: fullTranscript,
                     segments: transcript.map((text, i) => ({
                         speaker: 0 as const,
                         text,
@@ -345,6 +368,95 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                         phoneNumber: '+447700900123',
                     }
                 });
+
+                // Run full simulation analysis: SKU detection + Segment classification + Info extraction
+                try {
+                    const analysisResponse = await fetch('/api/test/simulate-full', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ transcript })
+                    });
+
+                    if (analysisResponse.ok) {
+                        const analysisData = await analysisResponse.json();
+                        console.log('[LiveCall] Full simulation analysis:', analysisData);
+
+                        // Convert to DetectedJob format and update state
+                        const jobs: DetectedJob[] = [];
+
+                        // Add matched jobs
+                        analysisData.matchedServices?.forEach((match: any, i: number) => {
+                            jobs.push({
+                                id: `matched-${i}-${Date.now()}`,
+                                description: match.task?.description || match.sku?.name || 'Unknown job',
+                                matched: true,
+                                sku: match.sku ? {
+                                    id: match.sku.id,
+                                    skuCode: match.sku.skuCode,
+                                    name: match.sku.name,
+                                    pricePence: match.sku.pricePence,
+                                    timeEstimateMinutes: match.sku.timeEstimateMinutes,
+                                    category: match.sku.category,
+                                } : undefined,
+                                confidence: match.confidence,
+                            });
+                        });
+
+                        // Add unmatched jobs
+                        analysisData.unmatchedTasks?.forEach((task: any, i: number) => {
+                            jobs.push({
+                                id: `unmatched-${i}-${Date.now()}`,
+                                description: task.description || 'Unknown job',
+                                matched: false,
+                            });
+                        });
+
+                        setDetectedJobs(jobs);
+                        setSkuMatched(jobs.some(j => j.matched));
+                        setHasUnmatchedSku(jobs.some(j => !j.matched));
+
+                        // Update segment state
+                        if (analysisData.segment) {
+                            setCurrentSegmentState(analysisData.segment);
+                            setSegmentConfidence(analysisData.segmentConfidence || 0);
+                            setSegmentOptions(analysisData.segmentOptions || []);
+                        }
+
+                        // Update extracted customer info
+                        if (analysisData.extractedInfo) {
+                            const postcode = analysisData.extractedInfo.postcode || '';
+                            const address = analysisData.extractedInfo.address || '';
+                            // Combine address and postcode if both exist
+                            const fullAddress = address && postcode ? `${address}, ${postcode}` :
+                                               address || postcode || '';
+
+                            setExtractedCustomerInfo({
+                                name: analysisData.extractedInfo.name || '',
+                                address: fullAddress,
+                                postcode: postcode,
+                            });
+                        }
+
+                        // Update detection info and metadata
+                        setLiveCallData(prev => prev ? {
+                            ...prev,
+                            detection: {
+                                ...prev.detection,
+                                matched: jobs.some(j => j.matched),
+                                nextRoute: analysisData.nextRoute || 'VIDEO_QUOTE',
+                                rationale: `Detected ${jobs.filter(j => j.matched).length} matched, ${jobs.filter(j => !j.matched).length} unmatched jobs`,
+                            },
+                            metadata: {
+                                ...prev.metadata,
+                                customerName: analysisData.extractedInfo?.name || prev.metadata.customerName,
+                                leadType: analysisData.segment === 'LANDLORD' ? 'Landlord' :
+                                         analysisData.segment === 'PROP_MGR' ? 'Commercial' : 'Homeowner',
+                            }
+                        } : prev);
+                    }
+                } catch (analysisError) {
+                    console.error('[LiveCall] Simulation analysis failed:', analysisError);
+                }
 
                 console.log('[LiveCall] Call script simulation started:', data.callId);
                 return data.callId;
@@ -514,7 +626,18 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
         runNextStep();
     };
 
-    useEffect(() => {
+    // WebSocket reconnection constants
+    const MAX_RECONNECT_ATTEMPTS = 5;
+    const BASE_RECONNECT_DELAY = 1000; // 1 second
+    const MAX_RECONNECT_DELAY = 16000; // 16 seconds
+
+    const calculateBackoffDelay = useCallback((attempt: number): number => {
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+        const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, attempt), MAX_RECONNECT_DELAY);
+        return delay;
+    }, []);
+
+    const connectWebSocket = useCallback(() => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/api/ws/client`;
         console.log('[LiveCall] Connecting to WebSocket:', wsUrl);
@@ -524,6 +647,8 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
 
         ws.onopen = async () => {
             console.log('[LiveCall] WebSocket CONNECTED');
+            setConnectionState('connected');
+            reconnectAttemptsRef.current = 0; // Reset attempts on successful connection
 
             // F2: Rehydrate from any active call in DB
             if (!isSimulatingRef.current) {
@@ -563,6 +688,42 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                     setIsRehydrating(false);
                 }
             }
+        };
+
+        ws.onclose = (event) => {
+            console.log('[LiveCall] WebSocket CLOSED:', event.code, event.reason);
+            wsRef.current = null;
+
+            // Don't reconnect if this was a clean close (code 1000) or intentional
+            if (event.code === 1000) {
+                setConnectionState('disconnected');
+                return;
+            }
+
+            // Attempt reconnection with exponential backoff
+            if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+                setConnectionState('reconnecting');
+                const delay = calculateBackoffDelay(reconnectAttemptsRef.current);
+                console.log(`[LiveCall] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+
+                reconnectTimeoutRef.current = setTimeout(() => {
+                    reconnectAttemptsRef.current++;
+                    connectWebSocket();
+                }, delay);
+            } else {
+                console.error('[LiveCall] Max reconnection attempts reached. Connection lost.');
+                setConnectionState('disconnected');
+                toast({
+                    title: "Connection Lost",
+                    description: "Unable to reconnect to live call updates. Please refresh the page.",
+                    variant: "destructive",
+                });
+            }
+        };
+
+        ws.onerror = (error) => {
+            console.error('[LiveCall] WebSocket error:', error);
+            // The onclose handler will be called after this, which handles reconnection
         };
 
         ws.onmessage = (event) => {
@@ -732,17 +893,34 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                     }
                 }
                 else if (msg.type === 'callscript:jobs_update') {
-                    // Full jobs list update
-                    console.log('[LiveCall] Jobs update:', msg.data.jobs);
+                    // Full jobs list update with tiered classification
+                    console.log('[LiveCall] Jobs update:', msg.data.jobs, 'Route:', msg.data.routeRecommendation, 'Tier:', msg.data.tier);
                     setDetectedJobs(msg.data.jobs || []);
+                    if (msg.data.routeRecommendation) {
+                        setRouteRecommendation(msg.data.routeRecommendation);
+                    }
                 }
             } catch (e) {
                 console.error("Voice WS Parse Error", e);
             }
         };
 
-        return () => ws.close();
-    }, []);
+        return ws;
+    }, [calculateBackoffDelay, toast]);
+
+    useEffect(() => {
+        connectWebSocket();
+
+        return () => {
+            // Clean up on unmount
+            if (reconnectTimeoutRef.current) {
+                clearTimeout(reconnectTimeoutRef.current);
+            }
+            if (wsRef.current) {
+                wsRef.current.close(1000, 'Component unmounting'); // Clean close
+            }
+        };
+    }, [connectWebSocket]);
 
     return (
         <LiveCallContext.Provider value={{
@@ -751,6 +929,7 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
             liveCallData,
             interimTranscript,
             isSimulating,
+            connectionState,
             startSimulation,
             startCallScriptSimulation,
             clearCall,
@@ -779,6 +958,7 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
 
             // Jobs detection state
             detectedJobs,
+            routeRecommendation,
         }}>
             {children}
         </LiveCallContext.Provider>

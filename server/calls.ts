@@ -209,6 +209,288 @@ router.get("/", async (req: Request, res: Response) => {
     }
 });
 
+// GET /api/calls/:id/review - Get call data formatted for CallHUD review component
+router.get("/:id/review", async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        // Get call details with lead data for recording URL fallback
+        const [result] = await db.select({
+            call: calls,
+            lead: leads
+        })
+            .from(calls)
+            .leftJoin(leads, eq(calls.leadId, leads.id))
+            .where(eq(calls.id, id));
+
+        if (!result || !result.call) {
+            return res.status(404).json({ error: "Call not found" });
+        }
+
+        const call = result.call;
+        const lead = result.lead;
+
+        // Parse transcript into segments (split by [Agent]: and [Caller]:)
+        const segments = parseTranscriptToSegments(call.transcription || '');
+
+        // Extract postcode from address if not stored separately
+        const postcode = call.postcode || extractPostcode(call.address || '');
+
+        // Transform detectedSkusJson.tasks into DetectedJob format
+        const detectedJobs = transformToDetectedJobs(call.detectedSkusJson);
+
+        // Calculate duration in seconds
+        const startTime = call.startTime ? new Date(call.startTime) : new Date();
+        const endTime = call.endTime ? new Date(call.endTime) : new Date();
+        const duration = call.duration || Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+
+        // Build the response in LiveCallContext format
+        const reviewData = {
+            callSid: call.callId,
+            phoneNumber: call.phoneNumber,
+            customerName: call.customerName || 'Unknown',
+            address: call.address || '',
+            postcode: postcode || '',
+            transcription: call.transcription || '',
+            segments: segments,
+            detectedJobs: detectedJobs,
+            startTime: startTime.toISOString(),
+            duration: duration,
+            outcome: call.outcome || 'Unknown',
+            status: call.status,
+            // Additional metadata for review UI
+            jobSummary: call.jobSummary,
+            urgency: call.urgency,
+            leadType: call.leadType,
+            recordingUrl: call.recordingUrl || lead?.elevenLabsRecordingUrl,
+            notes: call.notes,
+        };
+
+        res.json(reviewData);
+    } catch (error) {
+        console.error("Error fetching call review data:", error);
+        res.status(500).json({ error: "Failed to fetch call review data" });
+    }
+});
+
+/**
+ * Parse transcript string into segments array
+ * Splits by [Agent]: and [Caller]: markers
+ */
+function parseTranscriptToSegments(transcription: string): Array<{
+    speaker: 0 | 1; // 0 = caller, 1 = agent
+    text: string;
+    start: number;
+    end: number;
+}> {
+    if (!transcription || transcription.trim() === '') {
+        return [];
+    }
+
+    const segments: Array<{
+        speaker: 0 | 1;
+        text: string;
+        start: number;
+        end: number;
+    }> = [];
+
+    // Regex to split by [Agent]: or [Caller]: markers
+    const speakerPattern = /\[(Agent|Caller)\]:\s*/gi;
+    const parts = transcription.split(speakerPattern);
+
+    let currentTime = 0;
+    const avgWordsPerMinute = 150;
+    const avgMsPerWord = (60 * 1000) / avgWordsPerMinute;
+
+    for (let i = 0; i < parts.length; i++) {
+        const part = parts[i].trim();
+
+        if (!part) continue;
+
+        // Check if this part is a speaker label
+        const isAgentLabel = part.toLowerCase() === 'agent';
+        const isCallerLabel = part.toLowerCase() === 'caller';
+
+        if (isAgentLabel || isCallerLabel) {
+            // Next part is the text for this speaker
+            const nextPart = parts[i + 1]?.trim();
+            if (nextPart) {
+                const wordCount = nextPart.split(/\s+/).length;
+                const duration = wordCount * avgMsPerWord;
+
+                segments.push({
+                    speaker: isCallerLabel ? 0 : 1,
+                    text: nextPart,
+                    start: currentTime,
+                    end: currentTime + duration,
+                });
+
+                currentTime += duration + 500; // Add 500ms pause between segments
+                i++; // Skip the next part since we've processed it
+            }
+        } else if (segments.length === 0 && part) {
+            // No speaker markers found, treat entire text as caller
+            const wordCount = part.split(/\s+/).length;
+            const duration = wordCount * avgMsPerWord;
+
+            segments.push({
+                speaker: 0,
+                text: part,
+                start: currentTime,
+                end: currentTime + duration,
+            });
+
+            currentTime += duration;
+        }
+    }
+
+    // If no segments were parsed (no speaker markers), treat whole transcript as single segment
+    if (segments.length === 0 && transcription.trim()) {
+        const wordCount = transcription.split(/\s+/).length;
+        const duration = wordCount * avgMsPerWord;
+
+        segments.push({
+            speaker: 0,
+            text: transcription.trim(),
+            start: 0,
+            end: duration,
+        });
+    }
+
+    return segments;
+}
+
+/**
+ * Extract UK postcode from address string
+ */
+function extractPostcode(address: string): string | null {
+    // UK postcode regex pattern
+    const postcodePattern = /\b([A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2})\b/i;
+    const match = address.match(postcodePattern);
+    return match ? match[1].toUpperCase() : null;
+}
+
+/**
+ * Transform detectedSkusJson into DetectedJob array format
+ */
+function transformToDetectedJobs(detectedSkusJson: any): Array<{
+    id: string;
+    description: string;
+    matched: boolean;
+    sku?: {
+        id: string;
+        name: string;
+        pricePence: number;
+        category?: string;
+    };
+    trafficLight: 'green' | 'amber' | 'red';
+    confidence: number;
+}> {
+    if (!detectedSkusJson) {
+        return [];
+    }
+
+    const jobs: Array<{
+        id: string;
+        description: string;
+        matched: boolean;
+        sku?: {
+            id: string;
+            name: string;
+            pricePence: number;
+            category?: string;
+        };
+        trafficLight: 'green' | 'amber' | 'red';
+        confidence: number;
+    }> = [];
+
+    // Handle array of tasks structure
+    const tasks = detectedSkusJson.tasks || detectedSkusJson;
+
+    if (Array.isArray(tasks)) {
+        tasks.forEach((task: any, index: number) => {
+            // Determine if task has a matched SKU
+            const hasSku = task.sku || task.skuId || task.skuCode || task.matched;
+            const isSpecialist = task.needsSpecialist || task.trafficLight === 'red';
+
+            let trafficLight: 'green' | 'amber' | 'red' = 'amber';
+            if (isSpecialist) {
+                trafficLight = 'red';
+            } else if (hasSku) {
+                trafficLight = 'green';
+            }
+
+            const job: {
+                id: string;
+                description: string;
+                matched: boolean;
+                sku?: {
+                    id: string;
+                    name: string;
+                    pricePence: number;
+                    category?: string;
+                };
+                trafficLight: 'green' | 'amber' | 'red';
+                confidence: number;
+            } = {
+                id: task.id || `task-${index}-${Date.now()}`,
+                description: task.description || task.name || task.jobDescription || 'Unknown task',
+                matched: !!hasSku,
+                trafficLight: trafficLight,
+                confidence: task.confidence ?? (hasSku ? 85 : 0),
+            };
+
+            // Add SKU data if available
+            if (hasSku) {
+                job.sku = {
+                    id: task.sku?.id || task.skuId || `sku-${index}`,
+                    name: task.sku?.name || task.skuName || task.name || task.description || 'Unknown SKU',
+                    pricePence: task.sku?.pricePence || task.priceEstimate || task.pricePence || 0,
+                    category: task.sku?.category || task.category,
+                };
+            }
+
+            jobs.push(job);
+        });
+    } else if (typeof tasks === 'object') {
+        // Handle single task object or legacy format
+        const hasSku = tasks.sku || tasks.skuId || tasks.matched;
+
+        const job: {
+            id: string;
+            description: string;
+            matched: boolean;
+            sku?: {
+                id: string;
+                name: string;
+                pricePence: number;
+                category?: string;
+            };
+            trafficLight: 'green' | 'amber' | 'red';
+            confidence: number;
+        } = {
+            id: tasks.id || `task-0-${Date.now()}`,
+            description: tasks.description || tasks.name || 'Unknown task',
+            matched: !!hasSku,
+            trafficLight: hasSku ? 'green' : 'amber',
+            confidence: tasks.confidence ?? (hasSku ? 85 : 0),
+        };
+
+        if (hasSku) {
+            job.sku = {
+                id: tasks.sku?.id || tasks.skuId || 'sku-0',
+                name: tasks.sku?.name || tasks.skuName || tasks.name || 'Unknown SKU',
+                pricePence: tasks.sku?.pricePence || tasks.priceEstimate || tasks.pricePence || 0,
+                category: tasks.sku?.category || tasks.category,
+            };
+        }
+
+        jobs.push(job);
+    }
+
+    return jobs;
+}
+
 // GET /api/calls/:id - Get detailed call information
 router.get("/:id", async (req: Request, res: Response) => {
     try {

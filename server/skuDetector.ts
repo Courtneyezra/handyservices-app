@@ -114,8 +114,86 @@ let skuCache: ProductizedService[] | null = null;
 let lastCacheUpdate = 0;
 const CACHE_TTL = 1000 * 60 * 60; // 1 hour (B3: Increased from 5 minutes)
 
-// Embedding Cache (B2: In-memory cache for embeddings)
-const embeddingCache = new Map<string, number[]>();
+// ============================================
+// SAFETY: LRU Embedding Cache with size limit
+// ============================================
+// Maximum entries to prevent unbounded memory growth
+const EMBEDDING_CACHE_MAX_SIZE = 5000;
+
+/**
+ * LRU (Least Recently Used) Cache for embeddings
+ *
+ * SAFETY: Limits cache to 5000 entries to prevent memory leaks.
+ * Uses insertion order to track age - oldest entries are evicted first.
+ * Map maintains insertion order in JavaScript, making this efficient.
+ */
+class LRUEmbeddingCache {
+    private cache = new Map<string, number[]>();
+    private maxSize: number;
+    private hits = 0;
+    private misses = 0;
+    private evictions = 0;
+
+    constructor(maxSize: number) {
+        this.maxSize = maxSize;
+    }
+
+    get(key: string): number[] | undefined {
+        const value = this.cache.get(key);
+        if (value !== undefined) {
+            // Move to end (most recently used) by re-inserting
+            this.cache.delete(key);
+            this.cache.set(key, value);
+            this.hits++;
+            return value;
+        }
+        this.misses++;
+        return undefined;
+    }
+
+    set(key: string, value: number[]): void {
+        // If key already exists, delete it first to update position
+        if (this.cache.has(key)) {
+            this.cache.delete(key);
+        }
+
+        // Evict oldest entries if at capacity
+        while (this.cache.size >= this.maxSize) {
+            // Get first key (oldest entry in Map insertion order)
+            const oldestKey = this.cache.keys().next().value;
+            if (oldestKey !== undefined) {
+                this.cache.delete(oldestKey);
+                this.evictions++;
+            }
+        }
+
+        this.cache.set(key, value);
+    }
+
+    has(key: string): boolean {
+        return this.cache.has(key);
+    }
+
+    get size(): number {
+        return this.cache.size;
+    }
+
+    getStats(): { hits: number; misses: number; evictions: number; size: number; hitRate: number } {
+        const total = this.hits + this.misses;
+        return {
+            hits: this.hits,
+            misses: this.misses,
+            evictions: this.evictions,
+            size: this.cache.size,
+            hitRate: total > 0 ? Math.round((this.hits / total) * 100) : 0,
+        };
+    }
+}
+
+// Embedding Cache (B2: In-memory cache for embeddings with LRU eviction)
+const embeddingCache = new LRUEmbeddingCache(EMBEDDING_CACHE_MAX_SIZE);
+
+// Legacy stats accessors for backwards compatibility
 let embeddingCacheHits = 0;
 let embeddingCacheMisses = 0;
 
@@ -217,18 +295,20 @@ export async function keywordMatch(inputText: string): Promise<{ sku: Productize
 }
 
 // 2. Embedding Match (Cosine Similarity)
-// B2: Cached embedding function
+// B2: Cached embedding function with LRU eviction for memory safety
 async function getEmbedding(text: string): Promise<number[] | null> {
     const normalized = text.toLowerCase().trim();
 
-    // Check cache first
-    if (embeddingCache.has(normalized)) {
-        embeddingCacheHits++;
-        return embeddingCache.get(normalized)!;
+    // Check cache first (LRU cache handles hit/miss tracking internally)
+    const cached = embeddingCache.get(normalized);
+    if (cached !== undefined) {
+        // Update legacy stats for backwards compatibility
+        embeddingCacheHits = embeddingCache.getStats().hits;
+        return cached;
     }
 
     // Cache miss - generate new embedding
-    embeddingCacheMisses++;
+    embeddingCacheMisses = embeddingCache.getStats().misses;
     try {
         const response = await openai.embeddings.create({
             model: "text-embedding-3-small",
@@ -236,8 +316,14 @@ async function getEmbedding(text: string): Promise<number[] | null> {
         });
         const embedding = response.data[0].embedding;
 
-        // Store in cache
+        // Store in cache (LRU eviction happens automatically if at capacity)
         embeddingCache.set(normalized, embedding);
+
+        // Log if evictions are happening (indicates high cache churn)
+        const stats = embeddingCache.getStats();
+        if (stats.evictions > 0 && stats.evictions % 100 === 0) {
+            console.log(`[SKU Detector] Embedding cache stats: ${stats.size} entries, ${stats.hitRate}% hit rate, ${stats.evictions} evictions`);
+        }
 
         return embedding;
     } catch (e) {
@@ -248,6 +334,7 @@ async function getEmbedding(text: string): Promise<number[] | null> {
 
 // B14: Batch Embedding Generation (40% faster for multi-task)
 // OpenAI allows up to 2048 inputs in a single request
+// Uses LRU cache for memory-safe caching
 export async function getEmbeddingBatch(texts: string[]): Promise<(number[] | null)[]> {
     if (texts.length === 0) return [];
     if (texts.length === 1) {
@@ -256,16 +343,16 @@ export async function getEmbeddingBatch(texts: string[]): Promise<(number[] | nu
     }
 
     try {
-        // Check cache first for all texts
+        // Check LRU cache first for all texts
         const normalizedTexts = texts.map(t => t.toLowerCase().trim());
         const cachedResults: (number[] | null)[] = [];
         const uncachedIndices: number[] = [];
         const uncachedTexts: string[] = [];
 
         normalizedTexts.forEach((normalized, i) => {
-            if (embeddingCache.has(normalized)) {
-                cachedResults[i] = embeddingCache.get(normalized)!;
-                embeddingCacheHits++;
+            const cached = embeddingCache.get(normalized);
+            if (cached !== undefined) {
+                cachedResults[i] = cached;
             } else {
                 cachedResults[i] = null;
                 uncachedIndices.push(i);
@@ -273,13 +360,17 @@ export async function getEmbeddingBatch(texts: string[]): Promise<(number[] | nu
             }
         });
 
+        // Update legacy stats for backwards compatibility
+        const stats = embeddingCache.getStats();
+        embeddingCacheHits = stats.hits;
+        embeddingCacheMisses = stats.misses;
+
         // If all cached, return immediately
         if (uncachedTexts.length === 0) {
             return cachedResults;
         }
 
         // Batch request for uncached texts
-        embeddingCacheMisses += uncachedTexts.length;
         const response = await openai.embeddings.create({
             model: "text-embedding-3-small",
             input: uncachedTexts,

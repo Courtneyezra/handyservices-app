@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Settings, Phone, Volume2, MessageSquare, CheckCircle, XCircle, Loader2, AlertCircle, PhoneForwarded, Clock, Timer, RotateCcw } from 'lucide-react';
+import { Settings, Phone, Volume2, MessageSquare, CheckCircle, XCircle, Loader2, AlertCircle, PhoneForwarded, Clock, Timer, RotateCcw, TrafficCone, X, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DaySelector } from '@/components/ui/day-selector';
 import { LiveSchedulePreview } from '@/components/ui/live-schedule-preview';
@@ -85,6 +85,11 @@ interface ForwardStatus {
     nationalFormat?: string;
 }
 
+interface TrafficLightKeywords {
+    redKeywords: string[];
+    amberKeywords: string[];
+}
+
 export default function SettingsPage() {
     const { toast } = useToast();
     const queryClient = useQueryClient();
@@ -94,7 +99,7 @@ export default function SettingsPage() {
     const getInitialTab = () => {
         const params = new URLSearchParams(window.location.search);
         const tab = params.get('tab');
-        return tab && ['routing', 'experience', 'fallback', 'timing'].includes(tab) ? tab : 'routing';
+        return tab && ['routing', 'experience', 'fallback', 'timing', 'traffic-light'].includes(tab) ? tab : 'routing';
     };
     const [activeTab, setActiveTab] = useState(getInitialTab);
 
@@ -203,6 +208,107 @@ export default function SettingsPage() {
     const [timingDefaults, setTimingDefaults] = useState<CallTimingDefaults | null>(null);
     const [timingDescriptions, setTimingDescriptions] = useState<CallTimingDescriptions | null>(null);
     const [isTimingDirty, setIsTimingDirty] = useState(false);
+
+    // ============================================
+    // TRAFFIC LIGHT KEYWORDS
+    // ============================================
+    const [newRedKeyword, setNewRedKeyword] = useState('');
+    const [newAmberKeyword, setNewAmberKeyword] = useState('');
+    const [removingKeyword, setRemovingKeyword] = useState<string | null>(null);
+
+    // Fetch traffic light keywords
+    const { data: keywordsData, isLoading: isKeywordsLoading, refetch: refetchKeywords } = useQuery<TrafficLightKeywords>({
+        queryKey: ['traffic-light-keywords'],
+        queryFn: async () => {
+            const res = await fetch('/api/settings/traffic-light-keywords');
+            if (!res.ok) throw new Error('Failed to fetch traffic light keywords');
+            return res.json();
+        },
+        staleTime: 60 * 1000,
+    });
+
+    // Add keyword mutation
+    const addKeywordMutation = useMutation({
+        mutationFn: async ({ keyword, type }: { keyword: string; type: 'red' | 'amber' }) => {
+            const res = await fetch('/api/settings/traffic-light-keywords/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ keyword, type }),
+            });
+            if (!res.ok) throw new Error('Failed to add keyword');
+            return res.json();
+        },
+        onSuccess: () => {
+            toast({ title: 'Keyword added', description: 'Traffic light keyword has been added.' });
+            refetchKeywords();
+            setNewRedKeyword('');
+            setNewAmberKeyword('');
+        },
+        onError: () => {
+            toast({ title: 'Error', description: 'Failed to add keyword', variant: 'destructive' });
+        },
+    });
+
+    // Remove keyword mutation
+    const removeKeywordMutation = useMutation({
+        mutationFn: async ({ keyword, type }: { keyword: string; type: 'red' | 'amber' }) => {
+            setRemovingKeyword(keyword);
+            const res = await fetch('/api/settings/traffic-light-keywords/remove', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ keyword, type }),
+            });
+            if (!res.ok) throw new Error('Failed to remove keyword');
+            return res.json();
+        },
+        onSuccess: () => {
+            toast({ title: 'Keyword removed', description: 'Traffic light keyword has been removed.' });
+            refetchKeywords();
+            setRemovingKeyword(null);
+        },
+        onError: () => {
+            toast({ title: 'Error', description: 'Failed to remove keyword', variant: 'destructive' });
+            setRemovingKeyword(null);
+        },
+    });
+
+    // Reset keywords mutation
+    const resetKeywordsMutation = useMutation({
+        mutationFn: async () => {
+            const res = await fetch('/api/settings/traffic-light-keywords/reset', {
+                method: 'POST',
+            });
+            if (!res.ok) throw new Error('Failed to reset keywords');
+            return res.json();
+        },
+        onSuccess: () => {
+            toast({ title: 'Keywords reset', description: 'Traffic light keywords have been reset to defaults.' });
+            refetchKeywords();
+        },
+        onError: () => {
+            toast({ title: 'Error', description: 'Failed to reset keywords', variant: 'destructive' });
+        },
+    });
+
+    const handleAddRedKeyword = () => {
+        const keyword = newRedKeyword.trim().toLowerCase();
+        if (!keyword) return;
+        if (keywordsData?.redKeywords.includes(keyword)) {
+            toast({ title: 'Duplicate keyword', description: `"${keyword}" is already in the RED keywords list.`, variant: 'destructive' });
+            return;
+        }
+        addKeywordMutation.mutate({ keyword, type: 'red' });
+    };
+
+    const handleAddAmberKeyword = () => {
+        const keyword = newAmberKeyword.trim().toLowerCase();
+        if (!keyword) return;
+        if (keywordsData?.amberKeywords.includes(keyword)) {
+            toast({ title: 'Duplicate keyword', description: `"${keyword}" is already in the AMBER keywords list.`, variant: 'destructive' });
+            return;
+        }
+        addKeywordMutation.mutate({ keyword, type: 'amber' });
+    };
 
     // Fetch call timing settings
     const { data: timingData, isLoading: isTimingLoading } = useQuery({
@@ -470,11 +576,12 @@ export default function SettingsPage() {
             </div>
 
             <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-                <TabsList className="grid w-full grid-cols-4 mb-8 bg-muted border border-border">
+                <TabsList className="grid w-full grid-cols-5 mb-8 bg-muted border border-border">
                     <TabsTrigger value="routing">Call Routing</TabsTrigger>
                     <TabsTrigger value="experience">Experience</TabsTrigger>
                     <TabsTrigger value="fallback">Fallback</TabsTrigger>
                     <TabsTrigger value="timing">Call Timing</TabsTrigger>
+                    <TabsTrigger value="traffic-light">Traffic Light</TabsTrigger>
                 </TabsList>
 
                 {/* Call Routing Tab */}
@@ -1246,6 +1353,198 @@ export default function SettingsPage() {
                                         <li><strong>Higher values</strong> = fewer API calls (lower cost), but slower updates</li>
                                         <li>Changes take effect for new calls immediately (no restart needed)</li>
                                         <li>Cached for 1 minute to reduce database load</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                {/* Traffic Light Keywords Tab */}
+                <TabsContent value="traffic-light" className="space-y-6 pt-2">
+                    <Card className="jobber-card shadow-sm">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <TrafficCone className="w-5 h-5 text-red-600" />
+                                Traffic Light Keywords
+                            </CardTitle>
+                            <CardDescription>
+                                Configure keywords that trigger job complexity classifications during live calls.
+                                RED jobs require specialist referral, AMBER jobs need a video assessment.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            {isKeywordsLoading ? (
+                                <div className="flex items-center justify-center py-8">
+                                    <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                                </div>
+                            ) : (
+                                <>
+                                    {/* RED Keywords */}
+                                    <div className="space-y-4 p-4 bg-red-500/5 rounded-lg border border-red-500/20">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <Label className="text-base font-medium text-red-600 flex items-center gap-2">
+                                                    <div className="w-3 h-3 rounded-full bg-red-500" />
+                                                    RED Keywords (Specialist Required)
+                                                </Label>
+                                                <p className="text-sm text-muted-foreground mt-1">
+                                                    Jobs matching these keywords are flagged as needing a specialist (gas, electrical, structural).
+                                                </p>
+                                            </div>
+                                            <span className="text-sm text-muted-foreground">
+                                                {keywordsData?.redKeywords.length || 0} keywords
+                                            </span>
+                                        </div>
+
+                                        {/* Add new RED keyword */}
+                                        <div className="flex gap-2">
+                                            <Input
+                                                placeholder="Add a RED keyword..."
+                                                value={newRedKeyword}
+                                                onChange={(e) => setNewRedKeyword(e.target.value)}
+                                                onKeyDown={(e) => e.key === 'Enter' && handleAddRedKeyword()}
+                                                className="bg-background border-red-500/30 focus:border-red-500"
+                                            />
+                                            <Button
+                                                onClick={handleAddRedKeyword}
+                                                disabled={!newRedKeyword.trim() || addKeywordMutation.isPending}
+                                                variant="outline"
+                                                className="border-red-500/30 hover:bg-red-500/10 text-red-600"
+                                            >
+                                                <Plus className="w-4 h-4 mr-1" />
+                                                Add
+                                            </Button>
+                                        </div>
+
+                                        {/* RED keyword chips */}
+                                        <div className="flex flex-wrap gap-2">
+                                            {keywordsData?.redKeywords.map((keyword) => (
+                                                <span
+                                                    key={keyword}
+                                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium bg-red-500/10 text-red-600 border border-red-500/20"
+                                                >
+                                                    {keyword}
+                                                    <button
+                                                        onClick={() => removeKeywordMutation.mutate({ keyword, type: 'red' })}
+                                                        className="hover:bg-red-500/20 rounded-full p-0.5 transition-colors"
+                                                        disabled={removeKeywordMutation.isPending}
+                                                    >
+                                                        {removingKeyword === keyword ? (
+                                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                        ) : (
+                                                            <X className="w-3.5 h-3.5" />
+                                                        )}
+                                                    </button>
+                                                </span>
+                                            ))}
+                                            {(!keywordsData?.redKeywords || keywordsData.redKeywords.length === 0) && (
+                                                <span className="text-sm text-muted-foreground italic">No RED keywords configured</span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* AMBER Keywords */}
+                                    <div className="space-y-4 p-4 bg-amber-500/5 rounded-lg border border-amber-500/20">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <Label className="text-base font-medium text-amber-600 flex items-center gap-2">
+                                                    <div className="w-3 h-3 rounded-full bg-amber-500" />
+                                                    AMBER Keywords (Video Assessment)
+                                                </Label>
+                                                <p className="text-sm text-muted-foreground mt-1">
+                                                    Jobs matching these keywords need a video call to assess scope before quoting.
+                                                </p>
+                                            </div>
+                                            <span className="text-sm text-muted-foreground">
+                                                {keywordsData?.amberKeywords.length || 0} keywords
+                                            </span>
+                                        </div>
+
+                                        {/* Add new AMBER keyword */}
+                                        <div className="flex gap-2">
+                                            <Input
+                                                placeholder="Add an AMBER keyword..."
+                                                value={newAmberKeyword}
+                                                onChange={(e) => setNewAmberKeyword(e.target.value)}
+                                                onKeyDown={(e) => e.key === 'Enter' && handleAddAmberKeyword()}
+                                                className="bg-background border-amber-500/30 focus:border-amber-500"
+                                            />
+                                            <Button
+                                                onClick={handleAddAmberKeyword}
+                                                disabled={!newAmberKeyword.trim() || addKeywordMutation.isPending}
+                                                variant="outline"
+                                                className="border-amber-500/30 hover:bg-amber-500/10 text-amber-600"
+                                            >
+                                                <Plus className="w-4 h-4 mr-1" />
+                                                Add
+                                            </Button>
+                                        </div>
+
+                                        {/* AMBER keyword chips */}
+                                        <div className="flex flex-wrap gap-2">
+                                            {keywordsData?.amberKeywords.map((keyword) => (
+                                                <span
+                                                    key={keyword}
+                                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium bg-amber-500/10 text-amber-600 border border-amber-500/20"
+                                                >
+                                                    {keyword}
+                                                    <button
+                                                        onClick={() => removeKeywordMutation.mutate({ keyword, type: 'amber' })}
+                                                        className="hover:bg-amber-500/20 rounded-full p-0.5 transition-colors"
+                                                        disabled={removeKeywordMutation.isPending}
+                                                    >
+                                                        {removingKeyword === keyword ? (
+                                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                        ) : (
+                                                            <X className="w-3.5 h-3.5" />
+                                                        )}
+                                                    </button>
+                                                </span>
+                                            ))}
+                                            {(!keywordsData?.amberKeywords || keywordsData.amberKeywords.length === 0) && (
+                                                <span className="text-sm text-muted-foreground italic">No AMBER keywords configured</span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Action Buttons */}
+                                    <div className="flex items-center justify-between pt-4 border-t border-border">
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => resetKeywordsMutation.mutate()}
+                                            disabled={resetKeywordsMutation.isPending}
+                                            className="gap-2"
+                                        >
+                                            {resetKeywordsMutation.isPending ? (
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                            ) : (
+                                                <RotateCcw className="w-4 h-4" />
+                                            )}
+                                            Reset to Defaults
+                                        </Button>
+                                        <div className="text-sm text-muted-foreground">
+                                            Changes are saved automatically
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* Help Section */}
+                    <Card className="jobber-card shadow-sm border-blue-500/20 bg-blue-500/5">
+                        <CardContent className="pt-6">
+                            <div className="flex gap-3">
+                                <AlertCircle className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                                <div className="space-y-2 text-sm">
+                                    <p className="font-medium text-foreground">How traffic light classification works:</p>
+                                    <ul className="space-y-1 text-muted-foreground list-disc list-inside">
+                                        <li><span className="text-green-600 font-medium">GREEN</span> = Job matched a known SKU, can quote instantly</li>
+                                        <li><span className="text-amber-600 font-medium">AMBER</span> = Needs video assessment to understand scope</li>
+                                        <li><span className="text-red-600 font-medium">RED</span> = Requires specialist (gas, electrical, structural)</li>
+                                        <li>Keywords are matched case-insensitively against the call transcript</li>
+                                        <li>Changes take effect immediately for new calls (cached for 1 minute)</li>
                                     </ul>
                                 </div>
                             </div>

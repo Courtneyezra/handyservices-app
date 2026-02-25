@@ -74,6 +74,53 @@ router.get('/balance', async (req, res) => {
 });
 
 
+// Default traffic light keywords for job complexity classification
+const TRAFFIC_LIGHT_DEFAULTS = {
+    'traffic_light.red_keywords': {
+        value: [
+            // Gas work
+            'gas', 'boiler', 'gas boiler', 'gas cooker', 'gas pipe', 'gas hob', 'combi boiler', 'central heating',
+            // Electrical
+            'rewire', 'consumer unit', 'fuse box', 'electrical panel', 'new circuit', 'sockets stopped',
+            'sockets not working', 'half the sockets', 'electrics', 'flickering', 'tripping',
+            'add sockets', 'more sockets', 'lights flickering',
+            // Structural
+            'structural', 'load bearing', 'foundation', 'subsidence', 'underpinning',
+            'chimney removal', 'wall removal', 'rsj', 'steel beam',
+            'big crack', 'large crack', 'crack getting wider', 'bowing', 'bulging',
+            'floors sloping', 'floor sloping', 'walls leaning', 'wonky', 'sloping',
+            // Hazardous
+            'asbestos', 'lead paint',
+            // Major works
+            'extension', 'loft conversion', 'basement conversion', 'new build',
+            // Roofing
+            'roof', 'tiles off', 'roof leak', 'chimney stack', 'guttering repair', 'slates', 'roof repair',
+            // Serious damp
+            'rising damp', 'penetrating damp', 'severe damp', 'damp survey',
+            'mould survey', 'mold survey', 'walls wet', 'wet to the touch',
+            'damp coming up', 'musty smell', 'damp throughout',
+        ],
+        description: 'Keywords that trigger RED classification (specialist work, refer out)'
+    },
+    'traffic_light.amber_keywords': {
+        value: [
+            // Leak-related
+            'leak', 'leaking', 'water damage', 'flooding',
+            // Damp (minor)
+            'damp patch', 'damp spot', 'condensation', 'mould', 'mold',
+            // Damage
+            'damage', 'broken', 'cracked', 'split',
+            // Custom work
+            'custom', 'bespoke', 'made to measure', 'unusual',
+            // Multiple jobs
+            'few things', 'several jobs', 'list of jobs', 'multiple',
+            // Vague
+            'not sure', "don't know", 'hard to describe', 'difficult to explain',
+        ],
+        description: 'Keywords that trigger AMBER classification (needs video/visual assessment)'
+    },
+};
+
 // Default settings for Call Timing (Live call chunk timing constants)
 const CALL_TIMING_DEFAULTS = {
     'call_timing.sku_debounce_ms': { value: 300, description: 'SKU analysis delay - how long to wait after last transcript segment before analyzing (ms)' },
@@ -133,6 +180,219 @@ router.get('/', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch settings' });
     }
 });
+
+// ============================================
+// TRAFFIC LIGHT KEYWORDS ROUTES
+// These must be defined BEFORE the /:key catch-all route
+// ============================================
+
+// GET /api/settings/traffic-light-keywords - Get current keywords
+router.get('/traffic-light-keywords', async (req, res) => {
+    try {
+        const keywords = await getTrafficLightKeywords();
+
+        // Return flat structure that frontend expects
+        res.json({
+            redKeywords: keywords.redKeywords,
+            amberKeywords: keywords.amberKeywords,
+        });
+    } catch (error) {
+        console.error('[Settings] Failed to fetch traffic light keywords:', error);
+        res.status(500).json({ error: 'Failed to fetch traffic light keywords' });
+    }
+});
+
+// PUT /api/settings/traffic-light-keywords - Update keywords
+router.put('/traffic-light-keywords', async (req, res) => {
+    try {
+        const { redKeywords, amberKeywords } = req.body;
+
+        const updates: Array<{ key: string; value: string[] }> = [];
+
+        if (redKeywords !== undefined && Array.isArray(redKeywords)) {
+            // Normalize: lowercase, trim, remove duplicates
+            const normalized = [...new Set(redKeywords.map((k: string) => k.toLowerCase().trim()).filter(Boolean))];
+            updates.push({ key: 'traffic_light.red_keywords', value: normalized });
+        }
+
+        if (amberKeywords !== undefined && Array.isArray(amberKeywords)) {
+            const normalized = [...new Set(amberKeywords.map((k: string) => k.toLowerCase().trim()).filter(Boolean))];
+            updates.push({ key: 'traffic_light.amber_keywords', value: normalized });
+        }
+
+        // Apply updates
+        for (const { key, value } of updates) {
+            const [existing] = await db.select().from(appSettings).where(eq(appSettings.key, key));
+
+            if (existing) {
+                await db.update(appSettings)
+                    .set({ value, updatedAt: new Date() })
+                    .where(eq(appSettings.key, key));
+            } else {
+                const defaultSetting = TRAFFIC_LIGHT_DEFAULTS[key as keyof typeof TRAFFIC_LIGHT_DEFAULTS];
+                await db.insert(appSettings).values({
+                    id: uuidv4(),
+                    key,
+                    value,
+                    description: defaultSetting?.description || null,
+                });
+            }
+        }
+
+        // Invalidate cache
+        invalidateTrafficLightCache();
+
+        console.log(`[Settings] Updated traffic light keywords: RED=${updates.find(u => u.key.includes('red'))?.value.length || 0}, AMBER=${updates.find(u => u.key.includes('amber'))?.value.length || 0}`);
+
+        // Return updated keywords
+        const newKeywords = await getTrafficLightKeywords();
+        res.json({ success: true, keywords: newKeywords });
+    } catch (error) {
+        console.error('[Settings] Failed to update traffic light keywords:', error);
+        res.status(500).json({ error: 'Failed to update traffic light keywords' });
+    }
+});
+
+// POST /api/settings/traffic-light-keywords/add - Add a single keyword
+router.post('/traffic-light-keywords/add', async (req, res) => {
+    try {
+        const { keyword, type } = req.body;
+
+        if (!keyword || !type || !['red', 'amber'].includes(type)) {
+            return res.status(400).json({ error: 'keyword and type (red/amber) are required' });
+        }
+
+        const normalizedKeyword = keyword.toLowerCase().trim();
+        const key = type === 'red' ? 'traffic_light.red_keywords' : 'traffic_light.amber_keywords';
+
+        const currentKeywords = await getTrafficLightKeywords();
+        const targetArray = type === 'red' ? currentKeywords.redKeywords : currentKeywords.amberKeywords;
+
+        // Check for duplicates
+        if (targetArray.includes(normalizedKeyword)) {
+            return res.status(400).json({ error: 'Keyword already exists' });
+        }
+
+        const updatedArray = [...targetArray, normalizedKeyword];
+
+        const [existing] = await db.select().from(appSettings).where(eq(appSettings.key, key));
+
+        if (existing) {
+            await db.update(appSettings)
+                .set({ value: updatedArray, updatedAt: new Date() })
+                .where(eq(appSettings.key, key));
+        } else {
+            await db.insert(appSettings).values({
+                id: uuidv4(),
+                key,
+                value: updatedArray,
+                description: TRAFFIC_LIGHT_DEFAULTS[key as keyof typeof TRAFFIC_LIGHT_DEFAULTS]?.description || null,
+            });
+        }
+
+        invalidateTrafficLightCache();
+
+        console.log(`[Settings] Added ${type.toUpperCase()} keyword: "${normalizedKeyword}"`);
+        res.json({ success: true, keyword: normalizedKeyword, type, totalCount: updatedArray.length });
+    } catch (error) {
+        console.error('[Settings] Failed to add keyword:', error);
+        res.status(500).json({ error: 'Failed to add keyword' });
+    }
+});
+
+// DELETE /api/settings/traffic-light-keywords/remove - Remove a keyword
+router.delete('/traffic-light-keywords/remove', async (req, res) => {
+    try {
+        const { keyword, type } = req.body;
+
+        if (!keyword || !type || !['red', 'amber'].includes(type)) {
+            return res.status(400).json({ error: 'keyword and type (red/amber) are required' });
+        }
+
+        const normalizedKeyword = keyword.toLowerCase().trim();
+        const key = type === 'red' ? 'traffic_light.red_keywords' : 'traffic_light.amber_keywords';
+
+        const currentKeywords = await getTrafficLightKeywords();
+        const targetArray = type === 'red' ? currentKeywords.redKeywords : currentKeywords.amberKeywords;
+
+        const updatedArray = targetArray.filter(k => k !== normalizedKeyword);
+
+        if (updatedArray.length === targetArray.length) {
+            return res.status(404).json({ error: 'Keyword not found' });
+        }
+
+        await db.update(appSettings)
+            .set({ value: updatedArray, updatedAt: new Date() })
+            .where(eq(appSettings.key, key));
+
+        invalidateTrafficLightCache();
+
+        console.log(`[Settings] Removed ${type.toUpperCase()} keyword: "${normalizedKeyword}"`);
+        res.json({ success: true, keyword: normalizedKeyword, type, totalCount: updatedArray.length });
+    } catch (error) {
+        console.error('[Settings] Failed to remove keyword:', error);
+        res.status(500).json({ error: 'Failed to remove keyword' });
+    }
+});
+
+// POST /api/settings/traffic-light-keywords/reset - Reset to defaults
+router.post('/traffic-light-keywords/reset', async (req, res) => {
+    try {
+        const { type } = req.body; // 'red', 'amber', or 'all' (defaults to 'all')
+        const resetType = type || 'all';
+
+        if (resetType === 'red' || resetType === 'all') {
+            const key = 'traffic_light.red_keywords';
+            const defaultValue = TRAFFIC_LIGHT_DEFAULTS[key].value;
+
+            const [existing] = await db.select().from(appSettings).where(eq(appSettings.key, key));
+            if (existing) {
+                await db.update(appSettings)
+                    .set({ value: defaultValue, updatedAt: new Date() })
+                    .where(eq(appSettings.key, key));
+            } else {
+                await db.insert(appSettings).values({
+                    id: uuidv4(),
+                    key,
+                    value: defaultValue,
+                    description: TRAFFIC_LIGHT_DEFAULTS[key].description,
+                });
+            }
+        }
+
+        if (resetType === 'amber' || resetType === 'all') {
+            const key = 'traffic_light.amber_keywords';
+            const defaultValue = TRAFFIC_LIGHT_DEFAULTS[key].value;
+
+            const [existing] = await db.select().from(appSettings).where(eq(appSettings.key, key));
+            if (existing) {
+                await db.update(appSettings)
+                    .set({ value: defaultValue, updatedAt: new Date() })
+                    .where(eq(appSettings.key, key));
+            } else {
+                await db.insert(appSettings).values({
+                    id: uuidv4(),
+                    key,
+                    value: defaultValue,
+                    description: TRAFFIC_LIGHT_DEFAULTS[key].description,
+                });
+            }
+        }
+
+        invalidateTrafficLightCache();
+
+        console.log(`[Settings] Reset ${resetType} traffic light keywords to defaults`);
+        const newKeywords = await getTrafficLightKeywords();
+        res.json({ success: true, keywords: newKeywords });
+    } catch (error) {
+        console.error('[Settings] Failed to reset keywords:', error);
+        res.status(500).json({ error: 'Failed to reset keywords' });
+    }
+});
+
+// ============================================
+// GENERIC SETTING ROUTES (catch-all must be last)
+// ============================================
 
 // Get single setting by key
 router.get('/:key', async (req, res) => {
@@ -696,6 +956,55 @@ export async function getTwilioSettings() {
         // Add environment variable fallbacks
         twilioPhoneNumber: process.env.TWILIO_PHONE_NUMBER as string,
     };
+}
+
+// ============================================
+// TRAFFIC LIGHT KEYWORDS API
+// ============================================
+
+export interface TrafficLightKeywords {
+    redKeywords: string[];
+    amberKeywords: string[];
+}
+
+// Cache for traffic light keywords
+let trafficLightCache: TrafficLightKeywords | null = null;
+let trafficLightCacheTime = 0;
+
+// Get traffic light keywords (with caching)
+export async function getTrafficLightKeywords(): Promise<TrafficLightKeywords> {
+    const now = Date.now();
+
+    // Return cache if fresh
+    if (trafficLightCache && (now - trafficLightCacheTime) < CACHE_TTL_MS) {
+        return trafficLightCache;
+    }
+
+    try {
+        const settings = await db.select().from(appSettings);
+        const settingsMap = new Map(settings.map(s => [s.key, s.value]));
+
+        trafficLightCache = {
+            redKeywords: (settingsMap.get('traffic_light.red_keywords') ?? TRAFFIC_LIGHT_DEFAULTS['traffic_light.red_keywords'].value) as string[],
+            amberKeywords: (settingsMap.get('traffic_light.amber_keywords') ?? TRAFFIC_LIGHT_DEFAULTS['traffic_light.amber_keywords'].value) as string[],
+        };
+        trafficLightCacheTime = now;
+
+        return trafficLightCache;
+    } catch (error) {
+        console.error('[Settings] Failed to get traffic light keywords:', error);
+        // Return defaults on error
+        return {
+            redKeywords: TRAFFIC_LIGHT_DEFAULTS['traffic_light.red_keywords'].value as string[],
+            amberKeywords: TRAFFIC_LIGHT_DEFAULTS['traffic_light.amber_keywords'].value as string[],
+        };
+    }
+}
+
+// Invalidate traffic light cache
+export function invalidateTrafficLightCache() {
+    trafficLightCache = null;
+    trafficLightCacheTime = 0;
 }
 
 export const settingsRouter = router;

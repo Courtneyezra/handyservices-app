@@ -63,7 +63,7 @@ interface PersonalizedQuote {
   leadId: string | null;
   createdAt: string;
   visitTierMode?: 'tiers' | 'fixed' | null;
-  segment?: 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'OLDER_WOMAN' | 'UNKNOWN';
+  segment?: 'EMERGENCY' | 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'TRUST_SEEKER' | 'RENTER' | 'DIY_DEFERRER';
 }
 
 export default function GenerateQuoteLink() {
@@ -205,7 +205,7 @@ export default function GenerateQuoteLink() {
   // NEW STATE for Redesign
   const [classification, setClassification] = useState<RouteAnalysis['classification'] | null>(null);
   // selectedRoute removed - segment determines pricing mode automatically
-  const [segment, setSegment] = useState<'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'OLDER_WOMAN' | undefined>(undefined);
+  const [segment, setSegment] = useState<'EMERGENCY' | 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'TRUST_SEEKER' | 'RENTER' | 'DIY_DEFERRER' | undefined>(undefined);
   const [proposalModeEnabled, setProposalModeEnabled] = useState(true); // Now standard for all quotes
   const [isQuickLink, setIsQuickLink] = useState(false);
 
@@ -857,8 +857,8 @@ export default function GenerateQuoteLink() {
       // Construct URL based on mode (Diagnostic vs Standard)
       const isConsultation = response.quoteMode === 'consultation';
       const url = isConsultation
-        ? `${baseUrl}/visit-link/${response.shortSlug}`
-        : `${baseUrl}/quote-link/${response.shortSlug}`;
+        ? `${baseUrl}/visit/${response.shortSlug}`
+        : `${baseUrl}/quote/${response.shortSlug}`;
 
       setGeneratedUrl(url);
       setAiGeneratedMessage(null); // Reset AI message for new quote
@@ -1624,21 +1624,22 @@ Example:
                             <div className="space-y-2">
                               <Label className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Client Segment</Label>
                               <Select
-                                value={segment || 'UNKNOWN'}
-                                onValueChange={(val: any) => setSegment(val === 'UNKNOWN' ? undefined : val)}
+                                value={segment || 'AUTO'}
+                                onValueChange={(val: any) => setSegment(val === 'AUTO' ? undefined : val)}
                               >
                                 <SelectTrigger className="bg-white border-indigo-200">
                                   <SelectValue placeholder="Select..." />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="UNKNOWN">Auto-Detect</SelectItem>
+                                  <SelectItem value="AUTO">Auto-Detect</SelectItem>
+                                  <SelectItem value="EMERGENCY">Emergency</SelectItem>
                                   <SelectItem value="BUSY_PRO">Busy Professional</SelectItem>
-                                  <SelectItem value="OLDER_WOMAN">Older Woman (Retired)</SelectItem>
                                   <SelectItem value="PROP_MGR">Property Manager</SelectItem>
                                   <SelectItem value="LANDLORD">Landlord</SelectItem>
                                   <SelectItem value="SMALL_BIZ">Small Business</SelectItem>
+                                  <SelectItem value="TRUST_SEEKER">Trust Seeker</SelectItem>
+                                  <SelectItem value="RENTER">Renter</SelectItem>
                                   <SelectItem value="DIY_DEFERRER">DIY Deferrer</SelectItem>
-                                  <SelectItem value="BUDGET">Budget/Economy</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
