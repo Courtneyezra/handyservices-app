@@ -1429,6 +1429,43 @@ export type LiveCallSession = typeof liveCallSessions.$inferSelect;
 export type InsertLiveCallSession = z.infer<typeof insertLiveCallSessionSchema>;
 
 // ==========================================
+// AVAILABILITY SLOTS FOR LIVE CALL HUD
+// ==========================================
+
+// Slot type enum for availability slots
+export const SlotTypeValues = ['morning', 'afternoon', 'full_day'] as const;
+export type SlotType = typeof SlotTypeValues[number];
+
+// Availability Slots table - Bookable time slots for Live Call HUD
+export const availabilitySlots = pgTable("availability_slots", {
+    id: text("id").primaryKey().notNull(),
+    date: date("date").notNull(), // Date of the slot
+    startTime: text("start_time").notNull(), // e.g. "09:00"
+    endTime: text("end_time").notNull(), // e.g. "12:00"
+    slotType: text("slot_type").notNull(), // 'morning' | 'afternoon' | 'full_day'
+    isBooked: boolean("is_booked").default(false).notNull(),
+    bookedByLeadId: text("booked_by_lead_id").references(() => leads.id), // Which lead booked this slot
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+    index("idx_availability_slots_date").on(table.date),
+    index("idx_availability_slots_booked").on(table.isBooked),
+    index("idx_availability_slots_lead").on(table.bookedByLeadId),
+]);
+
+export const availabilitySlotsRelations = relations(availabilitySlots, ({ one }) => ({
+    lead: one(leads, {
+        fields: [availabilitySlots.bookedByLeadId],
+        references: [leads.id],
+    }),
+}));
+
+// Schema and types for availability slots
+export const insertAvailabilitySlotSchema = createInsertSchema(availabilitySlots);
+export type AvailabilitySlot = typeof availabilitySlots.$inferSelect;
+export type InsertAvailabilitySlot = z.infer<typeof insertAvailabilitySlotSchema>;
+
+// ==========================================
 // SEGMENT JOURNEY TREE SYSTEM
 // ==========================================
 
