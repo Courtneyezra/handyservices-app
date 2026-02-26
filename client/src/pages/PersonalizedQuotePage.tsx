@@ -29,7 +29,7 @@ import { ExpertStickyNote } from '@/components/ExpertStickyNote';
 import { ExpertSpecSheet } from '@/components/ExpertSpecSheet';
 import { PaymentToggle } from '@/components/quote/PaymentToggle';
 import { MobilePricingCard, KeyFeature } from '@/components/quote/MobilePricingCard';
-import { getExpertNoteText } from "@/lib/quote-helpers";
+import { getExpertNoteText, getLineItems, getScopeOfWorks } from "@/lib/quote-helpers";
 import { generateQuotePDF } from "@/lib/quote-pdf-generator";
 import { InstantActionQuote } from '@/components/InstantActionQuote';
 import { ExpertAssessmentQuote } from '@/components/ExpertAssessmentQuote';
@@ -216,20 +216,27 @@ const SEGMENT_TIER_CONFIG: Record<string, { handyFix: string[]; hassleFree: stri
       '📞 Direct contact line',
     ]
   },
-  BUDGET: {
-    // SINGLE PRICE = Only option shown
+  EMERGENCY: {
+    // EMERGENCY RESPONSE = Same-day attendance
     handyFix: [
-      'Quality workmanship',
-      'Cleanup included',
-      'Scheduled when available',
-      'Gets the job done right',
+      'Same-day attendance',
+      'Problem contained',
+      'Quote for permanent fix',
     ],
-    // Not shown for BUDGET segment
-    hassleFree: [],
-    // Not shown for BUDGET segment
-    highStandard: [],
+    hassleFree: [
+      '🚨 Same-day attendance',
+      '🔧 Problem contained',
+      '📋 Quote for permanent fix',
+      '🌙 Out-of-hours available',
+    ],
+    highStandard: [
+      '🚨 Same-day attendance',
+      '🔧 Permanent fix same day',
+      '🌙 Out-of-hours available',
+      '⚡ Priority over other jobs',
+    ]
   },
-  OLDER_WOMAN: {
+  TRUST_SEEKER: {
     // STANDARD = Basic reliable service
     handyFix: [
       'Quality workmanship',
@@ -237,21 +244,43 @@ const SEGMENT_TIER_CONFIG: Record<string, { handyFix: string[]; hassleFree: stri
       'Scheduled within 2 weeks',
       'Clear communication throughout',
     ],
-    // PEACE OF MIND = Anchor tier (trust + safety)
+    // TRUSTED SERVICE = Anchor tier (trust + safety)
     hassleFree: [
-      '🛡️ Vetted & background-checked staff',
-      '📞 Direct contact with your technician',
-      '📸 Before/after photos sent to you',
+      '🛡️ DBS-checked tradesperson',
+      '📞 We call before arrival',
+      '💬 Clear explanation of work',
       '🧹 Thorough cleanup guaranteed',
-      '✅ 90-day workmanship guarantee',
+      '✅ Fixed price (no hourly)',
     ],
-    // VIP = Premium white-glove service
+    // SAME PERSON = Continuity
     highStandard: [
-      '⭐ Senior technician assigned',
-      '📅 Flexible scheduling (your choice)',
-      '📞 Priority phone support',
-      '🛡️ 12-month guarantee',
-      '🔧 Free check-up in 30 days',
+      '🛡️ DBS-checked tradesperson',
+      '📞 We call before arrival',
+      '💬 Clear explanation of work',
+      '🧹 Thorough cleanup guaranteed',
+      '✅ Fixed price (no hourly)',
+      '👤 Same person for future jobs',
+    ]
+  },
+  RENTER: {
+    // RENTER SERVICE = Transparent, landlord-ready
+    handyFix: [
+      'Fixed quote upfront',
+      'Photo before/after',
+      'Landlord-ready invoice',
+    ],
+    hassleFree: [
+      '📋 Fixed quote upfront',
+      '📸 Photo before/after',
+      '🧾 Landlord-ready invoice',
+      '📧 Invoice landlord directly',
+    ],
+    highStandard: [
+      '📋 Fixed quote upfront',
+      '📸 Photo before/after',
+      '🧾 Landlord-ready invoice',
+      '📧 Invoice landlord directly',
+      '📄 Detailed condition report',
     ]
   }
 };
@@ -293,15 +322,29 @@ const SEGMENT_DISPLAY_CONFIG: Record<string, {
     ctaText: 'Book Basic Service',
     alternativeLabel: 'Want faster scheduling?',
   },
-  BUDGET: {
-    showTiers: ['essential'], // Basic only
-    anchorTier: 'essential',
+  EMERGENCY: {
+    showTiers: ['enhanced'], // Emergency response only
+    anchorTier: 'enhanced',
     showAlternatives: false,
-    ctaText: 'Book Now',
+    ctaText: 'Get Help Now',
     alternativeLabel: null,
   },
-  OLDER_WOMAN: {
-    showTiers: ['enhanced', 'essential', 'elite'], // Peace of Mind anchor
+  TRUST_SEEKER: {
+    showTiers: ['enhanced', 'essential'], // Trusted service anchor
+    anchorTier: 'enhanced',
+    showAlternatives: false,
+    ctaText: 'Book Trusted Service',
+    alternativeLabel: null,
+  },
+  RENTER: {
+    showTiers: ['essential', 'enhanced'], // Basic with options
+    anchorTier: 'essential',
+    showAlternatives: true,
+    ctaText: 'Book Service',
+    alternativeLabel: 'Need landlord invoicing?',
+  },
+  LANDLORD: {
+    showTiers: ['enhanced'], // Landlord service anchor
     anchorTier: 'enhanced',
     showAlternatives: true,
     ctaText: 'Book Peace of Mind Service',
@@ -338,15 +381,20 @@ const SEGMENT_TIER_NAMES: Record<string, { essential: string; enhanced: string; 
     enhanced: 'Standard Service',
     elite: 'Priority Service',
   },
-  BUDGET: {
-    essential: 'Service',
-    enhanced: '',
-    elite: '',
+  EMERGENCY: {
+    essential: 'Emergency Response',
+    enhanced: 'Emergency Response',
+    elite: 'Emergency + Fix',
   },
-  OLDER_WOMAN: {
+  TRUST_SEEKER: {
     essential: 'Standard Service',
-    enhanced: 'Peace of Mind',
-    elite: 'VIP Service',
+    enhanced: 'Trusted Home Service',
+    elite: 'Trusted Home Service',
+  },
+  RENTER: {
+    essential: 'Renter Service',
+    enhanced: 'Renter Service',
+    elite: 'Renter Service',
   },
   DEFAULT: {
     essential: 'Essential',
@@ -604,7 +652,7 @@ export interface PersonalizedQuote {
   recommendedRoute?: 'instant' | 'tiers' | 'assessment' | null;
   proposalModeEnabled?: boolean;
   clientType?: 'residential' | 'commercial';
-  segment?: 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'DIY_DEFERRER' | 'BUDGET' | 'OLDER_WOMAN' | 'UNKNOWN';
+  segment?: 'EMERGENCY' | 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'TRUST_SEEKER' | 'RENTER' | 'DIY_DEFERRER';
 
   // Dynamic Tier Config (from Value Pricing Engine)
   essential?: { name: string; description: string };
@@ -789,29 +837,66 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
       ]
     }
   },
-  OLDER_WOMAN: {
+  EMERGENCY: {
     hero: {
-      title: "Safe, Trusted & Recommended",
-      subtitle: <>We've reviewed your request.<br />Our verified staff are ready to help.</>,
+      title: "We're On Our Way",
+      subtitle: <>Emergency response.<br />Same-day attendance.</>,
+      scrollText: "Get Help Now"
+    },
+    proof: {
+      title: "EMERGENCY RESPONSE",
+      mainTitle: "Fast Response When It Matters.",
+      testimonial: {
+        text: "Water everywhere at 6pm. They were here by 7:30, leak stopped, mess cleaned up.",
+        author: "Helen R.",
+        detail: "Emergency Leak"
+      },
+      description: "When you need help fast, we're there.",
+      stats: [
+        { value: "2hr", label: "Avg Response", subtext: "Same Day" },
+        { value: "24/7", label: "Available", subtext: "Out-of-Hours" },
+        { value: "4.9", label: "Rating", subtext: "Emergency Jobs" }
+      ]
+    },
+    guarantee: {
+      title: "EMERGENCY GUARANTEE",
+      mainTitle: <span className="font-bold block leading-tight">If we can't fix it,<br className="md:hidden" /> you don't pay the callout.</span>,
+      description: "We contain the problem and quote for the permanent fix. No hidden charges.",
+      boxText: "Problem contained. Quote provided.",
+      guaranteeItems: [
+        { icon: 'Zap', title: "Same-Day", text: "We attend the same day you call." },
+        { icon: 'Shield', title: "Contained", text: "We stop the damage and prevent further issues." },
+        { icon: 'FileText', title: "Clear Quote", text: "Full quote for permanent repair before we leave." }
+      ],
+      badges: [
+        { label: 'Speed', value: 'Same-Day', icon: 'Zap' },
+        { label: 'Safety', value: 'Insured', icon: 'Shield' },
+        { label: 'Hours', value: '24/7', icon: 'Clock' },
+        { label: 'Quality', value: 'Pro', icon: 'Star' }
+      ]
+    },
+  },
+  TRUST_SEEKER: {
+    hero: {
+      title: "Someone You Can Trust",
+      subtitle: <>Vetted, patient, respectful.<br />We take our time to do it right.</>,
       scrollText: "View your quote"
     },
-    // Trust & Safety Focus (Risk Reduction)
     proof: {
       title: "CUSTOMER TESTIMONIAL",
       mainTitle: "See what our customers say.",
       testimonial: {
-        text: "Such a polite young man. He explained everything clearly, wore overshoes, and even fixed my gate latch while he was here.",
-        author: "Mary P.",
-        detail: "Retired Teacher"
+        text: "Since my husband passed, I've been nervous about tradesmen. They were patient, explained everything, cleaned up beautifully.",
+        author: "Margaret H.",
+        detail: "Repeat Customer"
       },
-      description: "Watch a short video to hear directly from a customer about how happy she was with our service.",
+      description: "We understand inviting someone into your home requires trust.",
       stats: [
         { value: "100%", label: "DBS Checked", subtext: "Safe & Verified" },
-        { value: "50s+", label: "Discount", subtext: "Available" },
-        { value: "4.9", label: "Rating", subtext: "Local Reviews" }
+        { value: "4.9", label: "Rating", subtext: "Local Reviews" },
+        { value: "100%", label: "Fixed Price", subtext: "No Hourly" }
       ]
     },
-    // Peace of Mind Guarantee
     guarantee: {
       title: "PEACE OF MIND",
       mainTitle: <span className="font-bold block leading-tight">Respect for you <br className="md:hidden" /> and your home.</span>,
@@ -819,7 +904,7 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
       image: "/assets/quote-images/older-person-door.jpg",
       boxText: "Polite. Clean. Safe.",
       guaranteeItems: [
-        { icon: 'Shield', title: "Safety First", text: "All staff are ID-verified and background checked for your peace of mind." },
+        { icon: 'Shield', title: "Safety First", text: "All staff are DBS-checked and ID-verified for your peace of mind." },
         { icon: 'Sparkles', title: "We Keep It Clean", text: "We wear overshoes and use dust sheets. We leave no mess behind." },
         { icon: 'MessageCircle', title: "Patient Explanations", text: "No jargon. We explain exactly what needs doing before we start." }
       ],
@@ -861,33 +946,33 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
       ]
     }
   },
-  BUDGET: {
+  RENTER: {
     hero: {
-      title: "Standard Service",
-      subtitle: "Fair price. Quality work.",
-      scrollText: "See Standard Price"
+      title: "Your Rental. Fixed Right.",
+      subtitle: "We can invoice your landlord directly.",
+      scrollText: "See Your Quote"
     },
     proof: {
-      title: "LOCAL & VERIFIED",
-      mainTitle: "Local & Verified.",
-      description: "Don't risk a cowboy. We are local, vetted, and insured. Real layout, real people.",
+      title: "RENTER-FRIENDLY",
+      mainTitle: "Renter-Friendly Service.",
+      description: "Fixed prices, proper invoices, photo proof. Everything you need for your landlord.",
       mapOverlayText: "Live in your area",
       testimonial: {
-        text: "Good honest price. Turned up when they said they would.",
-        author: "David K.",
-        detail: "Local Resident"
+        text: "They sent photos and a proper invoice to my landlord. Got reimbursed the same week.",
+        author: "Tom S.",
+        detail: "Renter"
       }
     },
     guarantee: {
-      title: "STANDARD WARRANTY",
-      mainTitle: "30-Day Workmanship",
-      description: "Standard industry guarantee on all labor. We stand by our work.",
-      boxText: "Basic 30-day guarantee on all labor.",
+      title: "DEPOSIT PROTECTION",
+      mainTitle: "Protect Your Deposit",
+      description: "Photo documentation and detailed reports protect you at checkout.",
+      boxText: "Photo proof on every job. Landlord-ready invoice.",
       badges: [
-        { label: 'Quality', value: 'Standard', icon: 'Star' },
-        { label: 'Vetted', value: 'Checked', icon: 'Shield' },
-        { label: 'Local', value: 'Nearby', icon: 'UserCheck' },
-        { label: 'Warranty', value: '30 Days', icon: 'Clock' }
+        { label: 'Photos', value: 'Included', icon: 'Camera' },
+        { label: 'Invoice', value: 'Landlord-Ready', icon: 'FileText' },
+        { label: 'Price', value: 'Fixed', icon: 'Lock' },
+        { label: 'Warranty', value: '30 Days', icon: 'Shield' }
       ]
     }
   },
@@ -1235,6 +1320,56 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
   const content = SEGMENT_CONTENT_MAP[segmentKey].hero;
   const isBusyPro = quote.segment === 'BUSY_PRO';
 
+  // Generate natural language job description from line items
+  const getJobTopLine = (): string => {
+    if (quote?.jobs && Array.isArray(quote.jobs) && quote.jobs.length > 0) {
+      const items: string[] = [];
+      (quote.jobs as any[]).forEach((job: any) => {
+        // Handle flat job structure (from live call popup)
+        if (job.description && !job.tasks) {
+          // Skip add-ons for hero text
+          if (!job.description.startsWith('Add-on:')) {
+            // Convert to natural language (lowercase, remove technical suffixes)
+            let desc = job.description
+              .replace(/\s*\([^)]*\)/g, '') // Remove parenthetical notes like "(2-4 Shelves)"
+              .replace(/Installation/gi, 'installation')
+              .replace(/Repair/gi, 'repair')
+              .replace(/Replacement/gi, 'replacement')
+              .trim();
+            // Lowercase first letter for joining
+            if (items.length > 0) {
+              desc = desc.charAt(0).toLowerCase() + desc.slice(1);
+            }
+            items.push(desc);
+          }
+        }
+        // Handle nested tasks structure (from other quote generators)
+        else if (job.tasks && Array.isArray(job.tasks)) {
+          job.tasks.forEach((task: any) => {
+            const taskDesc = task.deliverable || task.description;
+            if (taskDesc) {
+              items.push(taskDesc);
+            }
+          });
+        }
+      });
+
+      if (items.length === 0) {
+        return quote?.jobDescription || 'Your handyman job';
+      } else if (items.length === 1) {
+        return items[0];
+      } else if (items.length === 2) {
+        return `${items[0]} and ${items[1]}`;
+      } else {
+        // "X, Y, and Z" or "X, Y, plus Z"
+        const lastItem = items[items.length - 1];
+        const otherItems = items.slice(0, -1);
+        return `${otherItems.join(', ')}, plus ${lastItem}`;
+      }
+    }
+    return quote?.jobDescription || 'Your handyman job';
+  };
+
   return (
     <SectionWrapper className={`relative border-b-4 border-[#7DB00E] overflow-hidden`}>
       {/* Background Image with Overlay */}
@@ -1287,22 +1422,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
                     Job Summary
                   </p>
                   <p className="text-white font-medium mb-1 leading-snug line-clamp-2 text-ellipsis overflow-hidden">
-                    {(() => {
-                      const aiSummary = quote.jobs?.[0]?.summary;
-                      const isInvalidSummary = !aiSummary ||
-                        aiSummary.toLowerCase().includes('unable to analyze') ||
-                        aiSummary.toLowerCase().includes('failed to generate') ||
-                        aiSummary.length < 5;
-
-                      let displayText = "";
-                      if (!isInvalidSummary && aiSummary) {
-                        displayText = aiSummary.charAt(0).toUpperCase() + aiSummary.slice(1).replace(/\.$/, '');
-                      } else {
-                        displayText = quote.jobs?.[0]?.description || quote.jobDescription || "Your project";
-                      }
-
-                      return displayText;
-                    })()}
+                    {getJobTopLine()}
                   </p>
                 </div>
               </div>
@@ -1312,20 +1432,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
           <p className="text-lg md:text-xl text-slate-200 font-light leading-relaxed mb-6 px-4 md:px-0 max-w-lg mx-auto">
             {content.subtitle} <br />
             We've put together this plan for <span className="text-white font-bold border-b border-[#7DB00E] mx-1">
-              {(() => {
-                const aiSummary = quote.jobs?.[0]?.summary;
-                const isInvalidSummary = !aiSummary ||
-                  aiSummary.toLowerCase().includes('unable to analyze') ||
-                  aiSummary.toLowerCase().includes('failed to generate') ||
-                  aiSummary.length < 5;
-                if (!isInvalidSummary && aiSummary) {
-                  return aiSummary.toLowerCase().replace(/\.$/, '');
-                }
-                const desc = quote.jobs?.[0]?.description || quote.jobDescription || "your project";
-                return desc.length > 40
-                  ? desc.substring(0, 40).replace(/^(fixing|installing|repairing) /i, '').replace(/\.$/, '') + '...'
-                  : desc.toLowerCase().replace(/^\w/, c => c.toLowerCase()).replace(/\.$/, '');
-              })()}
+              {getJobTopLine().toLowerCase()}
             </span>
             in <span className="text-white font-bold bg-[#7DB00E]/20 px-2 py-0.5 rounded whitespace-nowrap">{quote.postcode?.split(' ')[0] || 'your area'}</span>.
           </p>
@@ -1644,7 +1751,10 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
 };
 
 export default function PersonalizedQuotePage() {
-  const [, params] = useRoute('/quote-link/:slug');
+  const [, canonicalParams] = useRoute('/quote/:slug');
+  const [, longParams] = useRoute('/quote-link/:slug');
+  const [, shortParams] = useRoute('/q/:slug');
+  const params = canonicalParams || longParams || shortParams; // Support /quote/:slug, /quote-link/:slug, and /q/:slug
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
@@ -2142,43 +2252,56 @@ export default function PersonalizedQuotePage() {
             isPopular: true,
           }));
 
-      case 'BUDGET':
-        // ONLY show Standard Service (essential tier)
+      case 'EMERGENCY':
+        // Show emergency response only
         return allPackages
-          .filter(pkg => pkg.tier === 'essential')
+          .filter(pkg => pkg.tier === 'enhanced')
           .map(pkg => ({
             ...pkg,
-            name: "Standard Service",
-            description: "Quality work at fair pricing",
+            name: "Emergency Response",
+            description: "Same-day attendance, problem contained",
             isPopular: true,
           }));
 
-      case 'OLDER_WOMAN':
-        // Show all 3 tiers with Peace of Mind (enhanced) as anchor
-        // Trust & safety focused naming
-        return allPackages.map(pkg => {
-          if (pkg.tier === 'enhanced') {
-            return {
-              ...pkg,
-              name: "Peace of Mind",
-              description: "Trusted, vetted & reliable service",
-              isPopular: true,
-            };
-          } else if (pkg.tier === 'essential') {
+      case 'TRUST_SEEKER':
+        // Show Trusted Home Service as anchor
+        return allPackages
+          .filter(pkg => pkg.tier === 'enhanced' || pkg.tier === 'essential')
+          .map(pkg => {
+            if (pkg.tier === 'enhanced') {
+              return {
+                ...pkg,
+                name: "Trusted Home Service",
+                description: "Vetted, patient, trustworthy service",
+                isPopular: true,
+              };
+            }
             return {
               ...pkg,
               name: "Standard Service",
               description: "Quality work at a fair price",
             };
-          } else if (pkg.tier === 'elite') {
+          });
+
+      case 'RENTER':
+        // Show renter service with options
+        return allPackages
+          .filter(pkg => pkg.tier === 'essential' || pkg.tier === 'enhanced')
+          .map(pkg => {
+            if (pkg.tier === 'essential') {
+              return {
+                ...pkg,
+                name: "Renter Service",
+                description: "Fixed price, landlord-ready invoice",
+                isPopular: true,
+              };
+            }
             return {
               ...pkg,
-              name: "VIP Service",
-              description: "Premium care with extra attention",
+              name: "Renter Service Plus",
+              description: "Includes landlord invoicing & condition report",
             };
-          }
-          return pkg;
-        });
+          });
 
       default:
         // Fallback: show all tiers for unknown/legacy segments
@@ -2302,32 +2425,6 @@ export default function PersonalizedQuotePage() {
     return pkg?.name || tier;
   };
 
-  // Generate job-specific top line from tasks array
-  const getJobTopLine = (): string => {
-    if (quote?.jobs && Array.isArray(quote.jobs) && quote.jobs.length > 0) {
-      const tasks: string[] = [];
-      quote.jobs.forEach((job) => {
-        if (job.tasks && Array.isArray(job.tasks)) {
-          job.tasks.forEach((task) => {
-            const taskDesc = task.deliverable || task.description;
-            if (taskDesc) {
-              tasks.push(taskDesc);
-            }
-          });
-        }
-      });
-
-      if (tasks.length === 1) {
-        return tasks[0];
-      } else if (tasks.length === 2) {
-        return `${tasks[0]} and ${tasks[1]}`;
-      } else if (tasks.length > 2) {
-        return `${tasks.slice(0, -1).join(', ')}, and ${tasks[tasks.length - 1]}`;
-      }
-    }
-    return quote?.jobDescription || 'Your handyman job';
-  };
-
   // SKIN CONFIG based on clientType
   const clientType = quote?.clientType || 'residential';
   const config = SKIN_CONFIG[clientType as keyof typeof SKIN_CONFIG] || SKIN_CONFIG.residential;
@@ -2427,7 +2524,7 @@ export default function PersonalizedQuotePage() {
                   </div>
 
                   <ExpertSpecSheet
-                    text={getExpertNoteText(quote as any)}
+                    text={getScopeOfWorks(quote as any)}
                     customerName={quote.customerName || ''}
                     address={quote.address || quote.postcode}
                     mikePhotoUrl={mikeProfilePhoto}
@@ -2436,11 +2533,11 @@ export default function PersonalizedQuotePage() {
                     {quote.quoteMode === 'hhh' && packagesToShow.length > 0 && !hasBooked && (
                       <div className="space-y-8">
                         {/* [RAMANUJAM] Unified Quote Card for segments with single-product flow */}
-                        {['BUSY_PRO', 'BUDGET', 'OLDER_WOMAN', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR', 'LANDLORD'].includes(quote.segment || '') ? (
+                        {['EMERGENCY', 'BUSY_PRO', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR', 'LANDLORD'].includes(quote.segment || '') ? (
                           <>
                           <Elements stripe={stripePromise}>
                             <UnifiedQuoteCard
-                              segment={quote.segment || 'BUDGET'}
+                              segment={quote.segment || 'DIY_DEFERRER'}
                               basePrice={packagesToShow[0]?.price || 0}
                               customerName={quote.customerName}
                               customerEmail={quote.email || undefined}
@@ -2451,7 +2548,7 @@ export default function PersonalizedQuotePage() {
                               isBooking={isBooking}
                               onBook={async (config) => {
                                 setIsBooking(true);
-                                setSelectedEEEPackage(quote.segment === 'BUDGET' ? 'essential' : 'enhanced');
+                                setSelectedEEEPackage(quote.segment === 'RENTER' ? 'essential' : 'enhanced');
                                 setHasApprovedProduct(true);
                                 if (config.selectedDate) {
                                   setSelectedCalendarDate(config.selectedDate);
@@ -2733,38 +2830,51 @@ export default function PersonalizedQuotePage() {
                                     "📄 Tax-ready invoice",
                                     "✨ Full cleanup included"
                                   ];
-                                } else if (quote.segment === 'OLDER_WOMAN') {
+                                } else if (quote.segment === 'EMERGENCY') {
+                                  // EMERGENCY: Same-day response
+                                  pkg.name = "Emergency Response";
+                                  rawFeatures = [
+                                    "🚨 Same-day attendance",
+                                    "🔧 Problem contained",
+                                    "📋 Quote for permanent fix",
+                                    "🌙 Out-of-hours available",
+                                    "✨ Cleanup included"
+                                  ];
+                                } else if (quote.segment === 'TRUST_SEEKER') {
                                   if (pkg.tier === 'enhanced') {
-                                    // PRIORITY = Helpfulness + Safety
-                                    pkg.name = "Peace of Mind";
+                                    pkg.name = "Trusted Home Service";
                                     rawFeatures = [
-                                      "⏱️ Exact Arrival Appointment (No waiting)",
-                                      "🛋️ Assistance Moving Furniture",
-                                      "💡 10-min 'Helpful Hand' (Lightbulbs etc)",
-                                      "📄 Paper Invoice Provided",
-                                      "✨ Full Cleanup & Waste Removal",
-                                      "🛡️ 12-Month Warranty"
+                                      "🛡️ DBS-checked tradesperson",
+                                      "📞 We call before arrival",
+                                      "💬 Clear explanation of work",
+                                      "🧹 Thorough cleanup",
+                                      "✅ Fixed price (no hourly)"
                                     ];
-                                  } else if (pkg.tier === 'elite') {
-                                    // ELITE = VIP
-                                    pkg.name = "VIP Service";
-                                    rawFeatures = [
-                                      "🚀 Immediate Priority Booking",
-                                      "💬 Dedicated Office Contact",
-                                      "🛡️ Extended 2-Year Warranty",
-                                      "📹 Video Confirmation for Family",
-                                      "✨ Deep Clean of Work Area",
-                                      "🎁 Seasonal Maintenance Check"
-                                    ];
-                                  } else if (pkg.tier === 'essential') {
-                                    // STANDARD
+                                  } else {
                                     pkg.name = "Standard Service";
                                     rawFeatures = [
-                                      `Available from ${getFutureDate(14)}`,
-                                      "Standard Arrival Window",
-                                      "Quality Workmanhip",
-                                      "Cleanup Included",
-                                      "Digital Invoice Only"
+                                      "Quality workmanship",
+                                      "Cleanup included",
+                                      "Clear communication",
+                                      "30-day guarantee"
+                                    ];
+                                  }
+                                } else if (quote.segment === 'RENTER') {
+                                  if (pkg.tier === 'enhanced') {
+                                    pkg.name = "Renter Service Plus";
+                                    rawFeatures = [
+                                      "📋 Fixed quote upfront",
+                                      "📸 Photo before/after",
+                                      "🧾 Landlord-ready invoice",
+                                      "📧 Invoice landlord directly",
+                                      "📄 Condition report"
+                                    ];
+                                  } else {
+                                    pkg.name = "Renter Service";
+                                    rawFeatures = [
+                                      "📋 Fixed quote upfront",
+                                      "📸 Photo before/after",
+                                      "🧾 Landlord-ready invoice"
                                     ];
                                   }
                                 }
@@ -3093,29 +3203,16 @@ export default function PersonalizedQuotePage() {
                         Scope of Works
                       </h4>
                       <div className="space-y-3">
-                        {(() => {
-                          const deliverables: string[] = [];
-                          if (quote.jobs && Array.isArray(quote.jobs)) {
-                            quote.jobs.forEach((job) => {
-                              if (job.tasks && Array.isArray(job.tasks)) {
-                                job.tasks.forEach((task) => {
-                                  const deliverable = task.deliverable || task.description;
-                                  if (deliverable) deliverables.push(deliverable);
-                                });
-                              }
-                            });
-                          }
-                          const serviceGuarantees = ['Turn up on time guarantee', 'Fully insured handymen', 'Professional workmanship'];
-                          const allItems = [...deliverables, ...serviceGuarantees];
-                          return allItems.map((item, idx) => (
-                            <div key={idx} className="flex items-start gap-3">
-                              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#7DB00E] flex items-center justify-center mt-0.5">
-                                <Check className="w-3.5 h-3.5 text-white" />
-                              </div>
-                              <span className="text-white text-base font-bold leading-relaxed">{item}</span>
+                        {getLineItems(quote as any).map((item, idx) => (
+                          <div key={idx} className="flex items-center gap-3">
+                            <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#7DB00E] flex items-center justify-center">
+                              <Check className="w-3.5 h-3.5 text-white" />
                             </div>
-                          ));
-                        })()}
+                            <span className="text-white text-base font-medium leading-relaxed">
+                              {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.description}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </div>
 
@@ -3137,7 +3234,7 @@ export default function PersonalizedQuotePage() {
 
             {/* [RAMANUJAM] Unified Payment Section */}
             {/* Shows after user books via UnifiedQuoteCard */}
-            {['BUSY_PRO', 'BUDGET', 'OLDER_WOMAN', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR', 'LANDLORD'].includes(quote.segment || '') && selectedEEEPackage && quote.quoteMode === 'hhh' && hasApprovedProduct && (
+            {['EMERGENCY', 'BUSY_PRO', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR', 'LANDLORD'].includes(quote.segment || '') && selectedEEEPackage && quote.quoteMode === 'hhh' && hasApprovedProduct && (
               <motion.div
                 id="payment-section"
                 initial={{ opacity: 0, y: 20 }}
@@ -3167,13 +3264,13 @@ export default function PersonalizedQuotePage() {
                         depositValue: 'text-[#7DB00E]'
                       };
 
-                      // For HHH mode, use selected package
-                      const selectedPackage = quote.quoteMode === 'hhh' ? packages.find(p => p.tier === selectedEEEPackage) : null;
+                      // HHH mode: use selected package (parent condition already ensures quoteMode === 'hhh')
+                      const selectedPackage = packages.find(p => p.tier === selectedEEEPackage);
 
-                      // For simple mode, use basePrice
-                      const basePrice = quote.quoteMode === 'simple' ? (quote.basePrice || 0) : (selectedPackage?.price || 0);
+                      // Use package price
+                      const basePrice = selectedPackage?.price || 0;
 
-                      if (quote.quoteMode === 'hhh' && !selectedPackage) return null;
+                      if (!selectedPackage) return null;
 
                       const extrasTotal = selectedExtras.reduce((sum, label) => {
                         const extra = quote.optionalExtras?.find(e => e.label === label);
@@ -3474,7 +3571,7 @@ export default function PersonalizedQuotePage() {
           {quote.quoteMode !== 'simple' && (
             <div className="mb-10 px-4">
               <ExpertSpecSheet
-                text={getExpertNoteText(quote as any)}
+                text={getScopeOfWorks(quote as any)}
                 customerName={quote.customerName || ''}
                 address={quote.address || quote.postcode}
                 mikePhotoUrl={mikeProfilePhoto}
@@ -3851,45 +3948,18 @@ export default function PersonalizedQuotePage() {
                         Scope of Works
                       </h4>
                       <div className="space-y-2.5">
-                        {(() => {
-                          // Extract all deliverables from jobs
-                          const deliverables: string[] = [];
-
-                          if (quote.jobs && Array.isArray(quote.jobs)) {
-                            quote.jobs.forEach((job) => {
-                              if (job.tasks && Array.isArray(job.tasks)) {
-                                job.tasks.forEach((task) => {
-                                  // Use deliverable if available, otherwise fall back to description
-                                  const deliverable = task.deliverable || task.description;
-                                  if (deliverable) {
-                                    deliverables.push(deliverable);
-                                  }
-                                });
-                              }
-                            });
-                          }
-
-                          // Add standard service guarantees at the end
-                          const serviceGuarantees = [
-                            'Turn up on time guarantee',
-                            'Insured handymen',
-                            'Professional workmanship'
-                          ];
-
-                          // Show deliverables first, then service guarantees
-                          const allItems = [...deliverables, ...serviceGuarantees];
-
-                          return allItems.map((item, idx) => (
-                            <div key={idx} className="flex items-start gap-3 group">
-                              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#7DB00E] flex items-center justify-center mt-0.5">
-                                <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                </svg>
-                              </div>
-                              <span className="text-white text-base font-bold leading-relaxed">{item}</span>
+                        {getLineItems(quote as any).map((item, idx) => (
+                          <div key={idx} className="flex items-center gap-3">
+                            <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#7DB00E] flex items-center justify-center">
+                              <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
                             </div>
-                          ));
-                        })()}
+                            <span className="text-white text-base font-medium leading-relaxed">
+                              {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.description}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </div>
 
