@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import { getBaseUrlFromEnv } from './url-utils';
 
 // Initialize Resend with API key (optional - will gracefully degrade if not set)
 const getResend = () => {
@@ -189,7 +190,7 @@ export async function sendJobAssignmentEmail(data: JobAssignmentEmailData): Prom
         ? `${data.scheduledStartTime} - ${data.scheduledEndTime}`
         : data.scheduledStartTime || 'To be confirmed';
 
-    const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+    const baseUrl = getBaseUrlFromEnv();
     const acceptUrl = `${baseUrl}/contractor/jobs/${data.jobId}`;
 
     const emailHtml = `
@@ -322,7 +323,7 @@ export async function sendInternalBookingNotification(data: BookingConfirmationD
                 <p><strong>Invoice:</strong> ${data.invoiceNumber}</p>
                 ${data.scheduledDate ? `<p><strong>Scheduled:</strong> ${data.scheduledDate}</p>` : '<p><strong>Scheduled:</strong> TBC</p>'}
                 <hr>
-                <p><a href="${process.env.BASE_URL || 'https://handyservices.app'}/admin/dispatch">Go to Dispatch Dashboard</a></p>
+                <p><a href="${getBaseUrlFromEnv()}/admin/dispatch">Go to Dispatch Dashboard</a></p>
             `,
         });
 

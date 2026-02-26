@@ -18,6 +18,7 @@ import { normalizePhoneNumber } from "./phone-utils";
 import { updateLeadStage } from "./lead-stage-engine";
 import { findDuplicateLead } from "./lead-deduplication";
 import { generateValuePricingQuote, getSegmentTierConfig, generateTierDeliverables } from "./value-pricing-engine";
+import { getBaseUrl, getQuoteUrl, getVideoUploadUrl, getBookingConfirmedUrl, getVisitCancelledUrl } from "./url-utils";
 
 export const liveCallActionsRouter = Router();
 
@@ -199,9 +200,8 @@ liveCallActionsRouter.post('/api/live-call/send-quote', async (req, res) => {
                 .where(eq(leads.id, leadId));
         }
 
-        // Generate quote URL
-        const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
-        const quoteUrl = `${baseUrl}/quote/${shortSlug}`;
+        // Generate quote URL from request
+        const quoteUrl = getQuoteUrl(req, shortSlug);
 
         // Send WhatsApp message with quote link
         const firstName = customerInfo.name.split(' ')[0] || 'there';
@@ -331,10 +331,9 @@ liveCallActionsRouter.post('/api/live-call/get-video', async (req, res) => {
             })
             .where(eq(leads.id, leadId));
 
-        // Generate video upload link
-        const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
+        // Generate video upload link from request
         const videoToken = nanoid(12);
-        const videoUploadUrl = `${baseUrl}/upload-video/${videoToken}`;
+        const videoUploadUrl = getVideoUploadUrl(req, videoToken);
 
         // Build job context from ALL detected jobs
         const allJobDescriptions = jobs?.map(j => j.sku?.name || j.description) || [];
@@ -535,7 +534,6 @@ liveCallActionsRouter.post('/api/live-call/book-visit', async (req, res) => {
 
             if (stripeSecretKey && stripeSecretKey.startsWith('sk_')) {
                 const stripe = new Stripe(stripeSecretKey);
-                const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
 
                 // Build description for Stripe
                 const visitDescription = scheduledDate
@@ -558,8 +556,8 @@ liveCallActionsRouter.post('/api/live-call/book-visit', async (req, res) => {
                         },
                     ],
                     mode: 'payment',
-                    success_url: `${baseUrl}/booking-confirmed/${bookingId}?session_id={CHECKOUT_SESSION_ID}`,
-                    cancel_url: `${baseUrl}/visit-cancelled/${bookingId}`,
+                    success_url: `${getBookingConfirmedUrl(req, bookingId)}?session_id={CHECKOUT_SESSION_ID}`,
+                    cancel_url: getVisitCancelledUrl(req, bookingId),
                     customer_email: undefined, // We don't have email from call
                     metadata: {
                         bookingId,
@@ -906,9 +904,8 @@ liveCallActionsRouter.post('/api/live-call/create-quote', async (req, res) => {
             }
         }
 
-        // Generate quote URL
-        const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
-        const quoteUrl = `${baseUrl}/quote/${shortSlug}`;
+        // Generate quote URL from request
+        const quoteUrl = getQuoteUrl(req, shortSlug);
 
         console.log(`[LiveCallAction] Quote created: ${quoteId}, URL: ${quoteUrl}`);
 

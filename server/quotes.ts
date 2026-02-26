@@ -12,6 +12,8 @@ import { findBestContractors, checkNetworkAvailability } from "./availability-en
 import { detectMultipleTasks } from "./skuDetector";
 import { findDuplicateLead } from "./lead-deduplication";
 import { normalizePhoneNumber } from "./phone-utils";
+import { updateLeadStage } from "./lead-stage-engine";
+import { getShortQuoteUrl, getBookVisitUrl } from "./url-utils";
 
 // Define input schema for value pricing
 const valuePricingInputSchema = z.object({
@@ -477,6 +479,34 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
         // Insert into DB
         await db.insert(personalizedQuotes).values(quoteInsertData);
 
+        // Update lead stage to 'quote_sent' if we have a linked lead
+        if (linkedLeadId) {
+            try {
+                await updateLeadStage(linkedLeadId, 'quote_sent', {
+                    reason: 'Quote created',
+                });
+                console.log(`[Quote→Stage] Updated lead ${linkedLeadId} stage to quote_sent`);
+
+                // Broadcast quote sent event for Pipeline dashboard
+                const { broadcastPipelineActivity } = await import('./pipeline-events');
+                broadcastPipelineActivity({
+                    type: 'quote_sent',
+                    leadId: linkedLeadId,
+                    customerName: input.customerName,
+                    summary: `Quote created (${shortSlug})`,
+                    icon: '📝',
+                    data: {
+                        quoteId,
+                        shortSlug,
+                        quoteMode: input.quoteMode,
+                    },
+                });
+            } catch (stageError) {
+                console.error(`[Quote→Stage] Failed to update lead stage:`, stageError);
+                // Don't fail quote creation if stage update fails
+            }
+        }
+
         // Response
         const responsePayload = {
             ...quoteInsertData,
@@ -744,6 +774,7 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
 
         // Track view statistics
         const now = new Date();
+        const isFirstView = !quote.viewedAt;
         await db.update(personalizedQuotes)
             .set({
                 viewedAt: quote.viewedAt || now, // Keep original first view time
@@ -754,6 +785,33 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
 
         // Return updated stats
         quote.viewCount = (quote.viewCount || 0) + 1;
+
+        // Update lead stage to 'quote_viewed' if this is the first view and we have a linked lead
+        if (isFirstView && quote.leadId) {
+            try {
+                await updateLeadStage(quote.leadId, 'quote_viewed', {
+                    reason: 'Customer viewed quote',
+                });
+                console.log(`[Quote→Stage] Updated lead ${quote.leadId} stage to quote_viewed`);
+
+                // Broadcast quote viewed event for Pipeline dashboard
+                const { broadcastPipelineActivity } = await import('./pipeline-events');
+                broadcastPipelineActivity({
+                    type: 'quote_viewed',
+                    leadId: quote.leadId,
+                    customerName: quote.customerName,
+                    summary: `Quote viewed by customer`,
+                    icon: '👁️',
+                    data: {
+                        quoteId: quote.id,
+                        shortSlug: quote.shortSlug,
+                    },
+                });
+            } catch (stageError) {
+                console.error(`[Quote→Stage] Failed to update lead stage on view:`, stageError);
+                // Don't fail quote fetch if stage update fails
+            }
+        }
 
         // Fetch Contractor Details if configured
         let contractorDetails = undefined;
@@ -853,9 +911,26 @@ quotesRouter.put('/api/personalized-quotes/:id/track-selection', async (req, res
         const { id } = req.params;
         const { selectedPackage } = req.body;
 
+        // Fetch the quote to get leadId
+        const [quote] = await db.select().from(personalizedQuotes)
+            .where(eq(personalizedQuotes.id, id));
+
         await db.update(personalizedQuotes)
             .set({ selectedPackage, selectedAt: new Date() })
             .where(eq(personalizedQuotes.id, id));
+
+        // Update lead stage to 'awaiting_payment' if we have a linked lead
+        if (quote?.leadId) {
+            try {
+                await updateLeadStage(quote.leadId, 'awaiting_payment', {
+                    reason: `Package selected: ${selectedPackage}`,
+                });
+                console.log(`[Quote→Stage] Updated lead ${quote.leadId} stage to awaiting_payment`);
+            } catch (stageError) {
+                console.error(`[Quote→Stage] Failed to update lead stage on selection:`, stageError);
+                // Don't fail selection tracking if stage update fails
+            }
+        }
 
         res.json({ success: true });
     } catch (error) {
@@ -1861,9 +1936,8 @@ quotesRouter.post('/api/quotes/instant', async (req, res) => {
         await db.insert(personalizedQuotes).values(quoteData);
         console.log(`[InstantQuote] Created quote ${shortSlug}`);
 
-        // Generate quote URL
-        const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
-        const quoteUrl = `${baseUrl}/q/${shortSlug}`;
+        // Generate quote URL from request
+        const quoteUrl = getShortQuoteUrl(req, shortSlug);
 
         // Send booking link
         const message = `Hi ${input.customerName.split(' ')[0] || 'there'}! Here's your quote for £${(input.totalPricePence / 100).toFixed(2)}. Click to view and book: ${quoteUrl}`;
@@ -1975,9 +2049,8 @@ quotesRouter.post('/api/site-visits/request', async (req, res) => {
 
         console.log(`[SiteVisit] Created/linked lead ${linkedLeadId}`);
 
-        // Generate booking link (TBD: proper site visit booking page)
-        const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
-        const bookingUrl = `${baseUrl}/book-visit?lead=${linkedLeadId}`;
+        // Generate booking link from request
+        const bookingUrl = getBookVisitUrl(req, linkedLeadId);
 
         // Send message
         const firstName = input.customerName.split(' ')[0] || 'there';
