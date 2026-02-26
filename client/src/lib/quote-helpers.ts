@@ -2,46 +2,90 @@ import { personalizedQuotes } from "@shared/schema";
 
 type PersonalizedQuote = typeof personalizedQuotes.$inferSelect;
 
-export function getExpertNoteText(quote: PersonalizedQuote): string {
-    // 1. Determine Summary
-    // Use jobs array summary/description first, fallback to top-level jobDescription
-    const summary = quote.jobs?.[0]?.summary || quote.jobs?.[0]?.description || quote.jobDescription;
+export interface LineItem {
+    description: string;
+    pricePence?: number;
+    quantity?: number;
+}
 
-    // 2. Determine Deliverables
-    let deliverables: string[] = [];
+/**
+ * Extract line items from quote jobs array (excludes add-ons)
+ * Handles both flat structure (live call popup) and nested tasks structure
+ */
+export function getLineItems(quote: PersonalizedQuote): LineItem[] {
+    const lineItems: LineItem[] = [];
 
-    // Extract deliverables from structured jobs tasks
-    if (quote.jobs && quote.jobs.length > 0) {
-        quote.jobs.forEach((job: any) => {
-            if (job.tasks) {
-                job.tasks.forEach((t: any) => {
-                    // Try to get deliverable, fallback to description
-                    const d = t.deliverable || t.description;
-                    if (d) deliverables.push(d);
+    if (quote.jobs && Array.isArray(quote.jobs) && quote.jobs.length > 0) {
+        (quote.jobs as any[]).forEach((job: any) => {
+            // Handle flat job structure (from live call popup)
+            if (job.description && !job.tasks) {
+                // Skip add-ons - they're shown separately in "Our local customers also add:"
+                if (!job.description.startsWith('Add-on:')) {
+                    lineItems.push({
+                        description: job.description,
+                        pricePence: job.pricePence,
+                        quantity: job.quantity || 1,
+                    });
+                }
+            }
+            // Handle nested tasks structure (from other quote generators)
+            else if (job.tasks && Array.isArray(job.tasks)) {
+                job.tasks.forEach((task: any) => {
+                    const d = task.deliverable || task.description;
+                    if (d && !d.startsWith('Add-on:')) {
+                        lineItems.push({
+                            description: d,
+                            pricePence: task.pricePence,
+                            quantity: task.quantity || 1,
+                        });
+                    }
                 });
             }
         });
-    } else if (quote.coreDeliverables) {
-        // Fallback to legacy coreDeliverables
-        deliverables = quote.coreDeliverables as string[];
     }
 
-    // 3. Construct Text
-    // Use assessmentReason as base if no structured jobs/data, otherwise build the "Job Sheet" format
-    const hasStructuredData = (summary && summary.trim().length > 0) || deliverables.length > 0;
+    return lineItems;
+}
 
-    // If we have structured data, format it nicely
-    if (hasStructuredData) {
-        const parts = [];
-        if (summary) parts.push(summary);
-        if (deliverables.length > 0) {
-            parts.push(deliverables.map(d => `• ${d}`).join('\n'));
-        }
-        return parts.join('\n\n');
+/**
+ * Get scope of works as formatted text (NO prices)
+ */
+export function getScopeOfWorks(quote: PersonalizedQuote): string {
+    const lineItems = getLineItems(quote);
+
+    if (lineItems.length > 0) {
+        return lineItems.map(item => {
+            const qty = item.quantity && item.quantity > 1 ? `${item.quantity}x ` : '';
+            return `${qty}${item.description}`;
+        }).join('\n');
     }
 
-    // Fallback: Use standard text fields
-    // assessmentReason is preferred for Diagnostic/Visit quotes
-    // jobDescription is the ultimate fallback
+    // Fallback to legacy coreDeliverables
+    if (quote.coreDeliverables && Array.isArray(quote.coreDeliverables)) {
+        return (quote.coreDeliverables as string[]).join('\n');
+    }
+
+    return quote.jobDescription || "No details provided.";
+}
+
+/**
+ * Get expert note text with prices (for spec sheets, PDFs)
+ */
+export function getExpertNoteText(quote: PersonalizedQuote): string {
+    const lineItems = getLineItems(quote);
+
+    if (lineItems.length > 0) {
+        return lineItems.map(item => {
+            const qty = item.quantity && item.quantity > 1 ? `${item.quantity}x ` : '';
+            const price = item.pricePence ? ` — £${(item.pricePence / 100).toFixed(0)}` : '';
+            return `${qty}${item.description}${price}`;
+        }).join('\n');
+    }
+
+    // Fallback to legacy coreDeliverables
+    if (quote.coreDeliverables && Array.isArray(quote.coreDeliverables)) {
+        return (quote.coreDeliverables as string[]).map(d => `• ${d}`).join('\n');
+    }
+
     return quote.assessmentReason || quote.jobDescription || "No details provided.";
 }
