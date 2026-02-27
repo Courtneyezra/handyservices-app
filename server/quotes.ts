@@ -2097,3 +2097,49 @@ quotesRouter.post('/api/site-visits/request', async (req, res) => {
     }
 });
 
+// PATCH /api/personalized-quotes/:id/update-email
+// Update just the email field on a quote (for payment flow)
+quotesRouter.patch('/api/personalized-quotes/:id/update-email', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ error: 'Email is required' });
+        }
+
+        // Basic email format validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({ error: 'Invalid email format' });
+        }
+
+        // Check if quote exists
+        const existingQuote = await db.select()
+            .from(personalizedQuotes)
+            .where(eq(personalizedQuotes.id, id))
+            .limit(1);
+
+        if (existingQuote.length === 0) {
+            return res.status(404).json({ error: 'Quote not found' });
+        }
+
+        // Update the email
+        const [updatedQuote] = await db.update(personalizedQuotes)
+            .set({ email })
+            .where(eq(personalizedQuotes.id, id))
+            .returning();
+
+        console.log(`[Quotes] Updated email for quote ${id}: ${email}`);
+
+        res.json({
+            success: true,
+            quote: updatedQuote,
+        });
+
+    } catch (error: any) {
+        console.error('[Quotes] Error updating email:', error);
+        res.status(500).json({ error: error.message || 'Failed to update email' });
+    }
+});
+

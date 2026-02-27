@@ -3,7 +3,8 @@ import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { isStripeConfigured } from '@/lib/stripe';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Loader2, AlertCircle, CheckCircle2, Mail } from 'lucide-react';
 
 interface PaymentFormProps {
   amount: number; // Amount in pence (unused for deposit mode, used as fallback)
@@ -37,6 +38,12 @@ export function PaymentForm({
   const stripe = useStripe();
   const elements = useElements();
 
+  // Email state with validation
+  const [email, setEmail] = useState(customerEmail || '');
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null);
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [serverCalculatedAmount, setServerCalculatedAmount] = useState<number | null>(null);
@@ -50,6 +57,37 @@ export function PaymentForm({
 
   // Create stable reference for selectedExtras to avoid unnecessary re-fetches
   const extrasKey = JSON.stringify(selectedExtras || []);
+
+  // Email validation helper
+  const validateEmail = (emailValue: string): string | null => {
+    if (!emailValue.trim()) {
+      return 'Email is required for booking confirmation';
+    }
+    // Basic email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailValue)) {
+      return 'Please enter a valid email address';
+    }
+    return null;
+  };
+
+  // Validate email on change
+  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newEmail = e.target.value;
+    setEmail(newEmail);
+    if (emailTouched) {
+      setEmailError(validateEmail(newEmail));
+    }
+  };
+
+  // Validate email on blur
+  const handleEmailBlur = () => {
+    setEmailTouched(true);
+    setEmailError(validateEmail(email));
+  };
+
+  // Check if email is valid for form submission
+  const isEmailValid = !validateEmail(email);
 
   // Fetch payment intent when tier or extras change (re-calculate deposit)
   useEffect(() => {
@@ -69,7 +107,7 @@ export function PaymentForm({
         let url = '/api/create-payment-intent';
         let body: any = {
           customerName,
-          customerEmail,
+          customerEmail: email || customerEmail, // Use form email, fallback to prop
           quoteId,
           selectedTier,
           selectedTierPrice, // For validation only - server uses stored price
@@ -81,7 +119,7 @@ export function PaymentForm({
           url = '/api/create-visit-payment-intent';
           body = {
             customerName,
-            customerEmail,
+            customerEmail: email || customerEmail, // Use form email, fallback to prop
             quoteId,
             tierId: selectedTier,
             slot: slot ? { date: slot.date, slot: slot.slot } : undefined
@@ -151,6 +189,14 @@ export function PaymentForm({
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
 
+    // Validate email before submission
+    const emailValidationError = validateEmail(email);
+    if (emailValidationError) {
+      setEmailError(emailValidationError);
+      setEmailTouched(true);
+      return;
+    }
+
     if (!stripe || !elements || !clientSecret || !paymentIntentId) {
       return;
     }
@@ -172,7 +218,7 @@ export function PaymentForm({
             card: cardElement,
             billing_details: {
               name: customerName,
-              email: customerEmail,
+              email: email, // Use form email for billing details
             },
           },
         }
@@ -183,6 +229,9 @@ export function PaymentForm({
       }
 
       if (paymentIntent?.status === 'succeeded') {
+        // Set confirmation email to show success message
+        setConfirmationEmail(email);
+
         // Payment succeeded - call onSuccess but DON'T throw if it fails
         // The webhook will handle booking creation asynchronously
         try {
@@ -244,6 +293,26 @@ export function PaymentForm({
     );
   }
 
+  // Show success message after payment (brief display before redirect)
+  if (confirmationEmail) {
+    return (
+      <div className="space-y-4 py-8">
+        <div className="flex flex-col items-center justify-center gap-4">
+          <CheckCircle2 className="h-12 w-12 text-green-500" />
+          <div className="text-center">
+            <h3 className="text-lg font-semibold text-white">Payment Successful!</h3>
+            <p className="text-sm text-gray-400 mt-1">
+              Confirmation sent to <span className="text-white font-medium">{confirmationEmail}</span>
+            </p>
+          </div>
+        </div>
+        <p className="text-xs text-center text-gray-400">
+          Redirecting to your booking confirmation...
+        </p>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {/* Configuration Warning */}
@@ -255,6 +324,29 @@ export function PaymentForm({
           </AlertDescription>
         </Alert>
       )}
+
+      {/* Email Input Field */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-white flex items-center gap-2">
+          <Mail className="h-4 w-4" />
+          Email for confirmation
+        </label>
+        <Input
+          type="email"
+          value={email}
+          onChange={handleEmailChange}
+          onBlur={handleEmailBlur}
+          placeholder="your@email.com"
+          className={`bg-gray-800/80 border-gray-600 text-white placeholder:text-gray-400 focus:border-[#e8b323] focus:ring-1 focus:ring-[#e8b323] ${
+            emailError && emailTouched ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''
+          }`}
+          data-testid="input-email"
+        />
+        {emailError && emailTouched && (
+          <p className="text-xs text-red-400">{emailError}</p>
+        )}
+        <p className="text-xs text-gray-400">We'll send your booking confirmation and receipt here</p>
+      </div>
 
       <div className="space-y-2">
         <label className="text-sm font-medium text-white">Card Details</label>
@@ -300,8 +392,8 @@ export function PaymentForm({
 
       <Button
         type="submit"
-        disabled={!stripe || isProcessing || isLoadingIntent || !!error || !clientSecret || !isStripeConfigured}
-        className="w-full bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold text-lg py-6 transition-all"
+        disabled={!stripe || isProcessing || isLoadingIntent || !!error || !clientSecret || !isStripeConfigured || !isEmailValid}
+        className="w-full bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold text-lg py-6 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         size="lg"
         data-testid="button-submit-payment"
       >

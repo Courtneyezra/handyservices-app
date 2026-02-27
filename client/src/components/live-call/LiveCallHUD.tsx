@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useLiveCall } from '@/contexts/LiveCallContext';
 import { CallHUD, CustomerInfo, DetectedJobHUD } from './CallHUD';
 import { QuoteSendPopup } from './QuoteSendPopup';
@@ -18,6 +19,7 @@ import { BookVisitPopup } from './BookVisitPopup';
 import { AvailabilityPanel } from './AvailabilityPanel';
 import { useToast } from '@/hooks/use-toast';
 import { openWhatsApp, getWhatsAppErrorMessage, copyWhatsAppFallback } from '@/lib/whatsapp-helper';
+import { Clock, Eye, X } from 'lucide-react';
 import type { CallScriptSegment } from '@shared/schema';
 
 type HUDSegment = Exclude<CallScriptSegment, 'EMERGENCY'>;
@@ -42,6 +44,9 @@ export function LiveCallHUD({ onQuote, onVideo, onVisit }: LiveCallHUDProps) {
     detectedJobs,
     activeCallSid,
     routeRecommendation,
+    callEndedState,
+    keepCallOpen,
+    clearCall,
   } = useLiveCall();
 
   // Local state for customer info that VA can edit
@@ -356,6 +361,49 @@ export function LiveCallHUD({ onQuote, onVideo, onVisit }: LiveCallHUDProps) {
 
   return (
     <>
+      {/* Call Ended Indicator Banner */}
+      <AnimatePresence>
+        {callEndedState === 'ended_reviewing' && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-0 left-0 right-0 z-50 bg-amber-500/90 backdrop-blur-sm px-4 py-3"
+          >
+            <div className="flex items-center justify-center gap-4 max-w-4xl mx-auto">
+              <div className="flex items-center gap-2 text-black">
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+                >
+                  <Clock className="w-5 h-5" />
+                </motion.div>
+                <span className="font-semibold">Call ended - reviewing summary...</span>
+                <span className="text-black/70 text-sm">(auto-clears in 15s)</span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={keepCallOpen}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-black/20 hover:bg-black/30 rounded-md text-sm font-medium text-black transition-colors"
+                  title="Keep the call summary open - prevents auto-clear"
+                >
+                  <Eye className="w-4 h-4" />
+                  Keep Open
+                </button>
+                <button
+                  onClick={clearCall}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-black/20 hover:bg-black/30 rounded-md text-sm font-medium text-black transition-colors"
+                  title="Clear now and reset for next call"
+                >
+                  <X className="w-4 h-4" />
+                  Clear Now
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <CallHUD
         selectedSegment={currentSegment as HUDSegment | null}
         aiRecommendedSegment={aiRecommendedSegment}

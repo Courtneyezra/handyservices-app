@@ -10,7 +10,11 @@
     "db:push": "drizzle-kit push",
     "seed": "tsx scripts/seed-skus.ts",
     "test:call-analyzer": "npx tsx scripts/test-call-analyzer.ts",
-    "test:webform-scorer": "npx tsx scripts/test-webform-scorer.ts"
+    "test:webform-scorer": "npx tsx scripts/test-webform-scorer.ts",
+    "test:payment-email": "npx tsx scripts/test-payment-email.ts",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:live-call": "npx tsx scripts/test-live-call-fixes.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.971.0",

@@ -425,52 +425,48 @@ export function CallHUD({
               const stateMap = { quote: quoteState, video: videoState, visit: visitState };
               const state = stateMap[action];
 
-              // Traffic light based enable/disable logic:
-              // SEND QUOTE: Enabled only if ALL jobs are GREEN (no amber, no red)
-              // GET VIDEO: Enabled if any AMBER jobs (and no RED)
-              // BOOK VISIT: Enabled if any RED jobs, or as fallback
-              let isDisabled = state === 'pending';
-              let disabledReason = '';
+              // Buttons are ALWAYS clickable - AI only recommends, user decides
+              // Only disable during pending state (action in progress)
+              const isDisabled = state === 'pending';
+              let tooltipText = ''; // Informational tooltip (not blocking)
 
               if (action === 'quote') {
-                // Quote only enabled when all green (or all matched with no traffic light)
-                const canQuote = jobs.length > 0 && allGreen;
-                isDisabled = isDisabled || !canQuote;
                 if (hasRed) {
-                  disabledReason = 'Site visit required';
+                  tooltipText = 'AI suggests site visit for complex job';
                 } else if (hasAmber) {
-                  disabledReason = 'Video needed first';
+                  tooltipText = 'AI suggests video for unpriced jobs';
                 } else if (jobs.length === 0) {
-                  disabledReason = 'No jobs detected';
+                  tooltipText = 'No jobs detected yet';
+                } else if (allGreen) {
+                  tooltipText = 'All jobs priced - ready to quote';
+                } else {
+                  tooltipText = 'Send instant quote to customer';
                 }
               } else if (action === 'video') {
-                // Video enabled if any amber (needs visual confirmation) and no red
-                const canVideo = hasAmber && !hasRed;
-                isDisabled = isDisabled || !canVideo;
                 if (hasRed) {
-                  disabledReason = 'Site visit required';
-                } else if (allGreen) {
-                  disabledReason = 'All jobs priced';
+                  tooltipText = 'AI suggests site visit for complex job';
+                } else if (allGreen && jobs.length > 0) {
+                  tooltipText = 'All jobs already have instant pricing';
+                } else if (hasAmber) {
+                  tooltipText = `AI recommends video for ${amberJobs.length} job${amberJobs.length > 1 ? 's' : ''}`;
                 } else if (jobs.length === 0) {
-                  disabledReason = 'No jobs detected';
+                  tooltipText = 'No jobs detected yet';
+                } else {
+                  tooltipText = 'Request video assessment from customer';
                 }
               } else if (action === 'visit') {
-                // Visit enabled if any red, or as fallback when nothing else works
-                const canVisit = hasRed || (jobs.length > 0 && !allGreen && !hasAmber);
-                isDisabled = isDisabled || !canVisit;
-                if (allGreen) {
-                  disabledReason = 'All jobs priced';
-                } else if (hasAmber && !hasRed) {
-                  disabledReason = 'Try video first';
+                if (hasRed) {
+                  tooltipText = `AI recommends visit for ${redJobs.length} specialist job${redJobs.length > 1 ? 's' : ''}`;
+                } else if (hasAmber) {
+                  tooltipText = 'AI suggests video first';
+                } else if (allGreen && jobs.length > 0) {
+                  tooltipText = 'All jobs already have instant pricing';
                 } else if (jobs.length === 0) {
-                  disabledReason = 'No jobs detected';
+                  tooltipText = 'No jobs detected yet';
+                } else {
+                  tooltipText = 'Book on-site assessment visit';
                 }
               }
-
-              // Determine which button is primary (recommended action)
-              const isPrimary = (allGreen && action === 'quote') ||
-                               (hasAmber && !hasRed && action === 'video') ||
-                               (hasRed && action === 'visit');
 
               // Determine button appearance based on state
               const isSuccess = state === 'success';
@@ -478,11 +474,14 @@ export function CallHUD({
               const isPending = state === 'pending';
 
               // Get background color based on state
+              // Non-recommended buttons get a subtle dim color, but are still clickable
               const getBgColor = () => {
-                if (isDisabled && !isPending) return '#1a1a1a';
+                if (isPending) return config.color;
                 if (isSuccess) return '#16A34A'; // Green
                 if (isError) return '#DC2626'; // Red
-                return config.color;
+                // AI recommended action gets full color, others get dimmed but still visible
+                if (isAiPick) return config.color;
+                return 'rgba(255,255,255,0.1)'; // Subtle dim for non-recommended (still clickable)
               };
 
               return (
@@ -490,19 +489,21 @@ export function CallHUD({
                   <motion.button
                     onClick={() => handleAction(action)}
                     disabled={isDisabled}
+                    title={tooltipText}
                     whileTap={{ scale: isDisabled ? 1 : 0.95 }}
                     className={cn(
                       'relative w-full flex flex-col items-center justify-center gap-1',
                       'py-3 rounded-xl font-semibold text-xs transition-all',
-                      isDisabled && !isPending && 'opacity-30 cursor-not-allowed'
+                      // Only show pending state styling, not disabled styling
+                      isPending && 'opacity-70'
                     )}
                     style={{
                       backgroundColor: getBgColor(),
-                      color: 'white',
+                      color: isAiPick || isPending || isSuccess || isError ? 'white' : 'rgba(255,255,255,0.7)',
                     }}
                   >
-                    {/* AI Pick pulsing border - like segment recommendation */}
-                    {isAiPick && !isDisabled && !isPending && !isSuccess && !isError && (
+                    {/* AI Pick pulsing border - visual recommendation highlight */}
+                    {isAiPick && !isPending && !isSuccess && !isError && (
                       <motion.div
                         className="absolute inset-0 rounded-xl pointer-events-none"
                         style={{ border: `2px solid ${config.color}` }}
@@ -523,10 +524,10 @@ export function CallHUD({
                       {isPending ? 'SENDING...' : isSuccess ? 'SENT!' : isError ? 'FAILED' : config.label}
                     </span>
                   </motion.button>
-                  {/* Show reason when disabled */}
-                  {isDisabled && disabledReason && !isPending && (
-                    <span className="text-[10px] text-white/40 text-center leading-tight">
-                      {disabledReason}
+                  {/* Show "Recommended" badge for AI pick */}
+                  {isAiPick && !isPending && !isSuccess && !isError && (
+                    <span className="text-[10px] text-white/60 text-center leading-tight font-medium" style={{ color: config.color }}>
+                      Recommended
                     </span>
                   )}
                 </div>

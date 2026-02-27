@@ -485,18 +485,36 @@ export class MediaStreamTranscriber {
             }
 
             // Extract name and address periodically (every N segments OR if transcript > N chars)
-            // But not more frequently than every 10 seconds to avoid excessive API calls
+            // But not more frequently than every 5 seconds to avoid excessive API calls
             // Settings are configurable via admin panel
             const now = Date.now();
             const shouldExtractMetadata = (this.segmentCount % this.metadataChunkInterval === 0 || this.fullTranscript.length > this.metadataCharThreshold)
-                && (now - this.lastMetadataExtraction > 10000);
+                && (now - this.lastMetadataExtraction > 5000);
 
             if (shouldExtractMetadata) {
                 this.lastMetadataExtraction = now;
 
                 try {
-                    // Pass segments for better speaker-aware extraction
-                    const liveMetadata = await extractCallMetadata(this.fullTranscript, this.segments);
+                    // S-005: Parallelize metadata extraction and postcode extraction for faster population
+                    const [liveMetadata, postcodeResult] = await Promise.all([
+                        extractCallMetadata(this.fullTranscript, this.segments),
+                        // Only extract postcode if we don't have one yet
+                        !this.metadata.postcode ? extractPostcodeOnly(this.fullTranscript) : Promise.resolve(null)
+                    ]);
+
+                    // Update postcode if found from parallel extraction
+                    if (postcodeResult && !this.metadata.postcode) {
+                        this.metadata.postcode = postcodeResult;
+                        this.postcodeDetected = true;
+                        console.log(`[Postcode] Detected (parallel): ${postcodeResult}`);
+                        this.broadcast({
+                            type: 'voice:postcode_detected',
+                            data: {
+                                callSid: this.callSid,
+                                postcode: postcodeResult
+                            }
+                        });
+                    }
 
                     // Update metadata if new information is found
                     if (liveMetadata.customerName && !this.metadata.customerName) {
@@ -508,7 +526,7 @@ export class MediaStreamTranscriber {
                         this.metadata.address = liveMetadata.address;
                         console.log(`[Metadata] Address detected: ${liveMetadata.address}`);
 
-                        // Validate the extracted address
+                        // Validate the extracted address (this can run after we have address)
                         const validation = await validateExtractedAddress(
                             liveMetadata.address,
                             this.metadata.postcode || liveMetadata.postcode
@@ -581,9 +599,15 @@ export class MediaStreamTranscriber {
 
                 // Broadcast jobs update for CallHUD with tiered traffic light scoring
                 // Tier 1: Instant sync classification (<50ms) for real-time UI
+                // S-004: Use content-based hash for stable job IDs (prevents flickering)
                 const jobs = [
-                    ...multiTaskResult.matchedServices.map((s, i) => {
-                        const jobId = `job-${i}`;
+                    ...multiTaskResult.matchedServices.map((s) => {
+                        // Content-based hash: SKU ID + task description for stable ID
+                        const jobHash = crypto.createHash('md5')
+                            .update(s.sku.id + (s.task?.description || ''))
+                            .digest('hex')
+                            .substring(0, 8);
+                        const jobId = `matched-${jobHash}`;
                         const { trafficLight, result } = getTrafficLightSync(true, s.task.description || s.sku.name);
                         this.lastJobClassifications.set(jobId, result);
                         return {
@@ -596,8 +620,13 @@ export class MediaStreamTranscriber {
                             recommendedRoute: result.recommendedRoute,
                         };
                     }),
-                    ...multiTaskResult.unmatchedTasks.map((t, i) => {
-                        const jobId = `unmatched-${i}`;
+                    ...multiTaskResult.unmatchedTasks.map((t) => {
+                        // Content-based hash: task description for stable ID
+                        const jobHash = crypto.createHash('md5')
+                            .update(t.description)
+                            .digest('hex')
+                            .substring(0, 8);
+                        const jobId = `unmatched-${jobHash}`;
                         const { trafficLight, result } = getTrafficLightSync(false, t.description);
                         this.lastJobClassifications.set(jobId, result);
                         return {

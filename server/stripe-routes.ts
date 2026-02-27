@@ -5,6 +5,7 @@ import { db } from './db';
 import { personalizedQuotes, contractorJobs, invoices, leads } from '../shared/schema';
 import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import { updateLeadStage } from './lead-stage-engine';
 
 // Helper to get Stripe instance lazily
 const getStripe = () => {
@@ -76,6 +77,17 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             return res.status(400).json({ message: 'Missing required fields: quoteId and selectedTier' });
         }
 
+        // Validate email is provided (required for confirmation emails)
+        if (!customerEmail) {
+            return res.status(400).json({ message: 'Missing required field: customerEmail' });
+        }
+
+        // Basic email format validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(customerEmail)) {
+            return res.status(400).json({ message: 'Invalid email format' });
+        }
+
         // Fetch the quote from database
         const quoteResult = await db.select()
             .from(personalizedQuotes)
@@ -87,6 +99,14 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         }
 
         const quote = quoteResult[0];
+
+        // Update quote email BEFORE creating payment intent (ensures email is captured)
+        if (customerEmail && customerEmail !== quote.email) {
+            await db.update(personalizedQuotes)
+                .set({ email: customerEmail })
+                .where(eq(personalizedQuotes.id, quoteId));
+            console.log(`[Stripe] Updated quote ${quoteId} email to: ${customerEmail}`);
+        }
 
         // Get the tier price from the quote (server-side source of truth)
         let baseTierPrice: number;
@@ -149,13 +169,14 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
                 metadata: {
                     quoteId,
                     customerName,
+                    customerEmail, // Store email in metadata for webhook fallback
                     selectedTier,
                     paymentType,
                     totalJobPrice: totalJobPrice.toString(),
                     depositAmount: depositBreakdown.total.toString(),
                     selectedExtras: selectedExtras.join(',')
                 },
-                receipt_email: customerEmail || undefined,
+                receipt_email: customerEmail,
                 description: `Deposit for ${customerName} - ${selectedTier} package`
             },
             {
@@ -233,6 +254,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                 const depositAmount = parseInt(paymentIntent.metadata?.depositAmount || '0', 10) || paymentIntent.amount;
                 const selectedTier = paymentIntent.metadata?.selectedTier;
                 const selectedExtras = paymentIntent.metadata?.selectedExtras?.split(',').filter(Boolean) || [];
+                const metadataEmail = paymentIntent.metadata?.customerEmail; // Email from payment intent metadata
 
                 // Update personalizedQuotes with depositPaidAt
                 if (quoteId) {
@@ -244,16 +266,32 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                     if (quoteResults.length > 0) {
                         const quote = quoteResults[0];
 
-                        // 1. Update Quote
+                        // Determine effective email: prefer quote email, fall back to metadata
+                        const effectiveEmail = quote.email || metadataEmail || null;
+
+                        // Log warning if no email available
+                        if (!effectiveEmail) {
+                            console.warn(`[Stripe Webhook] WARNING: No email available for quote ${quoteId}. Customer: ${quote.customerName}. Confirmation email will NOT be sent.`);
+                        }
+
+                        // 1. Update Quote (include email from metadata if quote email was null)
+                        const updateFields: Record<string, any> = {
+                            depositPaidAt: new Date(),
+                            depositAmountPence: depositAmount,
+                            stripePaymentIntentId: paymentIntent.id,
+                            bookedAt: new Date(),
+                            selectedPackage: selectedTier || quote.selectedPackage,
+                            selectedExtras: selectedExtras.length > 0 ? selectedExtras : quote.selectedExtras,
+                        };
+
+                        // If quote email is null but we have metadata email, update it
+                        if (!quote.email && metadataEmail) {
+                            updateFields.email = metadataEmail;
+                            console.log(`[Stripe Webhook] Updated quote email from metadata: ${metadataEmail}`);
+                        }
+
                         await db.update(personalizedQuotes)
-                            .set({
-                                depositPaidAt: new Date(),
-                                depositAmountPence: depositAmount,
-                                stripePaymentIntentId: paymentIntent.id,
-                                bookedAt: new Date(),
-                                selectedPackage: selectedTier || quote.selectedPackage,
-                                selectedExtras: selectedExtras.length > 0 ? selectedExtras : quote.selectedExtras,
-                            })
+                            .set(updateFields)
                             .where(eq(personalizedQuotes.id, quoteId));
 
                         console.log(`[Stripe Webhook] Quote ${quoteId} marked as paid. Deposit: £${(depositAmount / 100).toFixed(2)}`);
@@ -329,7 +367,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             quoteId: quoteId,
                             contractorId: quote.contractorId || null,
                             customerName: quote.customerName,
-                            customerEmail: quote.email || null,
+                            customerEmail: effectiveEmail, // Use effective email (quote or metadata fallback)
                             customerPhone: quote.phone,
                             customerAddress: quote.address || '',
                             totalAmount: totalJobPrice,
@@ -346,7 +384,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
 
                         console.log(`[Stripe Webhook] Invoice ${invoiceNumber} created (Balance: £${(balanceDue / 100).toFixed(2)})`);
 
-                        // 5. Update Lead Status to 'converted'
+                        // 5. Update Lead Status to 'converted' and stage to 'booked'
                         if (quote.leadId) {
                             await db.update(leads)
                                 .set({
@@ -354,6 +392,17 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                     updatedAt: new Date(),
                                 })
                                 .where(eq(leads.id, quote.leadId));
+
+                            // Update lead stage to 'booked' via stage engine
+                            try {
+                                await updateLeadStage(quote.leadId, 'booked', {
+                                    reason: 'Payment completed via Stripe',
+                                });
+                                console.log(`[Stripe Webhook] Lead ${quote.leadId} stage updated to booked`);
+                            } catch (stageError) {
+                                console.error(`[Stripe Webhook] Failed to update lead stage:`, stageError);
+                                // Don't fail webhook if stage update fails
+                            }
 
                             console.log(`[Stripe Webhook] Lead ${quote.leadId} marked as converted`);
                         }
@@ -364,10 +413,33 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
   - Job: ${jobId}
   - Invoice: ${invoiceNumber}
   - Customer: ${quote.customerName}
-  - Email: ${quote.email || 'N/A'}
+  - Email: ${effectiveEmail || 'N/A'}
   - Total: £${(totalJobPrice / 100).toFixed(2)}
   - Deposit: £${(depositAmount / 100).toFixed(2)}
   - Balance: £${(balanceDue / 100).toFixed(2)}`);
+
+                        // 7. Broadcast WebSocket event for Pipeline dashboard
+                        try {
+                            const { broadcastPipelineActivity } = await import('./pipeline-events');
+                            broadcastPipelineActivity({
+                                type: 'payment_received',
+                                leadId: quote.leadId,
+                                customerName: quote.customerName,
+                                summary: `Payment received - £${(depositAmount / 100).toFixed(2)} deposit for ${selectedTier || 'standard'} package`,
+                                icon: '💳',
+                                data: {
+                                    quoteId,
+                                    invoiceNumber,
+                                    depositAmount,
+                                    totalJobPrice,
+                                    balanceDue,
+                                    selectedTier,
+                                    jobId,
+                                },
+                            });
+                        } catch (broadcastError) {
+                            console.warn('[Stripe Webhook] Failed to broadcast payment event:', broadcastError);
+                        }
 
                         // Send notifications (async, don't block webhook response)
                         (async () => {
@@ -390,10 +462,11 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                 }
 
                                 // Customer confirmation via Email (secondary - if email provided)
-                                if (quote.email) {
+                                // Use effectiveEmail which falls back to metadata if quote.email was null
+                                if (effectiveEmail) {
                                     await sendBookingConfirmationEmail({
                                         customerName: quote.customerName,
-                                        customerEmail: quote.email,
+                                        customerEmail: effectiveEmail,
                                         jobDescription: quote.jobDescription || '',
                                         scheduledDate: quote.selectedDate ? String(quote.selectedDate) : null,
                                         depositPaid: depositAmount,
@@ -408,7 +481,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                 // Ops notification
                                 await sendInternalBookingNotification({
                                     customerName: quote.customerName,
-                                    customerEmail: quote.email || '',
+                                    customerEmail: effectiveEmail || '',
                                     phone: quote.phone,
                                     jobDescription: quote.jobDescription || '',
                                     scheduledDate: quote.selectedDate ? String(quote.selectedDate) : null,

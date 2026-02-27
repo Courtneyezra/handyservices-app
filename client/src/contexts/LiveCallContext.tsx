@@ -101,6 +101,9 @@ export interface RouteRecommendation {
 // Connection state for WebSocket reconnection
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected';
 
+// Call ended state for showing "reviewing summary" indicator
+export type CallEndedState = 'active' | 'ended_reviewing' | 'cleared';
+
 interface LiveCallContextType {
     isLive: boolean; // Derived: if liveCallData !== null
     activeCallSid: string | null; // Current call SID for tube map integration
@@ -108,9 +111,11 @@ interface LiveCallContextType {
     interimTranscript: string;
     isSimulating: boolean;
     connectionState: ConnectionState; // WebSocket connection state
+    callEndedState: CallEndedState; // Track call end state for UI indicator
     startSimulation: (options?: SimulationOptions) => void;
     startCallScriptSimulation: (transcript: string[]) => Promise<string | null>;
     clearCall: () => void;
+    keepCallOpen: () => void; // Prevent auto-clear
     updateMetadata: (updates: Partial<LiveMetadataJson>) => void;
     detectedPostcode: string | null;
     duplicateWarning: string | null;
@@ -197,6 +202,10 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
     // Extracted customer info from voice analysis
     const [extractedCustomerInfo, setExtractedCustomerInfo] = useState<ExtractedCustomerInfo>(DEFAULT_EXTRACTED_CUSTOMER_INFO);
 
+    // Call ended state for UI indicator
+    const [callEndedState, setCallEndedState] = useState<CallEndedState>('cleared');
+    const callEndedTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
     const isSimulatingRef = useRef(false);
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectAttemptsRef = useRef(0);
@@ -211,6 +220,11 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
     const isLive = liveCallData !== null;
 
     const clearCall = () => {
+        // Cancel any pending auto-clear timeout
+        if (callEndedTimeoutRef.current) {
+            clearTimeout(callEndedTimeoutRef.current);
+            callEndedTimeoutRef.current = null;
+        }
         setLiveCallData(null);
         setActiveCallSid(null);
         setInterimTranscript("");
@@ -228,7 +242,18 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
         setDetectedJobs([]);
         setRouteRecommendation(null);
         setExtractedCustomerInfo(DEFAULT_EXTRACTED_CUSTOMER_INFO);
+        setCallEndedState('cleared');
     };
+
+    // Keep call open - cancel auto-clear timeout
+    const keepCallOpen = useCallback(() => {
+        if (callEndedTimeoutRef.current) {
+            clearTimeout(callEndedTimeoutRef.current);
+            callEndedTimeoutRef.current = null;
+        }
+        // Stay in ended_reviewing state but don't auto-clear
+        console.log('[LiveCall] Keep open requested - auto-clear cancelled');
+    }, []);
 
     // Journey actions
     const setCurrentStation = useCallback((stationId: string) => {
@@ -799,6 +824,12 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
 
                 if (msg.type === 'voice:call_started') {
                     console.log('[LiveCall] Call started:', callSid);
+                    // Cancel any pending auto-clear from previous call
+                    if (callEndedTimeoutRef.current) {
+                        clearTimeout(callEndedTimeoutRef.current);
+                        callEndedTimeoutRef.current = null;
+                    }
+                    setCallEndedState('active');
                     setActiveCallSid(callSid);
                     setInterimTranscript("");
                     setLiveCallData({
@@ -879,12 +910,22 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                     }
                 } else if (msg.type === 'voice:call_ended') {
                     console.log('[LiveCall] Call ended:', callSid);
-                    // Clear after a delay to show summary
-                    setTimeout(() => {
+                    // Set state to show "reviewing summary" indicator
+                    setCallEndedState('ended_reviewing');
+
+                    // Clear any existing timeout
+                    if (callEndedTimeoutRef.current) {
+                        clearTimeout(callEndedTimeoutRef.current);
+                    }
+
+                    // Clear after 15 seconds to allow VA to review summary and take actions
+                    callEndedTimeoutRef.current = setTimeout(() => {
                         setLiveCallData(null);
                         setActiveCallSid(null);
                         setInterimTranscript("");
-                    }, 5000);
+                        setCallEndedState('cleared');
+                        callEndedTimeoutRef.current = null;
+                    }, 15000);
                     queryClient.invalidateQueries({ queryKey: ['calls'] });
                 } else if (msg.type === 'call:created' || msg.type === 'call:updated' || msg.type === 'call:skus_detected') {
                     queryClient.invalidateQueries({ queryKey: ['calls'] });
@@ -977,6 +1018,9 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
             if (reconnectTimeoutRef.current) {
                 clearTimeout(reconnectTimeoutRef.current);
             }
+            if (callEndedTimeoutRef.current) {
+                clearTimeout(callEndedTimeoutRef.current);
+            }
             if (wsRef.current) {
                 wsRef.current.close(1000, 'Component unmounting'); // Clean close
             }
@@ -991,9 +1035,11 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
             interimTranscript,
             isSimulating,
             connectionState,
+            callEndedState,
             startSimulation,
             startCallScriptSimulation,
             clearCall,
+            keepCallOpen,
             updateMetadata,
             detectedPostcode,
             duplicateWarning,
