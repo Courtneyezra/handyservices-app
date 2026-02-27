@@ -4,12 +4,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Search, LayoutGrid, List as ListIcon, FileText } from 'lucide-react';
+import { Loader2, Search, LayoutGrid, List as ListIcon, FileText, CreditCard, Clock, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import { QuoteCard } from './components/QuoteCard';
 import { QuotesList } from './components/QuotesList';
 import { RegenerateQuoteDialog } from './components/RegenerateQuoteDialog';
+import { EditQuoteDialog } from './components/EditQuoteDialog';
 
 // Define Interface locally or import if centralized. 
 export interface PersonalizedQuote {
@@ -44,15 +46,22 @@ export interface PersonalizedQuote {
     visitTierMode?: 'tiers' | 'fixed' | null;
 }
 
+type FilterMode = 'all' | 'booked' | 'pending';
+
 export default function QuotesPage() {
     const { toast } = useToast();
     const queryClient = useQueryClient();
     const [searchQuery, setSearchQuery] = useState('');
     const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
+    const [filterMode, setFilterMode] = useState<FilterMode>('all');
 
     // Dialog State
     const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false);
     const [selectedQuoteForRegen, setSelectedQuoteForRegen] = useState<PersonalizedQuote | null>(null);
+
+    // Edit Dialog State
+    const [editDialogOpen, setEditDialogOpen] = useState(false);
+    const [selectedQuoteForEdit, setSelectedQuoteForEdit] = useState<PersonalizedQuote | null>(null);
 
     // Fetch personalized quotes
     const { data: quotes = [], isLoading: isLoadingQuotes, refetch: refetchQuotes } = useQuery<PersonalizedQuote[]>({
@@ -64,7 +73,7 @@ export default function QuotesPage() {
         },
     });
 
-    // Filter logic 
+    // Filter logic
     const filteredQuotes = quotes.filter(q =>
         q.customerName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         q.phone?.includes(searchQuery) ||
@@ -73,6 +82,17 @@ export default function QuotesPage() {
 
     // ONLY Generated Quotes (exclude visits)
     const generatedQuotes = filteredQuotes.filter(q => q.quoteMode !== 'consultation');
+
+    // Apply status filter
+    const displayQuotes = generatedQuotes.filter(q => {
+        if (filterMode === 'booked') return !!q.depositPaidAt || !!q.bookedAt;
+        if (filterMode === 'pending') return !q.depositPaidAt && !q.bookedAt;
+        return true; // 'all'
+    });
+
+    // Count stats
+    const bookedCount = generatedQuotes.filter(q => !!q.depositPaidAt || !!q.bookedAt).length;
+    const pendingCount = generatedQuotes.filter(q => !q.depositPaidAt && !q.bookedAt).length;
 
     const handleDelete = async (id: string) => {
         try {
@@ -88,6 +108,16 @@ export default function QuotesPage() {
     const handleOpenRegenerate = (quote: PersonalizedQuote) => {
         setSelectedQuoteForRegen(quote);
         setRegenerateDialogOpen(true);
+    };
+
+    const handleOpenEdit = (quote: PersonalizedQuote) => {
+        setSelectedQuoteForEdit(quote);
+        setEditDialogOpen(true);
+    };
+
+    const handleEditSaved = () => {
+        queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
+        refetchQuotes();
     };
 
     const confirmRegenerate = async (percentageIncrease: number) => {
@@ -150,6 +180,27 @@ export default function QuotesPage() {
                 </div>
             </div>
 
+            {/* Filter Tabs */}
+            <Tabs value={filterMode} onValueChange={(v) => setFilterMode(v as FilterMode)} className="w-full">
+                <TabsList className="grid w-full max-w-md grid-cols-3">
+                    <TabsTrigger value="all" className="flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        All
+                        <Badge variant="secondary" className="ml-1 text-xs">{generatedQuotes.length}</Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="booked" className="flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        Booked
+                        <Badge className="ml-1 text-xs bg-green-600">{bookedCount}</Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="pending" className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-amber-600" />
+                        Pending
+                        <Badge variant="outline" className="ml-1 text-xs">{pendingCount}</Badge>
+                    </TabsTrigger>
+                </TabsList>
+            </Tabs>
+
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
                 {/* Search */}
                 <div className="relative flex-1 max-w-md w-full">
@@ -168,12 +219,18 @@ export default function QuotesPage() {
 
             <div className="space-y-4">
                 <div className="flex items-center gap-2">
-                    <FileText className="h-5 w-5 text-emerald-500" />
+                    {filterMode === 'booked' ? (
+                        <CheckCircle className="h-5 w-5 text-green-500" />
+                    ) : filterMode === 'pending' ? (
+                        <Clock className="h-5 w-5 text-amber-500" />
+                    ) : (
+                        <FileText className="h-5 w-5 text-emerald-500" />
+                    )}
                     <h3 className="text-lg font-bold text-foreground">
-                        Recent Quotes
+                        {filterMode === 'booked' ? 'Booked Jobs' : filterMode === 'pending' ? 'Pending Quotes' : 'All Quotes'}
                     </h3>
-                    <Badge variant="secondary" className="bg-emerald-900/10 text-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-300 ml-2">
-                        {generatedQuotes.length}
+                    <Badge variant="secondary" className={`ml-2 ${filterMode === 'booked' ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' : 'bg-emerald-900/10 text-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-300'}`}>
+                        {displayQuotes.length}
                     </Badge>
                 </div>
 
@@ -183,26 +240,31 @@ export default function QuotesPage() {
                     </div>
                 ) : (
                     <>
-                        {generatedQuotes.length === 0 ? (
+                        {displayQuotes.length === 0 ? (
                             <Card className="bg-muted/50 border-dashed">
                                 <CardContent className="py-12 text-center text-muted-foreground">
-                                    {searchQuery ? 'No quotes found matching your search.' : 'No quotes sent yet.'}
+                                    {searchQuery ? 'No quotes found matching your search.' :
+                                     filterMode === 'booked' ? 'No booked jobs yet.' :
+                                     filterMode === 'pending' ? 'No pending quotes.' :
+                                     'No quotes sent yet.'}
                                 </CardContent>
                             </Card>
                         ) : viewMode === 'list' ? (
                             <QuotesList
-                                quotes={generatedQuotes as any}
+                                quotes={displayQuotes as any}
                                 onDelete={handleDelete}
                                 onRegenerate={handleOpenRegenerate as any}
+                                onEdit={handleOpenEdit as any}
                             />
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {generatedQuotes.map((quote) => (
+                                {displayQuotes.map((quote) => (
                                     <QuoteCard
                                         key={quote.id}
                                         quote={quote as any}
                                         onDelete={handleDelete}
                                         onRegenerate={handleOpenRegenerate as any}
+                                        onEdit={handleOpenEdit as any}
                                     />
                                 ))}
                             </div>
@@ -217,6 +279,18 @@ export default function QuotesPage() {
                 onConfirm={confirmRegenerate}
                 quoteCustomerName={selectedQuoteForRegen?.customerName || ''}
             />
+
+            {selectedQuoteForEdit && (
+                <EditQuoteDialog
+                    quote={selectedQuoteForEdit}
+                    open={editDialogOpen}
+                    onClose={() => {
+                        setEditDialogOpen(false);
+                        setSelectedQuoteForEdit(null);
+                    }}
+                    onSaved={handleEditSaved}
+                />
+            )}
         </div>
     );
 }
