@@ -6,6 +6,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
+// Interface for detected jobs (if lead has associated call data)
+interface DetectedJob {
+    id: string;
+    description: string;
+    matched: boolean;
+    quantity?: number;
+    sku?: {
+        id: string;
+        name: string;
+        pricePence: number;
+        category?: string;
+    };
+    trafficLight?: 'green' | 'amber' | 'red';
+}
+
 interface Lead {
     id: string;
     customerName: string;
@@ -17,6 +32,8 @@ interface Lead {
     source: string;
     status: string;
     createdAt: string;
+    // Optional: Jobs from associated call (if available)
+    detectedJobs?: DetectedJob[];
 }
 
 // Helper to build Generate Quote URL with pre-filled params
@@ -28,6 +45,10 @@ function buildGenerateQuoteUrl(lead: Lead): string {
     if (lead.postcode) params.set('postcode', lead.postcode);
     if (lead.address) params.set('address', lead.address);
     if (lead.jobDescription) params.set('description', lead.jobDescription);
+    // Pass detected jobs if available (from associated call)
+    if (lead.detectedJobs && lead.detectedJobs.length > 0) {
+        params.set('jobs', JSON.stringify(lead.detectedJobs));
+    }
     return `/admin/generate-quote?${params.toString()}`;
 }
 

@@ -9,6 +9,43 @@ import { QuoteBuilder } from '@/components/quote/QuoteBuilder';
 import type { TaskItem, Segment, AnalyzedJobData } from '@/types/quote-builder';
 import { poundsToPence } from '@/lib/quote-price-calculator';
 
+// Interface for detected jobs passed from CallReviewPage
+interface DetectedJob {
+  id: string;
+  description: string;
+  matched: boolean;
+  quantity?: number;
+  sku?: {
+    id: string;
+    name: string;
+    pricePence: number;
+    category?: string;
+  };
+  trafficLight?: 'green' | 'amber' | 'red';
+}
+
+// Convert detected jobs to TaskItem format for QuoteBuilder
+function convertJobsToTasks(jobs: DetectedJob[]): TaskItem[] {
+  return jobs.map((job, index) => ({
+    id: job.id || `job-${index}`,
+    description: job.sku?.name || job.description,
+    quantity: job.quantity || 1,
+    hours: job.sku ? Math.max(0.5, (job.sku.pricePence / 100) / 45) : 1, // Estimate hours from price (approx £45/hr)
+    materialCost: 0,
+    complexity: job.trafficLight === 'red' ? 'high' : job.trafficLight === 'amber' ? 'medium' : 'low',
+  }));
+}
+
+// Calculate base price from detected jobs
+function calculateBasePriceFromJobs(jobs: DetectedJob[]): number {
+  return jobs.reduce((total, job) => {
+    if (job.matched && job.sku) {
+      return total + (job.sku.pricePence / 100) * (job.quantity || 1);
+    }
+    return total;
+  }, 0);
+}
+
 // Valid segments for type checking (matches Segment type)
 const VALID_SEGMENTS: Segment[] = ['EMERGENCY', 'BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER'];
 
@@ -23,14 +60,51 @@ export default function GenerateQuoteLinkSimple() {
       ? (segmentParam as Segment)
       : undefined;
 
+    // Parse jobs from URL params (passed from CallReviewPage)
+    let detectedJobs: DetectedJob[] = [];
+    const jobsParam = params.get('jobs');
+    if (jobsParam) {
+      try {
+        detectedJobs = JSON.parse(jobsParam);
+      } catch (e) {
+        console.error('[GenerateQuoteLinkSimple] Failed to parse jobs from URL:', e);
+      }
+    }
+
+    // Convert detected jobs to tasks and calculate price
+    const tasks = detectedJobs.length > 0 ? convertJobsToTasks(detectedJobs) : undefined;
+    const basePrice = detectedJobs.length > 0 ? calculateBasePriceFromJobs(detectedJobs) : 0;
+
+    // Build job description from detected jobs if not provided
+    let jobDescription = params.get('description') || params.get('jobDescription') || undefined;
+    if (!jobDescription && detectedJobs.length > 0) {
+      jobDescription = detectedJobs
+        .map(job => {
+          const qty = job.quantity && job.quantity > 1 ? `${job.quantity}x ` : '';
+          return qty + (job.sku?.name || job.description);
+        })
+        .join(', ');
+    }
+
+    // Create analyzedJob data if we have detected jobs
+    const analyzedJob = tasks && tasks.length > 0 ? {
+      summary: `${detectedJobs.length} job${detectedJobs.length > 1 ? 's' : ''} detected from call`,
+      tasks,
+      totalHours: tasks.reduce((sum, t) => sum + t.hours * t.quantity, 0),
+      basePricePounds: basePrice,
+    } : undefined;
+
     return {
       customerName: params.get('name') || params.get('customerName') || undefined,
       phone: params.get('phone') || undefined,
       email: params.get('email') || undefined,
       address: params.get('address') || undefined,
       postcode: params.get('postcode') || undefined,
-      jobDescription: params.get('description') || params.get('jobDescription') || undefined,
+      jobDescription,
       segment,
+      tasks,
+      analyzedJob,
+      priceOverride: basePrice > 0 ? String(Math.round(basePrice)) : undefined,
     };
   }, []);
 

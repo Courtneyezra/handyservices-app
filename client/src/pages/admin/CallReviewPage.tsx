@@ -156,7 +156,7 @@ function extractPostcode(address: string): string | undefined {
   return postcodeMatch ? postcodeMatch[0].toUpperCase() : undefined;
 }
 
-// Build Generate Quote URL with pre-filled customer info
+// Build Generate Quote URL with pre-filled customer info and detected jobs
 function buildGenerateQuoteUrl(options: {
   customerName?: string;
   phone?: string;
@@ -164,6 +164,7 @@ function buildGenerateQuoteUrl(options: {
   postcode?: string;
   jobSummary?: string;
   segment?: string;
+  jobs?: DetectedJob[];
 }): string {
   const params = new URLSearchParams();
   if (options.customerName) params.set('name', options.customerName);
@@ -172,6 +173,9 @@ function buildGenerateQuoteUrl(options: {
   if (options.postcode) params.set('postcode', options.postcode);
   if (options.jobSummary) params.set('description', options.jobSummary);
   if (options.segment) params.set('segment', options.segment);
+  if (options.jobs && options.jobs.length > 0) {
+    params.set('jobs', JSON.stringify(options.jobs));
+  }
   return `/admin/generate-quote?${params.toString()}`;
 }
 
@@ -915,6 +919,7 @@ export default function CallReviewPage() {
                 postcode: postcode || undefined,
                 jobSummary: call.jobSummary || undefined,
                 segment: selectedSegment || undefined,
+                jobs: detectedJobs,  // Pass detected jobs to quote builder
               });
               setLocation(url);
             }}
