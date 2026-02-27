@@ -71,6 +71,9 @@ interface CallSKU {
     category?: string;
     pricePence: number;
   } | null;
+  // Fields from detectedSkusJson fallback
+  trafficLight?: 'green' | 'amber' | 'red';
+  jobDescription?: string;
 }
 
 interface CallData {
@@ -293,7 +296,8 @@ export default function CallReviewPage() {
 
     return call.allSkus.map((skuEntry) => ({
       id: skuEntry.id,
-      description: skuEntry.sku?.name || 'Unknown job',
+      // Use jobDescription for unmatched jobs, or SKU name for matched ones
+      description: skuEntry.sku?.name || skuEntry.jobDescription || 'Unknown job',
       matched: !!skuEntry.sku,
       quantity: skuEntry.quantity || 1,
       sku: skuEntry.sku ? {
@@ -303,7 +307,8 @@ export default function CallReviewPage() {
         category: skuEntry.sku.category,
       } : undefined,
       confidence: skuEntry.confidence,
-      trafficLight: skuEntry.sku ? 'green' : 'amber',
+      // Use backend trafficLight if available, otherwise derive from SKU presence
+      trafficLight: skuEntry.trafficLight || (skuEntry.sku ? 'green' : 'amber'),
     }));
   }, [call]);
 
@@ -753,7 +758,7 @@ export default function CallReviewPage() {
               const config = ACTION_CONFIG[action];
               const Icon = config.icon;
 
-              // Determine AI recommended action
+              // Determine AI recommended action for pulsing border
               let aiRecommendedAction: 'quote' | 'video' | 'visit' | null = null;
               if (hasRed) {
                 aiRecommendedAction = 'visit';
@@ -769,39 +774,46 @@ export default function CallReviewPage() {
               const stateMap = { quote: quoteState, video: videoState, visit: visitState };
               const state = stateMap[action];
 
-              // Button enable/disable logic
-              let isDisabled = state === 'pending';
-              let disabledReason = '';
+              // Buttons are ALWAYS clickable - AI only recommends, user decides
+              // Only disable during pending state (action in progress)
+              const isDisabled = state === 'pending';
+              let tooltipText = ''; // Informational tooltip (not blocking)
 
               if (action === 'quote') {
-                const canQuote = detectedJobs.length > 0 && allGreen;
-                isDisabled = isDisabled || !canQuote;
                 if (hasRed) {
-                  disabledReason = 'Site visit required';
+                  tooltipText = 'AI suggests site visit for complex job';
                 } else if (hasAmber) {
-                  disabledReason = 'Video needed first';
+                  tooltipText = 'AI suggests video for unpriced jobs';
                 } else if (detectedJobs.length === 0) {
-                  disabledReason = 'No jobs detected';
+                  tooltipText = 'No jobs detected yet';
+                } else if (allGreen) {
+                  tooltipText = 'All jobs priced - ready to quote';
+                } else {
+                  tooltipText = 'Send instant quote to customer';
                 }
               } else if (action === 'video') {
-                const canVideo = hasAmber && !hasRed;
-                isDisabled = isDisabled || !canVideo;
                 if (hasRed) {
-                  disabledReason = 'Site visit required';
-                } else if (allGreen) {
-                  disabledReason = 'All jobs priced';
+                  tooltipText = 'AI suggests site visit for complex job';
+                } else if (allGreen && detectedJobs.length > 0) {
+                  tooltipText = 'All jobs already have instant pricing';
+                } else if (hasAmber) {
+                  tooltipText = `AI recommends video for ${amberJobs.length} job${amberJobs.length > 1 ? 's' : ''}`;
                 } else if (detectedJobs.length === 0) {
-                  disabledReason = 'No jobs detected';
+                  tooltipText = 'No jobs detected yet';
+                } else {
+                  tooltipText = 'Request video assessment from customer';
                 }
               } else if (action === 'visit') {
-                const canVisit = hasRed || (detectedJobs.length > 0 && !allGreen && !hasAmber);
-                isDisabled = isDisabled || !canVisit;
-                if (allGreen) {
-                  disabledReason = 'All jobs priced';
-                } else if (hasAmber && !hasRed) {
-                  disabledReason = 'Try video first';
+                if (hasRed) {
+                  tooltipText = `AI recommends visit for ${redJobs.length} specialist job${redJobs.length > 1 ? 's' : ''}`;
+                } else if (hasAmber) {
+                  tooltipText = 'AI suggests video first';
+                } else if (allGreen && detectedJobs.length > 0) {
+                  tooltipText = 'All jobs already have instant pricing';
                 } else if (detectedJobs.length === 0) {
-                  disabledReason = 'No jobs detected';
+                  tooltipText = 'No jobs detected yet';
+                } else {
+                  tooltipText = 'Book on-site assessment visit';
                 }
               }
 
@@ -811,11 +823,14 @@ export default function CallReviewPage() {
               const isPending = state === 'pending';
 
               // Get background color based on state
+              // Non-recommended buttons get a subtle dim color, but are still clickable
               const getBgColor = () => {
-                if (isDisabled && !isPending) return '#1a1a1a';
-                if (isSuccess) return '#16A34A';
-                if (isError) return '#DC2626';
-                return config.color;
+                if (isPending) return config.color;
+                if (isSuccess) return '#16A34A'; // Green
+                if (isError) return '#DC2626'; // Red
+                // AI recommended action gets full color, others get dimmed but still visible
+                if (isAiPick) return config.color;
+                return 'rgba(255,255,255,0.1)'; // Subtle dim for non-recommended (still clickable)
               };
 
               return (
@@ -823,19 +838,21 @@ export default function CallReviewPage() {
                   <motion.button
                     onClick={() => handleAction(action)}
                     disabled={isDisabled}
+                    title={tooltipText}
                     whileTap={{ scale: isDisabled ? 1 : 0.95 }}
                     className={cn(
                       'relative w-full flex flex-col items-center justify-center gap-1',
                       'py-3 rounded-xl font-semibold text-xs transition-all',
-                      isDisabled && !isPending && 'opacity-30 cursor-not-allowed'
+                      // Only show pending state styling, not disabled styling
+                      isPending && 'opacity-70'
                     )}
                     style={{
                       backgroundColor: getBgColor(),
-                      color: 'white',
+                      color: isAiPick || isPending || isSuccess || isError ? 'white' : 'rgba(255,255,255,0.7)',
                     }}
                   >
-                    {/* AI Pick pulsing border */}
-                    {isAiPick && !isDisabled && !isPending && !isSuccess && !isError && (
+                    {/* AI Pick pulsing border - visual recommendation highlight */}
+                    {isAiPick && !isPending && !isSuccess && !isError && (
                       <motion.div
                         className="absolute inset-0 rounded-xl pointer-events-none"
                         style={{ border: `2px solid ${config.color}` }}
@@ -856,9 +873,10 @@ export default function CallReviewPage() {
                       {isPending ? 'SENDING...' : isSuccess ? 'SENT!' : isError ? 'FAILED' : config.label}
                     </span>
                   </motion.button>
-                  {isDisabled && disabledReason && !isPending && (
-                    <span className="text-[10px] text-white/40 text-center leading-tight">
-                      {disabledReason}
+                  {/* Show "Recommended" badge for AI pick */}
+                  {isAiPick && !isPending && !isSuccess && !isError && (
+                    <span className="text-[10px] text-white/60 text-center leading-tight font-medium" style={{ color: config.color }}>
+                      Recommended
                     </span>
                   )}
                 </div>
