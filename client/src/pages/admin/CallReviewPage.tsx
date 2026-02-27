@@ -41,6 +41,7 @@ import {
   Wallet,
   Play,
   Pause,
+  PenLine,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
@@ -153,6 +154,25 @@ function formatDuration(seconds: number): string {
 function extractPostcode(address: string): string | undefined {
   const postcodeMatch = address.match(/[A-Z]{1,2}[0-9][0-9A-Z]?\s?[0-9][A-Z]{2}/i);
   return postcodeMatch ? postcodeMatch[0].toUpperCase() : undefined;
+}
+
+// Build Generate Quote URL with pre-filled customer info
+function buildGenerateQuoteUrl(options: {
+  customerName?: string;
+  phone?: string;
+  address?: string;
+  postcode?: string;
+  jobSummary?: string;
+  segment?: string;
+}): string {
+  const params = new URLSearchParams();
+  if (options.customerName) params.set('name', options.customerName);
+  if (options.phone) params.set('phone', options.phone);
+  if (options.address) params.set('address', options.address);
+  if (options.postcode) params.set('postcode', options.postcode);
+  if (options.jobSummary) params.set('description', options.jobSummary);
+  if (options.segment) params.set('segment', options.segment);
+  return `/admin/generate-quote?${params.toString()}`;
 }
 
 // Detect segment from lead type and other signals
@@ -883,6 +903,26 @@ export default function CallReviewPage() {
               );
             })}
           </div>
+
+          {/* GENERATE QUOTE LINK - Opens Quote Builder with pre-filled data */}
+          <button
+            onClick={() => {
+              const postcode = call.postcode || extractPostcode(customerInfo.address);
+              const url = buildGenerateQuoteUrl({
+                customerName: customerInfo.name || call.customerName || undefined,
+                phone: getWhatsAppNumber() || call.phoneNumber || undefined,
+                address: customerInfo.address || call.address || undefined,
+                postcode: postcode || undefined,
+                jobSummary: call.jobSummary || undefined,
+                segment: selectedSegment || undefined,
+              });
+              setLocation(url);
+            }}
+            className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors"
+          >
+            <PenLine className="w-4 h-4" />
+            Generate Quote Link
+          </button>
         </div>
       </div>
 

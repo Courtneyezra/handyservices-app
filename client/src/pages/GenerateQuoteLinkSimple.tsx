@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -9,8 +9,30 @@ import { QuoteBuilder } from '@/components/quote/QuoteBuilder';
 import type { TaskItem, Segment, AnalyzedJobData } from '@/types/quote-builder';
 import { poundsToPence } from '@/lib/quote-price-calculator';
 
+// Valid segments for type checking (matches Segment type)
+const VALID_SEGMENTS: Segment[] = ['EMERGENCY', 'BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER'];
+
 export default function GenerateQuoteLinkSimple() {
   const { toast } = useToast();
+
+  // Parse URL params for pre-filling (from Leads/Calls pages)
+  const initialData = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const segmentParam = params.get('segment');
+    const segment = segmentParam && VALID_SEGMENTS.includes(segmentParam as Segment)
+      ? (segmentParam as Segment)
+      : undefined;
+
+    return {
+      customerName: params.get('name') || params.get('customerName') || undefined,
+      phone: params.get('phone') || undefined,
+      email: params.get('email') || undefined,
+      address: params.get('address') || undefined,
+      postcode: params.get('postcode') || undefined,
+      jobDescription: params.get('description') || params.get('jobDescription') || undefined,
+      segment,
+    };
+  }, []);
 
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false);
@@ -193,6 +215,7 @@ export default function GenerateQuoteLinkSimple() {
         {!generatedUrl && (
           <QuoteBuilder
             mode="create"
+            initialData={initialData}
             onSubmit={handleSubmit}
             isSubmitting={isGenerating}
             submitLabel="Generate Quote Link"

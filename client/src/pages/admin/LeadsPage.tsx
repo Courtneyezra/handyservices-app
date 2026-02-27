@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { format } from "date-fns";
-import { Loader2, Phone, Mail, MessageSquare } from "lucide-react";
+import { Loader2, Phone, Mail, MessageSquare, FileText } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,12 +12,27 @@ interface Lead {
     phone: string;
     email: string | null;
     jobDescription: string;
+    postcode?: string | null;
+    address?: string | null;
     source: string;
     status: string;
     createdAt: string;
 }
 
+// Helper to build Generate Quote URL with pre-filled params
+function buildGenerateQuoteUrl(lead: Lead): string {
+    const params = new URLSearchParams();
+    if (lead.customerName) params.set('name', lead.customerName);
+    if (lead.phone) params.set('phone', lead.phone);
+    if (lead.email) params.set('email', lead.email);
+    if (lead.postcode) params.set('postcode', lead.postcode);
+    if (lead.address) params.set('address', lead.address);
+    if (lead.jobDescription) params.set('description', lead.jobDescription);
+    return `/admin/generate-quote?${params.toString()}`;
+}
+
 export default function LeadsPage() {
+    const [, setLocation] = useLocation();
     const { data: leads, isLoading } = useQuery<Lead[]>({
         queryKey: ["admin-leads"],
         queryFn: async () => {
@@ -103,12 +119,22 @@ export default function LeadsPage() {
                                                 {format(new Date(lead.createdAt), "MMM d, h:mm a")}
                                             </td>
                                             <td className="p-4 text-right">
-                                                <Button size="sm" variant="ghost" asChild>
-                                                    <a href={`tel:${lead.phone}`}>
-                                                        <Phone className="h-4 w-4 mr-2" />
-                                                        Call
-                                                    </a>
-                                                </Button>
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="default"
+                                                        onClick={() => setLocation(buildGenerateQuoteUrl(lead))}
+                                                    >
+                                                        <FileText className="h-4 w-4 mr-2" />
+                                                        Quote
+                                                    </Button>
+                                                    <Button size="sm" variant="ghost" asChild>
+                                                        <a href={`tel:${lead.phone}`}>
+                                                            <Phone className="h-4 w-4 mr-2" />
+                                                            Call
+                                                        </a>
+                                                    </Button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
