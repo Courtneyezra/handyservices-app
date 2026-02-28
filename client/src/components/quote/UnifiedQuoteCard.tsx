@@ -19,6 +19,7 @@ import {
   type TimeSlotOption,
   type AddOnOption,
 } from './SchedulingConfig';
+import { useAvailability, formatDateStr } from '@/hooks/useAvailability';
 
 interface UnifiedQuoteCardProps {
   segment: string;
@@ -80,12 +81,34 @@ export function UnifiedQuoteCard({
   const addOnsSectionRef = useRef<HTMLDivElement>(null);
   const bookSectionRef = useRef<HTMLDivElement>(null);
 
-  // Generate available dates
+  // Fetch system-wide availability (blocked dates, etc.)
+  const { data: availabilityData } = useAvailability({
+    days: config.maxDaysOut + 1,
+  });
+
+  // Build set of unavailable dates for quick lookup
+  const unavailableDates = useMemo(() => {
+    const set = new Set<string>();
+    if (availabilityData?.dates) {
+      for (const d of availabilityData.dates) {
+        if (!d.isAvailable) {
+          set.add(d.date);
+        }
+      }
+    }
+    return set;
+  }, [availabilityData]);
+
+  // Generate available dates (filtering out blocked/unavailable)
   const availableDates = useMemo(() => {
     const dates: { date: Date; label: string; isWeekend: boolean; isNextDay: boolean; fee: number }[] = [];
     for (let i = BASE_SCHEDULING_RULES.minDaysOut; i <= config.maxDaysOut; i++) {
       const date = addDays(new Date(), i);
       if (BASE_SCHEDULING_RULES.sundaysClosed && date.getDay() === 0) continue; // Skip Sundays
+
+      // Skip blocked/unavailable dates
+      const dateStr = formatDateStr(date);
+      if (unavailableDates.has(dateStr)) continue;
 
       const isSaturday = date.getDay() === 6;
       const isNextDay = i === 1; // Tomorrow
@@ -104,7 +127,7 @@ export function UnifiedQuoteCard({
       });
     }
     return dates;
-  }, [config]);
+  }, [config, unavailableDates]);
 
   const visibleDates = showAllDates ? availableDates : availableDates.slice(0, 8);
 

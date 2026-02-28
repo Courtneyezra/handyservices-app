@@ -26,6 +26,11 @@ interface MasterBlockedDate {
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+function getAuthHeaders(): Record<string, string> {
+    const token = localStorage.getItem('adminToken');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export default function MasterAvailabilityPage() {
     const { toast } = useToast();
     const queryClient = useQueryClient();
@@ -50,7 +55,9 @@ export default function MasterAvailabilityPage() {
     const { data: masterPatterns, isLoading: patternsLoading } = useQuery<MasterAvailability[]>({
         queryKey: ["masterAvailability"],
         queryFn: async () => {
-            const res = await fetch("/api/admin/availability/master");
+            const res = await fetch("/api/admin/availability/master", {
+                headers: getAuthHeaders(),
+            });
             if (!res.ok) throw new Error("Failed to fetch master availability");
             return res.json();
         },
@@ -75,7 +82,9 @@ export default function MasterAvailabilityPage() {
     const { data: blockedDates, isLoading: blockedLoading } = useQuery<MasterBlockedDate[]>({
         queryKey: ["masterBlockedDates"],
         queryFn: async () => {
-            const res = await fetch("/api/admin/availability/blocked-dates");
+            const res = await fetch("/api/admin/availability/blocked-dates", {
+                headers: getAuthHeaders(),
+            });
             if (!res.ok) throw new Error("Failed to fetch blocked dates");
             return res.json();
         },
@@ -86,7 +95,7 @@ export default function MasterAvailabilityPage() {
         mutationFn: async (patterns: typeof weeklyPatterns) => {
             const res = await fetch("/api/admin/availability/master", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", ...getAuthHeaders() },
                 body: JSON.stringify({ patterns }),
             });
             if (!res.ok) throw new Error("Failed to save patterns");
@@ -113,7 +122,7 @@ export default function MasterAvailabilityPage() {
         mutationFn: async ({ date, reason }: { date: string; reason: string }) => {
             const res = await fetch("/api/admin/availability/blocked-dates", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", ...getAuthHeaders() },
                 body: JSON.stringify({ date, reason }),
             });
             if (!res.ok) throw new Error("Failed to add blocked date");
@@ -142,6 +151,7 @@ export default function MasterAvailabilityPage() {
         mutationFn: async (id: number) => {
             const res = await fetch(`/api/admin/availability/blocked-dates/${id}`, {
                 method: "DELETE",
+                headers: getAuthHeaders(),
             });
             if (!res.ok) throw new Error("Failed to delete blocked date");
             return res.json();
@@ -167,7 +177,7 @@ export default function MasterAvailabilityPage() {
         mutationFn: async (date: string) => {
             const res = await fetch("/api/admin/availability/blocked-dates/toggle", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", ...getAuthHeaders() },
                 body: JSON.stringify({ date }),
             });
             if (!res.ok) throw new Error("Failed to toggle blocked date");
