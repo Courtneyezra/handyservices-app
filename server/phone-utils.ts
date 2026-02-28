@@ -15,19 +15,22 @@ export function normalizePhoneNumber(phone: string | null | undefined): string |
     // Remove all non-digit characters except leading +
     let cleaned = phone.replace(/[^\d+]/g, '');
 
-    // Handle UK-specific formats
-    if (cleaned.startsWith('+44')) {
-        // Already in international format, just clean it
+    // Handle international numbers (already have + prefix)
+    if (cleaned.startsWith('+')) {
+        // Already in international format, return as-is
         return cleaned;
-    } else if (cleaned.startsWith('44')) {
+    }
+
+    // Handle UK-specific formats
+    if (cleaned.startsWith('44')) {
         // Missing the + prefix
         return '+' + cleaned;
     } else if (cleaned.startsWith('0')) {
         // UK national format (e.g., 020 1234 5678 or 07700 900123)
         // Remove leading 0 and add +44
         return '+44' + cleaned.substring(1);
-    } else if (cleaned.length >= 10) {
-        // Assume it's a UK number without country code
+    } else if (cleaned.length >= 10 && cleaned.length <= 11) {
+        // Assume it's a UK number without country code (10-11 digits)
         return '+44' + cleaned;
     }
 
