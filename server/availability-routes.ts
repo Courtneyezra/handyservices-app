@@ -509,6 +509,52 @@ adminAvailabilityRouter.post('/blocked-dates', async (req: Request, res: Respons
     }
 });
 
+// POST /api/admin/availability/blocked-dates/toggle
+// Toggle a date's blocked status (block if unblocked, unblock if blocked)
+adminAvailabilityRouter.post('/blocked-dates/toggle', async (req: Request, res: Response) => {
+    try {
+        const { date } = req.body;
+
+        if (!date) {
+            return res.status(400).json({ error: 'date required (YYYY-MM-DD)' });
+        }
+
+        // Check if date is already blocked
+        const existing = await db.select()
+            .from(masterBlockedDates)
+            .where(eq(masterBlockedDates.date, date))
+            .limit(1);
+
+        if (existing.length > 0) {
+            // Date is blocked -> unblock it (delete)
+            await db.delete(masterBlockedDates)
+                .where(eq(masterBlockedDates.id, existing[0].id));
+
+            return res.json({
+                action: 'unblocked',
+                date,
+            });
+        } else {
+            // Date is not blocked -> block it (insert)
+            const [inserted] = await db.insert(masterBlockedDates)
+                .values({
+                    date,
+                    reason: null,
+                })
+                .returning();
+
+            return res.json({
+                action: 'blocked',
+                date,
+                id: inserted.id,
+            });
+        }
+    } catch (error) {
+        console.error('Failed to toggle blocked date:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
 // DELETE /api/admin/availability/blocked-dates/:id
 // Remove a blocked date
 adminAvailabilityRouter.delete('/blocked-dates/:id', async (req: Request, res: Response) => {

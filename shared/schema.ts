@@ -1,4 +1,4 @@
-import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, serial, vector, date, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, uniqueIndex, serial, vector, date, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -471,7 +471,7 @@ export const masterBlockedDates = pgTable("master_blocked_dates", {
     reason: varchar("reason", { length: 255 }),
     createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
-    index("idx_master_blocked_dates_date").on(table.date),
+    uniqueIndex("idx_master_blocked_dates_date").on(table.date),
 ]);
 
 // Contractor Jobs - Job assignments to contractors

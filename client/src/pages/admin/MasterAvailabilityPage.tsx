@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
-import { Loader2, Plus, Trash2, Calendar, Clock, Save } from "lucide-react";
+import { format, getDaysInMonth, getDay, startOfMonth } from "date-fns";
+import { Loader2, Plus, Trash2, Calendar, Clock, Save, ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +38,9 @@ export default function MasterAvailabilityPage() {
         isActive: boolean;
     }[]>([]);
     const [patternsInitialized, setPatternsInitialized] = useState(false);
+
+    // Calendar month navigation
+    const [calendarDate, setCalendarDate] = useState(new Date());
 
     // New blocked date form
     const [newBlockedDate, setNewBlockedDate] = useState('');
@@ -159,6 +162,60 @@ export default function MasterAvailabilityPage() {
         },
     });
 
+    // Toggle blocked date mutation (for calendar clicks)
+    const toggleBlockedDateMutation = useMutation({
+        mutationFn: async (date: string) => {
+            const res = await fetch("/api/admin/availability/blocked-dates/toggle", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ date }),
+            });
+            if (!res.ok) throw new Error("Failed to toggle blocked date");
+            return res.json();
+        },
+        onSuccess: (data: { action: string; date: string }) => {
+            queryClient.invalidateQueries({ queryKey: ["masterBlockedDates"] });
+            toast({
+                title: data.action === 'blocked' ? "Date Blocked" : "Date Unblocked",
+                description: `${data.date} has been ${data.action}.`,
+            });
+        },
+        onError: () => {
+            toast({
+                title: "Error",
+                description: "Failed to toggle blocked date.",
+                variant: "destructive",
+            });
+        },
+    });
+
+    // Calendar helpers
+    const currentYear = calendarDate.getFullYear();
+    const currentMonth = calendarDate.getMonth();
+    const daysInCurrentMonth = getDaysInMonth(calendarDate);
+    const firstDayOffset = getDay(startOfMonth(calendarDate));
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+
+    const blockedDateSet = new Set(
+        (blockedDates || []).map(bd => bd.date)
+    );
+
+    const getDateKey = (day: number) => {
+        return `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    };
+
+    const navigateMonth = (delta: number) => {
+        setCalendarDate(prev => {
+            const next = new Date(prev);
+            next.setMonth(next.getMonth() + delta);
+            return next;
+        });
+    };
+
+    const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'];
+    const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
     const updatePattern = (dayOfWeek: number, field: string, value: string | boolean) => {
         setWeeklyPatterns(prev => prev.map(p =>
             p.dayOfWeek === dayOfWeek ? { ...p, [field]: value } : p
@@ -260,7 +317,110 @@ export default function MasterAvailabilityPage() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    {/* Add new blocked date */}
+                    {/* Visual Month Calendar */}
+                    <div className="mb-2">
+                        {/* Month Navigation */}
+                        <div className="flex items-center justify-between mb-4">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => navigateMonth(-1)}
+                            >
+                                <ChevronLeft className="h-4 w-4" />
+                            </Button>
+                            <h3 className="text-lg font-semibold text-gray-800">
+                                {MONTH_NAMES[currentMonth]} {currentYear}
+                            </h3>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => navigateMonth(1)}
+                            >
+                                <ChevronRight className="h-4 w-4" />
+                            </Button>
+                        </div>
+
+                        {/* Day Headers */}
+                        <div className="grid grid-cols-7 gap-1 mb-2">
+                            {DAY_NAMES.map(day => (
+                                <div key={day} className="text-center text-xs font-medium text-gray-400 uppercase tracking-wider py-1">
+                                    {day}
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Calendar Grid */}
+                        <div className="grid grid-cols-7 gap-1">
+                            {/* Empty offset cells for first week alignment */}
+                            {Array.from({ length: firstDayOffset }).map((_, i) => (
+                                <div key={`empty-${i}`} className="aspect-square" />
+                            ))}
+
+                            {/* Day cells */}
+                            {Array.from({ length: daysInCurrentMonth }).map((_, i) => {
+                                const day = i + 1;
+                                const dateKey = getDateKey(day);
+                                const isBlocked = blockedDateSet.has(dateKey);
+                                const isCurrentDay = dateKey === todayStr;
+                                const blockedEntry = (blockedDates || []).find(bd => bd.date === dateKey);
+
+                                return (
+                                    <button
+                                        key={day}
+                                        onClick={() => toggleBlockedDateMutation.mutate(dateKey)}
+                                        disabled={toggleBlockedDateMutation.isPending}
+                                        title={isBlocked
+                                            ? `Blocked${blockedEntry?.reason ? `: ${blockedEntry.reason}` : ''} — click to unblock`
+                                            : `Click to block ${dateKey}`
+                                        }
+                                        className={`
+                                            aspect-square rounded-lg flex flex-col items-center justify-center
+                                            text-sm font-medium transition-all relative cursor-pointer
+                                            ${isBlocked
+                                                ? 'bg-red-100 border-2 border-red-300 text-red-700 hover:bg-red-200'
+                                                : 'bg-green-50 border border-gray-200 text-gray-700 hover:bg-gray-100'
+                                            }
+                                            ${isCurrentDay ? 'ring-2 ring-blue-400 ring-offset-1' : ''}
+                                        `}
+                                    >
+                                        <span className={isBlocked ? 'line-through' : ''}>
+                                            {day}
+                                        </span>
+                                        {isBlocked && (
+                                            <span className="text-[8px] text-red-500 font-bold uppercase mt-0.5">
+                                                Blocked
+                                            </span>
+                                        )}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {/* Legend */}
+                        <div className="mt-3 flex items-center gap-4 text-xs text-gray-500">
+                            <span className="flex items-center gap-1.5">
+                                <span className="w-3 h-3 rounded bg-green-50 border border-gray-200" />
+                                Available
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                                <span className="w-3 h-3 rounded bg-red-100 border-2 border-red-300" />
+                                Blocked
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                                <span className="w-3 h-3 rounded ring-2 ring-blue-400" />
+                                Today
+                            </span>
+                        </div>
+
+                        <p className="text-xs text-gray-400 mt-2">
+                            Click any date to toggle blocked/unblocked. Blocked dates show as "Fully Booked" on customer quotes.
+                        </p>
+                    </div>
+
+                    {/* Divider */}
+                    <div className="border-t border-gray-200" />
+
+                    {/* Add new blocked date with reason */}
                     <div className="flex items-end gap-3 p-4 bg-gray-50 rounded-lg">
                         <div className="flex-1">
                             <Label className="text-sm text-gray-500">Date</Label>
