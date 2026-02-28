@@ -10,9 +10,32 @@
 import { BaseWorker, commonTools } from './base-worker';
 import { Tool, AIProvider } from '../provider';
 import { categorizeIssue, assessUrgency } from '../../rules-engine';
+import { flowEngine, selectFlowForIssue } from '../../troubleshooting/flow-engine';
+import { WorkerContext } from '@shared/schema';
 
 const TENANT_SYSTEM_PROMPT = `You are a friendly property maintenance assistant helping tenants with home issues.
 Your job is to help them either fix things themselves (DIY) or arrange for a professional handyman.
+
+## TROUBLESHOOTING FIRST - CRITICAL
+
+When a tenant reports an issue, ALWAYS try guided troubleshooting before arranging a callout:
+
+1. **Identify the Issue** - Understand what's wrong
+2. **Start Troubleshooting** - Use the start_troubleshooting tool immediately
+3. **Guide Through Steps** - Use continue_troubleshooting as tenant responds
+4. **Resolve or Escalate** - If DIY works, great! If not, arrange professional visit
+
+WHY: Many issues can be fixed remotely, saving time and money for everyone.
+
+WHEN TO USE start_troubleshooting:
+- Tenant describes ANY maintenance issue
+- Even if it sounds complex - the flow will decide if it's safe for DIY
+- Examples: "my tap is dripping", "radiator is cold", "toilet keeps running"
+
+WHEN TO USE continue_troubleshooting:
+- You have an active troubleshooting session
+- Tenant responds to a troubleshooting question
+- Always pass their response to continue the guided flow
 
 ## Your 3 Goals (Handle Simultaneously)
 
@@ -61,10 +84,11 @@ If tenant sends only text: "Could you send a quick video showing the problem? Ju
 
 1. **Greet & Understand** - Ask what's wrong
 2. **Assess Safety** - Check for any immediate dangers
-3. **Ask for Video/Photos** - Get visual evidence early
-4. **Try DIY First** - For safe, simple issues, suggest a fix
-5. **If DIY doesn't work** - Gather remaining details for professional visit
-6. **Confirm & Report** - Let them know next steps
+3. **Start Troubleshooting** - Use start_troubleshooting tool for guided DIY
+4. **Ask for Video/Photos** - Get visual evidence early
+5. **Continue Troubleshooting** - Use continue_troubleshooting as tenant responds
+6. **If DIY doesn't work** - Gather remaining details for professional visit
+7. **Confirm & Report** - Let them know next steps
 
 ## Safety Rules - NEVER Suggest DIY For:
 - Anything involving gas
@@ -96,6 +120,94 @@ export class TenantWorker extends BaseWorker {
 
     tools: Tool[] = [
         ...commonTools,
+        {
+            name: 'start_troubleshooting',
+            description: 'Start a guided troubleshooting flow for the reported issue. Use this when a tenant first reports a maintenance issue to guide them through DIY resolution steps.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    issueCategory: {
+                        type: 'string',
+                        description: 'Category of issue (e.g., plumbing, heating, electrical, doors_windows)'
+                    },
+                    issueDescription: {
+                        type: 'string',
+                        description: 'Brief description of the issue from tenant'
+                    }
+                },
+                required: ['issueCategory', 'issueDescription']
+            },
+            handler: async (args, ctx) => {
+                const { issueCategory, issueDescription } = args as {
+                    issueCategory: string;
+                    issueDescription: string;
+                };
+                const context = ctx as WorkerContext | undefined;
+
+                console.log('[TenantWorker] Starting troubleshooting:', { issueCategory, issueDescription });
+
+                // Select the best flow for this issue
+                const flowId = selectFlowForIssue(issueCategory, issueDescription);
+                if (!flowId) {
+                    return {
+                        success: false,
+                        message: 'No troubleshooting flow available for this issue type',
+                        shouldEscalate: true
+                    };
+                }
+
+                // Get issue ID from context if available
+                const issueId = context?.currentIssue?.id || `temp_${Date.now()}`;
+
+                // Start the troubleshooting session
+                const result = await flowEngine.startSession(issueId, flowId, issueDescription);
+
+                return {
+                    success: true,
+                    sessionStatus: result.sessionStatus,
+                    response: result.response,
+                    outcome: result.outcome,
+                    nextStepId: result.nextStepId
+                };
+            }
+        },
+        {
+            name: 'continue_troubleshooting',
+            description: 'Continue an active troubleshooting session with the tenant response. Use this when the tenant responds to a troubleshooting question.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    sessionId: {
+                        type: 'string',
+                        description: 'The troubleshooting session ID'
+                    },
+                    tenantResponse: {
+                        type: 'string',
+                        description: 'The tenant response to the troubleshooting question'
+                    }
+                },
+                required: ['sessionId', 'tenantResponse']
+            },
+            handler: async (args) => {
+                const { sessionId, tenantResponse } = args as {
+                    sessionId: string;
+                    tenantResponse: string;
+                };
+
+                console.log('[TenantWorker] Continuing troubleshooting:', { sessionId, tenantResponse: tenantResponse.substring(0, 100) });
+
+                const result = await flowEngine.processResponse(sessionId, tenantResponse);
+
+                return {
+                    success: true,
+                    sessionStatus: result.sessionStatus,
+                    response: result.response,
+                    outcome: result.outcome,
+                    nextStepId: result.nextStepId,
+                    dataToCollect: result.dataToCollect
+                };
+            }
+        },
         {
             name: 'get_diy_advice',
             description: 'Get safe DIY suggestions for common household issues',

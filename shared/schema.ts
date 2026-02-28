@@ -2,7 +2,7 @@ import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, seri
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
-import crypto from "crypto";
+import * as crypto from "crypto";
 
 // Lead Stage Enum - Formal funnel stages for Kanban view
 export const leadStageEnum = pgEnum('lead_stage', [
@@ -1869,3 +1869,98 @@ export interface WorkerContext {
     currentIssue?: TenantIssue;
     conversationHistory: Message[];
 }
+
+// ==========================================
+// TROUBLESHOOTING DEFLECTION SYSTEM
+// ==========================================
+
+// Troubleshooting Status Types
+export type TroubleshootingStatus = 'active' | 'paused' | 'completed' | 'escalated' | 'abandoned';
+export type TroubleshootingOutcome = 'resolved_diy' | 'needs_callout' | 'escalated_complex' | 'escalated_safety' | 'abandoned';
+
+export interface StepHistoryEntry {
+    stepId: string;
+    timestamp: Date;
+    userResponse: string;
+    interpretedAs: string;
+    actionTaken: string;
+}
+
+// Troubleshooting Sessions Table - Tracks user progress through troubleshooting flows
+export const troubleshootingSessions = pgTable("troubleshooting_sessions", {
+    id: text("id").primaryKey().notNull().$defaultFn(() => crypto.randomUUID()),
+    issueId: text("issue_id").references(() => tenantIssues.id),
+
+    // Flow tracking
+    flowId: text("flow_id").notNull(),
+    currentStepId: text("current_step_id"),
+    stepHistory: jsonb("step_history").$type<StepHistoryEntry[]>(),
+
+    // State
+    status: text("status").$type<TroubleshootingStatus>().default('active'),
+    attemptCount: integer("attempt_count").default(0),
+    maxAttempts: integer("max_attempts").default(3),
+
+    // Collected data
+    collectedData: jsonb("collected_data").$type<Record<string, unknown>>(),
+
+    // Outcome tracking
+    outcome: text("outcome").$type<TroubleshootingOutcome>(),
+    outcomeReason: text("outcome_reason"),
+
+    // Timestamps
+    startedAt: timestamp("started_at").defaultNow(),
+    completedAt: timestamp("completed_at"),
+    lastActivityAt: timestamp("last_activity_at").defaultNow(),
+}, (table) => [
+    index("idx_troubleshooting_sessions_issue").on(table.issueId),
+    index("idx_troubleshooting_sessions_status").on(table.status),
+    index("idx_troubleshooting_sessions_flow").on(table.flowId),
+]);
+
+// Deflection Metrics Table - Tracks deflection success/failure for analytics
+export const deflectionMetrics = pgTable("deflection_metrics", {
+    id: text("id").primaryKey().notNull().$defaultFn(() => crypto.randomUUID()),
+    issueId: text("issue_id").references(() => tenantIssues.id),
+    sessionId: text("session_id").references(() => troubleshootingSessions.id),
+
+    // Classification
+    issueCategory: text("issue_category"),
+    flowId: text("flow_id"),
+
+    // Outcome
+    wasDeflected: boolean("was_deflected").notNull(),
+    deflectionType: text("deflection_type").$type<'diy_resolved' | 'self_service' | 'info_only'>(),
+
+    // Quality metrics
+    stepsCompleted: integer("steps_completed"),
+    totalStepsInFlow: integer("total_steps_in_flow"),
+    timeToResolutionMs: integer("time_to_resolution_ms"),
+
+    // Follow-up tracking
+    hadFollowUp: boolean("had_follow_up").default(false),
+    followUpWithin24h: boolean("follow_up_within_24h").default(false),
+
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_deflection_metrics_issue").on(table.issueId),
+    index("idx_deflection_metrics_session").on(table.sessionId),
+    index("idx_deflection_metrics_deflected").on(table.wasDeflected),
+    index("idx_deflection_metrics_category").on(table.issueCategory),
+]);
+
+// Relations for Troubleshooting tables
+export const troubleshootingSessionsRelations = relations(troubleshootingSessions, ({ one }) => ({
+    issue: one(tenantIssues, { fields: [troubleshootingSessions.issueId], references: [tenantIssues.id] }),
+}));
+
+export const deflectionMetricsRelations = relations(deflectionMetrics, ({ one }) => ({
+    issue: one(tenantIssues, { fields: [deflectionMetrics.issueId], references: [tenantIssues.id] }),
+    session: one(troubleshootingSessions, { fields: [deflectionMetrics.sessionId], references: [troubleshootingSessions.id] }),
+}));
+
+// Type exports for Troubleshooting System
+export type TroubleshootingSession = typeof troubleshootingSessions.$inferSelect;
+export type InsertTroubleshootingSession = typeof troubleshootingSessions.$inferInsert;
+export type DeflectionMetric = typeof deflectionMetrics.$inferSelect;
+export type InsertDeflectionMetric = typeof deflectionMetrics.$inferInsert;
