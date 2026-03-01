@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { format } from 'date-fns';
 
 export interface DateAvailability {
   date: string;
@@ -110,8 +111,9 @@ export function getUnavailableReason(
 }
 
 /**
- * Helper to format date as YYYY-MM-DD
+ * Helper to format date as YYYY-MM-DD using local date parts
+ * (not UTC via toISOString, which can shift the date near midnight)
  */
 export function formatDateStr(date: Date): string {
-  return date.toISOString().split('T')[0];
+  return format(date, 'yyyy-MM-dd');
 }

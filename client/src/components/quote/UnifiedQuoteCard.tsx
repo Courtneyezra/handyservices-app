@@ -8,6 +8,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { format, addDays, isWeekend } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
 import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { isStripeConfigured } from '@/lib/stripe';
 import {
@@ -100,10 +101,13 @@ export function UnifiedQuoteCard({
   }, [availabilityData]);
 
   // Generate available dates (filtering out blocked/unavailable)
+  // All date calculations anchored to UK time (Europe/London) so dates
+  // and next-day / weekend fees are correct regardless of viewer timezone.
   const availableDates = useMemo(() => {
+    const ukNow = toZonedTime(new Date(), 'Europe/London');
     const dates: { date: Date; label: string; isWeekend: boolean; isNextDay: boolean; fee: number }[] = [];
     for (let i = BASE_SCHEDULING_RULES.minDaysOut; i <= config.maxDaysOut; i++) {
-      const date = addDays(new Date(), i);
+      const date = addDays(ukNow, i);
       if (BASE_SCHEDULING_RULES.sundaysClosed && date.getDay() === 0) continue; // Skip Sundays
 
       // Skip blocked/unavailable dates
@@ -111,7 +115,7 @@ export function UnifiedQuoteCard({
       if (unavailableDates.has(dateStr)) continue;
 
       const isSaturday = date.getDay() === 6;
-      const isNextDay = i === 1; // Tomorrow
+      const isNextDay = i === 1; // Tomorrow (UK time)
 
       // Calculate fee: next-day and weekend fees can stack
       let fee = 0;
