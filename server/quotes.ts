@@ -1248,7 +1248,7 @@ const editQuoteSchema = z.object({
     // Job details
     jobDescription: z.string().min(10).optional(),
     additionalNotes: z.string().optional().nullable(),
-    segment: z.enum(['BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'DIY_DEFERRER', 'BUDGET', 'UNKNOWN']).optional(),
+    segment: z.enum(['BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'DIY_DEFERRER', 'BUDGET', 'OLDER_WOMAN', 'UNKNOWN']).optional(),
 
     // Pricing (HHH mode)
     essentialPrice: z.number().int().nonnegative().optional(),
