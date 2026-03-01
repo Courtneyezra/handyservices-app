@@ -136,6 +136,48 @@ async function handleTenantMessage(
         await attachPhotosToIssue(response.issueId, mediaUrls);
     }
 
+    // L2: Notify landlord of new issue after triage/dispatch
+    // Check if the issue was just reported (status changed to 'reported') and landlord not yet notified
+    if (response.issueId && response.stateUpdates?.status === 'reported') {
+        try {
+            const landlord = tenant.property?.landlord;
+            if (landlord?.phone) {
+                const issue = await db.query.tenantIssues.findFirst({
+                    where: eq(tenantIssues.id, response.issueId)
+                });
+
+                // Only notify if landlord hasn't been notified yet for this issue
+                if (issue && !issue.landlordNotifiedAt) {
+                    const appUrl = process.env.APP_URL || 'https://app.handyservices.co.uk';
+                    const dashboardUrl = `${appUrl}/landlord/issues/${response.issueId}`;
+
+                    await notifyLandlordNewIssue(
+                        landlord.phone,
+                        tenant.name,
+                        tenant.property?.address || 'Your property',
+                        issue.issueDescription || processedContent || 'New issue reported',
+                        issue.urgency || 'medium',
+                        dashboardUrl
+                    );
+
+                    // Mark landlord as notified
+                    await db.update(tenantIssues)
+                        .set({
+                            landlordNotifiedAt: new Date(),
+                            reportedToLandlordAt: new Date(),
+                            updatedAt: new Date()
+                        })
+                        .where(eq(tenantIssues.id, response.issueId));
+
+                    console.log(`[TenantChat] L2: Landlord ${landlord.customerName} notified about issue ${response.issueId}`);
+                }
+            }
+        } catch (error) {
+            console.error('[TenantChat] L2: Failed to notify landlord of new issue:', error);
+            // Non-fatal - don't crash the main flow
+        }
+    }
+
     // Send response via WhatsApp
     const phoneForSend = message.from.replace('@c.us', '');
     await sendWhatsAppMessage(phoneForSend, response.message);
@@ -158,6 +200,28 @@ async function handleLandlordMessage(
     message: TenantChatMessage
 ): Promise<TenantChatResult> {
     console.log(`[TenantChat] Processing message from landlord: ${landlord.customerName}`);
+
+    // L4: Check if this is a simple approval/rejection reply before passing to AI
+    const messageText = (message.content || '').trim();
+    if (message.type === 'text' && messageText.length > 0 && messageText.length <= 20) {
+        try {
+            const { handleLandlordApprovalReply } = await import('./services/landlord-notifications');
+            const approvalResult = await handleLandlordApprovalReply(message.from, messageText);
+
+            if (approvalResult.handled) {
+                console.log(`[TenantChat] L4: Landlord approval reply handled: ${approvalResult.action}`);
+                return {
+                    handled: true,
+                    response: `Approval reply processed: ${approvalResult.action}`,
+                    workerUsed: 'LANDLORD_WORKER'
+                };
+            }
+            // If not handled (not a YES/NO reply), fall through to AI
+        } catch (error) {
+            console.error('[TenantChat] L4: Error checking approval reply:', error);
+            // Non-fatal - fall through to AI handler
+        }
+    }
 
     // Prepare message for orchestrator
     const aiMessage: AIIncomingMessage = {

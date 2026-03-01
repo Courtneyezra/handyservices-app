@@ -9,8 +9,8 @@ import { BaseWorker, commonTools } from './base-worker';
 import { Tool, AIProvider } from '../provider';
 import { evaluateDispatchRules } from '../../rules-engine';
 import { db } from '../../db';
-import { landlordSettings, TenantIssue, LandlordSettings, PriceEstimate } from '@shared/schema';
-import { eq } from 'drizzle-orm';
+import { landlordSettings, tenantIssues, leads, TenantIssue, LandlordSettings, PriceEstimate } from '@shared/schema';
+import { eq, desc } from 'drizzle-orm';
 
 const DISPATCH_SYSTEM_PROMPT = `You are a property maintenance dispatch coordinator.
 Your job is to make dispatch decisions based on landlord rules and book jobs when appropriate.
@@ -278,7 +278,43 @@ export class DispatchWorker extends BaseWorker {
             },
             handler: async (args) => {
                 console.log('[DispatchWorker] Requesting landlord approval:', args);
-                // In production, this would send a WhatsApp message to landlord
+                const { landlordId, summary, estimateLow, estimateHigh } = args as {
+                    landlordId: string;
+                    issueId?: string;
+                    summary: string;
+                    estimateLow: number;
+                    estimateHigh: number;
+                    reason: string;
+                };
+
+                // L3: Send actual WhatsApp approval request to landlord
+                try {
+                    const landlord = await db.query.leads.findFirst({
+                        where: eq(leads.id, landlordId)
+                    });
+
+                    if (landlord?.phone) {
+                        // Find property address from the issue
+                        const { sendApprovalRequest } = await import('../../services/landlord-notifications');
+                        const issue = args.issueId ? await db.query.tenantIssues.findFirst({
+                            where: eq(tenantIssues.id, args.issueId as string),
+                            with: { property: true }
+                        }) : null;
+
+                        const propertyAddress = issue?.property?.address || 'Your property';
+
+                        await sendApprovalRequest(
+                            landlord.phone,
+                            propertyAddress,
+                            summary,
+                            estimateLow,
+                            estimateHigh
+                        );
+                    }
+                } catch (err) {
+                    console.error('[DispatchWorker] Failed to send approval request via WhatsApp:', err);
+                }
+
                 return {
                     sent: true,
                     method: 'whatsapp',
@@ -311,6 +347,49 @@ export class DispatchWorker extends BaseWorker {
             },
             handler: async (args) => {
                 console.log('[DispatchWorker] Notifying landlord:', args);
+                const { landlordId, type: notifType, message: notifMessage } = args as {
+                    landlordId: string;
+                    type: string;
+                    message: string;
+                };
+
+                // L5: Send actual WhatsApp notification to landlord
+                try {
+                    const landlord = await db.query.leads.findFirst({
+                        where: eq(leads.id, landlordId)
+                    });
+
+                    if (landlord?.phone) {
+                        if (notifType === 'auto_dispatched' || notifType === 'emergency_dispatched') {
+                            // Use the dedicated auto-dispatch notification
+                            const { notifyLandlordAutoDispatch } = await import('../../tenant-chat');
+                            // Find the latest issue for context
+                            const latestIssue = await db.query.tenantIssues.findFirst({
+                                where: eq(tenantIssues.landlordLeadId, landlordId),
+                                orderBy: desc(tenantIssues.createdAt),
+                                with: { property: true }
+                            });
+
+                            if (latestIssue) {
+                                await notifyLandlordAutoDispatch(
+                                    landlord.phone,
+                                    latestIssue.property?.address || 'Your property',
+                                    latestIssue.issueDescription || 'Maintenance issue',
+                                    (latestIssue.priceEstimateLowPence || 0) / 100,
+                                    (latestIssue.priceEstimateHighPence || 0) / 100,
+                                    new Date().toLocaleDateString('en-GB')
+                                );
+                            }
+                        } else {
+                            // Generic notification - send the message directly
+                            const { sendWhatsAppMessage } = await import('../../meta-whatsapp');
+                            await sendWhatsAppMessage(landlord.phone, notifMessage);
+                        }
+                    }
+                } catch (err) {
+                    console.error('[DispatchWorker] Failed to send landlord notification via WhatsApp:', err);
+                }
+
                 return {
                     sent: true,
                     method: 'whatsapp',
