@@ -12,4 +12,4 @@ export const twilioClient = twilio(
 
 // Helper to get the sender number (WABA number)
 // Priority: Env var > Hardcoded fallback (for testing)
-export const TWILIO_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886'; // Default sandbox if missing
+export const TWILIO_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+15558874602'; // Verified Twilio WhatsApp sender

@@ -43,12 +43,13 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { CallScriptSegment } from '@shared/schema';
+import type { CallScriptSegment, UrgencyLevel } from '@shared/schema';
 
 // Import sub-components
 import { LiveTranscriptPanel, type TranscriptSegment } from './LiveTranscriptPanel';
 import { DetectionCard, type DetectionJob } from './DetectionCard';
 import { TeleprompterPanel } from './TeleprompterPanel';
+import { SegmentChecklist, type ChecklistAnswers } from './SegmentChecklist';
 
 // ============================================================================
 // Types

@@ -13,7 +13,7 @@ const mockPayload = {
     MessageSid: uuidv4(),
     Body: 'Hello from verification script (Dynamic Import)',
     From: 'whatsapp:+15551234567',
-    To: 'whatsapp:+14155238886',
+    To: 'whatsapp:+15558874602',
     ProfileName: 'Test User'
 };
 

@@ -1,0 +1,2485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Courtnee & Celine - A Love Story</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400;700&family=Indie+Flower&family=Pacifico&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    :root {
+      --cream: #FDF6E9;
+      --soft-pink: #FFE4E6;
+      --muted-red: #E57373;
+      --deep-red: #C62828;
+      --warm-brown: #8B7355;
+    }
+
+    body {
+      font-family: 'Indie Flower', cursive;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      color: white;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Stars Background */
+    .stars {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .star {
+      position: absolute;
+      width: 3px;
+      height: 3px;
+      background: white;
+      border-radius: 50%;
+      animation: twinkle 2s infinite;
+    }
+
+    @keyframes twinkle {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+
+    /* Container */
+    .container {
+      position: relative;
+      z-index: 1;
+      padding: 2rem 1rem;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    /* Section Styles */
+    .section {
+      margin-bottom: 6rem;
+      padding: 3rem 2rem;
+      opacity: 0;
+      transform: translateY(30px);
+      transition: all 0.6s ease;
+    }
+
+    .section.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Chapter sections get special styling */
+    .chapter {
+      background: rgba(255,255,255,0.05);
+      border-radius: 30px;
+      border: 1px solid rgba(255,255,255,0.1);
+      margin-bottom: 2rem;
+    }
+
+    /* Section Divider */
+    .section-divider {
+      text-align: center;
+      padding: 2rem 0;
+      font-size: 1.5rem;
+      opacity: 0;
+      transform: translateY(30px);
+      transition: all 0.6s ease;
+    }
+
+    .section-divider.visible {
+      opacity: 0.6;
+      transform: translateY(0);
+    }
+
+    .section-divider .hearts {
+      display: inline-block;
+      animation: pulse 2s infinite;
+    }
+
+    .section-title {
+      font-family: 'Pacifico', cursive;
+      font-size: clamp(1.8rem, 5vw, 2.5rem);
+      color: var(--soft-pink);
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .section-subtitle {
+      text-align: center;
+      color: rgba(255,255,255,0.7);
+      margin-bottom: 2rem;
+      font-size: 1.1rem;
+    }
+
+    /* Story Text */
+    .story-text {
+      text-align: center;
+      font-size: 1.3rem;
+      line-height: 1.8;
+      color: rgba(255,255,255,0.9);
+      margin-bottom: 2rem;
+      font-style: italic;
+    }
+
+    /* ==================== */
+    /* HERO */
+    /* ==================== */
+    .hero {
+      text-align: center;
+      padding: 4rem 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .hero h1 {
+      font-family: 'Pacifico', cursive;
+      font-size: clamp(2.5rem, 10vw, 4.5rem);
+      color: var(--soft-pink);
+      margin-bottom: 1rem;
+      animation: fadeInDown 1s ease;
+    }
+
+    .hero .tagline {
+      font-family: 'Dancing Script', cursive;
+      font-size: clamp(1.2rem, 4vw, 1.8rem);
+      color: var(--muted-red);
+      margin-bottom: 1.5rem;
+      animation: fadeInUp 1s ease 0.3s both;
+    }
+
+    .hero .date {
+      color: rgba(255,255,255,0.7);
+      animation: fadeInUp 1s ease 0.5s both;
+    }
+
+    .scroll-hint {
+      margin-top: 3rem;
+      animation: bounce 2s infinite;
+      font-size: 2rem;
+    }
+
+    @keyframes fadeInDown {
+      from { opacity: 0; transform: translateY(-30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(10px); }
+    }
+
+    /* ==================== */
+    /* FLIP CARDS */
+    /* ==================== */
+    .flip-cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 1rem;
+      justify-items: center;
+    }
+
+    .flip-cards-grid.single {
+      grid-template-columns: 1fr;
+      max-width: 250px;
+      margin: 0 auto;
+    }
+
+    .flip-cards-grid.double {
+      grid-template-columns: repeat(2, 1fr);
+      max-width: 400px;
+      margin: 0 auto;
+    }
+
+    .flip-card {
+      width: 100%;
+      max-width: 200px;
+      height: 200px;
+      perspective: 1000px;
+      cursor: pointer;
+    }
+
+    .flip-card-inner {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      transition: transform 0.6s;
+      transform-style: preserve-3d;
+    }
+
+    .flip-card.flipped .flip-card-inner {
+      transform: rotateY(180deg);
+    }
+
+    .flip-card-front, .flip-card-back {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      backface-visibility: hidden;
+      border-radius: 15px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      text-align: center;
+    }
+
+    .flip-card-front {
+      background: linear-gradient(135deg, var(--muted-red) 0%, var(--deep-red) 100%);
+      font-size: 3rem;
+    }
+
+    .flip-card-back {
+      background: white;
+      color: var(--warm-brown);
+      transform: rotateY(180deg);
+      font-size: 0.95rem;
+      line-height: 1.4;
+    }
+
+    .flip-card-back .memory-title {
+      font-family: 'Dancing Script', cursive;
+      font-size: 1.2rem;
+      color: var(--deep-red);
+      margin-bottom: 0.5rem;
+    }
+
+    /* ==================== */
+    /* PHOTO GALLERY - SPORADIC */
+    /* ==================== */
+    .photo-gallery {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1.5rem;
+      padding: 2rem 0;
+    }
+
+    .gallery-photo {
+      position: relative;
+      cursor: pointer;
+      border-radius: 15px;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+      transition: transform 0.4s ease, box-shadow 0.4s ease;
+      background: rgba(255,255,255,0.1);
+      animation: floatPhoto 4s ease-in-out infinite;
+    }
+
+    .gallery-photo:nth-child(odd) {
+      transform: rotate(-3deg);
+      animation-delay: 0s;
+    }
+
+    .gallery-photo:nth-child(even) {
+      transform: rotate(3deg);
+      animation-delay: 2s;
+    }
+
+    .gallery-photo:nth-child(3n) {
+      transform: rotate(-2deg) scale(1.1);
+      animation-delay: 1s;
+    }
+
+    .gallery-photo:nth-child(4n) {
+      transform: rotate(4deg);
+      animation-delay: 3s;
+    }
+
+    @keyframes floatPhoto {
+      0%, 100% { transform: translateY(0) rotate(var(--rotation, -3deg)); }
+      50% { transform: translateY(-8px) rotate(var(--rotation, -3deg)); }
+    }
+
+    .gallery-photo:hover {
+      transform: scale(1.1) rotate(0deg) !important;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      z-index: 10;
+    }
+
+    .gallery-photo img {
+      width: 200px;
+      height: 200px;
+      object-fit: cover;
+      display: block;
+    }
+
+    .gallery-photo.large img {
+      width: 280px;
+      height: 280px;
+    }
+
+    .gallery-photo.medium img {
+      width: 240px;
+      height: 240px;
+    }
+
+    /* ==================== */
+    /* VIDEO GALLERY - SPORADIC */
+    /* ==================== */
+    .video-gallery {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 2rem;
+      padding: 2rem 0;
+    }
+
+    .video-item {
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 15px 50px rgba(0,0,0,0.4);
+      background: rgba(0,0,0,0.3);
+      animation: floatVideo 5s ease-in-out infinite;
+      transition: transform 0.4s ease, box-shadow 0.4s ease;
+    }
+
+    .video-item:nth-child(odd) {
+      transform: rotate(-2deg);
+      animation-delay: 0s;
+    }
+
+    .video-item:nth-child(even) {
+      transform: rotate(2deg);
+      animation-delay: 2.5s;
+    }
+
+    @keyframes floatVideo {
+      0%, 100% { transform: translateY(0) rotate(var(--rotation, -2deg)); }
+      50% { transform: translateY(-10px) rotate(var(--rotation, -2deg)); }
+    }
+
+    .video-item:hover {
+      transform: scale(1.05) rotate(0deg) !important;
+      box-shadow: 0 25px 70px rgba(0,0,0,0.5);
+    }
+
+    .video-item video {
+      width: 350px;
+      height: auto;
+      display: block;
+      max-height: 500px;
+      object-fit: contain;
+      background: black;
+    }
+
+    /* ==================== */
+    /* TRICK QUESTIONS */
+    /* ==================== */
+    .trick-question {
+      background: rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 2rem;
+      text-align: center;
+      max-width: 400px;
+      margin: 0 auto;
+    }
+
+    .trick-question h3 {
+      font-family: 'Dancing Script', cursive;
+      font-size: 1.8rem;
+      color: var(--soft-pink);
+      margin-bottom: 1.5rem;
+    }
+
+    .trick-buttons {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      min-height: 60px;
+      position: relative;
+    }
+
+    .trick-btn {
+      padding: 1rem 2rem;
+      font-family: 'Indie Flower', cursive;
+      font-size: 1.3rem;
+      border: none;
+      border-radius: 30px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      min-width: 140px;
+    }
+
+    .trick-btn.correct {
+      background: linear-gradient(135deg, var(--muted-red) 0%, var(--deep-red) 100%);
+      color: white;
+      box-shadow: 0 5px 20px rgba(229, 115, 115, 0.4);
+    }
+
+    .trick-btn.correct:hover {
+      transform: scale(1.1);
+    }
+
+    .trick-btn.wrong {
+      background: rgba(255,255,255,0.2);
+      color: white;
+      border: 2px solid rgba(255,255,255,0.3);
+      position: relative;
+      transition: transform 0.1s ease-out;
+    }
+
+    .trick-btn.answered {
+      pointer-events: none;
+    }
+
+    .trick-btn.correct.answered {
+      background: #4CAF50;
+      animation: correctPulse 0.5s ease;
+    }
+
+    @keyframes correctPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.2); }
+    }
+
+    .trick-result {
+      margin-top: 1rem;
+      font-size: 1.5rem;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .trick-result.show {
+      opacity: 1;
+    }
+
+    /* ==================== */
+    /* SPIN WHEEL */
+    /* ==================== */
+    .wheel-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .wheel-wrapper {
+      position: relative;
+      margin-bottom: 1.5rem;
+    }
+
+    .wheel-pointer {
+      position: absolute;
+      top: -15px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 2rem;
+      z-index: 10;
+    }
+
+    .spin-btn {
+      padding: 1rem 2.5rem;
+      font-family: 'Indie Flower', cursive;
+      font-size: 1.3rem;
+      background: linear-gradient(135deg, var(--muted-red) 0%, var(--deep-red) 100%);
+      color: white;
+      border: none;
+      border-radius: 30px;
+      cursor: pointer;
+      box-shadow: 0 5px 20px rgba(229, 115, 115, 0.4);
+      transition: transform 0.2s;
+    }
+
+    .spin-btn:hover { transform: translateY(-2px); }
+    .spin-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .wheel-result {
+      margin-top: 1.5rem;
+      font-family: 'Dancing Script', cursive;
+      font-size: 1.5rem;
+      color: var(--soft-pink);
+      text-align: center;
+      min-height: 2rem;
+    }
+
+    /* ==================== */
+    /* MAP */
+    /* ==================== */
+    .map-container {
+      background: rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 2rem;
+    }
+
+    .map-locations {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1rem;
+    }
+
+    .map-pin {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      cursor: pointer;
+      transition: transform 0.3s;
+      padding: 1rem;
+      border-radius: 15px;
+      background: rgba(255,255,255,0.05);
+    }
+
+    .map-pin:hover {
+      transform: scale(1.1);
+      background: rgba(255,255,255,0.1);
+    }
+
+    .map-pin .pin-icon {
+      font-size: 2.5rem;
+      margin-bottom: 0.3rem;
+    }
+
+    .map-pin .pin-label {
+      font-size: 0.9rem;
+      color: rgba(255,255,255,0.8);
+    }
+
+    /* ==================== */
+    /* QUIZ */
+    /* ==================== */
+    .quiz-container {
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
+    .quiz-question {
+      background: rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 2rem;
+      text-align: center;
+      display: none;
+    }
+
+    .quiz-question.active {
+      display: block;
+      animation: fadeInUp 0.4s ease;
+    }
+
+    .quiz-question h3 {
+      font-family: 'Dancing Script', cursive;
+      font-size: 1.5rem;
+      color: var(--soft-pink);
+      margin-bottom: 1.5rem;
+    }
+
+    .quiz-options {
+      display: flex;
+      flex-direction: column;
+      gap: 0.8rem;
+    }
+
+    .quiz-option {
+      padding: 1rem;
+      background: rgba(255,255,255,0.1);
+      border: 2px solid transparent;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.3s;
+      font-family: inherit;
+      font-size: 1rem;
+      color: white;
+    }
+
+    .quiz-option:hover {
+      background: rgba(255,255,255,0.2);
+      border-color: var(--muted-red);
+    }
+
+    .quiz-option.correct {
+      background: rgba(76, 175, 80, 0.3);
+      border-color: #4CAF50;
+    }
+
+    .quiz-option.wrong {
+      background: rgba(244, 67, 54, 0.3);
+      border-color: #f44336;
+    }
+
+    .quiz-result {
+      text-align: center;
+      padding: 2rem;
+      display: none;
+    }
+
+    .quiz-result.show {
+      display: block;
+    }
+
+    .quiz-score {
+      font-family: 'Pacifico', cursive;
+      font-size: 3rem;
+      color: var(--soft-pink);
+    }
+
+    /* ==================== */
+    /* MESSAGE INPUT */
+    /* ==================== */
+    .message-input-section {
+      background: rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 2rem;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
+    .message-input-section textarea {
+      width: 100%;
+      height: 150px;
+      padding: 1rem;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-radius: 15px;
+      background: rgba(255,255,255,0.1);
+      color: white;
+      font-family: 'Indie Flower', cursive;
+      font-size: 1.1rem;
+      resize: none;
+      margin-bottom: 1rem;
+    }
+
+    .message-input-section textarea::placeholder {
+      color: rgba(255,255,255,0.5);
+    }
+
+    .message-input-section textarea:focus {
+      outline: none;
+      border-color: var(--muted-red);
+    }
+
+    .save-message-btn {
+      width: 100%;
+      padding: 1rem;
+      background: linear-gradient(135deg, var(--muted-red) 0%, var(--deep-red) 100%);
+      color: white;
+      border: none;
+      border-radius: 25px;
+      font-family: inherit;
+      font-size: 1.1rem;
+      cursor: pointer;
+    }
+
+    .saved-message {
+      display: none;
+      margin-top: 1rem;
+      padding: 1rem;
+      background: rgba(76, 175, 80, 0.2);
+      border-radius: 10px;
+      text-align: center;
+      color: #81C784;
+    }
+
+    .saved-message.show {
+      display: block;
+    }
+
+    /* ==================== */
+    /* COUNTER */
+    /* ==================== */
+    .counter-section {
+      text-align: center;
+      padding: 2rem 0;
+    }
+
+    .counter-number {
+      font-family: 'Pacifico', cursive;
+      font-size: clamp(4rem, 15vw, 6rem);
+      color: var(--soft-pink);
+      text-shadow: 0 0 30px rgba(255, 228, 230, 0.5);
+    }
+
+    .counter-label {
+      font-family: 'Dancing Script', cursive;
+      font-size: clamp(1.5rem, 5vw, 2rem);
+      color: var(--muted-red);
+    }
+
+    /* ==================== */
+    /* SURPRISE TEASE */
+    /* ==================== */
+    .surprise-tease {
+      text-align: center;
+      padding: 2rem;
+      background: linear-gradient(135deg, rgba(229, 115, 115, 0.15) 0%, rgba(198, 40, 40, 0.15) 100%);
+      border-radius: 20px;
+      border: 1px solid rgba(229, 115, 115, 0.3);
+    }
+
+    .surprise-tease .mystery-emoji {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.1); opacity: 0.8; }
+    }
+
+    .surprise-tease p {
+      font-family: 'Dancing Script', cursive;
+      font-size: 1.5rem;
+      color: var(--soft-pink);
+      line-height: 1.6;
+    }
+
+    /* ==================== */
+    /* FINAL MESSAGE */
+    /* ==================== */
+    .final-message {
+      background: rgba(255,255,255,0.1);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.2);
+      padding: 2.5rem;
+      border-radius: 20px;
+      max-width: 500px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .final-message h2 {
+      font-family: 'Dancing Script', cursive;
+      font-size: 2rem;
+      color: var(--soft-pink);
+      margin-bottom: 1.5rem;
+    }
+
+    .final-message blockquote {
+      font-size: 1.2rem;
+      line-height: 1.8;
+      color: rgba(255,255,255,0.9);
+      font-style: italic;
+    }
+
+    .final-message .signature {
+      font-family: 'Pacifico', cursive;
+      font-size: 1.5rem;
+      color: var(--muted-red);
+      margin-top: 1.5rem;
+    }
+
+    /* ==================== */
+    /* VALENTINE QUESTION */
+    /* ==================== */
+    .valentine-question {
+      text-align: center;
+      padding: 3rem 0;
+    }
+
+    .valentine-question h2 {
+      font-family: 'Pacifico', cursive;
+      font-size: clamp(2rem, 8vw, 3rem);
+      color: var(--soft-pink);
+      margin-bottom: 2rem;
+    }
+
+    .answer-buttons {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .answer-btn {
+      padding: 1.2rem 3rem;
+      font-family: 'Indie Flower', cursive;
+      font-size: 1.5rem;
+      border: none;
+      border-radius: 50px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      min-width: 200px;
+    }
+
+    .answer-btn.yes {
+      background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+      color: white;
+      box-shadow: 0 5px 20px rgba(231, 76, 60, 0.4);
+    }
+
+    .answer-btn.yes:hover {
+      transform: scale(1.1);
+    }
+
+    .answer-btn.no {
+      background: rgba(255,255,255,0.1);
+      color: white;
+      border: 2px solid rgba(255,255,255,0.3);
+    }
+
+    /* ==================== */
+    /* CELEBRATION */
+    /* ==================== */
+    .celebration {
+      display: none;
+      text-align: center;
+      padding: 3rem 0;
+    }
+
+    .celebration.show {
+      display: block;
+      animation: fadeInUp 0.5s ease;
+    }
+
+    .celebration-title {
+      font-family: 'Pacifico', cursive;
+      font-size: clamp(2.5rem, 10vw, 4rem);
+      color: var(--soft-pink);
+      animation: celebratePulse 1s ease-in-out infinite;
+    }
+
+    @keyframes celebratePulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+
+    .celebration-hearts {
+      font-size: 3rem;
+      margin: 1.5rem 0;
+      animation: heartBeat 0.8s ease-in-out infinite;
+    }
+
+    @keyframes heartBeat {
+      0%, 100% { transform: scale(1); }
+      25% { transform: scale(1.1); }
+      50% { transform: scale(1); }
+      75% { transform: scale(1.2); }
+    }
+
+    /* Kiss Counter */
+    .kiss-counter {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: linear-gradient(135deg, var(--muted-red) 0%, var(--deep-red) 100%);
+      padding: 0.8rem 1.2rem;
+      border-radius: 50px;
+      font-family: 'Pacifico', cursive;
+      font-size: 1.2rem;
+      color: white;
+      z-index: 100;
+      box-shadow: 0 5px 20px rgba(229, 115, 115, 0.4);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .kiss-counter .kiss-icon {
+      font-size: 1.4rem;
+    }
+
+    .kiss-counter.pulse {
+      animation: kissPulse 0.5s ease;
+    }
+
+    @keyframes kissPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.3); }
+    }
+
+    /* Kiss Overlay */
+    .kiss-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 99;
+      overflow: hidden;
+    }
+
+    .flying-kiss {
+      position: absolute;
+      font-size: 3rem;
+      animation: flyKiss 1.5s ease-out forwards;
+    }
+
+    @keyframes flyKiss {
+      0% {
+        opacity: 1;
+        transform: scale(0.5) rotate(0deg);
+      }
+      50% {
+        opacity: 1;
+        transform: scale(1.5) rotate(15deg);
+      }
+      100% {
+        opacity: 0;
+        transform: scale(2) rotate(-10deg) translateY(-100px);
+      }
+    }
+
+    /* Confetti */
+    .confetti {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1000;
+      overflow: hidden;
+    }
+
+    .confetti-piece {
+      position: absolute;
+      width: 10px;
+      height: 20px;
+      top: -20px;
+      animation: confettiFall 4s linear forwards;
+    }
+
+    @keyframes confettiFall {
+      0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+      100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+    }
+
+    /* ==================== */
+    /* LIGHTBOX */
+    /* ==================== */
+    .lightbox {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.95);
+      z-index: 2000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+
+    .lightbox.open {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .lightbox img {
+      max-width: 90%;
+      max-height: 90%;
+      object-fit: contain;
+      border-radius: 10px;
+    }
+
+    .lightbox-close {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      width: 50px;
+      height: 50px;
+      background: rgba(255,255,255,0.2);
+      border: none;
+      border-radius: 50%;
+      color: white;
+      font-size: 2rem;
+      cursor: pointer;
+    }
+
+    .lightbox-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 50px;
+      height: 50px;
+      background: rgba(255,255,255,0.2);
+      border: none;
+      border-radius: 50%;
+      color: white;
+      font-size: 1.5rem;
+      cursor: pointer;
+    }
+
+    .lightbox-prev { left: 20px; }
+    .lightbox-next { right: 20px; }
+
+    .lightbox-caption {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: white;
+      font-size: 1.2rem;
+      padding: 0.5rem 1.5rem;
+      background: rgba(0,0,0,0.5);
+      border-radius: 20px;
+    }
+
+    /* Popups */
+    .overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      z-index: 999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+
+    .overlay.show {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .location-popup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0);
+      background: white;
+      padding: 2rem;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      z-index: 1000;
+      max-width: 320px;
+      text-align: center;
+      transition: transform 0.3s ease;
+    }
+
+    .location-popup.show {
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+    .location-popup h3 {
+      font-family: 'Pacifico', cursive;
+      font-size: 1.5rem;
+      color: var(--deep-red);
+      margin-bottom: 0.5rem;
+    }
+
+    .location-popup p {
+      color: var(--warm-brown);
+      line-height: 1.5;
+      margin-bottom: 1rem;
+    }
+
+    .location-popup .close-btn {
+      background: var(--muted-red);
+      color: white;
+      border: none;
+      padding: 0.5rem 1.5rem;
+      border-radius: 20px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    /* Divider */
+    .divider {
+      text-align: center;
+      padding: 1rem 0;
+      font-size: 1.5rem;
+      color: var(--muted-red);
+      opacity: 0.5;
+    }
+
+    /* Desktop/Laptop Styling */
+    @media (min-width: 768px) {
+      .section {
+        margin-bottom: 5rem;
+        padding: 4rem 3rem;
+      }
+
+      .chapter {
+        padding: 4rem;
+        margin-bottom: 3rem;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      }
+
+      .section-divider {
+        padding: 3rem 0;
+        font-size: 2rem;
+      }
+
+      .story-text {
+        font-size: 1.5rem;
+        max-width: 600px;
+        margin: 0 auto 2rem;
+      }
+
+      .section-title {
+        font-size: 2.8rem;
+        margin-bottom: 2rem;
+      }
+
+      .trick-question {
+        padding: 3rem;
+        max-width: 500px;
+      }
+
+      .photo-gallery {
+        gap: 1.5rem;
+      }
+
+      .final-message {
+        padding: 4rem;
+      }
+    }
+
+    /* Responsive - Mobile */
+    @media (max-width: 600px) {
+      .container { padding: 1.5rem 1rem; }
+      .section { padding: 2rem 1rem; }
+      .chapter { padding: 2rem 1rem; }
+      .flip-cards-grid.double { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+      .flip-card { height: 170px; }
+      .photo-gallery { gap: 1rem; }
+      .gallery-photo img,
+      .gallery-photo.large img,
+      .gallery-photo.medium img {
+        width: 140px;
+        height: 140px;
+      }
+      .video-item video {
+        width: 100%;
+        max-width: 320px;
+      }
+      .lightbox-nav { display: none; }
+      .trick-buttons { flex-direction: column; align-items: center; }
+      .kiss-counter {
+        top: 10px;
+        right: 10px;
+        padding: 0.5rem 0.8rem;
+        font-size: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Stars Background -->
+  <div class="stars" id="stars"></div>
+
+  <!-- Confetti Container -->
+  <div class="confetti" id="confetti"></div>
+
+  <!-- Kiss Counter -->
+  <div class="kiss-counter" id="kissCounter">
+    <span class="kiss-icon">&#128139;</span>
+    <span id="kissCount">0</span>
+  </div>
+
+  <!-- Kiss Overlay -->
+  <div class="kiss-overlay" id="kissOverlay"></div>
+
+  <!-- Overlay -->
+  <div class="overlay" id="overlay"></div>
+
+  <!-- Location Popup -->
+  <div class="location-popup" id="locationPopup">
+    <h3 id="locationTitle"></h3>
+    <p id="locationDesc"></p>
+    <button class="close-btn" onclick="closeLocationPopup()">Close</button>
+  </div>
+
+  <!-- Lightbox -->
+  <div class="lightbox" id="lightbox" onclick="closeLightbox(event)">
+    <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+    <button class="lightbox-nav lightbox-prev" onclick="navigateLightbox(-1, event)">&lt;</button>
+    <img id="lightboxImg" src="" alt="Full size photo">
+    <button class="lightbox-nav lightbox-next" onclick="navigateLightbox(1, event)">&gt;</button>
+    <div class="lightbox-caption" id="lightboxCaption"></div>
+  </div>
+
+  <div class="container">
+
+    <!-- ========== HERO ========== -->
+    <section class="section hero visible">
+      <h1>Courtnee & Celine</h1>
+      <p class="tagline">A love story that started with a dropped hoodie</p>
+      <p class="date">November 11, 2024 &bull; Da Nang, Vietnam</p>
+      <div class="scroll-hint">&#128151;</div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PART 1: OUR STORY - THE DA NANG CHAPTERS                     -->
+    <!-- ============================================================ -->
+
+    <div class="section-divider"><span class="hearts">&#128151; &#128151; &#128151;</span></div>
+
+    <!-- ========== CHAPTER 1: THE BEGINNING ========== -->
+    <section class="section chapter">
+      <h2 class="section-title">Chapter 1: The Beginning</h2>
+      <p class="story-text">
+        Quoc Cuong Hostel, Da Nang. She was on the top bunk. He was on the bottom.
+        A hoodie fell... and everything changed.
+      </p>
+      <div class="flip-cards-grid single">
+        <div class="flip-card" onclick="flipCard(this)">
+          <div class="flip-card-inner">
+            <div class="flip-card-front">&#129509;</div>
+            <div class="flip-card-back">
+              <div class="memory-title">The Hoodie Drop</div>
+              Her hoodie fell from the top bunk. He handed it back with a smile. That simple moment started it all.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECRET WINGMAN -->
+    <section class="section">
+      <p class="story-text">I thank this woman everyday and say a prayer! She is the reason we spoke so much on Instagram! She was my secret wingman</p>
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_5178.JPG" alt="">
+        </div>
+      </div>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#10024;</span></div>
+
+    <!-- TRICK QUESTION -->
+    <section class="section">
+      <div class="trick-question" data-answered="false">
+        <h3>Who is the funniest? &#128514;</h3>
+        <div class="trick-buttons">
+          <button class="trick-btn correct" onclick="answerTrick(this, true)">Courtnee</button>
+          <button class="trick-btn wrong" onmouseover="runAway(this)" onclick="runAway(this)">Celine</button>
+        </div>
+        <div class="trick-result">&#128151; Correct!</div>
+      </div>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#128151; &#128151; &#128151;</span></div>
+
+    <!-- ========== CHAPTER 2: THE CONNECTION ========== -->
+    <section class="section chapter">
+      <h2 class="section-title">Chapter 2: The Connection</h2>
+      <p class="story-text">
+        Lying in their bunks, curtains closed, phones glowing in the dark.
+        Messages flying back and forth all night long... even though they were right next to each other.
+      </p>
+      <div class="flip-cards-grid double">
+        <div class="flip-card" onclick="flipCard(this)">
+          <div class="flip-card-inner">
+            <div class="flip-card-front">&#128241;</div>
+            <div class="flip-card-back">
+              <div class="memory-title">Instagram Nights</div>
+              Messaging all night, hearts racing, right next to each other but worlds apart.
+            </div>
+          </div>
+        </div>
+        <div class="flip-card" onclick="flipCard(this)">
+          <div class="flip-card-inner">
+            <div class="flip-card-front">&#128080;</div>
+            <div class="flip-card-back">
+              <div class="memory-title">Hands Through Curtains</div>
+              Reaching outside their bunk curtains to hold hands in the middle. Pure magic.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- BEAUTIFUL PHOTO -->
+    <section class="section">
+      <p class="story-text">She's sooo beautiful... yh I'm lucky</p>
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_1271.JPG" alt="">
+        </div>
+      </div>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#128152;</span></div>
+
+    <!-- ========== CHAPTER 3: FALLING ========== -->
+    <section class="section chapter">
+      <h2 class="section-title">Chapter 3: Falling</h2>
+      <p class="story-text">
+        Days spent working at coffee shops. Evenings playing pool.
+        Every moment together felt like a gift.
+      </p>
+      <div class="flip-cards-grid double">
+        <div class="flip-card" onclick="flipCard(this)">
+          <div class="flip-card-inner">
+            <div class="flip-card-front">&#9749;</div>
+            <div class="flip-card-back">
+              <div class="memory-title">Coffee Shop Days</div>
+              Working side by side, stealing glances, falling deeper with every moment.
+            </div>
+          </div>
+        </div>
+        <div class="flip-card" onclick="flipCard(this)">
+          <div class="flip-card-inner">
+            <div class="flip-card-front">&#127921;</div>
+            <div class="flip-card-back">
+              <div class="memory-title">Pool Nights</div>
+              Evenings at the pool table, laughing, competing, connecting.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FIRST FAKE DATE -->
+    <section class="section">
+      <p class="story-text">Our first "fake" date...</p>
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_5516_date.jpg" alt="">
+        </div>
+      </div>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#128156;</span></div>
+
+    <!-- ========== CHAPTER 4: THE MOMENT ========== -->
+    <section class="section chapter">
+      <h2 class="section-title">Chapter 4: The Moment</h2>
+      <p class="story-text">
+        Hi4 Coffee. She asked him to sit closer.
+        That simple request said everything.
+      </p>
+      <div class="flip-cards-grid single">
+        <div class="flip-card" onclick="flipCard(this)">
+          <div class="flip-card-inner">
+            <div class="flip-card-front">&#10084;&#65039;</div>
+            <div class="flip-card-back">
+              <div class="memory-title">Hi4 Coffee</div>
+              "Sit closer." Two words that changed everything. This was real.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- THE ONE VIDEO -->
+    <section class="section">
+      <p class="story-text">I think this is when I knew... You was the one!</p>
+      <div class="video-gallery">
+        <div class="video-item">
+          <video controls playsinline>
+            <source src="media/36ce9f1ec4c44e4ca5d4d3689b1209a6.MOV" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </section>
+
+    <!-- MORE THAN FRIENDS -->
+    <section class="section">
+      <p class="story-text">When we finally admitted we was more than "friends"...</p>
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_1520.JPG" alt="">
+        </div>
+      </div>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#10024;</span></div>
+
+    <!-- TRICK QUESTION -->
+    <section class="section">
+      <div class="trick-question" data-answered="false">
+        <h3>Who gave the first kiss? &#128139;</h3>
+        <div class="trick-buttons">
+          <button class="trick-btn wrong" onmouseover="runAway(this)" onclick="runAway(this)">Courtnee</button>
+          <button class="trick-btn correct" onclick="answerTrick(this, true)">Celine</button>
+        </div>
+        <div class="trick-result">&#128151; Correct!</div>
+      </div>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#128151; &#128151; &#128151;</span></div>
+
+    <!-- ========== CHAPTER 5: THE SCOOTER RIDE ========== -->
+    <section class="section chapter">
+      <h2 class="section-title">Chapter 5: The Scooter Ride</h2>
+      <p class="story-text">
+        The ride home. Her hands found their way inside his hoodie pockets.
+        Holding on. Holding close. Perfect.
+      </p>
+      <div class="flip-cards-grid single">
+        <div class="flip-card" onclick="flipCard(this)">
+          <div class="flip-card-inner">
+            <div class="flip-card-front">&#128756;</div>
+            <div class="flip-card-back">
+              <div class="memory-title">Hands in Hoodie Pockets</div>
+              Riding through the warm Vietnam night, her hands in his hoodie pockets, hearts beating as one.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PART 2: SWEET MOMENTS                                        -->
+    <!-- ============================================================ -->
+
+    <div class="section-divider"><span class="hearts">&#128149; &#128149; &#128149;</span></div>
+
+    <section class="section">
+      <h2 class="section-title" style="color: var(--soft-pink);">Sweet Moments</h2>
+    </section>
+
+    <!-- LOVE IN THE AIR -->
+    <section class="section">
+      <p class="story-text">Love was in the air haha</p>
+      <div class="video-gallery">
+        <div class="video-item">
+          <video controls playsinline>
+            <source src="media/IMG_7958_love.MP4" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </section>
+
+    <!-- YOU LOVE ME STILL -->
+    <section class="section">
+      <p class="story-text">You love me still?</p>
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/love_me_still.jpg" alt="">
+        </div>
+      </div>
+    </section>
+
+    <!-- YOU CAUGHT ME -->
+    <section class="section">
+      <p class="story-text">You caught me</p>
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_1795_caught.jpg" alt="">
+        </div>
+      </div>
+    </section>
+
+    <!-- 300 DAYS -->
+    <section class="section">
+      <p class="story-text">300 days of infinity...</p>
+      <div class="video-gallery">
+        <div class="video-item">
+          <video controls playsinline>
+            <source src="media/IMG_3105.mov" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </section>
+
+    <!-- ALWAYS PROUD -->
+    <section class="section">
+      <p class="story-text">Always proud of you x</p>
+      <div class="video-gallery">
+        <div class="video-item">
+          <video controls playsinline>
+            <source src="media/IMG_5394.MOV" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </section>
+
+    <!-- LOOKING AFTER ME -->
+    <section class="section">
+      <p class="story-text">You looking after me</p>
+      <div class="video-gallery">
+        <div class="video-item">
+          <video controls playsinline>
+            <source src="media/9fe5bdc28c65438b8904a0fc66dd12c0.MOV" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </section>
+
+    <!-- MY QUEEN -->
+    <section class="section">
+      <p class="story-text">My queen to be</p>
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_7029_queen.jpg" alt="">
+        </div>
+      </div>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#10024;</span></div>
+
+    <!-- TRICK QUESTION -->
+    <section class="section">
+      <div class="trick-question" data-answered="false">
+        <h3>Who kisses the other one the most? &#128536;</h3>
+        <div class="trick-buttons">
+          <button class="trick-btn correct" onclick="answerTrick(this, true)">Courtnee</button>
+          <button class="trick-btn wrong" onmouseover="runAway(this)" onclick="runAway(this)">Celine</button>
+        </div>
+        <div class="trick-result">&#128151; Correct!</div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PART 3: FUNNY US                                             -->
+    <!-- ============================================================ -->
+
+    <div class="section-divider"><span class="hearts">&#128514; &#128514; &#128514;</span></div>
+
+    <section class="section">
+      <h2 class="section-title" style="color: var(--soft-pink);">Funny Us</h2>
+    </section>
+
+    <!-- FART VIDEO -->
+    <section class="section">
+      <p class="story-text">ERRRRRRM SOMEBODY FARTED....... haha</p>
+      <div class="video-gallery">
+        <div class="video-item">
+          <video controls playsinline>
+            <source src="media/IMG_0959.MOV" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </section>
+
+    <!-- TRICK QUESTION -->
+    <section class="section">
+      <div class="trick-question" data-answered="false">
+        <h3>Who farts the most? &#128168;</h3>
+        <div class="trick-buttons">
+          <button class="trick-btn correct" onclick="answerTrick(this, true)">Courtnee</button>
+          <button class="trick-btn wrong" onmouseover="runAway(this)" onclick="runAway(this)">Celine</button>
+        </div>
+        <div class="trick-result">&#128151; Correct!</div>
+      </div>
+    </section>
+
+    <!-- EWWW GROSS -->
+    <section class="section">
+      <p class="story-text">EWWWWWW GROSSS - *VIVIAN VOICE*</p>
+      <div class="video-gallery">
+        <div class="video-item">
+          <video controls playsinline>
+            <source src="media/DA8A2F3A-5B58-4B4D-9A2A-20A7541AF16B.MP4" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </section>
+
+    <!-- NO CONSENT -->
+    <section class="section">
+      <p class="story-text">You didn't get my consent....</p>
+      <div class="video-gallery">
+        <div class="video-item">
+          <video controls playsinline>
+            <source src="media/BB80A374-9874-466A-8116-B6FBED919030.MOV" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </section>
+
+    <!-- WEIRD BUT MY BABY -->
+    <section class="section">
+      <p class="story-text">Weirdddd but my baby!</p>
+      <div class="video-gallery">
+        <div class="video-item">
+          <video controls playsinline>
+            <source src="media/197974F5-2553-4FC8-B7BD-05EF827DE842.MP4" type="video/mp4">
+          </video>
+        </div>
+      </div>
+      <div class="photo-gallery" style="margin-top: 2rem;">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_6032.JPG" alt="">
+        </div>
+      </div>
+    </section>
+
+    <!-- HOMELESS -->
+    <section class="section">
+      <p class="story-text">Homeless brooo!</p>
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_5949_homeless.jpg" alt="">
+        </div>
+      </div>
+    </section>
+
+    <!-- SAD LIP MEME -->
+    <section class="section">
+      <p class="story-text">Your lip when you're sad :(</p>
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/sad_lip.webp" alt="">
+        </div>
+      </div>
+    </section>
+
+    <!-- SLEEPING BABY -->
+    <section class="section">
+      <p class="story-text">My baby sleeping as usual...</p>
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_5382.JPG" alt="">
+        </div>
+      </div>
+    </section>
+
+    <!-- TRICK QUESTION -->
+    <section class="section">
+      <div class="trick-question" data-answered="false">
+        <h3>Who sleeps the most? &#128564;</h3>
+        <div class="trick-buttons">
+          <button class="trick-btn wrong" onmouseover="runAway(this)" onclick="runAway(this)">Courtnee</button>
+          <button class="trick-btn correct" onclick="answerTrick(this, true)">Celine</button>
+        </div>
+        <div class="trick-result">&#128151; Correct!</div>
+      </div>
+    </section>
+
+    <!-- GREEDY VIDEO -->
+    <section class="section">
+      <p class="story-text">Somewhere in Hue, Vietnam... me being greedy</p>
+      <div class="video-gallery">
+        <div class="video-item">
+          <video controls playsinline>
+            <source src="media/DCC6C6C0-2053-460D-9C48-24E35D22D672.MP4" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </section>
+
+    <!-- GREEDY PHOTO -->
+    <section class="section">
+      <p class="story-text">GREEEEEEEEDY!!!</p>
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_0230_greedy.jpg" alt="">
+        </div>
+      </div>
+    </section>
+
+    <!-- TRICK QUESTION -->
+    <section class="section">
+      <div class="trick-question" data-answered="false">
+        <h3>Who is the greediest? &#127829;</h3>
+        <div class="trick-buttons">
+          <button class="trick-btn wrong" onmouseover="runAway(this)" onclick="runAway(this)">Courtnee</button>
+          <button class="trick-btn correct" onclick="answerTrick(this, true)">Celine</button>
+        </div>
+        <div class="trick-result">&#128151; Correct!</div>
+      </div>
+    </section>
+
+    <!-- TRICK QUESTION -->
+    <section class="section">
+      <div class="trick-question" data-answered="false">
+        <h3>Who makes the most "mmmmmm" noises when eating? &#128523;</h3>
+        <div class="trick-buttons">
+          <button class="trick-btn wrong" onmouseover="runAway(this)" onclick="runAway(this)">Courtnee</button>
+          <button class="trick-btn correct" onclick="answerTrick(this, true)">Celine</button>
+        </div>
+        <div class="trick-result">&#128151; Correct!</div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PART 4: OUR ADVENTURES                                       -->
+    <!-- ============================================================ -->
+
+    <div class="section-divider"><span class="hearts">&#127758; &#127758; &#127758;</span></div>
+
+    <section class="section">
+      <h2 class="section-title" style="color: var(--soft-pink);">Our Adventures</h2>
+      <p class="section-subtitle">Tap a location to see our memory</p>
+      <div class="map-container">
+        <div class="map-locations">
+          <div class="map-pin" onclick="showLocation('danang')">
+            <span class="pin-icon">&#127974;</span>
+            <span class="pin-label">Da Nang</span>
+          </div>
+          <div class="map-pin" onclick="showLocation('kl')">
+            <span class="pin-icon">&#127961;</span>
+            <span class="pin-label">Kuala Lumpur</span>
+          </div>
+          <div class="map-pin" onclick="showLocation('penang')">
+            <span class="pin-icon">&#127958;</span>
+            <span class="pin-label">Penang</span>
+          </div>
+          <div class="map-pin" onclick="showLocation('hongkong')">
+            <span class="pin-icon">&#127747;</span>
+            <span class="pin-label">Hong Kong</span>
+          </div>
+          <div class="map-pin" onclick="showLocation('paris')">
+            <span class="pin-icon">&#127481;&#127479;</span>
+            <span class="pin-label">Paris</span>
+          </div>
+          <div class="map-pin" onclick="showLocation('england')">
+            <span class="pin-icon">&#127468;&#127463;</span>
+            <span class="pin-label">England</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PENANG TREES -->
+    <section class="section">
+      <p class="story-text">Our adventure in the trees in Penang, Malaysia...</p>
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_5397_penang.jpg" alt="">
+        </div>
+      </div>
+    </section>
+
+    <!-- CAVES AND SUNSET -->
+    <section class="section">
+      <p class="story-text">Visiting the caves and watching amazing sunsets at this pool at night...</p>
+      <div class="video-gallery">
+        <div class="video-item">
+          <video controls playsinline>
+            <source src="media/0696F2CB-5128-40F1-8F62-2D4570F89E30.MP4" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </section>
+
+    <!-- SILLY VIDEO -->
+    <section class="section">
+      <p class="story-text">Us being silly and me loving your smile...</p>
+      <div class="video-gallery">
+        <div class="video-item">
+          <video controls playsinline>
+            <source src="media/CDEEDA74-3841-42D7-B7FF-6CBCE5034B38.MP4" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </section>
+
+    <!-- ADVENTURE PHOTOS GALLERY -->
+    <section class="section">
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_5379.jpg" alt="">
+        </div>
+        <div class="gallery-photo" onclick="openLightbox(this)">
+          <img src="media/IMG_5397.jpg" alt="">
+        </div>
+        <div class="gallery-photo medium" onclick="openLightbox(this)">
+          <img src="media/IMG_5359.jpg" alt="">
+        </div>
+        <div class="gallery-photo" onclick="openLightbox(this)">
+          <img src="media/IMG_5362.jpg" alt="">
+        </div>
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_0230.jpg" alt="">
+        </div>
+        <div class="gallery-photo medium" onclick="openLightbox(this)">
+          <img src="media/IMG_1795.jpg" alt="">
+        </div>
+        <div class="gallery-photo" onclick="openLightbox(this)">
+          <img src="media/IMG_5516.jpg" alt="">
+        </div>
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_5545.jpg" alt="">
+        </div>
+        <div class="gallery-photo medium" onclick="openLightbox(this)">
+          <img src="media/IMG_5307.jpg" alt="">
+        </div>
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_4402.jpg" alt="">
+        </div>
+        <div class="gallery-photo" onclick="openLightbox(this)">
+          <img src="media/IMG_5949.jpg" alt="">
+        </div>
+        <div class="gallery-photo medium" onclick="openLightbox(this)">
+          <img src="media/IMG_3587.jpg" alt="">
+        </div>
+        <div class="gallery-photo" onclick="openLightbox(this)">
+          <img src="media/IMG_0977.jpg" alt="">
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PART 5: LONG DISTANCE & COMING BACK                          -->
+    <!-- ============================================================ -->
+
+    <div class="section-divider"><span class="hearts">&#128151; &#128151; &#128151;</span></div>
+
+    <!-- ========== CHAPTER 6: ACROSS THE WORLD ========== -->
+    <section class="section chapter">
+      <h2 class="section-title">Chapter 6: Across the World</h2>
+      <p class="story-text">
+        Paris to England. A French girl and an English boy.
+        Thousands of miles apart, but never missing a single day of talking.
+        Over a year of daily calls. Love has no distance.
+      </p>
+      <div class="flip-cards-grid double">
+        <div class="flip-card" onclick="flipCard(this)">
+          <div class="flip-card-inner">
+            <div class="flip-card-front">&#127481;&#127479;</div>
+            <div class="flip-card-back">
+              <div class="memory-title">Paris</div>
+              Where my French girl lives. The city of love suits her perfectly.
+            </div>
+          </div>
+        </div>
+        <div class="flip-card" onclick="flipCard(this)">
+          <div class="flip-card-inner">
+            <div class="flip-card-front">&#127468;&#127463;</div>
+            <div class="flip-card-back">
+              <div class="memory-title">England</div>
+              Where I count down every moment until I see her again.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LONG DISTANCE PHOTOS -->
+    <section class="section">
+      <div class="photo-gallery">
+        <div class="gallery-photo" onclick="openLightbox(this)">
+          <img src="media/IMG_6733.jpg" alt="">
+        </div>
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_6737.jpg" alt="">
+        </div>
+        <div class="gallery-photo medium" onclick="openLightbox(this)">
+          <img src="media/IMG_7029.jpg" alt="">
+        </div>
+        <div class="gallery-photo" onclick="openLightbox(this)">
+          <img src="media/IMG_7032.jpg" alt="">
+        </div>
+      </div>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#10024;</span></div>
+
+    <!-- TRICK QUESTION -->
+    <section class="section">
+      <div class="trick-question" data-answered="false">
+        <h3>Who says "I love you" the most? &#128149;</h3>
+        <div class="trick-buttons">
+          <button class="trick-btn correct" onclick="answerTrick(this, true)">Courtnee</button>
+          <button class="trick-btn wrong" onmouseover="runAway(this)" onclick="runAway(this)">Celine</button>
+        </div>
+        <div class="trick-result">&#128151; Correct!</div>
+      </div>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#128151; &#128151; &#128151;</span></div>
+
+    <!-- ========== CHAPTER 7: SAIGON ========== -->
+    <section class="section chapter">
+      <h2 class="section-title">Chapter 7: Saigon</h2>
+      <p class="story-text">
+        I couldn't stay away. I knew I had to see you again.
+        So I flew to Saigon... just for you.
+      </p>
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/IMG_5902.JPG" alt="">
+        </div>
+      </div>
+    </section>
+
+    <!-- VIDEO MEMORIES -->
+    <section class="section">
+      <h2 class="section-title">Moving Memories</h2>
+      <p class="section-subtitle">Tap to play our favorite moments</p>
+      <div class="video-gallery">
+        <div class="video-item">
+          <video controls playsinline>
+            <source src="media/5DBB7FD0-B9F5-4839-9FB5-EC5563C9CD8B.MP4" type="video/mp4">
+          </video>
+        </div>
+        <div class="video-item">
+          <video controls playsinline>
+            <source src="media/8DA9DFEA-FE00-435F-9ED9-4D08CC285753.MP4" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PART 6: INTERACTIVE FUN                                      -->
+    <!-- ============================================================ -->
+
+    <div class="section-divider"><span class="hearts">&#127922; &#127922; &#127922;</span></div>
+
+    <!-- DATE NIGHT WHEEL -->
+    <section class="section">
+      <h2 class="section-title">Date Night Wheel</h2>
+      <p class="section-subtitle">Spin for our next adventure!</p>
+      <div class="wheel-container">
+        <div class="wheel-wrapper">
+          <div class="wheel-pointer">&#128315;</div>
+          <canvas id="wheelCanvas" width="280" height="280"></canvas>
+        </div>
+        <button class="spin-btn" id="spinBtn" onclick="spinWheel()">Spin the Wheel!</button>
+        <div class="wheel-result" id="wheelResult"></div>
+      </div>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#10024;</span></div>
+
+    <!-- LOVE QUIZ -->
+    <section class="section">
+      <h2 class="section-title">Love Quiz</h2>
+      <p class="section-subtitle">How well do you know our story?</p>
+      <div class="quiz-container">
+        <div class="quiz-question active" id="q1">
+          <h3>Where did we first meet?</h3>
+          <div class="quiz-options">
+            <button class="quiz-option" onclick="answerQuiz(1, 'a')">Hi4 Coffee</button>
+            <button class="quiz-option" onclick="answerQuiz(1, 'b')">Quoc Cuong Hostel</button>
+            <button class="quiz-option" onclick="answerQuiz(1, 'c')">The beach</button>
+          </div>
+        </div>
+        <div class="quiz-question" id="q2">
+          <h3>What fell from her bunk?</h3>
+          <div class="quiz-options">
+            <button class="quiz-option" onclick="answerQuiz(2, 'a')">Her phone</button>
+            <button class="quiz-option" onclick="answerQuiz(2, 'b')">Her book</button>
+            <button class="quiz-option" onclick="answerQuiz(2, 'c')">Her hoodie</button>
+          </div>
+        </div>
+        <div class="quiz-question" id="q3">
+          <h3>What date did we meet?</h3>
+          <div class="quiz-options">
+            <button class="quiz-option" onclick="answerQuiz(3, 'a')">November 11, 2024</button>
+            <button class="quiz-option" onclick="answerQuiz(3, 'b')">December 25, 2024</button>
+            <button class="quiz-option" onclick="answerQuiz(3, 'c')">October 1, 2024</button>
+          </div>
+        </div>
+        <div class="quiz-question" id="q4">
+          <h3>Where did she ask him to sit close?</h3>
+          <div class="quiz-options">
+            <button class="quiz-option" onclick="answerQuiz(4, 'a')">The hostel</button>
+            <button class="quiz-option" onclick="answerQuiz(4, 'b')">Hi4 Coffee</button>
+            <button class="quiz-option" onclick="answerQuiz(4, 'c')">The pool hall</button>
+          </div>
+        </div>
+        <div class="quiz-result" id="quizResult">
+          <div class="quiz-score" id="quizScore">0/4</div>
+          <div class="quiz-message" id="quizMessage"></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#128140;</span></div>
+
+    <!-- WRITE A MESSAGE -->
+    <section class="section">
+      <h2 class="section-title">Write Back to Me</h2>
+      <p class="section-subtitle">Leave your message for Courtnee</p>
+      <div class="message-input-section">
+        <textarea id="loveMessage" placeholder="Write your message here..."></textarea>
+        <button class="save-message-btn" onclick="saveMessage()">Save My Message &#10084;&#65039;</button>
+        <div class="saved-message" id="savedMessage">Message saved to your heart &#128151;</div>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- PART 7: FOREVER                                              -->
+    <!-- ============================================================ -->
+
+    <div class="section-divider"><span class="hearts">&#128151; &#128151; &#128151;</span></div>
+
+    <!-- COUNTER -->
+    <section class="section counter-section">
+      <div class="counter-number" id="dayCount">0</div>
+      <div class="counter-label">days of loving you</div>
+      <p style="color: rgba(255,255,255,0.6); margin-top: 0.5rem;">Since November 11, 2024</p>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#128139; &#128139; &#128139;</span></div>
+
+    <!-- BEST KISS BANNER -->
+    <section class="section" style="background: linear-gradient(135deg, rgba(229, 115, 115, 0.3) 0%, rgba(198, 40, 40, 0.3) 100%); border-radius: 30px; padding: 3rem; border: 2px solid var(--muted-red);">
+      <h2 class="section-title" style="font-size: clamp(2rem, 6vw, 3rem); margin-bottom: 0.5rem;">Our Best Kiss Yet</h2>
+      <p class="story-text" style="font-size: 1.5rem; margin-bottom: 2rem;">(Practice for millionz more to come)</p>
+      <div class="video-gallery" style="max-width: 600px; margin: 0 auto;">
+        <div class="video-item" style="border-radius: 20px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.5);">
+          <video controls playsinline id="bestKissVideo" style="width: 100%;">
+            <source src="media/IMG_3267.MOV" type="video/mp4">
+          </video>
+        </div>
+      </div>
+      <script>
+        document.getElementById('bestKissVideo').addEventListener('loadedmetadata', function() {
+          this.currentTime = 10;
+        });
+      </script>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#128081;</span></div>
+
+    <!-- NEVER END PHOTO -->
+    <section class="section" style="background: linear-gradient(135deg, rgba(229, 115, 115, 0.2) 0%, rgba(198, 40, 40, 0.2) 100%); border-radius: 30px; padding: 3rem; border: 1px solid rgba(229, 115, 115, 0.3);">
+      <p class="story-text" style="font-size: 1.8rem;">Let's never ever make this end &#128151;</p>
+      <div class="photo-gallery">
+        <div class="gallery-photo large" onclick="openLightbox(this)">
+          <img src="media/never_end.jpg" alt="">
+        </div>
+      </div>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#128151; &#128151; &#128151;</span></div>
+
+    <!-- SEE YOU SOON -->
+    <section class="section">
+      <div class="surprise-tease">
+        <div class="mystery-emoji">&#9992;&#65039;&#128151;</div>
+        <p>See you in a few hours my love...</p>
+        <p style="font-size: 1.2rem; margin-top: 0.5rem; color: rgba(255,255,255,0.7);">I can't wait to hold you again.</p>
+      </div>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#128151;</span></div>
+
+    <!-- FINAL MESSAGE -->
+    <section class="section">
+      <div class="final-message">
+        <h2>My Darling Celine</h2>
+        <blockquote>
+          "You're unbelievably special and I tell you everyday how amazing you are and what you are capable of. Never stop being the shining light you are and I will look after you forever and we can make many more memories together."
+        </blockquote>
+        <p class="signature">Forever yours, Courtnee &#10084;&#65039;</p>
+      </div>
+    </section>
+
+    <div class="section-divider"><span class="hearts">&#128151; &#128151; &#128151;</span></div>
+
+    <!-- VALENTINE QUESTION -->
+    <section class="section valentine-question" id="valentineQuestion">
+      <h2>Will you be my Valentine?</h2>
+      <div class="answer-buttons">
+        <button class="answer-btn yes" onclick="sayYes()">Yes! &#128151;</button>
+        <button class="answer-btn no" id="noBtn" onmouseover="moveNoButton()" onclick="moveNoButton()">No</button>
+      </div>
+    </section>
+
+    <!-- CELEBRATION -->
+    <section class="celebration" id="celebration">
+      <div class="celebration-hearts">&#128151; &#128150; &#128151;</div>
+      <h1 class="celebration-title">I Love You!</h1>
+      <div class="celebration-hearts">&#128151; &#128150; &#128151;</div>
+      <p style="font-size: 1.3rem; margin-top: 1rem;">Every day with you is a gift.</p>
+      <p style="font-family: 'Pacifico', cursive; font-size: 1.5rem; color: var(--soft-pink); margin-top: 1rem;">Forever & Always &#10084;&#65039;</p>
+    </section>
+
+  </div>
+
+  <script>
+    // ==================== INITIALIZATION ====================
+    document.addEventListener('DOMContentLoaded', () => {
+      createStars();
+      initScrollAnimations();
+      animateCounter();
+      initWheel();
+    });
+
+    // Create stars
+    function createStars() {
+      const container = document.getElementById('stars');
+      for (let i = 0; i < 100; i++) {
+        const star = document.createElement('div');
+        star.className = 'star';
+        star.style.left = Math.random() * 100 + '%';
+        star.style.top = Math.random() * 100 + '%';
+        star.style.animationDelay = Math.random() * 2 + 's';
+        star.style.width = (Math.random() * 3 + 1) + 'px';
+        star.style.height = star.style.width;
+        container.appendChild(star);
+      }
+    }
+
+    // ==================== SCROLL ANIMATIONS ====================
+    function initScrollAnimations() {
+      const sections = document.querySelectorAll('.section, .section-divider');
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+          }
+        });
+      }, { threshold: 0.1 });
+
+      sections.forEach(section => observer.observe(section));
+    }
+
+    // ==================== FLIP CARDS ====================
+    function flipCard(card) {
+      card.classList.toggle('flipped');
+    }
+
+    // ==================== TRICK QUESTIONS ====================
+    function runAway(btn) {
+      const question = btn.closest('.trick-question');
+      if (question.dataset.answered === 'true') return;
+
+      // Move instantly and far away
+      const directions = [
+        { x: -200, y: -80 },
+        { x: 200, y: -80 },
+        { x: -200, y: 80 },
+        { x: 200, y: 80 },
+        { x: 0, y: -120 },
+        { x: 0, y: 120 },
+        { x: -250, y: 0 },
+        { x: 250, y: 0 }
+      ];
+
+      const randomDir = directions[Math.floor(Math.random() * directions.length)];
+      const currentTransform = btn.style.transform;
+      const currentX = currentTransform ? parseFloat(currentTransform.match(/translate\(([-\d.]+)px/)?.[1] || 0) : 0;
+      const currentY = currentTransform ? parseFloat(currentTransform.match(/, ([-\d.]+)px/)?.[1] || 0) : 0;
+
+      const newX = currentX + randomDir.x + (Math.random() * 50 - 25);
+      const newY = currentY + randomDir.y + (Math.random() * 30 - 15);
+
+      btn.style.transform = `translate(${newX}px, ${newY}px)`;
+    }
+
+    let kissCount = 0;
+
+    function answerTrick(btn, isCorrect) {
+      const question = btn.closest('.trick-question');
+      if (question.dataset.answered === 'true') return;
+
+      question.dataset.answered = 'true';
+      btn.classList.add('answered');
+
+      const result = question.querySelector('.trick-result');
+      result.classList.add('show');
+
+      // Disable wrong button
+      const wrongBtn = question.querySelector('.trick-btn.wrong');
+      if (wrongBtn) {
+        wrongBtn.style.transform = 'none';
+        wrongBtn.style.opacity = '0.3';
+      }
+
+      // Kiss animation and counter
+      kissCount++;
+      updateKissCounter();
+      showKissAnimation();
+    }
+
+    function updateKissCounter() {
+      const counter = document.getElementById('kissCounter');
+      const countEl = document.getElementById('kissCount');
+      countEl.textContent = kissCount;
+
+      counter.classList.remove('pulse');
+      void counter.offsetWidth; // Trigger reflow
+      counter.classList.add('pulse');
+    }
+
+    function showKissAnimation() {
+      const overlay = document.getElementById('kissOverlay');
+      const kisses = ['&#128139;', '&#128140;', '&#128147;', '&#128151;', '&#128152;', '&#128153;', '&#128154;', '&#128155;', '&#128156;', '&#128157;', '&#128158;', '&#129505;'];
+
+      // Create multiple flying kisses
+      for (let i = 0; i < 15; i++) {
+        setTimeout(() => {
+          const kiss = document.createElement('div');
+          kiss.className = 'flying-kiss';
+          kiss.innerHTML = kisses[Math.floor(Math.random() * kisses.length)];
+          kiss.style.left = Math.random() * 100 + '%';
+          kiss.style.top = Math.random() * 100 + '%';
+          kiss.style.fontSize = (2 + Math.random() * 3) + 'rem';
+          kiss.style.animationDuration = (1 + Math.random() * 1) + 's';
+          overlay.appendChild(kiss);
+
+          setTimeout(() => kiss.remove(), 2000);
+        }, i * 80);
+      }
+    }
+
+    // ==================== SPIN WHEEL ====================
+    const dateIdeas = ['Movie Night', 'Dinner Date', 'Picnic', 'Road Trip', 'Cooking Together', 'Stargazing', 'Beach Day', 'Game Night'];
+    const wheelColors = ['#E57373', '#F48FB1', '#CE93D8', '#B39DDB', '#9FA8DA', '#90CAF9', '#81D4FA', '#80DEEA'];
+    let currentRotation = 0;
+    let isSpinning = false;
+
+    function initWheel() {
+      const canvas = document.getElementById('wheelCanvas');
+      const ctx = canvas.getContext('2d');
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const radius = 135;
+
+      const segmentAngle = (2 * Math.PI) / dateIdeas.length;
+
+      dateIdeas.forEach((idea, i) => {
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.arc(centerX, centerY, radius, i * segmentAngle, (i + 1) * segmentAngle);
+        ctx.closePath();
+        ctx.fillStyle = wheelColors[i];
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.stroke();
+
+        ctx.save();
+        ctx.translate(centerX, centerY);
+        ctx.rotate(i * segmentAngle + segmentAngle / 2);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = 'white';
+        ctx.font = 'bold 11px Indie Flower';
+        ctx.fillText(idea, radius - 15, 4);
+        ctx.restore();
+      });
+
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 20, 0, 2 * Math.PI);
+      ctx.fillStyle = 'white';
+      ctx.fill();
+    }
+
+    function spinWheel() {
+      if (isSpinning) return;
+      isSpinning = true;
+
+      const canvas = document.getElementById('wheelCanvas');
+      const btn = document.getElementById('spinBtn');
+      btn.disabled = true;
+
+      const spins = 5 + Math.random() * 5;
+      const extraAngle = Math.random() * 360;
+      const totalRotation = spins * 360 + extraAngle;
+
+      currentRotation += totalRotation;
+      canvas.style.transition = 'transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99)';
+      canvas.style.transform = `rotate(${currentRotation}deg)`;
+
+      setTimeout(() => {
+        const normalizedAngle = (360 - (currentRotation % 360) + 90) % 360;
+        const segmentAngle = 360 / dateIdeas.length;
+        const index = Math.floor(normalizedAngle / segmentAngle) % dateIdeas.length;
+
+        document.getElementById('wheelResult').innerHTML = `Next date: <strong>${dateIdeas[index]}</strong>! &#128151;`;
+        btn.disabled = false;
+        isSpinning = false;
+      }, 4000);
+    }
+
+    // ==================== INTERACTIVE MAP ====================
+    const locationData = {
+      danang: {
+        title: 'Da Nang, Vietnam',
+        desc: 'Where it all began. Quoc Cuong Hostel, the hoodie drop, Hi4 Coffee, and the scooter rides. Our story started here.'
+      },
+      kl: {
+        title: 'Kuala Lumpur, Malaysia',
+        desc: 'Exploring the city together, trying new foods, making memories.'
+      },
+      penang: {
+        title: 'Penang, Malaysia',
+        desc: 'More adventures, more memories. Every trip with you is an adventure.'
+      },
+      hongkong: {
+        title: 'Hong Kong',
+        desc: 'City lights and late nights. Another chapter in our book.'
+      },
+      paris: {
+        title: 'Paris, France',
+        desc: 'Your home. The city of love. Where my French girl lives.'
+      },
+      england: {
+        title: 'England',
+        desc: 'My home. Where I count down the days until I see you again.'
+      }
+    };
+
+    function showLocation(loc) {
+      const data = locationData[loc];
+      document.getElementById('locationTitle').innerHTML = data.title;
+      document.getElementById('locationDesc').innerHTML = data.desc;
+      document.getElementById('locationPopup').classList.add('show');
+      document.getElementById('overlay').classList.add('show');
+    }
+
+    function closeLocationPopup() {
+      document.getElementById('locationPopup').classList.remove('show');
+      document.getElementById('overlay').classList.remove('show');
+    }
+
+    document.getElementById('overlay').addEventListener('click', closeLocationPopup);
+
+    // ==================== LOVE QUIZ ====================
+    const quizAnswers = { 1: 'b', 2: 'c', 3: 'a', 4: 'b' };
+    let currentQuestion = 1;
+    let score = 0;
+
+    function answerQuiz(q, answer) {
+      const question = document.getElementById(`q${q}`);
+      const options = question.querySelectorAll('.quiz-option');
+
+      options.forEach(opt => {
+        opt.disabled = true;
+        const optAnswer = opt.onclick.toString().match(/'([a-c])'/)[1];
+        if (optAnswer === quizAnswers[q]) {
+          opt.classList.add('correct');
+        } else if (optAnswer === answer && answer !== quizAnswers[q]) {
+          opt.classList.add('wrong');
+        }
+      });
+
+      if (answer === quizAnswers[q]) score++;
+
+      setTimeout(() => {
+        question.classList.remove('active');
+        currentQuestion++;
+
+        if (currentQuestion <= 4) {
+          document.getElementById(`q${currentQuestion}`).classList.add('active');
+        } else {
+          showQuizResult();
+        }
+      }, 1200);
+    }
+
+    function showQuizResult() {
+      const result = document.getElementById('quizResult');
+      result.classList.add('show');
+      document.getElementById('quizScore').textContent = `${score}/4`;
+
+      const messages = [
+        "We should talk more! &#128521;",
+        "Not bad! You know some things!",
+        "Pretty good! You pay attention!",
+        "Amazing! You know our story by heart! &#128151;"
+      ];
+      document.getElementById('quizMessage').innerHTML = messages[score];
+    }
+
+    // ==================== MESSAGE INPUT ====================
+    function saveMessage() {
+      const message = document.getElementById('loveMessage').value;
+      if (message.trim()) {
+        localStorage.setItem('celineMessage', message);
+        document.getElementById('savedMessage').classList.add('show');
+      }
+    }
+
+    const savedMsg = localStorage.getItem('celineMessage');
+    if (savedMsg) {
+      document.getElementById('loveMessage').value = savedMsg;
+    }
+
+    // ==================== COUNTER ====================
+    function animateCounter() {
+      const startDate = new Date('2024-11-11');
+      const today = new Date();
+      const diffTime = Math.abs(today - startDate);
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+      const counterEl = document.getElementById('dayCount');
+      let currentCount = 0;
+      const increment = Math.ceil(diffDays / 50);
+
+      const timer = setInterval(() => {
+        currentCount += increment;
+        if (currentCount >= diffDays) {
+          currentCount = diffDays;
+          clearInterval(timer);
+        }
+        counterEl.textContent = currentCount;
+      }, 40);
+    }
+
+    // ==================== VALENTINE QUESTION ====================
+    function moveNoButton() {
+      const btn = document.getElementById('noBtn');
+      const maxX = window.innerWidth - btn.offsetWidth - 50;
+      const maxY = window.innerHeight - btn.offsetHeight - 50;
+      btn.style.position = 'fixed';
+      btn.style.left = Math.max(20, Math.random() * maxX) + 'px';
+      btn.style.top = Math.max(20, Math.random() * maxY) + 'px';
+      btn.style.zIndex = 1000;
+    }
+
+    function sayYes() {
+      createConfetti();
+      document.getElementById('valentineQuestion').style.display = 'none';
+      document.getElementById('celebration').classList.add('show');
+    }
+
+    function createConfetti() {
+      const container = document.getElementById('confetti');
+      const colors = ['#e74c3c', '#FFE4E6', '#FF69B4', '#FFD700', '#FFF', '#E57373'];
+
+      for (let i = 0; i < 150; i++) {
+        const piece = document.createElement('div');
+        piece.className = 'confetti-piece';
+        piece.style.left = Math.random() * 100 + '%';
+        piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+        piece.style.animationDelay = Math.random() * 2 + 's';
+        piece.style.animationDuration = (3 + Math.random() * 2) + 's';
+        container.appendChild(piece);
+
+        setTimeout(() => piece.remove(), 5000);
+      }
+    }
+
+    // ==================== LIGHTBOX ====================
+    let currentPhotoIndex = 0;
+    let galleryPhotos = [];
+
+    function openLightbox(element) {
+      galleryPhotos = Array.from(document.querySelectorAll('.gallery-photo'));
+      currentPhotoIndex = galleryPhotos.indexOf(element);
+
+      const img = element.querySelector('img');
+      const caption = element.querySelector('.photo-caption');
+
+      document.getElementById('lightboxImg').src = img.src;
+      document.getElementById('lightboxCaption').textContent = caption ? caption.textContent : '';
+      document.getElementById('lightbox').classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeLightbox(event) {
+      if (event && event.target !== event.currentTarget && !event.target.classList.contains('lightbox-close')) {
+        return;
+      }
+      document.getElementById('lightbox').classList.remove('open');
+      document.body.style.overflow = '';
+    }
+
+    function navigateLightbox(direction, event) {
+      if (event) event.stopPropagation();
+
+      currentPhotoIndex += direction;
+      if (currentPhotoIndex < 0) currentPhotoIndex = galleryPhotos.length - 1;
+      if (currentPhotoIndex >= galleryPhotos.length) currentPhotoIndex = 0;
+
+      const photo = galleryPhotos[currentPhotoIndex];
+      const img = photo.querySelector('img');
+      const caption = photo.querySelector('.photo-caption');
+
+      document.getElementById('lightboxImg').src = img.src;
+      document.getElementById('lightboxCaption').textContent = caption ? caption.textContent : '';
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (!document.getElementById('lightbox').classList.contains('open')) return;
+      if (e.key === 'Escape') closeLightbox();
+      if (e.key === 'ArrowLeft') navigateLightbox(-1);
+      if (e.key === 'ArrowRight') navigateLightbox(1);
+    });
+  </script>
+</body>
+</html>

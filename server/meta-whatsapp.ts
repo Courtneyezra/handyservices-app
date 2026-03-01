@@ -25,7 +25,7 @@ const GRAPH_API_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 // Twilio credentials (for sending via Twilio WhatsApp API)
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER || '+15558601738';
+const TWILIO_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER || '+15558874602';
 
 export const metaWhatsAppRouter = Router();
 

@@ -112,24 +112,23 @@ export const SEGMENT_CONFIGS: Record<CallScriptSegment, SegmentConfig> = {
     },
     EMERGENCY: {
         id: 'EMERGENCY',
-        name: 'Emergency',
+        name: '🚨 Emergency (Urgency Overlay)',
         color: '#EF4444', // red
-        oneLiner: 'Fast track - get address NOW',
+        oneLiner: 'URGENCY FLAG — overlays any segment. Not a standalone segment.',
         defaultDestination: 'EMERGENCY_DISPATCH',
         detectionKeywords: [
             'flooding',
             'burst',
             'no heating',
             'locked out',
-            'urgent',
             'emergency',
-            'today',
-            'ASAP',
-            'right now',
-            'leak',
             'water everywhere',
             'no hot water',
             'boiler broken',
+            'ceiling leaking',
+            'sparks',
+            'gas leak',
+            'smell gas',
         ],
         watchForSignals: ['not actually urgent → regular flow'],
     },
@@ -202,4 +201,38 @@ export function detectSegmentFromText(text: string): { segment: CallScriptSegmen
  */
 export function getDefaultDestination(segmentId: CallScriptSegment): CallScriptDestination {
     return SEGMENT_CONFIGS[segmentId].defaultDestination;
+}
+
+/**
+ * Emergency keywords for urgency overlay detection.
+ * These keywords indicate the call has emergency urgency regardless of segment.
+ * The segment (LANDLORD, BUSY_PRO, etc.) stays the same — urgency is a separate flag.
+ */
+export const EMERGENCY_OVERLAY_KEYWORDS = [
+    'flooding', 'flooded', 'burst pipe', 'burst',
+    'water pouring', 'water everywhere', 'water coming through',
+    'no heating', 'no hot water', 'boiler broken', 'boiler stopped',
+    'locked out', 'lost keys',
+    'sparks', 'electrical fire', 'burning smell',
+    'gas leak', 'smell gas',
+    'ceiling leaking', 'ceiling collapsed',
+];
+
+/**
+ * Detect if a transcript contains emergency urgency signals.
+ * Returns true if emergency keywords found — this should trigger
+ * the red emergency banner overlay on top of whatever segment is detected.
+ */
+export function detectEmergencyUrgency(text: string): {
+    isEmergency: boolean;
+    keywords: string[];
+} {
+    const normalizedText = text.toLowerCase();
+    const matched = EMERGENCY_OVERLAY_KEYWORDS.filter(kw =>
+        normalizedText.includes(kw)
+    );
+    return {
+        isEmergency: matched.length > 0,
+        keywords: matched,
+    };
 }
