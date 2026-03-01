@@ -24,6 +24,7 @@ import {
 import { eq, and, desc, asc, inArray, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import crypto from 'crypto';
+import { sendWhatsAppMessage } from './meta-whatsapp';
 
 export const landlordPortalRouter = Router();
 
@@ -469,6 +470,18 @@ landlordPortalRouter.post('/:token/properties/:propertyId/tenants', verifyLandlo
         };
 
         await db.insert(tenants).values(newTenant);
+
+        // Send tenant welcome message via WhatsApp
+        try {
+            await sendWhatsAppMessage(
+                normalizedPhone,
+                `Hi ${name}! Welcome to Handy Services at ${property.address}. You can report any maintenance issues by messaging us here. We'll take care of everything. \uD83C\uDFE0`
+            );
+            console.log(`[LandlordPortal] Tenant welcome message sent to ${normalizedPhone}`);
+        } catch (err) {
+            console.error(`[LandlordPortal] Failed to send tenant welcome message:`, err);
+            // Don't fail the tenant creation if the message fails
+        }
 
         // Generate WhatsApp link for tenant
         const whatsappNumber = process.env.TWILIO_WHATSAPP_NUMBER?.replace('+', '') || '15558874602';
