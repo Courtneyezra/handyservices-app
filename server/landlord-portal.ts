@@ -471,7 +471,7 @@ landlordPortalRouter.post('/:token/properties/:propertyId/tenants', verifyLandlo
         await db.insert(tenants).values(newTenant);
 
         // Generate WhatsApp link for tenant
-        const whatsappNumber = process.env.TWILIO_WHATSAPP_NUMBER?.replace('+', '') || '15558601738';
+        const whatsappNumber = process.env.TWILIO_WHATSAPP_NUMBER?.replace('+', '') || '15558874602';
         const welcomeMessage = `Hi, I'm ${name} at ${property.address}`;
         const whatsappLink = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(welcomeMessage)}`;
 

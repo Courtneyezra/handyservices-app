@@ -9,6 +9,7 @@
  */
 
 import type { SegmentType } from '@shared/schema';
+import type { UrgencyLevel, EmergencyDetection } from '@shared/schema';
 
 // ============================================================================
 // SEGMENT DEFINITIONS
@@ -826,4 +827,140 @@ export function detectSegmentFromText(text: string): {
     confidence,
     matchedSignals: scores[bestSegment].matches,
   };
+}
+
+// ============================================================================
+// EMERGENCY KEYWORDS (Urgency Overlay, NOT a segment)
+// ============================================================================
+
+const EMERGENCY_KEYWORDS = [
+  'flooding', 'flooded', 'flood',
+  'burst pipe', 'burst', 'water pouring', 'water everywhere', 'water coming through',
+  'no heating', 'no hot water', 'boiler broken', 'boiler stopped', 'heating gone',
+  'locked out', 'lost keys', 'cant get in', "can't get in",
+  'sparks', 'electrical fire', 'burning smell', 'smoke',
+  'gas leak', 'smell gas', 'gas smell',
+  'ceiling leaking', 'ceiling collapsed', 'ceiling coming down',
+];
+
+const EMERGENCY_TYPE_MAP: Record<string, EmergencyDetection['emergencyType']> = {
+  'flooding': 'water', 'flooded': 'water', 'flood': 'water',
+  'burst pipe': 'water', 'burst': 'water', 'water pouring': 'water',
+  'water everywhere': 'water', 'water coming through': 'water',
+  'ceiling leaking': 'water', 'ceiling collapsed': 'water', 'ceiling coming down': 'water',
+  'no heating': 'heating', 'no hot water': 'heating', 'boiler broken': 'heating',
+  'boiler stopped': 'heating', 'heating gone': 'heating',
+  'locked out': 'lockout', 'lost keys': 'lockout', 'cant get in': 'lockout', "can't get in": 'lockout',
+  'sparks': 'electrical', 'electrical fire': 'electrical', 'burning smell': 'electrical', 'smoke': 'electrical',
+  'gas leak': 'gas', 'smell gas': 'gas', 'gas smell': 'gas',
+};
+
+/**
+ * Detect emergency urgency from text.
+ * Emergency is NOT a segment — it's a timing/urgency flag that overlays any segment.
+ * A landlord with a burst pipe is still a LANDLORD, just with emergency urgency.
+ */
+export function detectEmergencyFromText(text: string): EmergencyDetection {
+  const normalizedText = text.toLowerCase();
+  const detectedKeywords: string[] = [];
+  let emergencyType: EmergencyDetection['emergencyType'] = null;
+
+  for (const keyword of EMERGENCY_KEYWORDS) {
+    if (normalizedText.includes(keyword)) {
+      detectedKeywords.push(keyword);
+      if (!emergencyType && EMERGENCY_TYPE_MAP[keyword]) {
+        emergencyType = EMERGENCY_TYPE_MAP[keyword];
+      }
+    }
+  }
+
+  return {
+    isEmergency: detectedKeywords.length > 0,
+    emergencyType,
+    detectedKeywords,
+  };
+}
+
+// ============================================================================
+// URGENCY TIER MULTIPLIERS (Applied on top of segment pricing)
+// ============================================================================
+
+export const URGENCY_MULTIPLIERS: Record<UrgencyLevel, number> = {
+  standard: 1.0,
+  priority: 1.25,
+  emergency: 1.5,
+};
+
+/**
+ * Map checklist timing answer to urgency level
+ */
+export function getUrgencyFromTiming(timing: string | null, isEmergency: boolean): UrgencyLevel {
+  if (isEmergency) return 'emergency';
+  if (timing === 'this_week') return 'priority';
+  return 'standard';
+}
+
+// ============================================================================
+// CHECKLIST-BASED SEGMENT CLASSIFICATION
+// ============================================================================
+
+/**
+ * Deterministic segment classification from checklist answers.
+ * This is the primary classification method during live calls.
+ * Returns the segment and confidence based on answered questions.
+ */
+export function classifyFromChecklist(answers: {
+  property: 'own_home' | 'rental_owned' | 'rental_managed' | 'business' | null;
+  access: 'present' | 'key_safe' | 'tenant' | 'unknown' | null;
+  volume: 'single' | 'list' | 'ongoing' | null;
+  decision: 'owner' | 'needs_approval' | 'just_prices' | null;
+}): { segment: SegmentType; confidence: number; reasoning: string } {
+  const { property, access, volume, decision } = answers;
+
+  // Count how many questions have been answered
+  const answeredCount = [property, access, volume, decision].filter(Boolean).length;
+  const baseConfidence = Math.min(answeredCount * 25, 95);
+
+  // Decision shortcuts (can override property-based detection)
+  if (decision === 'needs_approval') {
+    return { segment: 'BUDGET', confidence: baseConfidence, reasoning: 'Needs approval — likely tenant or non-decision-maker' };
+  }
+  if (decision === 'just_prices') {
+    return { segment: 'BUDGET', confidence: baseConfidence, reasoning: 'Just getting prices — budget/price-shopping signal' };
+  }
+
+  // Property-based primary classification
+  if (property === 'business') {
+    return { segment: 'SMALL_BIZ', confidence: baseConfidence, reasoning: 'Business property' };
+  }
+
+  if (property === 'rental_managed') {
+    return { segment: 'PROP_MGR', confidence: baseConfidence, reasoning: 'Manages rental properties (portfolio)' };
+  }
+
+  if (property === 'rental_owned') {
+    return { segment: 'LANDLORD', confidence: baseConfidence, reasoning: 'Owns rental property' };
+  }
+
+  if (property === 'own_home') {
+    // Sub-classify homeowners by access and volume
+    if (access === 'key_safe' || access === 'tenant') {
+      return { segment: 'BUSY_PRO', confidence: baseConfidence, reasoning: 'Own home but won\'t be there — busy professional' };
+    }
+    if (volume === 'list') {
+      return { segment: 'DIY_DEFERRER', confidence: baseConfidence, reasoning: 'Own home with a list of jobs — DIY deferrer' };
+    }
+    if (access === 'present' && volume === 'single') {
+      return { segment: 'DEFAULT', confidence: Math.max(baseConfidence - 10, 40), reasoning: 'Homeowner, present, single job — default segment' };
+    }
+    // Partial info
+    return { segment: 'DEFAULT', confidence: Math.max(baseConfidence - 15, 30), reasoning: 'Own home, need more info to classify' };
+  }
+
+  // No property answer yet
+  if (access === 'key_safe') {
+    return { segment: 'BUSY_PRO', confidence: 50, reasoning: 'Key safe mentioned — likely busy professional' };
+  }
+
+  return { segment: 'DEFAULT', confidence: 20, reasoning: 'Insufficient information to classify' };
 }

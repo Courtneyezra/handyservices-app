@@ -591,6 +591,7 @@ export const ownershipContextEnum = z.enum(['tenant', 'homeowner', 'landlord', '
 export const desiredTimeframeEnum = z.enum(['flex', 'week', 'asap']);
 
 // B1.1: Segmentation Enums (Phase 1 Master Plan)
+// Note: EMERGENCY is deprecated as a segment. It is now an urgency flag (isEmergency) that overlays any segment.
 export const segmentEnum = z.enum(['EMERGENCY', 'BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER', 'BUDGET', 'DEFAULT']);
 export type SegmentType = z.infer<typeof segmentEnum>;
 export const jobTypeEnum = z.enum(['SINGLE', 'COMPLEX', 'MULTIPLE']);
@@ -1340,6 +1341,29 @@ export interface CallScriptCapturedInfo {
     isDecisionMaker: boolean | null;
     isRemote: boolean | null;
     hasTenant: boolean | null;
+    urgencyLevel: UrgencyLevel | null;
+    isEmergency: boolean;
+    emergencyType: string | null;
+    checklistAnswers: SegmentChecklistAnswers | null;
+}
+
+// Urgency level - overlays any segment (Emergency is not a segment, it's a timing flag)
+export type UrgencyLevel = 'standard' | 'priority' | 'emergency';
+
+// Checklist answers for live call segmentation
+export interface SegmentChecklistAnswers {
+    property: 'own_home' | 'rental_owned' | 'rental_managed' | 'business' | null;
+    access: 'present' | 'key_safe' | 'tenant' | 'unknown' | null;
+    volume: 'single' | 'list' | 'ongoing' | null;
+    decision: 'owner' | 'needs_approval' | 'just_prices' | null;
+    timing: 'flexible' | 'this_week' | 'emergency' | null;
+}
+
+// Emergency detection result
+export interface EmergencyDetection {
+    isEmergency: boolean;
+    emergencyType: 'water' | 'gas' | 'heating' | 'lockout' | 'electrical' | null;
+    detectedKeywords: string[];
 }
 
 // Call script state for tracking progress through the tube map
