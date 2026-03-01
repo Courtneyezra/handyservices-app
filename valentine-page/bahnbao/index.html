@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Error 404 - Page Not Found</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .error-container {
+      text-align: center;
+      padding: 2rem;
+      max-width: 500px;
+    }
+
+    .error-code {
+      font-size: 8rem;
+      font-weight: bold;
+      color: #e74c3c;
+      text-shadow: 0 0 50px rgba(231, 76, 60, 0.5);
+      animation: glitch 0.5s infinite;
+    }
+
+    @keyframes glitch {
+      0%, 100% { transform: translate(0); }
+      20% { transform: translate(-2px, 2px); }
+      40% { transform: translate(2px, -2px); }
+      60% { transform: translate(-2px, -2px); }
+      80% { transform: translate(2px, 2px); }
+    }
+
+    .error-title {
+      font-size: 1.8rem;
+      margin: 1rem 0;
+      color: #ccc;
+    }
+
+    .error-message {
+      color: #888;
+      margin-bottom: 2rem;
+      line-height: 1.6;
+    }
+
+    .button-container {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      align-items: center;
+      min-height: 150px;
+      position: relative;
+    }
+
+    .error-btn {
+      padding: 1rem 2rem;
+      font-size: 1.1rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      min-width: 200px;
+    }
+
+    .btn-primary {
+      background: #e74c3c;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #c0392b;
+      transform: scale(1.05);
+    }
+
+    .btn-secondary {
+      background: #333;
+      color: #888;
+      border: 1px solid #444;
+      position: relative;
+      transition: transform 0.1s ease-out;
+    }
+
+    .btn-hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .attempts-counter {
+      margin-top: 1rem;
+      color: #666;
+      font-size: 0.9rem;
+      min-height: 1.5rem;
+    }
+
+    .hint {
+      color: #e74c3c;
+      font-style: italic;
+      animation: fadeIn 0.5s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    /* Loading screen */
+    .loading-screen {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #1a1a2e;
+      z-index: 1000;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .loading-screen.show {
+      display: flex;
+    }
+
+    .loading-heart {
+      font-size: 4rem;
+      animation: heartbeat 0.8s ease-in-out infinite;
+    }
+
+    @keyframes heartbeat {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.2); }
+    }
+
+    .loading-text {
+      margin-top: 1rem;
+      font-size: 1.2rem;
+      color: #FFE4E6;
+    }
+
+    /* Fake console */
+    .fake-console {
+      display: none;
+      background: #0d0d0d;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 2rem;
+      text-align: left;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem;
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+    .fake-console.show {
+      display: block;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .console-line {
+      color: #0f0;
+      margin: 0.3rem 0;
+      opacity: 0;
+      animation: typeLine 0.3s forwards;
+    }
+
+    .console-line.error {
+      color: #e74c3c;
+    }
+
+    .console-line.success {
+      color: #2ecc71;
+    }
+
+    @keyframes typeLine {
+      to { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="error-container" id="errorContainer">
+    <div class="error-code">404</div>
+    <h1 class="error-title">Page Not Found</h1>
+    <p class="error-message">
+      Oops! The page you're looking for doesn't exist or has been moved.
+      <br>Please try again or go back home.
+    </p>
+
+    <div class="button-container" id="buttonContainer">
+      <button class="error-btn btn-secondary" id="tryAgainBtn" onmouseover="runAwayBtn(this)" onclick="runAwayBtn(this)">
+        Try Again
+      </button>
+      <button class="error-btn btn-secondary" id="goBackBtn" onmouseover="runAwayBtn(this)" onclick="runAwayBtn(this)">
+        Go Back Home
+      </button>
+      <button class="error-btn btn-primary btn-hidden" id="secretBtn" onclick="revealSurprise()">
+        Click Me Instead!
+      </button>
+    </div>
+
+    <div class="attempts-counter" id="attemptsCounter"></div>
+
+    <div class="fake-console" id="fakeConsole"></div>
+  </div>
+
+  <div class="loading-screen" id="loadingScreen">
+    <div class="loading-heart">&#128151;</div>
+    <div class="loading-text">Loading something special...</div>
+  </div>
+
+  <script>
+    let attempts = 0;
+    let secretRevealed = false;
+
+    function runAwayBtn(btn) {
+      if (secretRevealed) return;
+
+      attempts++;
+      updateCounter();
+
+      const container = document.getElementById('buttonContainer');
+      const rect = container.getBoundingClientRect();
+
+      // Random position within container bounds
+      const maxX = 100;
+      const maxY = 50;
+
+      const randomX = (Math.random() - 0.5) * maxX * 2;
+      const randomY = (Math.random() - 0.5) * maxY * 2;
+
+      btn.style.transform = `translate(${randomX}px, ${randomY}px)`;
+
+      // After 5 attempts, show hint
+      if (attempts >= 5 && !secretRevealed) {
+        revealSecretButton();
+      }
+    }
+
+    function updateCounter() {
+      const counter = document.getElementById('attemptsCounter');
+      if (attempts < 3) {
+        counter.textContent = '';
+      } else if (attempts < 5) {
+        counter.innerHTML = '<span class="hint">Hmm, having trouble? Keep trying...</span>';
+      } else {
+        counter.innerHTML = '<span class="hint">Maybe try clicking that new button?</span>';
+      }
+    }
+
+    function revealSecretButton() {
+      if (secretRevealed) return;
+      secretRevealed = true;
+
+      const secretBtn = document.getElementById('secretBtn');
+      secretBtn.classList.remove('btn-hidden');
+
+      // Hide the other buttons
+      document.getElementById('tryAgainBtn').style.opacity = '0.3';
+      document.getElementById('goBackBtn').style.opacity = '0.3';
+    }
+
+    function revealSurprise() {
+      // Show fake console
+      const console = document.getElementById('fakeConsole');
+      console.classList.add('show');
+
+      const lines = [
+        { text: '> Checking authorization...', delay: 0 },
+        { text: '> User: Celine', delay: 500 },
+        { text: '> Status: GIRLFRIEND', delay: 1000, class: 'success' },
+        { text: '> Access level: UNLIMITED LOVE', delay: 1500, class: 'success' },
+        { text: '> Loading surprise...', delay: 2000 },
+        { text: '> ERROR: Too much love detected!', delay: 2500, class: 'error' },
+        { text: '> Overriding...', delay: 3000 },
+        { text: '> SUCCESS! Redirecting to your Valentine...', delay: 3500, class: 'success' }
+      ];
+
+      lines.forEach((line, index) => {
+        setTimeout(() => {
+          const lineEl = document.createElement('div');
+          lineEl.className = 'console-line' + (line.class ? ' ' + line.class : '');
+          lineEl.textContent = line.text;
+          lineEl.style.animationDelay = '0s';
+          console.appendChild(lineEl);
+        }, line.delay);
+      });
+
+      // After console animation, show loading and redirect
+      setTimeout(() => {
+        document.getElementById('loadingScreen').classList.add('show');
+
+        setTimeout(() => {
+          window.location.href = 'valentine.html';
+        }, 1500);
+      }, 4500);
+    }
+  </script>
+</body>
+</html>
