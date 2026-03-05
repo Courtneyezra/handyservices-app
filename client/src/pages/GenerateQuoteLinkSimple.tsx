@@ -47,7 +47,7 @@ function calculateBasePriceFromJobs(jobs: DetectedJob[]): number {
 }
 
 // Valid segments for type checking (matches Segment type)
-const VALID_SEGMENTS: Segment[] = ['EMERGENCY', 'BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER'];
+const VALID_SEGMENTS: Segment[] = ['EMERGENCY', 'BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'TRUST_SEEKER', 'OLDER_WOMAN', 'RENTER', 'DIY_DEFERRER'];
 
 export default function GenerateQuoteLinkSimple() {
   const { toast } = useToast();

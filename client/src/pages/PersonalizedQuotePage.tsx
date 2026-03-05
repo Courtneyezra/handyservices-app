@@ -262,6 +262,31 @@ const SEGMENT_TIER_CONFIG: Record<string, { handyFix: string[]; hassleFree: stri
       '👤 Same person for future jobs',
     ]
   },
+  OLDER_WOMAN: {
+    // Single product - trust & safety focused for older customers
+    handyFix: [
+      'Quality workmanship',
+      'Full cleanup included',
+      'Scheduled within 2 weeks',
+      'Clear communication throughout',
+    ],
+    // This is the tier shown (enhanced = "Peace of Mind Service")
+    hassleFree: [
+      '🛡️ DBS-checked & ID shown on arrival',
+      '📞 We call 30 minutes before arriving',
+      '💬 Patient explanation before we start',
+      '🧹 Overshoes & dust sheets — no mess',
+      '✅ Fixed price — no surprises',
+    ],
+    highStandard: [
+      '🛡️ DBS-checked & ID shown on arrival',
+      '📞 We call 30 minutes before arriving',
+      '💬 Patient explanation before we start',
+      '🧹 Overshoes & dust sheets — no mess',
+      '✅ Fixed price — no surprises',
+      '👤 Same tradesperson for future jobs',
+    ]
+  },
   RENTER: {
     // RENTER SERVICE = Transparent, landlord-ready
     handyFix: [
@@ -350,6 +375,13 @@ const SEGMENT_DISPLAY_CONFIG: Record<string, {
     ctaText: 'Book Peace of Mind Service',
     alternativeLabel: 'See other options',
   },
+  OLDER_WOMAN: {
+    showTiers: ['enhanced'], // Single product — Peace of Mind Service
+    anchorTier: 'enhanced',
+    showAlternatives: false,
+    ctaText: 'Book Peace of Mind Service',
+    alternativeLabel: null,
+  },
   DEFAULT: {
     showTiers: ['essential', 'enhanced', 'elite'], // Show all
     anchorTier: 'enhanced',
@@ -395,6 +427,11 @@ const SEGMENT_TIER_NAMES: Record<string, { essential: string; enhanced: string; 
     essential: 'Renter Service',
     enhanced: 'Renter Service',
     elite: 'Renter Service',
+  },
+  OLDER_WOMAN: {
+    essential: 'Standard Service',
+    enhanced: 'Peace of Mind Service',
+    elite: 'VIP Service',
   },
   DEFAULT: {
     essential: 'Essential',
@@ -916,6 +953,46 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
       ]
     },
   },
+  OLDER_WOMAN: {
+    hero: {
+      title: "Someone You Can Trust",
+      subtitle: <>Vetted, friendly, and here to help.<br />We take our time to do it right.</>,
+      scrollText: "View your quote"
+    },
+    proof: {
+      title: "YOU'RE IN SAFE HANDS",
+      mainTitle: "We treat your home like our own.",
+      testimonial: {
+        text: "They showed ID at the door, explained everything clearly, wore overshoes the whole time, and left everything spotless. I felt completely safe.",
+        author: "Patricia D.",
+        detail: "Repeat Customer"
+      },
+      description: "We understand inviting someone into your home is a big decision. That's why all our team are DBS-checked, ID-verified, and trained to be patient and respectful.",
+      stats: [
+        { value: "100%", label: "DBS Checked", subtext: "Safe & Verified" },
+        { value: "4.9", label: "Google rating", subtext: "★★★★★" },
+        { value: "100%", label: "Fixed Price", subtext: "No Hidden Fees" }
+      ]
+    },
+    guarantee: {
+      title: "PEACE OF MIND",
+      mainTitle: <span className="font-bold block leading-tight">Your comfort and safety<br className="md:hidden" /> come first.</span>,
+      description: "We know it matters who you let into your home. Every member of our team is vetted, polite, and takes the time to explain everything clearly.",
+      image: "/assets/quote-images/door-greeting.jpg",
+      boxText: "Safe. Clean. Respectful.",
+      guaranteeItems: [
+        { icon: 'Shield', title: "Vetted & Verified", text: "All staff are DBS-checked and show ID on arrival. Your safety is our priority." },
+        { icon: 'Sparkles', title: "Clean & Tidy", text: "We wear overshoes and use dust sheets. We always leave your home spotless." },
+        { icon: 'Phone', title: "We Call Ahead", text: "We phone 30 minutes before arriving so you're never caught off guard." }
+      ],
+      badges: [
+        { label: 'Safety', value: 'DBS Checked', icon: 'Shield' },
+        { label: 'Tidiness', value: 'Spotless', icon: 'Sparkles' },
+        { label: 'Price', value: 'Fixed', icon: 'Lock' },
+        { label: 'Guarantee', value: '12 Months', icon: 'Star' }
+      ]
+    }
+  },
   DIY_DEFERRER: {
     hero: {
       title: "Batch Service",
@@ -1150,6 +1227,117 @@ const AnimatedStat = ({ value, delay }: { value: string, delay: number }) => {
   return <motion.span ref={ref} className="text-2xl md:text-3xl font-bold text-[#1D2D3D]">{displayValue}</motion.span>;
 };
 
+// Extracted Google Reviews Carousel Component (fixes React hooks-in-IIFE violation)
+const GoogleReviewCard = ({ postcode, variant = 'light' }: { postcode?: string | null; variant?: 'light' | 'dark' }) => {
+  const { data: reviewsData, isLoading } = useQuery({
+    queryKey: ['google-reviews', variant, postcode],
+    queryFn: async () => {
+      const location = postcode ? postcode.split(' ')[0] : 'nottingham';
+      const res = await fetch(`/api/google-reviews?location=${location}`);
+      if (!res.ok) throw new Error('Failed to fetch reviews');
+      return res.json();
+    },
+    staleTime: 1000 * 60 * 60,
+  });
+
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    if (!reviewsData?.reviews?.length) return;
+    const interval = setInterval(() => {
+      setActiveIndex((prev) => (prev + 1) % reviewsData.reviews.length);
+    }, variant === 'light' ? 6000 : 5000);
+    return () => clearInterval(interval);
+  }, [reviewsData, variant]);
+
+  const reviews = reviewsData?.reviews || [];
+  const currentReview = reviews[activeIndex];
+
+  if (isLoading || !currentReview) {
+    if (variant === 'light') {
+      return (
+        <div className="bg-slate-50 border border-slate-100 rounded-xl p-6 animate-pulse">
+          <div className="h-4 bg-slate-200 rounded w-3/4 mb-4"></div>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-slate-200"></div>
+            <div className="h-3 bg-slate-200 rounded w-1/3"></div>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 relative shadow-sm animate-pulse">
+        <div className="h-4 bg-slate-200 rounded w-1/3 mb-4"></div>
+        <div className="space-y-2">
+          <div className="h-2 bg-slate-200 rounded w-full"></div>
+          <div className="h-2 bg-slate-200 rounded w-5/6"></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (variant === 'light') {
+    return (
+      <div className="bg-slate-50 border border-slate-100 rounded-xl p-6 transition-all duration-500">
+        <div className="flex justify-between items-start mb-3">
+          <div className="flex gap-1 text-[#F4B400]">
+            {[...Array(5)].map((_, i) => (
+              <Star key={i} className={`w-3.5 h-3.5 ${i < currentReview.rating ? 'fill-current' : 'text-slate-300'}`} />
+            ))}
+          </div>
+          <SiGoogle className="w-4 h-4 text-slate-400" />
+        </div>
+        <p className="text-slate-600 text-sm leading-relaxed mb-4 italic">
+          "{currentReview.text.length > 140 ? currentReview.text.substring(0, 140) + '...' : currentReview.text}"
+        </p>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden border border-white shadow-sm">
+            {currentReview.profile_photo_url ? (
+              <img src={currentReview.profile_photo_url} alt={currentReview.authorName} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-slate-500 font-bold">{currentReview.authorName.charAt(0)}</span>
+            )}
+          </div>
+          <div>
+            <div className="text-sm font-medium text-[#1D2D3D]">{currentReview.authorName}</div>
+            <div className="text-xs text-slate-400">{currentReview.relativeTime}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Dark variant
+  return (
+    <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 relative shadow-md transition-all duration-500">
+      <div className="absolute -top-3 -right-3 bg-white p-1.5 rounded-full shadow-sm border border-slate-100">
+        <SiGoogle className="w-6 h-6 text-[#4285F4]" />
+      </div>
+      <div className="flex gap-1 text-[#F4B400] mb-3">
+        {[...Array(5)].map((_, i) => (
+          <Star key={i} className={`w-3.5 h-3.5 ${i < currentReview.rating ? 'fill-current' : 'text-slate-300'}`} />
+        ))}
+      </div>
+      <div className="min-h-[80px]">
+        <p className="text-slate-700 text-sm italic mb-4 leading-relaxed">"{currentReview.text.length > 120 ? currentReview.text.substring(0, 120) + '...' : currentReview.text}"</p>
+      </div>
+      <div className="flex items-center gap-3 pt-2 border-t border-slate-200/50">
+        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-500 overflow-hidden">
+          {currentReview.profile_photo_url ? (
+            <img src={currentReview.profile_photo_url} alt={currentReview.authorName} className="w-full h-full object-cover" />
+          ) : (
+            currentReview.authorName.charAt(0)
+          )}
+        </div>
+        <div>
+          <div className="text-xs font-bold text-[#1D2D3D]">{currentReview.authorName}</div>
+          <div className="text-[9px] text-slate-400 font-medium">{currentReview.relativeTime}</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Quick Social Proof for Warm Leads (Cialdini 1984)
 const ValueSocialProof = ({ quote }: { quote: PersonalizedQuote }) => {
   console.log('ValueSocialProof: Mounting...');
@@ -1242,72 +1430,7 @@ const ValueSocialProof = ({ quote }: { quote: PersonalizedQuote }) => {
 
         {/* Single Testimonial with Image Placeholder */}
         <div className="max-w-lg mx-auto">
-          {(() => {
-            const { data: reviewsData, isLoading } = useQuery({
-              queryKey: ['google-reviews-social', quote.postcode], // Unique query key
-              queryFn: async () => {
-                const location = quote.postcode ? quote.postcode.split(' ')[0] : 'nottingham';
-                const res = await fetch(`/api/google-reviews?location=${location}`);
-                if (!res.ok) throw new Error('Failed to fetch reviews');
-                return res.json();
-              },
-              staleTime: 1000 * 60 * 60,
-            });
-
-            const [activeIndex, setActiveIndex] = useState(0);
-
-            useEffect(() => {
-              if (!reviewsData?.reviews?.length) return;
-              const interval = setInterval(() => {
-                setActiveIndex((prev) => (prev + 1) % reviewsData.reviews.length);
-              }, 6000); // Slightly slower cycle for variety
-              return () => clearInterval(interval);
-            }, [reviewsData]);
-
-            const reviews = reviewsData?.reviews || [];
-            const currentReview = reviews[activeIndex];
-
-            if (isLoading || !currentReview) {
-              return (
-                <div className="bg-slate-50 border border-slate-100 rounded-xl p-6 animate-pulse">
-                  <div className="h-4 bg-slate-200 rounded w-3/4 mb-4"></div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-slate-200"></div>
-                    <div className="h-3 bg-slate-200 rounded w-1/3"></div>
-                  </div>
-                </div>
-              );
-            }
-
-            return (
-              <div className="bg-slate-50 border border-slate-100 rounded-xl p-6 transition-all duration-500">
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex gap-1 text-[#F4B400]">
-                    {[...Array(5)].map((_, i) => (
-                      <Star key={i} className={`w-3.5 h-3.5 ${i < currentReview.rating ? 'fill-current' : 'text-slate-300'}`} />
-                    ))}
-                  </div>
-                  <SiGoogle className="w-4 h-4 text-slate-400" />
-                </div>
-                <p className="text-slate-600 text-sm leading-relaxed mb-4 italic">
-                  "{currentReview.text.length > 140 ? currentReview.text.substring(0, 140) + '...' : currentReview.text}"
-                </p>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden border border-white shadow-sm">
-                    {currentReview.profile_photo_url ? (
-                      <img src={currentReview.profile_photo_url} alt={currentReview.authorName} className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-slate-500 font-bold">{currentReview.authorName.charAt(0)}</span>
-                    )}
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium text-[#1D2D3D]">{currentReview.authorName}</div>
-                    <div className="text-xs text-slate-400">{currentReview.relativeTime}</div>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
+          <GoogleReviewCard postcode={quote.postcode} variant="light" />
         </div>
       </div>
     </SectionWrapper>
@@ -1319,6 +1442,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
   const segmentKey = quote.segment && SEGMENT_CONTENT_MAP[quote.segment] ? quote.segment : 'DEFAULT';
   const content = SEGMENT_CONTENT_MAP[segmentKey].hero;
   const isBusyPro = quote.segment === 'BUSY_PRO';
+  const isOlderWoman = quote.segment === 'OLDER_WOMAN';
 
   // Generate natural language job description from line items
   const getJobTopLine = (): string => {
@@ -1404,8 +1528,8 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
           Hi {quote.customerName.split(' ')[0]},
         </h1>
 
-        {/* BUSY_PRO: Simple, direct - they know why they're here */}
-        {isBusyPro ? (
+        {/* BUSY_PRO / OLDER_WOMAN: Job summary card instead of inline text */}
+        {(isBusyPro || isOlderWoman) ? (
           <>
             <p className="text-xl md:text-2xl text-slate-200 font-light leading-relaxed mb-6 px-4 md:px-0 max-w-lg mx-auto">
               {content.subtitle}
@@ -1546,78 +1670,7 @@ const ValueProof = ({ quote, config }: { quote: PersonalizedQuote, config: any }
 
             <div className="space-y-4">
               {/* Dynamic Google Reviews Carousel */}
-              {(() => {
-                const { data: reviewsData, isLoading } = useQuery({
-                  queryKey: ['google-reviews', quote.postcode],
-                  queryFn: async () => {
-                    // Default to Nottingham if no postcode, or extract town from postcode
-                    const location = quote.postcode ? quote.postcode.split(' ')[0] : 'nottingham';
-                    const res = await fetch(`/api/google-reviews?location=${location}`);
-                    if (!res.ok) throw new Error('Failed to fetch reviews');
-                    return res.json();
-                  },
-                  staleTime: 1000 * 60 * 60, // 1 hour
-                });
-
-                const [activeIndex, setActiveIndex] = useState(0);
-
-                // Auto-cycle reviews
-                useEffect(() => {
-                  if (!reviewsData?.reviews?.length) return;
-                  const interval = setInterval(() => {
-                    setActiveIndex((prev) => (prev + 1) % reviewsData.reviews.length);
-                  }, 5000);
-                  return () => clearInterval(interval);
-                }, [reviewsData]);
-
-                const reviews = reviewsData?.reviews || [];
-                const currentReview = reviews[activeIndex];
-
-                if (isLoading || !currentReview) {
-                  // Loading Skeleton or Fallback
-                  return (
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 relative shadow-sm animate-pulse">
-                      <div className="h-4 bg-slate-200 rounded w-1/3 mb-4"></div>
-                      <div className="space-y-2">
-                        <div className="h-2 bg-slate-200 rounded w-full"></div>
-                        <div className="h-2 bg-slate-200 rounded w-5/6"></div>
-                      </div>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 relative shadow-md transition-all duration-500">
-                    <div className="absolute -top-3 -right-3 bg-white p-1.5 rounded-full shadow-sm border border-slate-100">
-                      <SiGoogle className="w-6 h-6 text-[#4285F4]" />
-                    </div>
-
-                    <div className="flex gap-1 text-[#F4B400] mb-3">
-                      {[...Array(5)].map((_, i) => (
-                        <Star key={i} className={`w-3.5 h-3.5 ${i < currentReview.rating ? 'fill-current' : 'text-slate-300'}`} />
-                      ))}
-                    </div>
-
-                    <div className="min-h-[80px]">
-                      <p className="text-slate-700 text-sm italic mb-4 leading-relaxed">"{currentReview.text.length > 120 ? currentReview.text.substring(0, 120) + '...' : currentReview.text}"</p>
-                    </div>
-
-                    <div className="flex items-center gap-3 pt-2 border-t border-slate-200/50">
-                      <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-500 overflow-hidden">
-                        {currentReview.profile_photo_url ? (
-                          <img src={currentReview.profile_photo_url} alt={currentReview.authorName} className="w-full h-full object-cover" />
-                        ) : (
-                          currentReview.authorName.charAt(0)
-                        )}
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-[#1D2D3D]">{currentReview.authorName}</div>
-                        <div className="text-[9px] text-slate-400 font-medium">{currentReview.relativeTime}</div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
+              <GoogleReviewCard postcode={quote.postcode} variant="dark" />
             </div>
           </div>
         </div>
@@ -1631,6 +1684,7 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
   const segmentKey = quote.segment && SEGMENT_CONTENT_MAP[quote.segment] ? quote.segment : 'DEFAULT';
   const content = SEGMENT_CONTENT_MAP[segmentKey].guarantee;
   const isBusyPro = quote.segment === 'BUSY_PRO';
+  const isOlderWoman = quote.segment === 'OLDER_WOMAN';
 
   // Icon mapping
   const iconMap: Record<string, any> = {
@@ -1640,7 +1694,9 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
     'Lock': Lock,
     'Clock': Clock,
     'Zap': Zap,
-    'Star': Star
+    'Star': Star,
+    'Sparkles': Sparkles,
+    'Phone': Phone,
   };
 
   return (
@@ -1693,8 +1749,8 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
 
         <p className="text-slate-300 text-lg mb-6">{content.description}</p>
 
-        {/* BUSY_PRO: Certainty Items (Kahneman & Tversky, 1979) */}
-        {isBusyPro && content.guaranteeItems && (
+        {/* Certainty Items — BUSY_PRO & OLDER_WOMAN (Kahneman & Tversky, 1979) */}
+        {(isBusyPro || isOlderWoman) && content.guaranteeItems && (
           <div className="space-y-4 mb-10">
             {content.guaranteeItems.map((item: any, i: number) => {
               const IconComponent = iconMap[item.icon] || Shield;
@@ -2283,6 +2339,17 @@ export default function PersonalizedQuotePage() {
             };
           });
 
+      case 'OLDER_WOMAN':
+        // Single product: Peace of Mind Service (trust & safety focused)
+        return allPackages
+          .filter(pkg => pkg.tier === 'enhanced')
+          .map(pkg => ({
+            ...pkg,
+            name: "Peace of Mind Service",
+            description: "Vetted, patient, and respectful service you can trust",
+            isPopular: true,
+          }));
+
       case 'RENTER':
         // Show renter service with options
         return allPackages
@@ -2533,7 +2600,7 @@ export default function PersonalizedQuotePage() {
                     {quote.quoteMode === 'hhh' && packagesToShow.length > 0 && !hasBooked && (
                       <div className="space-y-8">
                         {/* [RAMANUJAM] Unified Quote Card for segments with single-product flow */}
-                        {['EMERGENCY', 'BUSY_PRO', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR', 'LANDLORD'].includes(quote.segment || '') ? (
+                        {['EMERGENCY', 'BUSY_PRO', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR', 'LANDLORD', 'OLDER_WOMAN'].includes(quote.segment || '') ? (
                           <>
                           <Elements stripe={stripePromise}>
                             <UnifiedQuoteCard

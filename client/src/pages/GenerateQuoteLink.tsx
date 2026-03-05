@@ -63,7 +63,7 @@ interface PersonalizedQuote {
   leadId: string | null;
   createdAt: string;
   visitTierMode?: 'tiers' | 'fixed' | null;
-  segment?: 'EMERGENCY' | 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'TRUST_SEEKER' | 'RENTER' | 'DIY_DEFERRER';
+  segment?: 'EMERGENCY' | 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'TRUST_SEEKER' | 'OLDER_WOMAN' | 'RENTER' | 'DIY_DEFERRER';
 }
 
 export default function GenerateQuoteLink() {
@@ -205,7 +205,7 @@ export default function GenerateQuoteLink() {
   // NEW STATE for Redesign
   const [classification, setClassification] = useState<RouteAnalysis['classification'] | null>(null);
   // selectedRoute removed - segment determines pricing mode automatically
-  const [segment, setSegment] = useState<'EMERGENCY' | 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'TRUST_SEEKER' | 'RENTER' | 'DIY_DEFERRER' | undefined>(undefined);
+  const [segment, setSegment] = useState<'EMERGENCY' | 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'TRUST_SEEKER' | 'OLDER_WOMAN' | 'RENTER' | 'DIY_DEFERRER' | undefined>(undefined);
   const [proposalModeEnabled, setProposalModeEnabled] = useState(true); // Now standard for all quotes
   const [isQuickLink, setIsQuickLink] = useState(false);
 
@@ -1638,6 +1638,7 @@ Example:
                                   <SelectItem value="LANDLORD">Landlord</SelectItem>
                                   <SelectItem value="SMALL_BIZ">Small Business</SelectItem>
                                   <SelectItem value="TRUST_SEEKER">Trust Seeker</SelectItem>
+                                  <SelectItem value="OLDER_WOMAN">Older Customer</SelectItem>
                                   <SelectItem value="RENTER">Renter</SelectItem>
                                   <SelectItem value="DIY_DEFERRER">DIY Deferrer</SelectItem>
                                 </SelectContent>

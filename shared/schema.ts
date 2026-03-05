@@ -596,7 +596,7 @@ export const desiredTimeframeEnum = z.enum(['flex', 'week', 'asap']);
 
 // B1.1: Segmentation Enums (Phase 1 Master Plan)
 // Note: EMERGENCY is deprecated as a segment. It is now an urgency flag (isEmergency) that overlays any segment.
-export const segmentEnum = z.enum(['EMERGENCY', 'BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER', 'BUDGET', 'DEFAULT']);
+export const segmentEnum = z.enum(['EMERGENCY', 'BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'TRUST_SEEKER', 'OLDER_WOMAN', 'RENTER', 'DIY_DEFERRER', 'BUDGET', 'DEFAULT']);
 export type SegmentType = z.infer<typeof segmentEnum>;
 export const jobTypeEnum = z.enum(['SINGLE', 'COMPLEX', 'MULTIPLE']);
 export const quotabilityEnum = z.enum(['INSTANT', 'VIDEO', 'VISIT']);

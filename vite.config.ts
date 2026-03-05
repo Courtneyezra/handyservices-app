@@ -10,20 +10,9 @@ export default defineConfig({
     react(),
   ],
   server: {
-    host: true,
-    hmr: {
-      clientPort: 5001,
-    },
-    proxy: {
-      '/api': {
-        target: 'http://localhost:5001',
-        changeOrigin: true,
-      },
-      '/leads': {
-        target: 'http://localhost:5001',
-        changeOrigin: true,
-      }
-    }
+    // Vite runs in Express middleware mode (server/index.ts createViteServer).
+    // HMR WebSocket piggybacks on the Express HTTP server — no separate port needed.
+    // Do NOT set hmr.clientPort — it must auto-detect from the page's origin port.
   },
   resolve: {
     alias: {

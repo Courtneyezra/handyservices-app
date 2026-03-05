@@ -1,5 +1,5 @@
 
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route, Redirect, useLocation } from "wouter";
 import { Suspense, lazy } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -308,11 +308,9 @@ function Router() {
                 <Route path="/contractor/register">
                     <ContractorRegister />
                 </Route>
+                {/* SPA redirect — do NOT use window.location.href (causes full page reload + HMR drop) */}
                 <Route path="/contractor">
-                    {() => {
-                        window.location.href = '/contractor/dashboard';
-                        return null;
-                    }}
+                    <Redirect to="/contractor/dashboard" />
                 </Route>
                 <Route path="/contractor/dashboard">
                     <ProtectedRoute role="contractor">
@@ -635,12 +633,9 @@ function Router() {
                 </Route>
 
 
-                {/* Redirect root to admin dashboard */}
+                {/* SPA redirect — do NOT use window.location.href (causes full page reload + HMR drop) */}
                 <Route path="/">
-                    {() => {
-                        window.location.href = '/admin';
-                        return null;
-                    }}
+                    <Redirect to="/admin" />
                 </Route>
 
                 <Route>
