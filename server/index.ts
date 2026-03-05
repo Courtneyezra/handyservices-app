@@ -1302,6 +1302,10 @@ async function startServer() {
     if (process.env.NODE_ENV !== 'production') {
         try {
             const { createServer: createViteServer } = await import('vite');
+            // IMPORTANT: Vite runs in middleware mode — HMR piggybacks on the Express HTTP server.
+            // Do NOT set hmr.clientPort here or in vite.config.ts — it must auto-detect from the
+            // page's origin port. Setting a fixed port causes HMR WebSocket to connect to the wrong
+            // port, triggering "server connection lost" → full page reload loops.
             const vite = await createViteServer({
                 server: { middlewareMode: true, hmr: { server } },
                 appType: 'custom'
