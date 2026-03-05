@@ -212,6 +212,10 @@ export const leads = pgTable("leads", {
     scoredAt: timestamp("scored_at"), // When lead was last scored
     scoredBy: varchar("scored_by", { length: 50 }), // 'ai_call_parser', 'ai_whatsapp_bot', 'webform', 'manual'
 
+    // Automation Dedup Tracking
+    automationReminderSentAt: timestamp("automation_reminder_sent_at"), // Last automation reminder sent (video/general)
+    automationRecoverySentAt: timestamp("automation_recovery_sent_at"), // Lost lead recovery message sent
+
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -746,6 +750,10 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     timeSlotType: varchar("time_slot_type", { length: 20 }), // 'am' | 'pm' | 'exact' | 'out_of_hours'
     exactTimeRequested: varchar("exact_time_requested", { length: 10 }), // e.g., "10:00" if exact time selected
     schedulingFeeInPence: integer("scheduling_fee_in_pence").default(0), // Total scheduling fee (date + time combined)
+
+    // Automation Dedup Tracking
+    reminderSentAt: timestamp("reminder_sent_at"), // Quote reminder automation sent
+    followupSentAt: timestamp("followup_sent_at"), // Quote viewed follow-up automation sent
 
     // Creation timestamp
     createdAt: timestamp("created_at").defaultNow(),
@@ -1988,3 +1996,49 @@ export type TroubleshootingSession = typeof troubleshootingSessions.$inferSelect
 export type InsertTroubleshootingSession = typeof troubleshootingSessions.$inferInsert;
 export type DeflectionMetric = typeof deflectionMetrics.$inferSelect;
 export type InsertDeflectionMetric = typeof deflectionMetrics.$inferInsert;
+
+// ==========================================
+// DIY Advice Database
+// ==========================================
+
+// DIY Advice Table - Stores DIY troubleshooting advice for tenants
+export const diyAdvice = pgTable("diy_advice", {
+    id: text("id").primaryKey().notNull().$defaultFn(() => crypto.randomUUID()),
+
+    // Identity & matching
+    name: varchar("name", { length: 200 }).notNull(),
+    category: issueCategoryEnum("category"),
+    keywords: text("keywords").array().notNull(),
+    descriptionPatterns: text("description_patterns").array(),
+
+    // DIY content
+    canDIY: boolean("can_diy").notNull().default(true),
+    steps: text("steps").array().notNull(),
+    toolsNeeded: text("tools_needed").array(),
+    warning: text("warning"),
+
+    // Metadata
+    priority: integer("priority").default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_diy_advice_category").on(table.category),
+    index("idx_diy_advice_active").on(table.isActive),
+]);
+
+// Unsafe Patterns Table - Safety gate patterns that block DIY advice
+export const unsafePatterns = pgTable("unsafe_patterns", {
+    id: text("id").primaryKey().notNull().$defaultFn(() => crypto.randomUUID()),
+    pattern: varchar("pattern", { length: 200 }).notNull(),
+    isRegex: boolean("is_regex").notNull().default(false),
+    warningMessage: text("warning_message"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Type exports for DIY Advice
+export type DIYAdvice = typeof diyAdvice.$inferSelect;
+export type InsertDIYAdvice = typeof diyAdvice.$inferInsert;
+export type UnsafePattern = typeof unsafePatterns.$inferSelect;
+export type InsertUnsafePattern = typeof unsafePatterns.$inferInsert;

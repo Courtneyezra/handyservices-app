@@ -8,14 +8,21 @@
  * - Payment pending alert (12 hours)
  * - Lost lead auto-mark (7 days)
  * - Lost lead recovery (7 days after lost)
+ *
+ * All automations are gated by:
+ * 1. Master toggle (automations.master_enabled in appSettings — OFF by default)
+ * 2. Per-automation toggles
+ * 3. Dedup tracking columns (prevents re-sending to the same lead/quote)
+ * 4. 24h WhatsApp window check (freeform messages only allowed within 24h of last inbound)
  */
 
 import { db } from "./db";
 import { leads, personalizedQuotes, calls, type LeadStage } from "@shared/schema";
 import { eq, desc, and, lt, isNull, isNotNull, or, ne } from "drizzle-orm";
 import { updateLeadStage, STAGE_SLA_HOURS } from "./lead-stage-engine";
-import { sendWhatsAppMessage } from "./meta-whatsapp";
+import { sendWhatsAppMessage, canSendFreeform } from "./meta-whatsapp";
 import { checkWebFormFollowups } from "./services/webform-chase-service";
+import { getAutomationSettings } from "./settings";
 
 // Automation timing configuration (in milliseconds)
 export const AUTOMATION_TIMING = {
@@ -85,6 +92,8 @@ const TEMPLATES = {
 
 /**
  * Run automation check for new leads (30 min follow-up)
+ * Uses Twilio Content Template (not freeform) — no 24h window issue
+ * Dedup: stage changes to 'awaiting_video' after send, so won't re-query
  */
 async function checkNewLeadFollowups(): Promise<AutomationResult[]> {
     const results: AutomationResult[] = [];
@@ -125,7 +134,7 @@ async function checkNewLeadFollowups(): Promise<AutomationResult[]> {
                     }
                 });
 
-                // Update stage to awaiting_video
+                // Update stage to awaiting_video (this is the dedup — won't re-query new_lead)
                 await updateLeadStage(lead.id, 'awaiting_video' as LeadStage, {
                     reason: 'Video request template sent',
                 });
@@ -157,12 +166,14 @@ async function checkNewLeadFollowups(): Promise<AutomationResult[]> {
 
 /**
  * Run automation check for quote sent reminders (12 hours)
+ * DEDUP: Only queries quotes where reminderSentAt IS NULL, marks after send
+ * 24H CHECK: Skips freeform send if outside WhatsApp conversation window
  */
 async function checkQuoteSentReminders(): Promise<AutomationResult[]> {
     const results: AutomationResult[] = [];
     const cutoffTime = new Date(Date.now() - AUTOMATION_TIMING.QUOTE_SENT_REMINDER);
 
-    // Find quotes sent 12+ hours ago that haven't been viewed
+    // Find quotes sent 12+ hours ago that haven't been viewed AND haven't been reminded
     const eligibleQuotes = await db
         .select({
             quoteId: personalizedQuotes.id,
@@ -172,11 +183,13 @@ async function checkQuoteSentReminders(): Promise<AutomationResult[]> {
             createdAt: personalizedQuotes.createdAt,
             viewedAt: personalizedQuotes.viewedAt,
             leadId: personalizedQuotes.leadId,
+            reminderSentAt: personalizedQuotes.reminderSentAt,
         })
         .from(personalizedQuotes)
         .where(
             and(
                 isNull(personalizedQuotes.viewedAt),
+                isNull(personalizedQuotes.reminderSentAt), // DEDUP: only if not already reminded
                 lt(personalizedQuotes.createdAt, cutoffTime),
                 isNotNull(personalizedQuotes.phone)
             )
@@ -185,11 +198,23 @@ async function checkQuoteSentReminders(): Promise<AutomationResult[]> {
 
     for (const quote of eligibleQuotes) {
         try {
+            // 24h window check — skip if freeform not allowed
+            const windowOpen = await canSendFreeform(quote.phone);
+            if (!windowOpen) {
+                console.log(`[Automation] QUOTE_SENT_REMINDER: Skipped ${quote.customerName} — outside 24h WhatsApp window`);
+                continue; // Don't mark dedup — allow retry if customer messages back
+            }
+
             const firstName = quote.customerName.split(' ')[0];
             const link = `https://v6handy.com/quote-link/${quote.shortSlug}`;
             const message = TEMPLATES.QUOTE_SENT_REMINDER(firstName, link);
 
             await sendWhatsAppMessage(quote.phone, message);
+
+            // DEDUP: mark as reminded so we don't send again
+            await db.update(personalizedQuotes)
+                .set({ reminderSentAt: new Date() })
+                .where(eq(personalizedQuotes.id, quote.quoteId));
 
             results.push({
                 type: 'QUOTE_SENT_REMINDER',
@@ -217,12 +242,14 @@ async function checkQuoteSentReminders(): Promise<AutomationResult[]> {
 
 /**
  * Run automation check for quote viewed follow-ups (24 hours)
+ * DEDUP: Only queries quotes where followupSentAt IS NULL, marks after send
+ * 24H CHECK: Skips freeform send if outside WhatsApp conversation window
  */
 async function checkQuoteViewedFollowups(): Promise<AutomationResult[]> {
     const results: AutomationResult[] = [];
     const cutoffTime = new Date(Date.now() - AUTOMATION_TIMING.QUOTE_VIEWED_FOLLOWUP);
 
-    // Find quotes viewed 24+ hours ago without selection
+    // Find quotes viewed 24+ hours ago without selection AND not already followed up
     const eligibleQuotes = await db
         .select({
             quoteId: personalizedQuotes.id,
@@ -231,12 +258,14 @@ async function checkQuoteViewedFollowups(): Promise<AutomationResult[]> {
             viewedAt: personalizedQuotes.viewedAt,
             selectedAt: personalizedQuotes.selectedAt,
             leadId: personalizedQuotes.leadId,
+            followupSentAt: personalizedQuotes.followupSentAt,
         })
         .from(personalizedQuotes)
         .where(
             and(
                 isNotNull(personalizedQuotes.viewedAt),
                 isNull(personalizedQuotes.selectedAt),
+                isNull(personalizedQuotes.followupSentAt), // DEDUP: only if not already followed up
                 lt(personalizedQuotes.viewedAt, cutoffTime),
                 isNotNull(personalizedQuotes.phone)
             )
@@ -245,10 +274,22 @@ async function checkQuoteViewedFollowups(): Promise<AutomationResult[]> {
 
     for (const quote of eligibleQuotes) {
         try {
+            // 24h window check
+            const windowOpen = await canSendFreeform(quote.phone);
+            if (!windowOpen) {
+                console.log(`[Automation] QUOTE_VIEWED_FOLLOWUP: Skipped ${quote.customerName} — outside 24h WhatsApp window`);
+                continue;
+            }
+
             const firstName = quote.customerName.split(' ')[0];
             const message = TEMPLATES.QUOTE_VIEWED_FOLLOWUP(firstName);
 
             await sendWhatsAppMessage(quote.phone, message);
+
+            // DEDUP: mark as followed up
+            await db.update(personalizedQuotes)
+                .set({ followupSentAt: new Date() })
+                .where(eq(personalizedQuotes.id, quote.quoteId));
 
             results.push({
                 type: 'QUOTE_VIEWED_FOLLOWUP',
@@ -276,12 +317,14 @@ async function checkQuoteViewedFollowups(): Promise<AutomationResult[]> {
 
 /**
  * Run automation check for awaiting video reminders (24 hours)
+ * DEDUP: Only queries leads where automationReminderSentAt IS NULL, marks after send
+ * 24H CHECK: Skips freeform send if outside WhatsApp conversation window
  */
 async function checkAwaitingVideoReminders(): Promise<AutomationResult[]> {
     const results: AutomationResult[] = [];
     const cutoffTime = new Date(Date.now() - AUTOMATION_TIMING.AWAITING_VIDEO_REMINDER);
 
-    // Find leads in awaiting_video stage for 24+ hours
+    // Find leads in awaiting_video stage for 24+ hours AND not already reminded
     const eligibleLeads = await db
         .select()
         .from(leads)
@@ -289,6 +332,7 @@ async function checkAwaitingVideoReminders(): Promise<AutomationResult[]> {
             and(
                 eq(leads.stage, 'awaiting_video'),
                 eq(leads.awaitingVideo, true),
+                isNull(leads.automationReminderSentAt), // DEDUP: only if not already reminded
                 lt(leads.stageUpdatedAt, cutoffTime)
             )
         )
@@ -296,10 +340,22 @@ async function checkAwaitingVideoReminders(): Promise<AutomationResult[]> {
 
     for (const lead of eligibleLeads) {
         try {
+            // 24h window check
+            const windowOpen = await canSendFreeform(lead.phone);
+            if (!windowOpen) {
+                console.log(`[Automation] AWAITING_VIDEO_REMINDER: Skipped ${lead.customerName} — outside 24h WhatsApp window`);
+                continue;
+            }
+
             const firstName = lead.customerName.split(' ')[0];
             const message = TEMPLATES.AWAITING_VIDEO_REMINDER(firstName);
 
             await sendWhatsAppMessage(lead.phone, message);
+
+            // DEDUP: mark as reminded
+            await db.update(leads)
+                .set({ automationReminderSentAt: new Date() })
+                .where(eq(leads.id, lead.id));
 
             results.push({
                 type: 'AWAITING_VIDEO_REMINDER',
@@ -327,6 +383,7 @@ async function checkAwaitingVideoReminders(): Promise<AutomationResult[]> {
 
 /**
  * Run automation check for lost lead auto-marking (7 days)
+ * No WhatsApp send — just a DB update, so no dedup/window issues
  */
 async function checkLostLeadAutoMark(): Promise<AutomationResult[]> {
     const results: AutomationResult[] = [];
@@ -381,19 +438,22 @@ async function checkLostLeadAutoMark(): Promise<AutomationResult[]> {
 
 /**
  * Run automation check for lost lead recovery (7 days after lost)
+ * DEDUP: Only queries leads where automationRecoverySentAt IS NULL, marks after send
+ * 24H CHECK: Skips freeform send if outside WhatsApp conversation window
  */
 async function checkLostLeadRecovery(): Promise<AutomationResult[]> {
     const results: AutomationResult[] = [];
     const cutoffTime = new Date(Date.now() - AUTOMATION_TIMING.LOST_LEAD_RECOVERY);
     const maxCutoff = new Date(Date.now() - AUTOMATION_TIMING.LOST_LEAD_RECOVERY * 2); // Don't recover leads lost > 14 days ago
 
-    // Find leads marked lost 7+ days ago (but less than 14 days)
+    // Find leads marked lost 7+ days ago (but less than 14 days) AND not already recovery-messaged
     const eligibleLeads = await db
         .select()
         .from(leads)
         .where(
             and(
                 eq(leads.stage, 'lost'),
+                isNull(leads.automationRecoverySentAt), // DEDUP: only if not already sent recovery
                 lt(leads.stageUpdatedAt, cutoffTime),
                 isNotNull(leads.phone)
             )
@@ -407,11 +467,23 @@ async function checkLostLeadRecovery(): Promise<AutomationResult[]> {
         }
 
         try {
+            // 24h window check
+            const windowOpen = await canSendFreeform(lead.phone);
+            if (!windowOpen) {
+                console.log(`[Automation] LOST_LEAD_RECOVERY: Skipped ${lead.customerName} — outside 24h WhatsApp window`);
+                continue;
+            }
+
             const firstName = lead.customerName.split(' ')[0];
             const jobType = lead.jobDescription?.split(' ').slice(0, 3).join(' ') || 'repair';
             const message = TEMPLATES.LOST_LEAD_RECOVERY(firstName, jobType);
 
             await sendWhatsAppMessage(lead.phone, message);
+
+            // DEDUP: mark as recovery sent
+            await db.update(leads)
+                .set({ automationRecoverySentAt: new Date() })
+                .where(eq(leads.id, lead.id));
 
             results.push({
                 type: 'LOST_LEAD_RECOVERY',
@@ -439,57 +511,88 @@ async function checkLostLeadRecovery(): Promise<AutomationResult[]> {
 
 /**
  * Run all automations - call this periodically (e.g., every 5 minutes via cron)
+ * Checks master toggle and per-automation toggles before running.
  */
 export async function runAllAutomations(): Promise<{
     total: number;
     successful: number;
     failed: number;
     results: AutomationResult[];
+    skippedReason?: string;
 }> {
-    console.log('[Automations] Running all automation checks...');
+    // Check master toggle FIRST
+    const settings = await getAutomationSettings();
+
+    if (!settings.masterEnabled) {
+        console.log('[Automations] Master toggle OFF — skipping all automations');
+        return { total: 0, successful: 0, failed: 0, results: [], skippedReason: 'master_disabled' };
+    }
+
+    console.log('[Automations] Running automation checks (master ON)...');
 
     const allResults: AutomationResult[] = [];
 
     try {
-        // Run all checks in parallel
-        const [
-            newLeadResults,
-            quoteSentResults,
-            quoteViewedResults,
-            awaitingVideoResults,
-            lostMarkResults,
-            recoveryResults,
-            webFormResults,
-        ] = await Promise.all([
-            checkNewLeadFollowups(),
-            checkQuoteSentReminders(),
-            checkQuoteViewedFollowups(),
-            checkAwaitingVideoReminders(),
-            checkLostLeadAutoMark(),
-            checkLostLeadRecovery(),
-            checkWebFormFollowups().then(results => results.map(r => ({
-                type: 'WEBFORM_CHASE',
-                leadId: r.leadId,
-                customerName: r.customerName,
-                action: r.action === 'ack_sent' ? 'Sent acknowledgment' :
-                        r.action === 'followup_sent' ? 'Sent follow-up' :
-                        r.action === 'marked_needs_chase' ? 'Marked needs chase' :
-                        r.action,
-                success: r.action !== 'error',
-                error: r.error,
-                timestamp: r.timestamp,
-            }))),
-        ]);
+        // Build list of enabled automations to run in parallel
+        const tasks: Promise<AutomationResult[]>[] = [];
 
-        allResults.push(
-            ...newLeadResults,
-            ...quoteSentResults,
-            ...quoteViewedResults,
-            ...awaitingVideoResults,
-            ...lostMarkResults,
-            ...recoveryResults,
-            ...webFormResults
-        );
+        if (settings.newLeadFollowup) {
+            tasks.push(checkNewLeadFollowups());
+        } else {
+            console.log('[Automations] Skipping new_lead_followup (toggle OFF)');
+        }
+
+        if (settings.quoteSentReminder) {
+            tasks.push(checkQuoteSentReminders());
+        } else {
+            console.log('[Automations] Skipping quote_sent_reminder (toggle OFF)');
+        }
+
+        if (settings.quoteViewedFollowup) {
+            tasks.push(checkQuoteViewedFollowups());
+        } else {
+            console.log('[Automations] Skipping quote_viewed_followup (toggle OFF)');
+        }
+
+        if (settings.awaitingVideoReminder) {
+            tasks.push(checkAwaitingVideoReminders());
+        } else {
+            console.log('[Automations] Skipping awaiting_video_reminder (toggle OFF)');
+        }
+
+        // Lost lead auto-mark is always on when master is on (it's just a DB update, no WhatsApp send)
+        tasks.push(checkLostLeadAutoMark());
+
+        if (settings.lostLeadRecovery) {
+            tasks.push(checkLostLeadRecovery());
+        } else {
+            console.log('[Automations] Skipping lost_lead_recovery (toggle OFF)');
+        }
+
+        if (settings.webformChase) {
+            tasks.push(
+                checkWebFormFollowups().then(results => results.map(r => ({
+                    type: 'WEBFORM_CHASE',
+                    leadId: r.leadId,
+                    customerName: r.customerName,
+                    action: r.action === 'ack_sent' ? 'Sent acknowledgment' :
+                            r.action === 'followup_sent' ? 'Sent follow-up' :
+                            r.action === 'marked_needs_chase' ? 'Marked needs chase' :
+                            r.action,
+                    success: r.action !== 'error',
+                    error: r.error,
+                    timestamp: r.timestamp,
+                })))
+            );
+        } else {
+            console.log('[Automations] Skipping webform_chase (toggle OFF)');
+        }
+
+        // Run all enabled automations in parallel
+        const taskResults = await Promise.all(tasks);
+        for (const resultSet of taskResults) {
+            allResults.push(...resultSet);
+        }
     } catch (error) {
         console.error('[Automations] Error running automations:', error);
     }

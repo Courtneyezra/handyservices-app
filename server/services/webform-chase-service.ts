@@ -12,7 +12,7 @@
 import { db } from "../db";
 import { leads, conversations, messages, LeadStage } from "@shared/schema";
 import { eq, and, lt, isNull, isNotNull, or, desc, gte } from "drizzle-orm";
-import { sendWhatsAppMessage } from "../meta-whatsapp";
+import { sendWhatsAppMessage, canSendFreeform } from "../meta-whatsapp";
 import { updateLeadStage } from "../lead-stage-engine";
 
 // Timing configuration
@@ -224,6 +224,13 @@ async function processLeadFollowup(
         // Check if we already sent a follow-up
         const alreadyFollowedUp = await checkFollowupSent(lead.phone, lead.createdAt);
         if (alreadyFollowedUp) {
+            return null;
+        }
+
+        // 24h window check — skip freeform if outside WhatsApp conversation window
+        const windowOpen = await canSendFreeform(lead.phone);
+        if (!windowOpen) {
+            console.log(`[WebFormChase] Skipped 2h follow-up for ${lead.customerName} — outside 24h WhatsApp window`);
             return null;
         }
 

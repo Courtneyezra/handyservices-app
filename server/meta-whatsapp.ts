@@ -486,6 +486,32 @@ export async function sendWhatsAppMessage(to: string, body: string, options?: {
 }
 
 // ==========================================
+// 24-HOUR WINDOW CHECK
+// WhatsApp only allows freeform messages within 24h of last inbound message.
+// Outside this window, only pre-approved templates can be sent.
+// ==========================================
+export async function canSendFreeform(phone: string): Promise<boolean> {
+    try {
+        const rawNumber = phone.replace('@c.us', '').replace(/^\+/, '').replace(/\D/g, '');
+        const phoneNumber = `${rawNumber}@c.us`;
+
+        const conv = await db.query.conversations.findFirst({
+            where: eq(conversations.phoneNumber, phoneNumber)
+        });
+
+        if (!conv || !conv.lastInboundAt) {
+            return false; // No conversation or no inbound message ever — can't send freeform
+        }
+
+        const hoursSinceInbound = (Date.now() - new Date(conv.lastInboundAt).getTime()) / (1000 * 60 * 60);
+        return hoursSinceInbound < 24;
+    } catch (error) {
+        console.error('[WhatsApp] Error checking 24h window:', error);
+        return false; // Fail closed — don't send if we can't check
+    }
+}
+
+// ==========================================
 // MARK MESSAGE AS READ
 // ==========================================
 async function markMessageAsRead(messageId: string, phoneNumberId: string) {
