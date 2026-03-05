@@ -121,6 +121,17 @@ const TRAFFIC_LIGHT_DEFAULTS = {
     },
 };
 
+// Default settings for WhatsApp Automations
+const AUTOMATION_DEFAULTS: Record<string, { value: any; description: string }> = {
+    'automations.master_enabled': { value: false, description: 'Master toggle for all WhatsApp automations (OFF by default until WhatsApp number is configured)' },
+    'automations.new_lead_followup': { value: true, description: 'Send video request template to new leads after 30 minutes' },
+    'automations.quote_sent_reminder': { value: true, description: 'Send quote reminder after 12 hours if not viewed' },
+    'automations.quote_viewed_followup': { value: true, description: 'Send follow-up after 24 hours if quote viewed but not selected' },
+    'automations.awaiting_video_reminder': { value: true, description: 'Send video reminder after 24 hours in awaiting_video stage' },
+    'automations.lost_lead_recovery': { value: true, description: 'Send recovery message 7 days after lead marked lost' },
+    'automations.webform_chase': { value: true, description: 'Auto-chase web form leads (immediate ack + 2h follow-up)' },
+};
+
 // Default settings for Call Timing (Live call chunk timing constants)
 const CALL_TIMING_DEFAULTS = {
     'call_timing.sku_debounce_ms': { value: 300, description: 'SKU analysis delay - how long to wait after last transcript segment before analyzing (ms)' },
@@ -387,6 +398,61 @@ router.post('/traffic-light-keywords/reset', async (req, res) => {
     } catch (error) {
         console.error('[Settings] Failed to reset keywords:', error);
         res.status(500).json({ error: 'Failed to reset keywords' });
+    }
+});
+
+// ============================================
+// AUTOMATION SETTINGS ROUTES
+// ============================================
+
+// GET /api/settings/automations - Get current automation settings
+router.get('/automations', async (req, res) => {
+    try {
+        const settings = await getAutomationSettings();
+        res.json(settings);
+    } catch (error) {
+        console.error('[Settings] Failed to fetch automation settings:', error);
+        res.status(500).json({ error: 'Failed to fetch automation settings' });
+    }
+});
+
+// PUT /api/settings/automations - Update automation settings
+router.put('/automations', async (req, res) => {
+    try {
+        const updates = req.body;
+        const allowedKeys = Object.keys(AUTOMATION_DEFAULTS);
+
+        for (const [field, value] of Object.entries(updates)) {
+            const dbKey = `automations.${field}`;
+            if (!allowedKeys.includes(dbKey)) {
+                continue; // Skip unknown keys
+            }
+
+            const [existing] = await db.select().from(appSettings).where(eq(appSettings.key, dbKey));
+
+            if (existing) {
+                await db.update(appSettings)
+                    .set({ value: value as any, updatedAt: new Date() })
+                    .where(eq(appSettings.key, dbKey));
+            } else {
+                await db.insert(appSettings).values({
+                    id: uuidv4(),
+                    key: dbKey,
+                    value: value as any,
+                    description: AUTOMATION_DEFAULTS[dbKey].description,
+                });
+            }
+        }
+
+        // Invalidate cache
+        invalidateAutomationCache();
+
+        const newSettings = await getAutomationSettings();
+        console.log('[Settings] Automation settings updated:', newSettings);
+        res.json({ success: true, settings: newSettings });
+    } catch (error) {
+        console.error('[Settings] Failed to update automation settings:', error);
+        res.status(500).json({ error: 'Failed to update automation settings' });
     }
 });
 
@@ -1005,6 +1071,70 @@ export async function getTrafficLightKeywords(): Promise<TrafficLightKeywords> {
 export function invalidateTrafficLightCache() {
     trafficLightCache = null;
     trafficLightCacheTime = 0;
+}
+
+// ============================================
+// AUTOMATION SETTINGS API
+// ============================================
+
+export interface AutomationSettings {
+    masterEnabled: boolean;
+    newLeadFollowup: boolean;
+    quoteSentReminder: boolean;
+    quoteViewedFollowup: boolean;
+    awaitingVideoReminder: boolean;
+    lostLeadRecovery: boolean;
+    webformChase: boolean;
+}
+
+// Cache for automation settings
+let automationCache: AutomationSettings | null = null;
+let automationCacheTime = 0;
+
+// Get automation settings (with caching)
+export async function getAutomationSettings(): Promise<AutomationSettings> {
+    const now = Date.now();
+
+    // Return cache if fresh (5 minute TTL)
+    if (automationCache && (now - automationCacheTime) < CACHE_TTL_MS) {
+        return automationCache;
+    }
+
+    try {
+        const settings = await db.select().from(appSettings);
+        const settingsMap = new Map(settings.map(s => [s.key, s.value]));
+
+        automationCache = {
+            masterEnabled: (settingsMap.get('automations.master_enabled') ?? AUTOMATION_DEFAULTS['automations.master_enabled'].value) as boolean,
+            newLeadFollowup: (settingsMap.get('automations.new_lead_followup') ?? AUTOMATION_DEFAULTS['automations.new_lead_followup'].value) as boolean,
+            quoteSentReminder: (settingsMap.get('automations.quote_sent_reminder') ?? AUTOMATION_DEFAULTS['automations.quote_sent_reminder'].value) as boolean,
+            quoteViewedFollowup: (settingsMap.get('automations.quote_viewed_followup') ?? AUTOMATION_DEFAULTS['automations.quote_viewed_followup'].value) as boolean,
+            awaitingVideoReminder: (settingsMap.get('automations.awaiting_video_reminder') ?? AUTOMATION_DEFAULTS['automations.awaiting_video_reminder'].value) as boolean,
+            lostLeadRecovery: (settingsMap.get('automations.lost_lead_recovery') ?? AUTOMATION_DEFAULTS['automations.lost_lead_recovery'].value) as boolean,
+            webformChase: (settingsMap.get('automations.webform_chase') ?? AUTOMATION_DEFAULTS['automations.webform_chase'].value) as boolean,
+        };
+        automationCacheTime = now;
+
+        return automationCache;
+    } catch (error) {
+        console.error('[Settings] Failed to get automation settings:', error);
+        // Return safe defaults on error (everything OFF)
+        return {
+            masterEnabled: false,
+            newLeadFollowup: false,
+            quoteSentReminder: false,
+            quoteViewedFollowup: false,
+            awaitingVideoReminder: false,
+            lostLeadRecovery: false,
+            webformChase: false,
+        };
+    }
+}
+
+// Invalidate automation cache
+export function invalidateAutomationCache() {
+    automationCache = null;
+    automationCacheTime = 0;
 }
 
 export const settingsRouter = router;
