@@ -147,9 +147,13 @@ export default function GenerateQuoteLinkSimple() {
     setIsGenerating(true);
 
     try {
+      const adminToken = localStorage.getItem('adminToken');
       const response = await fetch('/api/personalized-quotes/value', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(adminToken ? { 'Authorization': `Bearer ${adminToken}` } : {}),
+        },
         body: JSON.stringify({
           customerName: data.customerName,
           phone: data.phone,

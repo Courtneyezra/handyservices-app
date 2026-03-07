@@ -803,9 +803,13 @@ export default function GenerateQuoteLink() {
           : (optionalExtras.length > 0 ? optionalExtras : undefined), // Optional upsells for customer selection
       };
 
+      const adminToken = localStorage.getItem('adminToken');
       const fetchResponse = await fetch('/api/personalized-quotes/value', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(adminToken ? { 'Authorization': `Bearer ${adminToken}` } : {}),
+        },
         body: JSON.stringify(requestBody),
       });
 

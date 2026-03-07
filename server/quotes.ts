@@ -13,6 +13,7 @@ import { detectMultipleTasks } from "./skuDetector";
 import { findDuplicateLead } from "./lead-deduplication";
 import { normalizePhoneNumber } from "./phone-utils";
 import { updateLeadStage } from "./lead-stage-engine";
+import { optionalAuth } from "./auth";
 import { getShortQuoteUrl, getBookVisitUrl } from "./url-utils";
 
 // Define input schema for value pricing
@@ -195,7 +196,7 @@ Write the WhatsApp reply:`
 });
 
 // Create Quote Endpoint
-quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
+quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, res) => {
     try {
         console.log('[DEBUG-QUOTE] Received quote creation request. Body:', JSON.stringify(req.body, null, 2));
         const input = valuePricingInputSchema.parse(req.body);
@@ -471,6 +472,11 @@ quotesRouter.post('/api/personalized-quotes/value', async (req, res) => {
             // Proposal Mode - Now standard for all quotes (always enabled)
             proposalModeEnabled: input.proposalModeEnabled ?? true,
 
+            // Quote attribution (VA commission tracking)
+            createdBy: (req as any).user?.id || null,
+            createdByName: (req as any).user
+                ? `${(req as any).user.firstName || ''} ${(req as any).user.lastName || ''}`.trim() || null
+                : null,
 
             createdAt: new Date(),
             // expiresAt removed - quotes no longer expire
@@ -1871,7 +1877,7 @@ const instantQuoteSchema = z.object({
 
 // POST /api/quotes/instant
 // Creates a simple quote from live call and sends booking link
-quotesRouter.post('/api/quotes/instant', async (req, res) => {
+quotesRouter.post('/api/quotes/instant', optionalAuth, async (req, res) => {
     try {
         const input = instantQuoteSchema.parse(req.body);
         const normalizedPhone = normalizePhoneNumber(input.phone);
@@ -1930,6 +1936,10 @@ quotesRouter.post('/api/quotes/instant', async (req, res) => {
             })),
             selectedDate: input.selectedDate ? new Date(input.selectedDate) : null,
             segment: 'UNKNOWN',
+            createdBy: (req as any).user?.id || null,
+            createdByName: (req as any).user
+                ? `${(req as any).user.firstName || ''} ${(req as any).user.lastName || ''}`.trim() || null
+                : null,
             createdAt: new Date(),
         };
 

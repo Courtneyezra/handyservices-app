@@ -206,9 +206,13 @@ export function QuoteSendPopup({
 
     try {
       // Create quote via API
+      const adminToken = localStorage.getItem('adminToken');
       const response = await fetch('/api/live-call/create-quote', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(adminToken ? { 'Authorization': `Bearer ${adminToken}` } : {}),
+        },
         body: JSON.stringify({
           customerName: name.trim(),
           phone: phone.trim(),
