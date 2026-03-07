@@ -3,7 +3,7 @@ import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { db } from "./db";
 import { users, contractorSessions, handymanProfiles } from "../shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 
 import { Router, Request, Response, NextFunction } from "express";
@@ -34,11 +34,46 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
         where: eq(users.id, session.userId),
     });
 
-    if (!user || user.role !== 'admin') {
+    if (!user || (user.role !== 'admin' && user.role !== 'va')) {
         return res.status(403).json({ error: 'Admin access required' });
     }
 
     (req as any).user = user;
+    next();
+}
+
+/**
+ * Optional auth middleware - extracts user if token present, but doesn't block.
+ * Sets (req as any).user if authenticated, passes through if not.
+ * Used on quote creation endpoints to track who created the quote (for VA commission).
+ */
+export async function optionalAuth(req: Request, res: Response, next: NextFunction) {
+    const authHeader = req.headers.authorization;
+    const sessionToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+    if (!sessionToken) {
+        return next();
+    }
+
+    try {
+        const sessionResult = await db.select()
+            .from(contractorSessions)
+            .where(eq(contractorSessions.sessionToken, sessionToken))
+            .limit(1);
+        const session = sessionResult[0];
+
+        if (session && session.expiresAt >= new Date()) {
+            const user = await db.query.users.findFirst({
+                where: eq(users.id, session.userId),
+            });
+            if (user) {
+                (req as any).user = user;
+            }
+        }
+    } catch (error) {
+        console.error('[Auth] Optional auth error:', error);
+    }
+
     next();
 }
 
@@ -221,11 +256,11 @@ router.post('/login', async (req: Request, res: Response) => {
 
         const { email, password } = validation.data;
 
-        // Find user - ADMIN ONLY
+        // Find user - ADMIN or VA
         const userResult = await db.select().from(users)
             .where(and(
                 eq(users.email, email.toLowerCase()),
-                eq(users.role, 'admin')
+                inArray(users.role, ['admin', 'va'])
             ))
             .limit(1);
 

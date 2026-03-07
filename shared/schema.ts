@@ -755,6 +755,10 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     reminderSentAt: timestamp("reminder_sent_at"), // Quote reminder automation sent
     followupSentAt: timestamp("followup_sent_at"), // Quote viewed follow-up automation sent
 
+    // Quote Attribution (who created this quote — for VA commission tracking)
+    createdBy: varchar("created_by"), // User ID of the admin/VA who created this quote
+    createdByName: varchar("created_by_name", { length: 100 }), // Display name for quick reference (avoids JOIN)
+
     // Creation timestamp
     createdAt: timestamp("created_at").defaultNow(),
 });

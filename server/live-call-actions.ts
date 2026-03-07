@@ -13,6 +13,7 @@ import { leads, personalizedQuotes, calls, contractorBookingRequests, contractor
 import { eq, desc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
+import { optionalAuth } from "./auth";
 import { sendWhatsAppMessage } from "./meta-whatsapp";
 import { normalizePhoneNumber } from "./phone-utils";
 import { updateLeadStage } from "./lead-stage-engine";
@@ -335,8 +336,8 @@ liveCallActionsRouter.post('/api/live-call/get-video', async (req, res) => {
         const videoToken = nanoid(12);
         const videoUploadUrl = getVideoUploadUrl(req, videoToken);
 
-        // Build job context from ALL detected jobs
-        const allJobDescriptions = jobs?.map(j => j.sku?.name || j.description) || [];
+        // Build job context from ALL detected jobs - prefer call-specific descriptions over generic SKU names
+        const allJobDescriptions = jobs?.map(j => j.description || j.sku?.name).filter(Boolean) || [];
         const videoSubject = allJobDescriptions.length > 0
             ? allJobDescriptions.join(', ')
             : 'the work you mentioned';
@@ -723,7 +724,7 @@ const createQuoteSchema = z.object({
     expiresInDays: z.number().default(7),
 });
 
-liveCallActionsRouter.post('/api/live-call/create-quote', async (req, res) => {
+liveCallActionsRouter.post('/api/live-call/create-quote', optionalAuth, async (req, res) => {
     try {
         console.log('[LiveCallAction] CREATE QUOTE request:', JSON.stringify(req.body, null, 2));
 
@@ -868,6 +869,10 @@ liveCallActionsRouter.post('/api/live-call/create-quote', async (req, res) => {
 
             proposalModeEnabled: true,
             expiresAt,
+            createdBy: (req as any).user?.id || null,
+            createdByName: (req as any).user
+                ? `${(req as any).user.firstName || ''} ${(req as any).user.lastName || ''}`.trim() || null
+                : null,
             createdAt: new Date(),
         });
 
