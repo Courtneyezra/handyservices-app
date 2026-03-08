@@ -15,6 +15,18 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     const [location] = useLocation();
     const { isLive } = useLiveCall();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+    // Parse logged-in user info for menu filtering + display
+    const adminUser = (() => {
+        try {
+            const u = localStorage.getItem('adminUser');
+            return u ? JSON.parse(u) : null;
+        } catch { return null; }
+    })();
+    const isVA = adminUser?.role === 'va';
+    const displayName = adminUser?.firstName ? `${adminUser.firstName} ${adminUser.lastName || ''}`.trim() : 'Dispatcher';
+    const displayEmail = adminUser?.email || '';
+
     const [isCollapsed, setIsCollapsed] = useState(() => {
         // Persist collapse state in localStorage
         if (typeof window !== 'undefined') {
@@ -83,7 +95,26 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
 
                 {/* Navigation */}
                 <nav className={cn("flex-1 py-4 space-y-6 overflow-y-auto", isCollapsed ? "px-2" : "px-4")}>
-                    {[
+                    {(isVA ? [
+                        // ─── VA Menu: stripped down ───
+                        {
+                            title: "YOUR TOOLS",
+                            items: [
+                                { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
+                                { icon: DollarSign, label: "Quote Generator", href: "/admin/generate-quote" },
+                                { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
+                                { icon: GitBranch, label: "Pipeline", href: "/admin/pipeline" },
+                            ]
+                        },
+                        {
+                            title: "HELP",
+                            items: [
+                                { icon: BookOpen, label: "Resources", href: "/admin/resources" },
+                                { icon: GraduationCap, label: "Onboarding", href: "/admin/onboarding" },
+                            ]
+                        }
+                    ] : [
+                        // ─── Admin Menu: full access ───
                         {
                             title: "DISPATCH CONSOLE",
                             items: [
@@ -91,12 +122,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Inbox, label: "Inbox", href: "/admin/inbox", badge: "NEW" },
                                 { icon: LayoutTemplate, label: "Dispatch Board", href: "/admin/dispatch" },
                                 { icon: BarChart3, label: "Reports Dashboard", href: "/admin/dashboard" },
-                                {
-                                    icon: Mic,
-                                    label: "Live Switchboard",
-                                    href: "/admin/live-call",
-                                    badge: isLive ? "LIVE" : null
-                                },
+                                { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
                             ]
                         },
                         {
@@ -109,7 +135,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Users, label: "Contractors", href: "/admin/contractors" },
                                 { icon: Wrench, label: "Handyman Map", href: "/admin/handymen" },
                                 { icon: LayoutDashboard, label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },
-                                { icon: User, label: "Leads (Classic)", href: "/admin/leads" }, // Keeping for safety
+                                { icon: User, label: "Leads (Classic)", href: "/admin/leads" },
                             ]
                         },
                         {
@@ -139,7 +165,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: BookOpen, label: "VA Resources", href: "/admin/resources" },
                             ]
                         }
-                    ].map((group, idx) => (
+                    ]).map((group, idx) => (
                         <div key={idx}>
                             {!isCollapsed && (
                                 <h3 className="mb-2 px-4 text-[10px] font-black uppercase tracking-wider text-muted-foreground/50 font-mono">
@@ -184,7 +210,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                     ))}
 
                     {/* Access to Legacy Comms (Collapsed/Hidden or just less prominent) */}
-                    {!isCollapsed && (
+                    {!isCollapsed && !isVA && (
                         <div className="mt-4 px-4 pt-4 border-t border-border/50">
                             <p className="text-[10px] text-muted-foreground mb-2 font-mono uppercase">LEGACY VIEWS</p>
                             <Link href="/admin/calls"><a className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground mb-2"><PhoneCall className="w-3 h-3" /> Call Logs</a></Link>
@@ -207,12 +233,12 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                     </button>
                     <div className={cn("flex items-center", isCollapsed ? "justify-center pt-2" : "pt-2 gap-3 px-4")}>
                         <div className={cn("rounded-full bg-slate-700 overflow-hidden ring-2 ring-border", isCollapsed ? "w-8 h-8" : "w-8 h-8")}>
-                            <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" alt="User" />
+                            <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${adminUser?.firstName || 'Felix'}`} alt="User" />
                         </div>
                         {!isCollapsed && (
                             <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-foreground truncate">Dispatcher</p>
-                                <p className="text-xs text-muted-foreground truncate">admin@nexus.com</p>
+                                <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
+                                <p className="text-xs text-muted-foreground truncate">{displayEmail}</p>
                             </div>
                         )}
                     </div>
