@@ -143,6 +143,23 @@ function LoadingFallback() {
     );
 }
 
+/** Redirect VA users to /admin/live-call instead of showing PipelineHome */
+function AdminHomeRedirect() {
+    const [, setLocation] = useLocation();
+    try {
+        const adminUser = JSON.parse(localStorage.getItem('adminUser') || '{}');
+        if (adminUser?.role === 'va') {
+            setLocation('/admin/live-call');
+            return null;
+        }
+    } catch {}
+    return (
+        <Suspense fallback={<LoadingFallback />}>
+            <PipelineHomePage />
+        </Suspense>
+    );
+}
+
 function Router() {
     const [location] = useLocation();
     // Domain Routing Logic
@@ -392,15 +409,15 @@ function Router() {
                 </Route>
 
                 {/* ============ ADMIN ROUTES (Protected) ============ */}
-                {/* Pipeline Home - the main/only view for V6 Switchboard CRM */}
+                {/* Pipeline Home - the main/only view for V6 Switchboard CRM (VAs redirect to /admin/live-call) */}
                 <Route path="/admin">
                     <ProtectedRoute role="admin">
-                        <PipelineHomePage />
+                        <AdminHomeRedirect />
                     </ProtectedRoute>
                 </Route>
                 <Route path="/admin/pipeline-home">
                     <ProtectedRoute role="admin">
-                        <PipelineHomePage />
+                        <AdminHomeRedirect />
                     </ProtectedRoute>
                 </Route>
                 {/* Legacy Dashboard - accessed via admin sidebar */}
