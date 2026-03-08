@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Copy, Check, Loader2, Sparkles } from 'lucide-react';
 import { FaWhatsapp } from 'react-icons/fa';
-
 import { QuoteBuilder } from '@/components/quote/QuoteBuilder';
+import { RecentCallers } from '@/components/quote/RecentCallers';
 import type { TaskItem, Segment, AnalyzedJobData } from '@/types/quote-builder';
 import { poundsToPence } from '@/lib/quote-price-calculator';
 
@@ -51,6 +51,23 @@ const VALID_SEGMENTS: Segment[] = ['EMERGENCY', 'BUSY_PRO', 'PROP_MGR', 'LANDLOR
 
 export default function GenerateQuoteLinkSimple() {
   const { toast } = useToast();
+
+  // Track selected caller from URL param
+  const selectedCallerId = useMemo(() => {
+    return new URLSearchParams(window.location.search).get('callerId');
+  }, []);
+
+  const handleSelectCaller = (caller: { id: string; customerName: string; phone: string; address: string; postcode: string; jobSummary: string }) => {
+    const params = new URLSearchParams();
+    params.set('callerId', caller.id);
+    if (caller.customerName) params.set('name', caller.customerName);
+    if (caller.phone) params.set('phone', caller.phone);
+    if (caller.address) params.set('address', caller.address);
+    if (caller.postcode) params.set('postcode', caller.postcode);
+    if (caller.jobSummary) params.set('jobDescription', caller.jobSummary);
+    // Full page navigation to force useMemo to re-compute initialData
+    window.location.href = `/admin/generate-quote?${params.toString()}`;
+  };
 
   // Parse URL params for pre-filling (from Leads/Calls pages)
   const initialData = useMemo(() => {
@@ -281,13 +298,18 @@ export default function GenerateQuoteLinkSimple() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8">
+    <div className="p-4 md:p-8">
       <div className="max-w-2xl mx-auto space-y-6">
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-slate-900">Generate Quote</h1>
-          <p className="text-slate-600 mt-2">Create a personalised quote link in seconds</p>
+        <div className="mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Generate Quote</h1>
+          <p className="text-muted-foreground text-sm mt-1">Create a personalised quote link in seconds</p>
         </div>
+
+        {/* Recent Callers */}
+        {!generatedUrl && (
+          <RecentCallers onSelect={handleSelectCaller} selectedId={selectedCallerId} />
+        )}
 
         {/* Quote Builder */}
         {!generatedUrl && (
@@ -303,32 +325,32 @@ export default function GenerateQuoteLinkSimple() {
 
         {/* Generated Result */}
         {generatedUrl && (
-          <Card className="border-2 border-green-500 bg-green-50">
+          <Card className="border border-green-500/30 bg-green-500/5">
             <CardHeader className="pb-4">
-              <CardTitle className="text-green-700">Quote Ready!</CardTitle>
+              <CardTitle className="text-green-400">Quote Ready!</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Pricing Display */}
               {generatedPricing && (
                 <div className="grid grid-cols-3 gap-3 mb-4">
-                  <div className="bg-white rounded-lg p-3 text-center border">
-                    <div className="text-xs text-slate-500 uppercase">Standard</div>
-                    <div className="text-xl font-bold text-slate-900">{"\u00A3"}{Math.round(generatedPricing.essential)}</div>
+                  <div className="bg-muted rounded-lg p-3 text-center border border-border">
+                    <div className="text-xs text-muted-foreground uppercase">Standard</div>
+                    <div className="text-xl font-bold">{"\u00A3"}{Math.round(generatedPricing.essential)}</div>
                   </div>
-                  <div className="bg-white rounded-lg p-3 text-center border-2 border-green-500">
-                    <div className="text-xs text-green-600 uppercase font-semibold">Priority</div>
-                    <div className="text-xl font-bold text-green-700">{"\u00A3"}{Math.round(generatedPricing.enhanced)}</div>
+                  <div className="bg-muted rounded-lg p-3 text-center border border-green-500/40">
+                    <div className="text-xs text-green-400 uppercase font-semibold">Priority</div>
+                    <div className="text-xl font-bold text-green-400">{"\u00A3"}{Math.round(generatedPricing.enhanced)}</div>
                   </div>
-                  <div className="bg-white rounded-lg p-3 text-center border">
-                    <div className="text-xs text-slate-500 uppercase">Premium</div>
-                    <div className="text-xl font-bold text-slate-900">{"\u00A3"}{Math.round(generatedPricing.elite)}</div>
+                  <div className="bg-muted rounded-lg p-3 text-center border border-border">
+                    <div className="text-xs text-muted-foreground uppercase">Premium</div>
+                    <div className="text-xl font-bold">{"\u00A3"}{Math.round(generatedPricing.elite)}</div>
                   </div>
                 </div>
               )}
 
               {/* URL */}
-              <div className="flex items-center gap-2 bg-white rounded-lg p-3 border">
-                <input type="text" value={generatedUrl} readOnly className="flex-1 bg-transparent text-sm font-mono truncate" />
+              <div className="flex items-center gap-2 bg-muted rounded-lg p-3 border border-border">
+                <input type="text" value={generatedUrl} readOnly className="flex-1 bg-transparent text-sm font-mono truncate text-foreground" />
                 <Button variant="outline" size="sm" onClick={handleCopy}>
                   {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                 </Button>
@@ -336,9 +358,9 @@ export default function GenerateQuoteLinkSimple() {
 
               {/* AI-Generated Message Preview */}
               {(aiGeneratedMessage || isGeneratingMessage) && (
-                <div className="bg-white rounded-lg p-4 border-2 border-green-300">
+                <div className="bg-muted rounded-lg p-4 border border-green-500/30">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-green-700">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-green-400">
                       <FaWhatsapp className="w-4 h-4" />
                       Message Preview
                     </div>
@@ -347,7 +369,7 @@ export default function GenerateQuoteLinkSimple() {
                         variant="ghost"
                         size="sm"
                         onClick={handleRegenerateMessage}
-                        className="text-green-600 hover:text-green-700"
+                        className="text-green-400 hover:text-green-300"
                       >
                         <Sparkles className="w-4 h-4 mr-1" />
                         Regenerate
@@ -355,12 +377,12 @@ export default function GenerateQuoteLinkSimple() {
                     )}
                   </div>
                   {isGeneratingMessage ? (
-                    <div className="flex items-center gap-2 text-slate-500">
+                    <div className="flex items-center gap-2 text-muted-foreground">
                       <Loader2 className="w-4 h-4 animate-spin" />
                       <span className="text-sm">Generating message...</span>
                     </div>
                   ) : (
-                    <div className="text-sm text-slate-700 whitespace-pre-wrap bg-green-50 rounded-lg p-3">
+                    <div className="text-sm text-foreground/80 whitespace-pre-wrap bg-green-500/5 rounded-lg p-3">
                       {aiGeneratedMessage}
                     </div>
                   )}

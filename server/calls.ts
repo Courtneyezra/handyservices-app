@@ -72,6 +72,45 @@ router.get("/active", async (req: Request, res: Response) => {
     }
 });
 
+// GET /api/calls/recent-callers - Lightweight list for quote form pre-fill
+router.get("/recent-callers", async (req: Request, res: Response) => {
+    try {
+        const recentCalls = await db.select({
+            id: calls.id,
+            customerName: calls.customerName,
+            phoneNumber: calls.phoneNumber,
+            address: calls.address,
+            postcode: calls.postcode,
+            jobSummary: calls.jobSummary,
+            startTime: calls.startTime,
+            metadataJson: calls.metadataJson,
+        })
+            .from(calls)
+            .orderBy(desc(calls.startTime))
+            .limit(10);
+
+        const callers = recentCalls
+            .filter(c => c.customerName || (c.metadataJson as any)?.customerName)
+            .map(c => {
+                const meta = (c.metadataJson || {}) as any;
+                return {
+                    id: c.id,
+                    customerName: c.customerName || meta.customerName || "Unknown",
+                    phone: c.phoneNumber || meta.phoneNumber || "",
+                    address: c.address || meta.address || "",
+                    postcode: c.postcode || meta.postcode || "",
+                    jobSummary: c.jobSummary || "",
+                    calledAt: c.startTime?.toISOString() ?? null,
+                };
+            });
+
+        res.json(callers);
+    } catch (error) {
+        console.error("Error fetching recent callers:", error);
+        res.status(500).json({ error: "Failed to fetch recent callers" });
+    }
+});
+
 // GET /api/calls - List all calls with filtering and pagination
 router.get("/", async (req: Request, res: Response) => {
     try {

@@ -229,13 +229,13 @@ export function QuoteBuilder({
     <div className="space-y-6">
       {/* WhatsApp Conversation Context - Only in create mode */}
       {showWhatsAppContext && (
-        <Card className="border-2 border-green-200 bg-green-50/50">
+        <Card className="border border-green-500/30 bg-green-500/5">
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-lg text-green-800">
-              <FaWhatsapp className="w-6 h-6 text-green-600" />
+            <CardTitle className="flex items-center gap-2 text-lg text-green-400">
+              <FaWhatsapp className="w-6 h-6 text-green-500" />
               Paste WhatsApp Conversation
             </CardTitle>
-            <p className="text-sm text-green-700 mt-1">
+            <p className="text-sm text-muted-foreground mt-1">
               Paste the last few messages to generate a contextual, segment-styled reply
             </p>
           </CardHeader>
@@ -250,7 +250,7 @@ Example:
 [You]: Hi! Yes absolutely. Which tap is it?
 [Customer]: Kitchen sink, it's been getting worse
 [You]: No problem, I'll get you a quote now"
-              className="w-full h-32 px-4 py-3 text-sm bg-white border-2 border-green-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
+              className="w-full h-32 px-4 py-3 text-sm bg-muted border border-green-500/30 rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
             />
           </CardContent>
         </Card>
@@ -260,7 +260,7 @@ Example:
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-2 text-lg">
-            <Users className="w-5 h-5 text-blue-600" />
+            <Users className="w-5 h-5 text-blue-400" />
             Customer Details
           </CardTitle>
         </CardHeader>
@@ -305,7 +305,7 @@ Example:
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-2 text-lg">
-            <FileText className="w-5 h-5 text-green-600" />
+            <FileText className="w-5 h-5 text-green-400" />
             Job Details
           </CardTitle>
         </CardHeader>
@@ -336,21 +336,21 @@ Example:
 
           {/* Analysis Summary */}
           {analyzedJob && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-3">
-              <div className="flex items-center gap-2 text-green-700 font-medium">
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4 space-y-3">
+              <div className="flex items-center gap-2 text-green-400 font-medium">
                 <Check className="w-4 h-4" />
                 Analysis Complete
               </div>
               {analyzedJob.summary && (
-                <p className="text-sm text-slate-600">{analyzedJob.summary}</p>
+                <p className="text-sm text-muted-foreground">{analyzedJob.summary}</p>
               )}
-              <div className="flex gap-4 text-sm">
+              <div className="flex gap-4 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1">
-                  <Clock className="w-4 h-4 text-slate-400" />
+                  <Clock className="w-4 h-4" />
                   {totals.totalHours.toFixed(1)}h estimated
                 </span>
                 <span className="flex items-center gap-1">
-                  <Wrench className="w-4 h-4 text-slate-400" />
+                  <Wrench className="w-4 h-4" />
                   {tasks.length} tasks
                 </span>
               </div>
@@ -368,7 +368,7 @@ Example:
               </div>
 
               {tasks.map((task) => (
-                <div key={task.id} className="bg-slate-50 border rounded-lg p-3 space-y-2">
+                <div key={task.id} className="bg-muted border border-border rounded-lg p-3 space-y-2">
                   <div className="flex items-start gap-2">
                     <Input
                       value={task.description}
@@ -382,7 +382,7 @@ Example:
                   </div>
                   <div className="grid grid-cols-4 gap-2">
                     <div>
-                      <Label className="text-xs text-slate-500">Qty</Label>
+                      <Label className="text-xs text-muted-foreground">Qty</Label>
                       <Input
                         type="number"
                         value={task.quantity}
@@ -392,7 +392,7 @@ Example:
                       />
                     </div>
                     <div>
-                      <Label className="text-xs text-slate-500">Hours</Label>
+                      <Label className="text-xs text-muted-foreground">Hours</Label>
                       <Input
                         type="number"
                         value={task.hours}
@@ -403,7 +403,7 @@ Example:
                       />
                     </div>
                     <div>
-                      <Label className="text-xs text-slate-500">Materials {"\u00A3"}</Label>
+                      <Label className="text-xs text-muted-foreground">Materials {"\u00A3"}</Label>
                       <Input
                         type="number"
                         value={task.materialCost}
@@ -413,7 +413,7 @@ Example:
                       />
                     </div>
                     <div>
-                      <Label className="text-xs text-slate-500">Complexity</Label>
+                      <Label className="text-xs text-muted-foreground">Complexity</Label>
                       <Select value={task.complexity} onValueChange={(v: any) => updateTask(task.id, 'complexity', v)}>
                         <SelectTrigger className="text-sm h-9">
                           <SelectValue />
@@ -437,7 +437,7 @@ Example:
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-2 text-lg">
-            <PoundSterling className="w-5 h-5 text-amber-600" />
+            <PoundSterling className="w-5 h-5 text-amber-400" />
             Pricing
           </CardTitle>
         </CardHeader>
@@ -461,16 +461,16 @@ Example:
 
           {/* Calculated Price Summary */}
           {tasks.length > 0 && (
-            <div className="bg-slate-100 rounded-lg p-4 space-y-2">
-              <div className="flex justify-between text-sm">
+            <div className="bg-muted rounded-lg p-4 space-y-2">
+              <div className="flex justify-between text-sm text-muted-foreground">
                 <span>Labor ({totals.totalHours.toFixed(1)}h)</span>
                 <span>{"\u00A3"}{totals.totalLabor.toFixed(0)}</span>
               </div>
-              <div className="flex justify-between text-sm">
+              <div className="flex justify-between text-sm text-muted-foreground">
                 <span>Materials (inc. 30% markup)</span>
                 <span>{"\u00A3"}{totals.materialsWithMarkup.toFixed(0)}</span>
               </div>
-              <div className="flex justify-between font-bold border-t pt-2">
+              <div className="flex justify-between font-bold border-t border-border pt-2">
                 <span>Calculated Total</span>
                 <span>{"\u00A3"}{totals.totalPrice}</span>
               </div>
@@ -495,9 +495,9 @@ Example:
           </div>
 
           {/* Effective Price Display */}
-          <div className="bg-green-100 border border-green-300 rounded-lg p-3 text-center">
-            <div className="text-sm text-green-700">Base Price for Quote</div>
-            <div className="text-2xl font-bold text-green-800">{"\u00A3"}{effectivePrice || 0}</div>
+          <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-center">
+            <div className="text-sm text-green-400">Base Price for Quote</div>
+            <div className="text-2xl font-bold text-green-300">{"\u00A3"}{effectivePrice || 0}</div>
           </div>
         </CardContent>
       </Card>
