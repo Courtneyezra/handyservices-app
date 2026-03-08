@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -12,7 +12,7 @@ interface SidebarLayoutProps {
 }
 
 export default function SidebarLayout({ children }: SidebarLayoutProps) {
-    const [location] = useLocation();
+    const [location, setLocation] = useLocation();
     const { isLive } = useLiveCall();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -67,7 +67,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
             <aside className={cn(
                 "fixed inset-y-0 left-0 bg-card text-card-foreground flex flex-col z-50 transition-all duration-300 lg:relative lg:translate-x-0 border-r border-border",
                 isCollapsed ? "w-16" : "w-64",
-                isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+                isSidebarOpen ? "translate-x-0" : "-translate-x-full",
+                isVA && "pb-16 lg:pb-0"
             )}>
                 {/* Logo Area */}
                 <div className={cn("p-4 flex items-center gap-3", isCollapsed && "justify-center p-3")}>
@@ -103,7 +104,6 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
                                 { icon: DollarSign, label: "Quote Generator", href: "/admin/generate-quote" },
                                 { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
-                                { icon: GitBranch, label: "Pipeline", href: "/admin/pipeline" },
                             ]
                         },
                         {
@@ -221,16 +221,18 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
 
                 {/* Bottom Actions */}
                 <div className={cn("mt-auto border-t border-border bg-card/50 backdrop-blur-sm", isCollapsed ? "p-2 space-y-2" : "p-4 space-y-2")}>
-                    <button
-                        className={cn(
-                            "flex items-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg text-sm font-medium transition-colors",
-                            isCollapsed ? "justify-center p-2.5 w-full" : "gap-3 px-4 py-3 w-full"
-                        )}
-                        title={isCollapsed ? "Help & Support" : undefined}
-                    >
-                        <HelpCircle className="w-5 h-5" />
-                        {!isCollapsed && "Help & Support"}
-                    </button>
+                    {!isVA && (
+                        <button
+                            className={cn(
+                                "flex items-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg text-sm font-medium transition-colors",
+                                isCollapsed ? "justify-center p-2.5 w-full" : "gap-3 px-4 py-3 w-full"
+                            )}
+                            title={isCollapsed ? "Help & Support" : undefined}
+                        >
+                            <HelpCircle className="w-5 h-5" />
+                            {!isCollapsed && "Help & Support"}
+                        </button>
+                    )}
                     <div className={cn("flex items-center", isCollapsed ? "justify-center pt-2" : "pt-2 gap-3 px-4")}>
                         <div className={cn("rounded-full bg-slate-700 overflow-hidden ring-2 ring-border", isCollapsed ? "w-8 h-8" : "w-8 h-8")}>
                             <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${adminUser?.firstName || 'Felix'}`} alt="User" />
@@ -242,6 +244,22 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             </div>
                         )}
                     </div>
+                    {/* Logout button */}
+                    <button
+                        onClick={() => {
+                            localStorage.removeItem('adminToken');
+                            localStorage.removeItem('adminUser');
+                            setLocation('/admin/login');
+                        }}
+                        className={cn(
+                            "flex items-center text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg text-sm font-medium transition-colors",
+                            isCollapsed ? "justify-center p-2.5 w-full" : "gap-3 px-4 py-2.5 w-full"
+                        )}
+                        title={isCollapsed ? "Log out" : undefined}
+                    >
+                        <LogOut className="w-4 h-4" />
+                        {!isCollapsed && "Log out"}
+                    </button>
                 </div>
             </aside>
 
@@ -286,18 +304,22 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                     </div>
                     <div className="flex items-center gap-2 lg:gap-4">
                         <ThemeToggle />
-                        <button className="p-2 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted transition-colors relative hidden sm:block">
-                            <Bell className="w-5 h-5" />
-                            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-background"></span>
-                        </button>
-                        <button className="px-3 lg:px-4 py-2 bg-primary text-primary-foreground text-[10px] lg:text-sm font-bold rounded-lg hover:bg-primary/90 transition-colors shadow-sm">
-                            + New Call
-                        </button>
+                        {!isVA && (
+                            <>
+                                <button className="p-2 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted transition-colors relative hidden sm:block">
+                                    <Bell className="w-5 h-5" />
+                                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-background"></span>
+                                </button>
+                                <button className="px-3 lg:px-4 py-2 bg-primary text-primary-foreground text-[10px] lg:text-sm font-bold rounded-lg hover:bg-primary/90 transition-colors shadow-sm">
+                                    + New Call
+                                </button>
+                            </>
+                        )}
                     </div>
                 </header>
 
                 {/* Content Area */}
-                <div className="flex-1 overflow-auto p-4 lg:p-8">
+                <div className={cn("flex-1 overflow-auto p-4 lg:p-8", isVA && "pb-20 lg:pb-8")}>
                     {/* Live Call Notification Banner */}
                     {isLive && location !== '/admin/live-call' && (
                         <Link href="/admin/live-call">
@@ -322,6 +344,37 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                     {children}
                 </div>
             </main>
+
+            {/* VA Bottom Tab Bar — mobile only */}
+            {isVA && (
+                <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border lg:hidden">
+                    <div className="flex items-stretch justify-around h-16">
+                        {[
+                            { icon: Mic, label: "Live", href: "/admin/live-call" },
+                            { icon: DollarSign, label: "Quote", href: "/admin/generate-quote" },
+                            { icon: FileText, label: "Quotes", href: "/admin/quotes" },
+                            { icon: BookOpen, label: "Help", href: "/admin/resources" },
+                        ].map((tab) => {
+                            const isActive = location === tab.href;
+                            const Icon = tab.icon;
+                            return (
+                                <Link key={tab.href} href={tab.href}>
+                                    <a className={cn(
+                                        "flex flex-col items-center justify-center gap-0.5 flex-1 px-2 transition-colors",
+                                        isActive
+                                            ? "text-primary"
+                                            : "text-muted-foreground"
+                                    )}>
+                                        <Icon className={cn("w-5 h-5", isActive && "text-primary")} />
+                                        <span className={cn("text-[10px] font-semibold", isActive && "text-primary")}>{tab.label}</span>
+                                        {isActive && <div className="absolute bottom-1 w-6 h-0.5 rounded-full bg-primary" />}
+                                    </a>
+                                </Link>
+                            );
+                        })}
+                    </div>
+                </nav>
+            )}
         </div>
     );
 }
