@@ -33,8 +33,12 @@ export default function AdminLogin() {
             localStorage.setItem('adminToken', data.token);
             localStorage.setItem('adminUser', JSON.stringify(data.user));
 
-            // Redirect to dashboard
-            setLocation('/admin');
+            // Redirect based on role — VA goes straight to live call
+            if (data.user?.role === 'va') {
+                setLocation('/admin/live-call');
+            } else {
+                setLocation('/admin');
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Login failed');
         } finally {

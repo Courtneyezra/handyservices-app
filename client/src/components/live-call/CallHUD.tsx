@@ -15,7 +15,6 @@ import {
   Briefcase,
   Store,
   Shield,
-  Wallet,
   FileText,
   Video,
   MapPin,
@@ -108,12 +107,11 @@ const SEGMENTS: {
   icon: React.ElementType;
   hook: string;
 }[] = [
-  { id: 'LANDLORD', label: 'LANDLORD', color: '#EA580C', icon: Home, hook: "You don't need to be there" },
-  { id: 'PROP_MGR', label: 'PROP MGR', color: '#16A34A', icon: Building2, hook: 'We handle the portfolio' },
-  { id: 'BUSY_PRO', label: 'BUSY', color: '#CA8A04', icon: Briefcase, hook: 'Quote in 60 seconds' },
-  { id: 'SMALL_BIZ', label: 'BIZ', color: '#9333EA', icon: Store, hook: 'Zero disruption' },
-  { id: 'OAP', label: 'TRUST', color: '#2563EB', icon: Shield, hook: 'Fully insured, DBS checked' },
-  { id: 'BUDGET', label: 'BUDGET', color: '#525252', icon: Wallet, hook: 'No hidden fees' },
+  { id: 'LANDLORD', label: 'Landlord', color: '#EA580C', icon: Home, hook: "You don't need to be there" },
+  { id: 'PROP_MGR', label: 'Property', color: '#16A34A', icon: Building2, hook: 'We handle the portfolio' },
+  { id: 'BUSY_PRO', label: 'Busy Pro', color: '#CA8A04', icon: Briefcase, hook: 'Quote in 60 seconds' },
+  { id: 'OAP', label: 'OAP', color: '#2563EB', icon: Shield, hook: 'Fully insured, DBS checked' },
+  { id: 'SMALL_BIZ', label: 'Business', color: '#9333EA', icon: Store, hook: 'Zero disruption' },
 ];
 
 const ACTION_CONFIG = {
