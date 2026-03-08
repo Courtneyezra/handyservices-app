@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -136,6 +136,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: LayoutTemplate, label: "Marketing", href: "/admin/marketing" },
                                 { icon: Settings, label: "Settings", href: "/admin/settings" },
                                 { icon: GraduationCap, label: "Onboarding", href: "/admin/onboarding" },
+                                { icon: BookOpen, label: "VA Resources", href: "/admin/resources" },
                             ]
                         }
                     ].map((group, idx) => (
