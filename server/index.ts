@@ -55,6 +55,7 @@ import availabilityRouter from './availability'; // Availability Slots for Live 
 import publicRoutes from './public-routes';
 import adminContractorsRouter from './admin-contractors-routes';
 import adminDashboardRouter from './admin-dashboard-routes';
+import { vaStatsRouter } from './va-stats';
 import mediaRouter from './media-upload';
 // Freemium Product Routes
 import { paymentLinksRouter } from './payment-links';
@@ -261,6 +262,7 @@ app.use('/api', testRouter);
 app.use('/api/whatsapp', whatsappRouter); // Legacy Twilio Webhooks
 app.use('/api/whatsapp', metaWhatsAppRouter); // Meta Cloud API Webhooks
 app.use('/api/dashboard', requireAdmin, dashboardRouter);
+app.use('/api/va', requireAdmin, vaStatsRouter);
 app.use('/api/handymen', handymenRouter);
 app.use('/api/calls', callsRouter);
 app.use('/api/calls', callsRouter);

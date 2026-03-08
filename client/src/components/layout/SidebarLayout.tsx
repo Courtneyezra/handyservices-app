@@ -3,6 +3,7 @@ import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, Messag
 import { useQuery } from "@tanstack/react-query";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
+import InstallPrompt from "@/components/InstallPrompt";
 import { Link, useLocation } from "wouter";
 import { useLiveCall } from "@/contexts/LiveCallContext";
 import { cn } from "@/lib/utils";
@@ -55,20 +56,20 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
 
     return (
         <div className="flex h-screen bg-background font-sans text-foreground overflow-hidden transition-colors duration-300">
-            {/* Mobile Backdrop */}
-            {isSidebarOpen && (
+            {/* Mobile Backdrop — hidden for VA (no sidebar) */}
+            {!isVA && isSidebarOpen && (
                 <div
                     className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
                     onClick={() => setIsSidebarOpen(false)}
                 />
             )}
 
-            {/* Sidebar */}
+            {/* Sidebar — hidden for VA */}
             <aside className={cn(
                 "fixed inset-y-0 left-0 bg-card text-card-foreground flex flex-col z-50 transition-all duration-300 lg:relative lg:translate-x-0 border-r border-border",
                 isCollapsed ? "w-16" : "w-64",
                 isSidebarOpen ? "translate-x-0" : "-translate-x-full",
-                isVA && "pb-16 lg:pb-0"
+                isVA && "!hidden"
             )}>
                 {/* Logo Area */}
                 <div className={cn("p-4 flex items-center gap-3", isCollapsed && "justify-center p-3")}>
@@ -104,6 +105,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
                                 { icon: DollarSign, label: "Quote Generator", href: "/admin/generate-quote" },
                                 { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
+                                { icon: BarChart3, label: "My Stats", href: "/admin/va-stats" },
                             ]
                         },
                         {
@@ -175,34 +177,34 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             {isCollapsed && idx > 0 && <div className="border-t border-border/50 my-2" />}
                             <div className="space-y-1">
                                 {group.items.map((item) => (
-                                    <Link key={item.href} href={item.href}>
-                                        <a
-                                            onClick={() => setIsSidebarOpen(false)}
-                                            title={isCollapsed ? item.label : undefined}
-                                            className={cn(
-                                                "flex items-center rounded-lg text-sm font-medium transition-all duration-200 relative",
-                                                isCollapsed
-                                                    ? "justify-center p-2.5"
-                                                    : "justify-between px-4 py-2.5",
-                                                location === item.href
-                                                    ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
-                                                    : "text-muted-foreground hover:text-foreground hover:bg-muted",
-                                                !isCollapsed && location === item.href && "translate-x-1",
-                                                !isCollapsed && location !== item.href && "hover:translate-x-1"
-                                            )}>
-                                            <div className={cn("flex items-center", !isCollapsed && "gap-3")}>
-                                                <item.icon className={cn("w-4 h-4", location === item.href && "animate-pulse")} />
-                                                {!isCollapsed && item.label}
-                                            </div>
-                                            {!isCollapsed && item.badge && (
-                                                <span className={`${isLive && item.href.includes('live') ? 'bg-red-500' : 'bg-amber-500'} text-[10px] font-black px-1.5 py-0.5 rounded text-white animate-pulse`}>
-                                                    {item.badge}
-                                                </span>
-                                            )}
-                                            {isCollapsed && item.badge && (
-                                                <span className={`absolute -top-1 -right-1 w-2 h-2 ${isLive && item.href.includes('live') ? 'bg-red-500' : 'bg-amber-500'} rounded-full animate-pulse`} />
-                                            )}
-                                        </a>
+                                    <Link
+                                        key={item.href}
+                                        href={item.href}
+                                        onClick={() => setIsSidebarOpen(false)}
+                                        title={isCollapsed ? item.label : undefined}
+                                        className={cn(
+                                            "flex items-center rounded-lg text-sm font-medium transition-all duration-200 relative",
+                                            isCollapsed
+                                                ? "justify-center p-2.5"
+                                                : "justify-between px-4 py-2.5",
+                                            location === item.href
+                                                ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
+                                                : "text-muted-foreground hover:text-foreground hover:bg-muted",
+                                            !isCollapsed && location === item.href && "translate-x-1",
+                                            !isCollapsed && location !== item.href && "hover:translate-x-1"
+                                        )}>
+                                        <div className={cn("flex items-center", !isCollapsed && "gap-3")}>
+                                            <item.icon className={cn("w-4 h-4", location === item.href && "animate-pulse")} />
+                                            {!isCollapsed && item.label}
+                                        </div>
+                                        {!isCollapsed && item.badge && (
+                                            <span className={`${isLive && item.href.includes('live') ? 'bg-red-500' : 'bg-amber-500'} text-[10px] font-black px-1.5 py-0.5 rounded text-white animate-pulse`}>
+                                                {item.badge}
+                                            </span>
+                                        )}
+                                        {isCollapsed && item.badge && (
+                                            <span className={`absolute -top-1 -right-1 w-2 h-2 ${isLive && item.href.includes('live') ? 'bg-red-500' : 'bg-amber-500'} rounded-full animate-pulse`} />
+                                        )}
                                     </Link>
                                 ))}
                             </div>
@@ -213,8 +215,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                     {!isCollapsed && !isVA && (
                         <div className="mt-4 px-4 pt-4 border-t border-border/50">
                             <p className="text-[10px] text-muted-foreground mb-2 font-mono uppercase">LEGACY VIEWS</p>
-                            <Link href="/admin/calls"><a className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground mb-2"><PhoneCall className="w-3 h-3" /> Call Logs</a></Link>
-                            <Link href="/admin/whatsapp-intake"><a className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"><MessageSquare className="w-3 h-3" /> WhatsApp CRM</a></Link>
+                            <Link href="/admin/calls" className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground mb-2"><PhoneCall className="w-3 h-3" /> Call Logs</Link>
+                            <Link href="/admin/whatsapp-intake" className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"><MessageSquare className="w-3 h-3" /> WhatsApp CRM</Link>
                         </div>
                     )}
                 </nav>
@@ -268,44 +270,71 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 {/* Header */}
                 <header className="h-16 bg-background/80 backdrop-blur-lg border-b border-border flex items-center justify-between px-4 lg:px-8 shadow-sm z-30 transition-colors duration-300">
                     <div className="flex items-center gap-4">
-                        <button
-                            onClick={() => setIsSidebarOpen(true)}
-                            className="p-2 text-muted-foreground hover:text-foreground lg:hidden"
-                        >
-                            <Menu className="w-6 h-6" />
-                        </button>
-                        <h2 className="text-sm lg:text-lg font-semibold text-foreground truncate max-w-[150px] lg:max-w-none">
-                            {[
-                                {
-                                    items: [
-                                        { label: "Pipeline Home", href: "/admin/pipeline-home" },
-                                        { label: "Reports Dashboard", href: "/admin/dashboard" },
-                                        { label: "Dispatch Board", href: "/admin/dispatch" },
-                                        { label: "Live Switchboard", href: "/admin/live-call" },
-                                        { label: "Lead Tube Map", href: "/admin/tube-map" },
-                                        { label: "Pipeline Map", href: "/admin/pipeline" },
-                                        { label: "Lead Funnel", href: "/admin/funnel" },
-                                        { label: "Segment Review", href: "/admin/leads/review" },
-                                        { label: "WhatsApp CRM", href: "/admin/whatsapp-intake" },
-                                        { label: "Call Logs", href: "/admin/calls" },
-                                        { label: "Quote Generator", href: "/admin/generate-quote" },
-                                        { label: "Invoices", href: "/admin/invoices" },
-                                        { label: "SKU Manager", href: "/admin/skus" },
-                                        { label: "Handyman Map", href: "/admin/handymen" },
-                                        { label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },
-                                        { label: "Marketing", href: "/admin/marketing" },
-                                        { label: "Settings", href: "/admin/settings" },
-                                        { label: "Tenant Issues", href: "/admin/tenant-issues" },
-                                        { label: "Properties", href: "/admin/properties" },
-                                    ]
-                                }
-                            ].flatMap(g => g.items).find(i => i.href === location)?.label || "Pipeline Home"}
+                        {!isVA && (
+                            <button
+                                onClick={() => setIsSidebarOpen(true)}
+                                className="p-2 text-muted-foreground hover:text-foreground lg:hidden"
+                            >
+                                <Menu className="w-6 h-6" />
+                            </button>
+                        )}
+                        <h2 className="text-sm lg:text-lg font-semibold text-foreground truncate max-w-[200px] lg:max-w-none">
+                            {(isVA ? [
+                                { label: "Live Switchboard", href: "/admin/live-call" },
+                                { label: "Quote Generator", href: "/admin/generate-quote" },
+                                { label: "Recent Quotes", href: "/admin/quotes" },
+                                { label: "My Stats", href: "/admin/va-stats" },
+                                { label: "Resources", href: "/admin/resources" },
+                                { label: "Onboarding", href: "/admin/onboarding" },
+                            ] : [
+                                { label: "Pipeline Home", href: "/admin/pipeline-home" },
+                                { label: "Reports Dashboard", href: "/admin/dashboard" },
+                                { label: "Dispatch Board", href: "/admin/dispatch" },
+                                { label: "Live Switchboard", href: "/admin/live-call" },
+                                { label: "Lead Tube Map", href: "/admin/tube-map" },
+                                { label: "Pipeline Map", href: "/admin/pipeline" },
+                                { label: "Lead Funnel", href: "/admin/funnel" },
+                                { label: "Segment Review", href: "/admin/leads/review" },
+                                { label: "WhatsApp CRM", href: "/admin/whatsapp-intake" },
+                                { label: "Call Logs", href: "/admin/calls" },
+                                { label: "Quote Generator", href: "/admin/generate-quote" },
+                                { label: "Invoices", href: "/admin/invoices" },
+                                { label: "SKU Manager", href: "/admin/skus" },
+                                { label: "Handyman Map", href: "/admin/handymen" },
+                                { label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },
+                                { label: "Marketing", href: "/admin/marketing" },
+                                { label: "Settings", href: "/admin/settings" },
+                                { label: "Tenant Issues", href: "/admin/tenant-issues" },
+                                { label: "Properties", href: "/admin/properties" },
+                            ]).find(i => i.href === location)?.label || (isVA ? "Switchboard" : "Pipeline Home")}
                         </h2>
                     </div>
                     <div className="flex items-center gap-2 lg:gap-4">
-                        <ThemeToggle />
-                        {!isVA && (
+                        {isVA ? (
                             <>
+                                <Link href="/admin/resources" className={cn(
+                                        "p-2 rounded-full transition-colors",
+                                        location === "/admin/resources"
+                                            ? "text-primary bg-primary/10"
+                                            : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                                    )}>
+                                    <HelpCircle className="w-5 h-5" />
+                                </Link>
+                                <button
+                                    onClick={() => {
+                                        localStorage.removeItem('adminToken');
+                                        localStorage.removeItem('adminUser');
+                                        setLocation('/admin/login');
+                                    }}
+                                    className="p-2 text-muted-foreground hover:text-red-400 rounded-full hover:bg-red-500/10 transition-colors"
+                                    title="Log out"
+                                >
+                                    <LogOut className="w-5 h-5" />
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <ThemeToggle />
                                 <button className="p-2 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted transition-colors relative hidden sm:block">
                                     <Bell className="w-5 h-5" />
                                     <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-background"></span>
@@ -319,7 +348,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 </header>
 
                 {/* Content Area */}
-                <div className={cn("flex-1 overflow-auto p-4 lg:p-8", isVA && "pb-20 lg:pb-8")}>
+                <div className={cn("flex-1 overflow-auto p-4 lg:p-8", isVA && "pb-20")}>
                     {/* Live Call Notification Banner */}
                     {isLive && location !== '/admin/live-call' && (
                         <Link href="/admin/live-call">
@@ -345,35 +374,36 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 </div>
             </main>
 
-            {/* VA Bottom Tab Bar — mobile only */}
+            {/* VA Bottom Tab Bar — always visible for VA users */}
             {isVA && (
-                <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border lg:hidden">
-                    <div className="flex items-stretch justify-around h-16">
-                        {[
-                            { icon: Mic, label: "Live", href: "/admin/live-call" },
-                            { icon: DollarSign, label: "Quote", href: "/admin/generate-quote" },
-                            { icon: FileText, label: "Quotes", href: "/admin/quotes" },
-                            { icon: BookOpen, label: "Help", href: "/admin/resources" },
-                        ].map((tab) => {
-                            const isActive = location === tab.href;
-                            const Icon = tab.icon;
-                            return (
-                                <Link key={tab.href} href={tab.href}>
-                                    <a className={cn(
-                                        "flex flex-col items-center justify-center gap-0.5 flex-1 px-2 transition-colors",
-                                        isActive
-                                            ? "text-primary"
-                                            : "text-muted-foreground"
-                                    )}>
+                <>
+                    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border">
+                        <div className="flex items-stretch justify-around h-16">
+                            {[
+                                { icon: Mic, label: "Live", href: "/admin/live-call" },
+                                { icon: DollarSign, label: "Quote", href: "/admin/generate-quote" },
+                                { icon: FileText, label: "Quotes", href: "/admin/quotes" },
+                                { icon: BarChart3, label: "Stats", href: "/admin/va-stats" },
+                            ].map((tab) => {
+                                const isActive = location === tab.href;
+                                const Icon = tab.icon;
+                                return (
+                                    <Link key={tab.href} href={tab.href} className={cn(
+                                            "flex flex-col items-center justify-center gap-0.5 flex-1 px-2 transition-colors relative",
+                                            isActive
+                                                ? "text-primary"
+                                                : "text-muted-foreground"
+                                        )}>
                                         <Icon className={cn("w-5 h-5", isActive && "text-primary")} />
                                         <span className={cn("text-[10px] font-semibold", isActive && "text-primary")}>{tab.label}</span>
                                         {isActive && <div className="absolute bottom-1 w-6 h-0.5 rounded-full bg-primary" />}
-                                    </a>
-                                </Link>
-                            );
-                        })}
-                    </div>
-                </nav>
+                                    </Link>
+                                );
+                            })}
+                        </div>
+                    </nav>
+                    <InstallPrompt />
+                </>
             )}
         </div>
     );
