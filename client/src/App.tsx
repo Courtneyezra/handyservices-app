@@ -60,6 +60,7 @@ const PaymentsDashboardPage = lazy(() => import("@/pages/admin/PaymentsDashboard
 const DashboardPage = lazy(() => import("@/pages/admin/DashboardPage"));
 const OnboardingSlideDeck = lazy(() => import("@/pages/admin/OnboardingSlideDeck"));
 const VAResourcesPage = lazy(() => import("@/pages/admin/VAResourcesPage"));
+const VAPerformancePage = lazy(() => import("@/pages/admin/VAPerformancePage"));
 const LandingPageRender = lazy(() => import("@/pages/LandingPageRender"));
 import SmartBanner from "@/components/SmartBanner";
 
@@ -607,6 +608,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <VAResourcesPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/va-stats">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <VAPerformancePage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
