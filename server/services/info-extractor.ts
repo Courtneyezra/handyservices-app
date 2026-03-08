@@ -54,6 +54,26 @@ const PARTIAL_POSTCODE_REGEX = /\b([A-Z]{1,2}\d[A-Z\d]?)\b/gi;
  */
 const PHONE_REGEX = /\b(0\d{10,11}|\+44\s?\d{10,11}|07\d{9})\b/gi;
 
+/**
+ * Name extraction patterns - ordered by confidence (highest first)
+ * These match common ways callers introduce themselves in UK English
+ */
+const NAME_PATTERNS: { pattern: RegExp; group: number }[] = [
+  // "My name is John" / "My name's John Smith"
+  { pattern: /my name(?:'s| is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i, group: 1 },
+  // "I'm John" / "I am John Smith"
+  { pattern: /\bI(?:'m| am)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/i, group: 1 },
+  // "This is John calling" / "This is John Smith"
+  { pattern: /\bthis is\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)(?:\s+(?:calling|here|speaking))?\b/i, group: 1 },
+  // "It's John" / "It's John Smith here"
+  { pattern: /\bit(?:'s| is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)(?:\s+here)?\b/i, group: 1 },
+  // "The name is John" / "Name's John"
+  { pattern: /\bname(?:'s| is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b/i, group: 1 },
+  // "Speaking to John?" → "Yeah" (agent asks, but we capture the name candidate)
+  // "Can I take your name?" → "John" / "John Smith"
+  // This catches the response pattern: standalone capitalized name after name prompt
+];
+
 // ============================================
 // JOB KEYWORDS
 // ============================================
@@ -438,6 +458,35 @@ export function detectTenant(text: string): boolean | null {
 }
 
 // ============================================
+// NAME EXTRACTION
+// ============================================
+
+/**
+ * Common agent/business names to exclude from customer name extraction
+ */
+const AGENT_NAMES = ['mike', 'handy', 'handyservices', 'services'];
+
+/**
+ * Extract customer name from transcript using pattern matching
+ * @param text - Text to analyze
+ * @returns Customer name if found, null otherwise
+ */
+export function extractName(text: string): string | null {
+  for (const { pattern, group } of NAME_PATTERNS) {
+    const match = text.match(pattern);
+    if (match && match[group]) {
+      const candidate = match[group].trim();
+      // Skip if it looks like an agent/business name
+      if (AGENT_NAMES.includes(candidate.toLowerCase())) continue;
+      // Skip single-char or too-short names
+      if (candidate.length < 2) continue;
+      return candidate;
+    }
+  }
+  return null;
+}
+
+// ============================================
 // MAIN EXTRACTION FUNCTION
 // ============================================
 
@@ -450,7 +499,7 @@ export function extractInfo(transcript: string): ExtractedInfo {
   return {
     job: extractJob(transcript),
     postcode: extractPostcode(transcript),
-    name: null, // Name extraction is complex, may need LLM
+    name: extractName(transcript),
     contact: extractPhone(transcript),
     isDecisionMaker: detectDecisionMaker(transcript),
     isRemote: detectRemote(transcript),

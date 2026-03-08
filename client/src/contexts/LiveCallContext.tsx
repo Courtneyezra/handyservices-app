@@ -518,6 +518,7 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
 
         console.log(`[Simulation] Starting ${complexity} call for ${testNumber}...`);
 
+        setActiveCallSid(`SIM_${Date.now()}`);
         setInterimTranscript("");
         setLiveCallData({
             transcription: "",
@@ -992,6 +993,22 @@ export function LiveCallProvider({ children }: { children: ReactNode }) {
                     }
                     if (!newJob.matched) {
                         setHasUnmatchedSku(true);
+                    }
+                }
+                else if (msg.type === 'callscript:info_captured') {
+                    // Info extractor detected customer details from transcript
+                    const info = msg.data.capturedInfo;
+                    if (info) {
+                        setExtractedCustomerInfo(prev => {
+                            const updates: Partial<ExtractedCustomerInfo> = {};
+                            if (info.name && !prev.name) {
+                                updates.name = info.name;
+                            }
+                            if (info.postcode && !prev.postcode) {
+                                updates.postcode = info.postcode;
+                            }
+                            return Object.keys(updates).length > 0 ? { ...prev, ...updates } : prev;
+                        });
                     }
                 }
                 else if (msg.type === 'callscript:jobs_update') {

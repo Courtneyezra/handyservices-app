@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useLocation } from "wouter";
 
 interface ProtectedRouteProps {
@@ -9,38 +9,18 @@ interface ProtectedRouteProps {
 
 export default function ProtectedRoute({ children, role }: ProtectedRouteProps) {
     const [, setLocation] = useLocation();
-    const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
+
+    const tokenKey = role === 'admin' ? 'adminToken' : 'contractorToken';
+    const loginPath = role === 'admin' ? '/admin/login' : '/contractor/login';
+    const hasToken = !!localStorage.getItem(tokenKey);
 
     useEffect(() => {
-        const checkAuth = () => {
-            if (role === 'admin') {
-                const token = localStorage.getItem('adminToken');
-                if (!token) {
-                    // Save current location for redirect back? (Enhancement)
-                    setLocation('/admin/login');
-                    setIsAuthorized(false);
-                } else {
-                    setIsAuthorized(true);
-                }
-            } else if (role === 'contractor') {
-                const token = localStorage.getItem('contractorToken');
-                if (!token) {
-                    setLocation('/contractor/login');
-                    setIsAuthorized(false);
-                } else {
-                    setIsAuthorized(true);
-                }
-            }
-        };
+        if (!hasToken) {
+            setLocation(loginPath);
+        }
+    }, [hasToken, loginPath, setLocation]);
 
-        checkAuth();
-    }, [role, setLocation]);
-
-    if (isAuthorized === null) {
-        return null; // or loading spinner
-    }
-
-    if (!isAuthorized) {
+    if (!hasToken) {
         return null;
     }
 

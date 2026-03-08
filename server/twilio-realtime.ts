@@ -96,8 +96,8 @@ export class MediaStreamTranscriber {
     // B4: Debouncing - configurable via admin settings
     private debounceTimer: NodeJS.Timeout | null = null;
     private debounceMs: number = 300; // Default, will be overridden by settings
-    private metadataChunkInterval: number = 5; // Extract metadata every N chunks
-    private metadataCharThreshold: number = 150; // Extract metadata when transcript > N chars
+    private metadataChunkInterval: number = 3; // Extract metadata every N chunks (was 5 - too slow for name pickup)
+    private metadataCharThreshold: number = 80; // Extract metadata when transcript > N chars (was 150)
 
     private metadata: any = {
         customerName: null,
@@ -164,6 +164,9 @@ export class MediaStreamTranscriber {
 
         // Create call record immediately
         this.createCallRecord();
+
+        // Look up existing lead by phone number to pre-populate customer name
+        this.lookupExistingLead();
 
         // Initialize transcription if not skipped (e.g., for Eleven Labs calls)
         if (!this.skipTranscription) {
@@ -234,6 +237,52 @@ export class MediaStreamTranscriber {
         }
     }
 
+    private async lookupExistingLead() {
+        try {
+            const normalized = normalizePhoneNumber(this.phoneNumber);
+            if (!normalized) return;
+
+            const existingLead = await db.select({
+                customerName: leads.customerName,
+                address: leads.address,
+                postcode: leads.postcode,
+            })
+                .from(leads)
+                .where(eq(leads.phone, normalized))
+                .limit(1);
+
+            if (existingLead.length > 0 && existingLead[0].customerName) {
+                const lead = existingLead[0];
+                this.metadata.customerName = lead.customerName;
+                if (lead.address) this.metadata.address = lead.address;
+                if (lead.postcode) this.metadata.postcode = lead.postcode;
+
+                console.log(`[LeadLookup] Found existing lead for ${normalized}: ${lead.customerName}`);
+
+                // Broadcast immediately so HUD gets the name before any transcription
+                this.broadcast({
+                    type: 'voice:analysis_update',
+                    data: {
+                        callSid: this.callSid,
+                        analysis: {
+                            matched: false,
+                            sku: null,
+                            confidence: 0,
+                            method: 'realtime',
+                            rationale: 'Returning caller identified',
+                            nextRoute: 'UNKNOWN',
+                        },
+                        metadata: this.metadata,
+                    },
+                });
+            } else {
+                console.log(`[LeadLookup] No existing lead for ${normalized}`);
+            }
+        } catch (e) {
+            console.error('[LeadLookup] Failed to lookup existing lead:', e);
+        }
+    }
+
     private initializeWisprFlow(track: 'inbound' | 'outbound', speakerLabel: string) {
         console.log(`[WisprFlow] Initializing ${track} stream (${speakerLabel}) for ${this.callSid}`);
 
@@ -268,10 +317,12 @@ export class MediaStreamTranscriber {
         // Handle transcript events - map to existing broadcast format
         client.on('transcript', (event: TranscriptEvent) => {
             if (event.isFinal && event.text) {
-                // Store segment with speaker label based on track
+                // Store segment with numeric speaker ID for OpenAI metadata extraction
+                // 0 = Caller (inbound), 1 = Agent (outbound)
+                const speakerNum = track === 'inbound' ? 0 : 1;
                 this.segments.push({
                     text: event.text,
-                    speaker: speakerLabel,
+                    speaker: speakerNum,
                     track: track,
                     timestamp: new Date()
                 });
@@ -394,10 +445,12 @@ export class MediaStreamTranscriber {
         dgLive.on(LiveTranscriptionEvents.Transcript, (data: any) => {
             const transcript = data.channel.alternatives[0].transcript;
             if (transcript && data.is_final) {
-                // Store segment with speaker label based on track
+                // Store segment with numeric speaker ID for OpenAI metadata extraction
+                // 0 = Caller (inbound), 1 = Agent (outbound)
+                const speakerNum = track === 'inbound' ? 0 : 1;
                 this.segments.push({
                     text: transcript,
-                    speaker: speakerLabel,
+                    speaker: speakerNum,
                     track: track,
                     timestamp: new Date()
                 });
@@ -517,9 +570,14 @@ export class MediaStreamTranscriber {
                     }
 
                     // Update metadata if new information is found
-                    if (liveMetadata.customerName && !this.metadata.customerName) {
+                    // Allow AI to update the name as more transcript context becomes available
+                    if (liveMetadata.customerName) {
+                        if (!this.metadata.customerName) {
+                            console.log(`[Metadata] Customer name detected: ${liveMetadata.customerName}`);
+                        } else if (this.metadata.customerName !== liveMetadata.customerName) {
+                            console.log(`[Metadata] Customer name refined: ${this.metadata.customerName} → ${liveMetadata.customerName}`);
+                        }
                         this.metadata.customerName = liveMetadata.customerName;
-                        console.log(`[Metadata] Customer name detected: ${liveMetadata.customerName}`);
                     }
 
                     if (liveMetadata.address && !this.metadata.address) {
@@ -583,19 +641,22 @@ export class MediaStreamTranscriber {
                 hasMultiple: multiTaskResult.matchedServices.length > 1
             };
 
-            // Always broadcast analysis update and jobs when we have any tasks detected
+            // Always broadcast metadata so customer name/address reach the UI immediately
+            // Previously this was gated behind job detection, meaning names extracted
+            // before any job was mentioned would never reach the client
             const hasAnyTasks = multiTaskResult.matchedServices.length > 0 || multiTaskResult.unmatchedTasks.length > 0;
 
+            console.log(`\n[Switchboard] Real-time detection: ${result.matchedServices?.length || 0} matched, ${result.unmatchedTasks?.length || 0} unmatched - ${result.sku?.name || result.nextRoute} (${result.confidence}%)`);
+            this.broadcast({
+                type: 'voice:analysis_update',
+                data: {
+                    callSid: this.callSid,
+                    analysis: result,
+                    metadata: this.metadata
+                }
+            });
+
             if (hasAnyTasks || result.matched || result.nextRoute !== 'VIDEO_QUOTE') {
-                console.log(`\n[Switchboard] Real-time detection: ${result.matchedServices?.length || 0} matched, ${result.unmatchedTasks?.length || 0} unmatched - ${result.sku?.name || result.nextRoute} (${result.confidence}%)`);
-                this.broadcast({
-                    type: 'voice:analysis_update',
-                    data: {
-                        callSid: this.callSid,
-                        analysis: result,
-                        metadata: this.metadata  // B7: Include metadata in broadcast
-                    }
-                });
 
                 // Broadcast jobs update for CallHUD with tiered traffic light scoring
                 // Tier 1: Instant sync classification (<50ms) for real-time UI

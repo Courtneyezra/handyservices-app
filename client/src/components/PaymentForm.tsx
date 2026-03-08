@@ -89,10 +89,20 @@ export function PaymentForm({
   // Check if email is valid for form submission
   const isEmailValid = !validateEmail(email);
 
-  // Fetch payment intent when tier or extras change (re-calculate deposit)
+  // Resolve the effective email: form input takes priority, then prop
+  const effectiveEmail = email || customerEmail || '';
+  const hasValidEmail = !validateEmail(effectiveEmail);
+
+  // Fetch payment intent when tier, extras, or email change (re-calculate deposit)
+  // Deferred until a valid email is available (required by server)
   useEffect(() => {
+    // Don't create payment intent without a valid email
+    if (!hasValidEmail) {
+      setIsLoadingIntent(false);
+      return;
+    }
+
     const abortController = new AbortController();
-    const requestId = Date.now(); // Track this specific request
     let isCurrentRequest = true; // Flag to prevent stale updates
 
     const fetchPaymentIntent = async () => {
@@ -107,7 +117,7 @@ export function PaymentForm({
         let url = '/api/create-payment-intent';
         let body: any = {
           customerName,
-          customerEmail: email || customerEmail, // Use form email, fallback to prop
+          customerEmail: effectiveEmail,
           quoteId,
           selectedTier,
           selectedTierPrice, // For validation only - server uses stored price
@@ -119,7 +129,7 @@ export function PaymentForm({
           url = '/api/create-visit-payment-intent';
           body = {
             customerName,
-            customerEmail: email || customerEmail, // Use form email, fallback to prop
+            customerEmail: effectiveEmail,
             quoteId,
             tierId: selectedTier,
             slot: slot ? { date: slot.date, slot: slot.slot } : undefined
@@ -184,7 +194,7 @@ export function PaymentForm({
       abortController.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerName, customerEmail, quoteId, selectedTier, selectedTierPrice, extrasKey, paymentType, mode]);
+  }, [customerName, effectiveEmail, hasValidEmail, quoteId, selectedTier, selectedTierPrice, extrasKey, paymentType, mode]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -258,6 +268,36 @@ export function PaymentForm({
       setIsProcessing(false);
     }
   };
+
+  // If no valid email yet, show email-first form so user can enter it
+  if (!hasValidEmail) {
+    return (
+      <div className="space-y-4">
+        {/* Email Input Field */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-white flex items-center gap-2">
+            <Mail className="h-4 w-4" />
+            Email for confirmation
+          </label>
+          <Input
+            type="email"
+            value={email}
+            onChange={handleEmailChange}
+            onBlur={handleEmailBlur}
+            placeholder="your@email.com"
+            className={`bg-gray-800/80 border-gray-600 text-white placeholder:text-gray-400 focus:border-[#e8b323] focus:ring-1 focus:ring-[#e8b323] ${
+              emailError && emailTouched ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''
+            }`}
+            data-testid="input-email"
+          />
+          {emailError && emailTouched && (
+            <p className="text-xs text-red-400">{emailError}</p>
+          )}
+          <p className="text-xs text-gray-400">Enter your email to continue to payment</p>
+        </div>
+      </div>
+    );
+  }
 
   // Show loading state while fetching authoritative deposit amount
   if (isLoadingIntent) {
