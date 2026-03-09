@@ -78,9 +78,19 @@ export async function extractCallMetadata(transcription: string, segments: Segme
 
 CRITICAL: You must distinguish the "Service Provider/Agent" (answering the phone) from the "Customer" (calling for help).
 
+CALL FRAMEWORK (our agents follow this structure):
+1. Greeting: Agent says "Handy Services, how can I help?"
+2. Customer explains their problem
+3. Agent explains quoting options (WhatsApp video / instant price / book a visit)
+4. Agent asks for name: "Can I just take your name?"  → The NEXT thing the customer says IS their name (HIGH CONFIDENCE)
+5. Agent asks for address: "Thanks {{name}}, can I just take the property address?"  → The NEXT thing the customer says IS the address (HIGH CONFIDENCE)
+6. Agent repeats next steps
+
+USE THIS FRAMEWORK: When you see the agent ask "take your name" or similar, treat the customer's very next response as their name with HIGH confidence (0.85+). When the agent asks for "address" or "property address", treat the customer's next response as the address with HIGH confidence.
+
 INSTRUCTIONS:
 1. ANALYZE ROLES:
-   - Identify which speaker is the "Agent" (often says "Hello, [Company Name]", "How can I help?")
+   - Identify which speaker is the "Agent" (often says "Handy Services", "How can I help?")
    - Identify which speaker is the "Customer" (explains a problem, asks for service).
    - Speaker 0 is NOT always the Agent. Use context.
 
@@ -92,10 +102,12 @@ INSTRUCTIONS:
    - IF CALLING FOR A COMPANY: If customer says "This is John from Acme Corp", format as: "John (Acme Corp)".
    - SPELLING: If name is spelled out ("J-O-H-N"), this is VERY HIGH confidence. Reconstruct it.
    - DISAMBIGUATION: If customer says "I'm calling for Mike", the customer is NOT Mike. Look for "My name is...". If not given, extract "Mike" with reasoning "Caller acting on behalf".
+   - FRAMEWORK SIGNAL: If the agent says "take your name" and the customer responds with a short phrase, that IS their name even without "My name is..." prefix. Score 0.85+.
 
 3. EXTRACT ADDRESS:
    - Full service location with Street, Town, Postcode.
    - Fix phonetic errors ("M 1" -> "M1").
+   - FRAMEWORK SIGNAL: If the agent says "take the address" / "property address" and the customer responds, that IS the address. Score high confidence.
 
 JSON OUTPUT FIELDS:
 - nameCandidates: Array of objects { "name": string, "confidence": number, "reasoning": string }

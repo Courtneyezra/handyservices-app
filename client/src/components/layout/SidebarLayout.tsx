@@ -113,6 +113,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             items: [
                                 { icon: BookOpen, label: "Resources", href: "/admin/resources" },
                                 { icon: GraduationCap, label: "Onboarding", href: "/admin/onboarding" },
+                                { icon: ClipboardCheck, label: "Training", href: "/admin/training-center" },
                             ]
                         }
                     ] : [
@@ -286,6 +287,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { label: "My Stats", href: "/admin/va-stats" },
                                 { label: "Resources", href: "/admin/resources" },
                                 { label: "Onboarding", href: "/admin/onboarding" },
+                                { label: "Training Center", href: "/admin/training-center" },
                             ] : [
                                 { label: "Pipeline Home", href: "/admin/pipeline-home" },
                                 { label: "Reports Dashboard", href: "/admin/dashboard" },

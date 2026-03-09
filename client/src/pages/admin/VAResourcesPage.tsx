@@ -6,8 +6,9 @@ import {
   Phone, Clock, MapPin, Wrench, AlertTriangle, Camera,
   Users, Headphones, Navigation, FileText, ArrowRight,
   Home, Building2, Briefcase, Wallet, Heart, Store, HardHat, Key,
-  Zap, Shield, Search, RotateCcw
+  Zap, Shield, Search, RotateCcw, ClipboardCheck
 } from "lucide-react";
+import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 
 // ─── Design tokens ───────────────────────────────────────────
@@ -633,12 +634,26 @@ export default function VAResourcesPage() {
   const [tab, setTab] = useState<TabId>("sops");
 
   return (
-    <div className="min-h-screen space-y-5 max-w-5xl">
+    <div className="min-h-screen space-y-5 max-w-5xl mx-auto">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-white tracking-tight">VA Resources</h1>
         <p className="text-zinc-500 text-sm mt-1">Your field manual — SOPs, scripts, pricing, and everything you need on the job.</p>
       </div>
+
+      {/* Training Center CTA */}
+      <Link href="/admin/training-center">
+        <div className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3 hover:border-zinc-600 hover:bg-zinc-800/60 transition-all cursor-pointer group">
+          <div className="flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: AMBER_DIM }}>
+            <ClipboardCheck className="w-5 h-5" style={{ color: AMBER }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-white font-semibold text-sm">Training Center</div>
+            <p className="text-zinc-500 text-xs">Interactive modules, quizzes, and practice scenarios</p>
+          </div>
+          <ArrowRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400 transition-colors flex-shrink-0" />
+        </div>
+      </Link>
 
       {/* Tabs */}
       <div className="flex flex-wrap gap-1 p-1 bg-zinc-900/60 border border-zinc-800 rounded-xl">

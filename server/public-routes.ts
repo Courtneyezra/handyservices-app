@@ -6,7 +6,9 @@ import {
     contractorAvailabilityDates,
     handymanAvailability,
     contractorBookingRequests,
-    availabilitySlots
+    availabilitySlots,
+    masterAvailability,
+    masterBlockedDates
 } from '../shared/schema';
 import { eq, and, gte, lte } from 'drizzle-orm';
 import { toZonedTime, format as formatTz } from 'date-fns-tz';
@@ -31,8 +33,10 @@ interface DateAvailability {
  * GET /api/public/availability
  * Returns available dates for quote page date pickers
  *
- * Single source of truth: the availability_slots table managed in the CRM.
- * If an unbooked slot exists for a date → available. Otherwise → not available.
+ * Uses a layered approach:
+ * 1. If explicit availabilitySlots exist for a date, use those
+ * 2. Otherwise, fall back to masterAvailability weekly patterns
+ * 3. masterBlockedDates always override to unavailable
  */
 router.get('/availability', async (req: Request, res: Response) => {
     try {
@@ -45,16 +49,26 @@ router.get('/availability', async (req: Request, res: Response) => {
         const endDateUk = addDays(todayUk, days);
         const endDateStr = formatTz(endDateUk, 'yyyy-MM-dd', { timeZone: UK_TIMEZONE });
 
-        // Fetch all unbooked slots in range
-        const slots = await db.select()
-            .from(availabilitySlots)
-            .where(and(
-                gte(availabilitySlots.date, todayStr),
-                lte(availabilitySlots.date, endDateStr),
-                eq(availabilitySlots.isBooked, false)
-            ));
+        // Fetch all three data sources in parallel
+        const [slots, masterPatterns, blockedDates] = await Promise.all([
+            // Explicit slots (if any)
+            db.select()
+                .from(availabilitySlots)
+                .where(and(
+                    gte(availabilitySlots.date, todayStr),
+                    lte(availabilitySlots.date, endDateStr),
+                    eq(availabilitySlots.isBooked, false)
+                )),
+            // Master weekly patterns
+            db.select()
+                .from(masterAvailability)
+                .where(eq(masterAvailability.isActive, true)),
+            // Blocked dates
+            db.select()
+                .from(masterBlockedDates)
+        ]);
 
-        // Group slots by date
+        // Group explicit slots by date
         const slotsByDate = new Map<string, typeof slots>();
         for (const slot of slots) {
             if (!slotsByDate.has(slot.date)) {
@@ -62,6 +76,20 @@ router.get('/availability', async (req: Request, res: Response) => {
             }
             slotsByDate.get(slot.date)!.push(slot);
         }
+
+        // Index master patterns by day of week
+        const patternsByDay = new Map<number, typeof masterPatterns>();
+        for (const pattern of masterPatterns) {
+            if (!patternsByDay.has(pattern.dayOfWeek)) {
+                patternsByDay.set(pattern.dayOfWeek, []);
+            }
+            patternsByDay.get(pattern.dayOfWeek)!.push(pattern);
+        }
+
+        // Index blocked dates for fast lookup
+        const blockedDateSet = new Set(
+            blockedDates.map(bd => String(bd.date))
+        );
 
         // Build response for each day
         const results: DateAvailability[] = [];
@@ -72,8 +100,19 @@ router.get('/availability', async (req: Request, res: Response) => {
             const dayOfWeek = getDay(ukDate);
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
-            const daySlots = slotsByDate.get(dateStr);
+            // 1. Blocked dates are always unavailable
+            if (blockedDateSet.has(dateStr)) {
+                results.push({
+                    date: dateStr,
+                    isAvailable: false,
+                    slots: [],
+                    isWeekend,
+                });
+                continue;
+            }
 
+            // 2. Check explicit slots first (if any exist for this date)
+            const daySlots = slotsByDate.get(dateStr);
             if (daySlots && daySlots.length > 0) {
                 const availableSlotTypes = new Set<'am' | 'pm' | 'full'>();
                 for (const slot of daySlots) {
@@ -87,14 +126,55 @@ router.get('/availability', async (req: Request, res: Response) => {
                     slots: Array.from(availableSlotTypes),
                     isWeekend,
                 });
-            } else {
+                continue;
+            }
+
+            // 3. Fall back to master weekly patterns
+            const dayPatterns = patternsByDay.get(dayOfWeek);
+            if (dayPatterns && dayPatterns.length > 0) {
+                const availableSlotTypes = new Set<'am' | 'pm' | 'full'>();
+                for (const pattern of dayPatterns) {
+                    const start = pattern.startTime || '09:00';
+                    const end = pattern.endTime || '17:00';
+                    const startHour = parseInt(start.split(':')[0]);
+                    const endHour = parseInt(end.split(':')[0]);
+
+                    if (startHour < 12 && endHour > 13) {
+                        availableSlotTypes.add('full');
+                    } else if (startHour < 12) {
+                        availableSlotTypes.add('am');
+                    } else {
+                        availableSlotTypes.add('pm');
+                    }
+                }
+                results.push({
+                    date: dateStr,
+                    isAvailable: true,
+                    slots: Array.from(availableSlotTypes),
+                    isWeekend,
+                });
+                continue;
+            }
+
+            // 4. No master pattern for this day but other days have patterns:
+            // treat as unavailable (e.g. Sunday not configured)
+            if (masterPatterns.length > 0) {
                 results.push({
                     date: dateStr,
                     isAvailable: false,
                     slots: [],
                     isWeekend,
                 });
+                continue;
             }
+
+            // 5. No master patterns at all — default: weekdays available (am + pm), weekends unavailable
+            results.push({
+                date: dateStr,
+                isAvailable: !isWeekend,
+                slots: isWeekend ? [] : ['am', 'pm'],
+                isWeekend,
+            });
         }
 
         res.json({ dates: results });

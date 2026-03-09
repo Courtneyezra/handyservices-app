@@ -61,6 +61,7 @@ const DashboardPage = lazy(() => import("@/pages/admin/DashboardPage"));
 const OnboardingSlideDeck = lazy(() => import("@/pages/admin/OnboardingSlideDeck"));
 const VAResourcesPage = lazy(() => import("@/pages/admin/VAResourcesPage"));
 const VAPerformancePage = lazy(() => import("@/pages/admin/VAPerformancePage"));
+const VATrainingCenter = lazy(() => import("@/pages/admin/VATrainingCenter"));
 const LandingPageRender = lazy(() => import("@/pages/LandingPageRender"));
 import SmartBanner from "@/components/SmartBanner";
 
@@ -615,6 +616,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <VAPerformancePage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/training-center">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <VATrainingCenter />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
