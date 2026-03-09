@@ -502,7 +502,7 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
                     summary: `Quote created (${shortSlug})`,
                     icon: '📝',
                     data: {
-                        quoteId,
+                        quoteId: id,
                         shortSlug,
                         quoteMode: input.quoteMode,
                     },

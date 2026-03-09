@@ -130,12 +130,8 @@ export default function GenerateQuoteLinkSimple() {
   const [generatedUrl, setGeneratedUrl] = useState('');
   const [copied, setCopied] = useState(false);
 
-  // Generated pricing display
-  const [generatedPricing, setGeneratedPricing] = useState<{
-    essential: number;
-    enhanced: number;
-    elite: number;
-  } | null>(null);
+  // Generated pricing display (single price in pounds)
+  const [generatedPrice, setGeneratedPrice] = useState<number | null>(null);
 
   // WhatsApp message state
   const [aiGeneratedMessage, setAiGeneratedMessage] = useState<string | null>(null);
@@ -180,7 +176,7 @@ export default function GenerateQuoteLinkSimple() {
           jobDescription: data.jobDescription,
           baseJobPrice: poundsToPence(data.effectivePrice),
           manualSegment: data.segment,
-          quoteMode: 'hhh',
+          quoteMode: 'simple',
           urgencyReason: 'med',
           ownershipContext: 'homeowner',
           desiredTimeframe: 'week',
@@ -198,12 +194,8 @@ export default function GenerateQuoteLinkSimple() {
       const url = `${window.location.origin}/quote/${result.shortSlug}`;
       setGeneratedUrl(url);
 
-      if (result.essential?.price) {
-        setGeneratedPricing({
-          essential: result.essential.price / 100,
-          enhanced: result.hassleFree?.price / 100 || 0,
-          elite: result.highStandard?.price / 100 || 0,
-        });
+      if (result.basePrice) {
+        setGeneratedPrice(result.basePrice / 100);
       }
 
       // Store data for message regeneration
@@ -292,7 +284,7 @@ export default function GenerateQuoteLinkSimple() {
 
   const handleReset = () => {
     setGeneratedUrl('');
-    setGeneratedPricing(null);
+    setGeneratedPrice(null);
     setAiGeneratedMessage(null);
     setLastSubmitData(null);
   };
@@ -331,20 +323,10 @@ export default function GenerateQuoteLinkSimple() {
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Pricing Display */}
-              {generatedPricing && (
-                <div className="grid grid-cols-3 gap-3 mb-4">
-                  <div className="bg-muted rounded-lg p-3 text-center border border-border">
-                    <div className="text-xs text-muted-foreground uppercase">Standard</div>
-                    <div className="text-xl font-bold">{"\u00A3"}{Math.round(generatedPricing.essential)}</div>
-                  </div>
-                  <div className="bg-muted rounded-lg p-3 text-center border border-green-500/40">
-                    <div className="text-xs text-green-400 uppercase font-semibold">Priority</div>
-                    <div className="text-xl font-bold text-green-400">{"\u00A3"}{Math.round(generatedPricing.enhanced)}</div>
-                  </div>
-                  <div className="bg-muted rounded-lg p-3 text-center border border-border">
-                    <div className="text-xs text-muted-foreground uppercase">Premium</div>
-                    <div className="text-xl font-bold">{"\u00A3"}{Math.round(generatedPricing.elite)}</div>
-                  </div>
+              {generatedPrice && (
+                <div className="bg-muted rounded-lg p-4 text-center border border-green-500/40 mb-4">
+                  <div className="text-xs text-green-400 uppercase font-semibold mb-1">Quote Price</div>
+                  <div className="text-3xl font-bold text-green-400">{"\u00A3"}{Math.round(generatedPrice)}</div>
                 </div>
               )}
 
