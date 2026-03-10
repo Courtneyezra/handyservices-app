@@ -105,6 +105,7 @@ const SEGMENT_TIER_CONFIG: Record<string, { handyFix: string[]; hassleFree: stri
     ],
     // PRIORITY = Killers + Leaders + Fillers (the draw)
     hassleFree: [
+      '💰 Fixed price — no clock-watching',
       '⚡ Same-week scheduling',
       '📸 Photo updates during job',
       '🛡️ 90-day guarantee',
@@ -154,6 +155,7 @@ const SEGMENT_TIER_CONFIG: Record<string, { handyFix: string[]; hassleFree: stri
     ],
     // This is the tier shown (enhanced = "Landlord Service")
     hassleFree: [
+      '💰 Fixed price — budget it as an expense',
       '⚡ Scheduled within 48-72 hours',
       '📸 Photo report included',
       '🔑 Tenant coordination available',
@@ -178,6 +180,7 @@ const SEGMENT_TIER_CONFIG: Record<string, { handyFix: string[]; hassleFree: stri
     ],
     // AFTER-HOURS = Zero disruption service
     hassleFree: [
+      '💰 Fixed price — budget it as an expense',
       '🌙 Evening/weekend availability',
       '🏪 Zero business disruption',
       '✨ "Open to a finished job"',
@@ -310,176 +313,11 @@ const SEGMENT_TIER_CONFIG: Record<string, { handyFix: string[]; hassleFree: stri
   }
 };
 
-// Segment display configuration: controls which tiers to show and how
-// Based on Ramanujam principle: "Productize by segment, not tier one product"
-const SEGMENT_DISPLAY_CONFIG: Record<string, {
-  showTiers: ('essential' | 'enhanced' | 'elite')[];
-  anchorTier: 'essential' | 'enhanced' | 'elite';
-  showAlternatives: boolean;
-  ctaText: string;
-  alternativeLabel: string | null;
-}> = {
-  BUSY_PRO: {
-    showTiers: ['enhanced', 'essential'], // Priority first, Standard as backup
-    anchorTier: 'enhanced',
-    showAlternatives: false,
-    ctaText: 'Book Priority Service',
-    alternativeLabel: 'Need more flexibility? Choose timing below',
-  },
-  PROP_MGR: {
-    showTiers: ['enhanced'], // Partner Program only
-    anchorTier: 'enhanced',
-    showAlternatives: false,
-    ctaText: 'Join Partner Program',
-    alternativeLabel: null,
-  },
-  SMALL_BIZ: {
-    showTiers: ['enhanced', 'essential', 'elite'], // After-Hours anchor, show options
-    anchorTier: 'enhanced',
-    showAlternatives: true,
-    ctaText: 'Book After-Hours',
-    alternativeLabel: 'Need standard hours or emergency?',
-  },
-  DIY_DEFERRER: {
-    showTiers: ['essential', 'enhanced', 'elite'], // Basic anchor, show upgrades
-    anchorTier: 'essential',
-    showAlternatives: true,
-    ctaText: 'Book Basic Service',
-    alternativeLabel: 'Want faster scheduling?',
-  },
-  EMERGENCY: {
-    showTiers: ['enhanced'], // Emergency response only
-    anchorTier: 'enhanced',
-    showAlternatives: false,
-    ctaText: 'Get Help Now',
-    alternativeLabel: null,
-  },
-  TRUST_SEEKER: {
-    showTiers: ['enhanced', 'essential'], // Trusted service anchor
-    anchorTier: 'enhanced',
-    showAlternatives: false,
-    ctaText: 'Book Trusted Service',
-    alternativeLabel: null,
-  },
-  RENTER: {
-    showTiers: ['essential', 'enhanced'], // Basic with options
-    anchorTier: 'essential',
-    showAlternatives: true,
-    ctaText: 'Book Service',
-    alternativeLabel: 'Need landlord invoicing?',
-  },
-  LANDLORD: {
-    showTiers: ['enhanced'], // Landlord service anchor
-    anchorTier: 'enhanced',
-    showAlternatives: true,
-    ctaText: 'Book Peace of Mind Service',
-    alternativeLabel: 'See other options',
-  },
-  OLDER_WOMAN: {
-    showTiers: ['enhanced'], // Single product — Peace of Mind Service
-    anchorTier: 'enhanced',
-    showAlternatives: false,
-    ctaText: 'Book Peace of Mind Service',
-    alternativeLabel: null,
-  },
-  DEFAULT: {
-    showTiers: ['essential', 'enhanced', 'elite'], // Show all
-    anchorTier: 'enhanced',
-    showAlternatives: true,
-    ctaText: 'Select Package',
-    alternativeLabel: null,
-  },
-};
+// SEGMENT_DISPLAY_CONFIG removed — EVE single-price model, all segments use UnifiedQuoteCard
 
-// Segment-specific tier names mapping
-const SEGMENT_TIER_NAMES: Record<string, { essential: string; enhanced: string; elite: string }> = {
-  BUSY_PRO: {
-    essential: 'Standard Service',
-    enhanced: 'Priority Service',
-    elite: 'Express Service',
-  },
-  PROP_MGR: {
-    essential: 'Single Job',
-    enhanced: 'Partner Program',
-    elite: 'Premium Partner',
-  },
-  SMALL_BIZ: {
-    essential: 'Standard Hours',
-    enhanced: 'After-Hours Service',
-    elite: 'Emergency Service',
-  },
-  DIY_DEFERRER: {
-    essential: 'Basic Service',
-    enhanced: 'Standard Service',
-    elite: 'Priority Service',
-  },
-  EMERGENCY: {
-    essential: 'Emergency Response',
-    enhanced: 'Emergency Response',
-    elite: 'Emergency + Fix',
-  },
-  TRUST_SEEKER: {
-    essential: 'Standard Service',
-    enhanced: 'Trusted Home Service',
-    elite: 'Trusted Home Service',
-  },
-  RENTER: {
-    essential: 'Renter Service',
-    enhanced: 'Renter Service',
-    elite: 'Renter Service',
-  },
-  OLDER_WOMAN: {
-    essential: 'Standard Service',
-    enhanced: 'Peace of Mind Service',
-    elite: 'VIP Service',
-  },
-  DEFAULT: {
-    essential: 'Essential',
-    enhanced: 'Enhanced',
-    elite: 'Elite',
-  },
-};
+// SEGMENT_TIER_NAMES removed — EVE single-price model, tier names come from SchedulingConfig.priceLabel
 
-// Helper: Choose dynamic perks or fallback to static bullets
-const getPerksForTier = (quote: PersonalizedQuote | undefined, tier: 'essential' | 'enhanced' | 'elite'): string[] => {
-  if (!quote) return [];
-
-  const tierKeyMap = {
-    essential: 'handyFix',
-    enhanced: 'hassleFree',
-    elite: 'highStandard'
-  } as const;
-
-  // Check for segment-specific configuration first
-  const segment = quote.segment || 'DEFAULT';
-  if (segment && SEGMENT_TIER_CONFIG[segment]) {
-    const segmentConfig = SEGMENT_TIER_CONFIG[segment];
-    const key = tierKeyMap[tier] as keyof typeof segmentConfig;
-    const features = segmentConfig[key];
-    // Only use segment config if it has features for this tier
-    if (features && features.length > 0) {
-      return features as unknown as string[];
-    }
-  }
-
-  // Use dynamic perks if available (value pricing quotes)
-  if (quote.dynamicPerks) {
-    const tierMap = {
-      essential: quote.dynamicPerks.essential,
-      enhanced: quote.dynamicPerks.hassleFree,
-      elite: quote.dynamicPerks.highStandard,
-    };
-    return tierMap[tier]?.map(p => p.label) || [];
-  }
-
-  // Fallback to static bullets (legacy quotes / default)
-  const staticMap = {
-    essential: HHH_FIXED_VALUE_BULLETS.handyFix,
-    enhanced: HHH_FIXED_VALUE_BULLETS.hassleFree,
-    elite: HHH_FIXED_VALUE_BULLETS.highStandard,
-  };
-  return staticMap[tier] as unknown as string[];
-};
+// getPerksForTier removed — EVE single-price model, features shown via UnifiedQuoteCard/SchedulingConfig
 
 /**
  * Get 2-3 killer features with Lucide icons for mobile card collapsed state.
@@ -746,7 +584,7 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
   BUSY_PRO: {
     hero: {
       title: "Your Quote is Ready",
-      subtitle: <>We've reviewed your request.<br />Priority scheduling is available for this week.</>,
+      subtitle: <>Fixed price, no clock-watching.<br />Priority scheduling available this week.</>,
       scrollText: "View your options"
     },
     // Quick Validation (Social Proof - Cialdini 1984)
@@ -817,7 +655,7 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
   LANDLORD: {
     hero: {
       title: "Your Rental. Handled.",
-      subtitle: "One text. We sort it.",
+      subtitle: "Tax-deductible maintenance. Photo proof for deposit disputes.",
       scrollText: "See what's included"
     },
     proof: {
@@ -846,8 +684,8 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
   },
   SMALL_BIZ: {
     hero: {
-      title: "After-Hours Service",
-      subtitle: "Zero business disruption.",
+      title: "Fixed Tonight. Open Tomorrow.",
+      subtitle: "Zero disruption. Fixed price. No clock-watching.",
       scrollText: "See Business Solutions"
     },
     proof: {
@@ -2100,8 +1938,8 @@ export default function PersonalizedQuotePage() {
         email: quote.email || undefined,
         jobDescription: quote.jobDescription,
         outcome: 'phone_quote',
-        eeePackage: (quote.quoteMode === 'simple' || quote.quoteMode === 'pick_and_mix') ? 'simple' : selectedEEEPackage,
-        quoteAmount: (quote.quoteMode === 'simple' || quote.quoteMode === 'pick_and_mix') ? calculateSimpleTotal() : (quote[`${selectedEEEPackage}Price` as keyof PersonalizedQuote] as number),
+        eeePackage: quote.quoteMode === 'pick_and_mix' ? 'simple' : (selectedEEEPackage || 'enhanced'),
+        quoteAmount: quote.quoteMode === 'pick_and_mix' ? calculateSimpleTotal() : quotePrice,
         source: 'personalized_quote',
         stripePaymentId: paymentIntentId,
       };
@@ -2137,7 +1975,7 @@ export default function PersonalizedQuotePage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             leadId: leadId,
-            selectedPackage: (quote.quoteMode === 'simple' || quote.quoteMode === 'pick_and_mix') ? undefined : selectedEEEPackage,
+            selectedPackage: quote.quoteMode === 'pick_and_mix' ? undefined : (selectedEEEPackage || 'enhanced'),
             selectedExtras: selectedExtras.length > 0 ? selectedExtras : undefined,
             paymentType: effectivePaymentType,
             // Scheduling fields
@@ -2213,177 +2051,10 @@ export default function PersonalizedQuotePage() {
   // Quote expiration removed - quotes no longer expire
   // const isActuallyExpired = false;
 
-  // Create packages array safely checking for existence of each tier
-  const packages: EEEPackage[] = [];
-  if (quote.quoteMode === 'hhh') {
-    if (quote.essentialPrice !== null && quote.essentialPrice !== undefined) {
-      packages.push({
-        tier: 'essential',
-        name: quote.essential?.name || 'Handy Fix',
-        price: quote.essentialPrice,
-        warrantyMonths: 1,
-        description: quote.essential?.description || 'Good & Reliable',
-      });
-    }
-    if (quote.enhancedPrice !== null && quote.enhancedPrice !== undefined) {
-      packages.push({
-        tier: 'enhanced',
-        name: quote.hassleFree?.name || 'Hassle-Free',
-        price: quote.enhancedPrice,
-        warrantyMonths: 6,
-        description: quote.hassleFree?.description || 'Priority & Convenience',
-        isPopular: true,
-      });
-    }
-    if (quote.elitePrice !== null && quote.elitePrice !== undefined) {
-      packages.push({
-        tier: 'elite',
-        name: quote.highStandard?.name || 'High Speed',
-        price: quote.elitePrice,
-        warrantyMonths: 12,
-        description: quote.highStandard?.description || 'Fastest & Most Premium',
-      });
-    }
-  }
+  // EVE single price — used directly by UnifiedQuoteCard
+  const quotePrice = quote.basePrice || quote.enhancedPrice || 0;
 
-  // [RAMANUJAM PRINCIPLE] Productize BY segment, NOT tier ONE product
-  // Each segment sees ONLY their product, not 3 arbitrary tiers to choose from
-  const getProductsForSegment = (segment: string | undefined, allPackages: EEEPackage[]): EEEPackage[] => {
-    if (!segment || allPackages.length === 0) return allPackages;
-
-    switch (segment) {
-      case 'BUSY_PRO':
-        // ONLY show Priority Service (enhanced tier)
-        return allPackages
-          .filter(pkg => pkg.tier === 'enhanced')
-          .map(pkg => ({
-            ...pkg,
-            name: "Priority Service",
-            description: "For busy professionals who value speed and convenience",
-            isPopular: true,
-          }));
-
-      case 'PROP_MGR':
-        // Single product: Job price with PM-friendly service
-        // Partner Program is a retention upsell AFTER first job, not on quote
-        return allPackages
-          .filter(pkg => pkg.tier === 'enhanced')
-          .map(pkg => ({
-            ...pkg,
-            name: "Property Service",
-            description: "Fast turnaround, tenant coordination available",
-            isPopular: true,
-          }));
-
-      case 'LANDLORD':
-        // Single product: Hassle-free landlord service
-        return allPackages
-          .filter(pkg => pkg.tier === 'enhanced')
-          .map(pkg => ({
-            ...pkg,
-            name: "Landlord Service",
-            description: "Photo proof, tenant coordination, tax-ready invoice",
-            isPopular: true,
-          }));
-
-      case 'SMALL_BIZ':
-        // ONLY show After-Hours Service (enhanced tier)
-        return allPackages
-          .filter(pkg => pkg.tier === 'enhanced')
-          .map(pkg => ({
-            ...pkg,
-            name: "After-Hours Service",
-            description: "Zero disruption to your business",
-            isPopular: true,
-          }));
-
-      case 'DIY_DEFERRER':
-        // ONLY show Batch Service (essential tier with value framing)
-        return allPackages
-          .filter(pkg => pkg.tier === 'essential')
-          .map(pkg => ({
-            ...pkg,
-            name: "Batch Service",
-            description: "Get multiple jobs done efficiently",
-            isPopular: true,
-          }));
-
-      case 'EMERGENCY':
-        // Show emergency response only
-        return allPackages
-          .filter(pkg => pkg.tier === 'enhanced')
-          .map(pkg => ({
-            ...pkg,
-            name: "Emergency Response",
-            description: "Same-day attendance, problem contained",
-            isPopular: true,
-          }));
-
-      case 'TRUST_SEEKER':
-        // Show Trusted Home Service as anchor
-        return allPackages
-          .filter(pkg => pkg.tier === 'enhanced' || pkg.tier === 'essential')
-          .map(pkg => {
-            if (pkg.tier === 'enhanced') {
-              return {
-                ...pkg,
-                name: "Trusted Home Service",
-                description: "Vetted, patient, trustworthy service",
-                isPopular: true,
-              };
-            }
-            return {
-              ...pkg,
-              name: "Standard Service",
-              description: "Quality work at a fair price",
-            };
-          });
-
-      case 'OLDER_WOMAN':
-        // Single product: Peace of Mind Service (trust & safety focused)
-        return allPackages
-          .filter(pkg => pkg.tier === 'enhanced')
-          .map(pkg => ({
-            ...pkg,
-            name: "Peace of Mind Service",
-            description: "Vetted, patient, and respectful service you can trust",
-            isPopular: true,
-          }));
-
-      case 'RENTER':
-        // Show renter service with options
-        return allPackages
-          .filter(pkg => pkg.tier === 'essential' || pkg.tier === 'enhanced')
-          .map(pkg => {
-            if (pkg.tier === 'essential') {
-              return {
-                ...pkg,
-                name: "Renter Service",
-                description: "Fixed price, landlord-ready invoice",
-                isPopular: true,
-              };
-            }
-            return {
-              ...pkg,
-              name: "Renter Service Plus",
-              description: "Includes landlord invoicing & condition report",
-            };
-          });
-
-      default:
-        // Fallback: show all tiers for unknown/legacy segments
-        return allPackages;
-    }
-  };
-
-  // Apply segment-based product filtering
-  const packagesToShow = getProductsForSegment(quote.segment, packages);
-
-  // [DEBUG] Log filtering results
-  console.log('[PRODUCTIZATION] Segment:', quote.segment);
-  console.log('[PRODUCTIZATION] All packages:', packages.length);
-  console.log('[PRODUCTIZATION] Filtered packages to show:', packagesToShow.length);
-  console.log('[PRODUCTIZATION] Package names:', packagesToShow.map(p => p.name));
+  // getProductsForSegment removed — EVE single-price, UnifiedQuoteCard handles display
 
   // Calculate total for simple mode (with Bundle & Save logic for Pick & Mix)
   const calculateSimpleTotal = () => {
@@ -2486,10 +2157,9 @@ export default function PersonalizedQuotePage() {
     );
   };
 
-  // Get display name for package tier
-  const getPackageDisplayName = (tier: EEEPackageTier): string => {
-    const pkg = packages.find(p => p.tier === tier);
-    return pkg?.name || tier;
+  // Get display name for the service (no longer tier-based)
+  const getPackageDisplayName = (_tier: EEEPackageTier): string => {
+    return 'Service';
   };
 
   // SKIN CONFIG based on clientType
@@ -2566,9 +2236,8 @@ export default function PersonalizedQuotePage() {
 
               </div>
 
-              {/* Expert Sticky Note integration */}
-              {quote.quoteMode !== 'simple' && (
-                <>
+              {/* Expert Spec Sheet + UnifiedQuoteCard */}
+              <>
                   {/* PDF Download Button */}
                   <div className="flex justify-end mb-2 px-2 md:px-0">
                     <button
@@ -2578,7 +2247,7 @@ export default function PersonalizedQuotePage() {
                         address: quote.address,
                         postcode: quote.postcode,
                         jobDescription: getExpertNoteText(quote as any),
-                        priceInPence: packagesToShow[0]?.price || 0,
+                        priceInPence: quotePrice,
                         segment: quote.segment || undefined,
                         validityHours: 48,
                         createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
@@ -2597,15 +2266,12 @@ export default function PersonalizedQuotePage() {
                     mikePhotoUrl={mikeProfilePhoto}
                     className="mt-6 md:mt-0 transition-transform duration-300"
                   >
-                    {quote.quoteMode === 'hhh' && packagesToShow.length > 0 && !hasBooked && (
+                    {quotePrice > 0 && !hasBooked && (
                       <div className="space-y-8">
-                        {/* [RAMANUJAM] Unified Quote Card for segments with single-product flow */}
-                        {['EMERGENCY', 'BUSY_PRO', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR', 'LANDLORD', 'OLDER_WOMAN'].includes(quote.segment || '') ? (
-                          <>
                           <Elements stripe={stripePromise}>
                             <UnifiedQuoteCard
-                              segment={quote.segment || 'DIY_DEFERRER'}
-                              basePrice={packagesToShow[0]?.price || 0}
+                              segment={quote.segment || 'UNKNOWN'}
+                              basePrice={quotePrice}
                               customerName={quote.customerName}
                               customerEmail={quote.email || undefined}
                               quoteId={quote.id}
@@ -2615,7 +2281,7 @@ export default function PersonalizedQuotePage() {
                               isBooking={isBooking}
                               onBook={async (config) => {
                                 setIsBooking(true);
-                                setSelectedEEEPackage(quote.segment === 'RENTER' ? 'essential' : 'enhanced');
+                                setSelectedEEEPackage('enhanced');
                                 setHasApprovedProduct(true);
                                 if (config.selectedDate) {
                                   setSelectedCalendarDate(config.selectedDate);
@@ -2684,7 +2350,7 @@ export default function PersonalizedQuotePage() {
                                   address: quote.address,
                                   postcode: quote.postcode,
                                   jobDescription: getExpertNoteText(quote as any),
-                                  priceInPence: packagesToShow[0]?.price || 0,
+                                  priceInPence: quotePrice,
                                   segment: quote.segment || undefined,
                                   validityHours: 48,
                                   createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
@@ -2733,7 +2399,7 @@ export default function PersonalizedQuotePage() {
                                   address: quote.address,
                                   postcode: quote.postcode,
                                   jobDescription: getExpertNoteText(quote as any),
-                                  priceInPence: packagesToShow[0]?.price || 0,
+                                  priceInPence: quotePrice,
                                   segment: quote.segment || undefined,
                                   validityHours: 48,
                                   createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
@@ -2745,472 +2411,6 @@ export default function PersonalizedQuotePage() {
                               </button>
                             </div>
                           )}
-                          </>
-                        ) : (
-                          <>
-                            {/* Original package cards for other segments */}
-                            {/* Payment Mode Toggle */}
-                            <div className="flex items-center justify-center mb-6">
-                              <PaymentToggle
-                                paymentMode={paymentMode}
-                                setPaymentMode={setPaymentMode}
-                                theme="light"
-                                size="default"
-                              />
-                            </div>
-
-                            {/* HHH Mode: Packages List - Responsive */}
-
-                            {/* Mobile View: Accordion-style compact cards */}
-                            <div className="md:hidden space-y-3">
-                              {packagesToShow.map((pkg) => {
-                                let rawFeatures = quote.tierDeliverables?.[pkg.tier === 'essential' ? 'essential' : pkg.tier === 'enhanced' ? 'hassleFree' : 'highStandard'] ||
-                                  getPerksForTier(quote, pkg.tier as 'essential' | 'enhanced' | 'elite');
-
-                                // Apply segment-specific feature overrides
-                                // NOTE: With segment-based filtering, each segment only sees ONE package now
-                                const getFutureDate = (days: number) => {
-                                  const date = new Date();
-                                  date.setDate(date.getDate() + days);
-                                  return date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-                                };
-
-                                // Customize features for BUSY_PRO (will only be 'enhanced' tier due to filtering)
-                                if (quote.segment === 'BUSY_PRO') {
-                                  rawFeatures = [
-                                    `⚡ Guaranteed Slot: ${getFutureDate(4)}`,
-                                    "⏱️ Precise 1-Hour Arrival Window",
-                                    "🛡️ 90-day workmanship guarantee",
-                                    "📞 Direct specialist contact number",
-                                    "📅 Evening & Weekend slots available",
-                                    "✨ Full cleanup & waste removal"
-                                  ];
-                                } else if (quote.segment === 'PROP_MGR') {
-                                  // PROP_MGR: Single product - job-focused
-                                  rawFeatures = [
-                                    "⚡ Scheduled within 48-72 hours",
-                                    "📸 Photo report on completion",
-                                    "🔑 Tenant coordination available",
-                                    "📄 Invoice emailed same day",
-                                    "✨ Full cleanup included"
-                                  ];
-                                } else if (quote.segment === 'LANDLORD') {
-                                  // LANDLORD: Single product - hassle-free
-                                  rawFeatures = [
-                                    "⚡ Scheduled within 48-72 hours",
-                                    "📸 Photo report included",
-                                    "🔑 Tenant coordination available",
-                                    "📄 Tax-ready invoice",
-                                    "✨ Full cleanup included"
-                                  ];
-                                }
-
-                                const features = Array.isArray(rawFeatures) ? rawFeatures : [];
-                                const installmentAmount = pkg.tier === 'essential' ? null : Math.round(pkg.price / 3);
-                                const showInstallments = paymentMode === 'installments' && installmentAmount;
-                                const isTier1 = pkg.tier === 'essential';
-
-                                return (
-                                  <MobilePricingCard
-                                    key={pkg.tier}
-                                    tier={pkg.tier}
-                                    name={pkg.name}
-                                    price={pkg.price}
-                                    tagline={pkg.description}
-                                    features={features}
-                                    keyFeatures={getKeyFeaturesForTier(pkg.tier)}
-                                    nextAvailableDate={getNextAvailableDate(pkg.tier)}
-                                    dateSelectionStartDate={getDateSelectionStartDate(pkg.tier)}
-                                    isRecommended={pkg.tier === 'enhanced'}
-                                    isPremium={pkg.tier === 'elite'}
-                                    isExpanded={expandedMobileCard === pkg.tier}
-                                    isSelected={selectedEEEPackage === pkg.tier}
-                                    onToggleExpand={() => {
-                                      setExpandedMobileCard(expandedMobileCard === pkg.tier ? null : pkg.tier);
-                                      // Scroll card into view on expand
-                                      if (expandedMobileCard !== pkg.tier) {
-                                        setTimeout(() => {
-                                          document.getElementById(`mobile-card-${pkg.tier}`)?.scrollIntoView({
-                                            behavior: 'smooth',
-                                            block: 'start'
-                                          });
-                                        }, 100);
-                                      }
-                                    }}
-                                    onSelect={() => {
-                                      if (!isTier1 || paymentMode !== 'installments') {
-                                        setSelectedEEEPackage(pkg.tier);
-                                      }
-                                    }}
-                                    onDateSelect={(date) => setSelectedDate(date)}
-                                    selectedDate={selectedDate}
-                                    paymentMode={paymentMode}
-                                    installmentPrice={showInstallments ? installmentAmount : undefined}
-                                  />
-                                );
-                              })}
-                            </div>
-
-                            {/* Desktop View: Existing grid cards */}
-                            {/* Dynamic grid: centers when 1 package, spreads when multiple */}
-                            <div className={`hidden md:grid md:gap-6 md:items-start ${packagesToShow.length === 1 ? 'md:grid-cols-1 max-w-md mx-auto' : packagesToShow.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
-                              {packagesToShow.map((pkg) => {
-                                let rawFeatures = quote.tierDeliverables?.[pkg.tier === 'essential' ? 'essential' : pkg.tier === 'enhanced' ? 'hassleFree' : 'highStandard'] ||
-                                  getPerksForTier(quote, pkg.tier as 'essential' | 'enhanced' | 'elite');
-
-                                // [STRATEGY] Productize BY Segment (Ramanujam)
-                                // Each segment sees ONLY their product, not multiple tiers
-                                // Feature customization per segment
-                                const getFutureDate = (days: number) => {
-                                  const date = new Date();
-                                  date.setDate(date.getDate() + days);
-                                  return date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-                                };
-
-                                // BUSY_PRO: Only sees Priority Service (filtered to 'enhanced' tier)
-                                if (quote.segment === 'BUSY_PRO') {
-                                  rawFeatures = [
-                                    `⚡ Guaranteed Slot: ${getFutureDate(4)}`,
-                                    "⏱️ Precise 1-Hour Arrival Window",
-                                    "🛡️ 90-day workmanship guarantee",
-                                    "📞 Direct specialist contact number",
-                                    "📅 Evening & Weekend slots available",
-                                    "✨ Full cleanup & waste removal"
-                                  ];
-                                } else if (quote.segment === 'PROP_MGR') {
-                                  // PROP_MGR: Single product - job-focused
-                                  pkg.name = "Property Service";
-                                  rawFeatures = [
-                                    "⚡ Scheduled within 48-72 hours",
-                                    "📸 Photo report on completion",
-                                    "🔑 Tenant coordination available",
-                                    "📄 Invoice emailed same day",
-                                    "✨ Full cleanup included"
-                                  ];
-                                } else if (quote.segment === 'LANDLORD') {
-                                  // LANDLORD: Single product - hassle-free
-                                  pkg.name = "Landlord Service";
-                                  rawFeatures = [
-                                    "⚡ Scheduled within 48-72 hours",
-                                    "📸 Photo report included",
-                                    "🔑 Tenant coordination available",
-                                    "📄 Tax-ready invoice",
-                                    "✨ Full cleanup included"
-                                  ];
-                                } else if (quote.segment === 'EMERGENCY') {
-                                  // EMERGENCY: Same-day response
-                                  pkg.name = "Emergency Response";
-                                  rawFeatures = [
-                                    "🚨 Same-day attendance",
-                                    "🔧 Problem contained",
-                                    "📋 Quote for permanent fix",
-                                    "🌙 Out-of-hours available",
-                                    "✨ Cleanup included"
-                                  ];
-                                } else if (quote.segment === 'TRUST_SEEKER') {
-                                  if (pkg.tier === 'enhanced') {
-                                    pkg.name = "Trusted Home Service";
-                                    rawFeatures = [
-                                      "🛡️ DBS-checked tradesperson",
-                                      "📞 We call before arrival",
-                                      "💬 Clear explanation of work",
-                                      "🧹 Thorough cleanup",
-                                      "✅ Fixed price (no hourly)"
-                                    ];
-                                  } else {
-                                    pkg.name = "Standard Service";
-                                    rawFeatures = [
-                                      "Quality workmanship",
-                                      "Cleanup included",
-                                      "Clear communication",
-                                      "30-day guarantee"
-                                    ];
-                                  }
-                                } else if (quote.segment === 'RENTER') {
-                                  if (pkg.tier === 'enhanced') {
-                                    pkg.name = "Renter Service Plus";
-                                    rawFeatures = [
-                                      "📋 Fixed quote upfront",
-                                      "📸 Photo before/after",
-                                      "🧾 Landlord-ready invoice",
-                                      "📧 Invoice landlord directly",
-                                      "📄 Condition report"
-                                    ];
-                                  } else {
-                                    pkg.name = "Renter Service";
-                                    rawFeatures = [
-                                      "📋 Fixed quote upfront",
-                                      "📸 Photo before/after",
-                                      "🧾 Landlord-ready invoice"
-                                    ];
-                                  }
-                                }
-
-                                // [STRATEGY] Emoji Stripper: Regex to remove emoji characters from features
-                                // [STRATEGY] Emoji Stripper: Safer regex for broad compatibility
-                                const stripEmojis = (str: string) => {
-                                  try {
-                                    // Simply remove everything that isn't ASCII text, numbers, punctuation, or common symbols
-                                    // This is safer than targetting specific emoji ranges which varies by browser/engine
-                                    return str.replace(/[^\x00-\x7F\u00A0-\u00FF]/g, '').trim().replace(/\s\s+/g, ' ');
-                                  } catch (e) {
-                                    return str;
-                                  }
-                                };
-
-                                // Icon mapping for BUSY_PRO features (high quality Lucide icons)
-                                const getFeatureIcon = (feature: string): React.ComponentType<{ className?: string }> => {
-                                  const f = feature.toLowerCase();
-                                  if (f.includes('arrival') || f.includes('window') || f.includes('time')) return Clock;
-                                  if (f.includes('scheduling') || f.includes('week') || f.includes('slot')) return Calendar;
-                                  if (f.includes('photo') || f.includes('video')) return Camera;
-                                  if (f.includes('guarantee') || f.includes('warranty')) return Shield;
-                                  if (f.includes('contact') || f.includes('whatsapp') || f.includes('phone')) return Phone;
-                                  if (f.includes('small fix') || f.includes('fixes')) return Wrench;
-                                  if (f.includes('cleanup') || f.includes('clean')) return Sparkles;
-                                  if (f.includes('quality') || f.includes('workmanship')) return Award;
-                                  if (f.includes('48-hour') || f.includes('asap') || f.includes('express')) return Zap;
-                                  if (f.includes('materials')) return Package;
-                                  return Check; // Default fallback
-                                };
-
-                                const features = Array.from(new Set((rawFeatures || []).map(f => typeof f === 'string' ? stripEmojis(f) : f)));
-                                const isExpanded = expandedTiers.has(pkg.tier);
-                                // Show all features for Enhanced (Priority) tier by default, otherwise limit to 4
-                                const showAllByDefault = pkg.tier === 'enhanced';
-                                const visibleFeatures = showAllByDefault || isExpanded ? features : features.slice(0, 4);
-                                const hasMoreFeatures = !showAllByDefault && features.length > 4;
-
-                                const isTier1 = pkg.tier === 'essential';
-                                const isTier2or3 = pkg.tier === 'enhanced' || pkg.tier === 'elite';
-                                const showInstallments = isTier2or3 && paymentMode === 'installments';
-
-                                const extrasTotal = selectedExtras.reduce((sum, label) => {
-                                  const extra = quote.optionalExtras?.find(e => e.label === label);
-                                  return sum + (extra?.priceInPence || 0);
-                                }, 0);
-
-                                const baseJobPrice = pkg.price + extrasTotal;
-                                const LENIENCY_FEE_RATE = 0.10;
-                                const convenienceFee = showInstallments ? Math.round(baseJobPrice * LENIENCY_FEE_RATE) : 0;
-                                const totalWithFee = baseJobPrice + convenienceFee;
-
-                                const depositAmount = calculateDeposit(pkg.price);
-                                const remainingBalance = Math.max(0, (showInstallments ? totalWithFee : baseJobPrice) - depositAmount);
-                                const installmentAmount = Math.round(remainingBalance / 3);
-
-                                const tierStyles = {
-                                  essential: { bg: 'bg-gradient-to-br from-slate-50 via-white to-green-50/30 border-slate-200', badge: null, badgeColor: '', badgeText: '' },
-                                  enhanced: { bg: 'bg-gradient-to-br from-green-100 via-emerald-50 to-white border-[#7DB00E]', badge: 'MOST POPULAR', badgeColor: 'bg-[#7DB00E]', badgeText: 'text-[#1D2D3D]' },
-                                  elite: { bg: 'bg-gradient-to-br from-amber-50 via-white to-yellow-50/40 border-slate-200', badge: 'PREMIUM', badgeColor: 'bg-[#1D2D3D]', badgeText: 'text-white' }
-                                };
-                                const style = tierStyles[pkg.tier as keyof typeof tierStyles];
-                                const isDisabled = isTier1 && paymentMode === 'installments';
-
-                                return (
-                                  <motion.div
-                                    key={pkg.tier}
-                                    id={`package-tier-card-${pkg.tier}`} // ID for scroll target
-                                    initial={{ opacity: 0, x: -20 }}
-                                    whileInView={{ opacity: 1, x: 0 }}
-                                    transition={{ duration: 0.5 }}
-                                    className={`relative transition-all duration-300 ${isDisabled ? 'opacity-50 pointer-events-none grayscale blur-[2px] scale-95' : ''}`}
-                                  >
-                                    <div id={`package-tier-card-${pkg.tier}`} className={`${style.bg} rounded-2xl overflow-hidden border ${pkg.tier === 'enhanced' ? 'border-2 shadow-2xl ring-4 ring-[#7DB00E]/20 scale-[1.05] z-10' : 'shadow-sm hover:shadow-md'} transition-all duration-300`}>
-                                      {style.badge && (
-                                        <div className={`${style.badgeColor} ${style.badgeText} text-center py-1.5 text-[10px] font-black tracking-wider uppercase flex justify-center items-center gap-2 whitespace-nowrap`}>
-                                          {pkg.tier === 'enhanced' && <Star className="w-3 h-3 fill-current" />}
-                                          {style.badge}
-                                          {pkg.tier === 'enhanced' && <Star className="w-3 h-3 fill-current" />}
-                                        </div>
-                                      )}
-                                      <div className="p-6 md:p-8">
-                                        <div className="flex justify-between items-start mb-4">
-                                          <div>
-                                            <div className="flex items-center gap-2 mb-1">
-                                              {pkg.tier === 'essential' && <Wrench className="w-4 h-4 text-slate-400" />}
-                                              {pkg.tier === 'enhanced' && <Zap className="w-4 h-4 text-[#7DB00E]" />}
-                                              {pkg.tier === 'elite' && <Crown className="w-4 h-4 text-amber-500" />}
-                                              <h3 className="text-xl font-bold text-slate-900">{pkg.name}</h3>
-                                            </div>
-                                            <p className="text-slate-500 text-xs">{pkg.description}</p>
-                                          </div>
-                                          <div className="flex flex-col items-end gap-2">
-                                            {pkg.tier === 'enhanced' && (
-                                              <>
-                                                <NeonBadge
-                                                  text={
-                                                    quote.segment === 'BUSY_PRO' ? 'Priority' :
-                                                      quote.segment === 'PROP_MGR' ? 'Partner' :
-                                                        quote.segment === 'SMALL_BIZ' ? 'Disruption-Free' :
-                                                          'Best Value'
-                                                  }
-                                                  color="green"
-                                                  icon={Zap}
-                                                />
-                                                {/* Social Proof (Decoy Effect - Cialdini 1984) */}
-                                                {quote.segment === 'BUSY_PRO' ? (
-                                                  <div className="flex items-center gap-1.5 bg-blue-500/20 text-blue-400 px-2 py-1 rounded-lg text-[10px] font-bold">
-                                                    <User className="w-3 h-3" />
-                                                    78% choose this
-                                                  </div>
-                                                ) : (
-                                                  <div className="flex items-center gap-1.5 bg-amber-500/20 text-amber-400 px-2 py-1 rounded-lg text-[10px] font-bold">
-                                                    <User className="w-3 h-3" />
-                                                    Mike Recommends
-                                                  </div>
-                                                )}
-                                              </>
-                                            )}
-                                            {pkg.tier === 'elite' && <NeonBadge text="Fast Track" color="amber" icon={Clock} />}
-                                          </div>
-                                        </div>
-
-                                        {/* Date Slot Slider - Interactive Availability */}
-                                        <div className="mb-6">
-                                          <div className="flex justify-between items-baseline mb-3">
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                              {pkg.tier === 'elite' ? 'VIP Availability' : pkg.tier === 'enhanced' ? 'Priority Slots' : 'Estimated Start'}
-                                            </p>
-                                            {pkg.tier === 'elite' && (
-                                              <span className="text-[9px] font-bold text-[#7DB00E] bg-[#7DB00E]/10 px-1.5 py-0.5 rounded-full animate-pulse">
-                                                LIVE
-                                              </span>
-                                            )}
-                                          </div>
-                                          <div className="-mx-1 overflow-x-auto pb-4 pt-2 flex gap-2 no-scrollbar snap-x">
-                                            {(() => {
-                                              // Scarcity Logic & Extended Range
-                                              const startOffset = pkg.tier === 'elite' ? 1 : pkg.tier === 'enhanced' ? 4 : 14;
-                                              let currentDate = new Date();
-                                              currentDate.setDate(currentDate.getDate() + startOffset);
-
-                                              // Generate 12 days to show full scope
-                                              const dates = [];
-                                              let daysAdded = 0;
-                                              while (daysAdded < 12) {
-                                                // Handle "No Sundays" rule globally if needed, currently we skip them in loop if we want business days only
-                                                // But for scarcity visuals, showing weekends as "Booked" is better for Standard tier
-                                                const d = new Date(currentDate);
-                                                dates.push(d);
-                                                currentDate.setDate(currentDate.getDate() + 1);
-                                                daysAdded++;
-                                              }
-
-                                              return dates.map((slotDate, idx) => {
-                                                const isWeekend = slotDate.getDay() === 0 || slotDate.getDay() === 6;
-                                                // Standard (essential) cannot book weekends
-                                                const isRestrictedWeekend = pkg.tier === 'essential' && isWeekend;
-
-                                                // Fake "Booked" status for scarcity (30% chance), but never the first slot
-                                                const isFullyBooked = idx > 0 && (Math.random() < 0.3 || isRestrictedWeekend);
-
-                                                const isAvailable = !isFullyBooked;
-                                                const isSelected = idx === 0;
-
-                                                return (
-                                                  <div
-                                                    key={idx}
-                                                    className={`snap-start flex-shrink-0 border rounded-lg p-2 min-w-[90px] text-center relative overflow-hidden transition-all ${!isAvailable
-                                                      ? 'border-slate-100 bg-slate-50 opacity-60 grayscale border-dashed'
-                                                      : isSelected
-                                                        ? 'border-[#7DB00E]/30 bg-[#7DB00E]/5'
-                                                        : 'border-slate-100 bg-white/80'
-                                                      }`}
-                                                  >
-                                                    <div className={`text-[10px] uppercase font-bold mb-0.5 ${!isAvailable ? 'text-slate-300' : isSelected ? 'text-[#7DB00E]' : 'text-slate-400'}`}>
-                                                      {idx === 0 && pkg.tier === 'elite' ? 'Tomrw' : slotDate.toLocaleDateString('en-GB', { weekday: 'short' })}
-                                                    </div>
-
-                                                    <div className={`text-lg font-bold leading-none mb-1 ${!isAvailable ? 'text-slate-300' : isSelected ? 'text-slate-900' : 'text-slate-600'}`}>
-                                                      {slotDate.getDate()}
-                                                    </div>
-
-                                                    <div className={`text-[9px] font-medium ${!isAvailable ? 'text-slate-300' : 'text-slate-400'}`}>
-                                                      {!isAvailable
-                                                        ? (isRestrictedWeekend ? 'Unavailable' : 'Fully Booked')
-                                                        : slotDate.toLocaleDateString('en-GB', { month: 'short' })
-                                                      }
-                                                    </div>
-
-                                                    {/* Strikethrough for booked dates */}
-                                                    {!isAvailable && (
-                                                      <div className="absolute inset-0 flex items-center justify-center">
-                                                        <div className="w-full h-[1px] bg-slate-200 -rotate-12"></div>
-                                                      </div>
-                                                    )}
-                                                  </div>
-                                                );
-                                              });
-                                            })()}
-                                          </div>
-                                        </div>
-
-                                        <div className="mb-6">
-                                          <div className="flex items-baseline gap-2">
-                                            <span className={`text-3xl font-bold text-slate-900`}>£{formatPrice(showInstallments ? depositAmount : pkg.price)}</span>
-                                            <span className="text-slate-400 text-xs font-medium">{showInstallments ? 'deposit' : 'fixed price'}</span>
-                                          </div>
-
-                                          {/* Per-week breakdown - Only show if not installments */}
-                                          {!showInstallments && (
-                                            <div className="mt-1 text-slate-400/70 text-[10px]">
-                                              Just £{(pkg.price / 100 / 52).toFixed(2)}/week over warranty period
-                                            </div>
-                                          )}
-
-                                          {/* Warranty end date */}
-                                          <div className="mt-2 flex items-center gap-1.5 text-slate-500 text-[10px]">
-                                            <Shield className="w-3 h-3 text-[#7DB00E]" />
-                                            <span>Covered until {format(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), 'MMMM yyyy')}</span>
-                                          </div>
-
-                                          {/* Money Back Guarantee Badge */}
-                                          <div className="mt-2 flex items-center gap-1.5 text-[9px] uppercase font-bold text-[#7DB00E] bg-[#7DB00E]/10 px-2 py-1 rounded w-fit">
-                                            <ShieldCheck className="w-3 h-3" />
-                                            100% Money Back Guarantee
-                                          </div>
-
-                                          {/* Installments info */}
-                                          {showInstallments && (
-                                            <div className="mt-2 flex items-center gap-2 text-[#7DB00E] font-medium text-sm">
-                                              <SiKlarna className="w-4 h-4" />
-                                              <span>+ 3 payments of £{formatPrice(installmentAmount)}</span>
-                                            </div>
-                                          )}
-                                        </div>
-
-                                        <div className="space-y-3 mb-6">
-                                          {visibleFeatures.map((f, i) => {
-                                            const FeatureIcon = getFeatureIcon(f as string);
-                                            return (
-                                              <div key={i} className="flex gap-3 text-sm text-slate-600">
-                                                <FeatureIcon className="w-4 h-4 text-[#7DB00E] mt-0.5 flex-shrink-0" />
-                                                <span>{f}</span>
-                                              </div>
-                                            );
-                                          })}
-                                          {hasMoreFeatures && (
-                                            <button
-                                              onClick={() => setExpandedTiers(prev => {
-                                                const n = new Set(prev);
-                                                n.has(pkg.tier) ? n.delete(pkg.tier) : n.add(pkg.tier);
-                                                return n;
-                                              })}
-                                              className="text-xs text-slate-400 hover:text-slate-500 underline underline-offset-4"
-                                            >
-                                              {isExpanded ? 'Show less' : `+${features.length - 4} more details`}
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </motion.div>
-                                );
-                              })}
-                            </div>
-                          </>
-                        )}
                       </div>
                     )}
                   </ExpertSpecSheet>
@@ -3227,81 +2427,12 @@ export default function PersonalizedQuotePage() {
                       </p>
                     </div>
                   </div>
-                </>
-              )}
+              </>
 
-              {/* Simple Mode: Quote Card */}
-              {quote.quoteMode === 'simple' && quote.basePrice && (
-                <div
-                  className="bg-gradient-to-br from-[#1D2D3D] to-black rounded-3xl overflow-hidden border border-[#7DB00E]/30 shadow-2xl"
-                >
-                  <div className="p-8">
-                    <div className="text-center mb-8">
-                      <div className="inline-block bg-[#7DB00E]/20 text-[#7DB00E] border border-[#7DB00E]/30 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest mb-4">
-                        Your Quote
-                      </div>
-                      <div className="text-6xl font-bold text-white mb-2">
-                        £{formatPrice(quote.basePrice)}
-                      </div>
-                      <p className="text-gray-400">All-inclusive price</p>
-
-                      <div className="mt-3 flex justify-center">
-                        <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-[#7DB00E] bg-[#7DB00E]/10 px-2 py-1 rounded w-fit">
-                          <ShieldCheck className="w-3 h-3" />
-                          100% Money Back Guarantee
-                        </div>
-                      </div>
-
-                      {/* Toggle */}
-                      <div className="flex items-center justify-center mt-4">
-                        <PaymentToggle
-                          paymentMode={paymentMode}
-                          setPaymentMode={setPaymentMode}
-                          theme="dark"
-                          size="compact"
-                          showTryBadge={false}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="bg-gradient-to-br from-white/10 to-white/5 rounded-2xl p-6 mb-6 border border-white/10">
-                      <h4 className="text-white font-bold mb-4 text-lg flex items-center gap-2">
-                        <div className="w-1.5 h-6 bg-[#7DB00E] rounded-full"></div>
-                        Scope of Works
-                      </h4>
-                      <div className="space-y-3">
-                        {getLineItems(quote as any).map((item, idx) => (
-                          <div key={idx} className="flex items-center gap-3">
-                            <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#7DB00E] flex items-center justify-center">
-                              <Check className="w-3.5 h-3.5 text-white" />
-                            </div>
-                            <span className="text-white text-base font-medium leading-relaxed">
-                              {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.description}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <Button
-                      onClick={() => {
-                        setShowPaymentForm(true);
-                        setTimeout(() => {
-                          document.getElementById('confirm-button')?.scrollIntoView({ behavior: 'smooth' });
-                        }, 100);
-                      }}
-                      className="w-full h-14 rounded-2xl font-bold text-lg bg-[#7DB00E] hover:bg-[#6da000]"
-                    >
-                      Accept Quote & Continue
-                    </Button>
-                  </div>
-                </div>
-              )}
             </motion.div>
 
-            {/* [RAMANUJAM] Unified Payment Section */}
-            {/* Shows after user books via UnifiedQuoteCard */}
-            {['EMERGENCY', 'BUSY_PRO', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER', 'SMALL_BIZ', 'PROP_MGR', 'LANDLORD'].includes(quote.segment || '') && selectedEEEPackage && quote.quoteMode === 'hhh' && hasApprovedProduct && (
+            {/* Payment Section — shows after user books via UnifiedQuoteCard */}
+            {selectedEEEPackage && hasApprovedProduct && (
               <motion.div
                 id="payment-section"
                 initial={{ opacity: 0, y: 20 }}
@@ -3331,13 +2462,10 @@ export default function PersonalizedQuotePage() {
                         depositValue: 'text-[#7DB00E]'
                       };
 
-                      // HHH mode: use selected package (parent condition already ensures quoteMode === 'hhh')
-                      const selectedPackage = packages.find(p => p.tier === selectedEEEPackage);
+                      // EVE single price
+                      const basePrice = quotePrice;
 
-                      // Use package price
-                      const basePrice = selectedPackage?.price || 0;
-
-                      if (!selectedPackage) return null;
+                      if (!basePrice) return null;
 
                       const extrasTotal = selectedExtras.reduce((sum, label) => {
                         const extra = quote.optionalExtras?.find(e => e.label === label);
@@ -3347,8 +2475,8 @@ export default function PersonalizedQuotePage() {
                       // [RAMANUJAM] Add BUSY_PRO productization adjustments
                       const busyProAdjustments = calculateBusyProAdjustments();
                       const baseJobPrice = basePrice + extrasTotal + busyProAdjustments.schedulingFee + busyProAdjustments.bundlePrice;
-                      const isTier1 = selectedPackage?.tier === 'essential';
-                      const isInstallmentsMode = !isTier1 && paymentMode === 'installments';
+                      // EVE single-price: no tier distinction, installments always available
+                      const isInstallmentsMode = paymentMode === 'installments';
 
                       const LENIENCY_FEE_RATE = 0.10;
                       const convenienceFee = isInstallmentsMode ? Math.round(baseJobPrice * LENIENCY_FEE_RATE) : 0;
@@ -3635,26 +2763,17 @@ export default function PersonalizedQuotePage() {
             <img src={quote.contractor?.coverPhotoUrl || payIn3PromoImage} className="w-full h-auto" />
           </div>
 
-          {quote.quoteMode !== 'simple' && (
-            <div className="mb-10 px-4">
-              <ExpertSpecSheet
-                text={getScopeOfWorks(quote as any)}
-                customerName={quote.customerName || ''}
-                address={quote.address || quote.postcode}
-                mikePhotoUrl={mikeProfilePhoto}
-                className="mt-8 transform max-w-xl mx-auto"
-              />
-            </div>
-          )}
+          <div className="mb-10 px-4">
+            <ExpertSpecSheet
+              text={getScopeOfWorks(quote as any)}
+              customerName={quote.customerName || ''}
+              address={quote.address || quote.postcode}
+              mikePhotoUrl={mikeProfilePhoto}
+              className="mt-8 transform max-w-xl mx-auto"
+            />
+          </div>
 
-          {quote.quoteMode === 'hhh' && (
-            <div className="mb-8 text-center text-white">
-              <h3 className="text-3xl font-bold mb-3">Choose your service level</h3>
-              <p className="text-gray-300">Pick the package that fits your needs.</p>
-            </div>
-          )}
-
-          {quote.quoteMode !== 'simple' && (
+          {(
             <Card className="bg-black/40 border-gray-700 mb-6 overflow-hidden">
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
@@ -4016,12 +3135,8 @@ export default function PersonalizedQuotePage() {
                       </h4>
                       <div className="space-y-2.5">
                         {getLineItems(quote as any).map((item, idx) => (
-                          <div key={idx} className="flex items-center gap-3">
-                            <div className="flex-shrink-0 w-6 h-6 rounded-full bg-[#7DB00E] flex items-center justify-center">
-                              <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                              </svg>
-                            </div>
+                          <div key={idx} className="flex items-start gap-3">
+                            <span className="flex-shrink-0 text-[#7DB00E] text-lg leading-relaxed">•</span>
                             <span className="text-white text-base font-medium leading-relaxed">
                               {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.description}
                             </span>
@@ -4108,7 +3223,7 @@ export default function PersonalizedQuotePage() {
 
           {/* Optional Extras for HHH Mode */}
           {
-            hasReserved && quote.quoteMode !== 'simple' && quote.optionalExtras && quote.optionalExtras.length > 0 && (
+            hasReserved && quote.optionalExtras && quote.optionalExtras.length > 0 && (
               <div id="optional-extras" className="mt-6 px-4">
                 <Card className="bg-gray-800 border-gray-700">
                   <CardContent className="p-4">
@@ -4383,8 +3498,7 @@ export default function PersonalizedQuotePage() {
                   customerName={quote.customerName}
                   depositPaidPence={quote.depositAmountPence || (() => {
                     // Fallback calculation if depositAmountPence not set
-                    const selectedPkg = packages.find(p => p.tier === selectedEEEPackage);
-                    const baseTierPrice = selectedPkg?.price || 0;
+                    const baseTierPrice = quotePrice;
                     const extrasTotal = selectedExtras.reduce((sum, label) => {
                       const extra = quote.optionalExtras?.find(e => e.label === label);
                       return sum + (extra?.priceInPence || 0);
@@ -4413,11 +3527,8 @@ export default function PersonalizedQuotePage() {
                         Reserve Your Slot
                       </h3>
                       {(() => {
-                        // Get base tier price - use packages array to match footer exactly
-                        const selectedPkg = packages.find(p => p.tier === selectedEEEPackage);
-                        const baseTierPrice = selectedPkg?.price || (quote.quoteMode === 'simple'
-                          ? quote.basePrice || 0
-                          : (quote[`${selectedEEEPackage}Price` as keyof PersonalizedQuote] as number));
+                        // EVE single price
+                        const baseTierPrice = quotePrice;
 
                         // Calculate extras total
                         const extrasTotal = selectedExtras.reduce((sum, label) => {
@@ -4498,7 +3609,7 @@ export default function PersonalizedQuotePage() {
                                 <div className="space-y-2 mb-3 pb-3 border-b-2 border-gray-600">
                                   {/* Base price */}
                                   <div className="flex justify-between gap-4">
-                                    <span className="text-gray-300">{quote.quoteMode === 'simple' ? 'Job price' : getPackageDisplayName(selectedEEEPackage || 'essential')}:</span>
+                                    <span className="text-gray-300">{getPackageDisplayName(selectedEEEPackage || 'enhanced')}:</span>
                                     <span className="text-white">£{Math.round(baseTierPrice / 100)}</span>
                                   </div>
 
@@ -4609,7 +3720,7 @@ export default function PersonalizedQuotePage() {
                                     customerName={quote.customerName || ''}
                                     customerEmail={quote.email || ''}
                                     quoteId={quote.id}
-                                    selectedTier={quote.quoteMode === 'simple' ? 'simple' : (selectedEEEPackage || 'essential')}
+                                    selectedTier={selectedEEEPackage || 'enhanced'}
                                     selectedTierPrice={totalWithFee}
                                     selectedExtras={selectedExtras}
                                     paymentType={isInstallmentsMode ? 'installments' : 'full'}

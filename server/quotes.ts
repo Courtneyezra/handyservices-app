@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { openai, polishAssessmentReason, generatePersonalizedNote, determineQuoteStrategy, classifyLead, determineOptimalRoute } from "./openai";
-import { generateValuePricingQuote, createAnalyticsLog, generateTierDeliverables, getSegmentTierConfig } from "./value-pricing-engine";
+import { generateEVEPricingQuote, createAnalyticsLog, generateTierDeliverables, getSegmentTierConfig } from "./eve-pricing-engine";
 import { geocodeAddress } from "./lib/geocoding";
 import { findBestContractors, checkNetworkAvailability } from "./availability-engine";
 import { detectMultipleTasks } from "./skuDetector";
@@ -53,6 +53,9 @@ const valuePricingInputSchema = z.object({
     // Manual Overrides
     manualClassification: z.any().optional(),
     manualSegment: segmentEnum.optional(),
+
+    // EVE pricing: time estimate from SKU or manual entry
+    timeEstimateMinutes: z.number().nonnegative().optional(),
 });
 
 export const quotesRouter = Router();
@@ -276,24 +279,18 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
             }
             leadClassification.segment = input.manualSegment;
 
-            // [RAMANUJAM] Segment determines pricing mode automatically
-            // All segments use HHH/tiers mode - frontend controls which tiers to show
+            // All segments use simple/instant mode — single price per quote
             if (!input.selectedRoute) {
-                finalRoute = 'tiers';
-                console.log('[Routing Brain] Segment-based routing: auto-selecting tiers route for segment', input.manualSegment);
+                finalRoute = 'instant';
+                console.log('[Routing Brain] Segment-based routing: auto-selecting instant route for segment', input.manualSegment);
             }
         }
 
-        // FORCE QUOTE MODE synchronization with Route
-        // If route is 'instant', we MUST store as 'simple' mode so basePrice is populated
-        if (finalRoute === 'instant') {
-            console.log('[Routing Brain] forcing quoteMode=simple to match route=instant');
-            input.quoteMode = 'simple';
-        } else if (finalRoute === 'assessment') {
+        // EVE single-price model: all priced quotes use 'hhh' for UnifiedQuoteCard rendering
+        if (finalRoute === 'assessment') {
             console.log('[Routing Brain] forcing quoteMode=consultation to match route=assessment');
             input.quoteMode = 'consultation';
-        } else if (finalRoute === 'tiers') {
-            console.log('[Routing Brain] forcing quoteMode=hhh to match route=tiers');
+        } else {
             input.quoteMode = 'hhh';
         }
 
@@ -382,8 +379,8 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
             mappedQuotability = 'VIDEO';
         }
 
-        // Generate quote using value pricing engine
-        const pricingResult = generateValuePricingQuote({
+        // Generate quote using EVE contextual pricing engine
+        const pricingResult = generateEVEPricingQuote({
             urgencyReason: input.urgencyReason,
             ownershipContext: input.ownershipContext,
             desiredTimeframe: input.desiredTimeframe,
@@ -391,14 +388,15 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
 
             clientType: input.clientType,
             jobComplexity: input.jobComplexity,
-            forcedQuoteStyle: (input.quoteMode === 'hhh' || input.quoteMode === 'pick_and_mix' || input.quoteMode === 'consultation') ? input.quoteMode : undefined,
+            forcedQuoteStyle: (input.quoteMode === 'hhh' || input.quoteMode === 'consultation') ? input.quoteMode : undefined,
             segment: input.manualSegment || leadClassification?.segment || 'UNKNOWN',
             jobType: mappedJobType,
-            quotability: mappedQuotability
+            quotability: mappedQuotability,
+            timeEstimateMinutes: input.timeEstimateMinutes,
         });
 
-        // Pick & Mix Logic: Sort extras high to low (Anchoring)
-        if (input.quoteMode === 'pick_and_mix' && input.optionalExtras) {
+        // Sort extras high to low (Anchoring)
+        if (input.optionalExtras) {
             input.optionalExtras.sort((a: any, b: any) => (b.priceInPence || 0) - (a.priceInPence || 0));
         }
 
@@ -437,13 +435,13 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
             recommendedRoute: finalRoute, // Use final route (manual selection or AI recommendation)
             leadClassification, // Full classification object with signals
 
-            // HHH Mode Prices
-            essentialPrice: input.quoteMode === 'hhh' ? pricingResult.essential.price : null,
-            enhancedPrice: input.quoteMode === 'hhh' ? pricingResult.hassleFree.price : null,
-            elitePrice: input.quoteMode === 'hhh' ? pricingResult.highStandard.price : null,
+            // EVE prices (all tiers get same price)
+            essentialPrice: pricingResult.essential.price,
+            enhancedPrice: pricingResult.hassleFree.price,
+            elitePrice: pricingResult.highStandard.price,
 
-            // Simple Mode Prices
-            basePrice: (input.quoteMode === 'simple' || input.quoteMode === 'pick_and_mix' || input.quoteMode === 'consultation') ? pricingResult.essential.price : null,
+            // Single price (hassleFree = 100% fair price)
+            basePrice: pricingResult.hassleFree.price,
 
             // Context & Inputs
             urgencyReason: input.urgencyReason,
@@ -518,31 +516,31 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
             ...quoteInsertData,
             valueMultiplier: pricingResult.valueMultiplier,
             recommendedTier: pricingResult.recommendedTier,
-            essential: input.quoteMode === 'hhh' ? {
+            essential: {
                 name: pricingResult.essential.name,
                 description: pricingResult.essential.coreDescription,
                 price: pricingResult.essential.price,
                 perks: pricingResult.essential.perks,
                 warrantyMonths: pricingResult.essential.warrantyMonths,
                 isRecommended: pricingResult.essential.isRecommended,
-            } : undefined,
-            hassleFree: input.quoteMode === 'hhh' ? {
+            },
+            hassleFree: {
                 name: pricingResult.hassleFree.name,
                 description: pricingResult.hassleFree.coreDescription,
                 price: pricingResult.hassleFree.price,
                 perks: pricingResult.hassleFree.perks,
                 warrantyMonths: pricingResult.hassleFree.warrantyMonths,
                 isRecommended: pricingResult.hassleFree.isRecommended,
-            } : undefined,
-            highStandard: input.quoteMode === 'hhh' ? {
+            },
+            highStandard: {
                 name: pricingResult.highStandard.name,
                 description: pricingResult.highStandard.coreDescription,
                 price: pricingResult.highStandard.price,
                 perks: pricingResult.highStandard.perks,
                 warrantyMonths: pricingResult.highStandard.warrantyMonths,
                 isRecommended: pricingResult.highStandard.isRecommended,
-            } : undefined,
-            basePrice: (input.quoteMode === 'simple' || input.quoteMode === 'pick_and_mix' || input.quoteMode === 'consultation') ? pricingResult.essential.price : undefined,
+            },
+            basePrice: pricingResult.hassleFree.price,
 
             // Availability Data
             availability: {

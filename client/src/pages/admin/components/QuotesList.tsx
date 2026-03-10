@@ -82,11 +82,8 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
                         const isBooked = !!quote.bookedAt;
                         const isPaid = !!quote.depositPaidAt;
 
-                        // Determine display price
-                        let displayPrice = quote.basePrice;
-                        if (quote.quoteMode === 'hhh' && quote.essentialPrice) {
-                            displayPrice = quote.essentialPrice;
-                        }
+                        // EVE single price — always use basePrice
+                        const displayPrice = quote.basePrice || quote.enhancedPrice || 0;
 
                         return (
                             <TableRow key={quote.id} className={isBooked ? 'bg-green-50/50 dark:bg-green-900/10' : ''}>
@@ -135,7 +132,6 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
                                 </TableCell>
                                 <TableCell className="text-right font-mono">
                                     {displayPrice ? `£${(displayPrice / 100).toFixed(2)}` : '-'}
-                                    {(quote.quoteMode === 'hhh') && <span className="text-xs text-muted-foreground ml-1">(Essential)</span>}
                                 </TableCell>
                                 <TableCell className="text-right">
                                     {isPaid && quote.depositAmountPence ? (

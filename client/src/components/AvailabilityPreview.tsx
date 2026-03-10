@@ -101,12 +101,7 @@ export function AvailabilityPreview({ tier }: AvailabilityPreviewProps) {
     };
 
     const getTierDisplayName = () => {
-        switch (tier) {
-            case 'essential': return 'Handy Fix';
-            case 'enhanced': return 'Hassle-Free';
-            case 'elite': return 'High Speed';
-            default: return tier;
-        }
+        return 'Service';
     };
 
     return (

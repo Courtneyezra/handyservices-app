@@ -56,7 +56,7 @@ export function getScopeOfWorks(quote: PersonalizedQuote): string {
     if (lineItems.length > 0) {
         return lineItems.map(item => {
             const qty = item.quantity && item.quantity > 1 ? `${item.quantity}x ` : '';
-            return `${qty}${item.description}`;
+            return `• ${qty}${item.description}`;
         }).join('\n');
     }
 

@@ -226,9 +226,10 @@ export function LiveCallHUD({ onQuote, onVideo, onVisit }: LiveCallHUDProps) {
       liveCallData: liveCallData ? { metadata: liveCallData.metadata } : null
     });
 
-    // Validate required fields - button feedback via state
+    // Validate required fields - button feedback via state + toast
     if (!customerInfo.name.trim()) {
       console.log('[LiveCallHUD] GET VIDEO failed: no name');
+      toast({ title: 'Need name first', description: 'Ask: "Can I take your name?"', variant: 'destructive' });
       setVideoState('error');
       setTimeout(() => setVideoState('idle'), 2000);
       return;
@@ -236,6 +237,7 @@ export function LiveCallHUD({ onQuote, onVideo, onVisit }: LiveCallHUDProps) {
 
     if (!phone) {
       console.log('[LiveCallHUD] GET VIDEO failed: no phone');
+      toast({ title: 'No WhatsApp number', description: 'Select WhatsApp option below or enter a number', variant: 'destructive' });
       setVideoState('error');
       setTimeout(() => setVideoState('idle'), 2000);
       return;
@@ -330,8 +332,9 @@ export function LiveCallHUD({ onQuote, onVideo, onVisit }: LiveCallHUDProps) {
   const handleVisit = useCallback(() => {
     console.log('[LiveCallHUD] BOOK VISIT triggered - opening popup', { customerInfo, detectedJobs });
 
-    // Validate required fields - button feedback via state
+    // Validate required fields - button feedback via state + toast
     if (!customerInfo.name.trim()) {
+      toast({ title: 'Need name first', description: 'Ask: "Can I take your name?"', variant: 'destructive' });
       setVisitState('error');
       setTimeout(() => setVisitState('idle'), 2000);
       return;
@@ -339,6 +342,7 @@ export function LiveCallHUD({ onQuote, onVideo, onVisit }: LiveCallHUDProps) {
 
     const phone = getWhatsAppNumber();
     if (!phone) {
+      toast({ title: 'No WhatsApp number', description: 'Select WhatsApp option below or enter a number', variant: 'destructive' });
       setVisitState('error');
       setTimeout(() => setVisitState('idle'), 2000);
       return;
@@ -346,7 +350,7 @@ export function LiveCallHUD({ onQuote, onVideo, onVisit }: LiveCallHUDProps) {
 
     // Open the popup
     setShowVisitPopup(true);
-  }, [customerInfo, detectedJobs, getWhatsAppNumber]);
+  }, [customerInfo, detectedJobs, getWhatsAppNumber, toast]);
 
   // Handle successful visit booking from popup
   const handleVisitSuccess = useCallback(() => {
