@@ -1,6 +1,6 @@
 import { openai } from "../openai";
 import { detectMultipleTasks } from "../skuDetector";
-import { generateValuePricingQuote, createAnalyticsLog } from "../value-pricing-engine";
+import { generateEVEPricingQuote, createAnalyticsLog } from "../eve-pricing-engine";
 import type { ValuePricingInputs } from "../../shared/schema";
 
 export interface AgentActionPlan {
@@ -113,7 +113,7 @@ export async function analyzeLeadActionPlan(transcript: string, customerName?: s
             jobComplexity: 'medium' // Defaulting to medium for now
         };
 
-        const pricingResult = generateValuePricingQuote(pricingInputs);
+        const pricingResult = generateEVEPricingQuote(pricingInputs);
         const log = createAnalyticsLog(pricingInputs, pricingResult);
         analyticsLog = log;
 

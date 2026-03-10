@@ -16,6 +16,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     const [location, setLocation] = useLocation();
     const { isLive } = useLiveCall();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [showQuoteMenu, setShowQuoteMenu] = useState(false);
 
     // Parse logged-in user info for menu filtering + display
     const adminUser = (() => {
@@ -381,27 +382,110 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 <>
                     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border">
                         <div className="flex items-stretch justify-around h-16">
-                            {[
-                                { icon: Mic, label: "Live", href: "/admin/live-call" },
-                                { icon: DollarSign, label: "Quote", href: "/admin/generate-quote" },
-                                { icon: FileText, label: "Quotes", href: "/admin/quotes" },
-                                { icon: BarChart3, label: "Stats", href: "/admin/va-stats" },
-                            ].map((tab) => {
-                                const isActive = location === tab.href;
-                                const Icon = tab.icon;
+                            {/* Tab 1: Live */}
+                            {(() => {
+                                const isActive = location === "/admin/live-call";
                                 return (
-                                    <Link key={tab.href} href={tab.href} className={cn(
-                                            "flex flex-col items-center justify-center gap-0.5 flex-1 px-2 transition-colors relative",
-                                            isActive
-                                                ? "text-primary"
-                                                : "text-muted-foreground"
-                                        )}>
-                                        <Icon className={cn("w-5 h-5", isActive && "text-primary")} />
-                                        <span className={cn("text-[10px] font-semibold", isActive && "text-primary")}>{tab.label}</span>
+                                    <Link href="/admin/live-call" className={cn(
+                                        "flex flex-col items-center justify-center gap-0.5 flex-1 px-2 transition-colors relative",
+                                        isActive ? "text-primary" : "text-muted-foreground"
+                                    )}>
+                                        <Mic className={cn("w-5 h-5", isActive && "text-primary")} />
+                                        <span className={cn("text-[10px] font-semibold", isActive && "text-primary")}>Live</span>
                                         {isActive && <div className="absolute bottom-1 w-6 h-0.5 rounded-full bg-primary" />}
                                     </Link>
                                 );
-                            })}
+                            })()}
+
+                            {/* Tab 2: QUOTES — Central, prominent, with popover submenu */}
+                            {(() => {
+                                const quotePages = ["/admin/generate-quote", "/admin/quotes"];
+                                const isQuoteActive = quotePages.includes(location);
+                                return (
+                                    <div className="relative flex-1">
+                                        <button
+                                            onClick={() => setShowQuoteMenu(prev => !prev)}
+                                            className="flex flex-col items-center justify-center gap-0.5 w-full h-full px-2 transition-colors relative"
+                                        >
+                                            <div className={cn(
+                                                "flex items-center justify-center w-10 h-10 -mt-4 rounded-full shadow-lg transition-colors",
+                                                isQuoteActive
+                                                    ? "bg-green-500 text-white"
+                                                    : "bg-green-600/80 text-white/90"
+                                            )}>
+                                                <DollarSign className="w-5 h-5" />
+                                            </div>
+                                            <span className={cn("text-[10px] font-bold -mt-0.5", isQuoteActive ? "text-green-400" : "text-muted-foreground")}>Quotes</span>
+                                        </button>
+
+                                        {/* Popover menu */}
+                                        {showQuoteMenu && (
+                                            <>
+                                                <div className="fixed inset-0 z-40" onClick={() => setShowQuoteMenu(false)} />
+                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[160px]">
+                                                    <Link
+                                                        href="/admin/generate-quote"
+                                                        onClick={() => setShowQuoteMenu(false)}
+                                                        className={cn(
+                                                            "flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors",
+                                                            location === "/admin/generate-quote"
+                                                                ? "text-green-400 bg-green-500/10"
+                                                                : "text-foreground hover:bg-muted"
+                                                        )}
+                                                    >
+                                                        <DollarSign className="w-4 h-4" />
+                                                        New Quote
+                                                    </Link>
+                                                    <div className="border-t border-border" />
+                                                    <Link
+                                                        href="/admin/quotes"
+                                                        onClick={() => setShowQuoteMenu(false)}
+                                                        className={cn(
+                                                            "flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors",
+                                                            location === "/admin/quotes"
+                                                                ? "text-green-400 bg-green-500/10"
+                                                                : "text-foreground hover:bg-muted"
+                                                        )}
+                                                    >
+                                                        <FileText className="w-4 h-4" />
+                                                        All Quotes
+                                                    </Link>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Tab 3: Calls */}
+                            {(() => {
+                                const isActive = location === "/admin/calls";
+                                return (
+                                    <Link href="/admin/calls" className={cn(
+                                        "flex flex-col items-center justify-center gap-0.5 flex-1 px-2 transition-colors relative",
+                                        isActive ? "text-primary" : "text-muted-foreground"
+                                    )}>
+                                        <PhoneCall className={cn("w-5 h-5", isActive && "text-primary")} />
+                                        <span className={cn("text-[10px] font-semibold", isActive && "text-primary")}>Calls</span>
+                                        {isActive && <div className="absolute bottom-1 w-6 h-0.5 rounded-full bg-primary" />}
+                                    </Link>
+                                );
+                            })()}
+
+                            {/* Tab 4: Stats */}
+                            {(() => {
+                                const isActive = location === "/admin/va-stats";
+                                return (
+                                    <Link href="/admin/va-stats" className={cn(
+                                        "flex flex-col items-center justify-center gap-0.5 flex-1 px-2 transition-colors relative",
+                                        isActive ? "text-primary" : "text-muted-foreground"
+                                    )}>
+                                        <BarChart3 className={cn("w-5 h-5", isActive && "text-primary")} />
+                                        <span className={cn("text-[10px] font-semibold", isActive && "text-primary")}>Stats</span>
+                                        {isActive && <div className="absolute bottom-1 w-6 h-0.5 rounded-full bg-primary" />}
+                                    </Link>
+                                );
+                            })()}
                         </div>
                     </nav>
                     <InstallPrompt />

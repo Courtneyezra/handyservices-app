@@ -18,7 +18,7 @@ import { sendWhatsAppMessage } from "./meta-whatsapp";
 import { normalizePhoneNumber } from "./phone-utils";
 import { updateLeadStage } from "./lead-stage-engine";
 import { findDuplicateLead } from "./lead-deduplication";
-import { generateValuePricingQuote, getSegmentTierConfig, generateTierDeliverables } from "./value-pricing-engine";
+import { generateEVEPricingQuote, getSegmentTierConfig, generateTierDeliverables } from "./eve-pricing-engine";
 import { getBaseUrl, getQuoteUrl, getVideoUploadUrl, getBookingConfirmedUrl, getVisitCancelledUrl } from "./url-utils";
 
 export const liveCallActionsRouter = Router();
@@ -42,6 +42,7 @@ const jobSchema = z.object({
         name: z.string(),
         pricePence: z.number(),
         category: z.string().optional(),
+        timeEstimateMinutes: z.number().optional(),
     }).optional(),
 });
 
@@ -124,8 +125,9 @@ liveCallActionsRouter.post('/api/live-call/send-quote', async (req, res) => {
         const segmentType = segment || 'BUSY_PRO';
         const segmentConfig = getSegmentTierConfig(segmentType);
 
-        // Generate pricing
-        const pricingResult = generateValuePricingQuote({
+        // Generate pricing — sum time estimates from matched SKUs
+        const totalTimeMinutes = matchedJobs.reduce((sum, j) => sum + (j.sku?.timeEstimateMinutes || 60), 0);
+        const pricingResult = generateEVEPricingQuote({
             urgencyReason: 'med',
             ownershipContext: 'homeowner',
             desiredTimeframe: 'week',
@@ -135,6 +137,7 @@ liveCallActionsRouter.post('/api/live-call/send-quote', async (req, res) => {
             segment: segmentType,
             jobType: 'SINGLE',
             quotability: 'INSTANT',
+            timeEstimateMinutes: totalTimeMinutes,
         });
 
         // Generate tier deliverables
@@ -161,13 +164,11 @@ liveCallActionsRouter.post('/api/live-call/send-quote', async (req, res) => {
             address: customerInfo.address || null,
             postcode: customerInfo.postcode || null,
             jobDescription,
-            quoteMode: 'hhh',
+            quoteMode: 'simple',
             segment: segmentType,
 
-            // HHH Mode Prices
-            essentialPrice: pricingResult.essential.price,
-            enhancedPrice: pricingResult.hassleFree.price,
-            elitePrice: pricingResult.highStandard.price,
+            // Single price (hassleFree = 100% fair price)
+            basePrice: pricingResult.hassleFree.price,
 
             // Context
             urgencyReason: 'med',
@@ -789,8 +790,9 @@ liveCallActionsRouter.post('/api/live-call/create-quote', optionalAuth, async (r
         // Calculate prices for HHH tiers based on total
         const basePricePence = input.totalPence;
 
-        // Generate pricing result
-        const pricingResult = generateValuePricingQuote({
+        // Generate pricing result — sum time from line items
+        const totalTimeMinutes = input.lineItems.reduce((sum: number, item: any) => sum + (item.timeEstimateMinutes || 60), 0);
+        const pricingResult = generateEVEPricingQuote({
             urgencyReason: 'med',
             ownershipContext: 'homeowner',
             desiredTimeframe: 'week',
@@ -800,6 +802,7 @@ liveCallActionsRouter.post('/api/live-call/create-quote', optionalAuth, async (r
             segment: segmentType,
             jobType: 'SINGLE',
             quotability: 'INSTANT',
+            timeEstimateMinutes: totalTimeMinutes,
         });
 
         // Generate tier deliverables
@@ -841,13 +844,11 @@ liveCallActionsRouter.post('/api/live-call/create-quote', optionalAuth, async (r
             phone: normalizedPhone,
             address: input.address || null,
             jobDescription,
-            quoteMode: 'hhh',
+            quoteMode: 'simple',
             segment: segmentType,
 
-            // Use popup prices, calculate tier prices from base
-            essentialPrice: pricingResult.essential.price,
-            enhancedPrice: pricingResult.hassleFree.price,
-            elitePrice: pricingResult.highStandard.price,
+            // Single price (hassleFree = 100% fair price)
+            basePrice: pricingResult.hassleFree.price,
 
             // Base price (before tier multipliers)
             baseJobPricePence: input.totalPence,

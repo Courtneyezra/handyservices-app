@@ -7,7 +7,7 @@ import { AutoSkuGenerator } from "./services";
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { openai } from "./openai";
-import { generateValuePricingQuote, generateTierDeliverables } from "./value-pricing-engine";
+import { generateEVEPricingQuote, generateTierDeliverables } from "./eve-pricing-engine";
 
 const onboardingSchema = z.object({
     services: z.array(z.object({
@@ -497,15 +497,16 @@ router.post('/quotes/create', requireContractorAuth, async (req: Request, res: R
         // 3. Calculate Base Price
         const baseJobPrice = hourlyRatePence * estimatedHours;
 
-        // 4. Generate Value Pricing Multipliers (HHH)
-        const pricingResult = generateValuePricingQuote({
+        // 4. Generate EVE contextual pricing
+        const pricingResult = generateEVEPricingQuote({
             baseJobPrice,
-            urgencyReason: 'med', // Default
-            ownershipContext: 'homeowner', // Default
-            desiredTimeframe: 'week', // Default
+            urgencyReason: 'med',
+            ownershipContext: 'homeowner',
+            desiredTimeframe: 'week',
             clientType: 'residential',
             jobComplexity: analysis.complexity || 'low',
-            forcedQuoteStyle: 'hhh'
+            forcedQuoteStyle: 'hhh',
+            timeEstimateMinutes: estimatedHours * 60,
         });
 
         // 5. Generate Deliverables text
@@ -522,12 +523,10 @@ router.post('/quotes/create', requireContractorAuth, async (req: Request, res: R
             customerName,
             phone: customerPhone,
             jobDescription,
-            quoteMode: 'hhh',
+            quoteMode: 'simple',
 
-            // Prices
-            essentialPrice: pricingResult.essential.price,
-            enhancedPrice: pricingResult.hassleFree.price,
-            elitePrice: pricingResult.highStandard.price,
+            // Single price (hassleFree = 100% fair price)
+            basePrice: pricingResult.hassleFree.price,
 
             // Metadata
             urgencyReason: 'med',

@@ -138,6 +138,7 @@ export default function GenerateQuoteLinkSimple() {
   const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
   const [lastSubmitData, setLastSubmitData] = useState<{
     customerName: string;
+    phone: string;
     jobDescription: string;
     segment: Segment;
     conversationContext?: string;
@@ -176,12 +177,18 @@ export default function GenerateQuoteLinkSimple() {
           jobDescription: data.jobDescription,
           baseJobPrice: poundsToPence(data.effectivePrice),
           manualSegment: data.segment,
-          quoteMode: 'simple',
+          quoteMode: 'hhh',
           urgencyReason: 'med',
           ownershipContext: 'homeowner',
           desiredTimeframe: 'week',
           clientType: data.segment === 'PROP_MGR' || data.segment === 'SMALL_BIZ' ? 'commercial' : 'residential',
           analyzedJobData: data.analyzedJobData || undefined,
+          timeEstimateMinutes: data.analyzedJobData?.totalEstimatedHours
+            ? Math.round(data.analyzedJobData.totalEstimatedHours * 60)
+            : 60,
+          materialsCostWithMarkupPence: data.tasks.length > 0
+            ? Math.round(data.tasks.reduce((sum, t) => sum + (t.materialCost || 0) * (t.quantity || 1), 0) * 1.3 * 100)
+            : undefined,
         }),
       });
 
@@ -201,6 +208,7 @@ export default function GenerateQuoteLinkSimple() {
       // Store data for message regeneration
       setLastSubmitData({
         customerName: data.customerName,
+        phone: data.phone,
         jobDescription: data.jobDescription,
         segment: data.segment,
         conversationContext: data.conversationContext,
@@ -251,8 +259,11 @@ export default function GenerateQuoteLinkSimple() {
 
   const handleWhatsApp = () => {
     const message = aiGeneratedMessage || `Hi ${lastSubmitData?.customerName?.split(' ')[0] || 'there'}, here's your personalised quote: ${generatedUrl}`;
-    const phone = ''; // Phone would need to be passed through - for now use empty
-    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
+    // Format phone for wa.me: strip spaces/dashes, ensure country code prefix
+    const rawPhone = lastSubmitData?.phone || '';
+    const digits = rawPhone.replace(/[\s\-()]/g, '');
+    const waPhone = digits.startsWith('+') ? digits.slice(1) : digits.startsWith('0') ? `44${digits.slice(1)}` : digits;
+    window.open(`https://wa.me/${waPhone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
   const handleRegenerateMessage = async () => {

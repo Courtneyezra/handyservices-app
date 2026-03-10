@@ -44,7 +44,7 @@ interface PersonalizedQuote {
   postcode: string | null;
   jobDescription: string;
   completionDate: string;
-  quoteMode: 'simple' | 'hhh' | 'pick_and_mix' | 'consultation';
+  quoteMode: 'hhh' | 'consultation';
   essentialPrice: number | null;
   enhancedPrice: number | null;
   elitePrice: number | null;
@@ -95,7 +95,7 @@ export default function GenerateQuoteLink() {
 
   // Value pricing inputs
   const [jobDescription, setJobDescription] = useState('');
-  const [quoteMode, setQuoteMode] = useState<'hhh' | 'simple' | 'pick_and_mix' | 'consultation'>('hhh'); // Quote mode toggle
+  const [quoteMode, setQuoteMode] = useState<'hhh' | 'consultation'>('hhh');
   const [urgencyReason, setUrgencyReason] = useState<'low' | 'med' | 'high'>('med');
   const [ownershipContext, setOwnershipContext] = useState<'tenant' | 'homeowner' | 'landlord' | 'airbnb' | 'selling'>('homeowner');
   const [desiredTimeframe, setDesiredTimeframe] = useState<'flex' | 'week' | 'asap'>('flex');
@@ -228,7 +228,7 @@ export default function GenerateQuoteLink() {
     valueMultiplier: number;
     recommendedTier: string;
   } | null>(null);
-  const [generatedQuoteMode, setGeneratedQuoteMode] = useState<'hhh' | 'simple' | 'pick_and_mix' | 'consultation'>('hhh'); // Actual mode from response
+  const [generatedQuoteMode, setGeneratedQuoteMode] = useState<'hhh' | 'consultation'>('hhh');
 
   // Optional extras state (typed for validation)
   const [optionalExtras, setOptionalExtras] = useState<Array<{
@@ -258,7 +258,7 @@ export default function GenerateQuoteLink() {
 
   // AI Strategy Director State
   const [aiStrategy, setAiStrategy] = useState<{
-    strategy: 'consultation' | 'hhh' | 'simple' | 'pick_and_mix';
+    strategy: 'consultation' | 'hhh';
     reasoning: string;
   } | null>(null);
 
@@ -600,14 +600,10 @@ export default function GenerateQuoteLink() {
         routeData = await routeResponse.json();
         setClassification(routeData?.classification || null);
 
-        // Auto-select the recommended route
+        // Set quoteMode based on recommended route
         if (routeData?.recommendedRoute) {
-          setSelectedRoute(routeData.recommendedRoute);
-
-          // Map route to legacy quoteMode for compatibility
-          if (routeData.recommendedRoute === 'instant') setQuoteMode('simple');
-          else if (routeData.recommendedRoute === 'tiers') setQuoteMode('hhh');
-          else if (routeData.recommendedRoute === 'assessment') setQuoteMode('consultation');
+          if (routeData.recommendedRoute === 'assessment') setQuoteMode('consultation');
+          else setQuoteMode('hhh');
         }
       }
 
@@ -764,7 +760,7 @@ export default function GenerateQuoteLink() {
         postcode,
         address: address || undefined,
         coordinates: coordinates || undefined,
-        quoteMode: 'hhh', // Always use HHH - segment controls display
+        quoteMode: 'hhh', // EVE single price via UnifiedQuoteCard
         visitTierMode: finalQuoteMode === 'consultation' ? visitTierMode : 'standard', // Pass the tier preference
         clientType,
         assessmentReason: finalAssessmentReason || undefined,
@@ -775,32 +771,7 @@ export default function GenerateQuoteLink() {
         manualClassification: classification, // Pass the edited classification
         manualSegment: segment, // Pass the manually selected segment
         materialsCostWithMarkupPence: recalculatedTotals.materialCostWithMarkup, // Materials cost with 30% markup applied
-        optionalExtras: finalQuoteMode === 'pick_and_mix'
-          ? editableTasks.map(task => {
-            // Calculate individual task price
-            const complexityMultipliers = { low: 0.85, medium: 1.0, high: 1.2 };
-            const multiplier = complexityMultipliers[task.complexity as keyof typeof complexityMultipliers] || 1.0;
-
-            // Base hourly rate calculation (same as useMemo)
-            const baseHourlyRate = (analyzedJob && analyzedJob.totalEstimatedHours > 0)
-              ? (analyzedJob.basePricePounds / analyzedJob.totalEstimatedHours)
-              : 50;
-
-            const taskLabor = (task.hours || 0) * (task.quantity || 1) * multiplier * baseHourlyRate;
-            const taskMaterialsRaw = (task.materialCost || 0) * (task.quantity || 1);
-            const taskMaterialsMarkup = taskMaterialsRaw * 1.3;
-            const taskTotal = Math.round(taskLabor + taskMaterialsMarkup);
-
-            return {
-              label: task.description,
-              description: `${task.quantity > 1 ? `${task.quantity}x ` : ''}${task.hours}h est. • ${task.complexity} complexity`,
-              priceInPence: taskTotal * 100, // Convert to pence
-              materialsCostInPence: Math.round(taskMaterialsMarkup * 100),
-              estimatedHours: task.hours,
-              isRecommended: true // Default to checked/recommended? Maybe true for anchoring.
-            };
-          })
-          : (optionalExtras.length > 0 ? optionalExtras : undefined), // Optional upsells for customer selection
+        optionalExtras: optionalExtras.length > 0 ? optionalExtras : undefined,
       };
 
       const adminToken = localStorage.getItem('adminToken');
@@ -820,42 +791,16 @@ export default function GenerateQuoteLink() {
 
       const response: any = await fetchResponse.json();
 
-      // Save generated pricing for display (handle both modes)
-      setGeneratedQuoteMode(response.quoteMode || 'hhh'); // Store actual mode from response
-
-      if (response.quoteMode === 'hhh' && response.essential) {
-        // Three-tier packages mode
-        setGeneratedPricing({
-          essential: response.essential.price / 100,
-          hassleFree: response.hassleFree.price / 100,
-          highStandard: response.highStandard.price / 100,
-          valueMultiplier: response.valueMultiplier,
-          recommendedTier: response.recommendedTier,
-        });
-      } else if (response.basePrice !== undefined) {
-        // Simple, Pick & Mix, or Consultation mode
-        setGeneratedPricing({
-          essential: response.basePrice / 100, // Use basePrice for display
-          hassleFree: 0,
-          highStandard: 0,
-          valueMultiplier: response.valueMultiplier || 1.0,
-          recommendedTier: 'essential',
-        });
-      } else if (response.quoteMode === 'pick_and_mix') {
-        // Pick & Mix mode might have 0 base price but we want to show something?
-        // Actually the backend might set basePrice if provided.
-        // If basePrice is null/0, we can sum the optionalExtras for a "Total Potential Value" or just show 0.
-        // Let's rely on standard response parsing.
-        setGeneratedPricing({
-          essential: (response.basePrice || 0) / 100,
-          hassleFree: 0,
-          highStandard: 0,
-          valueMultiplier: response.valueMultiplier || 1.0,
-          recommendedTier: 'essential',
-        });
-      } else {
-        throw new Error('Invalid response format: missing pricing data');
-      }
+      // EVE single-price: display the base price
+      setGeneratedQuoteMode(response.quoteMode || 'hhh');
+      const displayPrice = (response.basePrice || response.essential?.price || 0) / 100;
+      setGeneratedPricing({
+        essential: displayPrice,
+        hassleFree: displayPrice,
+        highStandard: displayPrice,
+        valueMultiplier: response.valueMultiplier || 1.0,
+        recommendedTier: 'hassleFree',
+      });
 
       const baseUrl = window.location.origin;
       // Construct URL based on mode (Diagnostic vs Standard)
@@ -2272,73 +2217,16 @@ Example:
                     {/* Pricing Preview */}
                     {generatedPricing && (
                       <div className="bg-card rounded-lg p-4 space-y-3 border border-border">
-                        {generatedQuoteMode === 'hhh' ? (
-                          <>
-                            <div className="flex items-center justify-between">
-                              <h3 className="font-semibold text-foreground">Value-Based Tier Pricing:</h3>
-                              <Badge variant="outline" className="text-muted-foreground border-border">
-                                Multiplier: {generatedPricing.valueMultiplier.toFixed(2)}x
-                              </Badge>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                              <div className={`text-center p-3 rounded ${generatedPricing.recommendedTier === 'essential' ? 'bg-primary/10 border-2 border-primary' : 'bg-muted/50'}`}>
-                                <div className="text-sm text-slate-400 mb-1">
-                                  Essential
-                                  {generatedPricing.recommendedTier === 'essential' && ' ⭐'}
-                                </div>
-                                <div className="text-2xl font-bold text-white">{formatPrice(generatedPricing.essential)}</div>
-                              </div>
-                              <div className={`text-center p-3 rounded ${generatedPricing.recommendedTier === 'hassleFree' ? 'bg-blue-900/30 border-2 border-blue-500' : 'bg-slate-800'}`}>
-                                <div className="text-sm text-slate-400 mb-1">
-                                  Hassle-Free
-                                  {generatedPricing.recommendedTier === 'hassleFree' && ' ⭐'}
-                                </div>
-                                <div className="text-2xl font-bold text-white">{formatPrice(generatedPricing.hassleFree)}</div>
-                              </div>
-                              <div className={`text-center p-3 rounded ${generatedPricing.recommendedTier === 'highStandard' ? 'bg-blue-900/30 border-2 border-blue-500' : 'bg-slate-800'}`}>
-                                <div className="text-sm text-slate-400 mb-1">
-                                  High Standard
-                                  {generatedPricing.recommendedTier === 'highStandard' && ' ⭐'}
-                                </div>
-                                <div className="text-2xl font-bold text-white">{formatPrice(generatedPricing.highStandard)}</div>
-                              </div>
-                            </div>
-                          </>
-                        ) : generatedQuoteMode === 'pick_and_mix' ? (
-                          <>
-                            <div className="flex items-center justify-between">
-                              <h3 className="font-semibold text-white">Pick & Mix Quote:</h3>
-                              <Badge variant="outline" className="bg-blue-900/30 text-blue-300 border-blue-700">
-                                A La Carte
-                              </Badge>
-                            </div>
-                            <div className="text-center p-4 bg-gradient-to-br from-blue-900/40 to-blue-900/20 rounded-lg border-2 border-blue-500/30">
-                              <div className="text-sm text-slate-300 mb-2">Total Potential Value</div>
-                              {/* Calculate sum of extras for display since base price might be 0 */}
-                              <div className="text-4xl font-bold text-blue-100">
-                                {/* We don't have the extras list in generatedPricing, so just show what we have or a specific message */}
-                                View Link for Details
-                              </div>
-                              <div className="text-xs text-slate-400 mt-2">Customer builds their own package</div>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="flex items-center justify-between">
-                              <h3 className="font-semibold text-white">Simple Quote Pricing:</h3>
-                              <Badge variant="outline" className="bg-purple-900/30 text-purple-300 border-purple-700">
-                                Base Price
-                              </Badge>
-                            </div>
-                            <div className="text-center p-4 bg-gradient-to-br from-purple-900/40 to-purple-900/20 rounded-lg border-2 border-purple-500/30">
-                              <div className="text-sm text-slate-300 mb-2">Quote Price</div>
-                              <div className="text-4xl font-bold text-purple-100">{formatPrice(generatedPricing.essential)}</div>
-                              {optionalExtras.length > 0 && (
-                                <div className="text-xs text-slate-400 mt-2">+ Optional extras available</div>
-                              )}
-                            </div>
-                          </>
-                        )}
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-semibold text-foreground">EVE Quote Price:</h3>
+                          <Badge variant="outline" className="text-muted-foreground border-border">
+                            Multiplier: {generatedPricing.valueMultiplier.toFixed(2)}x
+                          </Badge>
+                        </div>
+                        <div className="text-center p-4 bg-gradient-to-br from-blue-900/40 to-blue-900/20 rounded-lg border-2 border-blue-500/30">
+                          <div className="text-sm text-slate-300 mb-2">Quote Price</div>
+                          <div className="text-4xl font-bold text-blue-100">{formatPrice(generatedPricing.hassleFree)}</div>
+                        </div>
                       </div>
                     )}
 
@@ -2672,15 +2560,8 @@ Example:
 
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">Package:</span>
-                      <Badge className={
-                        invoiceData.selectedPackage === 'essential' ? 'bg-slate-600' :
-                          invoiceData.selectedPackage === 'enhanced' ? 'bg-green-600' :
-                            invoiceData.selectedPackage === 'elite' ? 'bg-rose-600' : 'bg-gray-600'
-                      }>
-                        {invoiceData.selectedPackage === 'essential' ? 'Handy Fix (H)' :
-                          invoiceData.selectedPackage === 'enhanced' ? 'Hassle-Free (HH)' :
-                            invoiceData.selectedPackage === 'elite' ? 'High Standard (HHH)' :
-                              invoiceData.selectedPackage || 'N/A'}
+                      <Badge className="bg-green-600">
+                        {invoiceData.selectedPackage || 'Standard'}
                       </Badge>
                     </div>
 
@@ -2777,7 +2658,7 @@ Example:
                     onClick={() => {
                       const text = `Invoice for ${invoiceData.customerName}
 ---
-Package: ${invoiceData.selectedPackage === 'essential' ? 'Handy Fix (H)' : invoiceData.selectedPackage === 'enhanced' ? 'Hassle-Free (HH)' : invoiceData.selectedPackage === 'elite' ? 'High Standard (HHH)' : invoiceData.selectedPackage || 'N/A'}
+Package: ${invoiceData.selectedPackage || 'Standard'}
 Package Price: £${((invoiceData.selectedTierPricePence || 0) / 100).toFixed(2)}
 Total Job: £${((invoiceData.totalJobPricePence || 0) / 100).toFixed(2)}
 Deposit Paid: £${((invoiceData.depositAmountPence || 0) / 100).toFixed(2)}

@@ -13,11 +13,11 @@ import type { TaskItem, Segment, QuoteBuilderMode, AnalyzedJobData, SEGMENT_OPTI
 import { SEGMENT_OPTIONS } from '@/types/quote-builder';
 import {
   calculateTotals,
-  getEffectivePrice,
   mapApiTasksToTaskItems,
   calculateBasePriceFromAnalysis,
   createEmptyTask
 } from '@/lib/quote-price-calculator';
+import { calculateEVEPrice, getSegmentRateDisplay, EVE_SEGMENT_RATES } from '@/lib/eve-pricing';
 
 export interface QuoteBuilderProps {
   mode: QuoteBuilderMode;
@@ -36,7 +36,6 @@ export interface QuoteBuilderProps {
       totalHours: number;
       basePricePounds: number;
     } | null;
-    priceOverride?: string;
     conversationContext?: string;
   };
   onSubmit: (data: {
@@ -90,15 +89,18 @@ export function QuoteBuilder({
   // Editable tasks (from analysis)
   const [tasks, setTasks] = useState<TaskItem[]>(initialData?.tasks || []);
 
-  // Price override
-  const [priceOverride, setPriceOverride] = useState(initialData?.priceOverride || '');
-
   // WhatsApp conversation context (for create mode)
   const [conversationContext, setConversationContext] = useState(initialData?.conversationContext || '');
 
-  // Calculate totals
+  // Calculate totals (hours + materials from tasks)
   const totals = calculateTotals(tasks);
-  const effectivePrice = getEffectivePrice(priceOverride, totals.totalPrice);
+
+  // EVE pricing: segment rate × effective hours
+  const timeMinutes = totals.totalHours > 0 ? Math.round(totals.totalHours * 60) : 60;
+  const eveLaborPricePence = calculateEVEPrice(segment, timeMinutes);
+  const materialsPence = Math.round(totals.materialsWithMarkup * 100);
+  const totalQuotePricePence = eveLaborPricePence + materialsPence;
+  const effectivePrice = Math.round(totalQuotePricePence / 100); // pounds for submission
 
   // Sync with initialData when it changes (for edit mode)
   useEffect(() => {
@@ -112,7 +114,6 @@ export function QuoteBuilder({
       if (initialData.segment !== undefined) setSegment(initialData.segment);
       if (initialData.tasks !== undefined) setTasks(initialData.tasks);
       if (initialData.analyzedJob !== undefined) setAnalyzedJob(initialData.analyzedJob);
-      if (initialData.priceOverride !== undefined) setPriceOverride(initialData.priceOverride);
       if (initialData.conversationContext !== undefined) setConversationContext(initialData.conversationContext || '');
     }
   }, [initialData]);
@@ -149,7 +150,6 @@ export function QuoteBuilder({
       });
 
       setTasks(mappedTasks);
-      setPriceOverride(''); // Reset override
 
       toast({ title: 'Analysis Complete', description: `${mappedTasks.length} tasks identified` });
 
@@ -160,20 +160,17 @@ export function QuoteBuilder({
     }
   };
 
-  // Task handlers - clear price override when tasks change so calculated price is used
+  // Task handlers
   const updateTask = (id: string, field: keyof TaskItem, value: any) => {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
-    setPriceOverride(''); // Clear override to use calculated price
   };
 
   const removeTask = (id: string) => {
     setTasks(prev => prev.filter(t => t.id !== id));
-    setPriceOverride(''); // Clear override to use calculated price
   };
 
   const addTask = () => {
     setTasks(prev => [...prev, createEmptyTask()]);
-    setPriceOverride(''); // Clear override to use calculated price
   };
 
   // Form validation
@@ -443,7 +440,12 @@ Example:
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label>Customer Segment *</Label>
+            <div className="flex items-center justify-between">
+              <Label>Customer Segment *</Label>
+              <span className="text-sm font-semibold text-amber-400">
+                EVE Rate: {getSegmentRateDisplay(segment)}
+              </span>
+            </div>
             <Select value={segment} onValueChange={(v: Segment) => setSegment(v)}>
               <SelectTrigger>
                 <SelectValue />
@@ -452,52 +454,41 @@ Example:
                 {SEGMENT_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     <span className="font-medium">{opt.label}</span>
-                    <span className="text-xs text-muted-foreground ml-2">- {opt.description}</span>
+                    <span className="text-xs text-muted-foreground ml-2">- {opt.description} ({getSegmentRateDisplay(opt.value)})</span>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
-          {/* Calculated Price Summary */}
-          {tasks.length > 0 && (
-            <div className="bg-muted rounded-lg p-4 space-y-2">
-              <div className="flex justify-between text-sm text-muted-foreground">
-                <span>Labor ({totals.totalHours.toFixed(1)}h)</span>
-                <span>{"\u00A3"}{totals.totalLabor.toFixed(0)}</span>
-              </div>
+          {/* EVE Price Breakdown */}
+          <div className="bg-muted rounded-lg p-4 space-y-2">
+            <div className="flex justify-between text-sm text-muted-foreground">
+              <span>Labor ({totals.totalHours > 0 ? totals.totalHours.toFixed(1) : '1.0'}h × {getSegmentRateDisplay(segment)})</span>
+              <span>{"\u00A3"}{(eveLaborPricePence / 100).toFixed(2)}</span>
+            </div>
+            {totals.materialsWithMarkup > 0 && (
               <div className="flex justify-between text-sm text-muted-foreground">
                 <span>Materials (inc. 30% markup)</span>
-                <span>{"\u00A3"}{totals.materialsWithMarkup.toFixed(0)}</span>
+                <span>{"\u00A3"}{totals.materialsWithMarkup.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between font-bold border-t border-border pt-2">
-                <span>Calculated Total</span>
-                <span>{"\u00A3"}{totals.totalPrice}</span>
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <Label>Base Job Price ({"\u00A3"}) {tasks.length > 0 ? '(Override)' : '*'}</Label>
-            <Input
-              type="number"
-              value={priceOverride || (tasks.length === 0 ? '' : '')}
-              onChange={(e) => setPriceOverride(e.target.value)}
-              placeholder={tasks.length > 0 ? `${totals.totalPrice} (calculated)` : '150'}
-              min="0"
-              step="10"
-            />
-            {tasks.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                Analyze the job above or enter a manual price
-              </p>
             )}
+            <div className="flex justify-between font-bold border-t border-border pt-2 text-base">
+              <span>Quote Price</span>
+              <span>{"\u00A3"}{(totalQuotePricePence / 100).toFixed(2)}</span>
+            </div>
           </div>
 
-          {/* Effective Price Display */}
+          {tasks.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              Analyze the job above or add tasks to set hours and materials. Default: 1 hour.
+            </p>
+          )}
+
+          {/* EVE Quote Price Display */}
           <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-center">
-            <div className="text-sm text-green-400">Base Price for Quote</div>
-            <div className="text-2xl font-bold text-green-300">{"\u00A3"}{effectivePrice || 0}</div>
+            <div className="text-sm text-green-400">Quote Price (EVE)</div>
+            <div className="text-2xl font-bold text-green-300">{"\u00A3"}{(totalQuotePricePence / 100).toFixed(2)}</div>
           </div>
         </CardContent>
       </Card>

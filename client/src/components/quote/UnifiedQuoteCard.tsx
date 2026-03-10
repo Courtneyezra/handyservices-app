@@ -411,6 +411,13 @@ export function UnifiedQuoteCard({
             All-inclusive, no hidden fees
           </div>
 
+          {/* Market comparison — premium segments only */}
+          {['BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ'].includes(segment) && (
+            <div className={`text-xs mt-1 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
+              Avg. Nottingham handyman: £35/hr
+            </div>
+          )}
+
           {/* What's Included - Compact */}
           <div className={`mt-4 pt-4 border-t ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
             <div className={`flex flex-wrap justify-center gap-x-4 gap-y-2 text-sm ${isDarkTheme ? 'text-slate-300' : 'text-slate-700'}`}>
