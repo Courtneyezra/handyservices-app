@@ -972,10 +972,9 @@ export default function GenerateQuoteLink() {
   const handleSendWhatsApp = () => {
     if (!phone || !generatedUrl) return;
 
-    let phoneNumber = phone.replace(/\s/g, '');
-    if (phoneNumber.startsWith('0')) {
-      phoneNumber = '44' + phoneNumber.substring(1);
-    }
+    // Strip ALL non-digit chars (including invisible Unicode from iOS/WhatsApp copy-paste)
+    const digits = phone.replace(/[^\d]/g, '');
+    const phoneNumber = digits.startsWith('44') ? digits : digits.startsWith('0') ? '44' + digits.slice(1) : '44' + digits;
 
     // Use refined message if available, otherwise raw
     const message = generateWhatsAppMessage();
