@@ -2275,7 +2275,7 @@ export default function PersonalizedQuotePage() {
                               customerName={quote.customerName}
                               customerEmail={quote.email || undefined}
                               quoteId={quote.id}
-                              jobDescription={quote.jobDescription}
+                              jobDescription={getScopeOfWorks(quote as any)}
                               location={quote.postcode?.split(' ')[0]}
                               optionalExtras={quote.optionalExtras}
                               isBooking={isBooking}
