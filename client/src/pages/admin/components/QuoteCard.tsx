@@ -85,9 +85,10 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, availableDate
             availableDates: available,
         });
 
-        // Strip country code prefix if present, ensure starts with country code for wa.me
-        const cleanPhone = quote.phone.replace(/\s+/g, '').replace(/^0/, '44').replace(/^\+/, '');
-        window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
+        // Format phone for wa.me: strip all non-digits, ensure 44 country code
+        const digits = quote.phone.replace(/[^\d]/g, '');
+        const waPhone = digits.startsWith('44') ? digits : digits.startsWith('0') ? `44${digits.slice(1)}` : `44${digits}`;
+        window.open(`https://wa.me/${waPhone}?text=${encodeURIComponent(message)}`, '_blank');
     };
 
     return (
