@@ -13,6 +13,7 @@ export function DesktopLeadForm() {
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
     const [formData, setFormData] = useState({
+        name: "",
         jobDescription: "",
         postcode: "",
         phone: ""
@@ -21,10 +22,10 @@ export function DesktopLeadForm() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formData.jobDescription || !formData.phone) {
+        if (!formData.name || !formData.jobDescription || !formData.phone) {
             toast({
                 title: "Missing details",
-                description: "Please describe your job and provide a phone number.",
+                description: "Please provide your name, describe your job, and add a phone number.",
                 variant: "destructive"
             });
             return;
@@ -34,7 +35,7 @@ export function DesktopLeadForm() {
 
         try {
             await apiRequest("POST", "/api/leads", {
-                customerName: "Website Visitor", // Default
+                customerName: formData.name,
                 phone: formData.phone,
                 jobDescription: formData.jobDescription,
                 postcode: formData.postcode, // Make sure backend handles this or adds to description
@@ -73,7 +74,7 @@ export function DesktopLeadForm() {
                     <Button
                         onClick={() => {
                             setSuccess(false);
-                            setFormData({ jobDescription: "", postcode: "", phone: "" });
+                            setFormData({ name: "", jobDescription: "", postcode: "", phone: "" });
                         }}
                         variant="outline"
                         className="mt-4 border-slate-600 text-slate-300 hover:text-white"
@@ -100,6 +101,16 @@ export function DesktopLeadForm() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4 relative z-10">
+                <div>
+                    <Input
+                        placeholder="Your Name"
+                        className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 h-12 text-lg focus-visible:ring-emerald-500 rounded-xl"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        required
+                    />
+                </div>
+
                 <div>
                     <Textarea
                         placeholder="What needs doing? (e.g. leaking tap, TV mounting...)"
@@ -128,7 +139,7 @@ export function DesktopLeadForm() {
                             types: ["postal_code"], // Restrict to postcodes
                         }}
                         defaultValue={formData.postcode}
-                        placeholder="Postcode / Address"
+                        placeholder="Postcode"
                         className="flex h-12 w-full rounded-xl border border-slate-700 bg-slate-800/50 px-3 py-2 text-lg text-white ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                         onChange={(e: any) => setFormData({ ...formData, postcode: e.target.value })}
                     />
