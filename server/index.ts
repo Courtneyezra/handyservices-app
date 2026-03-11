@@ -10,7 +10,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 import { db } from "./db";
-import { productizedServices, skuMatchLogs, calls, callSkus, handymanProfiles, conversations } from "../shared/schema";
+import { productizedServices, skuMatchLogs, calls, callSkus, handymanProfiles, conversations, leads } from "../shared/schema";
 import { desc, eq, and, ne, or, asc } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 import { detectSku, detectMultipleTasks, loadAndCacheSkus } from "./skuDetector";
@@ -631,18 +631,45 @@ app.post('/api/twilio/voice', async (req, res) => {
             const updateProps: Record<string, any> = { outcome: initialOutcome };
 
             // Store routing context for differentiation
+            // Flag ALL ElevenLabs-routed calls for Ben's follow-up inbox
             if (routing.destination === 'busy-agent') {
                 updateProps.missedReason = 'busy_agent';
+                updateProps.actionStatus = 'pending';
+                updateProps.actionUrgency = 2; // High - VA was busy
+                updateProps.tags = ['busy_agent', 'eleven_labs', 'needs_callback'];
             } else if (routing.destination === 'eleven-labs') {
+                updateProps.actionStatus = 'pending';
                 if (routing.elevenLabsContext === 'out-of-hours') {
                     updateProps.missedReason = 'out_of_hours';
+                    updateProps.actionUrgency = 2; // High - called outside hours
+                    updateProps.tags = ['out_of_hours', 'eleven_labs', 'needs_callback'];
                 } else {
-                    // Start of Catch-all: Ensure we tag it as an agent call even if in-hours
+                    // In-hours but went to AI (no forward configured)
                     updateProps.missedReason = 'ai_agent';
+                    updateProps.actionUrgency = 3; // Normal - AI handled in-hours
+                    updateProps.tags = ['in_hours_ai', 'eleven_labs', 'needs_callback'];
                 }
             }
 
             await updateCall(callRecordId, updateProps);
+
+            // Broadcast to contractor inbox for real-time notification
+            if (routing.destination === 'eleven-labs' || routing.destination === 'busy-agent') {
+                broadcastToClients({
+                    type: 'inbox:new_item',
+                    data: {
+                        id: callRecordId,
+                        itemType: 'call',
+                        customerName: req.body.CallerName || 'Unknown Caller',
+                        phone: req.body.From,
+                        source: routing.destination === 'busy-agent' ? 'Busy Agent Call'
+                            : routing.elevenLabsContext === 'out-of-hours' ? 'Out-of-Hours Call'
+                            : 'AI Agent Call',
+                        urgency: updateProps.actionUrgency,
+                        timestamp: new Date().toISOString(),
+                    }
+                });
+            }
         }
     }
 
@@ -1112,6 +1139,121 @@ app.patch('/api/calls/:id', async (req, res) => {
     } catch (error) {
         console.error(`Failed to update call ${req.params.id}:`, error);
         res.status(500).json({ error: 'Failed to update call' });
+    }
+});
+
+// ============================================
+// Contractor Inbox: Unified feed of calls + leads needing follow-up
+// ============================================
+app.get('/api/contractor/inbox', async (req, res) => {
+    try {
+        // 1. Fetch action-pending calls
+        const pendingCalls = await db.select()
+            .from(calls)
+            .where(
+                or(
+                    eq(calls.actionStatus, 'pending'),
+                    eq(calls.actionStatus, 'attempting')
+                )
+            )
+            .orderBy(asc(calls.actionUrgency), desc(calls.startTime))
+            .limit(20);
+
+        // 2. Fetch action-pending leads (web forms + AI tool captures)
+        const pendingLeads = await db.select()
+            .from(leads)
+            .where(eq(leads.actionStatus, 'pending'))
+            .orderBy(asc(leads.actionUrgency), desc(leads.createdAt))
+            .limit(20);
+
+        // 3. Normalize into unified shape
+        const items = [
+            ...pendingCalls.map(call => ({
+                id: call.id,
+                itemType: 'call' as const,
+                customerName: call.customerName || 'Unknown Caller',
+                phone: call.phoneNumber,
+                summary: call.jobSummary || call.transcription?.substring(0, 500) || null,
+                source: call.missedReason === 'out_of_hours' ? 'Out-of-Hours Call'
+                    : call.missedReason === 'busy_agent' ? 'Busy Agent Call'
+                    : call.outcome === 'MISSED_CALL' ? 'Missed Call'
+                    : 'AI Agent Call',
+                sourceType: call.missedReason || 'call',
+                urgency: call.actionUrgency || 3,
+                actionStatus: call.actionStatus,
+                address: call.address,
+                recordingUrl: call.recordingUrl,
+                transcription: call.transcription,
+                timestamp: call.startTime?.toISOString(),
+                tags: call.tags,
+                outcome: call.outcome,
+            })),
+            ...pendingLeads.map(lead => ({
+                id: lead.id,
+                itemType: 'lead' as const,
+                customerName: lead.customerName || 'Unknown',
+                phone: lead.phone,
+                summary: lead.jobDescription || lead.jobSummary || null,
+                source: (lead.source === 'eleven_labs_agent' || lead.source === 'eleven_labs_tool')
+                    ? 'AI Agent Lead'
+                    : 'Web Form',
+                sourceType: lead.source || 'webform',
+                urgency: lead.actionUrgency || 3,
+                actionStatus: lead.actionStatus,
+                address: lead.address,
+                recordingUrl: null,
+                transcription: null,
+                timestamp: lead.createdAt?.toISOString(),
+                tags: null,
+                outcome: null,
+            })),
+        ];
+
+        // Sort unified list: highest urgency first (1=Critical), then newest
+        items.sort((a, b) => {
+            if (a.urgency !== b.urgency) return a.urgency - b.urgency;
+            const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+            const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return bTime - aTime;
+        });
+
+        // Return only the most recent 20
+        res.json(items.slice(0, 20));
+    } catch (error) {
+        console.error('Failed to fetch contractor inbox:', error);
+        res.status(500).json({ error: 'Failed to fetch inbox items' });
+    }
+});
+
+// Contractor Inbox: Mark item as resolved/dismissed
+app.patch('/api/contractor/inbox/:id', async (req, res) => {
+    const { id } = req.params;
+    const { actionStatus } = req.body; // 'resolved' | 'dismissed'
+
+    if (!actionStatus || !['resolved', 'dismissed'].includes(actionStatus)) {
+        return res.status(400).json({ error: 'actionStatus must be "resolved" or "dismissed"' });
+    }
+
+    try {
+        // Lead IDs start with "lead_", call IDs are hex strings
+        if (id.startsWith('lead_')) {
+            await db.update(leads)
+                .set({ actionStatus, updatedAt: new Date() })
+                .where(eq(leads.id, id));
+        } else {
+            await updateCall(id, { actionStatus });
+        }
+
+        // Broadcast resolution so other clients can update
+        broadcastToClients({
+            type: 'inbox:item_resolved',
+            data: { id, actionStatus }
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error(`Failed to update inbox item ${id}:`, error);
+        res.status(500).json({ error: 'Failed to update' });
     }
 });
 

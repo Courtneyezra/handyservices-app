@@ -109,8 +109,29 @@ elevenLabsWebhookRouter.post('/webhooks/elevenlabs', async (req, res) => {
             outcome: 'ELEVEN_LABS_COMPLETED',
             // Store the Full Agent Plan in detectedSkusJson (The "Brain" Dump)
             detectedSkusJson: agentPlan ? agentPlan : undefined,
-            liveAnalysisJson: analysis
+            liveAnalysisJson: analysis,
+            // Ensure call appears in follow-up inbox (enriched with extracted data)
+            actionStatus: 'pending',
+            actionUrgency: customerName ? 3 : 2, // Higher urgency if no name captured
         });
+
+        // Broadcast enriched data to contractor inbox for real-time update
+        try {
+            const { broadcastToClients } = await import('../index');
+            broadcastToClients({
+                type: 'inbox:item_updated',
+                data: {
+                    id: callRecordId,
+                    itemType: 'call',
+                    customerName: customerName || 'Unknown',
+                    summary: analysis.summary,
+                    urgency: customerName ? 3 : 2,
+                    timestamp: new Date().toISOString(),
+                }
+            });
+        } catch (broadcastErr) {
+            console.warn('[ElevenLabs-Webhook] Broadcast failed (non-critical):', broadcastErr);
+        }
 
         // Update or Create Lead?
         // Logic: All calls create a "Shadow Lead" or update the existing one linked to the call.
@@ -160,9 +181,31 @@ elevenLabsWebhookRouter.post('/eleven-labs/lead', async (req, res) => {
             source: 'eleven_labs_tool',
             status: 'new',
             jobSummary: `AI Captured: ${job_description} (${urgency})`,
+            actionStatus: 'pending',
+            actionUrgency: 3, // Normal - AI captured the details
             createdAt: new Date(),
             updatedAt: new Date(),
         });
+
+        // Broadcast to contractor inbox
+        try {
+            const { broadcastToClients } = await import('../index');
+            broadcastToClients({
+                type: 'inbox:new_item',
+                data: {
+                    id: leadId,
+                    itemType: 'lead',
+                    customerName: name || 'Unknown (from AI)',
+                    phone: phone,
+                    summary: job_description,
+                    source: 'AI Agent Lead',
+                    urgency: 3,
+                    timestamp: new Date().toISOString(),
+                }
+            });
+        } catch (broadcastErr) {
+            console.warn('[ElevenLabs-LeadCapture] Broadcast failed (non-critical):', broadcastErr);
+        }
 
         res.status(200).json({
             message: "Lead information captured successfully.",

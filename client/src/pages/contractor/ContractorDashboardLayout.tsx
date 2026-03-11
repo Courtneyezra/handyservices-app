@@ -2,7 +2,7 @@ import { useState } from "react";
 import { LayoutDashboard, Calendar, Clock, FileText, User, Menu, LogOut, Plus, DollarSign, Inbox, History, Settings } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 interface ContractorDashboardLayoutProps {
     children: React.ReactNode;
@@ -21,7 +21,20 @@ export default function ContractorDashboardLayout({ children }: ContractorDashbo
         }
     });
 
+    // Fetch inbox count for badge
+    const { data: inboxItems } = useQuery<any[]>({
+        queryKey: ['/api/contractor/inbox'],
+        queryFn: async () => {
+            const res = await fetch('/api/contractor/inbox');
+            if (!res.ok) return [];
+            return res.json();
+        },
+        refetchInterval: 30000, // Poll every 30s
+    });
+    const inboxCount = inboxItems?.length || 0;
+
     const navItems = [
+        { icon: Inbox, label: "Inbox", href: "/contractor/dashboard/inbox", badge: inboxCount },
         { icon: LayoutDashboard, label: "Overview", href: "/contractor/dashboard" },
         { icon: Calendar, label: "Bookings", href: "/contractor/dashboard/bookings" },
         { icon: DollarSign, label: "My Quotes", href: "/contractor/dashboard/quotes" },
@@ -59,6 +72,7 @@ export default function ContractorDashboardLayout({ children }: ContractorDashbo
                 <nav className="flex-1 px-4 py-6 space-y-1">
                     {navItems.map((item) => {
                         const isActive = location === item.href;
+                        const badge = (item as any).badge;
                         return (
                             <Link key={item.href} href={item.href}>
                                 <a
@@ -69,6 +83,13 @@ export default function ContractorDashboardLayout({ children }: ContractorDashbo
                                         }`}>
                                     <item.icon className="w-5 h-5" />
                                     {item.label}
+                                    {badge > 0 && (
+                                        <span className={`ml-auto min-w-[20px] h-5 flex items-center justify-center rounded-full text-xs font-bold ${
+                                            isActive ? "bg-slate-900 text-amber-400" : "bg-red-500 text-white"
+                                        }`}>
+                                            {badge}
+                                        </span>
+                                    )}
                                 </a>
                             </Link>
                         );

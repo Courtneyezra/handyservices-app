@@ -97,6 +97,8 @@ const ContractorServiceArea = lazy(() => import("./pages/ContractorServiceArea")
 
 // Contractor Dashboard (Phase 3)
 const ContractorDashboardHome = lazy(() => import("./pages/ContractorMobileDashboard"));
+const ContractorInboxPage = lazy(() => import("./pages/contractor/dashboard/InboxPage"));
+const FollowUpInboxPage = lazy(() => import("./pages/contractor/dashboard/InboxPage"));
 const BookingRequestsPage = lazy(() => import("./pages/contractor/dashboard/BookingRequestsPage"));
 const NewQuotePage = lazy(() => import("./pages/contractor/dashboard/quotes/NewQuotePage"));
 const QuotesListPage = lazy(() => import("./pages/contractor/dashboard/quotes/QuotesListPage"));
@@ -338,6 +340,11 @@ function Router() {
                         <ContractorDashboardHome />
                     </ProtectedRoute>
                 </Route>
+                <Route path="/contractor/dashboard/inbox">
+                    <ProtectedRoute role="contractor">
+                        <ContractorInboxPage />
+                    </ProtectedRoute>
+                </Route>
                 <Route path="/contractor/dashboard/bookings">
                     <ProtectedRoute role="contractor">
                         <BookingRequestsPage />
@@ -473,6 +480,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <AdminInboxPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/follow-ups">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <FollowUpInboxPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

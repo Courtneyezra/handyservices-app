@@ -216,6 +216,10 @@ export const leads = pgTable("leads", {
     automationReminderSentAt: timestamp("automation_reminder_sent_at"), // Last automation reminder sent (video/general)
     automationRecoverySentAt: timestamp("automation_recovery_sent_at"), // Lost lead recovery message sent
 
+    // Action Center Fields (unified inbox with calls table)
+    actionStatus: varchar("action_status").default('pending'), // 'pending', 'resolved', 'dismissed'
+    actionUrgency: integer("action_urgency").default(3), // 1=Critical, 2=High, 3=Normal, 4=Low
+
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [

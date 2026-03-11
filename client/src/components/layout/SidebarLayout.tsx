@@ -50,6 +50,19 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     });
     const reviewCount = reviewData?.count || 0;
 
+    // Fetch follow-up inbox count for sidebar badge
+    const { data: followUpItems } = useQuery<any[]>({
+        queryKey: ['/api/contractor/inbox'],
+        queryFn: async () => {
+            const res = await fetch('/api/contractor/inbox');
+            if (!res.ok) return [];
+            return res.json();
+        },
+        refetchInterval: 30000,
+        staleTime: 15000,
+    });
+    const followUpCount = followUpItems?.length || 0;
+
     // Persist collapse state
     useEffect(() => {
         localStorage.setItem('sidebar-collapsed', String(isCollapsed));
@@ -103,6 +116,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                         {
                             title: "YOUR TOOLS",
                             items: [
+                                { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
                                 { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
                                 { icon: DollarSign, label: "Quote Generator", href: "/admin/generate-quote" },
                                 { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
@@ -123,6 +137,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             title: "DISPATCH CONSOLE",
                             items: [
                                 { icon: Home, label: "Pipeline Home", href: "/admin/pipeline-home" },
+                                { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
                                 { icon: Inbox, label: "Inbox", href: "/admin/inbox", badge: "NEW" },
                                 { icon: LayoutTemplate, label: "Dispatch Board", href: "/admin/dispatch" },
                                 { icon: BarChart3, label: "Reports Dashboard", href: "/admin/dashboard" },
@@ -382,7 +397,29 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 <>
                     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t border-border">
                         <div className="flex items-stretch justify-around h-16">
-                            {/* Tab 1: Live */}
+                            {/* Tab 1: Follow-Ups */}
+                            {(() => {
+                                const isActive = location === "/admin/follow-ups";
+                                return (
+                                    <Link href="/admin/follow-ups" className={cn(
+                                        "flex flex-col items-center justify-center gap-0.5 flex-1 px-2 transition-colors relative",
+                                        isActive ? "text-primary" : "text-muted-foreground"
+                                    )}>
+                                        <div className="relative">
+                                            <PhoneCall className={cn("w-5 h-5", isActive && "text-primary")} />
+                                            {followUpCount > 0 && (
+                                                <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold px-1">
+                                                    {followUpCount}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <span className={cn("text-[10px] font-semibold", isActive && "text-primary")}>Follow-Ups</span>
+                                        {isActive && <div className="absolute bottom-1 w-6 h-0.5 rounded-full bg-primary" />}
+                                    </Link>
+                                );
+                            })()}
+
+                            {/* Tab 2: Live */}
                             {(() => {
                                 const isActive = location === "/admin/live-call";
                                 return (

@@ -1,214 +1,256 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { MessageSquare, Phone, Globe, Mic, Calendar, DollarSign, Video, CheckCircle2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { useLocation } from "wouter";
+import { useState, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { MessageSquare, Phone, Globe, Mic, CheckCircle2, Loader2, Check, ChevronDown } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
+import { openWhatsApp, getWhatsAppErrorMessage } from "@/lib/whatsapp-helper";
+import { motion, AnimatePresence } from "framer-motion";
+import { cn } from "@/lib/utils";
 
-// Mock Data for MVP (Will connect to API later)
-const MOCK_INBOX_ITEMS = [
-    {
-        id: "lead_123",
-        type: "form",
-        source: "Web Form",
-        customerName: "Alice Smith",
-        summary: "Need a leaking tap fixed in the kitchen.",
-        timestamp: new Date(Date.now() - 1000 * 60 * 30), // 30 mins ago
-        status: "new",
-        phone: "07700900123"
-    },
-    {
-        id: "call_456",
-        type: "call",
-        source: "Missed Call",
-        customerName: "Unknown Caller",
-        summary: "No voicemail left.",
-        timestamp: new Date(Date.now() - 1000 * 60 * 120), // 2 hours ago
-        status: "new",
-        phone: "07700900456"
-    },
-    {
-        id: "wa_789",
-        type: "whatsapp",
-        source: "WhatsApp",
-        customerName: "Bob Jones",
-        summary: "Hi, do you do painting? I have a hallway that needs doing.",
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-        status: "new",
-        phone: "07700900789"
+// Types
+interface InboxItem {
+    id: string;
+    itemType: 'call' | 'lead';
+    customerName: string;
+    phone: string;
+    summary: string | null;
+    source: string;
+    sourceType: string;
+    urgency: number;
+    actionStatus: string;
+    address: string | null;
+    recordingUrl: string | null;
+    transcription: string | null;
+    timestamp: string | null;
+    tags: string[] | null;
+    outcome: string | null;
+}
+
+function getUrgencyDot(urgency: number) {
+    switch (urgency) {
+        case 1: return "bg-red-500 animate-pulse";
+        case 2: return "bg-amber-500";
+        case 3: return "bg-green-500";
+        default: return "bg-muted-foreground/50";
     }
-];
+}
+
+function getSourceIcon(type: string, source: string) {
+    const cls = "w-4 h-4";
+    if (type === 'lead') {
+        if (source.includes('AI')) return <Mic className={cls + " text-purple-400"} />;
+        return <Globe className={cls + " text-blue-400"} />;
+    }
+    if (type === 'call') {
+        if (source.includes('Missed')) return <Phone className={cls + " text-red-400"} />;
+        if (source.includes('Out-of-Hours')) return <Phone className={cls + " text-amber-400"} />;
+        return <Mic className={cls + " text-purple-400"} />;
+    }
+    return <MessageSquare className={cls} />;
+}
+
+function buildFollowUpMessage(item: InboxItem): string {
+    const name = item.customerName?.split(' ')[0] || 'there';
+    return `Hi ${name}, thanks for getting in touch with V6 Handyman Services! I'm following up on your enquiry. When's a good time to discuss?`;
+}
 
 export default function InboxPage() {
-    const [, setLocation] = useLocation();
-    const [selectedItem, setSelectedItem] = useState<any>(null);
+    const [expandedId, setExpandedId] = useState<string | null>(null);
+    const [resolvingId, setResolvingId] = useState<string | null>(null);
+    const queryClient = useQueryClient();
+    const { toast } = useToast();
 
-    const inboxItems = MOCK_INBOX_ITEMS;
+    // Fetch real inbox data
+    const { data: inboxItems = [], isLoading } = useQuery<InboxItem[]>({
+        queryKey: ['/api/contractor/inbox'],
+        queryFn: async () => {
+            const res = await fetch('/api/contractor/inbox');
+            if (!res.ok) throw new Error("Failed to fetch inbox");
+            return res.json();
+        },
+        refetchInterval: 15000,
+        retry: 1,
+    });
 
-    const handleAction = (action: 'book' | 'quote' | 'video') => {
-        if (!selectedItem) return;
+    // WebSocket for real-time updates
+    useEffect(() => {
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const ws = new WebSocket(`${protocol}://${window.location.host}/ws`);
 
-        // Logic to carry-over data
-        const queryParams = new URLSearchParams({
-            customerName: selectedItem.customerName || '',
-            phone: selectedItem.phone || '',
-            description: selectedItem.summary || '',
-            source: 'inbox'
-        }).toString();
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'inbox:new_item' || msg.type === 'inbox:item_updated' || msg.type === 'inbox:item_resolved') {
+                    queryClient.invalidateQueries({ queryKey: ['/api/contractor/inbox'] });
+                }
+            } catch { /* ignore parse errors */ }
+        };
 
-        if (action === 'book') {
-            // Diagnostic Visit -> Quote Mode 'consultation'
-            setLocation(`/contractor/dashboard/quotes/new?mode=consultation&${queryParams}`);
-        } else if (action === 'quote') {
-            // Instant Price -> Quote Mode 'simple' or 'hhh'
-            setLocation(`/contractor/dashboard/quotes/new?mode=simple&${queryParams}`);
-        } else if (action === 'video') {
-            // Video Request - placeholder for now, maybe send a link
-            console.log("Send video request to", selectedItem.phone);
+        return () => ws.close();
+    }, [queryClient]);
+
+    // Resolve item
+    const handleResolve = async (id: string) => {
+        setResolvingId(id);
+        try {
+            const res = await fetch(`/api/contractor/inbox/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ actionStatus: 'resolved' })
+            });
+            if (!res.ok) throw new Error('Failed to resolve');
+
+            if (expandedId === id) setExpandedId(null);
+            queryClient.invalidateQueries({ queryKey: ['/api/contractor/inbox'] });
+            toast({ title: "Marked as dealt with", duration: 2000 });
+        } catch {
+            toast({ title: "Failed to update", variant: "destructive", duration: 3000 });
+        } finally {
+            setResolvingId(null);
+        }
+    };
+
+    // WhatsApp + auto-resolve
+    const handleWhatsApp = async (item: InboxItem) => {
+        const message = buildFollowUpMessage(item);
+        const result = await openWhatsApp(item.phone, message);
+
+        if (result.success) {
+            // Auto-resolve on successful WhatsApp open
+            handleResolve(item.id);
+        } else {
+            const errorMsg = getWhatsAppErrorMessage(result);
+            toast({ title: errorMsg.title, description: errorMsg.description, duration: 5000 });
         }
     };
 
     return (
-        <div className="h-[calc(100vh-6rem)] grid grid-cols-12 gap-6">
-            {/* LEFT PANE: Stream */}
-            <div className="col-span-4 bg-white rounded-xl border border-slate-200 overflow-hidden flex flex-col">
-                <div className="p-4 border-b border-slate-100 bg-slate-50">
-                    <h2 className="font-semibold text-slate-800 flex items-center gap-2">
-                        <InboxIcon className="w-5 h-5" /> Inbox
-                        <Badge variant="secondary" className="ml-auto bg-amber-100 text-amber-800">
-                            {inboxItems.length} New
-                        </Badge>
-                    </h2>
-                </div>
-                <div className="flex-1 overflow-y-auto">
-                    {inboxItems.map((item) => (
-                        <div
-                            key={item.id}
-                            onClick={() => setSelectedItem(item)}
-                            className={`p-4 border-b border-slate-50 cursor-pointer hover:bg-slate-50 transition-colors ${selectedItem?.id === item.id ? "bg-amber-50 border-amber-200" : ""
-                                }`}
-                        >
-                            <div className="flex justify-between items-start mb-1">
-                                <span className="font-medium text-slate-900">{item.customerName}</span>
-                                <span className="text-xs text-slate-400">
-                                    {formatDistanceToNow(item.timestamp, { addSuffix: true })}
-                                </span>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-slate-500 mb-2">
-                                <SourceIcon type={item.type} />
-                                {item.source}
-                            </div>
-                            <p className="text-sm text-slate-600 line-clamp-2">
-                                {item.summary}
-                            </p>
-                        </div>
-                    ))}
+        <div className="min-h-screen bg-background pb-20">
+            {/* Header */}
+            <div className="sticky top-0 z-10 bg-card border-b border-border px-4 py-3">
+                <div className="flex items-center justify-between">
+                    <h1 className="text-lg font-bold text-foreground">Follow-Ups</h1>
+                    {inboxItems.length > 0 && (
+                        <span className="bg-amber-500/20 text-amber-400 text-xs font-bold px-2.5 py-1 rounded-full">
+                            {inboxItems.length} pending
+                        </span>
+                    )}
                 </div>
             </div>
 
-            {/* RIGHT PANE: Context & Actions */}
-            <div className="col-span-8 flex flex-col gap-6">
-                {selectedItem ? (
-                    <>
-                        {/* Context Card */}
-                        <Card className="flex-1 border-slate-200 shadow-sm">
-                            <CardHeader className="bg-slate-50 border-b border-slate-100 pb-4">
-                                <div className="flex justify-between items-center">
-                                    <div>
-                                        <CardTitle className="text-lg">{selectedItem.customerName}</CardTitle>
-                                        <CardDescription className="flex items-center gap-2 mt-1">
-                                            <Phone className="w-3 h-3" /> {selectedItem.phone}
-                                        </CardDescription>
-                                    </div>
-                                    <Badge variant="outline" className="capitalize">{selectedItem.type}</Badge>
-                                </div>
-                            </CardHeader>
-                            <CardContent className="p-6">
-                                <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                                    Summary / Transcript
-                                </h3>
-                                <div className="bg-slate-50 p-4 rounded-lg text-slate-700 leading-relaxed border border-slate-100">
-                                    {selectedItem.summary}
-                                </div>
-                            </CardContent>
-                        </Card>
-
-                        {/* Action Triage Panel */}
-                        <Card className="border-slate-200 bg-slate-900 text-white shadow-lg">
-                            <CardHeader>
-                                <CardTitle className="text-lg flex items-center gap-2">
-                                    <CheckCircle2 className="w-5 h-5 text-green-400" />
-                                    Triage Decision
-                                </CardTitle>
-                                <CardDescription className="text-slate-400">
-                                    Choose the next step for this lead.
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="grid grid-cols-3 gap-4">
-                                <Button
-                                    onClick={() => handleAction('book')}
-                                    variant="outline"
-                                    className="h-24 flex flex-col gap-2 border-slate-700 hover:bg-slate-800 hover:text-white"
-                                >
-                                    <Calendar className="w-8 h-8 text-amber-500" />
-                                    <span>Book Visit</span>
-                                    <span className="text-xs text-slate-400 font-normal">Send Diagnostic Link</span>
-                                </Button>
-
-                                <Button
-                                    onClick={() => handleAction('quote')}
-                                    variant="outline"
-                                    className="h-24 flex flex-col gap-2 border-slate-700 hover:bg-slate-800 hover:text-white"
-                                >
-                                    <DollarSign className="w-8 h-8 text-emerald-500" />
-                                    <span>Instant Price</span>
-                                    <span className="text-xs text-slate-400 font-normal">Send Quote Link</span>
-                                </Button>
-
-                                <Button
-                                    onClick={() => handleAction('video')}
-                                    variant="outline"
-                                    className="h-24 flex flex-col gap-2 border-slate-700 hover:bg-slate-800 hover:text-white"
-                                >
-                                    <Video className="w-8 h-8 text-blue-500" />
-                                    <span>Request Video</span>
-                                    <span className="text-xs text-slate-400 font-normal">Get more info</span>
-                                </Button>
-                            </CardContent>
-                        </Card>
-                    </>
-                ) : (
-                    <div className="h-full flex items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
-                        <div className="text-center">
-                            <InboxIcon className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                            <p>Select an item from the inbox to triage</p>
-                        </div>
+            {/* Content */}
+            <div className="px-4 py-3 space-y-3">
+                {isLoading ? (
+                    <div className="flex items-center justify-center py-20 text-muted-foreground">
+                        <Loader2 className="w-6 h-6 animate-spin mr-2" />
+                        Loading...
                     </div>
+                ) : inboxItems.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+                        <CheckCircle2 className="w-12 h-12 mb-3 opacity-30" />
+                        <p className="font-medium">All caught up!</p>
+                        <p className="text-sm mt-1">No pending follow-ups</p>
+                    </div>
+                ) : (
+                    <AnimatePresence initial={false}>
+                        {inboxItems.map((item) => {
+                            const isExpanded = expandedId === item.id;
+                            return (
+                                <motion.div
+                                    key={item.id}
+                                    layout
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, x: -100 }}
+                                    transition={{ duration: 0.2 }}
+                                    className="bg-card rounded-xl border border-border shadow-sm overflow-hidden"
+                                >
+                                    {/* Card header — tap to expand */}
+                                    <button
+                                        onClick={() => setExpandedId(isExpanded ? null : item.id)}
+                                        className="w-full text-left p-4 active:bg-muted/50"
+                                    >
+                                        <div className="flex items-start justify-between mb-1">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <div className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", getUrgencyDot(item.urgency))} />
+                                                <span className="font-semibold text-foreground truncate">{item.customerName}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                                                <span className="text-xs text-muted-foreground">
+                                                    {item.timestamp ? formatDistanceToNow(new Date(item.timestamp), { addSuffix: true }) : ''}
+                                                </span>
+                                                <ChevronDown className={cn(
+                                                    "w-4 h-4 text-muted-foreground transition-transform duration-200",
+                                                    isExpanded && "rotate-180"
+                                                )} />
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-xs text-muted-foreground ml-[18px]">
+                                            {getSourceIcon(item.itemType, item.source)}
+                                            <span>{item.source}</span>
+                                        </div>
+                                        <p className="text-sm text-muted-foreground mt-1.5 ml-[18px] line-clamp-1">
+                                            {item.summary || 'No details available'}
+                                        </p>
+                                    </button>
+
+                                    {/* Expanded details */}
+                                    <AnimatePresence>
+                                        {isExpanded && (
+                                            <motion.div
+                                                initial={{ height: 0, opacity: 0 }}
+                                                animate={{ height: "auto", opacity: 1 }}
+                                                exit={{ height: 0, opacity: 0 }}
+                                                transition={{ duration: 0.2 }}
+                                                className="overflow-hidden"
+                                            >
+                                                <div className="px-4 pb-4 border-t border-border pt-3 space-y-3">
+                                                    {/* Phone */}
+                                                    <div className="flex items-center gap-2 text-sm text-foreground">
+                                                        <Phone className="w-4 h-4 text-muted-foreground" />
+                                                        {item.phone}
+                                                    </div>
+
+                                                    {/* Full summary */}
+                                                    {item.summary && (
+                                                        <div className="bg-muted rounded-lg p-3 text-sm text-foreground/80 leading-relaxed">
+                                                            {item.summary}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+
+                                    {/* Action buttons — always visible */}
+                                    <div className="flex border-t border-border">
+                                        <button
+                                            onClick={() => handleWhatsApp(item)}
+                                            className="flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold text-green-400 bg-green-500/10 active:bg-green-500/20 transition-colors"
+                                        >
+                                            <MessageSquare className="w-4 h-4" />
+                                            WhatsApp
+                                        </button>
+                                        <div className="w-px bg-border" />
+                                        <button
+                                            onClick={() => handleResolve(item.id)}
+                                            disabled={resolvingId === item.id}
+                                            className="flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold text-muted-foreground active:bg-muted/50 transition-colors disabled:opacity-50"
+                                        >
+                                            {resolvingId === item.id ? (
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                            ) : (
+                                                <Check className="w-4 h-4" />
+                                            )}
+                                            Dealt With
+                                        </button>
+                                    </div>
+                                </motion.div>
+                            );
+                        })}
+                    </AnimatePresence>
                 )}
             </div>
         </div>
     );
-}
-
-// Helper Components
-function InboxIcon({ className }: { className?: string }) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-            <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline>
-            <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
-        </svg>
-    )
-}
-
-function SourceIcon({ type }: { type: string }) {
-    const cn = "w-4 h-4";
-    switch (type) {
-        case 'whatsapp': return <MessageSquare className={cn + " text-green-600"} />;
-        case 'call': return <Phone className={cn + " text-red-500"} />;
-        case 'form': return <Globe className={cn + " text-blue-500"} />;
-        case 'ai': return <Mic className={cn + " text-purple-600"} />;
-        default: return <MessageSquare className={cn} />;
-    }
 }
