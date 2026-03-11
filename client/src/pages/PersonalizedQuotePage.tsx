@@ -2261,6 +2261,7 @@ export default function PersonalizedQuotePage() {
 
                   <ExpertSpecSheet
                     text={getScopeOfWorks(quote as any)}
+                    summary={(quote.jobs as any)?.[0]?.summary}
                     customerName={quote.customerName || ''}
                     address={quote.address || quote.postcode}
                     mikePhotoUrl={mikeProfilePhoto}
@@ -2275,7 +2276,7 @@ export default function PersonalizedQuotePage() {
                               customerName={quote.customerName}
                               customerEmail={quote.email || undefined}
                               quoteId={quote.id}
-                              jobDescription={getScopeOfWorks(quote as any)}
+                              jobDescription={quote.jobDescription}
                               location={quote.postcode?.split(' ')[0]}
                               optionalExtras={quote.optionalExtras}
                               isBooking={isBooking}
@@ -2766,6 +2767,7 @@ export default function PersonalizedQuotePage() {
           <div className="mb-10 px-4">
             <ExpertSpecSheet
               text={getScopeOfWorks(quote as any)}
+              summary={(quote.jobs as any)?.[0]?.summary}
               customerName={quote.customerName || ''}
               address={quote.address || quote.postcode}
               mikePhotoUrl={mikeProfilePhoto}

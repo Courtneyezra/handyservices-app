@@ -4,6 +4,7 @@ import { CheckCircle2, User, MapPin, Clock } from 'lucide-react';
 
 interface ExpertSpecSheetProps {
     text: string;
+    summary?: string | null;
     customerName?: string;
     address?: string | null;
     mikePhotoUrl?: string;
@@ -13,6 +14,7 @@ interface ExpertSpecSheetProps {
 
 export function ExpertSpecSheet({
     text,
+    summary,
     customerName,
     address,
     mikePhotoUrl,
@@ -78,6 +80,14 @@ export function ExpertSpecSheet({
                             </div>
                         </div>
                     </div>
+
+                    {/* Job Summary */}
+                    {summary && (
+                        <div className="mb-6">
+                            <label className="text-[10px] font-bold uppercase tracking-widest text-[#7DB00E] mb-2 block">Job Summary</label>
+                            <p className="text-slate-600 text-sm leading-relaxed">{summary}</p>
+                        </div>
+                    )}
 
                     {/* Main Works Description */}
                     <div className="mb-6">
