@@ -1,4 +1,4 @@
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isToday } from 'date-fns';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -45,28 +45,16 @@ function formatSlots(slots: ('am' | 'pm' | 'full')[]): string {
 }
 
 /**
- * Clean job description for use as a standalone label line.
- * - Takes only the first line / sentence if multi-line
+ * Clean job description for WhatsApp message.
  * - Strips trailing punctuation for clean formatting
  * - Capitalises first letter
- * - Truncates to ~60 chars at a word boundary
+ * - Shows full description (customer needs to see the complete scope)
  */
 function cleanJobDescription(desc: string): string {
-  // Take first line only
-  let clean = desc.split(/[\n\r]/).filter(l => l.trim())[0] || desc;
-
-  // Take first sentence if multiple
-  clean = clean.split(/\.\s/)[0];
+  let clean = desc.trim();
 
   // Strip trailing punctuation and whitespace
   clean = clean.replace(/[\s.\-,;:]+$/, '').trim();
-
-  // Truncate at word boundary if too long
-  if (clean.length > 60) {
-    const trimmed = clean.substring(0, 60);
-    const lastSpace = trimmed.lastIndexOf(' ');
-    clean = (lastSpace > 20 ? trimmed.substring(0, lastSpace) : trimmed).replace(/[\s\-,]+$/, '');
-  }
 
   // Capitalise first letter
   if (clean.length > 0) {
@@ -124,7 +112,10 @@ export function buildQuoteWhatsAppMessage({
   ];
 
   // Availability section (up to 3 dates) — framed as bookable slots
-  const dates = availableDates.slice(0, 3);
+  // Filter out today since same-day booking isn't available (matches quote page DateSelector)
+  const dates = availableDates
+    .filter(d => !isToday(parseISO(d.date)))
+    .slice(0, 3);
   if (dates.length > 0) {
     lines.push('');
     lines.push('*We have a few slots available:*');
