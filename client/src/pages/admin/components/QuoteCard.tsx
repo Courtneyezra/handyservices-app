@@ -3,10 +3,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Copy, Eye, Phone, RefreshCw, X, AlertCircle, Download, CreditCard, Pencil, FileEdit } from 'lucide-react';
+import { Copy, Eye, Phone, RefreshCw, X, Download, CreditCard, Pencil, FileEdit, MessageCircle } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
 import { generateQuotePDF } from '@/lib/quote-pdf-generator';
+import { buildQuoteWhatsAppMessage } from '@/lib/whatsapp-quote-message';
+import type { DateAvailability } from '@/hooks/useAvailability';
 
 interface PersonalizedQuote {
     id: string;
@@ -39,15 +41,19 @@ interface QuoteCardProps {
     onDelete: (id: string) => void;
     onRegenerate: (quote: PersonalizedQuote) => void;
     onEdit?: (quote: PersonalizedQuote) => void;
+    availableDates?: DateAvailability[];
 }
 
-export function QuoteCard({ quote, onDelete, onRegenerate, onEdit }: QuoteCardProps) {
+export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, availableDates = [] }: QuoteCardProps) {
     const { toast } = useToast();
     const [, setLocation] = useLocation();
 
     const isExpired = quote.expiresAt ? new Date(quote.expiresAt) < new Date() : false;
     const isBooked = !!quote.bookedAt;
     const isPaid = !!quote.depositPaidAt;
+
+    // Price display — EVE single price
+    const displayPrice = quote.basePrice || quote.enhancedPrice || quote.essentialPrice || 0;
 
     const copyLink = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -62,29 +68,48 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit }: QuoteCardPr
         }
     };
 
+    const handleWhatsApp = () => {
+        const firstName = quote.customerName.split(' ')[0];
+        const quoteUrl = `${window.location.origin}/quote-link/${quote.shortSlug}`;
+
+        const available = availableDates
+            .filter(d => d.isAvailable && d.slots.length > 0)
+            .slice(0, 3)
+            .map(d => ({ date: d.date, slots: d.slots }));
+
+        const message = buildQuoteWhatsAppMessage({
+            firstName,
+            jobDescription: quote.jobDescription || 'your job',
+            quoteUrl,
+            segment: quote.segment || 'DEFAULT',
+            availableDates: available,
+        });
+
+        // Strip country code prefix if present, ensure starts with country code for wa.me
+        const cleanPhone = quote.phone.replace(/\s+/g, '').replace(/^0/, '44').replace(/^\+/, '');
+        window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
+    };
+
     return (
         <Card className={`hover:shadow-md transition-shadow relative overflow-hidden ${isBooked ? 'border-l-4 border-l-green-500' : isExpired ? 'border-l-4 border-l-red-200 opacity-80' : ''}`}>
             <CardContent className="p-4 flex flex-col h-full">
-                {/* Header */}
-                <div className="flex items-start justify-between gap-2 mb-3">
+                {/* Header: Name + Status Badges */}
+                <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 mb-2">
-                            <h3 className="font-semibold text-lg text-foreground truncate" title={quote.customerName}>
+                        <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                            <h3 className="font-semibold text-base text-foreground truncate" title={quote.customerName}>
                                 {quote.customerName}
                             </h3>
-
                             {quote.viewedAt && (
                                 <Badge variant="outline" className="text-green-600 border-green-600 text-[10px]" title={`Opened: ${format(new Date(quote.viewedAt), 'dd MMM yyyy, HH:mm')}`}>
-                                    <Eye className="h-3 w-3 mr-1" />
+                                    <Eye className="h-3 w-3 mr-0.5" />
                                     Opened
                                 </Badge>
                             )}
-                            {isBooked && (
-                                <Badge className="bg-green-600 text-[10px]">Booked</Badge>
-                            )}
+                            {isBooked && <Badge className="bg-green-600 text-[10px]">Booked</Badge>}
                             {isPaid && (
                                 <Badge className="bg-blue-600 text-[10px]">
-                                    <CreditCard className="h-3 w-3 mr-1" />
+                                    <CreditCard className="h-3 w-3 mr-0.5" />
                                     Paid
                                 </Badge>
                             )}
@@ -92,160 +117,182 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit }: QuoteCardPr
                                 <Badge variant="secondary" className="bg-red-100 text-red-600 dark:bg-red-900/30 text-[10px]">Expired</Badge>
                             )}
                         </div>
-
-                        <div className="flex items-center gap-2 max-w-full">
-                            <div className="flex-1 bg-muted border rounded px-2 py-1 text-xs font-mono truncate select-all">
-                                {`${window.location.origin}/quote-link/${quote.shortSlug}`}
-                            </div>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                                onClick={copyLink}
-                            >
-                                <Copy className="h-3 w-3" />
-                            </Button>
-                        </div>
                     </div>
 
                     <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 -mt-1 -mr-2"
+                        className="h-7 w-7 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 -mt-1 -mr-2 shrink-0"
                         onClick={handleDelete}
                     >
-                        <X className="h-4 w-4" />
+                        <X className="h-3.5 w-3.5" />
                     </Button>
                 </div>
 
-                {/* Details */}
-                <div className="grid grid-cols-1 gap-1 text-sm text-muted-foreground mb-3 flex-grow">
-                    <p className="flex items-center gap-1">
-                        <Phone className="h-3 w-3" />
-                        <a href={`tel:${quote.phone}`} className="text-blue-500 hover:underline">{quote.phone}</a>
+                {/* Job Description */}
+                {quote.jobDescription && (
+                    <p className="text-sm text-muted-foreground line-clamp-2 mb-2">
+                        {quote.jobDescription}
                     </p>
-                    <p><span className="font-medium">Postcode:</span> {quote.postcode}</p>
-                    <p className="text-xs text-muted-foreground/50 mt-1">
-                        Created: {format(new Date(quote.createdAt), 'dd MMM yyyy')}
-                    </p>
-                    {isPaid && quote.depositAmountPence && (
-                        <p className="text-xs text-blue-600 mt-1">
-                            <CreditCard className="h-3 w-3 inline mr-1" />
-                            Paid: {"\u00A3"}{(quote.depositAmountPence / 100).toFixed(2)} on {format(new Date(quote.depositPaidAt!), 'dd MMM yyyy')}
-                        </p>
+                )}
+
+                {/* Price + Details Row */}
+                <div className="flex items-center justify-between gap-2 mb-2">
+                    {displayPrice > 0 && (
+                        <span className="text-lg font-bold text-foreground">
+                            £{(displayPrice / 100).toFixed(0)}
+                        </span>
                     )}
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <a href={`tel:${quote.phone}`} className="flex items-center gap-1 text-blue-500 hover:underline">
+                            <Phone className="h-3 w-3" />
+                            {quote.phone}
+                        </a>
+                        {quote.postcode && <span>{quote.postcode}</span>}
+                    </div>
                 </div>
 
-                {/* Actions Footer */}
-                <div className="flex flex-wrap gap-2 pt-2 border-t mt-auto">
+                {/* Quote Link */}
+                <div className="flex items-center gap-1.5 mb-2">
+                    <div className="flex-1 bg-muted border rounded px-2 py-1 text-xs font-mono truncate select-all">
+                        {`/quote-link/${quote.shortSlug}`}
+                    </div>
                     <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => window.open(`/quote-link/${quote.shortSlug}`, '_blank')}
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-muted-foreground hover:text-foreground shrink-0"
+                        onClick={copyLink}
                     >
-                        <Eye className="h-4 w-4 mr-1" />
-                        View
+                        <Copy className="h-3 w-3" />
+                    </Button>
+                </div>
+
+                {/* Meta Row */}
+                <div className="flex items-center gap-2 text-xs text-muted-foreground/60 mb-3">
+                    <span>{format(new Date(quote.createdAt), 'dd MMM yyyy')}</span>
+                    {quote.segment && (
+                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 font-mono">
+                            {quote.segment}
+                        </Badge>
+                    )}
+                    {isPaid && quote.depositAmountPence && (
+                        <span className="text-blue-600">
+                            Paid £{(quote.depositAmountPence / 100).toFixed(2)}
+                        </span>
+                    )}
+                </div>
+
+                {/* Actions — mobile stacked */}
+                <div className="mt-auto pt-2 border-t space-y-2">
+                    {/* Primary: WhatsApp Send */}
+                    <Button
+                        className="w-full bg-[#25D366] hover:bg-[#20BD5A] text-white font-medium"
+                        size="sm"
+                        onClick={handleWhatsApp}
+                    >
+                        <MessageCircle className="h-4 w-4 mr-2" />
+                        Send via WhatsApp
                     </Button>
 
-                    {onEdit && (
+                    {/* Secondary row: icon buttons */}
+                    <div className="flex items-center justify-center gap-1">
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onEdit(quote);
-                                        }}
+                                        variant="outline"
+                                        size="icon"
+                                        className="h-8 w-8"
+                                        onClick={() => window.open(`/quote-link/${quote.shortSlug}`, '_blank')}
                                     >
-                                        <Pencil className="h-4 w-4" />
+                                        <Eye className="h-4 w-4" />
                                     </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>
-                                    <p>Quick edit</p>
-                                </TooltipContent>
+                                <TooltipContent>View quote</TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
-                    )}
 
-                    <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setLocation(`/admin/quotes/${quote.shortSlug}/edit`);
-                                    }}
-                                >
-                                    <FileEdit className="h-4 w-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                                <p>Full edit (tasks & pricing)</p>
-                            </TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>
+                        {onEdit && (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-8 w-8 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                                            onClick={(e) => { e.stopPropagation(); onEdit(quote); }}
+                                        >
+                                            <Pencil className="h-4 w-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Quick edit</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
 
-                    <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-slate-600 hover:text-[#7DB00E] hover:bg-green-50"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        const price = quote.enhancedPrice || quote.essentialPrice || quote.basePrice || 0;
-                                        generateQuotePDF({
-                                            quoteId: quote.id,
-                                            customerName: quote.customerName || 'Customer',
-                                            address: quote.address,
-                                            postcode: quote.postcode,
-                                            jobDescription: quote.jobDescription || 'As discussed',
-                                            priceInPence: price,
-                                            segment: quote.segment || undefined,
-                                            validityHours: 48,
-                                            createdAt: new Date(quote.createdAt),
-                                        });
-                                    }}
-                                >
-                                    <Download className="h-4 w-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                                <p>Download PDF</p>
-                            </TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>
-
-                    {(isExpired || !isBooked) && (
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onRegenerate(quote);
-                                        }}
+                                        variant="outline"
+                                        size="icon"
+                                        className="h-8 w-8 text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                                        onClick={(e) => { e.stopPropagation(); setLocation(`/admin/quotes/${quote.shortSlug}/edit`); }}
                                     >
-                                        <RefreshCw className="h-4 w-4" />
+                                        <FileEdit className="h-4 w-4" />
                                     </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>
-                                    <p>Regenerate with price uplift</p>
-                                </TooltipContent>
+                                <TooltipContent>Full edit</TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
-                    )}
+
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        size="icon"
+                                        className="h-8 w-8 text-slate-600 hover:text-[#7DB00E] hover:bg-green-50"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            generateQuotePDF({
+                                                quoteId: quote.id,
+                                                customerName: quote.customerName || 'Customer',
+                                                address: quote.address,
+                                                postcode: quote.postcode,
+                                                jobDescription: quote.jobDescription || 'As discussed',
+                                                priceInPence: displayPrice,
+                                                segment: quote.segment || undefined,
+                                                validityHours: 48,
+                                                createdAt: new Date(quote.createdAt),
+                                            });
+                                        }}
+                                    >
+                                        <Download className="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Download PDF</TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+
+                        {(isExpired || !isBooked) && (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                            onClick={(e) => { e.stopPropagation(); onRegenerate(quote); }}
+                                        >
+                                            <RefreshCw className="h-4 w-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Regenerate</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
+                    </div>
                 </div>
             </CardContent>
         </Card>

@@ -10,10 +10,12 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Copy, Eye, RefreshCw, Trash2, ExternalLink, Download, CreditCard, Pencil, FileEdit } from 'lucide-react';
+import { Copy, Eye, RefreshCw, Trash2, ExternalLink, Download, CreditCard, Pencil, FileEdit, MessageCircle } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
 import { generateQuotePDF } from '@/lib/quote-pdf-generator';
+import { buildQuoteWhatsAppMessage } from '@/lib/whatsapp-quote-message';
+import type { DateAvailability } from '@/hooks/useAvailability';
 
 interface PersonalizedQuote {
     id: string;
@@ -47,13 +49,13 @@ interface QuotesListProps {
     onRegenerate?: (quote: PersonalizedQuote) => void;
     onEdit?: (quote: PersonalizedQuote) => void;
     linkPrefix?: string;
+    availableDates?: DateAvailability[];
 }
 
-export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix = '/quote-link/' }: QuotesListProps) {
+export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix = '/quote-link/', availableDates = [] }: QuotesListProps) {
     const { toast } = useToast();
     const [, setLocation] = useLocation();
 
-    // Ensure prefix is clean for use in both context
     const finalPrefix = linkPrefix.endsWith('/') ? linkPrefix.slice(0, -1) : linkPrefix;
 
     const copyLink = (e: React.MouseEvent, slug: string) => {
@@ -62,17 +64,38 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
         toast({ title: 'Copied', description: 'Link copied to clipboard' });
     };
 
+    const handleWhatsApp = (quote: PersonalizedQuote) => {
+        const firstName = quote.customerName.split(' ')[0];
+        const quoteUrl = `${window.location.origin}${finalPrefix}/${quote.shortSlug}`;
+
+        const available = availableDates
+            .filter(d => d.isAvailable && d.slots.length > 0)
+            .slice(0, 3)
+            .map(d => ({ date: d.date, slots: d.slots }));
+
+        const message = buildQuoteWhatsAppMessage({
+            firstName,
+            jobDescription: quote.jobDescription || 'your job',
+            quoteUrl,
+            segment: quote.segment || 'DEFAULT',
+            availableDates: available,
+        });
+
+        const cleanPhone = quote.phone.replace(/\s+/g, '').replace(/^0/, '44').replace(/^\+/, '');
+        window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
+    };
+
     return (
         <div className="rounded-md border">
             <Table>
                 <TableHeader>
                     <TableRow>
                         <TableHead>Customer</TableHead>
-                        <TableHead>Reference</TableHead>
+                        <TableHead className="hidden sm:table-cell">Reference</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead className="text-right">Value</TableHead>
-                        <TableHead className="text-right">Payment</TableHead>
-                        <TableHead className="text-right">Created</TableHead>
+                        <TableHead className="text-right hidden sm:table-cell">Payment</TableHead>
+                        <TableHead className="text-right hidden md:table-cell">Created</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                 </TableHeader>
@@ -81,8 +104,6 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
                         const isExpired = quote.expiresAt ? new Date(quote.expiresAt) < new Date() : false;
                         const isBooked = !!quote.bookedAt;
                         const isPaid = !!quote.depositPaidAt;
-
-                        // EVE single price — always use basePrice
                         const displayPrice = quote.basePrice || quote.enhancedPrice || 0;
 
                         return (
@@ -91,9 +112,14 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
                                     <div className="flex flex-col">
                                         <span>{quote.customerName}</span>
                                         <span className="text-xs text-muted-foreground">{quote.phone}</span>
+                                        {quote.jobDescription && (
+                                            <span className="text-xs text-muted-foreground/70 line-clamp-1 max-w-[200px]">
+                                                {quote.jobDescription}
+                                            </span>
+                                        )}
                                     </div>
                                 </TableCell>
-                                <TableCell>
+                                <TableCell className="hidden sm:table-cell">
                                     <div className="flex items-center gap-2">
                                         <code className="bg-muted px-1.5 py-0.5 rounded text-xs">{quote.shortSlug}</code>
                                         <Button
@@ -113,9 +139,7 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
                                                 Opened
                                             </Badge>
                                         )}
-                                        {isBooked && (
-                                            <Badge className="bg-green-600 text-[10px]">Booked</Badge>
-                                        )}
+                                        {isBooked && <Badge className="bg-green-600 text-[10px]">Booked</Badge>}
                                         {isPaid && (
                                             <Badge className="bg-blue-600 text-[10px]">
                                                 <CreditCard className="h-3 w-3 mr-1" />
@@ -131,12 +155,12 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
                                     </div>
                                 </TableCell>
                                 <TableCell className="text-right font-mono">
-                                    {displayPrice ? `£${(displayPrice / 100).toFixed(2)}` : '-'}
+                                    {displayPrice ? `£${(displayPrice / 100).toFixed(0)}` : '-'}
                                 </TableCell>
-                                <TableCell className="text-right">
+                                <TableCell className="text-right hidden sm:table-cell">
                                     {isPaid && quote.depositAmountPence ? (
                                         <div className="text-sm">
-                                            <span className="font-mono text-green-600">{"\u00A3"}{(quote.depositAmountPence / 100).toFixed(2)}</span>
+                                            <span className="font-mono text-green-600">£{(quote.depositAmountPence / 100).toFixed(2)}</span>
                                             <span className="text-xs text-muted-foreground block">
                                                 {format(new Date(quote.depositPaidAt!), 'dd MMM')}
                                             </span>
@@ -145,11 +169,28 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
                                         <span className="text-muted-foreground">-</span>
                                     )}
                                 </TableCell>
-                                <TableCell className="text-right text-muted-foreground text-sm">
+                                <TableCell className="text-right text-muted-foreground text-sm hidden md:table-cell">
                                     {format(new Date(quote.createdAt), 'dd MMM yyyy')}
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className="flex justify-end items-center gap-1">
+                                        {/* WhatsApp — primary action */}
+                                        <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 text-[#25D366] hover:text-white hover:bg-[#25D366]"
+                                                        onClick={() => handleWhatsApp(quote)}
+                                                    >
+                                                        <MessageCircle className="h-4 w-4" />
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent>Send via WhatsApp</TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+
                                         <TooltipProvider>
                                             <Tooltip>
                                                 <TooltipTrigger asChild>
@@ -162,7 +203,7 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
                                                         <ExternalLink className="h-4 w-4" />
                                                     </Button>
                                                 </TooltipTrigger>
-                                                <TooltipContent>View Link</TooltipContent>
+                                                <TooltipContent>View link</TooltipContent>
                                             </Tooltip>
                                         </TooltipProvider>
 
@@ -225,7 +266,7 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
                                                         <FileEdit className="h-4 w-4" />
                                                     </Button>
                                                 </TooltipTrigger>
-                                                <TooltipContent>Full edit (tasks & pricing)</TooltipContent>
+                                                <TooltipContent>Full edit</TooltipContent>
                                             </Tooltip>
                                         </TooltipProvider>
 

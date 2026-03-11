@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Search, LayoutGrid, List as ListIcon, FileText, CreditCard, Clock, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useAvailability } from '@/hooks/useAvailability';
 
 import { QuoteCard } from './components/QuoteCard';
 import { QuotesList } from './components/QuotesList';
@@ -62,6 +63,10 @@ export default function QuotesPage() {
     // Edit Dialog State
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [selectedQuoteForEdit, setSelectedQuoteForEdit] = useState<PersonalizedQuote | null>(null);
+
+    // Fetch system-wide availability for WhatsApp messages
+    const { data: availabilityData } = useAvailability({ days: 14 });
+    const availableDates = availabilityData?.dates ?? [];
 
     // Fetch personalized quotes
     const { data: quotes = [], isLoading: isLoadingQuotes, refetch: refetchQuotes } = useQuery<PersonalizedQuote[]>({
@@ -255,6 +260,7 @@ export default function QuotesPage() {
                                 onDelete={handleDelete}
                                 onRegenerate={handleOpenRegenerate as any}
                                 onEdit={handleOpenEdit as any}
+                                availableDates={availableDates}
                             />
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -265,6 +271,7 @@ export default function QuotesPage() {
                                         onDelete={handleDelete}
                                         onRegenerate={handleOpenRegenerate as any}
                                         onEdit={handleOpenEdit as any}
+                                        availableDates={availableDates}
                                     />
                                 ))}
                             </div>
