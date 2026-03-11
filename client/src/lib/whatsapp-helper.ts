@@ -25,24 +25,26 @@ export interface WhatsAppOpenResult {
  * Removes spaces, handles UK numbers (converts 0 prefix to 44)
  */
 export function formatPhoneForWhatsApp(phone: string): string {
-  let whatsappPhone = phone.replace(/\s+/g, '');
-
-  // Remove + prefix
-  if (whatsappPhone.startsWith('+')) {
-    whatsappPhone = whatsappPhone.slice(1);
-  }
+  // Strip ALL non-digit characters (including invisible Unicode like U+202A, U+202C, U+00A0
+  // which get copy-pasted from iOS/WhatsApp contacts)
+  const digits = phone.replace(/[^\d]/g, '');
 
   // Handle UK numbers starting with 0
-  if (whatsappPhone.startsWith('0')) {
-    whatsappPhone = '44' + whatsappPhone.slice(1);
+  if (digits.startsWith('0')) {
+    return '44' + digits.slice(1);
+  }
+
+  // Already has country code
+  if (digits.startsWith('44')) {
+    return digits;
   }
 
   // If no country code, assume UK
-  if (!whatsappPhone.startsWith('44') && whatsappPhone.length <= 11) {
-    whatsappPhone = '44' + whatsappPhone;
+  if (digits.length <= 11) {
+    return '44' + digits;
   }
 
-  return whatsappPhone;
+  return digits;
 }
 
 /**
