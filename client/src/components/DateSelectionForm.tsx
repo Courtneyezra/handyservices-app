@@ -311,6 +311,9 @@ export function DateSelectionForm({ tier, onSubmit, postcode, serviceIds }: Date
                   <span className="text-xs font-medium">{date.dayName}</span>
                   <span className="text-lg font-bold">{date.dayNumber}</span>
                   <span className="text-xs">{date.monthName}</span>
+                  {isLocked && unavailableDates.has(date.date) && (
+                    <span className="text-[8px] font-semibold text-red-500">Fully Booked</span>
+                  )}
                 </Button>
               );
               

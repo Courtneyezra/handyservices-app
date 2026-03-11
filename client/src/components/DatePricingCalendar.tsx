@@ -306,9 +306,9 @@ export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
                     </div>
                 )}
 
-                {/* Booked X */}
+                {/* Booked label */}
                 {dateOption.isBooked && (
-                    <div className="text-[10px] text-slate-400">✕</div>
+                    <div className="text-[7px] font-semibold text-red-400">Booked</div>
                 )}
             </button>
         );
