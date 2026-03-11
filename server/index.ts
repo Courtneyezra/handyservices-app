@@ -11,7 +11,7 @@ import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 import { db } from "./db";
 import { productizedServices, skuMatchLogs, calls, callSkus, handymanProfiles, conversations, leads } from "../shared/schema";
-import { desc, eq, and, ne, or, asc } from "drizzle-orm";
+import { desc, eq, and, ne, or, asc, isNull } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 import { detectSku, detectMultipleTasks, loadAndCacheSkus } from "./skuDetector";
 import { setupTwilioSocket } from "./twilio-realtime";
@@ -1147,24 +1147,27 @@ app.patch('/api/calls/:id', async (req, res) => {
 // ============================================
 app.get('/api/contractor/inbox', async (req, res) => {
     try {
-        // 1. Fetch action-pending calls
+        // 1. Fetch VA-answered calls only (no missed_reason = AI agent handled it)
         const pendingCalls = await db.select()
             .from(calls)
             .where(
-                or(
-                    eq(calls.actionStatus, 'pending'),
-                    eq(calls.actionStatus, 'attempting')
+                and(
+                    or(
+                        eq(calls.actionStatus, 'pending'),
+                        eq(calls.actionStatus, 'attempting')
+                    ),
+                    isNull(calls.missedReason)
                 )
             )
-            .orderBy(asc(calls.actionUrgency), desc(calls.startTime))
-            .limit(20);
+            .orderBy(desc(calls.startTime))
+            .limit(30);
 
-        // 2. Fetch action-pending leads (web forms + AI tool captures)
+        // 2. Fetch action-pending leads (newest first)
         const pendingLeads = await db.select()
             .from(leads)
             .where(eq(leads.actionStatus, 'pending'))
-            .orderBy(asc(leads.actionUrgency), desc(leads.createdAt))
-            .limit(20);
+            .orderBy(desc(leads.createdAt))
+            .limit(30);
 
         // 3. Normalize into unified shape
         const items = [
@@ -1209,16 +1212,15 @@ app.get('/api/contractor/inbox', async (req, res) => {
             })),
         ];
 
-        // Sort unified list: highest urgency first (1=Critical), then newest
+        // Sort unified list: newest first
         items.sort((a, b) => {
-            if (a.urgency !== b.urgency) return a.urgency - b.urgency;
             const aTime = a.timestamp ? new Date(a.timestamp).getTime() : 0;
             const bTime = b.timestamp ? new Date(b.timestamp).getTime() : 0;
             return bTime - aTime;
         });
 
-        // Return only the most recent 20
-        res.json(items.slice(0, 20));
+        // Return the latest 30
+        res.json(items.slice(0, 30));
     } catch (error) {
         console.error('Failed to fetch contractor inbox:', error);
         res.status(500).json({ error: 'Failed to fetch inbox items' });

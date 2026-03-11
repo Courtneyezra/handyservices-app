@@ -95,6 +95,7 @@ export default function CallsPage() {
                 limit: "30",
                 startDate: subDays(new Date(), 30).toISOString(),
                 endDate: new Date().toISOString(),
+                vaOnly: "true",
             });
             const res = await fetch(`/api/calls?${params}`);
             if (!res.ok) throw new Error("Failed to fetch calls");
@@ -110,9 +111,9 @@ export default function CallsPage() {
         <div className="flex flex-col h-full bg-background">
             {/* Compact header */}
             <div className="px-4 pt-3 pb-2">
-                <h1 className="text-lg font-bold text-foreground">Recent Calls</h1>
+                <h1 className="text-lg font-bold text-foreground">VA Answered Calls</h1>
                 {pagination && (
-                    <p className="text-xs text-muted-foreground">{pagination.total} calls in last 30 days</p>
+                    <p className="text-xs text-muted-foreground">{pagination.total} VA calls in last 30 days</p>
                 )}
             </div>
 
@@ -143,7 +144,7 @@ export default function CallsPage() {
                                         <span className="font-medium text-sm text-foreground truncate">
                                             {call.customerName || 'Unknown'}
                                         </span>
-                                        {getRouteBadge(call)}
+                                        {/* Route badge removed - all calls are VA-answered */}
                                     </div>
                                     <div className="flex items-center gap-1.5 mt-0.5">
                                         <span className="text-[11px] text-muted-foreground">{formatCallTime(call.startTime)}</span>

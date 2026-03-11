@@ -143,6 +143,12 @@ router.get("/", async (req: Request, res: Response) => {
             conditions.push(eq(calls.outcome, outcome as string));
         }
 
+        // Filter to only VA-answered calls (exclude AI agent, missed, voicemail)
+        if (req.query.vaOnly === "true") {
+            conditions.push(sql`${calls.missedReason} IS NULL`);
+            conditions.push(sql`(${calls.outcome} IS NULL OR ${calls.outcome} NOT IN ('ELEVEN_LABS', 'RECOVERED_FROM_TWILIO', 'NO_ANSWER', 'MISSED_CALL', 'VOICEMAIL', 'VOICEMAIL_LEFT', 'FAILED', 'DROPPED_EARLY'))`);
+        }
+
         if (search) {
             const searchTerm = `%${search}%`;
             conditions.push(

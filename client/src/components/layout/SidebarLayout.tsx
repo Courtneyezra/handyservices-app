@@ -7,6 +7,7 @@ import InstallPrompt from "@/components/InstallPrompt";
 import { Link, useLocation } from "wouter";
 import { useLiveCall } from "@/contexts/LiveCallContext";
 import { cn } from "@/lib/utils";
+import handyLogo from "@/assets/handy-logo.png";
 
 interface SidebarLayoutProps {
     children: React.ReactNode;
@@ -295,37 +296,13 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 <Menu className="w-6 h-6" />
                             </button>
                         )}
-                        <h2 className="text-sm lg:text-lg font-semibold text-foreground truncate max-w-[200px] lg:max-w-none">
-                            {(isVA ? [
-                                { label: "Live Switchboard", href: "/admin/live-call" },
-                                { label: "Quote Generator", href: "/admin/generate-quote" },
-                                { label: "Recent Quotes", href: "/admin/quotes" },
-                                { label: "My Stats", href: "/admin/va-stats" },
-                                { label: "Resources", href: "/admin/resources" },
-                                { label: "Onboarding", href: "/admin/onboarding" },
-                                { label: "Training Center", href: "/admin/training-center" },
-                            ] : [
-                                { label: "Pipeline Home", href: "/admin/pipeline-home" },
-                                { label: "Reports Dashboard", href: "/admin/dashboard" },
-                                { label: "Dispatch Board", href: "/admin/dispatch" },
-                                { label: "Live Switchboard", href: "/admin/live-call" },
-                                { label: "Lead Tube Map", href: "/admin/tube-map" },
-                                { label: "Pipeline Map", href: "/admin/pipeline" },
-                                { label: "Lead Funnel", href: "/admin/funnel" },
-                                { label: "Segment Review", href: "/admin/leads/review" },
-                                { label: "WhatsApp CRM", href: "/admin/whatsapp-intake" },
-                                { label: "Call Logs", href: "/admin/calls" },
-                                { label: "Quote Generator", href: "/admin/generate-quote" },
-                                { label: "Invoices", href: "/admin/invoices" },
-                                { label: "SKU Manager", href: "/admin/skus" },
-                                { label: "Handyman Map", href: "/admin/handymen" },
-                                { label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },
-                                { label: "Marketing", href: "/admin/marketing" },
-                                { label: "Settings", href: "/admin/settings" },
-                                { label: "Tenant Issues", href: "/admin/tenant-issues" },
-                                { label: "Properties", href: "/admin/properties" },
-                            ]).find(i => i.href === location)?.label || (isVA ? "Switchboard" : "Pipeline Home")}
-                        </h2>
+                        <div className="flex items-center gap-2">
+                            <img src="/logo.png" alt="Handy" className="w-8 h-8 object-contain" />
+                            <div className="flex flex-col leading-tight">
+                                <span className="font-bold text-sm text-secondary">Handy</span>
+                                <span className="font-normal text-[10px] text-muted-foreground">Services</span>
+                            </div>
+                        </div>
                     </div>
                     <div className="flex items-center gap-2 lg:gap-4">
                         {isVA ? (
