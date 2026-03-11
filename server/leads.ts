@@ -48,6 +48,26 @@ leadsRouter.post('/api/leads', async (req, res) => {
         // Insert into DB
         await db.insert(leads).values(newLead);
 
+        // Broadcast to contractor inbox for real-time notification
+        try {
+            const { broadcastToClients } = await import('./index');
+            broadcastToClients({
+                type: 'inbox:new_item',
+                data: {
+                    id: newLead.id,
+                    itemType: 'lead',
+                    customerName: newLead.customerName,
+                    phone: newLead.phone,
+                    summary: newLead.jobDescription,
+                    source: 'Web Form',
+                    urgency: 3,
+                    timestamp: new Date().toISOString(),
+                }
+            });
+        } catch (broadcastErr) {
+            console.warn('[Leads] Broadcast failed (non-critical):', broadcastErr);
+        }
+
         // --- AGENTIC WORKFLOW: ONE-CLICK ACTION ---
         // Just like calls, we run the agent on the job description to get a plan
         if (newLead.jobDescription && newLead.jobDescription.length > 10) {
