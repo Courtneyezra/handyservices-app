@@ -100,19 +100,18 @@ export function UnifiedQuoteCard({
     return set;
   }, [availabilityData]);
 
-  // Generate available dates (filtering out blocked/unavailable)
+  // Generate dates including blocked ones (shown as "Fully Booked" for scarcity)
   // All date calculations anchored to UK time (Europe/London) so dates
   // and next-day / weekend fees are correct regardless of viewer timezone.
   const availableDates = useMemo(() => {
     const ukNow = toZonedTime(new Date(), 'Europe/London');
-    const dates: { date: Date; label: string; isWeekend: boolean; isNextDay: boolean; fee: number }[] = [];
+    const dates: { date: Date; label: string; isWeekend: boolean; isNextDay: boolean; fee: number; isBlocked: boolean }[] = [];
     for (let i = BASE_SCHEDULING_RULES.minDaysOut; i <= config.maxDaysOut; i++) {
       const date = addDays(ukNow, i);
       if (BASE_SCHEDULING_RULES.sundaysClosed && date.getDay() === 0) continue; // Skip Sundays
 
-      // Skip blocked/unavailable dates
       const dateStr = formatDateStr(date);
-      if (unavailableDates.has(dateStr)) continue;
+      const isBlocked = unavailableDates.has(dateStr);
 
       const isSaturday = date.getDay() === 6;
       const isNextDay = i === 1; // Tomorrow (UK time)
@@ -128,6 +127,7 @@ export function UnifiedQuoteCard({
         isWeekend: isSaturday,
         isNextDay,
         fee,
+        isBlocked,
       });
     }
     return dates;
@@ -499,14 +499,18 @@ export function UnifiedQuoteCard({
               <button
                 key={d.date.toISOString()}
                 onClick={() => {
+                  if (d.isBlocked) return;
                   setSelectedDate(d.date);
                   // Scroll to time section after a brief delay for animation
                   setTimeout(() => {
                     timeSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                   }, 150);
                 }}
+                disabled={d.isBlocked}
                 className={`p-3 rounded-xl text-center transition-all relative ${
-                  selectedDate?.toDateString() === d.date.toDateString()
+                  d.isBlocked
+                    ? 'opacity-50 cursor-not-allowed' + (isDarkTheme ? ' bg-white/5 text-slate-500' : ' bg-slate-100 text-slate-400 border border-slate-200')
+                    : selectedDate?.toDateString() === d.date.toDateString()
                     ? 'bg-[#7DB00E] text-slate-900 ring-2 ring-[#7DB00E] ring-offset-2' + (isDarkTheme ? ' ring-offset-slate-900' : '')
                     : d.isNextDay
                       ? isDarkTheme
@@ -517,16 +521,18 @@ export function UnifiedQuoteCard({
                         : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                {d.isNextDay && (
+                {d.isNextDay && !d.isBlocked && (
                   <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 text-[8px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded">
                     PRIORITY
                   </div>
                 )}
                 <div className="text-xs font-medium">{format(d.date, 'EEE')}</div>
                 <div className="text-lg font-bold">{format(d.date, 'd')}</div>
-                {d.fee > 0 && (
+                {d.isBlocked ? (
+                  <div className="text-[9px] font-semibold text-red-500 mt-0.5">Fully Booked</div>
+                ) : d.fee > 0 ? (
                   <div className="text-[10px] text-amber-400 mt-0.5">+£{d.fee / 100}</div>
-                )}
+                ) : null}
               </button>
             ))}
           </div>
