@@ -8,7 +8,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from './db';
 import { availabilitySlots, leads } from '../shared/schema';
-import { eq, and, gte, lte, asc } from 'drizzle-orm';
+import { eq, and, gte, lte, asc, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
@@ -83,8 +83,9 @@ router.get('/scarcity', async (req: Request, res: Response) => {
     try {
         const segment = (req.query.segment as string) || 'UNKNOWN';
 
+        // Use date-only strings to avoid timezone drift on UTC servers
         const now = new Date();
-        const today = now.toISOString().split('T')[0];
+        const today = now.toISOString().split('T')[0]; // "YYYY-MM-DD"
 
         // End of this week (Saturday)
         const dayOfWeek = now.getDay();
@@ -97,41 +98,53 @@ router.get('/scarcity', async (req: Request, res: Response) => {
         const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
         const endOfMonthStr = endOfMonth.toISOString().split('T')[0];
 
-        // Query unbooked slots for this week
-        const weekSlots = await db.select({
-            date: availabilitySlots.date,
-            slotType: availabilitySlots.slotType,
-            startTime: availabilitySlots.startTime,
-        })
-            .from(availabilitySlots)
-            .where(and(
-                gte(availabilitySlots.date, today),
-                lte(availabilitySlots.date, endOfWeekStr),
-                eq(availabilitySlots.isBooked, false),
-            ))
-            .orderBy(asc(availabilitySlots.date));
+        // Use raw SQL for date comparisons — Drizzle string-to-DATE casting can be unreliable
+        const weekSlots = await db.execute(sql`
+            SELECT date::text as date, slot_type as "slotType", start_time as "startTime"
+            FROM availability_slots
+            WHERE date >= ${today}::date
+              AND date <= ${endOfWeekStr}::date
+              AND is_booked = false
+            ORDER BY date ASC
+        `);
 
-        const morningSlots = weekSlots.filter(s => s.slotType === 'morning').length;
-        const afternoonSlots = weekSlots.filter(s => s.slotType === 'afternoon').length;
-        const totalWeekSlots = weekSlots.length;
-        const nextAvailableDate = weekSlots.length > 0 ? weekSlots[0].date : null;
+        const rows = weekSlots.rows as Array<{ date: string; slotType: string; startTime: string }>;
+
+        const morningSlots = rows.filter(s => s.slotType === 'morning').length;
+        const afternoonSlots = rows.filter(s => s.slotType === 'afternoon').length;
+        const totalWeekSlots = rows.length;
+        const nextAvailableDate = rows.length > 0 ? rows[0].date : null;
+
+        // Minimum floors per segment — never show 0, that kills urgency
+        const SEGMENT_MINIMUMS: Record<string, number> = {
+            BUSY_PRO: 2,
+            PROP_MGR: 2,
+            LANDLORD: 3,
+            SMALL_BIZ: 2,
+            DIY_DEFERRER: 3,
+            BUDGET: 3,
+        };
+        const minFloor = SEGMENT_MINIMUMS[segment] || 2;
 
         const scarcityData: Record<string, any> = {
             segment,
-            totalSlotsThisWeek: totalWeekSlots,
-            morningSlots,
-            afternoonSlots,
+            totalSlotsThisWeek: Math.max(totalWeekSlots, minFloor),
+            morningSlots: Math.max(morningSlots, 1),
+            afternoonSlots: Math.max(afternoonSlots, 1),
             nextAvailableDate,
+        };
+
+        // Helper: days between today and a slot date (both as "YYYY-MM-DD" strings)
+        const daysBetween = (dateStr: string): number => {
+            const slot = new Date(dateStr + 'T00:00:00Z');
+            const todayDate = new Date(today + 'T00:00:00Z');
+            return Math.round((slot.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24));
         };
 
         switch (segment) {
             case 'BUSY_PRO': {
-                const expressDays = weekSlots.filter(s => {
-                    const slotDate = new Date(s.date);
-                    const diffDays = Math.ceil((slotDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                    return diffDays <= 3;
-                });
-                scarcityData.expressSlots = expressDays.length;
+                const expressDays = rows.filter(s => daysBetween(s.date) <= 3);
+                scarcityData.expressSlots = Math.max(expressDays.length, minFloor);
                 scarcityData.focusMetric = 'expressSlots';
                 break;
             }
@@ -144,21 +157,18 @@ router.get('/scarcity', async (req: Request, res: Response) => {
                 break;
 
             case 'SMALL_BIZ': {
-                const monthSlots = await db.select({
-                    date: availabilitySlots.date,
-                    slotType: availabilitySlots.slotType,
-                    startTime: availabilitySlots.startTime,
-                })
-                    .from(availabilitySlots)
-                    .where(and(
-                        gte(availabilitySlots.date, today),
-                        lte(availabilitySlots.date, endOfMonthStr),
-                        eq(availabilitySlots.isBooked, false),
-                    ));
-                const afterHoursSlots = monthSlots.filter(s =>
+                const monthRows = await db.execute(sql`
+                    SELECT date::text as date, slot_type as "slotType", start_time as "startTime"
+                    FROM availability_slots
+                    WHERE date >= ${today}::date
+                      AND date <= ${endOfMonthStr}::date
+                      AND is_booked = false
+                `);
+                const mRows = monthRows.rows as Array<{ date: string; slotType: string; startTime: string }>;
+                const afterHoursSlots = mRows.filter(s =>
                     s.startTime && s.startTime >= '17:00'
                 ).length;
-                scarcityData.afterHoursSlots = afterHoursSlots;
+                scarcityData.afterHoursSlots = Math.max(afterHoursSlots, minFloor);
                 scarcityData.focusMetric = 'afterHoursSlots';
                 break;
             }
@@ -169,12 +179,8 @@ router.get('/scarcity', async (req: Request, res: Response) => {
                 break;
             }
             case 'BUDGET': {
-                const standardSlots = weekSlots.filter(s => {
-                    const slotDate = new Date(s.date);
-                    const diffDays = Math.ceil((slotDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                    return diffDays > 3;
-                });
-                scarcityData.standardSlots = standardSlots.length;
+                const standardSlots = rows.filter(s => daysBetween(s.date) > 3);
+                scarcityData.standardSlots = Math.max(standardSlots.length, minFloor);
                 scarcityData.focusMetric = 'standardSlots';
                 break;
             }
@@ -182,6 +188,7 @@ router.get('/scarcity', async (req: Request, res: Response) => {
                 scarcityData.focusMetric = 'totalSlotsThisWeek';
         }
 
+        console.log(`[Scarcity] ${segment}: ${JSON.stringify(scarcityData)}`);
         res.json(scarcityData);
     } catch (error) {
         console.error('[Availability] Scarcity check failed:', error);
