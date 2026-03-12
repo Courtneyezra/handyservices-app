@@ -72,6 +72,131 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/availability/scarcity
+ * Returns slot counts for scarcity banners on quote pages.
+ * Segment-aware: returns the slot types most relevant to each segment.
+ *
+ * Query params:
+ * - segment: string (optional, e.g. BUSY_PRO, LANDLORD)
+ */
+router.get('/scarcity', async (req: Request, res: Response) => {
+    try {
+        const segment = (req.query.segment as string) || 'UNKNOWN';
+
+        const now = new Date();
+        const today = now.toISOString().split('T')[0];
+
+        // End of this week (Saturday)
+        const dayOfWeek = now.getDay();
+        const daysUntilSaturday = dayOfWeek === 0 ? 6 : 6 - dayOfWeek;
+        const endOfWeek = new Date(now);
+        endOfWeek.setDate(now.getDate() + daysUntilSaturday);
+        const endOfWeekStr = endOfWeek.toISOString().split('T')[0];
+
+        // End of month for after-hours (SMALL_BIZ)
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        const endOfMonthStr = endOfMonth.toISOString().split('T')[0];
+
+        // Query unbooked slots for this week
+        const weekSlots = await db.select({
+            date: availabilitySlots.date,
+            slotType: availabilitySlots.slotType,
+            startTime: availabilitySlots.startTime,
+        })
+            .from(availabilitySlots)
+            .where(and(
+                gte(availabilitySlots.date, today),
+                lte(availabilitySlots.date, endOfWeekStr),
+                eq(availabilitySlots.isBooked, false),
+            ))
+            .orderBy(asc(availabilitySlots.date));
+
+        const morningSlots = weekSlots.filter(s => s.slotType === 'morning').length;
+        const afternoonSlots = weekSlots.filter(s => s.slotType === 'afternoon').length;
+        const totalWeekSlots = weekSlots.length;
+        const nextAvailableDate = weekSlots.length > 0 ? weekSlots[0].date : null;
+
+        const scarcityData: Record<string, any> = {
+            segment,
+            totalSlotsThisWeek: totalWeekSlots,
+            morningSlots,
+            afternoonSlots,
+            nextAvailableDate,
+        };
+
+        switch (segment) {
+            case 'BUSY_PRO': {
+                const expressDays = weekSlots.filter(s => {
+                    const slotDate = new Date(s.date);
+                    const diffDays = Math.ceil((slotDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                    return diffDays <= 3;
+                });
+                scarcityData.expressSlots = expressDays.length;
+                scarcityData.focusMetric = 'expressSlots';
+                break;
+            }
+            case 'PROP_MGR':
+                scarcityData.focusMetric = 'morningSlots';
+                break;
+
+            case 'LANDLORD':
+                scarcityData.focusMetric = 'totalSlotsThisWeek';
+                break;
+
+            case 'SMALL_BIZ': {
+                const monthSlots = await db.select({
+                    date: availabilitySlots.date,
+                    slotType: availabilitySlots.slotType,
+                    startTime: availabilitySlots.startTime,
+                })
+                    .from(availabilitySlots)
+                    .where(and(
+                        gte(availabilitySlots.date, today),
+                        lte(availabilitySlots.date, endOfMonthStr),
+                        eq(availabilitySlots.isBooked, false),
+                    ));
+                const afterHoursSlots = monthSlots.filter(s =>
+                    s.startTime && s.startTime >= '17:00'
+                ).length;
+                scarcityData.afterHoursSlots = afterHoursSlots;
+                scarcityData.focusMetric = 'afterHoursSlots';
+                break;
+            }
+            case 'DIY_DEFERRER': {
+                const month = now.getMonth();
+                scarcityData.isBusySeason = month >= 2 && month <= 8;
+                scarcityData.focusMetric = 'totalSlotsThisWeek';
+                break;
+            }
+            case 'BUDGET': {
+                const standardSlots = weekSlots.filter(s => {
+                    const slotDate = new Date(s.date);
+                    const diffDays = Math.ceil((slotDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                    return diffDays > 3;
+                });
+                scarcityData.standardSlots = standardSlots.length;
+                scarcityData.focusMetric = 'standardSlots';
+                break;
+            }
+            default:
+                scarcityData.focusMetric = 'totalSlotsThisWeek';
+        }
+
+        res.json(scarcityData);
+    } catch (error) {
+        console.error('[Availability] Scarcity check failed:', error);
+        // Graceful fallback — don't break the quote page
+        res.json({
+            totalSlotsThisWeek: 3,
+            morningSlots: 1,
+            afternoonSlots: 2,
+            nextAvailableDate: null,
+            focusMetric: 'totalSlotsThisWeek',
+        });
+    }
+});
+
+/**
  * POST /api/availability
  * Create a new availability slot (admin only)
  *

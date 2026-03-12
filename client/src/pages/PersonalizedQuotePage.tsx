@@ -42,6 +42,7 @@ import { SingleProductQuote } from '@/components/quote/SingleProductQuote';
 import { BudgetQuoteInline } from '@/components/quote/BudgetQuoteInline';
 import { UnifiedQuoteCard } from '@/components/quote/UnifiedQuoteCard';
 import { BookingConfirmation } from '@/components/quote/BookingConfirmation';
+import { ScarcityBanner } from '@/components/quote/ScarcityBanner';
 
 export type EEEPackageTier = 'essential' | 'enhanced' | 'elite';
 
@@ -2192,6 +2193,9 @@ export default function PersonalizedQuotePage() {
     return (
       <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
 
+        {/* Scarcity Banner - Top of page, data-driven per segment */}
+        <ScarcityBanner segment={quote.segment || 'UNKNOWN'} postcode={quote.postcode} />
+
         {/* Value Sections Flow */}
         <ValueHero quote={quote} config={config} />
 
@@ -2416,18 +2420,7 @@ export default function PersonalizedQuotePage() {
                     )}
                   </ExpertSpecSheet>
 
-                  {/* Status Quo Bias Trigger (Cost of Inaction) */}
-                  <div className="max-w-lg mx-auto mt-0 bg-red-50 border border-red-100 p-4 rounded-lg flex items-start gap-3 text-left">
-                    <div className="p-2 bg-red-100 rounded-full shrink-0">
-                      <Clock className="w-4 h-4 text-red-600" />
-                    </div>
-                    <div>
-                      <h4 className="text-red-700 font-bold text-sm uppercase mb-1">Why book now?</h4>
-                      <p className="text-slate-700 text-sm leading-relaxed">
-                        Only 3 slots remaining in <span className="text-slate-900 font-bold">{quote.postcode?.split(' ')[0]}</span> this week. Delaying often leads to worsening damage and higher repair costs.
-                      </p>
-                    </div>
-                  </div>
+                  {/* Scarcity is now handled by the top-of-page ScarcityBanner */}
               </>
 
             </motion.div>
