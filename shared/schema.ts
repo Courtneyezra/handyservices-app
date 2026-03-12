@@ -672,11 +672,11 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     recommendedTier: varchar("recommended_tier", { length: 20 }), // System recommendation: essential, hassleFree, highStandard
     additionalNotes: text("additional_notes"), // Optional context from call
     assessmentReason: text("assessment_reason"), // Why a generic quote wasn't possible
-    // Custom Pricing Overrides for Visits
+    // DEPRECATED — visit tier prices no longer used, single price model via basePrice
     tierStandardPrice: integer("tier_standard_price"),
     tierPriorityPrice: integer("tier_priority_price"),
     tierEmergencyPrice: integer("tier_emergency_price"),
-    tierDeliverables: jsonb("tier_deliverables"), // Job-specific outcome sentences for each tier: {essential: string[], enhanced: string[], elite: string[]}
+    tierDeliverables: jsonb("tier_deliverables"), // DEPRECATED — deliverables stored as flat array
 
     // PVS (Perceived Value Score) Tracking - DEPRECATED
     pvsScore: integer("pvs_score"), // 0-100 score based on 6-factor weighted system
@@ -684,18 +684,18 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     dominantCategory: varchar("dominant_category"), // 'safety', 'visual', 'comfort', 'urgency', 'trust', 'property_value'
     anchorPrice: integer("anchor_price"), // Base cost × value multiplier (in pence)
 
-    // Quote Mode - determines if we show simple quote or HHH packages
-    quoteMode: varchar("quote_mode", { length: 20 }).notNull().default("hhh"), // 'simple' | 'hhh' | 'pick_and_mix' | 'consultation'
+    // Quote Mode — DEPRECATED, all new quotes use 'simple' (single price model)
+    quoteMode: varchar("quote_mode", { length: 20 }).notNull().default("simple"), // Legacy: 'simple' | 'hhh' | 'pick_and_mix' | 'consultation'
     visitTierMode: varchar("visit_tier_mode", { length: 20 }).default('standard'), // 'standard' | 'tiers'
     clientType: varchar("client_type", { length: 20 }).default('residential'), // 'residential' | 'commercial'
 
-    // EEE Pricing (in pence) - for HHH mode
+    // DEPRECATED — EEE tier prices, kept for backward compat with existing quotes
     essentialPrice: integer("essential_price"),
     enhancedPrice: integer("enhanced_price"),
     elitePrice: integer("elite_price"),
 
-    // Simple Quote Pricing - for simple mode
-    basePrice: integer("base_price"), // in pence, the main quote for simple jobs
+    // Canonical quote price (single price model)
+    basePrice: integer("base_price"), // in pence — THE price for the quote
     optionalExtras: jsonb("optional_extras"), // Array of {label, priceInPence, description, isRecommended}
 
     // Materials Cost (for deposit calculation)

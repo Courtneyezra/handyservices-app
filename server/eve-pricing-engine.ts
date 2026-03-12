@@ -16,7 +16,7 @@
 
 import type { ValuePricingInputs } from '@shared/schema';
 
-// Re-export everything other files need from the old engine
+// Re-export utilities other files still need
 export {
   getSegmentTierConfig,
   generateTierDeliverables,
@@ -24,15 +24,17 @@ export {
 } from './value-pricing-engine';
 
 export type {
-  PricingResult,
-  TierPackage,
-  Perk,
   TierDeliverables,
   ValuePricingAnalytics,
 } from './value-pricing-engine';
 
-import type { PricingResult, TierPackage } from './value-pricing-engine';
-import { getSegmentTierConfig } from './value-pricing-engine';
+/** Result of EVE pricing — single price per quote */
+export interface EVEPricingResult {
+  price: number;               // Final price in pence
+  valueMultiplier: number;     // Ratio vs reference rate (for analytics)
+  adjustedJobPrice: number;    // Same as price (backward compat)
+  segment: string;
+}
 
 // ============================================================================
 // EVE SEGMENT RATES (pence per hour)
@@ -73,10 +75,10 @@ export interface EVEPricingInputs extends ValuePricingInputs {
 /**
  * Generate a quote using EVE contextual pricing.
  *
- * The customer sees ONE fixed price (not hourly, not tiered).
- * The frontend handles add-ons separately via SchedulingConfig.
+ * Returns ONE fixed price (not hourly, not tiered).
+ * Add-ons handled separately via optionalExtras.
  */
-export function generateEVEPricingQuote(inputs: EVEPricingInputs): PricingResult {
+export function generateEVEPricingQuote(inputs: EVEPricingInputs): EVEPricingResult {
   // 1. Look up segment rate (default to UNKNOWN)
   const segment = inputs.segment || 'UNKNOWN';
   const rate = EVE_SEGMENT_RATES[segment] ?? EVE_SEGMENT_RATES.UNKNOWN;
@@ -96,50 +98,11 @@ export function generateEVEPricingQuote(inputs: EVEPricingInputs): PricingResult
   // 5. Psychological pricing
   price = ensurePriceEndsInNine(price);
 
-  // 6. Get segment tier config for names/descriptions
-  const segmentConfig = getSegmentTierConfig(segment);
-
-  // 7. Build single-product tier package (all 3 slots get same price)
-  const tierPackage: TierPackage = {
-    tier: 'hassleFree',
-    name: segmentConfig.hassleFree.name,
-    coreDescription: segmentConfig.hassleFree.description,
-    price,
-    warrantyMonths: 3,
-    perks: (segmentConfig.hassleFree.deliverables || []).map((d: string, i: number) => ({
-      id: `perk_${i}`,
-      label: d,
-      description: d,
-    })),
-    isRecommended: true,
-  };
-
-  // Essential and highStandard get same price for backward compat
-  const essentialPackage: TierPackage = {
-    ...tierPackage,
-    tier: 'essential',
-    name: segmentConfig.essential.name,
-    coreDescription: segmentConfig.essential.description,
-    isRecommended: false,
-  };
-
-  const highStandardPackage: TierPackage = {
-    ...tierPackage,
-    tier: 'highStandard',
-    name: segmentConfig.highStandard.name,
-    coreDescription: segmentConfig.highStandard.description,
-    isRecommended: false,
-  };
-
   return {
+    price,
     valueMultiplier: Math.round((rate / REFERENCE_RATE_PENCE) * 100) / 100,
     adjustedJobPrice: price,
-    recommendedTier: 'hassleFree',
-    essential: essentialPackage,
-    hassleFree: tierPackage,
-    highStandard: highStandardPackage,
-    quoteStyle: 'hhh',
-    isMultiOption: false,
+    segment,
   };
 }
 

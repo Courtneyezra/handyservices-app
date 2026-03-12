@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { openai, polishAssessmentReason, generatePersonalizedNote, determineQuoteStrategy, classifyLead, determineOptimalRoute } from "./openai";
-import { generateEVEPricingQuote, createAnalyticsLog, generateTierDeliverables, getSegmentTierConfig } from "./eve-pricing-engine";
+import { generateEVEPricingQuote, generateTierDeliverables, getSegmentTierConfig, type EVEPricingResult } from "./eve-pricing-engine";
 import { geocodeAddress } from "./lib/geocoding";
 import { findBestContractors, checkNetworkAvailability } from "./availability-engine";
 import { detectMultipleTasks } from "./skuDetector";
@@ -30,7 +30,7 @@ const valuePricingInputSchema = z.object({
     postcode: z.string().min(1, 'Postcode is required'),
     address: z.string().optional(),
     coordinates: z.object({ lat: z.number(), lng: z.number() }).optional(),
-    quoteMode: z.enum(['simple', 'hhh', 'pick_and_mix', 'consultation']).default('hhh'),
+    quoteMode: z.enum(['simple', 'hhh', 'pick_and_mix', 'consultation']).default('simple'), // Legacy field — always 'simple' for new quotes
     analyzedJobData: z.any().optional(), // Pass through AI analysis data
 
     materialsCostWithMarkupPence: z.number().nonnegative().optional(), // Materials with markup
@@ -286,12 +286,11 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
             }
         }
 
-        // EVE single-price model: all priced quotes use 'hhh' for UnifiedQuoteCard rendering
+        // EVE single-price model: all quotes use 'simple' (one price)
         if (finalRoute === 'assessment') {
-            console.log('[Routing Brain] forcing quoteMode=consultation to match route=assessment');
             input.quoteMode = 'consultation';
         } else {
-            input.quoteMode = 'hhh';
+            input.quoteMode = 'simple';
         }
 
         // MATCHING ENGINE (Phase 4)
@@ -388,7 +387,7 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
 
             clientType: input.clientType,
             jobComplexity: input.jobComplexity,
-            forcedQuoteStyle: (input.quoteMode === 'hhh' || input.quoteMode === 'consultation') ? input.quoteMode : undefined,
+            // forcedQuoteStyle removed — single price model
             segment: input.manualSegment || leadClassification?.segment || 'UNKNOWN',
             jobType: mappedJobType,
             quotability: mappedQuotability,
@@ -400,16 +399,15 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
             input.optionalExtras.sort((a: any, b: any) => (b.priceInPence || 0) - (a.priceInPence || 0));
         }
 
-        // B2.3-B2.4: Generate tier deliverables with segment-specific configurations
+        // Generate deliverables for the quote
         const aiTierDeliverables = generateTierDeliverables(input.analyzedJobData, input.jobDescription);
         const segmentConfig = getSegmentTierConfig(input.manualSegment || leadClassification?.segment || 'UNKNOWN');
 
-        // Merge segment-specific deliverables with AI-generated ones
-        const tierDeliverables = {
-            essential: Array.from(new Set([...segmentConfig.essential.deliverables, ...aiTierDeliverables.essential])),
-            hassleFree: Array.from(new Set([...segmentConfig.hassleFree.deliverables, ...aiTierDeliverables.hassleFree])),
-            highStandard: Array.from(new Set([...segmentConfig.highStandard.deliverables, ...aiTierDeliverables.highStandard])),
-        };
+        // Merge segment-specific deliverables with AI-generated ones (use hassleFree as the single set)
+        const deliverables = Array.from(new Set([
+            ...segmentConfig.hassleFree.deliverables,
+            ...aiTierDeliverables.hassleFree,
+        ]));
 
         // Prepare quote data
         const quoteInsertData = {
@@ -427,21 +425,21 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
             quoteMode: input.quoteMode,
             visitTierMode: input.visitTierMode, // Store the visit tier preference
             assessmentReason: input.assessmentReason,
+            // Diagnostic visit tier prices (deprecated — kept for backward compat)
             tierStandardPrice: input.tierStandardPrice,
             tierPriorityPrice: input.tierPriorityPrice,
             tierEmergencyPrice: input.tierEmergencyPrice,
 
-            // Routing Brain Data (NEW)
-            recommendedRoute: finalRoute, // Use final route (manual selection or AI recommendation)
-            leadClassification, // Full classification object with signals
+            // Routing Brain Data
+            recommendedRoute: finalRoute,
+            leadClassification,
 
-            // EVE prices (all tiers get same price)
-            essentialPrice: pricingResult.essential.price,
-            enhancedPrice: pricingResult.hassleFree.price,
-            elitePrice: pricingResult.highStandard.price,
-
-            // Single price (hassleFree = 100% fair price)
-            basePrice: pricingResult.hassleFree.price,
+            // EVE single price — stored in basePrice only
+            basePrice: pricingResult.price,
+            // Backfill deprecated tier columns with same value for backward compat
+            essentialPrice: pricingResult.price,
+            enhancedPrice: pricingResult.price,
+            elitePrice: pricingResult.price,
 
             // Context & Inputs
             urgencyReason: input.urgencyReason,
@@ -449,15 +447,15 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
             desiredTimeframe: input.desiredTimeframe,
             baseJobPricePence: input.baseJobPrice,
             valueMultiplier100: Math.round(pricingResult.valueMultiplier * 100),
-            recommendedTier: pricingResult.recommendedTier,
+            recommendedTier: 'hassleFree', // Legacy field — single price model
             additionalNotes: input.additionalNotes || null,
 
             // Metadata
             jobs: input.analyzedJobData ? [input.analyzedJobData] : null,
             tierDeliverables: {
-                essential: tierDeliverables.essential,
-                hassleFree: tierDeliverables.hassleFree,
-                highStandard: tierDeliverables.highStandard,
+                essential: deliverables,
+                hassleFree: deliverables,
+                highStandard: deliverables,
             },
             materialsCostWithMarkupPence: input.materialsCostWithMarkupPence || 0,
             optionalExtras: input.optionalExtras || null,
@@ -511,36 +509,11 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
             }
         }
 
-        // Response
+        // Response — single price model
         const responsePayload = {
             ...quoteInsertData,
             valueMultiplier: pricingResult.valueMultiplier,
-            recommendedTier: pricingResult.recommendedTier,
-            essential: {
-                name: pricingResult.essential.name,
-                description: pricingResult.essential.coreDescription,
-                price: pricingResult.essential.price,
-                perks: pricingResult.essential.perks,
-                warrantyMonths: pricingResult.essential.warrantyMonths,
-                isRecommended: pricingResult.essential.isRecommended,
-            },
-            hassleFree: {
-                name: pricingResult.hassleFree.name,
-                description: pricingResult.hassleFree.coreDescription,
-                price: pricingResult.hassleFree.price,
-                perks: pricingResult.hassleFree.perks,
-                warrantyMonths: pricingResult.hassleFree.warrantyMonths,
-                isRecommended: pricingResult.hassleFree.isRecommended,
-            },
-            highStandard: {
-                name: pricingResult.highStandard.name,
-                description: pricingResult.highStandard.coreDescription,
-                price: pricingResult.highStandard.price,
-                perks: pricingResult.highStandard.perks,
-                warrantyMonths: pricingResult.highStandard.warrantyMonths,
-                isRecommended: pricingResult.highStandard.isRecommended,
-            },
-            basePrice: pricingResult.hassleFree.price,
+            basePrice: pricingResult.price,
 
             // Availability Data
             availability: {
@@ -969,16 +942,8 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
             return res.status(404).json({ error: "Quote not found" });
         }
 
-        let selectedTierPricePence = 0;
-        if (selectedPackage === 'essential') {
-            selectedTierPricePence = quote.essentialPrice || quote.basePrice || 0;
-        } else if (selectedPackage === 'enhanced') {
-            selectedTierPricePence = quote.enhancedPrice || 0;
-        } else if (selectedPackage === 'elite') {
-            selectedTierPricePence = quote.elitePrice || 0;
-        } else if (quote.basePrice) {
-            selectedTierPricePence = quote.basePrice;
-        }
+        // Single price model — use basePrice (fall back to legacy tier columns)
+        const selectedTierPricePence = quote.basePrice || quote.essentialPrice || 0;
 
         // Calculate deposit: 100% materials + 30% labor
         const materialsCost = quote.materialsCostWithMarkupPence || 0;
@@ -990,7 +955,7 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
         await db.update(personalizedQuotes)
             .set({
                 leadId,
-                selectedPackage,
+                selectedPackage: selectedPackage || 'standard', // Legacy field
                 selectedExtras: selectedExtras || [],
                 selectedAt: new Date(), // Track when package was selected
                 paymentType,
@@ -1112,19 +1077,9 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/quick-book', async (req, r
             return res.status(404).json({ error: "Quote not found" });
         }
 
-        // Calculate prices
-        let selectedTierPricePence = 0;
-        const effectivePackage = selectedPackage || quote.selectedPackage;
-
-        if (effectivePackage === 'essential') {
-            selectedTierPricePence = quote.essentialPrice || quote.basePrice || 0;
-        } else if (effectivePackage === 'enhanced') {
-            selectedTierPricePence = quote.enhancedPrice || 0;
-        } else if (effectivePackage === 'elite') {
-            selectedTierPricePence = quote.elitePrice || 0;
-        } else if (quote.basePrice) {
-            selectedTierPricePence = quote.basePrice;
-        }
+        // Single price model — use basePrice
+        const selectedTierPricePence = quote.basePrice || quote.essentialPrice || 0;
+        const effectivePackage = selectedPackage || quote.selectedPackage || 'standard';
 
         // Calculate deposit if not provided
         const materialsCost = quote.materialsCostWithMarkupPence || 0;
@@ -1347,13 +1302,21 @@ quotesRouter.patch('/api/admin/personalized-quotes/:id/edit', async (req, res) =
         if (updates.additionalNotes !== undefined) updateData.additionalNotes = updates.additionalNotes;
         if (updates.segment !== undefined) updateData.segment = updates.segment;
 
-        // Pricing (HHH)
-        if (updates.essentialPrice !== undefined) updateData.essentialPrice = updates.essentialPrice;
-        if (updates.enhancedPrice !== undefined) updateData.enhancedPrice = updates.enhancedPrice;
-        if (updates.elitePrice !== undefined) updateData.elitePrice = updates.elitePrice;
-
-        // Pricing (Simple)
-        if (updates.basePrice !== undefined) updateData.basePrice = updates.basePrice;
+        // Pricing — single price model (basePrice is canonical)
+        if (updates.basePrice !== undefined) {
+            updateData.basePrice = updates.basePrice;
+            // Keep deprecated columns in sync for backward compat
+            updateData.essentialPrice = updates.basePrice;
+            updateData.enhancedPrice = updates.basePrice;
+            updateData.elitePrice = updates.basePrice;
+        }
+        // Legacy: if someone passes old tier prices, map to basePrice
+        if (updates.essentialPrice !== undefined && updates.basePrice === undefined) {
+            updateData.basePrice = updates.essentialPrice;
+            updateData.essentialPrice = updates.essentialPrice;
+            updateData.enhancedPrice = updates.essentialPrice;
+            updateData.elitePrice = updates.essentialPrice;
+        }
 
         // Materials & Extras
         if (updates.materialsCostWithMarkupPence !== undefined) updateData.materialsCostWithMarkupPence = updates.materialsCostWithMarkupPence;
@@ -1386,22 +1349,7 @@ quotesRouter.patch('/api/admin/personalized-quotes/:id/edit', async (req, res) =
 
         // 4. Recalculate deposit if pricing changed and not yet paid
         if (priceFieldsChanging && !quote.depositPaidAt) {
-            const newEssential = updates.essentialPrice ?? quote.essentialPrice;
-            const newEnhanced = updates.enhancedPrice ?? quote.enhancedPrice;
-            const newElite = updates.elitePrice ?? quote.elitePrice;
-            const newBase = updates.basePrice ?? quote.basePrice;
-
-            // Use selected package price or default to essential/base
-            let selectedPrice = 0;
-            if (quote.selectedPackage === 'enhanced' && newEnhanced) {
-                selectedPrice = newEnhanced;
-            } else if (quote.selectedPackage === 'elite' && newElite) {
-                selectedPrice = newElite;
-            } else if (newEssential) {
-                selectedPrice = newEssential;
-            } else if (newBase) {
-                selectedPrice = newBase;
-            }
+            const selectedPrice = updateData.basePrice ?? quote.basePrice ?? 0;
 
             if (selectedPrice > 0) {
                 const materialsCost = updates.materialsCostWithMarkupPence ?? quote.materialsCostWithMarkupPence ?? 0;

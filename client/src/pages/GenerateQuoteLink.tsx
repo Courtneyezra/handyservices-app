@@ -760,7 +760,7 @@ export default function GenerateQuoteLink() {
         postcode,
         address: address || undefined,
         coordinates: coordinates || undefined,
-        quoteMode: 'hhh', // EVE single price via UnifiedQuoteCard
+        quoteMode: 'simple', // EVE single price model
         visitTierMode: finalQuoteMode === 'consultation' ? visitTierMode : 'standard', // Pass the tier preference
         clientType,
         assessmentReason: finalAssessmentReason || undefined,

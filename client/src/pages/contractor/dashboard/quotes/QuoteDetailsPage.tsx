@@ -114,7 +114,7 @@ export default function QuoteDetailsPage() {
                         <h1 className="text-2xl font-bold flex items-center gap-3">
                             Quote for {quote.customerName}
                             <span className="text-xs bg-emerald-500/10 text-emerald-500 px-2 py-1 rounded-full border border-emerald-500/20 uppercase tracking-wide">
-                                {quote.quoteMode === 'hhh' ? 'Magic Quote' : 'Standard'}
+                                Quote
                             </span>
                         </h1>
                         <p className="text-slate-400 text-sm">Created on {format(new Date(quote.createdAt), 'PPP')}</p>

@@ -230,8 +230,7 @@ export function UnifiedQuoteCard({
             customerName,
             customerEmail,
             quoteId,
-            selectedTier: segment === 'BUDGET' ? 'essential' : 'enhanced',
-            selectedTierPrice: total,
+            selectedTier: 'standard', // Legacy field — single price model
             selectedExtras: selectedAddOns,
             paymentType: 'full',
             flexibleTiming: useDownsell,

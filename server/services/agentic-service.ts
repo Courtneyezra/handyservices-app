@@ -114,12 +114,19 @@ export async function analyzeLeadActionPlan(transcript: string, customerName?: s
         };
 
         const pricingResult = generateEVEPricingQuote(pricingInputs);
-        const log = createAnalyticsLog(pricingInputs, pricingResult);
-        analyticsLog = log;
+        // Analytics log — simplified for single price model
+        analyticsLog = {
+            urgencyReason: pricingInputs.urgencyReason,
+            ownershipContext: pricingInputs.ownershipContext,
+            desiredTimeframe: pricingInputs.desiredTimeframe,
+            baseJobPrice: pricingInputs.baseJobPrice,
+            valueMultiplier: pricingResult.valueMultiplier,
+            adjustedJobPrice: pricingResult.price,
+        } as any;
 
         // Success! We have a solid quote.
         recommendedAction = 'create_quote';
-        quoteMode = pricingResult.quoteStyle === 'hhh' ? 'hhh' : 'simple';
+        quoteMode = 'simple';
 
     } else {
         // Fallback: Video Quote

@@ -35,18 +35,8 @@ async function markQuotePaid(slug: string, tierOverride?: string, depositOverrid
     // Determine selected tier
     const selectedTier = tierOverride || quote.selectedPackage || 'essential';
 
-    // Calculate total job price from tier
-    let totalJobPrice = 0;
-    if (quote.quoteMode === 'simple') {
-        totalJobPrice = quote.basePrice || 0;
-    } else {
-        const tierPriceMap: Record<string, number | null | undefined> = {
-            essential: quote.essentialPrice,
-            enhanced: quote.enhancedPrice,
-            elite: quote.elitePrice
-        };
-        totalJobPrice = tierPriceMap[selectedTier] || quote.essentialPrice || 0;
-    }
+    // Single price model — use basePrice
+    const totalJobPrice = quote.basePrice || quote.essentialPrice || 0;
 
     // Calculate deposit (30% of labour + 100% materials, or use override)
     const materialsCost = (quote.materialsCostWithMarkupPence as number) || 0;

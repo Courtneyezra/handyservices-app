@@ -1938,8 +1938,8 @@ export default function PersonalizedQuotePage() {
         email: quote.email || undefined,
         jobDescription: quote.jobDescription,
         outcome: 'phone_quote',
-        eeePackage: quote.quoteMode === 'pick_and_mix' ? 'simple' : (selectedEEEPackage || 'enhanced'),
-        quoteAmount: quote.quoteMode === 'pick_and_mix' ? calculateSimpleTotal() : quotePrice,
+        eeePackage: 'standard', // Single price model
+        quoteAmount: quotePrice,
         source: 'personalized_quote',
         stripePaymentId: paymentIntentId,
       };
@@ -1975,7 +1975,7 @@ export default function PersonalizedQuotePage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             leadId: leadId,
-            selectedPackage: quote.quoteMode === 'pick_and_mix' ? undefined : (selectedEEEPackage || 'enhanced'),
+            selectedPackage: 'standard', // Single price model
             selectedExtras: selectedExtras.length > 0 ? selectedExtras : undefined,
             paymentType: effectivePaymentType,
             // Scheduling fields
@@ -2024,7 +2024,7 @@ export default function PersonalizedQuotePage() {
 
 
   // Route to appropriate quote UI based on recommendedRoute
-  const routeType = quote.recommendedRoute || 'tiers'; // Default to tiers for backward compatibility
+  const routeType = quote.recommendedRoute || 'tiers'; // Default to tiers for full booking UI
 
   // Instant Action Route - Simple fixed-price UI for commodity tasks
   if (routeType === 'instant') {
@@ -2045,7 +2045,7 @@ export default function PersonalizedQuotePage() {
   console.log('[QUOTE DEBUG] proposalModeEnabled:', quote.proposalModeEnabled);
   console.log('[QUOTE DEBUG] quoteMode:', quote.quoteMode);
   console.log('[QUOTE DEBUG] recommendedRoute:', quote.recommendedRoute);
-  console.log('[QUOTE DEBUG] For BUSY_PRO overrides, need: segment=BUSY_PRO, proposalModeEnabled=true, quoteMode=hhh');
+  console.log('[QUOTE DEBUG] Single price model — basePrice:', quote.basePrice);
   console.log('[QUOTE DEBUG] =====================================');
 
   // Quote expiration removed - quotes no longer expire

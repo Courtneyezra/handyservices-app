@@ -67,14 +67,14 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             customerName,
             customerEmail,
             quoteId,
-            selectedTier,
-            selectedTierPrice,
+            selectedTier, // Legacy — ignored, kept for API compat
+            selectedTierPrice, // Legacy — ignored
             selectedExtras = [],
             paymentType = 'full'
         } = req.body;
 
-        if (!quoteId || !selectedTier) {
-            return res.status(400).json({ message: 'Missing required fields: quoteId and selectedTier' });
+        if (!quoteId) {
+            return res.status(400).json({ message: 'Missing required field: quoteId' });
         }
 
         // Validate email is provided (required for confirmation emails)
@@ -108,18 +108,8 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             console.log(`[Stripe] Updated quote ${quoteId} email to: ${customerEmail}`);
         }
 
-        // Get the tier price from the quote (server-side source of truth)
-        let baseTierPrice: number;
-        if (quote.quoteMode === 'simple') {
-            baseTierPrice = quote.basePrice || 0;
-        } else {
-            const tierPriceMap: Record<string, number | null | undefined> = {
-                essential: quote.essentialPrice,
-                enhanced: quote.enhancedPrice,
-                elite: quote.elitePrice
-            };
-            baseTierPrice = tierPriceMap[selectedTier] || 0;
-        }
+        // Single price model — use basePrice (fall back to legacy tier columns)
+        const baseTierPrice = quote.basePrice || quote.essentialPrice || 0;
 
         // Calculate extras total
         const optionalExtras = (quote.optionalExtras as any[]) || [];
@@ -156,7 +146,7 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         const chargeAmount = Math.max(depositBreakdown.total, 30);
 
         // Generate idempotency key to prevent duplicate payment intents
-        const idempotencyKey = generateIdempotencyKey(quoteId, selectedTier, selectedExtras);
+        const idempotencyKey = generateIdempotencyKey(quoteId, 'standard', selectedExtras);
 
         // Create payment intent with idempotency key
         const paymentIntent = await stripe.paymentIntents.create(
@@ -169,15 +159,14 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
                 metadata: {
                     quoteId,
                     customerName,
-                    customerEmail, // Store email in metadata for webhook fallback
-                    selectedTier,
+                    customerEmail,
                     paymentType,
                     totalJobPrice: totalJobPrice.toString(),
                     depositAmount: depositBreakdown.total.toString(),
                     selectedExtras: selectedExtras.join(',')
                 },
                 receipt_email: customerEmail,
-                description: `Deposit for ${customerName} - ${selectedTier} package`
+                description: `Deposit for ${customerName}`
             },
             {
                 idempotencyKey,
@@ -252,9 +241,8 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
 
                 const quoteId = paymentIntent.metadata?.quoteId;
                 const depositAmount = parseInt(paymentIntent.metadata?.depositAmount || '0', 10) || paymentIntent.amount;
-                const selectedTier = paymentIntent.metadata?.selectedTier;
                 const selectedExtras = paymentIntent.metadata?.selectedExtras?.split(',').filter(Boolean) || [];
-                const metadataEmail = paymentIntent.metadata?.customerEmail; // Email from payment intent metadata
+                const metadataEmail = paymentIntent.metadata?.customerEmail;
 
                 // Update personalizedQuotes with depositPaidAt
                 if (quoteId) {
@@ -280,7 +268,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             depositAmountPence: depositAmount,
                             stripePaymentIntentId: paymentIntent.id,
                             bookedAt: new Date(),
-                            selectedPackage: selectedTier || quote.selectedPackage,
+                            selectedPackage: quote.selectedPackage || 'standard',
                             selectedExtras: selectedExtras.length > 0 ? selectedExtras : quote.selectedExtras,
                         };
 
@@ -296,18 +284,8 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
 
                         console.log(`[Stripe Webhook] Quote ${quoteId} marked as paid. Deposit: £${(depositAmount / 100).toFixed(2)}`);
 
-                        // 2. Calculate total job price
-                        let totalJobPrice = 0;
-                        if (quote.quoteMode === 'simple') {
-                            totalJobPrice = quote.basePrice || 0;
-                        } else {
-                            const tierPriceMap: Record<string, number | null | undefined> = {
-                                essential: quote.essentialPrice,
-                                enhanced: quote.enhancedPrice,
-                                elite: quote.elitePrice
-                            };
-                            totalJobPrice = tierPriceMap[selectedTier || 'essential'] || 0;
-                        }
+                        // 2. Calculate total job price (single price model)
+                        let totalJobPrice = quote.basePrice || quote.essentialPrice || 0;
 
                         // Add extras
                         const optionalExtras = (quote.optionalExtras as any[]) || [];
@@ -337,7 +315,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                 estimatedDuration: null,
                                 payoutPence: Math.round(totalJobPrice * 0.7), // 70% payout to contractor
                                 paymentStatus: 'unpaid',
-                                notes: `Deposit paid: £${(depositAmount / 100).toFixed(2)} | Package: ${selectedTier || 'standard'}`,
+                                notes: `Deposit paid: £${(depositAmount / 100).toFixed(2)}`,
                             });
 
                             console.log(`[Stripe Webhook] Job ${jobId} created for quote ${quoteId}`);
@@ -354,7 +332,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         const balanceDue = totalJobPrice - depositAmount;
 
                         const lineItems = [{
-                            description: quote.jobDescription || `${selectedTier || 'Standard'} Service`,
+                            description: quote.jobDescription || 'Handyman Service',
                             quantity: 1,
                             unitPrice: totalJobPrice,
                             total: totalJobPrice
@@ -425,7 +403,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                 type: 'payment_received',
                                 leadId: quote.leadId,
                                 customerName: quote.customerName,
-                                summary: `Payment received - £${(depositAmount / 100).toFixed(2)} deposit for ${selectedTier || 'standard'} package`,
+                                summary: `Payment received - £${(depositAmount / 100).toFixed(2)} deposit`,
                                 icon: '💳',
                                 data: {
                                     quoteId,
@@ -433,7 +411,6 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                     depositAmount,
                                     totalJobPrice,
                                     balanceDue,
-                                    selectedTier,
                                     jobId,
                                 },
                             });
@@ -630,13 +607,9 @@ stripeRouter.post('/api/create-visit-payment-intent', async (req, res) => {
             }
         }
 
-        // Check for custom tier prices overrides
-        if (tierId === 'standard' && quote.tierStandardPrice) {
-            pricePence = quote.tierStandardPrice;
-        } else if (tierId === 'priority' && quote.tierPriorityPrice) {
-            pricePence = quote.tierPriorityPrice;
-        } else if (tierId === 'emergency' && quote.tierEmergencyPrice) {
-            pricePence = quote.tierEmergencyPrice;
+        // For diagnostic visits, use basePrice if set (single price model)
+        if (quote.basePrice) {
+            pricePence = quote.basePrice;
         }
 
         console.log(`[Stripe] Creating visit intent for ${tierId} (${isCommercial ? 'Commercial' : 'Residential'}): ${pricePence / 100}`);

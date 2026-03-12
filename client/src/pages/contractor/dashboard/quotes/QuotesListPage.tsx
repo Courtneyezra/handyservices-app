@@ -220,11 +220,9 @@ export default function QuotesListPage() {
                                             <div className="flex items-center gap-2">
                                                 <span className={cn(
                                                     "text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wider",
-                                                    quote.quoteMode === 'hhh' ? "bg-purple-50 text-purple-600" :
-                                                        quote.quoteMode === 'pick_and_mix' ? "bg-emerald-50 text-emerald-600" :
-                                                            "bg-gray-100 text-gray-600"
+                                                    "bg-emerald-50 text-emerald-600"
                                                 )}>
-                                                    {quote.quoteMode === 'hhh' ? 'Magic Quote' : quote.quoteMode === 'pick_and_mix' ? 'Pick & Mix' : 'Standard'}
+                                                    Quote
                                                 </span>
                                             </div>
                                             <span className="font-bold text-[#323338] text-base">
