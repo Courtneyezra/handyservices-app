@@ -17,7 +17,8 @@ export function HassleComparisonCard({ segment, maxItems = 4 }: HassleComparison
         <p className="text-slate-500 text-sm mt-0.5">{headlines.subtitle}</p>
       </div>
 
-      <div className="divide-y divide-slate-100">
+      {/* Desktop: 2-column grid */}
+      <div className="hidden md:block divide-y divide-slate-100">
         {comparisons.map((item) => (
           <div key={item.id} className="grid grid-cols-2 divide-x divide-slate-100">
             <div className="px-4 py-3 flex items-start gap-2.5 bg-red-50/50">
@@ -31,6 +32,22 @@ export function HassleComparisonCard({ segment, maxItems = 4 }: HassleComparison
                 <Check className="w-3 h-3 text-[#7DB00E]" />
               </div>
               <span className="text-slate-700 text-xs font-medium leading-relaxed">{item.withUs}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Mobile: stacked cards */}
+      <div className="md:hidden divide-y divide-slate-100">
+        {comparisons.map((item) => (
+          <div key={item.id}>
+            <div className="px-4 py-2.5 flex items-start gap-2.5 bg-red-50/40">
+              <X className="w-3.5 h-3.5 text-red-400 flex-shrink-0 mt-0.5" />
+              <span className="text-slate-400 text-sm line-through decoration-red-300/60">{item.withoutUs}</span>
+            </div>
+            <div className="px-4 py-2.5 flex items-start gap-2.5">
+              <Check className="w-3.5 h-3.5 text-[#7DB00E] flex-shrink-0 mt-0.5" />
+              <span className="text-slate-700 text-sm font-medium">{item.withUs}</span>
             </div>
           </div>
         ))}
