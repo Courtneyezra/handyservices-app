@@ -47,15 +47,68 @@ const STATION_PROMPTS: Record<CallScriptStation, string> = {
   DESTINATION: "I can give you a price right now, or if you prefer, you can send us a quick video of the area.",
 };
 
-// Segment-specific tips
-const SEGMENT_TIPS: Record<CallScriptSegment, string> = {
-  LANDLORD: "Remote owner - emphasize photo reports and invoice by email. Mention tenant coordination.",
-  BUSY_PRO: "Time is money - be concise, offer exact time slots, mention SMS updates.",
-  PROP_MGR: "Portfolio angle - mention partner program for repeat work, bulk pricing.",
-  OAP: "Trust is key - don't rush, mention insurance, be patient with questions.",
-  SMALL_BIZ: "Zero disruption - work around business hours, emphasize reliability.",
-  EMERGENCY: "Speed matters - confirm availability now, mention response time.",
-  BUDGET: "Value focus - be transparent on pricing, no hidden fees.",
+// Segment-specific tips with hassle-framed talking points
+interface SegmentTipData {
+  oneLiner: string;
+  hasslePoints: string[];
+}
+
+const SEGMENT_TIPS: Record<CallScriptSegment, SegmentTipData> = {
+  LANDLORD: {
+    oneLiner: "Remote owner — hassle-free service",
+    hasslePoints: [
+      "You won't need to drive there — we send photos of the finished work",
+      "No playing middleman — we coordinate with your tenant directly",
+      "Proper tax-ready invoice same day — no chasing at year-end",
+    ],
+  },
+  BUSY_PRO: {
+    oneLiner: "Time-poor — speed and convenience",
+    hasslePoints: [
+      "No waiting 2-3 weeks — we book you in this week",
+      "No coming home wondering — photo updates sent during the job",
+      "No mess left behind — full cleanup included",
+    ],
+  },
+  PROP_MGR: {
+    oneLiner: "Portfolio manager — zero-chase workflow",
+    hasslePoints: [
+      "No chasing tradesmen — we commit to 48-72hr turnaround",
+      "No site visits needed — photo report emailed on completion",
+      "No chasing invoices — same-day, every time",
+    ],
+  },
+  OAP: {
+    oneLiner: "Trust first — safe and patient",
+    hasslePoints: [
+      "All team DBS-checked and £2M insured — safe hands",
+      "No rush, no pressure — happy to explain everything",
+      "Free site visit available — no surprises on price",
+    ],
+  },
+  SMALL_BIZ: {
+    oneLiner: "Zero disruption — after-hours available",
+    hasslePoints: [
+      "No closing the shop — we work when you're closed",
+      "No customer-facing chaos — full cleanup, no trace",
+      "VAT invoice same day — ready for your accounts",
+    ],
+  },
+  EMERGENCY: {
+    oneLiner: "Speed matters — same-day response",
+    hasslePoints: [
+      "No ringing around — we're on our way, avg 2hr response",
+      "Available evenings and weekends for emergencies",
+      "No hidden callout fees — transparent pricing upfront",
+    ],
+  },
+  BUDGET: {
+    oneLiner: "Value focus — transparent pricing",
+    hasslePoints: [
+      "Vetted and insured — not a random Gumtree ad",
+      "Cleanup included — no extra charge",
+    ],
+  },
 };
 
 // Watch-for signals per segment

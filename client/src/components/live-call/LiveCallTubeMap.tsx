@@ -50,7 +50,7 @@ export interface LiveCallTubeMapProps {
   destinationOptions: DestinationOption[];
   currentPrompt: string;
   watchFor: string[];
-  segmentTip: string | null;
+  segmentTip: { oneLiner: string; hasslePoints: string[] } | null;
   callDuration: number;
   onConfirmStation: () => void;
   onSelectSegment: (segment: CallScriptSegment) => void;
@@ -180,7 +180,7 @@ export function LiveCallTubeMap({
       {/* ══════════════════════════════════════════════════════════════════════ */}
       <div className="p-6">
         <div className="flex gap-6">
-          {/* Left Column - Segment Journey Tree */}
+          {/* Left Column - Segment Journey Tree + Value Talking Points */}
           <div className="flex-1 min-w-0">
             <SegmentJourneyTree
               isListening={isStationCurrent('LISTEN')}
@@ -190,6 +190,22 @@ export function LiveCallTubeMap({
               onSegmentSelect={handleSegmentSelect}
               onOptionSelect={handleOptionSelect}
             />
+
+            {/* Hassle-framed talking points for the VA */}
+            {segmentTip && (
+              <div className="mt-4 bg-white/5 rounded-xl border border-white/10 p-4">
+                <div className="text-xs uppercase tracking-widest text-white/40 mb-2">Say to customer</div>
+                <div className="text-sm font-medium text-white/80 mb-3">{segmentTip.oneLiner}</div>
+                <div className="space-y-2">
+                  {segmentTip.hasslePoints.map((point, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm text-white/60">
+                      <span className="text-[#7DB00E] mt-0.5">•</span>
+                      <span>{point}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Right Column - Jobs Detected Panel */}

@@ -143,6 +143,12 @@ EXAMPLE VIBE: "Here's your quote - we can work around your opening hours, just l
 
         const styleGuide = segmentStyles[segment] || segmentStyles['BUSY_PRO'];
 
+        // Get hassle-framed value points for this segment
+        const segValueLines = getWhatsAppValueLines(segment || 'UNKNOWN', 3);
+        const valueContext = segValueLines.length > 0
+            ? `\nVALUE POINTS FOR THIS SEGMENT (naturally weave ONE into your message before the quote link):\n${segValueLines.map(l => `- ${l}`).join('\n')}`
+            : '';
+
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
@@ -152,11 +158,13 @@ EXAMPLE VIBE: "Here's your quote - we can work around your opening hours, just l
 
 SEGMENT: ${segment || 'BUSY_PRO'}
 ${styleGuide}
+${valueContext}
 
 STRUCTURE YOUR MESSAGE:
 1. Brief, natural opening that flows from the conversation (reference what they discussed)
-2. Present the quote link
-3. ALWAYS end with: "If you have any questions, just give me a shout" (or similar warm invitation to ask questions)
+2. Naturally mention ONE value point that matters to this customer (from the list above)
+3. Present the quote link
+4. ALWAYS end with: "If you have any questions, just give me a shout" (or similar warm invitation to ask questions)
 
 RULES:
 - Keep it SHORT (under 80 words)
@@ -1801,6 +1809,7 @@ quotesRouter.get('/api/personalized-quotes/:id/confirmation', async (req, res) =
 
 import { twilioClient } from './twilio-client';
 import { sendWhatsAppMessage } from './meta-whatsapp';
+import { getWhatsAppValueLines } from '@shared/hassle-comparisons';
 import { calls } from '@shared/schema';
 
 const instantQuoteSchema = z.object({
@@ -1819,6 +1828,7 @@ const instantQuoteSchema = z.object({
     selectedDate: z.string().optional(),
     sendVia: z.enum(['sms', 'whatsapp']),
     callId: z.string().optional(),
+    segment: z.string().optional(),
 });
 
 // POST /api/quotes/instant
@@ -1881,7 +1891,7 @@ quotesRouter.post('/api/quotes/instant', optionalAuth, async (req, res) => {
                 source: s.source,
             })),
             selectedDate: input.selectedDate ? new Date(input.selectedDate) : null,
-            segment: 'UNKNOWN',
+            segment: input.segment || 'UNKNOWN',
             createdBy: (req as any).user?.id || null,
             createdByName: (req as any).user
                 ? `${(req as any).user.firstName || ''} ${(req as any).user.lastName || ''}`.trim() || null
@@ -1895,8 +1905,11 @@ quotesRouter.post('/api/quotes/instant', optionalAuth, async (req, res) => {
         // Generate quote URL from request
         const quoteUrl = getShortQuoteUrl(req, shortSlug);
 
-        // Send booking link
-        const message = `Hi ${input.customerName.split(' ')[0] || 'there'}! Here's your quote for £${(input.totalPricePence / 100).toFixed(2)}. Click to view and book: ${quoteUrl}`;
+        // Send booking link with segment-specific value lines
+        const seg = input.segment || 'UNKNOWN';
+        const valueLines = getWhatsAppValueLines(seg, 2);
+        const valuePart = valueLines.length > 0 ? '\n' + valueLines.join('\n') + '\n' : '';
+        const message = `Hi ${input.customerName.split(' ')[0] || 'there'}! Here's your quote for £${(input.totalPricePence / 100).toFixed(2)}.${valuePart}\nClick to view and book: ${quoteUrl}`;
 
         if (input.sendVia === 'sms') {
             // Send via Twilio SMS

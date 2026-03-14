@@ -39,6 +39,7 @@ import { TimeSlotSelector, TimeSlotType } from '@/components/TimeSlotSelector';
 import { SectionWrapper } from '@/components/SectionWrapper';
 import { StickyCTA } from '@/components/StickyCTA';
 import { SingleProductQuote } from '@/components/quote/SingleProductQuote';
+import { HassleComparisonCard } from '@/components/quote/HassleComparisonCard';
 import { BudgetQuoteInline } from '@/components/quote/BudgetQuoteInline';
 import { UnifiedQuoteCard } from '@/components/quote/UnifiedQuoteCard';
 import { BookingConfirmation } from '@/components/quote/BookingConfirmation';
@@ -611,9 +612,9 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
       description: "You're busy. We respect that. The price is fixed, the time slot is yours, and the result is guaranteed.",
       boxText: "Zero hassle. Zero ambiguity. 100% Guaranteed.",
       guaranteeItems: [
-        { icon: 'Lock', title: "Upfront Pricing", text: "The price you see is the price you pay. No last-minute add-ons." },
-        { icon: 'Clock', title: "We Respect Your Calendar", text: "You pick the slot. We arrive on time, every time." },
-        { icon: 'Shield', title: "Total Peace of Mind", text: "If it's not perfect, we return for free. 90-day warranty." }
+        { icon: 'Lock', title: "No Price Surprises", text: "No 'oh, that'll be extra'. The price is fixed before we start." },
+        { icon: 'Clock', title: "No Rearranging Your Day", text: "You pick the slot. We arrive on time — no half-day windows." },
+        { icon: 'Shield', title: "No Risk If It's Not Perfect", text: "Not right? We return and fix it free. 90-day guarantee." }
       ],
       badges: [
         { label: 'Price', value: 'Fixed', icon: 'Lock' },
@@ -642,8 +643,8 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
     },
     guarantee: {
       title: "PORTFOLIO PARTNER",
-      mainTitle: "Your Maintenance Department",
-      description: "Priority response, monthly invoicing, and photo documentation for every job. Built for scale.",
+      mainTitle: "No Chasing. No Site Visits. No Invoice Drama.",
+      description: "Stop chasing tradesmen, driving to properties, and waiting for paperwork. One text, we handle the rest.",
       boxText: "One vendor. Every property. Zero chasing.",
       badges: [
         { label: 'Response', value: '24-48hr SLA', icon: 'Clock' },
@@ -672,8 +673,8 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
     },
     guarantee: {
       title: "LANDLORD READY",
-      mainTitle: "Protect Your Investment",
-      description: "Fast turnaround, photo documentation, and proper invoicing. We handle the hassle so you don't have to.",
+      mainTitle: "No Driving Over. No Middleman. No Chasing.",
+      description: "No 2-hour drive to check the work. No playing phone tag between tenant and tradesman. No chasing for receipts at tax time.",
       boxText: "Photo proof. Proper invoice. Zero chasing.",
       badges: [
         { label: 'Response', value: '48-72hr', icon: 'Clock' },
@@ -701,10 +702,10 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
       }
     },
     guarantee: {
-      title: "BUSINESS COMPLIANCE",
-      mainTitle: "Professional Compliance",
-      description: "Full VAT invoicing, RAMS available upon request, and commercial-grade insurance.",
-      boxText: "After-hours service at standard daytime rates for contract clients.",
+      title: "ZERO DISRUPTION",
+      mainTitle: "No Closing the Shop. No Lost Revenue.",
+      description: "No shutting down during trading hours. No customers seeing the chaos. We work when you're closed — open tomorrow to a finished job.",
+      boxText: "After-hours service. Zero disruption. Customers never know.",
       badges: [
         { label: 'Schedule', value: 'After-Hours', icon: 'Clock' },
         { label: 'Invoice', value: 'VAT Invoice', icon: 'Lock' },
@@ -2204,6 +2205,12 @@ export default function PersonalizedQuotePage() {
 
         <ValueGuarantee quote={quote} config={config} />
 
+        {/* Hassle Comparison — "Without Us vs With Us" */}
+        <SectionWrapper bg="white">
+          <div className="max-w-2xl mx-auto">
+            <HassleComparisonCard segment={quote.segment || 'UNKNOWN'} />
+          </div>
+        </SectionWrapper>
 
         {/* The Final Reveal: Quote Section */}
         <section id="packages-section" className="min-h-screen bg-slate-50 pt-20 pb-40 px-4 md:px-6 lg:px-8 relative overflow-visible">

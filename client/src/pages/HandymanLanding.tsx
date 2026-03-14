@@ -11,6 +11,7 @@ import { LocalTrustSection } from "@/components/AnimatedMap";
 import { SegmentSwitcher } from "@/components/SegmentSwitcher";
 import { PropertyManagerView } from "@/components/PropertyManagerView";
 import { BusinessView } from "@/components/BusinessView";
+import { HassleComparisonSection } from "@/components/HassleComparisonSection";
 
 import teamMember1 from "@assets/Untitled design (22)_1764599239600.webp";
 import teamMember2 from "@assets/Untitled design (23)_1764599239600.webp";
@@ -726,6 +727,7 @@ export default function HandymanLanding({
                         <TeamSection />
                         <EmergencyServiceSection />
                         <ProcessSection />
+                        <HassleComparisonSection segment="BUSY_PRO" />
                         <VideoQuoteSection />
                         <ServicesSection />
                         <RealJobsSection />

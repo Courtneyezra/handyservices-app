@@ -4,6 +4,7 @@ import { Phone, Star, Wrench, Paintbrush, Hammer, Droplets, Shield, Clock, Check
 import { Button } from "@/components/ui/button";
 import { SiWhatsapp, SiGoogle } from "react-icons/si";
 import { SocialProofSection } from "@/components/SocialProofSection";
+import { HassleComparisonSection } from "@/components/HassleComparisonSection";
 import { IntakeHero } from "@/components/IntakeHero";
 import { GoogleReviewsSection } from "@/components/GoogleReviewsSection";
 import { StickyCTA } from "@/components/StickyCTA";
@@ -680,6 +681,7 @@ export default function PropertyManagerLanding() {
             <EmergencyServiceSection />
             <ServicesSection />
             <ProcessSection />
+            <HassleComparisonSection segment="PROP_MGR" />
             <RealJobsSection />
             <BeforeAfterSection />
 

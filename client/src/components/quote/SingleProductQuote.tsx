@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { format, addDays, isWeekend } from 'date-fns';
+import { getHassleComparisons } from '@shared/hassle-comparisons';
 
 interface AddOnOption {
   id: string;
@@ -29,6 +30,7 @@ interface SingleProductQuoteProps {
   basePrice: number; // in pence
   customerName: string;
   jobDescription?: string;
+  segment?: string;
   onBook: (config: {
     selectedDate: Date;
     timeSlot: string;
@@ -43,6 +45,7 @@ export function SingleProductQuote({
   basePrice,
   customerName,
   jobDescription,
+  segment = 'UNKNOWN',
   onBook,
   isBooking = false,
 }: SingleProductQuoteProps) {
@@ -189,18 +192,13 @@ export function SingleProductQuote({
             </div>
           </div>
 
-          {/* What's Included - Compact */}
+          {/* What's Included - Segment-driven */}
           <div className="bg-white/5 rounded-2xl p-4">
             <div className="grid grid-cols-2 gap-3 text-sm">
-              {[
-                { icon: <Check className="w-4 h-4" />, text: 'Quality guarantee' },
-                { icon: <Phone className="w-4 h-4" />, text: 'Direct contact' },
-                { icon: <Shield className="w-4 h-4" />, text: '90-day warranty' },
-                { icon: <Sparkles className="w-4 h-4" />, text: 'Full cleanup' },
-              ].map((item, i) => (
+              {getHassleComparisons(segment, 4).map((item, i) => (
                 <div key={i} className="flex items-center gap-2 text-slate-300">
-                  <div className="text-[#7DB00E]">{item.icon}</div>
-                  {item.text}
+                  <div className="text-[#7DB00E]"><Check className="w-4 h-4" /></div>
+                  {item.withUs}
                 </div>
               ))}
             </div>

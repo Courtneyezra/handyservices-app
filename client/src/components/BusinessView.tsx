@@ -1,4 +1,5 @@
 import { Phone, Star, Wrench, Paintbrush, Hammer, Droplets, Shield, Clock, CheckCircle, ArrowRight, AlertCircle, MapPin, Leaf, Package } from "lucide-react";
+import { HassleComparisonSection } from "@/components/HassleComparisonSection";
 import { Button } from "@/components/ui/button";
 import { SiWhatsapp, SiGoogle } from "react-icons/si";
 import { GoogleReviewsBadge } from "@/components/LandingShared";
@@ -23,6 +24,7 @@ export function BusinessView() {
         <>
             <TeamSection />
             <ProcessSection />
+            <HassleComparisonSection segment="SMALL_BIZ" />
             <VideoQuoteSection />
             <ServicesSection />
             <RealJobsSection />

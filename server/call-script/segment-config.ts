@@ -12,7 +12,7 @@ export const SEGMENT_CONFIGS: Record<CallScriptSegment, SegmentConfig> = {
         id: 'LANDLORD',
         name: 'Landlord',
         color: '#22C55E', // green
-        oneLiner: 'Remote owner - mention photos & invoice',
+        oneLiner: 'No driving over — we send photos & tax-ready invoice',
         defaultDestination: 'INSTANT_QUOTE',
         detectionKeywords: [
             'rental',
@@ -32,7 +32,7 @@ export const SEGMENT_CONFIGS: Record<CallScriptSegment, SegmentConfig> = {
         id: 'BUSY_PRO',
         name: 'Busy Professional',
         color: '#3B82F6', // blue
-        oneLiner: 'Time-poor - mention SMS updates & key safe',
+        oneLiner: 'No waiting weeks — booked this week, photo updates, full cleanup',
         defaultDestination: 'INSTANT_QUOTE',
         detectionKeywords: [
             'at work',
@@ -52,7 +52,7 @@ export const SEGMENT_CONFIGS: Record<CallScriptSegment, SegmentConfig> = {
         id: 'PROP_MGR',
         name: 'Property Manager',
         color: '#8B5CF6', // purple
-        oneLiner: 'Wants account - mention SLA & invoicing',
+        oneLiner: 'No chasing — 48-72hr SLA, photo report, invoice same day',
         defaultDestination: 'INSTANT_QUOTE',
         detectionKeywords: [
             'manage properties',
@@ -71,7 +71,7 @@ export const SEGMENT_CONFIGS: Record<CallScriptSegment, SegmentConfig> = {
         id: 'OAP',
         name: 'Trust Seeker',
         color: '#EC4899', // pink
-        oneLiner: 'Trust first - offer site visit, slow down',
+        oneLiner: 'DBS-checked, £2M insured — no rush, free site visit available',
         defaultDestination: 'SITE_VISIT',
         detectionKeywords: [
             'live alone',
@@ -92,7 +92,7 @@ export const SEGMENT_CONFIGS: Record<CallScriptSegment, SegmentConfig> = {
         id: 'SMALL_BIZ',
         name: 'Small Business',
         color: '#F97316', // orange
-        oneLiner: 'No disruption - mention after hours option',
+        oneLiner: 'No closing the shop — we work when you\'re closed, zero trace',
         defaultDestination: 'INSTANT_QUOTE',
         detectionKeywords: [
             'shop',
@@ -136,7 +136,7 @@ export const SEGMENT_CONFIGS: Record<CallScriptSegment, SegmentConfig> = {
         id: 'BUDGET',
         name: 'Budget Shopper',
         color: '#6B7280', // grey
-        oneLiner: 'Exit ramp - polite decline',
+        oneLiner: 'Vetted & insured — not a random ad. Value or exit.',
         defaultDestination: 'EXIT',
         detectionKeywords: [
             'how much per hour',

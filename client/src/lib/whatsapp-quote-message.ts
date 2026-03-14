@@ -1,4 +1,5 @@
 import { format, parseISO, isToday } from 'date-fns';
+import { getWhatsAppValueLines } from '@shared/hassle-comparisons';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -100,12 +101,18 @@ export function buildQuoteWhatsAppMessage({
   const cleanDesc = cleanJobDescription(jobDescription);
   const closing = getSegmentClosingLine(segment);
 
+  // Get top 2 segment-specific value lines
+  const valueLines = getWhatsAppValueLines(segment, 2);
+
   const lines: string[] = [
     `Hi ${firstName},`,
     '',
     `Thanks for getting in touch! Here's your quote:`,
     '',
     `*Job:* ${cleanDesc}`,
+    '',
+    // Value lines — show what's included before the URL
+    ...valueLines,
     '',
     `View details, check dates and book directly:`,
     quoteUrl,

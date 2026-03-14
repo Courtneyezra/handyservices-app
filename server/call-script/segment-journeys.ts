@@ -234,10 +234,10 @@ const LANDLORD_JOURNEY: SegmentJourney = {
         },
     },
     optimizations: [
-        'Mention photo proof early',
-        'Offer tenant coordination',
-        'Tax-ready invoice promise',
-        'They dont need to be there',
+        'No driving over — we send photo proof of the finished work',
+        'No middleman hassle — we coordinate with your tenant directly',
+        'Tax-ready invoice same day — no chasing at year-end',
+        'You don\'t need to be there — we handle everything',
     ],
     finalDestinations: STANDARD_QUOTE_FORK_DESTINATIONS,
 };
@@ -293,11 +293,11 @@ const BUSY_PRO_JOURNEY: SegmentJourney = {
         },
     },
     optimizations: [
-        'Keep it brief',
-        'SMS updates promise',
-        'Key safe option',
-        'No unnecessary questions',
-        'Quote in inbox fast',
+        'No waiting 2-3 weeks — booked this week',
+        'Photo updates during the job — no guessing',
+        'Key safe option — no need to be home',
+        'Keep it brief — respect their time',
+        'Quote in inbox in 60 seconds',
     ],
     finalDestinations: STANDARD_QUOTE_FORK_DESTINATIONS,
 };
@@ -353,11 +353,11 @@ const PROP_MGR_JOURNEY: SegmentJourney = {
         },
     },
     optimizations: [
-        'Mention SLA',
-        'Same-day invoicing',
-        'Dedicated contact promise',
+        'No chasing tradesmen — 48-72hr turnaround committed',
+        'No site visits needed — photo report emailed on completion',
+        'No chasing invoices — same-day, every time',
         'Partner Program is POST-JOB upsell (not during call)',
-        'Photo reports for all jobs',
+        'One text, sorted — zero-chase workflow',
     ],
     finalDestinations: STANDARD_QUOTE_FORK_DESTINATIONS,
 };
@@ -436,11 +436,11 @@ const OAP_JOURNEY: SegmentJourney = {
         },
     },
     optimizations: [
-        'Slow down - dont rush',
-        'Lead with DBS and insurance',
-        'Offer free visit proactively',
-        'Be patient with questions',
-        'Use reassuring tone',
+        'No strangers — all team DBS-checked and £2M insured',
+        'No rush, no pressure — happy to explain everything',
+        'No surprise costs — free site visit, see exactly what you\'re paying',
+        'Be patient with questions — reassuring tone',
+        'They value feeling safe over speed',
     ],
     finalDestinations: [
         SITE_VISIT_DESTINATION, // Recommended for this segment
@@ -525,11 +525,11 @@ const SMALL_BIZ_JOURNEY: SegmentJourney = {
         },
     },
     optimizations: [
-        'Zero disruption promise',
-        'After hours option',
-        'Customer-invisible work',
-        'Quick turnaround',
-        'Understand business needs',
+        'No closing the shop — we work when you\'re closed',
+        'No customer-facing chaos — full cleanup, no trace',
+        'No chasing receipts — VAT invoice same day',
+        'Open tomorrow to a finished job',
+        'Understand their trading hours before quoting',
     ],
     finalDestinations: STANDARD_QUOTE_FORK_DESTINATIONS,
 };
@@ -610,10 +610,10 @@ const BUDGET_JOURNEY: SegmentJourney = {
         },
     },
     optimizations: [
+        'Not a random Gumtree ad — we\'re vetted and insured',
+        'Cleanup included — no extra charge',
         'Try to convert from cheapest to value',
         'Polite exit if they insist on cheapest',
-        'Mention warranty and quality',
-        'Suggest alternatives gracefully',
         'No hard sell',
     ],
     finalDestinations: [
@@ -755,12 +755,12 @@ export function getSegmentOptimizations(segmentId: CallScriptSegment): string[] 
  */
 export const SEGMENT_VA_PROMPTS: Record<CallScriptSegment, string> = {
     EMERGENCY: "Is this water, gas, heating, or lockout?",
-    LANDLORD: "You don't need to be there. We handle everything.",
-    BUSY_PRO: "Let me make this quick - 60 seconds, quote in your inbox.",
-    PROP_MGR: "Managing multiple properties? We work with agencies like yours.",
-    OAP: "We're fully insured - £2M. All team DBS checked.",
-    SMALL_BIZ: "We can work around your customers.",
-    BUDGET: "Looking for cheapest or best value?",
+    LANDLORD: "You won't need to drive over or chase anyone. We go, fix it, send you photos and a proper invoice.",
+    BUSY_PRO: "No waiting weeks — we'll get you booked in this week. Quote in your inbox in 60 seconds.",
+    PROP_MGR: "No chasing tradesmen. 48-72hr turnaround, photo report, invoice same day. One text, sorted.",
+    OAP: "We're fully insured — £2M. All team DBS checked. No rush, happy to explain everything.",
+    SMALL_BIZ: "No closing up — we work when you're closed. Your customers won't know we were there.",
+    BUDGET: "Vetted and insured — not a random ad. Looking for cheapest or best value?",
 };
 
 export default SEGMENT_JOURNEYS;

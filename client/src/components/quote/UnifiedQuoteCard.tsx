@@ -11,6 +11,7 @@ import { format, addDays, isWeekend } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { isStripeConfigured } from '@/lib/stripe';
+import { getHassleComparisons } from '@shared/hassle-comparisons';
 import {
   BASE_SCHEDULING_RULES,
   BASE_TIME_SLOTS,
@@ -411,17 +412,13 @@ export function UnifiedQuoteCard({
           </div>
 
 
-          {/* What's Included - Compact */}
+          {/* What's Included - Segment-driven */}
           <div className={`mt-4 pt-4 border-t ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
             <div className={`flex flex-wrap justify-center gap-x-4 gap-y-2 text-sm ${isDarkTheme ? 'text-slate-300' : 'text-slate-700'}`}>
-              {[
-                { icon: <Check className="w-4 h-4" />, text: 'Quality guarantee' },
-                { icon: <Shield className="w-4 h-4" />, text: segment === 'BUSY_PRO' ? '90-day warranty' : '30-day warranty' },
-                { icon: <Sparkles className="w-4 h-4" />, text: 'Full cleanup' },
-              ].map((item, i) => (
+              {getHassleComparisons(segment, 3).map((item, i) => (
                 <div key={i} className="flex items-center gap-1.5">
-                  <span className="text-[#7DB00E]">{item.icon}</span>
-                  {item.text}
+                  <span className="text-[#7DB00E]"><Check className="w-4 h-4" /></span>
+                  {item.withUs}
                 </div>
               ))}
             </div>
