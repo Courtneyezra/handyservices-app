@@ -11,7 +11,7 @@ import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 import { db } from "./db";
 import { productizedServices, skuMatchLogs, calls, callSkus, handymanProfiles, conversations, leads } from "../shared/schema";
-import { desc, eq, and, ne, or, asc, isNull } from "drizzle-orm";
+import { desc, eq, and, ne, or, asc, isNull, lt } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 import { detectSku, detectMultipleTasks, loadAndCacheSkus } from "./skuDetector";
 import { setupTwilioSocket } from "./twilio-realtime";
@@ -28,6 +28,7 @@ import { dashboardRouter } from "./dashboard";
 import { whatsappRouter } from "./whatsapp-api";
 import { metaWhatsAppRouter, attachMetaWebSocket } from "./meta-whatsapp";
 import { trainingRouter } from './training-routes';
+import { pushRouter } from './web-push';
 import handymenRouter from './handymen';
 import callsRouter from './calls';
 import { generateWhatsAppMessage, refineWhatsAppMessage } from './openai';
@@ -292,6 +293,7 @@ app.use(liveCallActionsRouter); // Live Call HUD Actions (send quote, video requ
 app.use('/api/availability', availabilityRouter); // Availability Slots for Live Call HUD
 app.use('/api/public', publicRoutes); // Public API Routes
 app.use('/api/auth', authRouter); // Auth Routes
+app.use(pushRouter); // Web Push subscription routes
 // app.use('/api/places', placesRouter); // API: Places Search (Moved to register before catch-all)
 
 // Freemium Product Routes
@@ -1156,15 +1158,13 @@ app.get('/api/contractor/inbox', async (req, res) => {
                     eq(calls.actionStatus, 'attempting')
                 )
             )
-            .orderBy(desc(calls.startTime))
-            .limit(30);
+            .orderBy(desc(calls.startTime));
 
         // 2. Fetch action-pending leads (newest first)
         const pendingLeads = await db.select()
             .from(leads)
             .where(eq(leads.actionStatus, 'pending'))
-            .orderBy(desc(leads.createdAt))
-            .limit(30);
+            .orderBy(desc(leads.createdAt));
 
         // 3. Normalize into unified shape
         const items = [
@@ -1218,8 +1218,8 @@ app.get('/api/contractor/inbox', async (req, res) => {
             return bTime - aTime;
         });
 
-        // Return the latest 30
-        res.json(items.slice(0, 30));
+        // Return all pending items (no cap — count must reflect reality)
+        res.json(items);
     } catch (error) {
         console.error('Failed to fetch contractor inbox:', error);
         res.status(500).json({ error: 'Failed to fetch inbox items' });
@@ -1255,6 +1255,33 @@ app.patch('/api/contractor/inbox/:id', async (req, res) => {
     } catch (error) {
         console.error(`Failed to update inbox item ${id}:`, error);
         res.status(500).json({ error: 'Failed to update' });
+    }
+});
+
+// Bulk resolve old inbox items
+app.post('/api/contractor/inbox/bulk-resolve', async (req, res) => {
+    const { before } = req.body; // ISO date string
+    const cutoff = before ? new Date(before) : new Date();
+
+    try {
+        await db.update(calls)
+            .set({ actionStatus: 'resolved' })
+            .where(and(
+                or(eq(calls.actionStatus, 'pending'), eq(calls.actionStatus, 'attempting')),
+                lt(calls.startTime, cutoff)
+            ));
+        await db.update(leads)
+            .set({ actionStatus: 'resolved', updatedAt: new Date() })
+            .where(and(
+                eq(leads.actionStatus, 'pending'),
+                lt(leads.createdAt, cutoff)
+            ));
+
+        broadcastToClients({ type: 'inbox:item_resolved', data: { bulk: true } });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Bulk resolve failed:', error);
+        res.status(500).json({ error: 'Failed to bulk resolve' });
     }
 });
 
@@ -1297,6 +1324,17 @@ export function broadcastToClients(message: any) {
         }
         console.log(`[Client WS] Removed dead connection. Remaining clients: ${wssClient.clients.size}`);
     });
+
+    // Send web push notification for new inbox items (works even when browser is closed)
+    if (message.type === 'inbox:new_item' && message.data) {
+        import('./web-push').then(({ sendPushNotifications }) => {
+            sendPushNotifications({
+                title: `New follow-up: ${message.data.customerName}`,
+                body: message.data.summary || message.data.source,
+                url: '/admin/follow-ups',
+            }).catch(err => console.warn('[Push] Send failed:', err));
+        });
+    }
 }
 
 // Handle client WebSocket connections from frontend

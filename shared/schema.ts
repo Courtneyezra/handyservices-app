@@ -1856,6 +1856,16 @@ export const insertLandlordSettingsSchema = createInsertSchema(landlordSettings)
 export type LandlordSettings = typeof landlordSettings.$inferSelect;
 export type InsertLandlordSettings = z.infer<typeof insertLandlordSettingsSchema>;
 
+// Push Subscriptions - Web Push API subscriptions for mobile notifications
+export const pushSubscriptions = pgTable("push_subscriptions", {
+    id: serial("id").primaryKey(),
+    endpoint: text("endpoint").notNull().unique(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ==========================================
 // RULES ENGINE TYPES
 // ==========================================

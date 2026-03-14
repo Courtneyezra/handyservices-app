@@ -70,26 +70,42 @@ function buildFollowUpMessage(item: InboxItem): string {
     return `Hi ${name}, thanks for getting in touch with V6 Handyman Services! I'm following up on your enquiry. When's a good time to discuss?`;
 }
 
-// Request push notification permission
-async function requestPushPermission() {
-    if (!('Notification' in window)) return false;
-    if (Notification.permission === 'granted') return true;
-    if (Notification.permission === 'denied') return false;
-    const result = await Notification.requestPermission();
-    return result === 'granted';
+// Subscribe to Web Push via service worker (works even when app is backgrounded)
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
 }
 
-function showPushNotification(item: { customerName: string; summary: string | null; source: string }) {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    const notification = new Notification(`New follow-up from ${item.customerName}`, {
-        body: item.summary || item.source,
-        icon: '/logo.png',
-        tag: 'follow-up',
-    } as NotificationOptions);
-    notification.onclick = () => {
-        window.focus();
-        notification.close();
-    };
+async function subscribeToPush() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') return;
+
+    const registration = await navigator.serviceWorker.ready;
+
+    // Fetch VAPID public key from server
+    const res = await fetch('/api/push/vapid-public-key');
+    const { publicKey } = await res.json();
+    if (!publicKey) return;
+
+    // Subscribe or get existing subscription
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(publicKey),
+        });
+    }
+
+    // Send subscription to server
+    await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(subscription.toJSON()),
+    });
 }
 
 export default function InboxPage() {
@@ -98,9 +114,9 @@ export default function InboxPage() {
     const queryClient = useQueryClient();
     const { toast } = useToast();
 
-    // Request push permission on mount
+    // Subscribe to web push on mount
     useEffect(() => {
-        requestPushPermission();
+        subscribeToPush().catch(() => {});
     }, []);
 
     // Fetch real inbox data
@@ -118,7 +134,7 @@ export default function InboxPage() {
     // Filter out items being resolved (optimistic removal)
     const visibleItems = inboxItems.filter(item => !resolvingIds.has(item.id));
 
-    // WebSocket for real-time updates + push notifications
+    // WebSocket for real-time UI updates (push notifications handled by service worker)
     useEffect(() => {
         const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
         const ws = new WebSocket(`${protocol}://${window.location.host}/ws`);
@@ -128,10 +144,6 @@ export default function InboxPage() {
                 const msg = JSON.parse(event.data);
                 if (msg.type === 'inbox:new_item') {
                     queryClient.invalidateQueries({ queryKey: ['/api/contractor/inbox'] });
-                    // Push notification for new items
-                    if (msg.data) {
-                        showPushNotification(msg.data);
-                    }
                 }
                 if (msg.type === 'inbox:item_updated' || msg.type === 'inbox:item_resolved') {
                     queryClient.invalidateQueries({ queryKey: ['/api/contractor/inbox'] });
@@ -142,11 +154,18 @@ export default function InboxPage() {
         return () => ws.close();
     }, [queryClient]);
 
-    // Resolve item with optimistic removal + fade
+    // Resolve item with optimistic cache update + fade
     const handleResolve = useCallback(async (id: string) => {
-        // Optimistic: add to resolving set (triggers fade-out)
+        // Optimistic: add to resolving set (triggers fade-out in this component)
         setResolvingIds(prev => new Set(prev).add(id));
         if (expandedId === id) setExpandedId(null);
+
+        // Optimistic cache update — removes item from shared cache so badge count drops instantly
+        const previousItems = queryClient.getQueryData<InboxItem[]>(['/api/contractor/inbox']);
+        queryClient.setQueryData<InboxItem[]>(
+            ['/api/contractor/inbox'],
+            (old) => old?.filter(item => item.id !== id) ?? []
+        );
 
         try {
             const res = await fetch(`/api/contractor/inbox/${id}`, {
@@ -156,18 +175,20 @@ export default function InboxPage() {
             });
             if (!res.ok) throw new Error('Failed to resolve');
 
-            // After fade completes, refetch to sync
+            // After fade completes, clean up resolving set
             setTimeout(() => {
-                queryClient.invalidateQueries({ queryKey: ['/api/contractor/inbox'] });
                 setResolvingIds(prev => {
                     const next = new Set(prev);
                     next.delete(id);
                     return next;
                 });
             }, 350);
-            toast({ title: "Marked as dealt with", duration: 2000 });
+            // No toast — the fade-out is sufficient feedback
         } catch {
-            // Revert optimistic removal
+            // Revert optimistic cache update
+            if (previousItems) {
+                queryClient.setQueryData(['/api/contractor/inbox'], previousItems);
+            }
             setResolvingIds(prev => {
                 const next = new Set(prev);
                 next.delete(id);

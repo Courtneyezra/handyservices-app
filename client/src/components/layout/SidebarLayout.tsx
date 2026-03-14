@@ -382,7 +382,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                         "flex flex-col items-center justify-center gap-0.5 flex-1 px-2 transition-colors relative",
                                         isActive ? "text-primary" : "text-muted-foreground"
                                     )}>
-                                        <div className="relative">
+                                        <div className={cn("relative", followUpCount > 0 && !isActive && "animate-bounce")}>
                                             <PhoneCall className={cn("w-5 h-5", isActive && "text-primary")} />
                                             {followUpCount > 0 && (
                                                 <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold px-1">
@@ -391,21 +391,6 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                             )}
                                         </div>
                                         <span className={cn("text-[10px] font-semibold", isActive && "text-primary")}>Follow-Ups</span>
-                                        {isActive && <div className="absolute bottom-1 w-6 h-0.5 rounded-full bg-primary" />}
-                                    </Link>
-                                );
-                            })()}
-
-                            {/* Tab 2: Live */}
-                            {(() => {
-                                const isActive = location === "/admin/live-call";
-                                return (
-                                    <Link href="/admin/live-call" className={cn(
-                                        "flex flex-col items-center justify-center gap-0.5 flex-1 px-2 transition-colors relative",
-                                        isActive ? "text-primary" : "text-muted-foreground"
-                                    )}>
-                                        <Mic className={cn("w-5 h-5", isActive && "text-primary")} />
-                                        <span className={cn("text-[10px] font-semibold", isActive && "text-primary")}>Live</span>
                                         {isActive && <div className="absolute bottom-1 w-6 h-0.5 rounded-full bg-primary" />}
                                     </Link>
                                 );
