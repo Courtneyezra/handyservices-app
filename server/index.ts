@@ -1147,16 +1147,13 @@ app.patch('/api/calls/:id', async (req, res) => {
 // ============================================
 app.get('/api/contractor/inbox', async (req, res) => {
     try {
-        // 1. Fetch VA-answered calls only (no missed_reason = AI agent handled it)
+        // 1. Fetch all calls needing follow-up (missed, routed to AI, etc.)
         const pendingCalls = await db.select()
             .from(calls)
             .where(
-                and(
-                    or(
-                        eq(calls.actionStatus, 'pending'),
-                        eq(calls.actionStatus, 'attempting')
-                    ),
-                    isNull(calls.missedReason)
+                or(
+                    eq(calls.actionStatus, 'pending'),
+                    eq(calls.actionStatus, 'attempting')
                 )
             )
             .orderBy(desc(calls.startTime))
@@ -1178,7 +1175,9 @@ app.get('/api/contractor/inbox', async (req, res) => {
                 phone: call.phoneNumber,
                 summary: call.jobSummary || call.transcription?.substring(0, 500) || null,
                 source: call.missedReason === 'out_of_hours' ? 'Out-of-Hours Call'
-                    : call.missedReason === 'busy_agent' ? 'Busy Agent Call'
+                    : call.missedReason === 'busy_agent' ? 'Missed Call (Busy)'
+                    : call.missedReason === 'no_answer' ? 'Missed Call'
+                    : call.missedReason === 'user_hangup' ? 'Missed Call (Hung Up)'
                     : call.outcome === 'MISSED_CALL' ? 'Missed Call'
                     : 'AI Agent Call',
                 sourceType: call.missedReason || 'call',

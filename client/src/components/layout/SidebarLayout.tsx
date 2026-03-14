@@ -59,8 +59,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
             if (!res.ok) return [];
             return res.json();
         },
-        refetchInterval: 30000,
-        staleTime: 15000,
+        refetchInterval: 15000,
+        staleTime: 5000,
     });
     const followUpCount = followUpItems?.length || 0;
 
