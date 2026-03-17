@@ -138,3 +138,60 @@ export function buildQuoteWhatsAppMessage({
 
   return lines.join('\n');
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Contextual quote message builder (Phase 5b)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ContextualQuoteMessageParams {
+  firstName: string;
+  jobDescription?: string;
+  quoteUrl: string;
+  contextualMessage: string;
+  whatsappValueLines: string[];
+  whatsappClosing: string;
+  availableDates?: string[];
+}
+
+/**
+ * Build a WhatsApp message for contextual (non-segment) quotes.
+ * Uses AI-generated contextual messaging instead of segment-based templates.
+ */
+export function buildContextualQuoteWhatsAppMessage({
+  firstName,
+  jobDescription,
+  quoteUrl,
+  contextualMessage,
+  whatsappValueLines,
+  whatsappClosing,
+  availableDates,
+}: ContextualQuoteMessageParams): string {
+  const greeting = `Hi ${firstName},`;
+
+  const jobLine = jobDescription
+    ? `\n\n*Job:* ${cleanJobDescription(jobDescription)}`
+    : '';
+
+  const message = `\n\n${contextualMessage}`;
+
+  const valueLines = whatsappValueLines
+    .map(line => `✨ ${line}`)
+    .join('\n');
+
+  const link = `\n\nView your quote and book directly:\n${quoteUrl}`;
+
+  let dates = '';
+  if (availableDates && availableDates.length > 0) {
+    const dateList = availableDates
+      .slice(0, 3)
+      .map(d => `• ${d}`)
+      .join('\n');
+    dates = `\n\n*Available slots:*\n${dateList}`;
+  }
+
+  const closing = `\n\n${whatsappClosing}`;
+
+  const footer = '\n\n_4.9★ rated · £2M insured_';
+
+  return `${greeting}${jobLine}${message}\n\n${valueLines}${link}${dates}${closing}${footer}`;
+}

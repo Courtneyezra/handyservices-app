@@ -259,7 +259,7 @@ export function QuoteSendPopup({
       const jobCount = lineItems.length;
       const jobDesc = jobCount === 1
         ? lineItems[0].description.toLowerCase()
-        : `${jobCount} jobs`;
+        : `your ${jobCount} jobs`;
 
       // Segment-specific value lines (Madhavan: "what are they really buying?")
       const valueLines: Record<string, string> = {
@@ -273,18 +273,30 @@ export function QuoteSendPopup({
 
       const valueLine = segment ? (valueLines[segment] || valueLines.BUSY_PRO) : '';
 
-      // Build message: Job + Price Range + Value + Trust + CTA
+      // Build message: conversational with job context
+      const jobLine = jobCount === 1
+        ? `Heres your quote to ${jobDesc}!`
+        : `Heres your quote for ${jobDesc}!`;
+
+      // Format a couple of available dates for the message
+      const availableDates: string[] = result.availableDates || [];
+      let dateLine = '';
+      if (availableDates.length >= 2) {
+        const formatDate = (iso: string) => {
+          const d = new Date(iso + 'T00:00:00');
+          return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+        };
+        dateLine = `We've got availability from ${formatDate(availableDates[0])} - tap the link to pick a date and book!`;
+      }
+
       const whatsappMessage = [
-        `Hi ${firstName}!`,
-        ``,
-        `Your ${jobDesc}: *${priceStr}*`,
-        valueLine,
-        ``,
-        `4.9* rated | £2M insured`,
-        ``,
-        `Tap to see your quote:`,
+        `Hi ${firstName},`,
+        jobLine,
+        `Here's your quote:`,
         quoteUrl,
-      ].filter(line => line !== undefined).join('\n');
+        dateLine,
+        `Any questions just give us a shout 😊`,
+      ].filter(Boolean).join('\n');
 
       // Open WhatsApp with error handling
       const whatsAppResult = await openWhatsApp(phone, whatsappMessage);

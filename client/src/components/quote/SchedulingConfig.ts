@@ -99,7 +99,7 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
     showWeekendFee: true,
     showDiscountBadge: false,
     maxDaysOut: 14, // 2 weeks max - they want it soon
-    useCardWrapper: false, // Inline in spec sheet
+    useCardWrapper: true,
     priceLabel: 'Priority Service',
   },
 
@@ -118,7 +118,7 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
     showWeekendFee: false, // Don't show weekend premium - they'll avoid it
     showDiscountBadge: true, // Show "SAVE X%"
     maxDaysOut: 21, // More flexibility for budget
-    useCardWrapper: false, // Inline in spec sheet
+    useCardWrapper: true,
     priceLabel: 'Standard Service',
   },
 
@@ -137,7 +137,7 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
     showWeekendFee: true,
     showDiscountBadge: false,
     maxDaysOut: 14,
-    useCardWrapper: false,
+    useCardWrapper: true,
     priceLabel: 'Your Quote',
   },
 
@@ -164,7 +164,7 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
     showWeekendFee: true,
     showDiscountBadge: false,
     maxDaysOut: 21,
-    useCardWrapper: false,
+    useCardWrapper: true,
     priceLabel: 'Batch Service',
   },
 
@@ -252,6 +252,19 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
     maxDaysOut: 14,
     useCardWrapper: true, // Card format for business quotes
     priceLabel: 'Business Service',
+  },
+
+  // Contextual quotes — pricing engine drives everything, minimal segment assumptions
+  CONTEXTUAL: {
+    showTimeSlots: ['morning', 'afternoon', 'anytime'],
+    addOns: [],
+    addOnsLabel: 'Add to your booking:',
+    downsell: null,
+    showWeekendFee: true,
+    showDiscountBadge: true, // Show real batch discount when available
+    maxDaysOut: 14,
+    useCardWrapper: true,
+    priceLabel: 'Your Quote',
   },
 };
 

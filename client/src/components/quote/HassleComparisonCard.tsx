@@ -1,14 +1,78 @@
 import { X, Check } from "lucide-react";
-import { getHassleComparisons, HASSLE_SECTION_HEADLINES } from "@shared/hassle-comparisons";
+import { getHassleComparisons, HASSLE_SECTION_HEADLINES, type HassleComparison } from "@shared/hassle-comparisons";
+
+const GENERIC_COMPARISONS: HassleComparison[] = [
+  {
+    id: 'generic-search',
+    withoutUs: 'Searching Google for hours',
+    withUs: 'One message, we handle everything',
+    whatsappLine: '📱 One message, we handle everything — no searching around',
+    vaScript: 'One message and we handle everything — no searching around',
+  },
+  {
+    id: 'generic-pricing',
+    withoutUs: 'No fixed price — hourly surprises',
+    withUs: 'Fixed price — no surprises',
+    whatsappLine: '💰 Fixed price upfront — no hourly surprises',
+    vaScript: 'Fixed price — no surprises, you know exactly what you\'re paying',
+  },
+  {
+    id: 'generic-proof',
+    withoutUs: 'No photos, no proof of work',
+    withUs: 'Photo report on completion',
+    whatsappLine: '📸 Photo report on completion — proof of work included',
+    vaScript: 'We send you a photo report when it\'s done',
+  },
+  {
+    id: 'generic-updates',
+    withoutUs: 'Chase for updates yourself',
+    withUs: 'Updates at every stage',
+    whatsappLine: '📋 Updates at every stage — no chasing needed',
+    vaScript: 'We keep you updated at every stage — no chasing',
+  },
+  {
+    id: 'generic-guarantee',
+    withoutUs: 'No guarantee if it goes wrong',
+    withUs: 'Not right? We return and fix it free',
+    whatsappLine: '🛡️ Not right? We return and fix it free',
+    vaScript: 'If anything\'s not right, we come back and fix it free',
+  },
+];
 
 interface HassleComparisonCardProps {
-  segment: string;
+  segment?: string;
   maxItems?: number;
+  contextualItems?: {
+    withoutUs: string[];
+    withUs: string[];
+  };
 }
 
-export function HassleComparisonCard({ segment, maxItems = 4 }: HassleComparisonCardProps) {
-  const comparisons = getHassleComparisons(segment, maxItems);
-  const headlines = HASSLE_SECTION_HEADLINES[segment] || HASSLE_SECTION_HEADLINES['UNKNOWN'];
+export function HassleComparisonCard({ segment, maxItems = 4, contextualItems }: HassleComparisonCardProps) {
+  let comparisons: HassleComparison[];
+
+  if (contextualItems) {
+    // Build comparisons from contextual data, pairing withoutUs[i] with withUs[i]
+    const length = Math.min(contextualItems.withoutUs.length, contextualItems.withUs.length);
+    comparisons = Array.from({ length }, (_, i) => ({
+      id: `contextual-${i}`,
+      withoutUs: contextualItems.withoutUs[i],
+      withUs: contextualItems.withUs[i],
+      whatsappLine: '',
+      vaScript: '',
+    }));
+    if (maxItems) {
+      comparisons = comparisons.slice(0, maxItems);
+    }
+  } else if (segment) {
+    comparisons = getHassleComparisons(segment, maxItems);
+  } else {
+    comparisons = maxItems ? GENERIC_COMPARISONS.slice(0, maxItems) : GENERIC_COMPARISONS;
+  }
+
+  const headlines = segment
+    ? (HASSLE_SECTION_HEADLINES[segment] || HASSLE_SECTION_HEADLINES['UNKNOWN'])
+    : HASSLE_SECTION_HEADLINES['UNKNOWN'];
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">

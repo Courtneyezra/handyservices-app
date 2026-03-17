@@ -42,6 +42,8 @@ import contractorDashboardRouter from './contractor-dashboard-routes';
 import placesRouter from './places-routes';
 import { stripeRouter } from './stripe-routes';
 import { elevenLabsWebhookRouter } from './eleven-labs/webhook';
+import contextualPricingRouter from './contextual-pricing/routes';
+import contentLibraryRouter from './content-library/routes';
 import contentRouter from './content';
 import { setupCronJobs } from './cron';
 import uploadRouter from "./upload";
@@ -255,6 +257,8 @@ app.use(extractCallDataRouter);
 // Register Quotes Router (Migrated from V5)
 // app.use(express.static(path.join(__dirname, '../client/dist'))); // REMOVED: Conflicts with Vite Dev Server
 app.use(quotesRouter);
+app.use(contextualPricingRouter);
+app.use(contentLibraryRouter);
 app.use(leadsRouter);
 app.use('/api', voiceRouter);
 app.use('/api', reviewsRouter); // API: Google Reviews

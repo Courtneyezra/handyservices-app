@@ -14,6 +14,9 @@ import { Settings, Phone, Volume2, MessageSquare, CheckCircle, XCircle, Loader2,
 import { cn } from '@/lib/utils';
 import { DaySelector } from '@/components/ui/day-selector';
 import { LiveSchedulePreview } from '@/components/ui/live-schedule-preview';
+import { lazy, Suspense } from 'react';
+
+const PricingSettingsPage = lazy(() => import('./admin/PricingSettingsPage'));
 
 interface TwilioSettings {
     'twilio.business_name': string;
@@ -99,7 +102,7 @@ export default function SettingsPage() {
     const getInitialTab = () => {
         const params = new URLSearchParams(window.location.search);
         const tab = params.get('tab');
-        return tab && ['routing', 'experience', 'fallback', 'timing', 'traffic-light'].includes(tab) ? tab : 'routing';
+        return tab && ['routing', 'experience', 'fallback', 'timing', 'traffic-light', 'pricing'].includes(tab) ? tab : 'routing';
     };
     const [activeTab, setActiveTab] = useState(getInitialTab);
 
@@ -576,12 +579,13 @@ export default function SettingsPage() {
             </div>
 
             <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-                <TabsList className="grid w-full grid-cols-5 mb-8 bg-muted border border-border">
+                <TabsList className="grid w-full grid-cols-6 mb-8 bg-muted border border-border">
                     <TabsTrigger value="routing">Call Routing</TabsTrigger>
                     <TabsTrigger value="experience">Experience</TabsTrigger>
                     <TabsTrigger value="fallback">Fallback</TabsTrigger>
                     <TabsTrigger value="timing">Call Timing</TabsTrigger>
                     <TabsTrigger value="traffic-light">Traffic Light</TabsTrigger>
+                    <TabsTrigger value="pricing">Pricing</TabsTrigger>
                 </TabsList>
 
                 {/* Call Routing Tab */}
@@ -1550,6 +1554,13 @@ export default function SettingsPage() {
                             </div>
                         </CardContent>
                     </Card>
+                </TabsContent>
+
+                {/* Pricing Tab */}
+                <TabsContent value="pricing" className="pt-2">
+                    <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>}>
+                        <PricingSettingsPage />
+                    </Suspense>
                 </TabsContent>
             </Tabs>
 

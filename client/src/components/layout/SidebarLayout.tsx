@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -119,7 +119,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             items: [
                                 { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
                                 { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
-                                { icon: DollarSign, label: "Quote Generator", href: "/admin/generate-quote" },
+                                { icon: Sparkles, label: "New Quote", href: "/admin/generate-contextual-quote" },
+                                { icon: DollarSign, label: "Quote Generator (Classic)", href: "/admin/generate-quote" },
                                 { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
                                 { icon: BarChart3, label: "My Stats", href: "/admin/va-stats" },
                             ]
@@ -161,7 +162,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                         {
                             title: "SALES & FINANCE",
                             items: [
-                                { icon: DollarSign, label: "Quote Generator", href: "/admin/generate-quote" },
+                                { icon: Sparkles, label: "New Quote", href: "/admin/generate-contextual-quote" },
+                                { icon: DollarSign, label: "Quote Generator (Classic)", href: "/admin/generate-quote" },
                                 { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
                                 { icon: Wrench, label: "Booking Visits", href: "/admin/visits" },
                                 { icon: FileText, label: "Invoices", href: "/admin/invoices" },
@@ -181,6 +183,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Calendar, label: "Availability", href: "/admin/availability" },
                                 { icon: LayoutTemplate, label: "Marketing", href: "/admin/marketing" },
                                 { icon: Settings, label: "Settings", href: "/admin/settings" },
+                                { icon: SlidersHorizontal, label: "Pricing Settings", href: "/admin/pricing-settings" },
                                 { icon: GraduationCap, label: "Onboarding", href: "/admin/onboarding" },
                                 { icon: BookOpen, label: "VA Resources", href: "/admin/resources" },
                             ]
@@ -398,7 +401,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
 
                             {/* Tab 2: QUOTES — Central, prominent, with popover submenu */}
                             {(() => {
-                                const quotePages = ["/admin/generate-quote", "/admin/quotes"];
+                                const quotePages = ["/admin/generate-quote", "/admin/generate-contextual-quote", "/admin/quotes"];
                                 const isQuoteActive = quotePages.includes(location);
                                 return (
                                     <div className="relative flex-1">
@@ -423,16 +426,16 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                                 <div className="fixed inset-0 z-40" onClick={() => setShowQuoteMenu(false)} />
                                                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[160px]">
                                                     <Link
-                                                        href="/admin/generate-quote"
+                                                        href="/admin/generate-contextual-quote"
                                                         onClick={() => setShowQuoteMenu(false)}
                                                         className={cn(
                                                             "flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors",
-                                                            location === "/admin/generate-quote"
+                                                            location === "/admin/generate-contextual-quote"
                                                                 ? "text-green-400 bg-green-500/10"
                                                                 : "text-foreground hover:bg-muted"
                                                         )}
                                                     >
-                                                        <DollarSign className="w-4 h-4" />
+                                                        <Sparkles className="w-4 h-4" />
                                                         New Quote
                                                     </Link>
                                                     <div className="border-t border-border" />

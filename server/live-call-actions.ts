@@ -913,6 +913,16 @@ liveCallActionsRouter.post('/api/live-call/create-quote', optionalAuth, async (r
         // Generate quote URL from request
         const quoteUrl = getQuoteUrl(req, shortSlug);
 
+        // Generate next available dates (skip Sundays)
+        const availableDates: string[] = [];
+        for (let i = 1; availableDates.length < 5 && i <= 14; i++) {
+            const d = new Date();
+            d.setDate(d.getDate() + i);
+            if (d.getDay() !== 0) { // Skip Sundays
+                availableDates.push(d.toISOString().split('T')[0]);
+            }
+        }
+
         console.log(`[LiveCallAction] Quote created: ${quoteId}, URL: ${quoteUrl}`);
 
         res.json({
@@ -922,6 +932,7 @@ liveCallActionsRouter.post('/api/live-call/create-quote', optionalAuth, async (r
             quoteUrl,
             leadId,
             expiresAt: expiresAt.toISOString(),
+            availableDates,
         });
 
     } catch (error: any) {

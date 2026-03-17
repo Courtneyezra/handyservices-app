@@ -6,6 +6,7 @@ import { personalizedQuotes, contractorJobs, invoices, leads } from '../shared/s
 import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { updateLeadStage } from './lead-stage-engine';
+import { getPricingSettings } from './pricing-settings';
 
 // Helper to get Stripe instance lazily
 const getStripe = () => {
@@ -21,19 +22,19 @@ const getStripe = () => {
 export const stripeRouter = Router();
 
 // Generate idempotency key from quote details to prevent duplicate payments
-function generateIdempotencyKey(quoteId: string, tier: string, extras: string[]): string {
-    const data = `${quoteId}-${tier}-${extras.sort().join(',')}`;
+function generateIdempotencyKey(quoteId: string, tier: string, extras: string[], paymentType: string = 'full', chargeAmount: number = 0): string {
+    const data = `${quoteId}-${tier}-${extras.sort().join(',')}-${paymentType}-${chargeAmount}`;
     return crypto.createHash('sha256').update(data).digest('hex');
 }
 
-// Calculate deposit: 100% materials + 30% of labour
-function calculateDeposit(totalPrice: number, materialsCost: number): {
+// Calculate deposit: 100% materials + depositFraction of labour
+function calculateDeposit(totalPrice: number, materialsCost: number, depositFraction: number = 0.30): {
     total: number;
     totalMaterialsCost: number;
     labourDepositComponent: number;
 } {
     const labourCost = totalPrice - materialsCost;
-    const labourDepositComponent = Math.round(labourCost * 0.30);
+    const labourDepositComponent = Math.round(labourCost * depositFraction);
     const total = materialsCost + labourDepositComponent;
 
     return {
@@ -131,8 +132,12 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         const baseMaterials = (quote.materialsCostWithMarkupPence as number) || 0;
         const totalMaterialsCost = baseMaterials + extrasMaterials;
 
+        // Load configurable pricing settings for deposit percentage
+        const settings = await getPricingSettings();
+        const depositFraction = settings.depositPercent / 100;
+
         // Calculate deposit
-        const depositBreakdown = calculateDeposit(totalJobPrice, totalMaterialsCost);
+        const depositBreakdown = calculateDeposit(totalJobPrice, totalMaterialsCost, depositFraction);
 
         console.log('[Stripe] Deposit calculation:', {
             baseTierPrice,
@@ -146,7 +151,7 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         const chargeAmount = Math.max(depositBreakdown.total, 30);
 
         // Generate idempotency key to prevent duplicate payment intents
-        const idempotencyKey = generateIdempotencyKey(quoteId, 'standard', selectedExtras);
+        const idempotencyKey = generateIdempotencyKey(quoteId, 'standard', selectedExtras, paymentType, chargeAmount);
 
         // Create payment intent with idempotency key
         const paymentIntent = await stripe.paymentIntents.create(

@@ -26,7 +26,7 @@ import { NeonBadge } from '@/components/ui/neon-badge';
 import { format } from 'date-fns';
 // CountdownTimer removed - quotes no longer expire
 import { ExpertStickyNote } from '@/components/ExpertStickyNote';
-import { ExpertSpecSheet } from '@/components/ExpertSpecSheet';
+import { ScopeOfWorks, EstimatorFooter, ExpertSpecSheet } from '@/components/ExpertSpecSheet';
 import { PaymentToggle } from '@/components/quote/PaymentToggle';
 import { MobilePricingCard, KeyFeature } from '@/components/quote/MobilePricingCard';
 import { getExpertNoteText, getLineItems, getScopeOfWorks } from "@/lib/quote-helpers";
@@ -44,6 +44,7 @@ import { BudgetQuoteInline } from '@/components/quote/BudgetQuoteInline';
 import { UnifiedQuoteCard } from '@/components/quote/UnifiedQuoteCard';
 import { BookingConfirmation } from '@/components/quote/BookingConfirmation';
 import { ScarcityBanner } from '@/components/quote/ScarcityBanner';
+import type { LayoutTier, BookingMode, LineItemResult, BatchDiscount } from '../../../shared/contextual-pricing-types';
 
 export type EEEPackageTier = 'essential' | 'enhanced' | 'elite';
 
@@ -529,7 +530,7 @@ export interface PersonalizedQuote {
   recommendedRoute?: 'instant' | 'tiers' | 'assessment' | null;
   proposalModeEnabled?: boolean;
   clientType?: 'residential' | 'commercial';
-  segment?: 'EMERGENCY' | 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'TRUST_SEEKER' | 'RENTER' | 'DIY_DEFERRER';
+  segment?: 'EMERGENCY' | 'BUSY_PRO' | 'PROP_MGR' | 'LANDLORD' | 'SMALL_BIZ' | 'TRUST_SEEKER' | 'RENTER' | 'DIY_DEFERRER' | 'CONTEXTUAL';
 
   // Dynamic Tier Config (from Value Pricing Engine)
   essential?: { name: string; description: string };
@@ -539,6 +540,19 @@ export interface PersonalizedQuote {
   // Phase 1 Segmentation Fields
   jobType?: 'SINGLE' | 'COMPLEX' | 'MULTIPLE';
   quotability?: 'INSTANT' | 'VIDEO' | 'VISIT';
+
+  // Contextual Pricing Engine fields (Phase 5a)
+  layoutTier?: LayoutTier;
+  contextualHeadline?: string;
+  contextualMessage?: string;
+  valueBullets?: string[];
+  bookingModes?: BookingMode[];
+  requiresHumanReview?: boolean;
+  reviewReason?: string;
+  pricingLineItems?: LineItemResult[];
+  batchDiscount?: BatchDiscount;
+  finalPricePence?: number;
+  subtotalPence?: number;
 }
 
 // Client Type Skins Configuration
@@ -893,6 +907,45 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
       ]
     }
   },
+  CONTEXTUAL: {
+    hero: {
+      title: '', // Will be overridden by contextualHeadline
+      subtitle: '',
+      scrollText: 'See your personalised quote below',
+    },
+    proof: {
+      title: 'TRUSTED LOCALLY',
+      mainTitle: 'Trusted by Nottingham homeowners',
+      description: 'Join hundreds of satisfied customers',
+      testimonial: {
+        text: 'Turned up on time, great quality work, left the place spotless. Will definitely use again.',
+        author: 'Sarah M.',
+        detail: 'Nottingham',
+      },
+      stats: [
+        { value: '4.9', label: 'Google Rating', subtext: '★★★★★' },
+        { value: '500+', label: 'Completed Jobs', subtext: 'and counting' },
+        { value: '£2M', label: 'Insured', subtext: 'fully covered' },
+      ],
+    },
+    guarantee: {
+      title: 'OUR GUARANTEE',
+      mainTitle: 'Not right? We return and fix it free.',
+      description: 'Quality workmanship, full cleanup, and photo report on every job. No questions asked.',
+      boxText: 'Quality guaranteed. No hidden fees.',
+      guaranteeItems: [
+        { icon: 'Shield', title: 'Quality Guaranteed', text: 'Quality workmanship on every job, backed by our guarantee.' },
+        { icon: 'Sparkles', title: 'Full Cleanup', text: 'We leave your home spotless. Every time.' },
+        { icon: 'Camera', title: 'Photo Report', text: 'Photo documentation on completion so you can see the results.' },
+      ],
+      badges: [
+        { label: 'Insured', value: '£2M', icon: 'Shield' },
+        { label: 'Vetted', value: 'DBS Checked', icon: 'UserCheck' },
+        { label: 'Price', value: 'Fixed', icon: 'Lock' },
+        { label: 'Quality', value: 'Guaranteed', icon: 'Star' },
+      ],
+    },
+  },
   DEFAULT: {
     hero: {
       title: "Your Quote Is Ready",
@@ -1179,10 +1232,28 @@ const GoogleReviewCard = ({ postcode, variant = 'light' }: { postcode?: string |
 };
 
 // Quick Social Proof for Warm Leads (Cialdini 1984)
-const ValueSocialProof = ({ quote }: { quote: PersonalizedQuote }) => {
+const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote; pricingSettings?: { googleRating?: string; reviewCount?: number; propertiesServed?: string; jobsCompleted?: string } }) => {
   console.log('ValueSocialProof: Mounting...');
   const segmentKey = quote.segment && SEGMENT_CONTENT_MAP[quote.segment] ? quote.segment : 'BUSY_PRO';
-  const content = SEGMENT_CONTENT_MAP[segmentKey].proof;
+  const rawContent = SEGMENT_CONTENT_MAP[segmentKey].proof;
+
+  // Dynamically replace hardcoded social proof values with configurable settings
+  const content = {
+    ...rawContent,
+    stats: rawContent.stats?.map((stat: any) => {
+      const v = stat.value;
+      const l = (stat.label || '').toLowerCase();
+      // Replace hardcoded Google rating
+      if (v === '4.9' && (l.includes('google') || l.includes('rating'))) {
+        return { ...stat, value: pricingSettings?.googleRating ?? '4.9' };
+      }
+      // Replace hardcoded jobs completed
+      if (v === '500+' && l.includes('completed')) {
+        return { ...stat, value: pricingSettings?.jobsCompleted ?? '500+' };
+      }
+      return stat;
+    }),
+  };
 
   // Icon mapping for stats
   const statIcons = [Zap, Star, UserCheck];
@@ -1280,9 +1351,16 @@ const ValueSocialProof = ({ quote }: { quote: PersonalizedQuote }) => {
 const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any }) => {
   // Get segment content
   const segmentKey = quote.segment && SEGMENT_CONTENT_MAP[quote.segment] ? quote.segment : 'DEFAULT';
-  const content = SEGMENT_CONTENT_MAP[segmentKey].hero;
+  const content = { ...SEGMENT_CONTENT_MAP[segmentKey].hero };
   const isBusyPro = quote.segment === 'BUSY_PRO';
   const isOlderWoman = quote.segment === 'OLDER_WOMAN';
+  const isContextual = quote.segment === 'CONTEXTUAL' || !!(quote?.layoutTier && quote?.valueBullets);
+
+  // Contextual quotes: override hero title/subtitle with LLM-generated content
+  if (isContextual) {
+    if (quote.contextualHeadline) content.title = quote.contextualHeadline;
+    if (quote.contextualMessage) content.subtitle = quote.contextualMessage;
+  }
 
   // Generate natural language job description from line items
   const getJobTopLine = (): string => {
@@ -1368,39 +1446,24 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
           Hi {quote.customerName.split(' ')[0]},
         </h1>
 
-        {/* BUSY_PRO / OLDER_WOMAN: Job summary card instead of inline text */}
-        {(isBusyPro || isOlderWoman) ? (
-          <>
-            <p className="text-xl md:text-2xl text-slate-200 font-light leading-relaxed mb-6 px-4 md:px-0 max-w-lg mx-auto">
-              {content.subtitle}
-            </p>
+        {/* Job summary card — shown on ALL segments */}
+        <p className="text-sm md:text-base text-slate-300 font-light leading-relaxed mb-6 px-4 md:px-0 max-w-lg mx-auto">
+          {content.subtitle}
+        </p>
 
-            {/* Job confirmation card with customer's submitted media */}
-            {/* Job confirmation card with customer's submitted media */}
-            <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-5 mb-6 max-w-md mx-auto text-left">
-              <div className="flex items-start gap-4">
-                {/* Image icon removed as requested */}
-
-                <div className="flex-1">
-                  <p className="text-[#7DB00E] text-xs font-bold uppercase tracking-widest mb-1">
-                    Job Summary
-                  </p>
-                  <p className="text-white font-medium mb-1 leading-snug line-clamp-2 text-ellipsis overflow-hidden">
-                    {getJobTopLine()}
-                  </p>
-                </div>
-              </div>
+        {/* Job confirmation card */}
+        <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-5 mb-6 max-w-md mx-auto text-left">
+          <div className="flex items-start gap-4">
+            <div className="flex-1">
+              <p className="text-[#7DB00E] text-xs font-bold uppercase tracking-widest mb-1">
+                Job Summary
+              </p>
+              <p className="text-white font-medium mb-1 leading-snug line-clamp-2 text-ellipsis overflow-hidden">
+                {getJobTopLine()}
+              </p>
             </div>
-          </>
-        ) : (
-          <p className="text-lg md:text-xl text-slate-200 font-light leading-relaxed mb-6 px-4 md:px-0 max-w-lg mx-auto">
-            {content.subtitle} <br />
-            We've put together this plan for <span className="text-white font-bold border-b border-[#7DB00E] mx-1">
-              {getJobTopLine().toLowerCase()}
-            </span>
-            in <span className="text-white font-bold bg-[#7DB00E]/20 px-2 py-0.5 rounded whitespace-nowrap">{quote.postcode?.split(' ')[0] || 'your area'}</span>.
-          </p>
-        )}
+          </div>
+        </div>
 
         {/* Quote Prepared By Mike */}
         <div className="flex items-center justify-center gap-3 mb-10">
@@ -1587,7 +1650,7 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
         <h2 className="text-[#7DB00E] text-xs font-bold uppercase tracking-[0.2em] mb-4">{content.title}</h2>
         <h3 className="text-4xl md:text-5xl font-light mb-8 text-white">{content.mainTitle}</h3>
 
-        <p className="text-slate-300 text-lg mb-6">{content.description}</p>
+        <p className="text-slate-300 text-sm md:text-base mb-6">{content.description}</p>
 
         {/* Certainty Items — BUSY_PRO & OLDER_WOMAN (Kahneman & Tversky, 1979) */}
         {(isBusyPro || isOlderWoman) && content.guaranteeItems && (
@@ -1645,6 +1708,570 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
     </SectionWrapper>
   );
 };
+
+// ---------------------------------------------------------------------------
+// Contextual Quote Layout (Phase 5a)
+// Renders contextual quotes with Quick/Standard/Complex layout tiers.
+// ---------------------------------------------------------------------------
+
+interface ContextualQuoteLayoutProps {
+  quote: PersonalizedQuote;
+  formatPrice: (priceInPence: number) => number;
+  handleBooking: (paymentIntentId: string) => Promise<void>;
+  isBooking: boolean;
+  hasBooked: boolean;
+  selectedDate: Date | undefined;
+  setSelectedDate: (d: Date | undefined) => void;
+  selectedTimeSlot: 'AM' | 'PM' | undefined;
+  setSelectedTimeSlot: (s: 'AM' | 'PM' | undefined) => void;
+  showPaymentForm: boolean;
+  setShowPaymentForm: (v: boolean) => void;
+  selectedEEEPackage: EEEPackageTier | null;
+  setSelectedEEEPackage: (t: EEEPackageTier | null) => void;
+  pricingSettings?: { googleRating?: string; reviewCount?: number; propertiesServed?: string; jobsCompleted?: string };
+}
+
+/** Hardcoded Google reviews for Standard/Complex layouts */
+const GOOGLE_REVIEWS = [
+  {
+    text: "Turned up on time, great quality work, left the place spotless. Will definitely use again.",
+    author: "Sarah M.",
+    detail: "Nottingham",
+  },
+  {
+    text: "Fixed everything on the list in one visit. Professional, friendly, and fair price.",
+    author: "David T.",
+    detail: "West Bridgford",
+  },
+  {
+    text: "Brilliant service start to finish. Communicated well, no hidden costs, top quality work.",
+    author: "James R.",
+    detail: "Beeston",
+  },
+];
+
+/** Category badge display names */
+const CATEGORY_LABELS: Record<string, string> = {
+  general_fixing: 'General Fixing',
+  flat_pack: 'Flat Pack Assembly',
+  tv_mounting: 'TV Mounting',
+  carpentry: 'Carpentry',
+  plumbing_minor: 'Plumbing',
+  electrical_minor: 'Electrical',
+  painting: 'Painting',
+  tiling: 'Tiling',
+  plastering: 'Plastering',
+  lock_change: 'Lock Change',
+  guttering: 'Guttering',
+  pressure_washing: 'Pressure Washing',
+  fencing: 'Fencing',
+  garden_maintenance: 'Garden',
+  bathroom_fitting: 'Bathroom',
+  kitchen_fitting: 'Kitchen',
+  door_fitting: 'Door Fitting',
+  flooring: 'Flooring',
+  curtain_blinds: 'Curtain & Blinds',
+  silicone_sealant: 'Sealant Work',
+  shelving: 'Shelving',
+  furniture_repair: 'Furniture Repair',
+  waste_removal: 'Waste Removal',
+  other: 'Other',
+};
+
+/** Shared trust strip used across all contextual layouts */
+function ContextualTrustStrip({ showRiskReversal = false, googleRating, reviewCount }: { showRiskReversal?: boolean; googleRating?: string; reviewCount?: number }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-slate-500 py-3">
+        <span className="flex items-center gap-1">
+          <Shield className="w-3.5 h-3.5 text-slate-400" />
+          £2M Insured
+        </span>
+        <span className="text-slate-300">·</span>
+        <span className="flex items-center gap-1">
+          <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+          {googleRating ?? "4.9"} Google ({reviewCount ?? 127} reviews)
+        </span>
+        <span className="text-slate-300">·</span>
+        <span className="flex items-center gap-1">
+          <Lock className="w-3.5 h-3.5 text-slate-400" />
+          Fixed Price
+        </span>
+      </div>
+      {showRiskReversal && (
+        <p className="text-xs text-center text-slate-500 italic">
+          Not right? We return and fix it free. No questions.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Simple Book Now CTA — single button, date selection happens after */
+function ContextualBookNowButton({ onClick }: { onClick?: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full py-4 px-6 bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg rounded-xl shadow-lg hover:shadow-xl transition-all"
+    >
+      Book Now
+    </button>
+  );
+}
+
+/** Value bullets list with checkmark icons */
+function ValueBulletsList({ bullets }: { bullets: string[] }) {
+  return (
+    <ul className="space-y-2.5">
+      {bullets.map((bullet, i) => (
+        <li key={i} className="flex items-start gap-2.5">
+          <div className="w-5 h-5 rounded-full bg-[#7DB00E]/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <Check className="w-3 h-3 text-[#7DB00E]" />
+          </div>
+          <span className="text-sm text-slate-700">{bullet}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Line items breakdown table with Job / Time / Price columns */
+function PricingLineItems({
+  lineItems,
+  batchDiscount,
+  formatPrice,
+}: {
+  lineItems: LineItemResult[];
+  batchDiscount?: BatchDiscount;
+  formatPrice: (p: number) => number;
+}) {
+  const formatTime = (minutes: number) => {
+    if (minutes < 60) return `${minutes}m`;
+    const hrs = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+  };
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Price Breakdown</h3>
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        {/* Table header */}
+        <div className="grid grid-cols-[1fr_auto_auto] gap-2 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Job</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right w-12">Time</p>
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right w-14">Price</p>
+        </div>
+
+        {/* Line items */}
+        {lineItems.map((item, i) => (
+          <div
+            key={item.lineId}
+            className={`grid grid-cols-[1fr_auto] gap-2 items-center px-4 py-3 ${
+              i < lineItems.length - 1 ? 'border-b border-slate-100' : ''
+            }`}
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-slate-800 leading-snug">{item.description}</p>
+              <Badge variant="secondary" className="mt-1 text-[10px] font-medium">
+                {CATEGORY_LABELS[item.category] || item.category}
+              </Badge>
+            </div>
+            <p className="text-sm font-bold text-slate-900 text-right w-14">£{formatPrice(item.guardedPricePence)}</p>
+          </div>
+        ))}
+
+        {/* Batch discount row */}
+        {batchDiscount?.applied && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-[#7DB00E]/5">
+            <div className="flex items-center gap-2">
+              <Gift className="w-4 h-4 text-[#7DB00E]" />
+              <p className="text-sm font-medium text-[#7DB00E]">
+                Multi-job discount ({batchDiscount.discountPercent}% off)
+              </p>
+            </div>
+            <p className="text-sm font-bold text-[#7DB00E]">
+              -£{formatPrice(batchDiscount.savingsPence)}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Categorised line items — groups by category with per-section subtotals */
+function CategorisedPricingLineItems({
+  lineItems,
+  batchDiscount,
+  formatPrice,
+}: {
+  lineItems: LineItemResult[];
+  batchDiscount?: BatchDiscount;
+  formatPrice: (p: number) => number;
+}) {
+  const formatTime = (minutes: number) => {
+    if (minutes < 60) return `${minutes}m`;
+    const hrs = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+  };
+
+  // Group line items by category
+  const grouped = lineItems.reduce<Record<string, LineItemResult[]>>((acc, item) => {
+    const cat = item.category || 'other';
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(item);
+    return acc;
+  }, {});
+
+  const categories = Object.entries(grouped);
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Price Breakdown</h3>
+      <div className="space-y-3">
+        {categories.map(([category, items]) => {
+          const subtotal = items.reduce((sum, item) => sum + item.guardedPricePence, 0);
+          return (
+            <div key={category} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+              {/* Category header */}
+              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Wrench className="w-3.5 h-3.5 text-slate-400" />
+                  <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                    {CATEGORY_LABELS[category] || category}
+                  </p>
+                </div>
+                <p className="text-xs font-bold text-slate-700">£{formatPrice(subtotal)}</p>
+              </div>
+
+              {/* Items in this category */}
+              {items.map((item, i) => (
+                <div
+                  key={item.lineId}
+                  className={`grid grid-cols-[1fr_auto] gap-2 items-center px-4 py-3 ${
+                    i < items.length - 1 ? 'border-b border-slate-100' : ''
+                  }`}
+                >
+                  <p className="text-sm text-slate-700 leading-snug min-w-0">{item.description}</p>
+                  <p className="text-sm font-semibold text-slate-800 text-right w-14">£{formatPrice(item.guardedPricePence)}</p>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Batch discount callout */}
+      {batchDiscount?.applied && (
+        <div className="flex items-center justify-between px-4 py-3 bg-[#7DB00E]/5 border border-[#7DB00E]/20 rounded-xl">
+          <div className="flex items-center gap-2">
+            <Gift className="w-4 h-4 text-[#7DB00E]" />
+            <p className="text-sm font-medium text-[#7DB00E]">
+              Multi-job discount ({batchDiscount.discountPercent}% off)
+            </p>
+          </div>
+          <p className="text-sm font-bold text-[#7DB00E]">
+            -£{formatPrice(batchDiscount.savingsPence)}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Google review card */
+function ContextualGoogleReviewCard({ review }: { review: typeof GOOGLE_REVIEWS[0] }) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
+      <div className="flex gap-0.5 mb-2">
+        {[...Array(5)].map((_, i) => (
+          <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+        ))}
+      </div>
+      <p className="text-sm text-slate-600 italic">"{review.text}"</p>
+      <p className="text-xs text-slate-400 mt-2">— {review.author}, {review.detail}</p>
+    </div>
+  );
+}
+
+/** Photo gallery placeholder section */
+function PhotoGalleryPlaceholder() {
+  return (
+    <section className="space-y-3">
+      <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Our Work</h3>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="aspect-video bg-slate-100 rounded-lg flex items-center justify-center border border-slate-200">
+          <span className="text-slate-400 text-xs">Gallery coming soon</span>
+        </div>
+        <div className="aspect-video bg-slate-100 rounded-lg flex items-center justify-center border border-slate-200">
+          <span className="text-slate-400 text-xs">Gallery coming soon</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** Human review banner — shown to customer when AI parser fell back */
+function HumanReviewBanner({ reason }: { reason?: string }) {
+  const [searchParams] = useState(() => new URLSearchParams(window.location.search));
+  const isAdmin = searchParams.get('admin') === 'true';
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+      <div className="w-5 h-5 rounded-full bg-amber-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+        <Clock className="w-3 h-3 text-amber-700" />
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-amber-800">
+          This quote is being reviewed by our team. We'll confirm shortly.
+        </p>
+        {isAdmin && reason && <p className="text-xs text-amber-600 mt-1">{reason}</p>}
+      </div>
+    </div>
+  );
+}
+
+/** Main contextual quote layout router — picks Quick/Standard/Complex */
+function ContextualQuoteLayout({
+  quote,
+  formatPrice,
+  handleBooking,
+  isBooking,
+  hasBooked,
+  selectedDate,
+  setSelectedDate,
+  selectedTimeSlot,
+  setSelectedTimeSlot,
+  showPaymentForm,
+  setShowPaymentForm,
+  selectedEEEPackage,
+  setSelectedEEEPackage,
+  pricingSettings,
+}: ContextualQuoteLayoutProps) {
+
+  const totalPrice = quote.finalPricePence || quote.basePrice || 0;
+  const layoutTier = quote.layoutTier || 'standard';
+
+  // Determine how many value bullets to show per tier
+  const bulletLimit = layoutTier === 'quick' ? 3 : layoutTier === 'standard' ? 4 : 5;
+  const displayBullets = (quote.valueBullets || []).slice(0, bulletLimit);
+
+  // Shared brand hero block
+  const brandHero = (
+    <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 text-center">
+      <img src={handyServicesLogo} alt="HandyServices" className="h-8 mx-auto mb-4 opacity-90" />
+      <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight">
+        {quote.contextualHeadline || 'Your Quote'}
+      </h1>
+      {quote.contextualMessage && (
+        <p className="text-slate-300 text-sm mt-2 leading-relaxed">{quote.contextualMessage}</p>
+      )}
+    </div>
+  );
+
+  // Shared Book Now CTA (amber/gold)
+  const bookNowCTA = (
+    <Button
+      className="w-full h-14 text-lg font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-lg shadow-amber-500/20 transition-all active:scale-[0.98]"
+      disabled={isBooking}
+      onClick={() => setShowPaymentForm(true)}
+    >
+      {isBooking ? (
+        <span className="flex items-center gap-2">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          Processing...
+        </span>
+      ) : (
+        'Book Now'
+      )}
+    </Button>
+  );
+
+  // Shared WhatsApp fallback
+  const whatsappFallback = (
+    <div className="text-center pb-4">
+      <a
+        href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I have a question about my quote (${quote.shortSlug})`)}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-[#25D366] transition-colors"
+      >
+        <FaWhatsapp className="w-4 h-4" />
+        Questions? Message us
+      </a>
+    </div>
+  );
+
+  // Shared prominent price display
+  const priceDisplay = (
+    <div className="text-center py-4">
+      <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-1">Total Price</p>
+      <p className="text-5xl font-extrabold text-slate-900">
+        £{formatPrice(totalPrice)}
+      </p>
+      <p className="text-xs text-slate-400 mt-1">Fixed price — no hidden extras</p>
+    </div>
+  );
+
+  // Common wrapper for all contextual layouts
+  const pageWrapper = (children: React.ReactNode) => (
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+      {/* Human review banner */}
+      {quote.requiresHumanReview && (
+        <div className="px-4 pt-4 max-w-xl mx-auto">
+          <HumanReviewBanner reason={quote.reviewReason} />
+        </div>
+      )}
+
+      <div className="max-w-xl mx-auto px-4 py-6 space-y-6">
+        {children}
+      </div>
+    </div>
+  );
+
+  // =====================================================================
+  // QUICK LAYOUT — 1 line item, one screen, clean and fast
+  // =====================================================================
+  if (layoutTier === 'quick') {
+    return pageWrapper(
+      <>
+        {brandHero}
+        {priceDisplay}
+
+        {/* Value bullets (max 3) */}
+        {displayBullets.length > 0 && (
+          <Card className="border-slate-200">
+            <CardContent className="p-5">
+              <ValueBulletsList bullets={displayBullets} />
+            </CardContent>
+          </Card>
+        )}
+
+        {bookNowCTA}
+        <ContextualTrustStrip googleRating={pricingSettings?.googleRating} reviewCount={pricingSettings?.reviewCount} />
+        {whatsappFallback}
+      </>
+    );
+  }
+
+  // =====================================================================
+  // STANDARD LAYOUT — 2-3 line items with table breakdown
+  // =====================================================================
+  if (layoutTier === 'standard') {
+    return pageWrapper(
+      <>
+        {brandHero}
+
+        {/* Line items breakdown table */}
+        {quote.pricingLineItems && quote.pricingLineItems.length > 0 && (
+          <PricingLineItems
+            lineItems={quote.pricingLineItems}
+            batchDiscount={quote.batchDiscount}
+            formatPrice={formatPrice}
+          />
+        )}
+
+        {/* Batch savings callout (if applicable) */}
+        {quote.batchDiscount?.applied && quote.batchDiscount.discountPercent > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+            <p className="text-sm font-medium text-amber-800">
+              You save £{formatPrice(quote.batchDiscount.savingsPence)} by booking these jobs together
+            </p>
+          </div>
+        )}
+
+        {/* Total price (prominent) */}
+        {priceDisplay}
+
+        {/* Value bullets (max 4) */}
+        {displayBullets.length > 0 && (
+          <Card className="border-slate-200">
+            <CardContent className="p-5">
+              <ValueBulletsList bullets={displayBullets} />
+            </CardContent>
+          </Card>
+        )}
+
+        {bookNowCTA}
+        <ContextualTrustStrip googleRating={pricingSettings?.googleRating} reviewCount={pricingSettings?.reviewCount} />
+
+        {/* Single Google review for social proof */}
+        <ContextualGoogleReviewCard review={GOOGLE_REVIEWS[0]} />
+
+        {whatsappFallback}
+      </>
+    );
+  }
+
+  // =====================================================================
+  // COMPLEX LAYOUT — 4+ line items, categorised sections, grand total
+  // =====================================================================
+  return pageWrapper(
+    <>
+      {brandHero}
+
+      {/* Categorised job sections with per-section subtotals */}
+      {quote.pricingLineItems && quote.pricingLineItems.length > 0 && (
+        <CategorisedPricingLineItems
+          lineItems={quote.pricingLineItems}
+          batchDiscount={quote.batchDiscount}
+          formatPrice={formatPrice}
+        />
+      )}
+
+      {/* Batch discount callout (if applicable) */}
+      {quote.batchDiscount?.applied && quote.batchDiscount.discountPercent > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+          <p className="text-sm font-medium text-amber-800">
+            Multi-job savings: £{formatPrice(quote.batchDiscount.savingsPence)} off ({quote.batchDiscount.discountPercent}% discount)
+          </p>
+        </div>
+      )}
+
+      {/* Grand total (prominent) */}
+      <div className="text-center py-4">
+        <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-1">Grand Total</p>
+        <p className="text-5xl font-extrabold text-slate-900">
+          £{formatPrice(totalPrice)}
+        </p>
+        <p className="text-xs text-slate-400 mt-1">Fixed price — no hidden extras</p>
+      </div>
+
+      {/* Value bullets (max 5) */}
+      {displayBullets.length > 0 && (
+        <Card className="border-slate-200">
+          <CardContent className="p-5">
+            <ValueBulletsList bullets={displayBullets} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Guarantee statement */}
+      <div className="bg-[#7DB00E]/5 border border-[#7DB00E]/20 rounded-xl p-4 text-center">
+        <div className="flex items-center justify-center gap-2 mb-1">
+          <ShieldCheck className="w-4 h-4 text-[#7DB00E]" />
+          <p className="text-sm font-semibold text-[#7DB00E]">Our Guarantee</p>
+        </div>
+        <p className="text-sm text-slate-600">Not right? We return and fix it free. No questions.</p>
+      </div>
+
+      {bookNowCTA}
+
+      {/* Trust strip with risk reversal for complex quotes */}
+      <ContextualTrustStrip showRiskReversal googleRating={pricingSettings?.googleRating} reviewCount={pricingSettings?.reviewCount} />
+
+      {/* Multiple Google reviews for social proof */}
+      <div className="space-y-3">
+        {GOOGLE_REVIEWS.map((review, i) => (
+          <ContextualGoogleReviewCard key={i} review={review} />
+        ))}
+      </div>
+
+      {whatsappFallback}
+    </>
+  );
+}
 
 export default function PersonalizedQuotePage() {
   const [, canonicalParams] = useRoute('/quote/:slug');
@@ -1752,7 +2379,19 @@ export default function PersonalizedQuotePage() {
       if (!response.ok) {
         throw new Error('Quote not found');
       }
-      return response.json();
+      const data = await response.json();
+      // Extract batchDiscount from pricingLayerBreakdown if not at top level
+      if (!data.batchDiscount && data.pricingLayerBreakdown?.batchDiscount) {
+        data.batchDiscount = data.pricingLayerBreakdown.batchDiscount;
+      }
+      // Extract finalPricePence and subtotalPence from pricingLayerBreakdown
+      if (!data.finalPricePence && data.pricingLayerBreakdown?.finalPricePence) {
+        data.finalPricePence = data.pricingLayerBreakdown.finalPricePence;
+      }
+      if (!data.subtotalPence && data.pricingLayerBreakdown?.subtotalPence) {
+        data.subtotalPence = data.pricingLayerBreakdown.subtotalPence;
+      }
+      return data;
     },
     enabled: !!params?.slug,
     retry: (failureCount, error) => {
@@ -1762,6 +2401,25 @@ export default function PersonalizedQuotePage() {
       }
       return failureCount < 3;
     },
+  });
+
+  // Fetch configurable pricing settings (social proof + pricing params from public endpoint)
+  const { data: pricingSettings } = useQuery<{
+    googleRating: string;
+    reviewCount: number;
+    propertiesServed: string;
+    jobsCompleted: string;
+    depositPercent?: number;
+    payInFullDiscountPercent?: number;
+    flexibleDiscountPercent?: number;
+  }>({
+    queryKey: ['pricing-settings-public'],
+    queryFn: async () => {
+      const res = await fetch('/api/settings/pricing/public');
+      if (!res.ok) return null;
+      return res.json();
+    },
+    staleTime: 300_000, // 5 min cache
   });
 
   // Fetch invoice data for confirmation screen
@@ -2041,6 +2699,14 @@ export default function PersonalizedQuotePage() {
   // Service Tiers Route - Existing HHH tiers UI (default)
   // Continue with existing PersonalizedQuotePage rendering below...
 
+  // ---------------------------------------------------------------------------
+  // Contextual Quote Detection (Phase 5a)
+  // Contextual quotes now route through the rich proposal flow (ScarcityBanner,
+  // ValueHero, ValueSocialProof, ValueGuarantee, HassleComparisonCard, Packages,
+  // Payment) instead of the bare-bones ContextualQuoteLayout.
+  // ---------------------------------------------------------------------------
+  const isContextualQuote = (quote?.segment === 'CONTEXTUAL') || !!(quote?.layoutTier && quote?.valueBullets);
+
   // [DEBUG] Log all conditions for BUSY_PRO feature overrides
   console.log('[QUOTE DEBUG] =====================================');
   console.log('[QUOTE DEBUG] segment:', quote.segment);
@@ -2054,7 +2720,8 @@ export default function PersonalizedQuotePage() {
   // const isActuallyExpired = false;
 
   // EVE single price — used directly by UnifiedQuoteCard
-  const quotePrice = quote.basePrice || quote.enhancedPrice || 0;
+  // For contextual quotes, prefer finalPricePence from the contextual pricing engine
+  const quotePrice = (isContextualQuote ? quote.finalPricePence : undefined) || quote.basePrice || quote.enhancedPrice || 0;
 
   // getProductsForSegment removed — EVE single-price, UnifiedQuoteCard handles display
 
@@ -2189,8 +2856,10 @@ export default function PersonalizedQuotePage() {
 
   // --- RENDER LOGIC ---
 
-  // Weighted Scroll Layout (for proposalModeEnabled)
-  if (quote.proposalModeEnabled) {
+  // Weighted Scroll Layout (for proposalModeEnabled OR contextual quotes)
+  // Contextual quotes use the same rich flow: ScarcityBanner → ValueHero →
+  // ValueSocialProof → ValueGuarantee → HassleComparisonCard → Packages → Payment
+  if (quote.proposalModeEnabled || isContextualQuote) {
     return (
       <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
 
@@ -2201,19 +2870,19 @@ export default function PersonalizedQuotePage() {
         <ValueHero quote={quote} config={config} />
 
         {/* Unified Social Proof Section - Same for all segments */}
-        <ValueSocialProof quote={quote} />
+        <ValueSocialProof quote={quote} pricingSettings={pricingSettings ?? undefined} />
 
         <ValueGuarantee quote={quote} config={config} />
 
         {/* Hassle Comparison — "Without Us vs With Us" */}
-        <SectionWrapper bg="white">
+        <SectionWrapper className="bg-white">
           <div className="max-w-2xl mx-auto">
             <HassleComparisonCard segment={quote.segment || 'UNKNOWN'} />
           </div>
         </SectionWrapper>
 
         {/* The Final Reveal: Quote Section */}
-        <section id="packages-section" className="min-h-screen bg-slate-50 pt-20 pb-40 px-4 md:px-6 lg:px-8 relative overflow-visible">
+        <section id="packages-section" className="min-h-screen bg-slate-50 pt-20 pb-8 px-4 md:px-6 lg:px-8 relative overflow-visible">
           <div className="w-full max-w-full">
             <motion.div
               initial={{ opacity: 0, y: 50 }}
@@ -2237,7 +2906,7 @@ export default function PersonalizedQuotePage() {
 
                 {/* Price Confidence Statement */}
                 <div className="max-w-lg mx-auto mt-6 bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
-                  <p className="text-slate-700 text-lg italic font-light leading-relaxed">
+                  <p className="text-slate-700 text-xs md:text-sm italic font-light leading-relaxed">
                     "We won't be the cheapest quote you get.
                     <br />
                     <span className="text-[#1D2D3D] font-medium">We will be the last one you need.</span>"
@@ -2247,188 +2916,91 @@ export default function PersonalizedQuotePage() {
 
               </div>
 
-              {/* Expert Spec Sheet + UnifiedQuoteCard */}
-              <>
-                  {/* PDF Download Button */}
-                  <div className="flex justify-end mb-2 px-2 md:px-0">
-                    <button
-                      onClick={() => generateQuotePDF({
-                        quoteId: quote.id,
-                        customerName: quote.customerName || 'Customer',
-                        address: quote.address,
-                        postcode: quote.postcode,
-                        jobDescription: getExpertNoteText(quote as any),
-                        priceInPence: quotePrice,
-                        segment: quote.segment || undefined,
-                        validityHours: 48,
-                        createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
-                      })}
-                      className="flex items-center gap-2 text-sm text-slate-500 hover:text-[#7DB00E] transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-100"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>Download PDF</span>
-                    </button>
-                  </div>
+              {/* Scope of Works — standalone block */}
+              <ScopeOfWorks
+                text={getScopeOfWorks(quote as any)}
+                summary={(quote.jobs as any)?.[0]?.summary}
+              />
 
-                  <ExpertSpecSheet
-                    text={getScopeOfWorks(quote as any)}
-                    summary={(quote.jobs as any)?.[0]?.summary}
-                    customerName={quote.customerName || ''}
-                    address={quote.address || quote.postcode}
-                    mikePhotoUrl={mikeProfilePhoto}
-                    className="mt-6 md:mt-0 transition-transform duration-300"
+              {/* Price Card + Booking Flow */}
+              {quotePrice > 0 && !hasBooked && (
+                <>
+                  <Elements stripe={stripePromise}>
+                    <UnifiedQuoteCard
+                      segment={quote.segment || 'UNKNOWN'}
+                      basePrice={quotePrice}
+                      customerName={quote.customerName}
+                      customerEmail={quote.email || undefined}
+                      bookingModes={isContextualQuote && quote.bookingModes ? quote.bookingModes : undefined}
+                      batchDiscount={isContextualQuote && quote.batchDiscount ? quote.batchDiscount : undefined}
+                      pricingLineItems={isContextualQuote && quote.pricingLineItems ? quote.pricingLineItems : undefined}
+                      contextualBullets={isContextualQuote && quote.valueBullets ? quote.valueBullets : undefined}
+                      quoteId={quote.id}
+                      jobDescription={quote.jobDescription}
+                      location={quote.postcode?.split(' ')[0]}
+                      optionalExtras={quote.optionalExtras}
+                      depositPercent={pricingSettings?.depositPercent}
+                      payInFullDiscountPercent={pricingSettings?.payInFullDiscountPercent}
+                      flexibleDiscountPercent={pricingSettings?.flexibleDiscountPercent}
+                      isBooking={isBooking}
+                      onBook={async (config) => {
+                        setIsBooking(true);
+                        setSelectedEEEPackage('enhanced');
+                        setHasApprovedProduct(true);
+                        if (config.selectedDate) {
+                          setSelectedCalendarDate(config.selectedDate);
+                        }
+                        if (config.timeSlot) {
+                          setTimeSlotType(config.timeSlot as TimeSlotType);
+                        }
+
+                        // Map add-ons to bundle type
+                        if (config.addOns.includes('quick_task')) {
+                          setWhileImThereBundle('quick');
+                        }
+
+                        // Show payment form (for non-flexible timing)
+                        if (!config.usedDownsell) {
+                          setShowPaymentForm(true);
+                          setTimeout(() => {
+                            document.getElementById('payment-section')?.scrollIntoView({
+                              behavior: 'smooth',
+                              block: 'start'
+                            });
+                          }, 100);
+                        }
+                        setIsBooking(false);
+                      }}
+                      onPaymentSuccess={async (paymentIntentId) => {
+                        // Handle successful inline payment (flexible timing)
+                        await handleBooking(paymentIntentId);
+                      }}
+                    />
+                  </Elements>
+
+                  {/* Estimator footer */}
+                  <EstimatorFooter mikePhotoUrl={mikeProfilePhoto} className="mt-4" />
+
+                  {/* PDF Download — subtle link */}
+                  <button
+                    onClick={() => generateQuotePDF({
+                      quoteId: quote.id,
+                      customerName: quote.customerName || 'Customer',
+                      address: quote.address,
+                      postcode: quote.postcode,
+                      jobDescription: getExpertNoteText(quote as any),
+                      priceInPence: quotePrice,
+                      segment: quote.segment || undefined,
+                      validityHours: 48,
+                      createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
+                    })}
+                    className="w-full flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-[#7DB00E] transition-colors py-2 mt-2"
                   >
-                    {quotePrice > 0 && !hasBooked && (
-                      <div className="space-y-8">
-                          <Elements stripe={stripePromise}>
-                            <UnifiedQuoteCard
-                              segment={quote.segment || 'UNKNOWN'}
-                              basePrice={quotePrice}
-                              customerName={quote.customerName}
-                              customerEmail={quote.email || undefined}
-                              quoteId={quote.id}
-                              jobDescription={quote.jobDescription}
-                              location={quote.postcode?.split(' ')[0]}
-                              optionalExtras={quote.optionalExtras}
-                              isBooking={isBooking}
-                              onBook={async (config) => {
-                                setIsBooking(true);
-                                setSelectedEEEPackage('enhanced');
-                                setHasApprovedProduct(true);
-                                if (config.selectedDate) {
-                                  setSelectedCalendarDate(config.selectedDate);
-                                }
-                                if (config.timeSlot) {
-                                  setTimeSlotType(config.timeSlot as TimeSlotType);
-                                }
-
-                                // Map add-ons to bundle type
-                                if (config.addOns.includes('quick_task')) {
-                                  setWhileImThereBundle('quick');
-                                }
-
-                                // Show payment form (for non-flexible timing)
-                                if (!config.usedDownsell) {
-                                  setShowPaymentForm(true);
-                                  setTimeout(() => {
-                                    document.getElementById('payment-section')?.scrollIntoView({
-                                      behavior: 'smooth',
-                                      block: 'start'
-                                    });
-                                  }, 100);
-                                }
-                                setIsBooking(false);
-                              }}
-                              onPaymentSuccess={async (paymentIntentId) => {
-                                // Handle successful inline payment (flexible timing)
-                                await handleBooking(paymentIntentId);
-                              }}
-                            />
-                          </Elements>
-
-                          {/* PROP_MGR Conversion Boosters */}
-                          {quote.segment === 'PROP_MGR' && (
-                            <div className="mt-6 space-y-4">
-                              {/* Trust Badge Strip */}
-                              <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-600 bg-slate-50 rounded-lg py-3 px-4">
-                                <span className="flex items-center gap-1.5">
-                                  <ShieldCheck className="w-4 h-4 text-[#7DB00E]" />
-                                  £2M Insured
-                                </span>
-                                <span className="text-slate-300">•</span>
-                                <span className="flex items-center gap-1.5">
-                                  <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
-                                  4.9 Google (127 reviews)
-                                </span>
-                                <span className="text-slate-300">•</span>
-                                <span className="flex items-center gap-1.5">
-                                  <Building className="w-4 h-4 text-[#7DB00E]" />
-                                  230+ properties serviced
-                                </span>
-                              </div>
-
-                              {/* Risk Reversal Statement */}
-                              <div className="text-center py-3 px-4 bg-[#7DB00E]/5 border border-[#7DB00E]/20 rounded-lg">
-                                <p className="text-sm text-slate-700 font-medium">
-                                  Not right? We return and fix it free. No questions.
-                                </p>
-                              </div>
-
-                              {/* Landlord PDF Download */}
-                              <button
-                                onClick={() => generateQuotePDF({
-                                  quoteId: quote.id,
-                                  customerName: quote.customerName || 'Customer',
-                                  address: quote.address,
-                                  postcode: quote.postcode,
-                                  jobDescription: getExpertNoteText(quote as any),
-                                  priceInPence: quotePrice,
-                                  segment: quote.segment || undefined,
-                                  validityHours: 48,
-                                  createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
-                                })}
-                                className="w-full flex items-center justify-center gap-2 text-sm text-slate-600 hover:text-[#7DB00E] transition-colors py-3 px-4 rounded-lg border border-slate-200 hover:border-[#7DB00E]/30 hover:bg-[#7DB00E]/5"
-                              >
-                                <FileText className="w-4 h-4" />
-                                <span>Download quote for landlord approval</span>
-                              </button>
-                            </div>
-                          )}
-
-                          {/* LANDLORD Conversion Boosters */}
-                          {quote.segment === 'LANDLORD' && (
-                            <div className="mt-6 space-y-4">
-                              {/* Trust Badge Strip */}
-                              <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-600 bg-slate-50 rounded-lg py-3 px-4">
-                                <span className="flex items-center gap-1.5">
-                                  <ShieldCheck className="w-4 h-4 text-[#7DB00E]" />
-                                  £2M Insured
-                                </span>
-                                <span className="text-slate-300">•</span>
-                                <span className="flex items-center gap-1.5">
-                                  <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
-                                  4.9 Google (127 reviews)
-                                </span>
-                                <span className="text-slate-300">•</span>
-                                <span className="flex items-center gap-1.5">
-                                  <Building className="w-4 h-4 text-[#7DB00E]" />
-                                  180+ landlords trust us
-                                </span>
-                              </div>
-
-                              {/* Risk Reversal Statement */}
-                              <div className="text-center py-3 px-4 bg-[#7DB00E]/5 border border-[#7DB00E]/20 rounded-lg">
-                                <p className="text-sm text-slate-700 font-medium">
-                                  Not right? We return and fix it free. No questions.
-                                </p>
-                              </div>
-
-                              {/* PDF Download */}
-                              <button
-                                onClick={() => generateQuotePDF({
-                                  quoteId: quote.id,
-                                  customerName: quote.customerName || 'Customer',
-                                  address: quote.address,
-                                  postcode: quote.postcode,
-                                  jobDescription: getExpertNoteText(quote as any),
-                                  priceInPence: quotePrice,
-                                  segment: quote.segment || undefined,
-                                  validityHours: 48,
-                                  createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
-                                })}
-                                className="w-full flex items-center justify-center gap-2 text-sm text-slate-600 hover:text-[#7DB00E] transition-colors py-3 px-4 rounded-lg border border-slate-200 hover:border-[#7DB00E]/30 hover:bg-[#7DB00E]/5"
-                              >
-                                <FileText className="w-4 h-4" />
-                                <span>Download quote for your records</span>
-                              </button>
-                            </div>
-                          )}
-                      </div>
-                    )}
-                  </ExpertSpecSheet>
-
-                  {/* Scarcity is now handled by the top-of-page ScarcityBanner */}
-              </>
+                    <FileText className="w-4 h-4" />
+                    <span>Download quote for your records</span>
+                  </button>
+                </>
+              )}
 
             </motion.div>
 
@@ -2581,41 +3153,30 @@ export default function PersonalizedQuotePage() {
           </div>
         </section >
 
-        {/* COMPACT TRUST FOOTER (Below Packages) */}
-        < div className="bg-slate-100 py-12 px-6 border-t border-slate-200 relative" >
-          <div className="max-w-4xl mx-auto">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-
-              {/* Secure Payments */}
-              <div className="flex flex-col items-center md:items-start gap-4">
-                <p className="text-slate-500 text-sm">
-                  Secure payments processed by Swipe via Stripe Connect.
-                </p>
-                <div className="flex gap-4 opacity-70 hover:opacity-100 transition-all">
-                  <SiVisa className="w-8 h-8 text-[#1434CB]" />
-                  <SiMastercard className="w-8 h-8 text-[#EB001B]" />
-                  <SiAmericanexpress className="w-8 h-8 text-[#2E77BC]" />
-                  <SiApplepay className="w-8 h-8 text-slate-900" />
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
-                <Lock className="w-3 h-3" />
-                256-bit SSL Encrypted
-              </div>
+        {/* COMPACT TRUST FOOTER */}
+        <div className="bg-slate-50 py-5 px-6 border-t border-slate-200 relative">
+          <div className="max-w-lg mx-auto flex flex-col items-center gap-3">
+            <div className="flex items-center gap-3 opacity-60">
+              <SiVisa className="w-7 h-7 text-[#1434CB]" />
+              <SiMastercard className="w-7 h-7 text-[#EB001B]" />
+              <SiAmericanexpress className="w-7 h-7 text-[#2E77BC]" />
+              <SiApplepay className="w-7 h-7 text-slate-900" />
             </div>
-
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+              <Lock className="w-3 h-3" />
+              Secure payments via Stripe · 256-bit SSL
+            </div>
+            <p className="text-[10px] text-slate-400">
+              &copy; {new Date().getFullYear()} HandyServices. All rights reserved.
+            </p>
           </div>
-
-          <div className="mt-12 text-center text-gray-600 text-[10px]">
-            &copy; 2024 HandyServices. All rights reserved.
-          </div>
-        </div >
+        </div>
 
 
         {/* Floating Social Proof Badge - Only show in early phase to avoid clutter/overlap */}
         {
           scrollPhase === 'early' && !showPaymentForm && (
-            <div className="fixed bottom-4 right-4 z-50">
+            <div className="fixed bottom-4 right-4 z-40">
               <div className="bg-white border border-slate-200 text-slate-900 rounded-lg shadow-lg p-3 flex items-center gap-3 animate-in slide-in-from-bottom-5">
                 <div className="flex flex-col">
                   <div className="flex gap-0.5 text-[#7DB00E]">
@@ -2625,7 +3186,7 @@ export default function PersonalizedQuotePage() {
                     <Star className="w-3 h-3 fill-current" />
                     <Star className="w-3 h-3 fill-current" />
                   </div>
-                  <span className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">4.9/5 RATED</span>
+                  <span className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">{pricingSettings?.googleRating ?? "4.9"}/5 RATED</span>
                 </div>
                 <div className="h-6 w-px bg-white/10"></div>
                 <div className="flex items-center gap-1.5">
@@ -2658,9 +3219,9 @@ export default function PersonalizedQuotePage() {
                     <Star key={i} className="w-6 h-6 fill-yellow-400 text-yellow-400" />
                   ))}
                 </div>
-                <span className="text-xl font-bold text-gray-900">4.9</span>
+                <span className="text-xl font-bold text-gray-900">{pricingSettings?.googleRating ?? "4.9"}</span>
               </div>
-              <p className="text-gray-600 text-sm">Based on 347+ reviews</p>
+              <p className="text-gray-600 text-sm">Based on {pricingSettings?.reviewCount ? `${pricingSettings.reviewCount}+` : "347+"} reviews</p>
               <div className="space-y-3 pt-4">
                 <div className="bg-gray-50 rounded-lg p-3 text-left">
                   <div className="flex gap-0.5 mb-1">
@@ -2688,7 +3249,7 @@ export default function PersonalizedQuotePage() {
                   <Check className="w-6 h-6 text-green-600" />
                 </div>
                 <div className="text-left">
-                  <p className="font-semibold text-gray-900">2,500+ Jobs Completed</p>
+                  <p className="font-semibold text-gray-900">{pricingSettings?.jobsCompleted ?? "2,500+"} Jobs Completed</p>
                   <p className="text-xs text-gray-600">Trusted by local homeowners</p>
                 </div>
               </div>

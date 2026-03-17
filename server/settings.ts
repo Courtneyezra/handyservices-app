@@ -7,6 +7,9 @@ import Twilio from 'twilio';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { requireAdmin } from './auth';
+import { getPricingSettings, invalidatePricingSettingsCache } from './pricing-settings';
+import { DEFAULT_PRICING_SETTINGS, PricingSettings } from '../shared/pricing-settings';
 
 console.log('[Settings] Module loading...');
 const router = Router();
@@ -453,6 +456,135 @@ router.put('/automations', async (req, res) => {
     } catch (error) {
         console.error('[Settings] Failed to update automation settings:', error);
         res.status(500).json({ error: 'Failed to update automation settings' });
+    }
+});
+
+// ============================================
+// PRICING SETTINGS ROUTES (must be before catch-all)
+// ============================================
+
+// Public endpoint - returns only social proof fields (no auth required)
+router.get('/pricing/public', async (req, res) => {
+    try {
+        const settings = await getPricingSettings();
+        res.json({
+            googleRating: settings.googleRating,
+            reviewCount: settings.reviewCount,
+            propertiesServed: settings.propertiesServed,
+            jobsCompleted: settings.jobsCompleted,
+        });
+    } catch (error) {
+        console.error('[Settings] Failed to fetch public pricing settings:', error);
+        res.status(500).json({ error: 'Failed to fetch pricing settings' });
+    }
+});
+
+// Get full pricing settings (admin only)
+router.get('/pricing', requireAdmin, async (req, res) => {
+    try {
+        const settings = await getPricingSettings();
+        res.json(settings);
+    } catch (error) {
+        console.error('[Settings] Failed to fetch pricing settings:', error);
+        res.status(500).json({ error: 'Failed to fetch pricing settings' });
+    }
+});
+
+// Update pricing settings (admin only)
+router.put('/pricing', requireAdmin, async (req, res) => {
+    try {
+        const incoming = req.body as Partial<PricingSettings>;
+
+        if (!incoming || typeof incoming !== 'object') {
+            return res.status(400).json({ error: 'Request body must be a pricing settings object' });
+        }
+
+        // Validation
+        const errors: string[] = [];
+
+        // Percentage fields must be 0-100
+        const percentFields: (keyof PricingSettings)[] = [
+            'materialsMarginPercent',
+            'depositPercent',
+            'payInFullDiscountPercent',
+            'flexibleDiscountPercent',
+            'urgentPremiumPercent',
+            'maxBatchDiscountPercent',
+        ];
+        for (const field of percentFields) {
+            if (field in incoming) {
+                const val = incoming[field] as number;
+                if (typeof val !== 'number' || val < 0 || val > 100) {
+                    errors.push(`${field} must be a number between 0 and 100`);
+                }
+            }
+        }
+
+        // Pence fields must be positive numbers
+        const penceFields: (keyof PricingSettings)[] = [
+            'depositSplitThresholdPence',
+            'minMarginPencePerHour',
+        ];
+        for (const field of penceFields) {
+            if (field in incoming) {
+                const val = incoming[field] as number;
+                if (typeof val !== 'number' || val < 0) {
+                    errors.push(`${field} must be a positive number`);
+                }
+            }
+        }
+
+        // String fields
+        if ('googleRating' in incoming && typeof incoming.googleRating !== 'string') {
+            errors.push('googleRating must be a string');
+        }
+        if ('propertiesServed' in incoming && typeof incoming.propertiesServed !== 'string') {
+            errors.push('propertiesServed must be a string');
+        }
+        if ('jobsCompleted' in incoming && typeof incoming.jobsCompleted !== 'string') {
+            errors.push('jobsCompleted must be a string');
+        }
+
+        // reviewCount must be a positive number
+        if ('reviewCount' in incoming) {
+            if (typeof incoming.reviewCount !== 'number' || incoming.reviewCount < 0) {
+                errors.push('reviewCount must be a positive number');
+            }
+        }
+
+        if (errors.length > 0) {
+            return res.status(400).json({ error: 'Validation failed', details: errors });
+        }
+
+        // Merge with current settings to get complete object
+        const current = await getPricingSettings();
+        const merged: PricingSettings = { ...current, ...incoming };
+
+        // Upsert into appSettings
+        const key = 'pricing_settings';
+        const [existing] = await db.select().from(appSettings).where(eq(appSettings.key, key));
+
+        if (existing) {
+            await db.update(appSettings)
+                .set({ value: merged as any, updatedAt: new Date() })
+                .where(eq(appSettings.key, key));
+        } else {
+            await db.insert(appSettings).values({
+                id: uuidv4(),
+                key,
+                value: merged as any,
+                description: 'Pricing settings (margins, deposits, social proof)',
+            });
+        }
+
+        // Invalidate cache
+        invalidatePricingSettingsCache();
+
+        console.log('[Settings] Pricing settings updated:', merged);
+        res.json({ success: true, settings: merged });
+    } catch (error) {
+        console.error('[Settings] Failed to update pricing settings:', error);
+        res.status(500).json({ error: 'Failed to update pricing settings' });
     }
 });
 

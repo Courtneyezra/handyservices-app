@@ -48,6 +48,14 @@ const LiveCallCoachTestPage = lazy(() => import("@/pages/admin/LiveCallCoachTest
 const CallReviewPage = lazy(() => import("@/pages/admin/CallReviewPage"));
 const CallHUDTestPage = lazy(() => import("@/pages/admin/CallHUDTestPage"));
 const SKUSimulatorPage = lazy(() => import("@/pages/admin/SKUSimulatorPage"));
+const PricingComparePage = lazy(() => import("@/pages/admin/PricingComparePage"));
+const PricingLabV2 = lazy(() => import("@/pages/admin/PricingLabV2"));
+const GenerateContextualQuote = lazy(() => import("@/pages/admin/GenerateContextualQuote"));
+const QuoteTestLab = lazy(() => import("@/pages/admin/QuoteTestLab"));
+const QuoteFlowDiagram = lazy(() => import("@/pages/admin/QuoteFlowDiagram"));
+const ContentLibrary = lazy(() => import("@/pages/admin/ContentLibrary"));
+const PricingSettingsPage = lazy(() => import("@/pages/admin/PricingSettingsPage"));
+const PricingEnginePage = lazy(() => import("@/pages/admin/PricingEnginePage"));
 const LiveCallTestWizard = lazy(() => import("@/pages/admin/LiveCallTestWizard"));
 const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
 const TenantIssuesPage = lazy(() => import("@/pages/admin/TenantIssuesPage"));
@@ -471,6 +479,30 @@ function Router() {
                         <SKUSimulatorPage />
                     </ProtectedRoute>
                 </Route>
+                <Route path="/admin/pricing-lab">
+                    <ProtectedRoute role="admin">
+                        <PricingComparePage />
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/pricing-lab-v2">
+                    <ProtectedRoute role="admin">
+                        <PricingLabV2 />
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/pricing-settings">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <PricingSettingsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/pricing-engine">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <PricingEnginePage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
                 <Route path="/admin/live-call-test">
                     <ProtectedRoute role="admin">
                         <LiveCallTestWizard />
@@ -600,6 +632,32 @@ function Router() {
                         <SidebarLayout>
                             <GenerateQuoteLink />
                         </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/generate-contextual-quote">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <GenerateContextualQuote />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/quote-test-lab">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <QuoteTestLab />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/content-library">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <ContentLibrary />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/quote-flow">
+                    <ProtectedRoute role="admin">
+                        <QuoteFlowDiagram />
                     </ProtectedRoute>
                 </Route>
                 <Route path="/admin/test-lab">

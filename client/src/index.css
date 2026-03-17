@@ -86,6 +86,11 @@
 }
 
 @layer utilities {
+  /* Safe area padding for sticky bottom bars on notched devices (iPhone X+) */
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
   .animate-gradient-x {
     background-size: 200% 200%;
     animation: gradient-x 3s ease infinite;
@@ -128,6 +133,23 @@
 
     100% {
       background-position: 0% 50%;
+    }
+  }
+
+  /* Shimmer edge animation for date cards */
+  .date-card-shimmer {
+    animation: shimmer-glow 2s ease-in-out infinite;
+    border: 1.5px solid rgba(125, 176, 14, 0.3);
+  }
+
+  @keyframes shimmer-glow {
+    0%, 100% {
+      box-shadow: 0 0 0px rgba(125, 176, 14, 0), 0 0 0px rgba(125, 176, 14, 0);
+      border-color: rgba(125, 176, 14, 0.15);
+    }
+    50% {
+      box-shadow: 0 0 8px rgba(125, 176, 14, 0.35), 0 0 20px rgba(125, 176, 14, 0.1);
+      border-color: rgba(125, 176, 14, 0.6);
     }
   }
 }

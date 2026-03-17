@@ -4,6 +4,7 @@ import { Zap, Calendar, Home, Clock, Timer, Coins, AlertTriangle } from 'lucide-
 interface ScarcityBannerProps {
   segment: string;
   postcode?: string | null;
+  urgency?: 'standard' | 'priority' | 'emergency';
 }
 
 interface ScarcityData {
@@ -68,7 +69,51 @@ function getUrgencyClasses(count: number): string {
   return 'bg-slate-800 text-slate-100';
 }
 
-export function ScarcityBanner({ segment, postcode }: ScarcityBannerProps) {
+const URGENCY_BANNER_CONFIG: Record<
+  'standard' | 'priority' | 'emergency',
+  { icon: typeof Zap; text: string; urgencyClasses: string; pulse: boolean }
+> = {
+  standard: {
+    icon: Calendar,
+    text: 'Limited slots this week \u2014 book now to secure your date',
+    urgencyClasses: 'bg-slate-800 text-slate-100',
+    pulse: false,
+  },
+  priority: {
+    icon: Zap,
+    text: 'Priority booking \u2014 only 2 slots left this week',
+    urgencyClasses: 'bg-amber-500 text-white',
+    pulse: true,
+  },
+  emergency: {
+    icon: AlertTriangle,
+    text: 'Emergency service \u2014 same-day availability',
+    urgencyClasses: 'bg-red-600 text-white',
+    pulse: true,
+  },
+};
+
+export function ScarcityBanner({ segment, postcode, urgency }: ScarcityBannerProps) {
+  // Contextual mode: urgency-based messaging (no API call needed)
+  if (urgency) {
+    const config = URGENCY_BANNER_CONFIG[urgency];
+    const Icon = config.icon;
+    return (
+      <div className={`w-full py-2.5 px-4 flex items-center justify-center gap-2 text-xs font-semibold tracking-wide ${config.urgencyClasses}`}>
+        <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+        <span className="truncate">{config.text}</span>
+        {config.pulse && (
+          <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse flex-shrink-0" />
+        )}
+      </div>
+    );
+  }
+
+  // Segment-based mode: fetch scarcity data from API
+  return <SegmentScarcityBanner segment={segment} postcode={postcode} />;
+}
+
+function SegmentScarcityBanner({ segment, postcode }: { segment: string; postcode?: string | null }) {
   const { data, isLoading } = useQuery<ScarcityData>({
     queryKey: ['scarcity', segment],
     queryFn: async () => {

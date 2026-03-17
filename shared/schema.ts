@@ -763,6 +763,31 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     createdBy: varchar("created_by"), // User ID of the admin/VA who created this quote
     createdByName: varchar("created_by_name", { length: 100 }), // Display name for quick reference (avoids JOIN)
 
+    // Contextual Pricing Engine (Phase 3)
+    contextualHeadline: varchar("contextual_headline", { length: 100 }), // LLM-generated headline (e.g. "Your Kitchen Sorted")
+    contextualMessage: text("contextual_message"), // 1-2 sentence summary
+    valueBullets: jsonb("value_bullets").$type<string[]>(), // 3-5 approved claim bullets for quote page
+    whatsappValueLines: jsonb("whatsapp_value_lines").$type<string[]>(), // 2 WhatsApp value lines
+    whatsappClosing: varchar("whatsapp_closing", { length: 255 }), // WhatsApp closing line
+    layoutTier: varchar("layout_tier", { length: 20 }), // 'quick', 'standard', or 'complex'
+    bookingModes: jsonb("booking_modes").$type<string[]>(), // which booking options to show
+    requiresHumanReview: boolean("requires_human_review").default(false), // flag for AI parser fallback
+    reviewReason: text("review_reason"), // why human review is needed
+    pricingLineItems: jsonb("pricing_line_items"), // full line item breakdown from contextual engine
+    pricingLayerBreakdown: jsonb("pricing_layer_breakdown"), // L1/L3/L4 breakdown for admin reference
+    batchDiscountPercent: integer("batch_discount_percent"), // batch discount applied (stored as whole number, e.g. 10 for 10%)
+    // Content Library: selected content IDs for conversion tracking
+    selectedContentIds: jsonb("selected_content_ids").$type<{
+      claimIds?: number[];
+      guaranteeId?: number | null;
+      testimonialIds?: number[];
+      hassleItemIds?: number[];
+      imageIds?: number[];
+      bookingRuleId?: number | null;
+    }>(),
+
+    // Note: contextSignals field already exists above (line 664) — reused for raw context signals for analytics/retraining
+
     // Creation timestamp
     createdAt: timestamp("created_at").defaultNow(),
 });
@@ -2060,3 +2085,128 @@ export type DIYAdvice = typeof diyAdvice.$inferSelect;
 export type InsertDIYAdvice = typeof diyAdvice.$inferInsert;
 export type UnsafePattern = typeof unsafePatterns.$inferSelect;
 export type InsertUnsafePattern = typeof unsafePatterns.$inferInsert;
+
+// ============================================================
+// Content Library Tables
+// ============================================================
+
+// Content Claims — approved value claims/bullets
+export const contentClaims = pgTable("content_claims", {
+    id: serial("id").primaryKey(),
+    text: text("text").notNull(),
+    category: text("category"), // "value", "guarantee", "trust", "convenience", "quality"
+    jobCategories: text("job_categories").array(), // e.g. ["plumbing_minor", "electrical_minor"]. Empty = universal.
+    signals: jsonb("signals"), // context signals e.g. {"urgency": "emergency"}
+    isActive: boolean("is_active").notNull().default(true),
+    usageCount: integer("usage_count").notNull().default(0),
+    viewCount: integer("view_count").notNull().default(0),
+    bookingCount: integer("booking_count").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_content_claims_active").on(table.isActive),
+    index("idx_content_claims_category").on(table.category),
+]);
+
+// Content Images — image library
+export const contentImages = pgTable("content_images", {
+    id: serial("id").primaryKey(),
+    url: text("url").notNull(), // e.g. "/assets/quote-images/plumber-smile.jpg"
+    alt: text("alt"),
+    placement: text("placement"), // "hero", "guarantee", "social_proof", "gallery"
+    jobCategories: text("job_categories").array(),
+    isActive: boolean("is_active").notNull().default(true),
+    usageCount: integer("usage_count").notNull().default(0),
+    viewCount: integer("view_count").notNull().default(0),
+    bookingCount: integer("booking_count").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_content_images_active").on(table.isActive),
+    index("idx_content_images_placement").on(table.placement),
+]);
+
+// Content Guarantees — guarantee section variants
+export const contentGuarantees = pgTable("content_guarantees", {
+    id: serial("id").primaryKey(),
+    title: text("title").notNull(), // e.g. "Not right? We return and fix it free."
+    description: text("description"),
+    items: jsonb("items"), // array of {icon, title, text}
+    badges: jsonb("badges"), // array of {label, value, icon}
+    jobCategories: text("job_categories").array(),
+    signals: jsonb("signals"), // e.g. {"urgency": "emergency"}
+    isActive: boolean("is_active").notNull().default(true),
+    usageCount: integer("usage_count").notNull().default(0),
+    viewCount: integer("view_count").notNull().default(0),
+    bookingCount: integer("booking_count").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_content_guarantees_active").on(table.isActive),
+]);
+
+// Content Testimonials — curated review pool
+export const contentTestimonials = pgTable("content_testimonials", {
+    id: serial("id").primaryKey(),
+    text: text("text").notNull(),
+    author: text("author").notNull(),
+    location: text("location"), // e.g. "Nottingham", "West Bridgford"
+    rating: integer("rating").notNull().default(5),
+    jobCategories: text("job_categories").array(),
+    source: text("source"), // "google", "manual", "trustpilot"
+    isActive: boolean("is_active").notNull().default(true),
+    usageCount: integer("usage_count").notNull().default(0),
+    viewCount: integer("view_count").notNull().default(0),
+    bookingCount: integer("booking_count").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_content_testimonials_active").on(table.isActive),
+    index("idx_content_testimonials_source").on(table.source),
+]);
+
+// Content Hassle Items — "without us vs with us" comparison pairs
+export const contentHassleItems = pgTable("content_hassle_items", {
+    id: serial("id").primaryKey(),
+    withoutUs: text("without_us").notNull(),
+    withUs: text("with_us").notNull(),
+    jobCategories: text("job_categories").array(),
+    signals: jsonb("signals"),
+    isActive: boolean("is_active").notNull().default(true),
+    usageCount: integer("usage_count").notNull().default(0),
+    viewCount: integer("view_count").notNull().default(0),
+    bookingCount: integer("booking_count").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_content_hassle_items_active").on(table.isActive),
+]);
+
+// Content Booking Rules — deterministic booking mode rules
+export const contentBookingRules = pgTable("content_booking_rules", {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull(),
+    conditions: jsonb("conditions").notNull(), // e.g. {"urgency": "standard", "timeOfService": "standard", "minPricePence": 0}
+    bookingModes: text("booking_modes").array().notNull(), // e.g. ["standard_date", "flexible_discount"]
+    priority: integer("priority").notNull().default(0), // higher priority rules override lower
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_content_booking_rules_active").on(table.isActive),
+    index("idx_content_booking_rules_priority").on(table.priority),
+]);
+
+// Type exports for Content Library
+export type ContentClaim = typeof contentClaims.$inferSelect;
+export type InsertContentClaim = typeof contentClaims.$inferInsert;
+export type ContentImage = typeof contentImages.$inferSelect;
+export type InsertContentImage = typeof contentImages.$inferInsert;
+export type ContentGuarantee = typeof contentGuarantees.$inferSelect;
+export type InsertContentGuarantee = typeof contentGuarantees.$inferInsert;
+export type ContentTestimonial = typeof contentTestimonials.$inferSelect;
+export type InsertContentTestimonial = typeof contentTestimonials.$inferInsert;
+export type ContentHassleItem = typeof contentHassleItems.$inferSelect;
+export type InsertContentHassleItem = typeof contentHassleItems.$inferInsert;
+export type ContentBookingRule = typeof contentBookingRules.$inferSelect;
+export type InsertContentBookingRule = typeof contentBookingRules.$inferInsert;

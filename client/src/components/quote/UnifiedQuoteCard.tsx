@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Check, Calendar, Clock, Tag, Shield, Zap,
@@ -23,6 +24,27 @@ import {
 } from './SchedulingConfig';
 import { useAvailability, formatDateStr } from '@/hooks/useAvailability';
 
+/** Which booking options to show on the card */
+export type QuoteBookingMode = 'standard_date' | 'flexible_discount' | 'urgent_premium' | 'deposit_split';
+
+/** A single pricing line item from the contextual pricing engine */
+export interface PricingLineItem {
+  lineId: string;
+  description: string;
+  category: string;
+  timeEstimateMinutes: number;
+  guardedPricePence: number;
+  /** Material cost with margin (what customer pays). 0 if no materials. */
+  materialsWithMarginPence?: number;
+}
+
+/** Multi-job batch discount details */
+export interface QuoteBatchDiscount {
+  applied: boolean;
+  discountPercent: number;
+  savingsPence: number;
+}
+
 interface UnifiedQuoteCardProps {
   segment: string;
   basePrice: number; // in pence
@@ -37,11 +59,28 @@ interface UnifiedQuoteCardProps {
     timeSlot: string | null;
     addOns: string[];
     totalPrice: number;
+    chargeNowPence: number; // Amount to charge today (deposit or full discounted price)
+    balanceOnCompletionPence: number; // Remaining balance due on job completion
+    paymentMode: 'deposit' | 'full';
     usedDownsell: boolean;
     flexiblePeriodDays?: number; // When using downsell, how many days flexibility
   }) => void;
   onPaymentSuccess?: (paymentIntentId: string) => Promise<void>;
   isBooking?: boolean;
+  /** Which booking modes to display. When omitted, all default options are shown. */
+  bookingModes?: QuoteBookingMode[];
+  /** Contextual pricing line item breakdown. When provided, shown above the total. */
+  pricingLineItems?: PricingLineItem[];
+  /** Multi-job batch discount. When applied, shown as a discount line. */
+  batchDiscount?: QuoteBatchDiscount;
+  /** Override the default segment-driven feature bullets with contextual value bullets. */
+  contextualBullets?: string[];
+  /** Deposit percentage (0-100). Default 30. */
+  depositPercent?: number;
+  /** Pay-in-full discount percentage (0-100). Default 3. */
+  payInFullDiscountPercent?: number;
+  /** Flexible timing downsell discount percentage (0-100). Default from SchedulingConfig. */
+  flexibleDiscountPercent?: number;
 }
 
 export function UnifiedQuoteCard({
@@ -56,12 +95,34 @@ export function UnifiedQuoteCard({
   onBook,
   onPaymentSuccess,
   isBooking = false,
+  bookingModes,
+  pricingLineItems,
+  batchDiscount,
+  contextualBullets,
+  depositPercent: depositPercentProp,
+  payInFullDiscountPercent: payInFullDiscountPercentProp,
+  flexibleDiscountPercent: flexibleDiscountPercentProp,
 }: UnifiedQuoteCardProps) {
+  // Booking mode flags — when bookingModes is provided, only show those options
+  const showStandardDate = !bookingModes || bookingModes.includes('standard_date');
+  const showFlexibleDiscount = !bookingModes || bookingModes.includes('flexible_discount');
+  const showUrgentPremium = !bookingModes || bookingModes.includes('urgent_premium');
+  const showDepositSplit = !bookingModes || bookingModes.includes('deposit_split');
+
   // Stripe hooks (will be null if not wrapped in Elements provider)
   const stripe = useStripe();
   const elements = useElements();
-  // Get segment-specific config
-  const config = getSchedulingConfig(segment);
+  // Get segment-specific config, with optional flexible discount override
+  const rawConfig = getSchedulingConfig(segment);
+  const config = useMemo(() => {
+    if (flexibleDiscountPercentProp != null && rawConfig.downsell) {
+      return {
+        ...rawConfig,
+        downsell: { ...rawConfig.downsell, discountPercent: flexibleDiscountPercentProp },
+      };
+    }
+    return rawConfig;
+  }, [rawConfig, flexibleDiscountPercentProp]);
   const timeSlots = getTimeSlotsForSegment(segment);
 
   // State
@@ -70,6 +131,12 @@ export function UnifiedQuoteCard({
   const [selectedAddOns, setSelectedAddOns] = useState<string[]>([]);
   const [useDownsell, setUseDownsell] = useState(false);
   const [showAllDates, setShowAllDates] = useState(false);
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [payFull, setPayFull] = useState(false);
+
+  // Deposit / Pay-in-full config (configurable via admin pricing settings)
+  const DEPOSIT_PERCENT = (depositPercentProp ?? 30) / 100;
+  const PAY_FULL_DISCOUNT = (payInFullDiscountPercentProp ?? 3) / 100;
 
   // Payment state (for inline payment when using downsell)
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -77,11 +144,37 @@ export function UnifiedQuoteCard({
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [isLoadingPaymentIntent, setIsLoadingPaymentIntent] = useState(false);
+  const [inlineEmail, setInlineEmail] = useState(customerEmail || '');
+  const effectiveEmail = customerEmail || (inlineEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inlineEmail) ? inlineEmail : undefined);
 
   // Refs for scroll behavior
   const timeSectionRef = useRef<HTMLDivElement>(null);
   const addOnsSectionRef = useRef<HTMLDivElement>(null);
   const bookSectionRef = useRef<HTMLDivElement>(null);
+  const priceCardRef = useRef<HTMLDivElement>(null);
+  const dateSectionRef = useRef<HTMLDivElement>(null);
+
+  // Sticky CTA: show once the price card has been scrolled past,
+  // stays visible until the user selects a date (starts booking flow)
+  const [stickyCTAActivated, setStickyCTAActivated] = useState(false);
+  const showStickyCTA = stickyCTAActivated && !selectedDate;
+
+  useEffect(() => {
+    const checkPriceCardPosition = () => {
+      const priceEl = priceCardRef.current;
+      if (!priceEl) return;
+      const rect = priceEl.getBoundingClientRect();
+      if (rect.bottom < 0) {
+        setStickyCTAActivated(true);
+      }
+    };
+
+    window.addEventListener('scroll', checkPriceCardPosition, { passive: true });
+    // Also check on mount in case page loaded scrolled down
+    checkPriceCardPosition();
+
+    return () => window.removeEventListener('scroll', checkPriceCardPosition);
+  }, []);
 
   // Fetch system-wide availability (blocked dates, etc.)
   const { data: availabilityData } = useAvailability({
@@ -134,7 +227,11 @@ export function UnifiedQuoteCard({
     return dates;
   }, [config, unavailableDates]);
 
-  const visibleDates = showAllDates ? availableDates : availableDates.slice(0, 8);
+  // When urgent_premium mode is disabled, filter out next-day priority dates
+  const filteredDates = !showUrgentPremium
+    ? availableDates.filter(d => !d.isNextDay)
+    : availableDates;
+  const visibleDates = showAllDates ? filteredDates : filteredDates.slice(0, 8);
 
   // Combine config add-ons with any quote-specific extras
   const allAddOns: AddOnOption[] = useMemo(() => {
@@ -149,7 +246,7 @@ export function UnifiedQuoteCard({
   }, [config.addOns, optionalExtras]);
 
   // Calculate total price
-  const { total, breakdown, savingsPercent, wasPrice } = useMemo(() => {
+  const { total, breakdown, savingsPercent, wasPrice, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving } = useMemo(() => {
     let amount = basePrice;
     const items: { label: string; amount: number }[] = [
       { label: config.priceLabel, amount: basePrice },
@@ -194,23 +291,44 @@ export function UnifiedQuoteCard({
     // Apply psychological pricing to avoid round numbers (Ramanujam principle)
     const adjustedAmount = applyPsychologicalPricing(amount);
 
-    // Calculate "was" price for discount badge (BUDGET segment)
-    const was = Math.round(basePrice * 1.18);
-    const savings = Math.round(((was - adjustedAmount) / was) * 100);
+    // Calculate "was" price for discount badge
+    // If we have real batch discount data, use the actual subtotal (before discount)
+    // Otherwise fall back to the old 1.18x markup for BUDGET segment
+    let was: number;
+    let savings: number;
+    if (batchDiscount?.applied && batchDiscount.savingsPence > 0) {
+      // Real data: "was" = current price + actual savings
+      was = adjustedAmount + batchDiscount.savingsPence;
+      savings = batchDiscount.discountPercent;
+    } else {
+      was = Math.round(basePrice * 1.18);
+      savings = Math.round(((was - adjustedAmount) / was) * 100);
+    }
 
-    return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings };
-  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, availableDates, allAddOns, config]);
+    // Deposit model: 100% of materials upfront + 30% of labour
+    const totalMaterialsPence = pricingLineItems
+      ? pricingLineItems.reduce((sum, li) => sum + (li.materialsWithMarginPence || 0), 0)
+      : 0;
+    const labourPortion = adjustedAmount - totalMaterialsPence;
+    const depositAmount = totalMaterialsPence > 0
+      ? applyPsychologicalPricing(totalMaterialsPence + Math.round(labourPortion * DEPOSIT_PERCENT))
+      : applyPsychologicalPricing(Math.round(adjustedAmount * DEPOSIT_PERCENT));
+    const balanceOnCompletion = adjustedAmount - depositAmount;
+
+    // Pay-in-full discount: small incentive for guaranteed cash flow
+    const payFullTotal = applyPsychologicalPricing(Math.round(adjustedAmount * (1 - PAY_FULL_DISCOUNT)));
+    const payFullSaving = adjustedAmount - payFullTotal;
+
+    return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving };
+  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, availableDates, allAddOns, config, batchDiscount, pricingLineItems]);
 
   // Determine if we should show inline payment
-  // For BUDGET & BUSY_PRO: show inline payment when date + time selected OR when using downsell
-  // For other segments with downsell: show inline payment when using downsell
-  const showInlinePayment = (segment === 'BUDGET' || segment === 'BUSY_PRO')
-    ? (useDownsell || (selectedDate && selectedTimeSlot))
-    : useDownsell;
+  // Show inline Stripe card entry when date + time are selected (all segments) or when using downsell
+  const showInlinePayment = useDownsell || (selectedDate && selectedTimeSlot);
 
   // Create payment intent when inline payment should be shown
   useEffect(() => {
-    if (!showInlinePayment || !quoteId || !stripe) {
+    if (!showInlinePayment || !quoteId || !stripe || !effectiveEmail) {
       setClientSecret(null);
       setPaymentIntentId(null);
       return;
@@ -229,11 +347,12 @@ export function UnifiedQuoteCard({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             customerName,
-            customerEmail,
+            customerEmail: effectiveEmail,
             quoteId,
             selectedTier: 'standard', // Legacy field — single price model
             selectedExtras: selectedAddOns,
-            paymentType: 'full',
+            paymentType: payFull ? 'full' : 'deposit',
+            chargeAmountPence: payFull ? payFullTotal : depositAmount,
             flexibleTiming: useDownsell,
             flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
           }),
@@ -271,7 +390,7 @@ export function UnifiedQuoteCard({
       isCurrentRequest = false;
       abortController.abort();
     };
-  }, [showInlinePayment, useDownsell, quoteId, customerName, customerEmail, total, selectedAddOns, segment, config.downsell?.periodDays, stripe]);
+  }, [showInlinePayment, useDownsell, quoteId, customerName, effectiveEmail, total, selectedAddOns, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount]);
 
   // Handle inline payment submission
   const handlePayment = async (e: React.FormEvent) => {
@@ -293,7 +412,7 @@ export function UnifiedQuoteCard({
             card: cardElement,
             billing_details: {
               name: customerName,
-              email: customerEmail,
+              email: effectiveEmail,
             },
           },
         }
@@ -336,6 +455,10 @@ export function UnifiedQuoteCard({
   const canBook = useDownsell || (selectedDate && selectedTimeSlot);
 
   const handleBook = () => {
+    const chargeNow = payFull ? payFullTotal : depositAmount;
+    const balance = payFull ? 0 : balanceOnCompletion;
+    const mode = payFull ? 'full' as const : 'deposit' as const;
+
     // If using downsell, date/time are flexible (we pick)
     if (useDownsell) {
       onBook({
@@ -343,6 +466,9 @@ export function UnifiedQuoteCard({
         timeSlot: null,
         addOns: selectedAddOns,
         totalPrice: total,
+        chargeNowPence: chargeNow,
+        balanceOnCompletionPence: balance,
+        paymentMode: mode,
         usedDownsell: true,
         flexiblePeriodDays: config.downsell?.periodDays,
       });
@@ -355,6 +481,9 @@ export function UnifiedQuoteCard({
       timeSlot: selectedTimeSlot,
       addOns: selectedAddOns,
       totalPrice: total,
+      chargeNowPence: chargeNow,
+      balanceOnCompletionPence: balance,
+      paymentMode: mode,
       usedDownsell: false,
     });
   };
@@ -378,9 +507,9 @@ export function UnifiedQuoteCard({
 
       <div className={`${isDarkTheme ? 'p-6' : ''} space-y-6`}>
         {/* Price Display */}
-        <div className={`text-center ${!isDarkTheme ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-[#7DB00E] rounded-2xl p-6' : ''}`}>
-          {/* Discount Badge for BUDGET */}
-          {config.showDiscountBadge && (
+        <div ref={priceCardRef} className={`text-center ${!isDarkTheme ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-[#7DB00E] rounded-2xl p-6' : ''}`}>
+          {/* Discount Badge — only show when there's a real savings to display and not in pay-full mode */}
+          {!payFull && config.showDiscountBadge && savingsPercent > 0 && (
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#7DB00E] text-white text-xs font-bold mb-4">
               <Percent className="w-3.5 h-3.5" />
               SAVE {savingsPercent}%
@@ -392,42 +521,176 @@ export function UnifiedQuoteCard({
           </div>
 
           <div className="mb-1">
-            {config.showDiscountBadge && (
+            {config.showDiscountBadge && savingsPercent > 0 && !payFull && (
               <span className="text-slate-400 line-through text-xl mr-3">
                 £{Math.round(wasPrice / 100)}
               </span>
             )}
-            <motion.span
-              key={total}
-              initial={{ scale: 1.1, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className={`text-5xl font-black ${isDarkTheme ? 'text-white' : 'text-[#7DB00E]'}`}
-            >
-              £{Math.round(total / 100)}
-            </motion.span>
+            <AnimatePresence mode="wait">
+              {payFull ? (
+                <motion.div
+                  key="full"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                  className="inline-block"
+                >
+                  <div className="flex items-baseline justify-center gap-1.5">
+                    <span className="text-slate-400 line-through text-xl mr-1">
+                      £{Math.round(total / 100)}
+                    </span>
+                    <span className={`text-5xl font-black ${isDarkTheme ? 'text-white' : 'text-[#7DB00E]'}`}>
+                      £{Math.round(payFullTotal / 100)}
+                    </span>
+                  </div>
+                  <div className={`text-xs mt-1 ${isDarkTheme ? 'text-slate-500' : 'text-slate-500'}`}>
+                    Save £{Math.round(payFullSaving / 100)} · pay today, nothing on the day
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="deposit"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                  className="inline-block"
+                >
+                  <span className={`text-5xl font-black ${isDarkTheme ? 'text-white' : 'text-[#7DB00E]'}`}>
+                    £{Math.round(total / 100)}
+                  </span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Payment mode toggle: Deposit (default) / Pay in full */}
+          <div className="mt-3 mb-2 flex justify-center">
+            <div className={`inline-flex rounded-full p-0.5 text-xs font-semibold ${isDarkTheme ? 'bg-white/10' : 'bg-slate-200/80'}`}>
+              <button
+                type="button"
+                onClick={() => setPayFull(false)}
+                className={`relative px-4 py-1.5 rounded-full transition-all duration-200 ${
+                  !payFull
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : isDarkTheme ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                Reserve — £{Math.round(depositAmount / 100)} today
+              </button>
+              <button
+                type="button"
+                onClick={() => setPayFull(true)}
+                className={`relative px-4 py-1.5 rounded-full transition-all duration-200 flex items-center gap-1.5 ${
+                  payFull
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : isDarkTheme ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                Pay in full
+                <span className="text-[#7DB00E] font-bold">-{Math.round(PAY_FULL_DISCOUNT * 100)}%</span>
+              </button>
+            </div>
           </div>
 
           <div className={`text-sm ${isDarkTheme ? 'text-slate-400' : 'text-slate-600'}`}>
-            All-inclusive, no hidden fees
+            {payFull
+              ? `Pay £${Math.round(payFullTotal / 100)} now — nothing on the day`
+              : `£${Math.round(depositAmount / 100)} deposit · £${Math.round(balanceOnCompletion / 100)} on completion`
+            }
           </div>
 
+          {/* Collapsible Price Breakdown */}
+          {pricingLineItems && pricingLineItems.length > 0 && (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setShowBreakdown(prev => !prev)}
+                className={`mx-auto flex items-center gap-1.5 text-xs font-medium transition-colors ${
+                  isDarkTheme ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                See price breakdown
+                <motion.span
+                  animate={{ rotate: showBreakdown ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <ChevronRight className="w-3.5 h-3.5 rotate-90" />
+                </motion.span>
+              </button>
+              <AnimatePresence>
+                {showBreakdown && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25, ease: 'easeInOut' }}
+                    className="overflow-hidden"
+                  >
+                    <div className={`mt-3 pt-3 border-t text-left space-y-2 ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
+                      {pricingLineItems.map((item) => (
+                        <div key={item.lineId}>
+                          <div className="flex justify-between text-sm">
+                            <span className={isDarkTheme ? 'text-slate-300' : 'text-slate-700'}>{item.description}</span>
+                            <span className={`font-medium ml-4 whitespace-nowrap ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                              £{Math.round(item.guardedPricePence / 100)}
+                            </span>
+                          </div>
+                          {(item.materialsWithMarginPence || 0) > 0 && (
+                            <div className="flex justify-between text-xs ml-4 mt-0.5">
+                              <span className={isDarkTheme ? 'text-slate-400' : 'text-slate-500'}>Materials included</span>
+                              <span className={isDarkTheme ? 'text-slate-400' : 'text-slate-500'}>
+                                £{Math.round(item.materialsWithMarginPence! / 100)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {batchDiscount?.applied && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-[#7DB00E] font-medium">Multi-job discount ({batchDiscount.discountPercent}%)</span>
+                          <span className="text-[#7DB00E] font-medium">-£{Math.round(batchDiscount.savingsPence / 100)}</span>
+                        </div>
+                      )}
+                      <div className={`border-t pt-2 flex justify-between font-bold ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
+                        <span className={isDarkTheme ? 'text-white' : 'text-slate-900'}>Total</span>
+                        <span className="text-[#7DB00E]">£{Math.round(total / 100)}</span>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
 
-          {/* What's Included - Segment-driven */}
+          {/* What's Included - Contextual bullets override segment-driven */}
           <div className={`mt-4 pt-4 border-t ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
             <div className={`flex flex-wrap justify-center gap-x-4 gap-y-2 text-sm ${isDarkTheme ? 'text-slate-300' : 'text-slate-700'}`}>
-              {getHassleComparisons(segment, 3).map((item, i) => (
-                <div key={i} className="flex items-center gap-1.5">
-                  <span className="text-[#7DB00E]"><Check className="w-4 h-4" /></span>
-                  {item.withUs}
-                </div>
-              ))}
+              {contextualBullets && contextualBullets.length > 0
+                ? contextualBullets.map((bullet, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <span className="text-[#7DB00E]"><Check className="w-4 h-4" /></span>
+                      {bullet}
+                    </div>
+                  ))
+                : getHassleComparisons(segment, 3).map((item, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <span className="text-[#7DB00E]"><Check className="w-4 h-4" /></span>
+                      {item.withUs}
+                    </div>
+                  ))
+              }
             </div>
           </div>
         </div>
 
-        {/* Downsell Option (if available) */}
-        {config.downsell && (
-          <div className={`rounded-xl p-4 ${useDownsell ? 'bg-[#7DB00E]/20 border-2 border-[#7DB00E]' : 'bg-slate-100 border-2 border-transparent'}`}>
+        {/* Downsell Option (if available and flexible_discount mode enabled) */}
+        {config.downsell && showFlexibleDiscount && (
+          <div className={`rounded-xl p-4 ${useDownsell
+            ? 'bg-[#7DB00E]/20 border-2 border-[#7DB00E]'
+            : isDarkTheme ? 'bg-white/10 border-2 border-white/10' : 'bg-slate-100 border-2 border-transparent'
+          }`}>
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -449,16 +712,16 @@ export function UnifiedQuoteCard({
                     }, 150);
                   }
                 }}
-                className="w-5 h-5 rounded border-slate-300 text-[#7DB00E] focus:ring-[#7DB00E]"
+                className={`w-5 h-5 rounded text-[#7DB00E] focus:ring-[#7DB00E] ${isDarkTheme ? 'border-white/30 bg-white/10' : 'border-slate-300'}`}
               />
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-900">{config.downsell.label}</span>
+                  <span className={`font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>{config.downsell.label}</span>
                   <span className="text-xs bg-[#7DB00E] text-white px-2 py-0.5 rounded-full font-bold">
                     -{config.downsell.discountPercent}%
                   </span>
                 </div>
-                <p className="text-slate-600 text-sm">{config.downsell.description}</p>
+                <p className={`text-sm ${isDarkTheme ? 'text-slate-400' : 'text-slate-600'}`}>{config.downsell.description}</p>
               </div>
             </label>
 
@@ -469,13 +732,13 @@ export function UnifiedQuoteCard({
                 animate={{ opacity: 1, height: 'auto' }}
                 className="mt-4 pt-4 border-t border-[#7DB00E]/30"
               >
-                <div className="flex items-center gap-3 text-slate-700">
-                  <div className="w-10 h-10 rounded-full bg-[#7DB00E] flex items-center justify-center">
+                <div className={`flex items-center gap-3 ${isDarkTheme ? 'text-slate-200' : 'text-slate-700'}`}>
+                  <div className="w-10 h-10 rounded-full bg-[#7DB00E] flex items-center justify-center flex-shrink-0">
                     <Check className="w-5 h-5 text-white" />
                   </div>
                   <div>
                     <p className="font-semibold">We'll schedule you {config.downsell.periodLabel}</p>
-                    <p className="text-sm text-slate-500">Best available slot on our route - you save {config.downsell.discountPercent}%</p>
+                    <p className={`text-sm ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Best available slot on our route - you save {config.downsell.discountPercent}%</p>
                   </div>
                 </div>
               </motion.div>
@@ -483,9 +746,9 @@ export function UnifiedQuoteCard({
           </div>
         )}
 
-        {/* Step 1: Date Selection - Hidden when using downsell */}
-        {!useDownsell && (
-        <div>
+        {/* Step 1: Date Selection - Hidden when using downsell or when standard_date mode disabled */}
+        {!useDownsell && showStandardDate && (
+        <div ref={dateSectionRef}>
           <h4 className={`text-sm font-bold uppercase tracking-wide mb-3 flex items-center gap-2 ${isDarkTheme ? 'text-white' : 'text-slate-700'}`}>
             <Calendar className="w-4 h-4 text-[#7DB00E]" />
             1. Choose your date
@@ -509,12 +772,12 @@ export function UnifiedQuoteCard({
                     : selectedDate?.toDateString() === d.date.toDateString()
                     ? 'bg-[#7DB00E] text-slate-900 ring-2 ring-[#7DB00E] ring-offset-2' + (isDarkTheme ? ' ring-offset-slate-900' : '')
                     : d.isNextDay
-                      ? isDarkTheme
+                      ? 'date-card-shimmer ' + (isDarkTheme
                         ? 'bg-amber-500/20 text-white hover:bg-amber-500/30 border border-amber-500/50'
-                        : 'bg-amber-50 text-slate-700 hover:bg-amber-100 border border-amber-300'
-                      : isDarkTheme
+                        : 'bg-amber-50 text-slate-700 hover:bg-amber-100 border border-amber-300')
+                      : 'date-card-shimmer ' + (isDarkTheme
                         ? 'bg-white/10 text-white hover:bg-white/20'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200')
                 }`}
               >
                 {d.isNextDay && !d.isBlocked && (
@@ -532,7 +795,7 @@ export function UnifiedQuoteCard({
               </button>
             ))}
           </div>
-          {!showAllDates && availableDates.length > 8 && (
+          {!showAllDates && filteredDates.length > 8 && (
             <button
               onClick={() => setShowAllDates(true)}
               className="w-full mt-2 text-sm text-[#7DB00E] font-medium hover:underline"
@@ -689,18 +952,41 @@ export function UnifiedQuoteCard({
         {/* Payment/Book Section */}
         <div ref={bookSectionRef}>
         {showInlinePayment && stripe ? (
-          /* Inline Stripe Payment (for BUDGET after date+time, or for flexible timing) */
-          <div className="space-y-4">
+          /* Inline Stripe card entry — auto-reveals when date + time selected */
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="space-y-4"
+          >
+            <h4 className={`text-sm font-bold uppercase tracking-wide flex items-center gap-2 ${isDarkTheme ? 'text-white' : 'text-slate-700'}`}>
+              <CreditCard className="w-4 h-4 text-[#7DB00E]" />
+              3. Secure your slot
+            </h4>
             <div className={`rounded-xl p-4 ${isDarkTheme ? 'bg-white/5' : 'bg-slate-50'}`}>
               <div className="flex items-center gap-2 mb-3">
-                <CreditCard className={`w-5 h-5 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`} />
-                <span className={`text-sm font-medium ${isDarkTheme ? 'text-white' : 'text-slate-700'}`}>
-                  Card Details
+                <Lock className={`w-3.5 h-3.5 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} />
+                <span className={`text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                  256-bit encrypted
                 </span>
-                <Lock className={`w-3 h-3 ml-auto ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} />
               </div>
 
-              {isLoadingPaymentIntent ? (
+              {!effectiveEmail ? (
+                <div className="space-y-2">
+                  <label className={`text-sm font-medium ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
+                    Email for receipt
+                  </label>
+                  <input
+                    type="email"
+                    value={inlineEmail}
+                    onChange={e => setInlineEmail(e.target.value)}
+                    placeholder="your@email.com"
+                    className={`w-full border rounded-lg p-3 text-base outline-none focus:ring-2 focus:ring-[#7DB00E]/40 ${
+                      isDarkTheme ? 'border-white/20 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-900'
+                    }`}
+                  />
+                </div>
+              ) : isLoadingPaymentIntent ? (
                 <div className="flex items-center justify-center py-6">
                   <Loader2 className="w-6 h-6 animate-spin text-[#7DB00E]" />
                   <span className={`ml-2 text-sm ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -761,7 +1047,10 @@ export function UnifiedQuoteCard({
                       </span>
                     ) : (
                       <span className="flex items-center gap-2">
-                        Pay £{Math.round(total / 100)}
+                        {payFull
+                          ? `Pay £${Math.round(payFullTotal / 100)} now`
+                          : `Pay £${Math.round(depositAmount / 100)} deposit`
+                        }
                         <ChevronRight className="w-5 h-5" />
                       </span>
                     )}
@@ -770,10 +1059,13 @@ export function UnifiedQuoteCard({
               )}
 
               <p className={`text-xs text-center mt-3 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
-                Secure payment powered by Stripe
+                {payFull
+                  ? 'Secure payment powered by Stripe'
+                  : `£${Math.round(balanceOnCompletion / 100)} remaining on completion · Secure payment by Stripe`
+                }
               </p>
             </div>
-          </div>
+          </motion.div>
         ) : (
           /* Regular Book Button - hide disabled state for BUSY_PRO */
           (canBook || segment !== 'BUSY_PRO') && (
@@ -795,7 +1087,10 @@ export function UnifiedQuoteCard({
                 </span>
               ) : canBook ? (
                 <span className="flex items-center gap-2">
-                  Book for £{Math.round(total / 100)}
+                  {payFull
+                    ? `Pay £${Math.round(payFullTotal / 100)} now`
+                    : `Reserve — pay £${Math.round(depositAmount / 100)} deposit`
+                  }
                   <ChevronRight className="w-5 h-5" />
                 </span>
               ) : (
@@ -806,22 +1101,65 @@ export function UnifiedQuoteCard({
         )}
         </div>
 
-        {/* Trust Footer */}
-        <div className={`flex items-center justify-center gap-4 text-xs ${isDarkTheme ? 'text-slate-500' : 'text-slate-500'}`}>
-          <span className="flex items-center gap-1">
-            <Shield className="w-3 h-3" />
-            {isDarkTheme ? 'Secure payment' : 'Vetted & Insured'}
-          </span>
-          <span className="flex items-center gap-1">
-            <Star className="w-3 h-3" />
-            4.9 rating
-          </span>
-          <span className="flex items-center gap-1">
-            <Check className="w-3 h-3" />
-            {isDarkTheme ? 'Free cancellation' : 'Local tradesperson'}
-          </span>
+        {/* Trust Guarantees */}
+        <div className={`rounded-xl border divide-y ${isDarkTheme ? 'bg-white/5 border-white/10 divide-white/10' : 'bg-white border-slate-200 divide-slate-100'}`}>
+          {[
+            { icon: Shield, text: '£2M insured', sub: 'Your property is protected' },
+            { icon: Lock, text: 'Fixed price', sub: 'No surprises on the day' },
+            { icon: Check, text: '30-day guarantee', sub: 'Not right? We fix it free' },
+          ].map(({ icon: Icon, text, sub }) => (
+            <div key={text} className="flex items-center gap-3 px-4 py-3">
+              <div className="w-8 h-8 rounded-full bg-[#7DB00E]/10 flex items-center justify-center flex-shrink-0">
+                <Icon className="w-4 h-4 text-[#7DB00E]" />
+              </div>
+              <div>
+                <span className={`text-sm font-medium ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>{text}</span>
+                <span className={`text-sm ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}> · {sub}</span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
+
+      {/* Sticky bottom CTA — portaled to body to avoid transform containment breaking fixed positioning */}
+      {createPortal(
+        <AnimatePresence>
+          {showStickyCTA && (
+            <motion.div
+              initial={{ y: 100, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 100, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              className="fixed bottom-0 left-0 right-0 z-50 safe-area-bottom"
+            >
+              <div className="bg-white border-t border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.12)] px-4 py-3">
+                <div className="max-w-lg mx-auto flex items-center justify-between gap-3">
+                  <div className="flex-shrink-0">
+                    <p className="text-xs text-slate-500">{payFull ? 'Pay today' : 'Reserve from'}</p>
+                    <p className="text-2xl font-black text-[#7DB00E] leading-tight">
+                      £{payFull ? Math.round(payFullTotal / 100) : Math.round(depositAmount / 100)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      dateSectionRef.current?.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'center',
+                      });
+                    }}
+                    className="flex-1 max-w-[220px] bg-[#7DB00E] hover:bg-[#6a9a0c] active:scale-[0.98] text-white font-bold py-3 px-5 rounded-xl text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#7DB00E]/25"
+                  >
+                    <Calendar className="w-4 h-4" />
+                    Choose your date
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }
