@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -39,6 +39,7 @@ import type {
   BatchDiscount,
   LayoutTier,
   BookingMode,
+  MultiLineResult,
 } from '@shared/contextual-pricing-types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -130,6 +131,42 @@ const CATEGORY_OPTIONS = Object.entries(CATEGORY_LABELS).map(([value, label]) =>
   label,
 }));
 
+// Reference hourly rates (pence) and minimums for live estimate — mirrors server/contextual-pricing/reference-rates.ts
+const CATEGORY_RATES: Record<string, { hourly: number; min: number }> = {
+  general_fixing: { hourly: 3000, min: 4500 },
+  flat_pack: { hourly: 2800, min: 4000 },
+  tv_mounting: { hourly: 3500, min: 5000 },
+  carpentry: { hourly: 4000, min: 5500 },
+  curtain_blinds: { hourly: 3000, min: 4000 },
+  door_fitting: { hourly: 3500, min: 6000 },
+  plumbing_minor: { hourly: 4500, min: 6000 },
+  electrical_minor: { hourly: 5000, min: 6500 },
+  painting: { hourly: 3000, min: 8000 },
+  tiling: { hourly: 4000, min: 6000 },
+  waste_removal: { hourly: 2500, min: 4000 },
+  plastering: { hourly: 4000, min: 6000 },
+  lock_change: { hourly: 5000, min: 7000 },
+  guttering: { hourly: 3500, min: 5000 },
+  pressure_washing: { hourly: 3000, min: 5000 },
+  shelving: { hourly: 3000, min: 4500 },
+  silicone_sealant: { hourly: 2500, min: 3500 },
+  fencing: { hourly: 3500, min: 5000 },
+  flooring: { hourly: 3000, min: 8000 },
+  furniture_repair: { hourly: 3000, min: 4500 },
+  garden_maintenance: { hourly: 2500, min: 4000 },
+  bathroom_fitting: { hourly: 5000, min: 15000 },
+  kitchen_fitting: { hourly: 5000, min: 20000 },
+  other: { hourly: 3500, min: 5000 },
+};
+
+function estimateLineItemPence(item: LineItem): number {
+  const rate = CATEGORY_RATES[item.category] || CATEGORY_RATES.other;
+  const timeBased = Math.round((rate.hourly / 60) * item.estimatedMinutes);
+  const labour = Math.max(timeBased, rate.min);
+  const materials = Math.round((item.materialsCostPounds || 0) * 100);
+  return labour + materials;
+}
+
 function generateId(): string {
   return Math.random().toString(36).substring(2, 10);
 }
@@ -187,6 +224,77 @@ export default function GenerateContextualQuote() {
   // ── Clipboard state ──
   const [copiedMessage, setCopiedMessage] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  // ── Live pricing preview (calls the real engine) ──
+  const [livePreview, setLivePreview] = useState<MultiLineResult | null>(null);
+  const [livePreviewLoading, setLivePreviewLoading] = useState(false);
+  const livePreviewAbortRef = useRef<AbortController | null>(null);
+  const livePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchLivePreview = useCallback(async (items: LineItem[], sigs: ContextSignals) => {
+    // Cancel any in-flight request
+    livePreviewAbortRef.current?.abort();
+
+    // Need at least one valid line item
+    const validItems = items.filter((li) => li.description.trim() && li.estimatedMinutes > 0);
+    if (validItems.length === 0) {
+      setLivePreview(null);
+      setLivePreviewLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    livePreviewAbortRef.current = controller;
+    setLivePreviewLoading(true);
+
+    try {
+      const res = await fetch('/api/pricing/multi-quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          lines: validItems.map((li) => ({
+            id: li.id,
+            description: li.description,
+            category: li.category,
+            timeEstimateMinutes: li.estimatedMinutes,
+            materialsCostPence: Math.round((li.materialsCostPounds || 0) * 100),
+          })),
+          signals: {
+            urgency: sigs.urgency,
+            materialsSupply: sigs.materialsSupply,
+            timeOfService: sigs.timeOfService,
+            isReturningCustomer: sigs.isReturningCustomer,
+            previousJobCount: sigs.previousJobCount,
+            previousAvgPricePence: sigs.previousAvgPricePence,
+          },
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error('Preview failed');
+      const data: MultiLineResult = await res.json();
+      setLivePreview(data);
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        // Silently fall back — preview is non-critical
+        setLivePreview(null);
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        setLivePreviewLoading(false);
+      }
+    }
+  }, []);
+
+  // Debounced effect: re-fetch live preview when line items or signals change
+  useEffect(() => {
+    if (livePreviewTimerRef.current) clearTimeout(livePreviewTimerRef.current);
+    livePreviewTimerRef.current = setTimeout(() => {
+      fetchLivePreview(lineItems, signals);
+    }, 600);
+    return () => {
+      if (livePreviewTimerRef.current) clearTimeout(livePreviewTimerRef.current);
+    };
+  }, [lineItems, signals, fetchLivePreview]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // API: Fetch recent callers
@@ -778,6 +886,67 @@ export default function GenerateContextualQuote() {
                     <Plus className="w-3.5 h-3.5" />
                     Add Line Item
                   </Button>
+                )}
+
+                {/* Live Engine Price Preview */}
+                {lineItems.length > 0 && (
+                  <>
+                    <Separator />
+                    {livePreviewLoading && !livePreview ? (
+                      <div className="flex items-center justify-center gap-2 py-3">
+                        <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                        <span className="text-sm text-muted-foreground">Calculating price...</span>
+                      </div>
+                    ) : livePreview ? (
+                      <div className="space-y-2">
+                        {/* Per-line breakdown */}
+                        {livePreview.lineItems.length > 1 && (
+                          <div className="space-y-1">
+                            {livePreview.lineItems.map((li) => (
+                              <div key={li.lineId} className="flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground truncate mr-2">{li.description}</span>
+                                <span className="text-foreground font-medium shrink-0">
+                                  £{(li.guardedPricePence / 100).toFixed(0)}
+                                  {li.materialsWithMarginPence > 0 && (
+                                    <span className="text-muted-foreground ml-1">+ £{(li.materialsWithMarginPence / 100).toFixed(0)} materials</span>
+                                  )}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Batch discount */}
+                        {livePreview.batchDiscount.applied && (
+                          <div className="flex items-center justify-between text-xs text-green-400">
+                            <span>Batch discount ({livePreview.batchDiscount.discountPercent}%)</span>
+                            <span>-£{(livePreview.batchDiscount.savingsPence / 100).toFixed(0)}</span>
+                          </div>
+                        )}
+
+                        {/* Total */}
+                        <div className="flex items-center justify-between py-1">
+                          <span className="text-sm text-muted-foreground">
+                            Engine Total
+                            {livePreviewLoading && <Loader2 className="w-3 h-3 animate-spin inline ml-1.5" />}
+                          </span>
+                          <span className="text-xl font-bold text-amber-400">
+                            £{(livePreview.finalPricePence / 100).toFixed(0)}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground/60">
+                          Live from contextual pricing engine — includes all adjustments.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between py-1">
+                        <span className="text-sm text-muted-foreground">Estimated Total</span>
+                        <span className="text-xl font-bold text-amber-400">
+                          ~£{Math.round(lineItems.reduce((sum, item) => sum + estimateLineItemPence(item), 0) / 100)}
+                        </span>
+                      </div>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>
