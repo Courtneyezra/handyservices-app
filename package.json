@@ -76,6 +76,7 @@
     "passport-google-oauth20": "^2.0.0",
     "pg": "^8.16.3",
     "posthog-js": "^1.318.1",
+    "posthog-node": "^5.28.2",
     "puppeteer": "^24.34.0",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.1",

@@ -2210,3 +2210,23 @@ export type ContentHassleItem = typeof contentHassleItems.$inferSelect;
 export type InsertContentHassleItem = typeof contentHassleItems.$inferInsert;
 export type ContentBookingRule = typeof contentBookingRules.$inferSelect;
 export type InsertContentBookingRule = typeof contentBookingRules.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Quote Section Engagement Events
+// Stores per-section dwell time data for in-app engagement analytics
+// ---------------------------------------------------------------------------
+export const quoteSectionEvents = pgTable("quote_section_events", {
+  id: serial("id").primaryKey(),
+  quoteId: varchar("quote_id", { length: 255 }).notNull(),
+  shortSlug: varchar("short_slug", { length: 50 }),
+  section: varchar("section", { length: 100 }).notNull(),
+  dwellTimeMs: integer("dwell_time_ms").notNull().default(0),
+  scrollDepthPercent: integer("scroll_depth_percent"),
+  deviceType: varchar("device_type", { length: 20 }),
+  layoutTier: varchar("layout_tier", { length: 50 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_section_events_quote").on(table.quoteId),
+  index("idx_section_events_section").on(table.section),
+  index("idx_section_events_created").on(table.createdAt),
+]);

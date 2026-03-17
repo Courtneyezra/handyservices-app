@@ -45,6 +45,18 @@ import { UnifiedQuoteCard } from '@/components/quote/UnifiedQuoteCard';
 import { BookingConfirmation } from '@/components/quote/BookingConfirmation';
 import { ScarcityBanner } from '@/components/quote/ScarcityBanner';
 import type { LayoutTier, BookingMode, LineItemResult, BatchDiscount } from '../../../shared/contextual-pricing-types';
+import {
+  initQuotePageTracking,
+  trackQuoteViewed,
+  trackSectionViewed,
+  trackBookingModeInteraction,
+  trackCTAClick,
+  trackPaymentCompleted,
+  trackPricingLayers,
+  trackScrollDepth,
+  trackTimeOnPage,
+} from '@/lib/quote-analytics';
+import { identifyUser, capturePageView } from '@/lib/posthog';
 
 export type EEEPackageTier = 'essential' | 'enhanced' | 'elite';
 
@@ -1729,6 +1741,7 @@ interface ContextualQuoteLayoutProps {
   selectedEEEPackage: EEEPackageTier | null;
   setSelectedEEEPackage: (t: EEEPackageTier | null) => void;
   pricingSettings?: { googleRating?: string; reviewCount?: number; propertiesServed?: string; jobsCompleted?: string };
+  getTimeOnPage?: () => number;
 }
 
 /** Hardcoded Google reviews for Standard/Complex layouts */
@@ -2048,9 +2061,12 @@ function ContextualQuoteLayout({
   selectedEEEPackage,
   setSelectedEEEPackage,
   pricingSettings,
+  getTimeOnPage,
 }: ContextualQuoteLayoutProps) {
 
   const totalPrice = quote.finalPricePence || quote.basePrice || 0;
+  // Helper for CTA tracking within this sub-component
+  const trackingRef = { current: { getTimeOnPage: getTimeOnPage || (() => 0) } };
   const layoutTier = quote.layoutTier || 'standard';
 
   // Determine how many value bullets to show per tier
@@ -2075,7 +2091,17 @@ function ContextualQuoteLayout({
     <Button
       className="w-full h-14 text-lg font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-lg shadow-amber-500/20 transition-all active:scale-[0.98]"
       disabled={isBooking}
-      onClick={() => setShowPaymentForm(true)}
+      onClick={() => {
+        trackCTAClick({
+          quoteId: quote.id,
+          shortSlug: quote.shortSlug,
+          ctaType: 'book_now',
+          segment: quote.segment || 'UNKNOWN',
+          totalPricePence: totalPrice,
+          timeOnPageMs: trackingRef.current?.getTimeOnPage() || 0,
+        });
+        setShowPaymentForm(true);
+      }}
     >
       {isBooking ? (
         <span className="flex items-center gap-2">
@@ -2096,6 +2122,14 @@ function ContextualQuoteLayout({
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-[#25D366] transition-colors"
+        onClick={() => trackCTAClick({
+          quoteId: quote.id,
+          shortSlug: quote.shortSlug,
+          ctaType: 'whatsapp_question',
+          segment: quote.segment || 'UNKNOWN',
+          totalPricePence: totalPrice,
+          timeOnPageMs: trackingRef.current?.getTimeOnPage() || 0,
+        })}
       >
         <FaWhatsapp className="w-4 h-4" />
         Questions? Message us
@@ -2136,20 +2170,22 @@ function ContextualQuoteLayout({
   if (layoutTier === 'quick') {
     return pageWrapper(
       <>
-        {brandHero}
-        {priceDisplay}
+        <div data-track-section="hero">{brandHero}</div>
+        <div data-track-section="price">{priceDisplay}</div>
 
         {/* Value bullets (max 3) */}
         {displayBullets.length > 0 && (
-          <Card className="border-slate-200">
-            <CardContent className="p-5">
-              <ValueBulletsList bullets={displayBullets} />
-            </CardContent>
-          </Card>
+          <div data-track-section="value_bullets">
+            <Card className="border-slate-200">
+              <CardContent className="p-5">
+                <ValueBulletsList bullets={displayBullets} />
+              </CardContent>
+            </Card>
+          </div>
         )}
 
-        {bookNowCTA}
-        <ContextualTrustStrip googleRating={pricingSettings?.googleRating} reviewCount={pricingSettings?.reviewCount} />
+        <div data-track-section="book_cta">{bookNowCTA}</div>
+        <div data-track-section="trust_strip"><ContextualTrustStrip googleRating={pricingSettings?.googleRating} reviewCount={pricingSettings?.reviewCount} /></div>
         {whatsappFallback}
       </>
     );
@@ -2161,20 +2197,22 @@ function ContextualQuoteLayout({
   if (layoutTier === 'standard') {
     return pageWrapper(
       <>
-        {brandHero}
+        <div data-track-section="hero">{brandHero}</div>
 
         {/* Line items breakdown table */}
         {quote.pricingLineItems && quote.pricingLineItems.length > 0 && (
-          <PricingLineItems
-            lineItems={quote.pricingLineItems}
-            batchDiscount={quote.batchDiscount}
-            formatPrice={formatPrice}
-          />
+          <div data-track-section="line_items">
+            <PricingLineItems
+              lineItems={quote.pricingLineItems}
+              batchDiscount={quote.batchDiscount}
+              formatPrice={formatPrice}
+            />
+          </div>
         )}
 
         {/* Batch savings callout (if applicable) */}
         {quote.batchDiscount?.applied && quote.batchDiscount.discountPercent > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+          <div data-track-section="batch_discount" className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
             <p className="text-sm font-medium text-amber-800">
               You save £{formatPrice(quote.batchDiscount.savingsPence)} by booking these jobs together
             </p>
@@ -2182,22 +2220,24 @@ function ContextualQuoteLayout({
         )}
 
         {/* Total price (prominent) */}
-        {priceDisplay}
+        <div data-track-section="price">{priceDisplay}</div>
 
         {/* Value bullets (max 4) */}
         {displayBullets.length > 0 && (
-          <Card className="border-slate-200">
-            <CardContent className="p-5">
-              <ValueBulletsList bullets={displayBullets} />
-            </CardContent>
-          </Card>
+          <div data-track-section="value_bullets">
+            <Card className="border-slate-200">
+              <CardContent className="p-5">
+                <ValueBulletsList bullets={displayBullets} />
+              </CardContent>
+            </Card>
+          </div>
         )}
 
-        {bookNowCTA}
-        <ContextualTrustStrip googleRating={pricingSettings?.googleRating} reviewCount={pricingSettings?.reviewCount} />
+        <div data-track-section="book_cta">{bookNowCTA}</div>
+        <div data-track-section="trust_strip"><ContextualTrustStrip googleRating={pricingSettings?.googleRating} reviewCount={pricingSettings?.reviewCount} /></div>
 
         {/* Single Google review for social proof */}
-        <ContextualGoogleReviewCard review={GOOGLE_REVIEWS[0]} />
+        <div data-track-section="google_review"><ContextualGoogleReviewCard review={GOOGLE_REVIEWS[0]} /></div>
 
         {whatsappFallback}
       </>
@@ -2209,20 +2249,22 @@ function ContextualQuoteLayout({
   // =====================================================================
   return pageWrapper(
     <>
-      {brandHero}
+      <div data-track-section="hero">{brandHero}</div>
 
       {/* Categorised job sections with per-section subtotals */}
       {quote.pricingLineItems && quote.pricingLineItems.length > 0 && (
-        <CategorisedPricingLineItems
-          lineItems={quote.pricingLineItems}
-          batchDiscount={quote.batchDiscount}
-          formatPrice={formatPrice}
-        />
+        <div data-track-section="line_items">
+          <CategorisedPricingLineItems
+            lineItems={quote.pricingLineItems}
+            batchDiscount={quote.batchDiscount}
+            formatPrice={formatPrice}
+          />
+        </div>
       )}
 
       {/* Batch discount callout (if applicable) */}
       {quote.batchDiscount?.applied && quote.batchDiscount.discountPercent > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+        <div data-track-section="batch_discount" className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
           <p className="text-sm font-medium text-amber-800">
             Multi-job savings: £{formatPrice(quote.batchDiscount.savingsPence)} off ({quote.batchDiscount.discountPercent}% discount)
           </p>
@@ -2230,7 +2272,7 @@ function ContextualQuoteLayout({
       )}
 
       {/* Grand total (prominent) */}
-      <div className="text-center py-4">
+      <div data-track-section="price" className="text-center py-4">
         <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold mb-1">Grand Total</p>
         <p className="text-5xl font-extrabold text-slate-900">
           £{formatPrice(totalPrice)}
@@ -2240,15 +2282,17 @@ function ContextualQuoteLayout({
 
       {/* Value bullets (max 5) */}
       {displayBullets.length > 0 && (
-        <Card className="border-slate-200">
-          <CardContent className="p-5">
-            <ValueBulletsList bullets={displayBullets} />
-          </CardContent>
-        </Card>
+        <div data-track-section="value_bullets">
+          <Card className="border-slate-200">
+            <CardContent className="p-5">
+              <ValueBulletsList bullets={displayBullets} />
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Guarantee statement */}
-      <div className="bg-[#7DB00E]/5 border border-[#7DB00E]/20 rounded-xl p-4 text-center">
+      <div data-track-section="guarantee" className="bg-[#7DB00E]/5 border border-[#7DB00E]/20 rounded-xl p-4 text-center">
         <div className="flex items-center justify-center gap-2 mb-1">
           <ShieldCheck className="w-4 h-4 text-[#7DB00E]" />
           <p className="text-sm font-semibold text-[#7DB00E]">Our Guarantee</p>
@@ -2256,13 +2300,13 @@ function ContextualQuoteLayout({
         <p className="text-sm text-slate-600">Not right? We return and fix it free. No questions.</p>
       </div>
 
-      {bookNowCTA}
+      <div data-track-section="book_cta">{bookNowCTA}</div>
 
       {/* Trust strip with risk reversal for complex quotes */}
-      <ContextualTrustStrip showRiskReversal googleRating={pricingSettings?.googleRating} reviewCount={pricingSettings?.reviewCount} />
+      <div data-track-section="trust_strip"><ContextualTrustStrip showRiskReversal googleRating={pricingSettings?.googleRating} reviewCount={pricingSettings?.reviewCount} /></div>
 
       {/* Multiple Google reviews for social proof */}
-      <div className="space-y-3">
+      <div data-track-section="google_reviews" className="space-y-3">
         {GOOGLE_REVIEWS.map((review, i) => (
           <ContextualGoogleReviewCard key={i} review={review} />
         ))}
@@ -2512,6 +2556,168 @@ export default function PersonalizedQuotePage() {
     }
   }, [params?.slug]);
 
+  // ---------------------------------------------------------------------------
+  // PostHog: Contextual Quote Analytics
+  // ---------------------------------------------------------------------------
+
+  const trackingRef = useRef<ReturnType<typeof initQuotePageTracking> | null>(null);
+  const maxScrollDepthRef = useRef(0);
+  const hasTrackedViewRef = useRef(false);
+
+  // Initialize page tracking on mount
+  useEffect(() => {
+    if (!params?.slug) return;
+    trackingRef.current = initQuotePageTracking(params.slug);
+
+    // Track scroll depth
+    const handleScroll = () => {
+      const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
+      if (scrollHeight > 0) {
+        const depth = Math.round((window.scrollY / scrollHeight) * 100);
+        if (depth > maxScrollDepthRef.current) {
+          maxScrollDepthRef.current = depth;
+        }
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      // Fire exit events
+      if (quote && trackingRef.current) {
+        trackScrollDepth(quote.id, params.slug!, maxScrollDepthRef.current);
+        trackTimeOnPage(quote.id, params.slug!, trackingRef.current.getTimeOnPage());
+      }
+    };
+  }, [params?.slug]);
+
+  // Track quote viewed (once per page load, after data arrives)
+  useEffect(() => {
+    if (!quote || !trackingRef.current || hasTrackedViewRef.current) return;
+    hasTrackedViewRef.current = true;
+
+    // Identify the customer in PostHog so all events tie to a person profile
+    if (quote.phone) {
+      identifyUser(quote.phone, {
+        name: quote.customerName,
+        email: quote.email || undefined,
+        segment: quote.segment || 'UNKNOWN',
+        postcode: quote.postcode || undefined,
+        is_returning_customer: (quote as any).contextSignals?.isReturningCustomer || false,
+        first_quote_date: quote.createdAt,
+      });
+    }
+
+    const isContextualQuote = quote.segment === 'CONTEXTUAL' || !!(quote.layoutTier && quote.valueBullets);
+    const tracking = trackingRef.current;
+    const createdAt = quote.createdAt ? new Date(quote.createdAt).getTime() : Date.now();
+    const hoursAfterCreation = Math.round((Date.now() - createdAt) / 3600000);
+
+    // Fire $pageview for PostHog heatmaps, scroll depth, and session recordings
+    capturePageView({
+      quote_id: quote.id,
+      segment: quote.segment || 'UNKNOWN',
+      layout_tier: quote.layoutTier,
+    });
+
+    trackQuoteViewed({
+      quoteId: quote.id,
+      shortSlug: quote.shortSlug,
+      segment: quote.segment || 'UNKNOWN',
+      layoutTier: quote.layoutTier || null,
+      totalPricePence: quote.finalPricePence || quote.basePrice || 0,
+      lineItemCount: quote.pricingLineItems?.length || 1,
+      jobCategories: quote.pricingLineItems?.map(l => l.category) || [],
+      batchDiscountApplied: quote.batchDiscount?.applied || false,
+      batchDiscountPercent: quote.batchDiscount?.discountPercent || 0,
+      // Pricing layers (from pricingLayerBreakdown stored on quote)
+      layer1ReferencePence: (quote as any).pricingLayerBreakdown?.layerBreakdown?.layer1ReferencePence,
+      layer3LLMSuggestedPence: (quote as any).pricingLayerBreakdown?.layerBreakdown?.layer3LLMSuggestedPence,
+      layer4FinalPence: (quote as any).pricingLayerBreakdown?.layerBreakdown?.layer4FinalPence,
+      // Content shown
+      valueBulletCount: quote.valueBullets?.length || 0,
+      bookingModesShown: quote.bookingModes || [],
+      // Revisit & timing
+      isRevisit: tracking.isRevisit,
+      hoursAfterCreation,
+      deviceType: tracking.deviceType,
+      referrer: tracking.referrer,
+    });
+
+    // Also fire pricing layer detail for contextual quotes
+    if (isContextualQuote && quote.pricingLineItems && (quote as any).pricingLayerBreakdown) {
+      const breakdown = (quote as any).pricingLayerBreakdown;
+      trackPricingLayers({
+        quoteId: quote.id,
+        shortSlug: quote.shortSlug,
+        lineItems: quote.pricingLineItems.map(l => ({
+          lineId: l.lineId,
+          category: l.category,
+          referencePricePence: l.referencePricePence,
+          llmSuggestedPence: l.llmSuggestedPricePence,
+          guardedPricePence: l.guardedPricePence,
+          adjustmentFactors: l.adjustmentFactors?.map(a => a.factor) || [],
+        })),
+        subtotalPence: breakdown.subtotalPence || 0,
+        finalPricePence: breakdown.finalPricePence || 0,
+        batchDiscountPercent: breakdown.batchDiscount?.discountPercent || 0,
+        confidence: breakdown.confidence || 'unknown',
+      });
+    }
+  }, [quote]);
+
+  // Section visibility tracking via IntersectionObserver
+  useEffect(() => {
+    if (!quote) return;
+
+    const sectionTimers: Record<string, number> = {};
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          const section = entry.target.getAttribute('data-track-section');
+          if (!section) return;
+
+          if (entry.isIntersecting) {
+            sectionTimers[section] = Date.now();
+          } else if (sectionTimers[section]) {
+            const timeSpent = Date.now() - sectionTimers[section];
+            if (timeSpent > 500) { // Only track if viewed >500ms
+              const scrollDepth = Math.round((window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)) * 100);
+              trackSectionViewed({
+                quoteId: quote.id,
+                shortSlug: quote.shortSlug,
+                section,
+                timeSpentMs: timeSpent,
+                scrollDepthPercent: scrollDepth,
+              });
+              // Beacon to our own DB for in-app engagement analytics
+              fetch('/api/analytics/quotes/section-event', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  quoteId: quote.id,
+                  shortSlug: quote.shortSlug,
+                  section,
+                  dwellTimeMs: timeSpent,
+                  scrollDepthPercent: scrollDepth,
+                  deviceType: window.innerWidth < 768 ? 'mobile' : window.innerWidth < 1024 ? 'tablet' : 'desktop',
+                  layoutTier: quote.layoutTier,
+                }),
+              }).catch(() => {}); // fire-and-forget
+            }
+            delete sectionTimers[section];
+          }
+        });
+      },
+      { threshold: 0.5 }
+    );
+
+    // Observe all sections with data-track-section attribute
+    document.querySelectorAll('[data-track-section]').forEach(el => observer.observe(el));
+
+    return () => observer.disconnect();
+  }, [quote]);
+
   /* REMOVED: formatTime moved to CountdownTimer */
 
   const formatPrice = (priceInPence: number) => {
@@ -2654,6 +2860,29 @@ export default function PersonalizedQuotePage() {
     } catch (trackError) {
       console.warn('Booking tracking failed:', trackError);
       // Continue - payment is complete
+    }
+
+    // PostHog: Track the conversion event
+    if (trackingRef.current) {
+      const quotePrice = quote.finalPricePence || quote.basePrice || 0;
+      trackPaymentCompleted({
+        quoteId: quote.id,
+        shortSlug: quote.shortSlug,
+        segment: quote.segment || 'UNKNOWN',
+        totalPricePence: quotePrice,
+        depositPence: Math.round(quotePrice * 0.3),
+        paymentMode: effectivePaymentType as 'full' | 'installments',
+        bookingMode: schedulingTier || undefined,
+        selectedDate: (selectedDate || selectedCalendarDate)?.toISOString(),
+        schedulingTier: schedulingTier || undefined,
+        timeSlotType: timeSlotType || undefined,
+        selectedExtras,
+        timeFromViewToPayMs: trackingRef.current.getTimeOnPage(),
+        revisitCount: trackingRef.current.visitCount,
+        lineItemCount: quote.pricingLineItems?.length || 1,
+        jobCategories: quote.pricingLineItems?.map(l => l.category) || [],
+        batchDiscountApplied: quote.batchDiscount?.applied || false,
+      });
     }
 
     setHasBooked(true);
@@ -2983,17 +3212,27 @@ export default function PersonalizedQuotePage() {
 
                   {/* PDF Download — subtle link */}
                   <button
-                    onClick={() => generateQuotePDF({
-                      quoteId: quote.id,
-                      customerName: quote.customerName || 'Customer',
-                      address: quote.address,
-                      postcode: quote.postcode,
-                      jobDescription: getExpertNoteText(quote as any),
-                      priceInPence: quotePrice,
-                      segment: quote.segment || undefined,
-                      validityHours: 48,
-                      createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
-                    })}
+                    onClick={() => {
+                      trackCTAClick({
+                        quoteId: quote.id,
+                        shortSlug: quote.shortSlug,
+                        ctaType: 'pdf_download',
+                        segment: quote.segment || 'UNKNOWN',
+                        totalPricePence: quote.finalPricePence || quote.basePrice || 0,
+                        timeOnPageMs: trackingRef.current?.getTimeOnPage() || 0,
+                      });
+                      generateQuotePDF({
+                        quoteId: quote.id,
+                        customerName: quote.customerName || 'Customer',
+                        address: quote.address,
+                        postcode: quote.postcode,
+                        jobDescription: getExpertNoteText(quote as any),
+                        priceInPence: quotePrice,
+                        segment: quote.segment || undefined,
+                        validityHours: 48,
+                        createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
+                      });
+                    }}
                     className="w-full flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-[#7DB00E] transition-colors py-2 mt-2"
                   >
                     <FileText className="w-4 h-4" />

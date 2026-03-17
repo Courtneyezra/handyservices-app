@@ -18,6 +18,7 @@ import { setupTwilioSocket } from "./twilio-realtime";
 import { twilioClient } from "./twilio-client";
 import { createCall, findCallByTwilioSid, updateCall, finalizeCall } from './call-logger';
 import { determineCallRouting, CallRoutingSettings, AgentMode, FallbackAction } from "./call-routing-engine";
+import { shutdownPostHog } from "./posthog";
 import { quotesRouter } from "./quotes";
 import routeAnalysisRouter from "./route-analysis";
 import extractCallDataRouter from "./extract-call-data";
@@ -43,6 +44,7 @@ import placesRouter from './places-routes';
 import { stripeRouter } from './stripe-routes';
 import { elevenLabsWebhookRouter } from './eleven-labs/webhook';
 import contextualPricingRouter from './contextual-pricing/routes';
+import quoteAnalyticsRouter from './quote-analytics-api';
 import contentLibraryRouter from './content-library/routes';
 import contentRouter from './content';
 import { setupCronJobs } from './cron';
@@ -258,6 +260,7 @@ app.use(extractCallDataRouter);
 // app.use(express.static(path.join(__dirname, '../client/dist'))); // REMOVED: Conflicts with Vite Dev Server
 app.use(quotesRouter);
 app.use(contextualPricingRouter);
+app.use(quoteAnalyticsRouter);
 app.use(contentLibraryRouter);
 app.use(leadsRouter);
 app.use('/api', voiceRouter);
@@ -1620,6 +1623,7 @@ process.on('SIGINT', async () => {
     clearInterval(heartbeatInterval);
     wssClient.close();
     conversationEngine.destroy();
+    await shutdownPostHog();
     process.exit(0);
 });
 
@@ -1628,5 +1632,6 @@ process.on('SIGTERM', async () => {
     clearInterval(heartbeatInterval);
     wssClient.close();
     conversationEngine.destroy();
+    await shutdownPostHog();
     process.exit(0);
 });

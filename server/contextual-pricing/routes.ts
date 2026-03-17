@@ -23,6 +23,7 @@ import { db } from '../db';
 import { personalizedQuotes, leads } from '@shared/schema';
 import { normalizePhoneNumber } from '../phone-utils';
 import { selectContentForQuote } from '../content-library/selector';
+import { trackQuoteCreated } from '../posthog';
 import type {
   PricingContext,
   PricingComparisonResult,
@@ -756,6 +757,54 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
 
     await db.insert(personalizedQuotes).values(quoteInsertData);
     console.log(`[ContextualQuote] Created quote ${shortSlug} (${id}), price: ${result.finalPricePence}p`);
+
+    // 7b. Track in PostHog (server-side, non-blocking)
+    try {
+      trackQuoteCreated({
+        distinctId: normalizedPhone || input.phone,
+        quoteId: id,
+        shortSlug,
+        customerName: input.customerName,
+        phone: input.phone,
+        postcode: input.postcode,
+        segment: 'CONTEXTUAL',
+        finalPricePence: result.finalPricePence,
+        subtotalPence: result.subtotalPence,
+        lineItems: result.lineItems.map(l => ({
+          lineId: l.lineId,
+          category: l.category,
+          description: l.description,
+          timeEstimateMinutes: l.timeEstimateMinutes,
+          referencePricePence: l.referencePricePence,
+          llmSuggestedPricePence: l.llmSuggestedPricePence,
+          guardedPricePence: l.guardedPricePence,
+          materialsCostPence: l.materialsCostPence,
+          materialsWithMarginPence: l.materialsWithMarginPence,
+          adjustmentFactors: l.adjustmentFactors,
+        })),
+        batchDiscount: result.batchDiscount,
+        layerBreakdown: result.layerBreakdown,
+        confidence: result.confidence,
+        signals: input.signals || {},
+        layoutTier: result.messaging.layoutTier,
+        bookingModes: result.messaging.bookingModes,
+        requiresHumanReview: result.messaging.requiresHumanReview,
+        contentLibraryUsed: !!contentSelection,
+        selectedContentIds: contentSelection
+          ? {
+              claimIds: contentSelection.claims.map(c => c.id),
+              guaranteeId: contentSelection.guarantee?.id ?? null,
+              testimonialIds: contentSelection.testimonials.map(t => t.id),
+              hassleItemIds: contentSelection.hassleItems.map(h => h.id),
+              imageIds: contentSelection.images.map(i => i.id),
+            }
+          : undefined,
+        createdBy: input.createdBy || undefined,
+        linkedLeadId: linkedLeadId || undefined,
+      });
+    } catch (trackingErr) {
+      console.warn('[ContextualQuote] PostHog tracking failed (non-blocking):', trackingErr);
+    }
 
     // 8. Build WhatsApp message
     const firstName = input.customerName.split(' ')[0] || input.customerName;

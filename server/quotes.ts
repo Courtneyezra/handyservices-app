@@ -13,6 +13,7 @@ import { detectMultipleTasks } from "./skuDetector";
 import { findDuplicateLead } from "./lead-deduplication";
 import { normalizePhoneNumber } from "./phone-utils";
 import { updateLeadStage } from "./lead-stage-engine";
+import { captureServerEvent } from "./posthog";
 import { optionalAuth } from "./auth";
 import { getShortQuoteUrl, getBookVisitUrl } from "./url-utils";
 
@@ -770,6 +771,31 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
 
         // Return updated stats
         quote.viewCount = (quote.viewCount || 0) + 1;
+
+        // PostHog: Server-side quote view (reliable — immune to ad-blockers)
+        const viewDistinctId = quote.phone || quote.id;
+        captureServerEvent(viewDistinctId, 'cq_server_quote_viewed', {
+            quote_id: quote.id,
+            short_slug: quote.shortSlug,
+            segment: (quote as any).segment || 'UNKNOWN',
+            is_first_view: isFirstView,
+            view_count: quote.viewCount,
+            total_price_pence: (quote as any).basePrice || 0,
+            layout_tier: (quote as any).layoutTier || null,
+            has_contextual_pricing: !!(quote as any).pricingLineItems,
+            hours_since_creation: quote.createdAt
+                ? Math.round((Date.now() - new Date(quote.createdAt).getTime()) / 3600000)
+                : 0,
+            // $set attaches these as person properties on the PostHog profile
+            $set: {
+                name: quote.customerName,
+                phone: quote.phone,
+                email: quote.email || undefined,
+                segment: (quote as any).segment || 'UNKNOWN',
+                postcode: (quote as any).postcode || undefined,
+                last_quote_viewed_at: now.toISOString(),
+            },
+        });
 
         // Update lead stage to 'quote_viewed' if this is the first view and we have a linked lead
         if (isFirstView && quote.leadId) {

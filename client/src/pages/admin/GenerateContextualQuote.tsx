@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { trackEvent } from '@/lib/posthog';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -388,6 +389,12 @@ export default function GenerateContextualQuote() {
 
   const handleCopyLink = () => {
     if (!quoteResult) return;
+    trackEvent('cq_link_copied', {
+      quote_id: quoteResult.quoteId,
+      short_slug: quoteResult.shortSlug,
+      total_price_pence: quoteResult.pricing.totalPence,
+      copied_by: 'admin',
+    });
     navigator.clipboard.writeText(quoteResult.quoteUrl);
     setCopiedLink(true);
     toast({ title: 'Link Copied!' });
@@ -396,6 +403,16 @@ export default function GenerateContextualQuote() {
 
   const handleSendWhatsApp = () => {
     if (!quoteResult) return;
+    trackEvent('cq_whatsapp_sent', {
+      quote_id: quoteResult.quoteId,
+      short_slug: quoteResult.shortSlug,
+      total_price_pence: quoteResult.pricing.totalPence,
+      total_price_pounds: quoteResult.pricing.totalFormatted,
+      line_item_count: quoteResult.pricing.lineItems.length,
+      batch_discount_applied: quoteResult.pricing.batchDiscount.applied,
+      layout_tier: quoteResult.messaging.layoutTier,
+      sent_by: 'admin', // VA sent from admin panel
+    });
     window.open(quoteResult.whatsappSendUrl, '_blank');
   };
 
