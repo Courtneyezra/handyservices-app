@@ -327,19 +327,28 @@ export default function QuoteAnalyticsPage() {
       </div>
 
       {/* Section Engagement Waterfall */}
-      {engagementData && engagementData.sections.length > 0 && (
-        <Card className="border-slate-200">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <MousePointerClick className="w-4 h-4 text-purple-500" /> Page Engagement Heatmap
-            </CardTitle>
-            <p className="text-xs text-slate-400">
-              Which sections customers actually look at — based on {engagementData.totalQuotesWithEvents} quote{engagementData.totalQuotesWithEvents !== 1 ? 's' : ''} with engagement data
-            </p>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {engagementData.sections
+      <Card className="border-slate-200">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <MousePointerClick className="w-4 h-4 text-purple-500" /> Page Engagement Heatmap
+          </CardTitle>
+          <p className="text-xs text-slate-400">
+            {engagementData && engagementData.totalQuotesWithEvents > 0
+              ? `Which sections customers actually look at — based on ${engagementData.totalQuotesWithEvents} quote${engagementData.totalQuotesWithEvents !== 1 ? 's' : ''} with engagement data`
+              : 'Tracks which sections customers spend time on — data will appear after quotes are viewed'}
+          </p>
+        </CardHeader>
+        <CardContent>
+          {!engagementData || engagementData.sections.length === 0 ? (
+            <div className="py-8 text-center">
+              <MousePointerClick className="w-8 h-8 text-slate-200 mx-auto mb-3" />
+              <p className="text-sm text-slate-400 font-medium">No engagement data yet</p>
+              <p className="text-xs text-slate-300 mt-1">Section dwell times will appear here as customers view contextual quotes</p>
+            </div>
+          ) : (
+          <>
+          <div className="space-y-2">
+            {engagementData.sections
                 .sort((a, b) => {
                   const posA = SECTION_ORDER[a.section]?.position ?? 99;
                   const posB = SECTION_ORDER[b.section]?.position ?? 99;
@@ -398,9 +407,10 @@ export default function QuoteAnalyticsPage() {
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-red-300 rounded" /> &lt;25%</span>
               <span className="ml-2">Bar width = avg dwell time</span>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          </>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Price Band Analysis + Batch Discount */}
       <div className="grid md:grid-cols-2 gap-4">
