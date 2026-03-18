@@ -8,7 +8,7 @@
 import { Router } from 'express';
 import { db } from './db';
 import { personalizedQuotes, quoteSectionEvents } from '@shared/schema';
-import { sql, eq, and, gte, lte, isNotNull, count, avg, sum, desc } from 'drizzle-orm';
+import { sql, and, gte, lte, isNotNull, count, avg, sum, desc } from 'drizzle-orm';
 
 const router = Router();
 
@@ -24,8 +24,8 @@ router.get('/api/analytics/quotes/summary', async (req, res) => {
 
     const pq = personalizedQuotes;
 
-    // All queries filter to CONTEXTUAL segment only — legacy quotes excluded
-    const baseFilter = and(gte(pq.createdAt, since), eq(pq.segment, 'CONTEXTUAL'));
+    // Contextual quotes are identified by having a layoutTier (quick/standard/complex)
+    const baseFilter = and(gte(pq.createdAt, since), isNotNull(pq.layoutTier));
 
     // 1. Funnel counts
     const [funnelData] = await db.select({
@@ -220,7 +220,7 @@ router.get('/api/analytics/quotes/pricing-layers', async (req, res) => {
     .from(personalizedQuotes)
     .where(and(
       gte(personalizedQuotes.createdAt, since),
-      eq(personalizedQuotes.segment, 'CONTEXTUAL'),
+      isNotNull(personalizedQuotes.layoutTier),
       isNotNull(personalizedQuotes.pricingLineItems),
     ))
     .limit(200);
