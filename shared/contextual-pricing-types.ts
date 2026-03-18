@@ -85,6 +85,8 @@ export interface QuoteMessaging {
   contextualHeadline: string;
   /** 1-2 sentence summary for the customer */
   contextualMessage: string;
+  /** AI-generated scope-of-work summary (2-4 sentences, 40-80 words) */
+  proposalSummary: string;
   /** 3-5 approved claim bullets for the quote page */
   valueBullets: string[];
   /** Exactly 2 value lines for WhatsApp message */
@@ -427,6 +429,7 @@ export interface MultiLineLLMResponseWithMessaging {
   // Messaging fields
   contextualHeadline: string;
   contextualMessage: string;
+  proposalSummary: string;
   valueBullets: string[];
   whatsappValueLines: string[];
   whatsappClosing: string;

@@ -156,7 +156,8 @@ OUTPUT FORMAT — respond with ONLY this JSON structure:
   "contextualMessage": "We'll fix your tap and mount those shelves in one visit.",
   "valueBullets": ["Fixed price — no surprises", "Photo report on completion", "Full cleanup included"],
   "whatsappValueLines": ["Fixed price — no surprises", "Photo report on completion"],
-  "whatsappClosing": "Happy to sort this for you. Just tap the link when you're ready."
+  "whatsappClosing": "Happy to sort this for you. Just tap the link when you're ready.",
+  "proposalSummary": "We'll sort your tap and get those shelves mounted — everything done in one visit with full cleanup included."
 }
 
 IMPORTANT CONSTRAINTS:
@@ -190,6 +191,16 @@ RULES:
 - valueBullets: Exactly 3-5 items. MUST be from APPROVED_CLAIMS list only.
 - whatsappValueLines: Exactly 2 items. MUST be from APPROVED_CLAIMS list. Pick the 2 most compelling for this customer.
 - whatsappClosing: 1 sentence. Natural, warm. Reference customer context if relevant (e.g. "Happy to coordinate with your tenant" for landlords).
+- proposalSummary: A professional scope-of-work summary in plain English.
+  RULES:
+  - 2-4 sentences maximum (40-80 words).
+  - Must reference ALL job lines — do not skip any task.
+  - Written as "We'll..." addressing the customer directly.
+  - Tone: confident, competent tradesperson — not salesy or corporate.
+  - NO prices, NO timelines, NO marketing claims.
+  - Group related tasks naturally (e.g. "patch and repaint your walls" not listing each coat separately).
+  - End with a reassuring close (e.g. "Everything done in one visit." or "We'll leave it spotless.").
+  - If single task: 1-2 sentences is fine (30-50 words).
 - DO NOT use exclamation marks.
 - DO NOT invent claims, statistics, or credentials not in the approved list.
 - DO NOT mention prices in messaging — prices come from the pricing layer only.
@@ -274,12 +285,32 @@ function validateMessaging(response: any, lineCount: number, approvedClaims?: st
     closing = 'Just tap the link when you\'re ready to book.';
   }
 
+  // Validate proposalSummary
+  let proposalSummary = response.proposalSummary || '';
+  proposalSummary = proposalSummary.replace(/!/g, '');
+  if (BANNED_PHRASES.some(p => proposalSummary.toLowerCase().includes(p))) {
+    proposalSummary = ''; // will fallback below
+  }
+  // Enforce word count: min 20, max 100
+  const words = proposalSummary.split(/\s+/).filter(Boolean);
+  if (words.length > 100) {
+    // Truncate at last sentence boundary within 100 words
+    const truncated = words.slice(0, 100).join(' ');
+    const lastPeriod = truncated.lastIndexOf('.');
+    proposalSummary = lastPeriod > 0 ? truncated.slice(0, lastPeriod + 1) : truncated + '.';
+  }
+  if (words.length < 20 || !proposalSummary) {
+    // Fallback to contextualMessage
+    proposalSummary = message;
+  }
+
   // Layout tier is deterministic based on line count
   const layoutTier = getLayoutTier(lineCount);
 
   return {
     contextualHeadline: headline,
     contextualMessage: message,
+    proposalSummary,
     valueBullets: validBullets,
     whatsappValueLines: validWhatsapp,
     whatsappClosing: closing,
@@ -315,6 +346,7 @@ function buildFallbackResult(
     messaging: {
       contextualHeadline: 'Your Job, Sorted',
       contextualMessage: 'We\'ll get this sorted for you.',
+      proposalSummary: 'We\'ll get this sorted for you.',
       valueBullets: ['Fixed price — no surprises', '£2M insured', 'Full cleanup included'],
       whatsappValueLines: ['Fixed price — no surprises', '£2M insured'],
       whatsappClosing: 'Just tap the link when you\'re ready to book.',

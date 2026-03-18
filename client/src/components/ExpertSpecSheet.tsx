@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Clock } from 'lucide-react';
+import { Clock, Check } from 'lucide-react';
 
 /** Splits job description text into bullet-point items */
 function formatContent(content: string) {
@@ -48,22 +48,67 @@ function formatContent(content: string) {
 
 /* ─── Scope of Works ─── */
 
+interface PricingLineItem {
+    lineId: string;
+    description: string;
+    category?: string;
+    timeEstimateMinutes?: number;
+    [key: string]: any;
+}
+
 interface ScopeOfWorksProps {
     text: string;
     summary?: string | null;
+    proposalSummary?: string | null;
+    pricingLineItems?: PricingLineItem[] | null;
+    mikePhotoUrl?: string;
     className?: string;
 }
 
-export function ScopeOfWorks({ text, summary, className = '' }: ScopeOfWorksProps) {
+export function ScopeOfWorks({ text, summary, proposalSummary, pricingLineItems, mikePhotoUrl, className = '' }: ScopeOfWorksProps) {
+    const hasProposal = proposalSummary && proposalSummary.length > 0;
+    const hasLineItems = pricingLineItems && pricingLineItems.length > 0;
+
     return (
         <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             className={className}
         >
-            <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">Your job list</h3>
-            <div className="bg-white rounded-xl p-4 md:p-5 border border-slate-200 shadow-sm text-sm md:text-base">
-                {formatContent(text)}
+            <div className="bg-white rounded-xl p-5 md:p-6 border border-slate-200 shadow-sm relative">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500 mb-4 text-center">Job summary</h3>
+                {hasProposal ? (
+                    <div>
+                        <span className="text-3xl text-[#7DB00E] font-serif leading-none absolute left-4">{"\u201C"}</span>
+                        <p className="text-slate-800 text-base md:text-lg font-semibold leading-relaxed pl-4">{proposalSummary}{"\u201D"}</p>
+                    </div>
+                ) : hasLineItems ? (
+                    <div className="space-y-2.5">
+                        {pricingLineItems.map((item) => (
+                            <div key={item.lineId} className="flex items-start gap-3">
+                                <div className="w-5 h-5 rounded-full bg-[#7DB00E]/10 flex items-center justify-center shrink-0 mt-0.5">
+                                    <Check className="w-3 h-3 text-[#7DB00E]" strokeWidth={3} />
+                                </div>
+                                <p className="text-slate-700 text-sm md:text-base font-medium leading-relaxed">{item.description}</p>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-sm md:text-base">
+                        {formatContent(text)}
+                    </div>
+                )}
+                {mikePhotoUrl && (
+                    <div className="flex items-center gap-2 justify-end mt-4 pt-3 border-t border-slate-100">
+                        <div className="text-right">
+                            <div className="text-sm font-bold text-slate-900">Mike</div>
+                            <div className="text-[9px] font-bold uppercase text-[#7DB00E] tracking-wider">Estimator</div>
+                        </div>
+                        <div className="w-9 h-9 rounded-full border-2 border-[#7DB00E]/30 overflow-hidden shadow-sm">
+                            <img src={mikePhotoUrl} alt="Mike" className="w-full h-full object-cover" />
+                        </div>
+                    </div>
+                )}
             </div>
             {summary && (
                 <p className="text-slate-500 text-sm leading-relaxed mt-3 px-1">{summary}</p>

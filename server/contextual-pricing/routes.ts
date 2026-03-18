@@ -721,6 +721,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       // Contextual messaging fields
       contextualHeadline: result.messaging.contextualHeadline,
       contextualMessage: result.messaging.contextualMessage,
+      proposalSummary: result.messaging.proposalSummary,
       valueBullets: result.messaging.valueBullets,
       whatsappValueLines: result.messaging.whatsappValueLines,
       whatsappClosing: result.messaging.whatsappClosing,

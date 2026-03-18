@@ -23,6 +23,7 @@ import {
   type AddOnOption,
 } from './SchedulingConfig';
 import { useAvailability, formatDateStr } from '@/hooks/useAvailability';
+import { StickyTimerProgress } from './QuoteTimerContext';
 
 /** Which booking options to show on the card */
 export type QuoteBookingMode = 'standard_date' | 'flexible_discount' | 'urgent_premium' | 'deposit_split';
@@ -494,16 +495,7 @@ export function UnifiedQuoteCard({
 
   return (
     <div className={`${isDarkTheme ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-3xl overflow-hidden shadow-2xl' : ''}`}>
-      {/* Header Badge - Segment specific */}
-      {isDarkTheme && (
-        <div className="bg-[#7DB00E] py-2 px-4 flex items-center justify-center gap-2">
-          <Sparkles className="w-4 h-4 text-slate-900" />
-          <span className="text-sm font-bold text-slate-900 uppercase tracking-wide">
-            {config.priceLabel}
-          </span>
-          <Sparkles className="w-4 h-4 text-slate-900" />
-        </div>
-      )}
+      {/* Header Badge removed — replaced by QuoteTimer pill */}
 
       <div className={`${isDarkTheme ? 'p-6' : ''} space-y-6`}>
         {/* Price Display */}
@@ -1067,8 +1059,8 @@ export function UnifiedQuoteCard({
             </div>
           </motion.div>
         ) : (
-          /* Regular Book Button - hide disabled state for BUSY_PRO */
-          (canBook || segment !== 'BUSY_PRO') && (
+          /* Regular Book Button - only show when canBook (date+time selected) */
+          canBook && (
             <Button
               onClick={handleBook}
               disabled={!canBook || isBooking}
@@ -1132,6 +1124,8 @@ export function UnifiedQuoteCard({
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
               className="fixed bottom-0 left-0 right-0 z-50 safe-area-bottom"
             >
+              {/* Timer progress bar on top edge */}
+              <StickyTimerProgress />
               <div className="bg-white border-t border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.12)] px-4 py-3">
                 <div className="max-w-lg mx-auto flex items-center justify-between gap-3">
                   <div className="flex-shrink-0">

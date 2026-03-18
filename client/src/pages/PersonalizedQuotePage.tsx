@@ -44,6 +44,8 @@ import { BudgetQuoteInline } from '@/components/quote/BudgetQuoteInline';
 import { UnifiedQuoteCard } from '@/components/quote/UnifiedQuoteCard';
 import { BookingConfirmation } from '@/components/quote/BookingConfirmation';
 import { ScarcityBanner } from '@/components/quote/ScarcityBanner';
+import { QuoteTimer } from '@/components/quote/QuoteTimer';
+import { QuoteTimerProvider, StickyTimerProgress } from '@/components/quote/QuoteTimerContext';
 import type { LayoutTier, BookingMode, LineItemResult, BatchDiscount } from '../../../shared/contextual-pricing-types';
 import {
   initQuotePageTracking,
@@ -1107,8 +1109,8 @@ const chartPointVariants = {
 
 const AnimatedStat = ({ value, delay }: { value: string, delay: number }) => {
   const ref = useRef(null);
-  const isInView = useInView(ref, { once: true, margin: "-50px" });
-  const springValue = useSpring(0, { duration: 2000, bounce: 0 }); // 2s duration, no bounce for smooth count
+  const isInView = useInView(ref, { once: true, margin: "100px" });
+  const springValue = useSpring(0, { duration: 1200, bounce: 0 });
 
   useEffect(() => {
     if (isInView) {
@@ -1183,7 +1185,7 @@ const GoogleReviewCard = ({ postcode, variant = 'light' }: { postcode?: string |
 
   if (variant === 'light') {
     return (
-      <div className="bg-slate-50 border border-slate-100 rounded-xl p-6 transition-all duration-500">
+      <div className="bg-slate-50 border border-slate-100 rounded-xl p-6 transition-all duration-500 h-[180px] overflow-hidden">
         <div className="flex justify-between items-start mb-3">
           <div className="flex gap-1 text-[#F4B400]">
             {[...Array(5)].map((_, i) => (
@@ -1192,8 +1194,8 @@ const GoogleReviewCard = ({ postcode, variant = 'light' }: { postcode?: string |
           </div>
           <SiGoogle className="w-4 h-4 text-slate-400" />
         </div>
-        <p className="text-slate-600 text-sm leading-relaxed mb-4 italic">
-          "{currentReview.text.length > 140 ? currentReview.text.substring(0, 140) + '...' : currentReview.text}"
+        <p className="text-slate-600 text-sm leading-relaxed mb-4 italic line-clamp-3">
+          "{currentReview.text.length > 120 ? currentReview.text.substring(0, 120) + '...' : currentReview.text}"
         </p>
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center overflow-hidden border border-white shadow-sm">
@@ -1245,7 +1247,6 @@ const GoogleReviewCard = ({ postcode, variant = 'light' }: { postcode?: string |
 
 // Quick Social Proof for Warm Leads (Cialdini 1984)
 const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote; pricingSettings?: { googleRating?: string; reviewCount?: number; propertiesServed?: string; jobsCompleted?: string } }) => {
-  console.log('ValueSocialProof: Mounting...');
   const segmentKey = quote.segment && SEGMENT_CONTENT_MAP[quote.segment] ? quote.segment : 'BUSY_PRO';
   const rawContent = SEGMENT_CONTENT_MAP[segmentKey].proof;
 
@@ -1280,24 +1281,36 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
       postcode.startsWith('NG') || address.includes('nottingham') ? 'Nottingham' :
         'Local';
 
-  // Inject Wistia scripts on mount
+  // Lazy load Wistia scripts — only when video section enters viewport
+  const videoRef = useRef<HTMLDivElement>(null);
+  const [wistiaLoaded, setWistiaLoaded] = useState(false);
   useEffect(() => {
-    // Check if script already exists
-    if (!document.querySelector('script[src*="wistia.com/player.js"]')) {
-      const script1 = document.createElement('script');
-      script1.src = 'https://fast.wistia.com/player.js';
-      script1.async = true;
-      document.body.appendChild(script1);
-    }
-
-    if (!document.querySelector('script[src*="wistia.com/embed/z6vtl8u04e.js"]')) {
-      const script2 = document.createElement('script');
-      script2.src = 'https://fast.wistia.com/embed/z6vtl8u04e.js';
-      script2.async = true;
-      script2.type = 'module';
-      document.body.appendChild(script2);
-    }
-  }, []);
+    if (wistiaLoaded || !videoRef.current) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          if (!document.querySelector('script[src*="wistia.com/player.js"]')) {
+            const script1 = document.createElement('script');
+            script1.src = 'https://fast.wistia.com/player.js';
+            script1.async = true;
+            document.body.appendChild(script1);
+          }
+          if (!document.querySelector('script[src*="wistia.com/embed/z6vtl8u04e.js"]')) {
+            const script2 = document.createElement('script');
+            script2.src = 'https://fast.wistia.com/embed/z6vtl8u04e.js';
+            script2.async = true;
+            script2.type = 'module';
+            document.body.appendChild(script2);
+          }
+          setWistiaLoaded(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '200px' }
+    );
+    observer.observe(videoRef.current);
+    return () => observer.disconnect();
+  }, [wistiaLoaded]);
 
   return (
     <SectionWrapper className="bg-white text-slate-900 py-16">
@@ -1317,8 +1330,8 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
             {content.description}
           </p>
 
-          {/* Social Proof Video - Trust Builder */}
-          <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-900 shadow-xl mb-12 border-4 border-white/50 ring-1 ring-slate-900/10">
+          {/* Social Proof Video - Trust Builder (lazy loaded) */}
+          <div ref={videoRef} className="relative aspect-video rounded-2xl overflow-hidden bg-slate-900 shadow-xl mb-12 border-4 border-white/50 ring-1 ring-slate-900/10">
             {/* Wistia Script Injection handled in component body to ensure execution */}
             <style dangerouslySetInnerHTML={{ __html: `wistia-player[media-id='z6vtl8u04e']:not(:defined) { background: center / contain no-repeat url('https://fast.wistia.com/embed/medias/z6vtl8u04e/swatch'); display: block; filter: blur(5px); padding-top:75.0%; }` }} />
             {/* @ts-ignore */}
@@ -1425,7 +1438,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
   };
 
   return (
-    <SectionWrapper className={`relative border-b-4 border-[#7DB00E] overflow-hidden`}>
+    <SectionWrapper className={`relative overflow-hidden`}>
       {/* Background Image with Overlay */}
       <div className="absolute inset-0 z-0 select-none">
         <img
@@ -1494,6 +1507,10 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
 
 
       </motion.div>
+      {/* Timer progress bar at bottom of hero */}
+      <div className="absolute bottom-0 left-0 right-0 z-10">
+        <StickyTimerProgress />
+      </div>
     </SectionWrapper>
   );
 };
@@ -1617,9 +1634,10 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
   return (
     <SectionWrapper className={`bg-[#1D2D3D] text-white relative`}>
       <motion.div
-        initial={{ opacity: 0, y: 30 }}
+        initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
-        transition={{ duration: 1 }}
+        viewport={{ once: true, margin: "50px" }}
+        transition={{ duration: 0.5 }}
         className="max-w-2xl"
       >
         {!isBusyPro && (
@@ -1632,6 +1650,7 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
                   src={content.image}
                   alt="Guarantee"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                  loading="lazy"
                 />
                 {/* Badge Overlay */}
                 <div className="absolute bottom-4 right-4 z-20">
@@ -1649,6 +1668,7 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
                     src="/assets/quote-images/plumber-smile.jpg"
                     alt="Guarantee"
                     className="w-full h-full object-cover rounded-full group-hover:scale-110 transition-transform duration-500 opacity-90"
+                    loading="lazy"
                   />
                 </div>
                 <div className="absolute -bottom-2 -right-2 bg-[#7DB00E] text-white text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#1D2D3D]">
@@ -3090,6 +3110,7 @@ export default function PersonalizedQuotePage() {
   // ValueSocialProof → ValueGuarantee → HassleComparisonCard → Packages → Payment
   if (quote.proposalModeEnabled || isContextualQuote) {
     return (
+      <QuoteTimerProvider>
       <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
 
         {/* Scarcity Banner - Top of page, data-driven per segment */}
@@ -3111,20 +3132,20 @@ export default function PersonalizedQuotePage() {
         </SectionWrapper>
 
         {/* The Final Reveal: Quote Section */}
-        <section id="packages-section" className="min-h-screen bg-slate-50 pt-20 pb-8 px-4 md:px-6 lg:px-8 relative overflow-visible">
+        <section id="packages-section" className="bg-slate-50 pt-16 pb-8 px-4 md:px-6 lg:px-8 relative overflow-visible">
           <div className="w-full max-w-full">
             <motion.div
-              initial={{ opacity: 0, y: 50 }}
+              initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 1 }}
-              viewport={{ once: true, margin: "-100px" }}
+              transition={{ duration: 0.4 }}
+              viewport={{ once: true, margin: "50px" }}
               className="space-y-12"
             >
               <div className="text-center space-y-4">
 
                 {/* Pay in 3 Banner - Top Placement */}
                 <div className="rounded-xl overflow-hidden shadow-sm border border-slate-200 mb-8 max-w-lg mx-auto transform -rotate-1 hover:rotate-0 transition-transform duration-300">
-                  <img src={payIn3PromoImage} className="w-full h-auto object-cover" alt="Pay in 3 Interest Free" />
+                  <img src={payIn3PromoImage} className="w-full h-auto object-cover" alt="Pay in 3 Interest Free" loading="lazy" />
                 </div>
 
                 <div>
@@ -3149,11 +3170,14 @@ export default function PersonalizedQuotePage() {
               <ScopeOfWorks
                 text={getScopeOfWorks(quote as any)}
                 summary={(quote.jobs as any)?.[0]?.summary}
+                proposalSummary={isContextualQuote ? (quote as any).proposalSummary : undefined}
+                pricingLineItems={isContextualQuote ? quote.pricingLineItems : undefined}
+                mikePhotoUrl={mikeProfilePhoto}
               />
 
               {/* Price Card + Booking Flow */}
               {quotePrice > 0 && !hasBooked && (
-                <>
+                <QuoteTimer>
                   <Elements stripe={stripePromise}>
                     <UnifiedQuoteCard
                       segment={quote.segment || 'UNKNOWN'}
@@ -3207,8 +3231,6 @@ export default function PersonalizedQuotePage() {
                     />
                   </Elements>
 
-                  {/* Estimator footer */}
-                  <EstimatorFooter mikePhotoUrl={mikeProfilePhoto} className="mt-4" />
 
                   {/* PDF Download — subtle link */}
                   <button
@@ -3233,12 +3255,12 @@ export default function PersonalizedQuotePage() {
                         createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
                       });
                     }}
-                    className="w-full flex items-center justify-center gap-2 text-sm text-slate-500 hover:text-[#7DB00E] transition-colors py-2 mt-2"
+                    className="w-full flex items-center justify-center gap-2 text-sm text-white hover:text-[#7DB00E] transition-colors py-2 mt-2"
                   >
                     <FileText className="w-4 h-4" />
                     <span>Download quote for your records</span>
                   </button>
-                </>
+                </QuoteTimer>
               )}
 
             </motion.div>
@@ -3437,6 +3459,7 @@ export default function PersonalizedQuotePage() {
           )
         }
       </div >
+      </QuoteTimerProvider>
     );
   }
 
