@@ -30,14 +30,14 @@ import { JOB_CATEGORIES } from '@shared/contextual-pricing-types';
 const CATEGORY_RATES: Record<JobCategory, CategoryRate> = {
   general_fixing: {
     hourly: 3000,
-    min: 4500,
+    min: 5500,
     low: 2500,
     high: 4000,
     source: 'Checkatrade/Lady Bay avg for general handyman',
   },
   flat_pack: {
     hourly: 2800,
-    min: 4000,
+    min: 5500,
     low: 2000,
     high: 3500,
     source: 'TaskRabbit/Airtasker IKEA assembly rates',
@@ -58,7 +58,7 @@ const CATEGORY_RATES: Record<JobCategory, CategoryRate> = {
   },
   curtain_blinds: {
     hourly: 3000,
-    min: 4000,
+    min: 5500,
     low: 2500,
     high: 4000,
     source: 'TaskRabbit/local handyman rates for curtain/blind fitting',
@@ -100,7 +100,7 @@ const CATEGORY_RATES: Record<JobCategory, CategoryRate> = {
   },
   waste_removal: {
     hourly: 2500,
-    min: 4000,
+    min: 5500,
     low: 2000,
     high: 3500,
     source: 'Local waste removal services Nottingham, vehicle costs factored',
@@ -135,14 +135,14 @@ const CATEGORY_RATES: Record<JobCategory, CategoryRate> = {
   },
   shelving: {
     hourly: 3000,
-    min: 4500,
+    min: 5500,
     low: 2500,
     high: 4000,
     source: 'Checkatrade/TaskRabbit shelving rates, wall type affects time',
   },
   silicone_sealant: {
     hourly: 2500,
-    min: 3500,
+    min: 5500,
     low: 2000,
     high: 3500,
     source: 'Low-skill but specialist knowledge, below plumbing rate',
@@ -163,14 +163,14 @@ const CATEGORY_RATES: Record<JobCategory, CategoryRate> = {
   },
   furniture_repair: {
     hourly: 3000,
-    min: 4500,
+    min: 5500,
     low: 2500,
     high: 4000,
     source: 'Specialist repair, similar rate to general fixing but higher skill',
   },
   garden_maintenance: {
     hourly: 2500,
-    min: 4000,
+    min: 5000,
     low: 2000,
     high: 3500,
     source: 'Checkatrade/local gardener rates',
@@ -207,7 +207,8 @@ const CATEGORY_RATES: Record<JobCategory, CategoryRate> = {
  *
  * The minimum charge is always enforced — a 15-minute shelf bracket still
  * has a callout cost baked in. This reflects real market behaviour: no
- * tradesperson in Nottingham shows up for less than ~£40-65.
+ * tradesperson in Nottingham shows up for less than ~£55-65.
+ * A global £55 floor is also enforced in guardrails.ts.
  *
  * @param category  The job category (falls back to 'other' if unknown)
  * @param timeEstimateMinutes  Estimated job duration in minutes

@@ -5,6 +5,7 @@
  * No AI, no external calls — just hard boundaries to prevent pricing mistakes.
  *
  * Rules enforced:
+ * 0. Global minimum — no job below £55 (attendance cost floor)
  * 1. Floor check — never below reference rate x time
  * 2. Minimum charge — every job has a callout minimum
  * 3. Ceiling check — max 3x reference (4x for emergency)
@@ -80,6 +81,20 @@ export function applyGuardrails(
 ): GuardrailCheckResult {
   const adjustments: GuardrailAdjustment[] = [];
   let price = Math.round(llmSuggestedPricePence);
+
+  // 0. Global absolute minimum — no job can ever price below this
+  //    Covers travel, parking, insurance overhead for attending any address
+  const GLOBAL_MINIMUM_PENCE = 5500; // £55
+
+  if (price < GLOBAL_MINIMUM_PENCE) {
+    adjustments.push({
+      rule: 'GLOBAL_MINIMUM',
+      description: `Price ${formatPence(price)} is below global minimum ${formatPence(GLOBAL_MINIMUM_PENCE)} (covers attendance cost). Raised.`,
+      before: price,
+      after: GLOBAL_MINIMUM_PENCE,
+    });
+    price = GLOBAL_MINIMUM_PENCE;
+  }
 
   // 1. Floor check — price >= reference rate x time
   const hours = context.timeEstimateMinutes / 60;
