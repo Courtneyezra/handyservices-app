@@ -527,114 +527,94 @@ export default function ContractorRegister() {
                             </div>
                         )}
 
-                        {/* STEP 6: RATES WITH WARM SPOT */}
+                        {/* STEP 6: COMPACT RATES — grouped by trade, hourly only (day = hourly × 8) */}
                         {step === 6 && (
-                            <div className="space-y-6 animate-in fade-in slide-in-from-right-8 duration-500">
-                                {selectedCategories.map(trade => {
-                                    const config = getCategoryRateConfig(trade);
-                                    const hourlyVal = parseFloat(tradeRates[trade]?.hourly || '0');
-                                    const dayVal = parseFloat(tradeRates[trade]?.day || '0');
-                                    const hourlyPercent = Math.max(0, Math.min(100, ((hourlyVal - config.min) / (config.max - config.min)) * 100));
-                                    const sweetPercent = ((config.sweet - config.min) / (config.max - config.min)) * 100;
-                                    const daySweetPercent = ((config.daySweet - config.dayMin) / (config.dayMax - config.dayMin)) * 100;
-                                    const dayPercent = Math.max(0, Math.min(100, ((dayVal - config.dayMin) / (config.dayMax - config.dayMin)) * 100));
-                                    const isNearSweet = Math.abs(hourlyVal - config.sweet) <= 5;
-
-                                    return (
-                                        <div key={trade} className="p-4 rounded-xl border border-slate-700 space-y-4">
-                                            <div className="flex items-center justify-between">
-                                                <h3 className="font-semibold text-white">{(CATEGORY_LABELS as Record<string, string>)[trade] || trade}</h3>
-                                                {isNearSweet && (
-                                                    <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full flex items-center gap-1">
-                                                        <CheckCircle2 size={10} /> Popular rate
-                                                    </span>
-                                                )}
-                                            </div>
-
-                                            {/* Hourly Rate */}
-                                            <div>
-                                                <div className="flex items-center justify-between mb-1.5">
-                                                    <label className="text-xs font-medium text-slate-500">Hourly Rate</label>
-                                                    <div className="text-lg font-bold text-white">£{tradeRates[trade]?.hourly || '0'}<span className="text-xs font-normal text-slate-400">/hr</span></div>
+                            <div className="space-y-4 animate-in fade-in slide-in-from-right-8 duration-500 -mx-2">
+                                {/* Group selected categories by their parent trade */}
+                                {BROAD_TRADES
+                                    .filter(trade => {
+                                        const cats = TRADE_CATEGORIES[trade.id] || [];
+                                        return cats.some(c => selectedCategories.includes(c));
+                                    })
+                                    .map(trade => {
+                                        const cats = (TRADE_CATEGORIES[trade.id] || []).filter(c => selectedCategories.includes(c));
+                                        return (
+                                            <div key={trade.id} className="rounded-xl border border-slate-700 overflow-hidden">
+                                                {/* Trade header */}
+                                                <div className="bg-slate-800/50 px-4 py-2.5 flex items-center gap-2">
+                                                    <span className="text-base">{trade.icon}</span>
+                                                    <span className="text-sm font-semibold text-white">{trade.label}</span>
+                                                    <span className="text-xs text-slate-500 ml-auto">{cats.length} {cats.length === 1 ? 'skill' : 'skills'}</span>
                                                 </div>
 
-                                                {/* Slider with warm zone */}
-                                                <div className="relative">
-                                                    {/* Warm zone background */}
-                                                    <div
-                                                        className="absolute top-[9px] h-2 bg-emerald-100 rounded-full pointer-events-none z-0"
-                                                        style={{
-                                                            left: `${Math.max(0, sweetPercent - 10)}%`,
-                                                            width: '20%',
-                                                        }}
-                                                    />
-                                                    {/* Sweet spot tick */}
-                                                    <div
-                                                        className="absolute top-[7px] h-3 w-0.5 bg-emerald-400 rounded-full pointer-events-none z-10"
-                                                        style={{ left: `${sweetPercent}%` }}
-                                                    />
-                                                    <input
-                                                        type="range"
-                                                        min={config.min}
-                                                        max={config.max}
-                                                        step={1}
-                                                        value={hourlyVal || config.sweet}
-                                                        onChange={e => setTradeRates(prev => ({
-                                                            ...prev,
-                                                            [trade]: { ...prev[trade], hourly: e.target.value }
-                                                        }))}
-                                                        className="w-full h-5 appearance-none bg-transparent relative z-20 cursor-pointer [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-slate-800 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#6C6CFF] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5"
-                                                    />
-                                                </div>
-                                                <div className="flex justify-between text-[10px] text-slate-300 mt-0.5">
-                                                    <span>£{config.min}</span>
-                                                    <span className="text-emerald-500 font-medium">Most choose ~£{config.sweet}</span>
-                                                    <span>£{config.max}</span>
-                                                </div>
-                                            </div>
+                                                {/* Category rates */}
+                                                <div className="divide-y divide-slate-800">
+                                                    {cats.map(catSlug => {
+                                                        const config = getCategoryRateConfig(catSlug);
+                                                        const hourlyVal = parseFloat(tradeRates[catSlug]?.hourly || config.sweet.toString());
+                                                        const sweetPercent = ((config.sweet - config.min) / (config.max - config.min)) * 100;
+                                                        const isNearSweet = Math.abs(hourlyVal - config.sweet) <= 5;
 
-                                            {/* Day Rate */}
-                                            <div>
-                                                <div className="flex items-center justify-between mb-1.5">
-                                                    <label className="text-xs font-medium text-slate-500">Day Rate</label>
-                                                    <div className="text-lg font-bold text-white">£{tradeRates[trade]?.day || '0'}<span className="text-xs font-normal text-slate-400">/day</span></div>
-                                                </div>
+                                                        return (
+                                                            <div key={catSlug} className="px-4 py-3">
+                                                                <div className="flex items-center justify-between mb-1">
+                                                                    <span className="text-xs font-medium text-slate-300">
+                                                                        {(CATEGORY_LABELS as Record<string, string>)[catSlug] || catSlug}
+                                                                    </span>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-sm font-bold text-white tabular-nums">
+                                                                            £{tradeRates[catSlug]?.hourly || config.sweet}
+                                                                        </span>
+                                                                        <span className="text-[10px] text-slate-500">/hr</span>
+                                                                        {isNearSweet && (
+                                                                            <CheckCircle2 size={12} className="text-emerald-500" />
+                                                                        )}
+                                                                    </div>
+                                                                </div>
 
-                                                {/* Slider with warm zone */}
-                                                <div className="relative">
-                                                    <div
-                                                        className="absolute top-[9px] h-2 bg-emerald-100 rounded-full pointer-events-none z-0"
-                                                        style={{
-                                                            left: `${Math.max(0, daySweetPercent - 10)}%`,
-                                                            width: '20%',
-                                                        }}
-                                                    />
-                                                    <div
-                                                        className="absolute top-[7px] h-3 w-0.5 bg-emerald-400 rounded-full pointer-events-none z-10"
-                                                        style={{ left: `${daySweetPercent}%` }}
-                                                    />
-                                                    <input
-                                                        type="range"
-                                                        min={config.dayMin}
-                                                        max={config.dayMax}
-                                                        step={5}
-                                                        value={dayVal || config.daySweet}
-                                                        onChange={e => setTradeRates(prev => ({
-                                                            ...prev,
-                                                            [trade]: { ...prev[trade], day: e.target.value }
-                                                        }))}
-                                                        className="w-full h-5 appearance-none bg-transparent relative z-20 cursor-pointer [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-slate-800 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#6C6CFF] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5"
-                                                    />
-                                                </div>
-                                                <div className="flex justify-between text-[10px] text-slate-300 mt-0.5">
-                                                    <span>£{config.dayMin}</span>
-                                                    <span className="text-emerald-500 font-medium">Most choose ~£{config.daySweet}</span>
-                                                    <span>£{config.dayMax}</span>
+                                                                {/* Compact slider */}
+                                                                <div className="relative">
+                                                                    <div
+                                                                        className="absolute top-[7px] h-1.5 bg-emerald-500/20 rounded-full pointer-events-none z-0"
+                                                                        style={{ left: `${Math.max(0, sweetPercent - 10)}%`, width: '20%' }}
+                                                                    />
+                                                                    <div
+                                                                        className="absolute top-[5px] h-2.5 w-0.5 bg-emerald-400 rounded-full pointer-events-none z-10"
+                                                                        style={{ left: `${sweetPercent}%` }}
+                                                                    />
+                                                                    <input
+                                                                        type="range"
+                                                                        min={config.min}
+                                                                        max={config.max}
+                                                                        step={1}
+                                                                        value={hourlyVal || config.sweet}
+                                                                        onChange={e => {
+                                                                            const newHourly = e.target.value;
+                                                                            const newDay = (parseFloat(newHourly) * 8).toString();
+                                                                            setTradeRates(prev => ({
+                                                                                ...prev,
+                                                                                [catSlug]: { hourly: newHourly, day: newDay }
+                                                                            }));
+                                                                        }}
+                                                                        className="w-full h-4 appearance-none bg-transparent relative z-20 cursor-pointer [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-slate-800 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#6C6CFF] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-[5px]"
+                                                                    />
+                                                                </div>
+                                                                <div className="flex justify-between text-[9px] text-slate-500 -mt-0.5">
+                                                                    <span>£{config.min}</span>
+                                                                    <span>£{config.max}</span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
-                                        </div>
-                                    );
-                                })}
+                                        );
+                                    })}
+
+                                {/* Day rate note */}
+                                <p className="text-[10px] text-slate-500 text-center px-4">
+                                    Day rates are calculated as hourly × 8 hours automatically.
+                                </p>
                             </div>
                         )}
 
