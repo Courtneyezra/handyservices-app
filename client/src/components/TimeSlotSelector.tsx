@@ -16,6 +16,8 @@ interface TimeSlotOption {
 interface TimeSlotSelectorProps {
     selectedDate: Date;
     onTimeSelect: (type: TimeSlotType, exactTime: string | null, fee: number) => void;
+    /** Slots available from contractor availability. If provided, unavailable slots are grayed out. */
+    availableSlots?: ('am' | 'pm' | 'full')[];
 }
 
 const TIME_SLOTS: TimeSlotOption[] = [
@@ -71,6 +73,7 @@ const formatPrice = (pence: number): string => {
 export const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({
     selectedDate,
     onTimeSelect,
+    availableSlots,
 }) => {
     const [selectedSlot, setSelectedSlot] = useState<TimeSlotType>('am');
     const [exactTime, setExactTime] = useState<string>('10:00');
@@ -112,19 +115,30 @@ export const TimeSlotSelector: React.FC<TimeSlotSelectorProps> = ({
                     const isSelected = selectedSlot === slot.type;
                     const Icon = slot.icon;
 
+                    // Determine if this slot is disabled based on contractor availability
+                    const isDisabledByAvailability = availableSlots !== undefined && (
+                        slot.type === 'am' ? !availableSlots.includes('am') && !availableSlots.includes('full') :
+                        slot.type === 'pm' ? !availableSlots.includes('pm') && !availableSlots.includes('full') :
+                        false // exact and out_of_hours are always shown (premium)
+                    );
+
                     return (
                         <div key={slot.type} className="space-y-2">
                             <label
-                                className={`flex items-start gap-4 p-4 rounded-xl cursor-pointer transition-all border-2 ${isSelected
-                                        ? 'bg-[#7DB00E]/10 border-[#7DB00E] shadow-lg'
-                                        : 'bg-white border-slate-200 hover:border-slate-300'
+                                className={`flex items-start gap-4 p-4 rounded-xl transition-all border-2 ${
+                                    isDisabledByAvailability
+                                        ? 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed'
+                                        : isSelected
+                                        ? 'bg-[#7DB00E]/10 border-[#7DB00E] shadow-lg cursor-pointer'
+                                        : 'bg-white border-slate-200 hover:border-slate-300 cursor-pointer'
                                     }`}
                             >
                                 <input
                                     type="radio"
                                     name="timeSlot"
                                     checked={isSelected}
-                                    onChange={() => handleSlotSelect(slot)}
+                                    onChange={() => !isDisabledByAvailability && handleSlotSelect(slot)}
+                                    disabled={isDisabledByAvailability}
                                     className="mt-1 w-5 h-5 text-[#7DB00E] focus:ring-[#7DB00E]"
                                 />
 

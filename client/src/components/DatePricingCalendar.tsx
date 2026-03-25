@@ -22,6 +22,10 @@ interface DatePricingCalendarProps {
     maxWeeks?: number;
     postcode?: string;
     serviceIds?: string[];
+    /** Granular job categories for contractor-filtered availability */
+    categories?: string[];
+    /** Estimated job time in minutes — if >240 only full-day slots */
+    timeEstimateMinutes?: number;
 }
 
 const TIER_CONFIG = {
@@ -55,6 +59,8 @@ export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
     maxWeeks = 2,
     postcode,
     serviceIds,
+    categories,
+    timeEstimateMinutes,
 }) => {
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
@@ -62,6 +68,8 @@ export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
     const { data: availabilityData, isLoading: isLoadingAvailability } = useAvailability({
         postcode,
         serviceIds,
+        categories,
+        timeEstimateMinutes,
         days: maxWeeks * 7 + 1,
     });
 

@@ -4,7 +4,11 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import { ArrowRight, Check, Coins, Wrench, Loader2, Sparkles, MapPin, Upload, FileText, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Check, Coins, Wrench, Loader2, Sparkles, MapPin, Upload, FileText, ShieldCheck, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+    BROAD_TRADES, TRADE_CATEGORIES, CATEGORY_LABELS, CATEGORY_RATE_RANGES,
+    type BroadTradeId,
+} from '@shared/categories';
 import { useToast } from "@/hooks/use-toast";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerIconRetina from "leaflet/dist/images/marker-icon-2x.png";
@@ -63,48 +67,13 @@ export default function ContractorOnboarding() {
     const [verificationSkipped, setVerificationSkipped] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
 
-    const tradesList = [
-        { id: 'plumbing', label: 'Plumbing', icon: '💧' },
-        { id: 'electrical', label: 'Electrical', icon: '⚡' },
-        { id: 'handyman', label: 'Handyman', icon: '🔧' },
-        { id: 'painting', label: 'Painting', icon: '🎨' },
-        { id: 'carpentry', label: 'Carpentry', icon: '🪚' }
-    ];
+    // Two-tier category state
+    const [expandedTrades, setExpandedTrades] = useState<string[]>([]);
 
-    const CITY_RATES: Record<string, Record<string, { hourly: string, day: string }>> = {
-        'Derby': {
-            'plumbing': { 'hourly': '50', 'day': '320' },
-            'electrical': { 'hourly': '55', 'day': '360' },
-            'handyman': { 'hourly': '35', 'day': '250' },
-            'painting': { 'hourly': '30', 'day': '240' },
-            'carpentry': { 'hourly': '45', 'day': '300' },
-            'heating': { 'hourly': '60', 'day': '400' },
-            'default': { 'hourly': '35', 'day': '250' }
-        },
-        'Leicester': {
-            'plumbing': { 'hourly': '45', 'day': '300' },
-            'electrical': { 'hourly': '50', 'day': '340' },
-            'handyman': { 'hourly': '30', 'day': '240' },
-            'painting': { 'hourly': '28', 'day': '220' },
-            'carpentry': { 'hourly': '40', 'day': '280' },
-            'default': { 'hourly': '30', 'day': '240' }
-        },
-        'Nottingham': {
-            'plumbing': { 'hourly': '48', 'day': '310' },
-            'electrical': { 'hourly': '52', 'day': '350' },
-            'handyman': { 'hourly': '32', 'day': '240' },
-            'painting': { 'hourly': '30', 'day': '220' },
-            'carpentry': { 'hourly': '42', 'day': '280' },
-            'default': { 'hourly': '32', 'day': '240' }
-        }
-    };
-
-    const DEFAULT_RATES = { hourly: '50', day: '350' };
-
-    const getRecommendedRate = (tradeId: string) => {
-        const cityData = CITY_RATES[city];
-        if (!cityData) return DEFAULT_RATES;
-        return cityData[tradeId] || cityData['default'] || DEFAULT_RATES;
+    const getRecommendedRate = (categorySlug: string) => {
+        const range = (CATEGORY_RATE_RANGES as Record<string, { hourly: number; low: number; high: number }>)[categorySlug] || CATEGORY_RATE_RANGES.other;
+        const hourly = Math.round(range.hourly / 100);
+        return { hourly: hourly.toString(), day: (hourly * 8).toString() };
     };
 
     // Auto-populate rates when city changes or trades selected if not set
@@ -412,29 +381,67 @@ export default function ContractorOnboarding() {
                             <p className="text-slate-400">Select all that apply.</p>
                         </div>
 
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
-                            {tradesList.map(trade => (
-                                <button
-                                    key={trade.id}
-                                    onClick={() => toggleTrade(trade.id)}
-                                    className={`p-4 rounded-xl border transition-all text-left group relative overflow-hidden ${selectedTrades.includes(trade.id)
-                                        ? 'bg-amber-500 border-amber-500 text-slate-900 shadow-lg shadow-amber-500/20'
-                                        : 'bg-slate-900/50 border-white/10 text-slate-400 hover:bg-slate-800/50'
-                                        }`}
-                                >
-                                    <span className="text-2xl mb-2 block">{trade.icon}</span>
-                                    <span className={`font-bold block ${selectedTrades.includes(trade.id) ? 'text-slate-900' : 'text-white'}`}>
-                                        {trade.label}
-                                    </span>
-                                    {selectedTrades.includes(trade.id) && (
-                                        <div className="absolute top-2 right-2">
-                                            <div className="w-5 h-5 bg-slate-900/20 rounded-full flex items-center justify-center">
-                                                <Check className="w-3 h-3 text-slate-900" />
+                        <div className="space-y-3 mb-8">
+                            {BROAD_TRADES.map(trade => {
+                                const isExpanded = expandedTrades.includes(trade.id);
+                                const categories = TRADE_CATEGORIES[trade.id] || [];
+                                const selectedCount = categories.filter(c => selectedTrades.includes(c)).length;
+
+                                return (
+                                    <div key={trade.id} className="rounded-xl border border-white/10 overflow-hidden">
+                                        <button
+                                            onClick={() => setExpandedTrades(prev =>
+                                                prev.includes(trade.id) ? prev.filter(t => t !== trade.id) : [...prev, trade.id]
+                                            )}
+                                            className={`w-full p-4 flex items-center justify-between text-left transition-colors ${
+                                                selectedCount > 0 ? 'bg-amber-500/10' : 'bg-slate-900/50 hover:bg-slate-800/50'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <span className="text-xl">{trade.icon}</span>
+                                                <span className="font-bold text-white">{trade.label}</span>
+                                                {selectedCount > 0 && (
+                                                    <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full">
+                                                        {selectedCount}
+                                                    </span>
+                                                )}
                                             </div>
-                                        </div>
-                                    )}
-                                </button>
-                            ))}
+                                            {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                                        </button>
+
+                                        {isExpanded && (
+                                            <div className="px-4 pb-4 pt-2 border-t border-white/5 space-y-2">
+                                                {categories.map(catSlug => {
+                                                    const isSelected = selectedTrades.includes(catSlug);
+                                                    const label = (CATEGORY_LABELS as Record<string, string>)[catSlug] || catSlug;
+                                                    return (
+                                                        <button
+                                                            key={catSlug}
+                                                            onClick={() => {
+                                                                if (isSelected) {
+                                                                    setSelectedTrades(prev => prev.filter(t => t !== catSlug));
+                                                                } else {
+                                                                    const rec = getRecommendedRate(catSlug);
+                                                                    setRates(prev => ({ ...prev, [catSlug]: rec }));
+                                                                    setSelectedTrades(prev => [...prev, catSlug]);
+                                                                }
+                                                            }}
+                                                            className={`w-full p-3 rounded-lg border text-left text-sm transition-all flex items-center justify-between ${
+                                                                isSelected
+                                                                    ? 'border-amber-500 bg-amber-500/10 text-amber-300'
+                                                                    : 'border-white/5 text-slate-400 hover:border-white/10'
+                                                            }`}
+                                                        >
+                                                            <span>{label}</span>
+                                                            {isSelected && <Check className="w-4 h-4" />}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
 
                         <div className="flex justify-between items-center">

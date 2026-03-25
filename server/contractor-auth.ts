@@ -72,7 +72,8 @@ export async function requireContractorAuth(req: Request, res: Response, next: N
 router.put('/skills', requireContractorAuth, async (req: Request, res: Response) => {
     try {
         const contractor = (req as any).contractor;
-        const { services } = req.body; // Array of { trade: string, hourlyRatePence: number }
+        const { services } = req.body;
+        // Accepts: [{ trade?: string, categorySlug?: string, hourlyRatePence: number, dayRatePence?: number }]
 
         if (!Array.isArray(services)) {
             return res.status(400).json({ error: "Invalid format" });
@@ -84,43 +85,44 @@ router.put('/skills', requireContractorAuth, async (req: Request, res: Response)
 
         if (!profile) return res.status(404).json({ error: "Profile not found" });
 
-        // Transaction to update skills
-        await db.transaction(async (tx) => {
-            // Remove existing skills
-            await tx.delete(handymanSkills).where(eq(handymanSkills.handymanId, profile.id));
+        // Remove existing skills
+        await db.delete(handymanSkills).where(eq(handymanSkills.handymanId, profile.id));
 
-            // Re-add selected skills with new rates
-            for (const s of services) {
-                // Find service ID by SKU/Category
-                // Note: In a real app we might want a stricter lookup, but for now we search by name/sku
-                // We assume 'trade' maps to a serviceSku or category. 
-                // Let's search by 'category' or 'skuCode' matching the trade ID (e.g. 'plumbing')
+        // Re-add selected skills with new rates
+        for (const s of services) {
+            const categorySlug = s.categorySlug || s.trade || null;
+            let serviceId: string | null = null;
 
-                const service = await tx.select().from(productizedServices)
+            // Try to find a matching productizedService for backward compat
+            if (categorySlug) {
+                const service = await db.select().from(productizedServices)
                     .where(
                         or(
-                            eq(productizedServices.skuCode, s.trade.toUpperCase()), // Try SKU
-                            eq(productizedServices.category, s.trade.toLowerCase()) // Try Category
+                            eq(productizedServices.skuCode, (s.trade || '').toUpperCase()),
+                            eq(productizedServices.category, (s.trade || '').toLowerCase()),
+                            eq(productizedServices.category, categorySlug)
                         )
                     )
                     .limit(1);
-
                 if (service.length > 0) {
-                    await tx.insert(handymanSkills).values({
-                        id: uuidv4(),
-                        handymanId: profile.id,
-                        serviceId: service[0].id,
-                        hourlyRate: Math.round(s.hourlyRatePence / 100)
-                    });
+                    serviceId = service[0].id;
                 }
             }
-        });
+
+            await db.insert(handymanSkills).values({
+                id: uuidv4(),
+                handymanId: profile.id,
+                serviceId,
+                categorySlug,
+                hourlyRate: s.hourlyRatePence ? Math.round(s.hourlyRatePence / 100) : null,
+                dayRate: s.dayRatePence ? Math.round(s.dayRatePence / 100) : null,
+            });
+        }
 
         res.json({ success: true });
     } catch (error) {
         console.error('Error updating skills:', error);
         res.status(500).json({ error: "Failed to update skills" });
-
     }
 });
 

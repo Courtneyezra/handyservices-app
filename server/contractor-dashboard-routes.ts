@@ -221,26 +221,12 @@ router.post('/onboarding/complete', requireContractorAuth, async (req: Request, 
 });
 
 // GET /api/contractor/onboarding/capabilities
-// Fetch all available capabilities grouped by category
+// Returns categories grouped by broad trade with market rate ranges
 router.get('/onboarding/capabilities', requireContractorAuth, async (req: Request, res: Response) => {
     try {
-        const services = await db.select().from(productizedServices).where(eq(productizedServices.isActive, true));
-
-        // Group by category
-        const categories: Record<string, typeof services> = {};
-
-        services.forEach(service => {
-            let cat = service.category || 'Other';
-            // Title case normalization: plumbing -> Plumbing
-            cat = cat.charAt(0).toUpperCase() + cat.slice(1).toLowerCase();
-
-            if (!categories[cat]) {
-                categories[cat] = [];
-            }
-            categories[cat].push(service);
-        });
-
-        res.json(categories);
+        const { getAllTradesWithCategories } = await import('../shared/categories');
+        const trades = getAllTradesWithCategories();
+        res.json({ trades });
     } catch (error) {
         console.error('[Onboarding] Get capabilities error:', error);
         res.status(500).json({ error: "Failed to fetch capabilities" });

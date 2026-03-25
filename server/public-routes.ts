@@ -376,4 +376,290 @@ router.post('/contractor/:slug/book', async (req: Request, res: Response) => {
     }
 });
 
+// ============================================================================
+// CATEGORY-FILTERED AVAILABILITY (For Contractor-Linked Quotes)
+// ============================================================================
+
+import { handymanSkills } from '../shared/schema';
+
+interface FilteredDateAvailability {
+    date: string;
+    isAvailable: boolean;
+    slots: ('am' | 'pm' | 'full')[];
+    contractorCount: number;
+    isWeekend?: boolean;
+    isFallback?: boolean;
+}
+
+/**
+ * GET /api/public/availability/filtered
+ *
+ * Returns dates where a contractor with matching categories is available.
+ * Query params:
+ *   - categories: comma-separated category slugs (e.g. 'plumbing_minor,tiling')
+ *   - postcode: customer postcode (optional, for radius filtering)
+ *   - timeEstimateMinutes: if >240, only full-day slots returned
+ *   - days: number of days to look ahead (default 14)
+ */
+router.get('/availability/filtered', async (req: Request, res: Response) => {
+    try {
+        const categoriesParam = req.query.categories as string;
+        const timeEstimate = parseInt(req.query.timeEstimateMinutes as string) || 0;
+        const daysAhead = Math.min(parseInt(req.query.days as string) || 14, 30);
+        const requireFullDay = timeEstimate > 240;
+
+        if (!categoriesParam) {
+            return res.status(400).json({ error: 'categories parameter required' });
+        }
+
+        const categories = categoriesParam.split(',').map(c => c.trim()).filter(Boolean);
+
+        // 1. Find contractors matching these categories (not stale)
+        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+        const matchingSkills = await db.select({
+            handymanId: handymanSkills.handymanId,
+            categorySlug: handymanSkills.categorySlug,
+        })
+            .from(handymanSkills)
+            .where(
+                // Match any of the requested categories
+                // Using raw SQL for IN clause since drizzle's inArray needs the exact import
+                eq(handymanSkills.categorySlug, categories[0]) // Start with first category
+            );
+
+        // Also get skills for other categories
+        const allMatchingSkills = [];
+        for (const cat of categories) {
+            const skills = await db.select({
+                handymanId: handymanSkills.handymanId,
+            })
+                .from(handymanSkills)
+                .where(eq(handymanSkills.categorySlug, cat));
+            allMatchingSkills.push(...skills);
+        }
+
+        // Unique contractor IDs
+        const contractorIds = Array.from(new Set(allMatchingSkills.map(s => s.handymanId)));
+
+        // Filter out stale contractors
+        const freshContractors: string[] = [];
+        for (const cId of contractorIds) {
+            const profile = await db.select({
+                id: handymanProfiles.id,
+                lastAvailabilityRefresh: handymanProfiles.lastAvailabilityRefresh,
+            })
+                .from(handymanProfiles)
+                .where(eq(handymanProfiles.id, cId))
+                .limit(1);
+
+            if (profile.length > 0) {
+                const lastRefresh = profile[0].lastAvailabilityRefresh;
+                // Include if refreshed within 7 days, or if never refreshed (new contractor, give benefit of doubt)
+                if (!lastRefresh || lastRefresh > sevenDaysAgo) {
+                    freshContractors.push(cId);
+                }
+            }
+        }
+
+        // 2. Check availability for each date in the window
+        const results: FilteredDateAvailability[] = [];
+        const today = startOfDay(new Date());
+
+        for (let i = 1; i <= daysAhead; i++) {
+            const checkDate = addDays(today, i);
+            const dateStr = checkDate.toISOString().split('T')[0];
+            const dayOfWeek = getDay(checkDate);
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+            const slotsAvailable = new Set<'am' | 'pm'>();
+            let availableContractorCount = 0;
+
+            for (let ci = 0; ci < freshContractors.length; ci++) {
+            const contractorId = freshContractors[ci];
+                // Check date-specific override first
+                const override = await db.select()
+                    .from(contractorAvailabilityDates)
+                    .where(and(
+                        eq(contractorAvailabilityDates.contractorId, contractorId),
+                        eq(contractorAvailabilityDates.date, checkDate)
+                    ))
+                    .limit(1);
+
+                if (override.length > 0) {
+                    const o = override[0];
+                    if (o.isAvailable) {
+                        availableContractorCount++;
+                        const start = o.startTime || '08:00';
+                        const end = o.endTime || '17:00';
+                        if (start <= '08:00' && end >= '12:00') slotsAvailable.add('am');
+                        if (start <= '13:00' && end >= '17:00') slotsAvailable.add('pm');
+                    }
+                    continue; // Override takes precedence
+                }
+
+                // Fall back to weekly pattern
+                const pattern = await db.select()
+                    .from(handymanAvailability)
+                    .where(and(
+                        eq(handymanAvailability.handymanId, contractorId),
+                        eq(handymanAvailability.dayOfWeek, dayOfWeek),
+                        eq(handymanAvailability.isActive, true)
+                    ))
+                    .limit(1);
+
+                if (pattern.length > 0) {
+                    availableContractorCount++;
+                    const start = pattern[0].startTime || '08:00';
+                    const end = pattern[0].endTime || '17:00';
+                    if (start <= '08:00' && end >= '12:00') slotsAvailable.add('am');
+                    if (start <= '13:00' && end >= '17:00') slotsAvailable.add('pm');
+                }
+            }
+
+            // Build slots array
+            const slots: ('am' | 'pm' | 'full')[] = [];
+            const hasAm = slotsAvailable.has('am');
+            const hasPm = slotsAvailable.has('pm');
+
+            if (hasAm && hasPm) {
+                slots.push('full');
+                if (!requireFullDay) {
+                    slots.push('am', 'pm');
+                }
+            } else if (!requireFullDay) {
+                if (hasAm) slots.push('am');
+                if (hasPm) slots.push('pm');
+            }
+            // If requireFullDay and no 'full', skip this date
+
+            if (slots.length > 0) {
+                results.push({
+                    date: dateStr,
+                    isAvailable: true,
+                    slots,
+                    contractorCount: availableContractorCount,
+                    isWeekend,
+                });
+            }
+        }
+
+        // 3. Fallback: if no dates available, inject synthetic date at day 10
+        if (results.length === 0) {
+            const fallbackDate = addDays(today, 10);
+            results.push({
+                date: fallbackDate.toISOString().split('T')[0],
+                isAvailable: true,
+                slots: requireFullDay ? ['full'] : ['am', 'pm', 'full'],
+                contractorCount: 0,
+                isWeekend: getDay(fallbackDate) === 0 || getDay(fallbackDate) === 6,
+                isFallback: true,
+            });
+        }
+
+        res.json(results);
+    } catch (error) {
+        console.error('[PublicAPI] Filtered availability error:', error);
+        res.status(500).json({ error: 'Failed to fetch filtered availability' });
+    }
+});
+
+/**
+ * POST /api/public/booking/check-availability
+ *
+ * Real-time availability check at booking time.
+ * Verifies the selected date/slot is still available before confirming.
+ */
+router.post('/booking/check-availability', async (req: Request, res: Response) => {
+    try {
+        const { date, slot, categories } = req.body;
+
+        if (!date || !slot || !categories?.length) {
+            return res.status(400).json({ error: 'date, slot, and categories required' });
+        }
+
+        // Re-run filtered availability for just this one date
+        const checkDate = new Date(date);
+        const dayOfWeek = getDay(checkDate);
+
+        // Find matching contractors
+        const contractorIds = new Set<string>();
+        for (const cat of categories) {
+            const skills = await db.select({ handymanId: handymanSkills.handymanId })
+                .from(handymanSkills)
+                .where(eq(handymanSkills.categorySlug, cat));
+            skills.forEach(s => contractorIds.add(s.handymanId));
+        }
+
+        let availableCount = 0;
+        const availableContractorIds: string[] = [];
+
+        const contractorIdArray = Array.from(contractorIds);
+        for (let ci = 0; ci < contractorIdArray.length; ci++) {
+            const contractorId = contractorIdArray[ci];
+            // Check override
+            const override = await db.select()
+                .from(contractorAvailabilityDates)
+                .where(and(
+                    eq(contractorAvailabilityDates.contractorId, contractorId),
+                    eq(contractorAvailabilityDates.date, checkDate)
+                ))
+                .limit(1);
+
+            let isAvailableForSlot = false;
+
+            if (override.length > 0 && override[0].isAvailable) {
+                const start = override[0].startTime || '08:00';
+                const end = override[0].endTime || '17:00';
+                if (slot === 'am' && start <= '08:00' && end >= '12:00') isAvailableForSlot = true;
+                if (slot === 'pm' && start <= '13:00' && end >= '17:00') isAvailableForSlot = true;
+                if (slot === 'full' && start <= '08:00' && end >= '17:00') isAvailableForSlot = true;
+            } else if (override.length === 0) {
+                // Check weekly pattern
+                const pattern = await db.select()
+                    .from(handymanAvailability)
+                    .where(and(
+                        eq(handymanAvailability.handymanId, contractorId),
+                        eq(handymanAvailability.dayOfWeek, dayOfWeek),
+                        eq(handymanAvailability.isActive, true)
+                    ))
+                    .limit(1);
+
+                if (pattern.length > 0) {
+                    const start = pattern[0].startTime || '08:00';
+                    const end = pattern[0].endTime || '17:00';
+                    if (slot === 'am' && start <= '08:00' && end >= '12:00') isAvailableForSlot = true;
+                    if (slot === 'pm' && start <= '13:00' && end >= '17:00') isAvailableForSlot = true;
+                    if (slot === 'full' && start <= '08:00' && end >= '17:00') isAvailableForSlot = true;
+                }
+            }
+
+            // Check for booking conflicts
+            if (isAvailableForSlot) {
+                const existingBookings = await db.select()
+                    .from(contractorBookingRequests)
+                    .where(and(
+                        eq(contractorBookingRequests.contractorId, contractorId),
+                        eq(contractorBookingRequests.requestedDate, checkDate),
+                        eq(contractorBookingRequests.status, 'accepted')
+                    ));
+
+                if (existingBookings.length === 0) {
+                    availableCount++;
+                    availableContractorIds.push(contractorId);
+                }
+            }
+        }
+
+        res.json({
+            available: availableCount > 0,
+            contractorCount: availableCount,
+            contractorIds: availableContractorIds,
+        });
+    } catch (error) {
+        console.error('[PublicAPI] Booking check error:', error);
+        res.status(500).json({ error: 'Failed to check availability' });
+    }
+});
+
 export default router;

@@ -7,9 +7,11 @@ import {
     handymanAvailability,
     contractorAvailabilityDates,
     contractorJobs,
-    productizedServices
+    productizedServices,
+    personalizedQuotes
 } from '../shared/schema';
-import { eq, desc, count, and, gte, inArray } from 'drizzle-orm';
+import { eq, desc, count, and, gte, inArray, sql } from 'drizzle-orm';
+import { startOfWeek, startOfMonth } from 'date-fns';
 
 const router = Router();
 
@@ -33,6 +35,10 @@ router.get('/', async (req: Request, res: Response) => {
             publicProfileEnabled: handymanProfiles.publicProfileEnabled,
             slug: handymanProfiles.slug,
             createdAt: handymanProfiles.createdAt,
+            insuranceUrl: handymanProfiles.publicLiabilityInsuranceUrl,
+            stripeAccountId: handymanProfiles.stripeAccountId,
+            lastAvailabilityRefresh: handymanProfiles.lastAvailabilityRefresh,
+            verificationStatus: handymanProfiles.verificationStatus,
         })
         .from(handymanProfiles)
         .innerJoin(users, eq(handymanProfiles.userId, users.id))
@@ -44,6 +50,8 @@ router.get('/', async (req: Request, res: Response) => {
             serviceId: handymanSkills.serviceId,
             serviceName: productizedServices.name,
             hourlyRate: handymanSkills.hourlyRate,
+            categorySlug: handymanSkills.categorySlug,
+            dayRate: handymanSkills.dayRate,
         })
         .from(handymanSkills)
         .leftJoin(productizedServices, eq(handymanSkills.serviceId, productizedServices.id));
@@ -78,14 +86,49 @@ router.get('/', async (req: Request, res: Response) => {
                 ))
             : [];
 
+        // Get earnings for all contractors (completed jobs)
+        const now = new Date();
+        const weekStart = startOfWeek(now, { weekStartsOn: 1 }); // Monday
+        const monthStart = startOfMonth(now);
+
+        const earningsData = await db.select({
+            contractorId: contractorJobs.contractorId,
+            earningsAllTimePence: sql<number>`coalesce(sum(${contractorJobs.payoutPence}), 0)`.as('earnings_all_time'),
+            earningsThisMonthPence: sql<number>`coalesce(sum(case when ${contractorJobs.createdAt} >= ${monthStart} then ${contractorJobs.payoutPence} else 0 end), 0)`.as('earnings_month'),
+            earningsThisWeekPence: sql<number>`coalesce(sum(case when ${contractorJobs.createdAt} >= ${weekStart} then ${contractorJobs.payoutPence} else 0 end), 0)`.as('earnings_week'),
+        })
+        .from(contractorJobs)
+        .where(eq(contractorJobs.status, 'completed'))
+        .groupBy(contractorJobs.contractorId);
+
+        // Get margin health from personalizedQuotes
+        const marginData = contractorIds.length > 0
+            ? await db.select({
+                contractorId: personalizedQuotes.matchedContractorId,
+                avgMarginPercent: sql<number | null>`avg(${personalizedQuotes.marginPercent})`.as('avg_margin'),
+                quotesWithThinMargin: sql<number>`count(case when ${personalizedQuotes.marginFlags} is not null and jsonb_array_length(${personalizedQuotes.marginFlags}) > 0 then 1 end)`.as('thin_margin_count'),
+            })
+            .from(personalizedQuotes)
+            .where(inArray(personalizedQuotes.matchedContractorId, contractorIds))
+            .groupBy(personalizedQuotes.matchedContractorId)
+            : [];
+
         // Map data to contractors
         const result = contractors.map(contractor => {
-            const skills = allSkills
-                .filter(s => s.handymanId === contractor.id)
+            const contractorSkills = allSkills.filter(s => s.handymanId === contractor.id);
+
+            const skills = contractorSkills.map(s => ({
+                serviceId: s.serviceId,
+                serviceName: s.serviceName,
+                hourlyRate: s.hourlyRate,
+            }));
+
+            const categorySkills = contractorSkills
+                .filter(s => s.categorySlug)
                 .map(s => ({
-                    serviceId: s.serviceId,
-                    serviceName: s.serviceName,
+                    categorySlug: s.categorySlug!,
                     hourlyRate: s.hourlyRate,
+                    dayRate: s.dayRate,
                 }));
 
             const jobs = jobCounts.find(j => j.contractorId === contractor.id);
@@ -108,12 +151,28 @@ router.get('/', async (req: Request, res: Response) => {
                     endTime: o.endTime,
                 }));
 
+            const earnings = earningsData.find(e => e.contractorId === contractor.id);
+            const margin = marginData.find(m => m.contractorId === contractor.id);
+
+            const isStaleAvailability = !contractor.lastAvailabilityRefresh ||
+                (now.getTime() - new Date(contractor.lastAvailabilityRefresh).getTime()) > 7 * 24 * 60 * 60 * 1000;
+
             return {
                 ...contractor,
                 skills,
+                categorySkills,
                 totalJobs: jobs?.totalJobs || 0,
                 weeklyPatterns: patterns,
                 upcomingOverrides: overrides,
+                earningsThisWeekPence: Number(earnings?.earningsThisWeekPence ?? 0),
+                earningsThisMonthPence: Number(earnings?.earningsThisMonthPence ?? 0),
+                earningsAllTimePence: Number(earnings?.earningsAllTimePence ?? 0),
+                insuranceUrl: contractor.insuranceUrl,
+                stripeAccountId: contractor.stripeAccountId,
+                isStaleAvailability,
+                verificationStatus: contractor.verificationStatus,
+                avgMarginPercent: margin?.avgMarginPercent != null ? Number(margin.avgMarginPercent) : null,
+                quotesWithThinMargin: Number(margin?.quotesWithThinMargin ?? 0),
             };
         });
 

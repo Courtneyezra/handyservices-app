@@ -1,10 +1,30 @@
 
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
-import { Eye, EyeOff, Loader2, Globe, CheckCircle2, AlertCircle, ArrowRight } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Globe, CheckCircle2, AlertCircle, ArrowRight, ChevronDown, ChevronUp } from 'lucide-react';
 import SkillSelector from '../components/contractor/SkillSelector';
 import { LocationRadiusSelector } from '../components/contractor/LocationRadiusSelector';
 import { ConfettiTools } from '@/components/dashboard/ConfettiTools';
+import {
+    BROAD_TRADES, TRADE_CATEGORIES, CATEGORY_LABELS, CATEGORY_RATE_RANGES,
+    type BroadTradeId, type JobCategory
+} from '@shared/categories';
+
+// Derive rate config from shared categories (convert pence to pounds for UI)
+function getCategoryRateConfig(slug: string) {
+    const range = (CATEGORY_RATE_RANGES as Record<string, { hourly: number; low: number; high: number }>)[slug] || CATEGORY_RATE_RANGES.other;
+    const hourlySweet = Math.round(range.hourly / 100);
+    const hourlyLow = Math.round(range.low / 100);
+    const hourlyHigh = Math.round(range.high / 100);
+    return {
+        min: hourlyLow,
+        max: hourlyHigh,
+        sweet: hourlySweet,
+        dayMin: hourlyLow * 8,
+        dayMax: hourlyHigh * 8,
+        daySweet: hourlySweet * 8,
+    };
+}
 
 export default function ContractorRegister() {
     const [, setLocation] = useLocation();
@@ -46,32 +66,22 @@ export default function ContractorRegister() {
 
     const [selectedSkills, setSelectedSkills] = useState<Array<{ skuId: string; proficiency: 'basic' | 'competent' | 'expert' }>>([]);
 
-    // New Simplified Flow State
-    const [availableCategories, setAvailableCategories] = useState<string[]>([]);
-    const [selectedTrades, setSelectedTrades] = useState<string[]>([]);
-    const [tradeRates, setTradeRates] = useState<Record<string, { hourly: string, day: string }>>({});
+    // Two-tier trade/category selection state
+    const [expandedTrades, setExpandedTrades] = useState<string[]>([]);
+    const [selectedCategories, setSelectedCategories] = useState<string[]>([]); // granular slugs
+    const [selectedTrades, setSelectedTrades] = useState<string[]>([]); // kept for backward compat in validation
+    const [tradeRates, setTradeRates] = useState<Record<string, { hourly: string, day: string }>>({}); // keyed by category slug
 
-    // Fetch categories when reaching step 5
+    // Sync selectedTrades from selectedCategories (for validation compat)
     useEffect(() => {
-        if (step === 5 && availableCategories.length === 0) {
-            const token = localStorage.getItem('contractorToken');
-
-            fetch('/api/contractor/onboarding/capabilities', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            })
-                .then(res => {
-                    if (!res.ok) throw new Error("Failed to load trade categories");
-                    return res.json();
-                })
-                .then(data => setAvailableCategories(Object.keys(data)))
-                .catch(err => {
-                    console.error("Failed to fetch categories", err);
-                    setError("Could not load trade categories. Please refresh or try again.");
-                });
+        const tradeIds = new Set<string>();
+        for (const cat of selectedCategories) {
+            for (const [tradeId, cats] of Object.entries(TRADE_CATEGORIES)) {
+                if ((cats as readonly string[]).includes(cat)) tradeIds.add(tradeId);
+            }
         }
-    }, [step]);
+        setSelectedTrades(Array.from(tradeIds));
+    }, [selectedCategories]);
 
     const handleChange = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
@@ -197,8 +207,8 @@ export default function ContractorRegister() {
         }
 
         if (step === 5) {
-            if (selectedTrades.length === 0) {
-                setError('Please select at least one trade.');
+            if (selectedCategories.length === 0) {
+                setError('Please select at least one category.');
                 return;
             }
             setStep(6);
@@ -207,12 +217,12 @@ export default function ContractorRegister() {
 
         if (step === 6) {
             // Validate rates
-            const missingRates = selectedTrades.some(trade =>
-                !tradeRates[trade]?.hourly || !tradeRates[trade]?.day
+            const missingRates = selectedCategories.some(cat =>
+                !tradeRates[cat]?.hourly || !tradeRates[cat]?.day
             );
 
             if (missingRates) {
-                setError('Please enter both hourly and day rates for all selected trades.');
+                setError('Please enter both hourly and day rates for all selected categories.');
                 return;
             }
 
@@ -220,10 +230,11 @@ export default function ContractorRegister() {
             try {
                 const token = localStorage.getItem('contractorToken');
                 const payload = {
-                    trades: selectedTrades.map(trade => ({
-                        category: trade,
-                        hourlyRatePence: parseFloat(tradeRates[trade].hourly) * 100,
-                        dayRatePence: parseFloat(tradeRates[trade].day) * 100
+                    trades: selectedCategories.map(cat => ({
+                        category: cat,
+                        categorySlug: cat,
+                        hourlyRatePence: parseFloat(tradeRates[cat].hourly) * 100,
+                        dayRatePence: parseFloat(tradeRates[cat].day) * 100
                     }))
                 };
 
@@ -280,16 +291,16 @@ export default function ContractorRegister() {
                             {step === 2 && "Secure your account"}
                             {step === 3 && "Name your workspace"}
                             {step === 4 && "Where are you based?"}
-                            {step === 5 && "Select your trades"}
-                            {step === 6 && "Set your standard rates"}
+                            {step === 5 && "What do you do?"}
+                            {step === 6 && "Set your rates"}
                         </h1>
                         <p className="text-slate-500">
                             {step === 1 && "We need these details to create your profile."}
                             {step === 2 && "Choose a strong password to keep your data safe."}
                             {step === 3 && "This will be the name of your digital office."}
                             {step === 4 && "We'll show you jobs within your service radius."}
-                            {step === 5 && "Select all the trades you provide services for."}
-                            {step === 6 && "You can adjust these later for specific jobs."}
+                            {step === 5 && "Pick your trades, then select the specific jobs you handle."}
+                            {step === 6 && "Set your hourly rate per category. We'll find jobs that pay it."}
                         </p>
                     </div>
 
@@ -424,108 +435,203 @@ export default function ContractorRegister() {
                             </div>
                         )}
 
-                        {/* STEP 5: TRADES */}
+                        {/* STEP 5: TWO-TIER TRADE & CATEGORY PICKER */}
                         {step === 5 && (
-                            <div className="space-y-4 animate-in fade-in slide-in-from-right-8 duration-500">
-                                <div className="grid grid-cols-2 gap-3">
-                                    {availableCategories.map(appCat => (
-                                        <button
-                                            key={appCat}
-                                            type="button"
-                                            onClick={() => {
-                                                setSelectedTrades(prev => {
-                                                    const isSelected = prev.includes(appCat);
-                                                    if (isSelected) {
-                                                        return prev.filter(c => c !== appCat);
-                                                    } else {
-                                                        // Tiered Random Rates
-                                                        let minH = 30, maxH = 45;
-                                                        let minD = 190, maxD = 230;
+                            <div className="space-y-3 animate-in fade-in slide-in-from-right-8 duration-500">
+                                {BROAD_TRADES.map(trade => {
+                                    const isExpanded = expandedTrades.includes(trade.id);
+                                    const categories = TRADE_CATEGORIES[trade.id] || [];
+                                    const selectedCount = categories.filter(c => selectedCategories.includes(c)).length;
 
-                                                        const cat = appCat.toLowerCase();
-                                                        if (cat.includes('plumb') || cat.includes('elec') || cat.includes('gas')) {
-                                                            // High Tier: Plumbing, Electrical
-                                                            minH = 55; maxH = 75;
-                                                            minD = 350; maxD = 450;
-                                                        } else if (cat.includes('join') || cat.includes('carp') || cat.includes('til') || cat.includes('brick')) {
-                                                            // Mid Tier: Joinery, Tiling
-                                                            minH = 40; maxH = 60;
-                                                            minD = 250; maxD = 350;
-                                                        } else {
-                                                            // Base Tier: Handyman, Decorating, Flatpack
-                                                            minH = 30; maxH = 45;
-                                                            minD = 190; maxD = 250;
-                                                        }
-
-                                                        const randomHourly = Math.floor(Math.random() * (maxH - minH + 1)) + minH;
-                                                        const randomDay = Math.floor(Math.random() * (maxD - minD + 1)) + minD;
-
-                                                        setTradeRates(rates => ({
-                                                            ...rates,
-                                                            [appCat]: {
-                                                                hourly: randomHourly.toString(),
-                                                                day: randomDay.toString()
-                                                            }
-                                                        }));
-
-                                                        return [...prev, appCat];
-                                                    }
-                                                });
-                                            }}
-                                            className={`p-4 rounded-xl border-2 text-left transition-all ${selectedTrades.includes(appCat)
-                                                ? 'border-[#6C6CFF] bg-[#6C6CFF]/5'
-                                                : 'border-slate-100 hover:border-slate-200'
+                                    return (
+                                        <div key={trade.id} className="rounded-xl border border-slate-200 overflow-hidden">
+                                            {/* Trade Header */}
+                                            <button
+                                                type="button"
+                                                onClick={() => setExpandedTrades(prev =>
+                                                    prev.includes(trade.id)
+                                                        ? prev.filter(t => t !== trade.id)
+                                                        : [...prev, trade.id]
+                                                )}
+                                                className={`w-full p-4 flex items-center justify-between text-left transition-colors ${
+                                                    selectedCount > 0 ? 'bg-[#6C6CFF]/5' : 'bg-white hover:bg-slate-50'
                                                 }`}
-                                        >
-                                            <span className={`font-semibold ${selectedTrades.includes(appCat) ? 'text-[#6C6CFF]' : 'text-slate-700'}`}>
-                                                {appCat}
-                                            </span>
-                                        </button>
-                                    ))}
-                                </div>
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-xl">{trade.icon}</span>
+                                                    <span className="font-semibold text-slate-800">{trade.label}</span>
+                                                    {selectedCount > 0 && (
+                                                        <span className="text-xs font-medium text-[#6C6CFF] bg-[#6C6CFF]/10 px-2 py-0.5 rounded-full">
+                                                            {selectedCount} selected
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {isExpanded ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+                                            </button>
+
+                                            {/* Sub-categories */}
+                                            {isExpanded && (
+                                                <div className="px-4 pb-4 pt-2 border-t border-slate-100 space-y-2">
+                                                    {categories.map(catSlug => {
+                                                        const isSelected = selectedCategories.includes(catSlug);
+                                                        const label = CATEGORY_LABELS[catSlug] || catSlug;
+                                                        return (
+                                                            <button
+                                                                key={catSlug}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    if (isSelected) {
+                                                                        setSelectedCategories(prev => prev.filter(c => c !== catSlug));
+                                                                        setTradeRates(prev => {
+                                                                            const next = { ...prev };
+                                                                            delete next[catSlug];
+                                                                            return next;
+                                                                        });
+                                                                    } else {
+                                                                        const config = getCategoryRateConfig(catSlug);
+                                                                        setSelectedCategories(prev => [...prev, catSlug]);
+                                                                        setTradeRates(prev => ({
+                                                                            ...prev,
+                                                                            [catSlug]: {
+                                                                                hourly: config.sweet.toString(),
+                                                                                day: config.daySweet.toString(),
+                                                                            }
+                                                                        }));
+                                                                    }
+                                                                }}
+                                                                className={`w-full p-3 rounded-lg border text-left text-sm transition-all flex items-center justify-between ${
+                                                                    isSelected
+                                                                        ? 'border-[#6C6CFF] bg-[#6C6CFF]/5 text-[#6C6CFF] font-medium'
+                                                                        : 'border-slate-100 text-slate-600 hover:border-slate-200'
+                                                                }`}
+                                                            >
+                                                                <span>{label}</span>
+                                                                {isSelected && <CheckCircle2 size={16} />}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+
+                                {selectedCategories.length > 0 && (
+                                    <p className="text-xs text-slate-400 text-center mt-2">
+                                        {selectedCategories.length} categor{selectedCategories.length === 1 ? 'y' : 'ies'} selected across {selectedTrades.length} trade{selectedTrades.length === 1 ? '' : 's'}
+                                    </p>
+                                )}
                             </div>
                         )}
 
-                        {/* STEP 6: RATES */}
+                        {/* STEP 6: RATES WITH WARM SPOT */}
                         {step === 6 && (
                             <div className="space-y-6 animate-in fade-in slide-in-from-right-8 duration-500">
-                                {selectedTrades.map(trade => (
-                                    <div key={trade} className="p-4 rounded-xl border border-slate-200 space-y-3">
-                                        <h3 className="font-semibold text-slate-800">{trade} Rates</h3>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-xs font-medium text-slate-500 mb-1">Hourly (£)</label>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    step="0.01"
-                                                    value={tradeRates[trade]?.hourly || ''}
-                                                    onChange={e => setTradeRates(prev => ({
-                                                        ...prev,
-                                                        [trade]: { ...prev[trade], hourly: e.target.value }
-                                                    }))}
-                                                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-[#6C6CFF] outline-none"
-                                                    placeholder="50"
-                                                />
+                                {selectedCategories.map(trade => {
+                                    const config = getCategoryRateConfig(trade);
+                                    const hourlyVal = parseFloat(tradeRates[trade]?.hourly || '0');
+                                    const dayVal = parseFloat(tradeRates[trade]?.day || '0');
+                                    const hourlyPercent = Math.max(0, Math.min(100, ((hourlyVal - config.min) / (config.max - config.min)) * 100));
+                                    const sweetPercent = ((config.sweet - config.min) / (config.max - config.min)) * 100;
+                                    const daySweetPercent = ((config.daySweet - config.dayMin) / (config.dayMax - config.dayMin)) * 100;
+                                    const dayPercent = Math.max(0, Math.min(100, ((dayVal - config.dayMin) / (config.dayMax - config.dayMin)) * 100));
+                                    const isNearSweet = Math.abs(hourlyVal - config.sweet) <= 5;
+
+                                    return (
+                                        <div key={trade} className="p-4 rounded-xl border border-slate-200 space-y-4">
+                                            <div className="flex items-center justify-between">
+                                                <h3 className="font-semibold text-slate-800">{(CATEGORY_LABELS as Record<string, string>)[trade] || trade}</h3>
+                                                {isNearSweet && (
+                                                    <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                                        <CheckCircle2 size={10} /> Popular rate
+                                                    </span>
+                                                )}
                                             </div>
+
+                                            {/* Hourly Rate */}
                                             <div>
-                                                <label className="block text-xs font-medium text-slate-500 mb-1">Day Rate (£)</label>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    step="0.01"
-                                                    value={tradeRates[trade]?.day || ''}
-                                                    onChange={e => setTradeRates(prev => ({
-                                                        ...prev,
-                                                        [trade]: { ...prev[trade], day: e.target.value }
-                                                    }))}
-                                                    className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-[#6C6CFF] outline-none"
-                                                    placeholder="350"
-                                                />
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                    <label className="text-xs font-medium text-slate-500">Hourly Rate</label>
+                                                    <div className="text-lg font-bold text-slate-800">£{tradeRates[trade]?.hourly || '0'}<span className="text-xs font-normal text-slate-400">/hr</span></div>
+                                                </div>
+
+                                                {/* Slider with warm zone */}
+                                                <div className="relative">
+                                                    {/* Warm zone background */}
+                                                    <div
+                                                        className="absolute top-[9px] h-2 bg-emerald-100 rounded-full pointer-events-none z-0"
+                                                        style={{
+                                                            left: `${Math.max(0, sweetPercent - 10)}%`,
+                                                            width: '20%',
+                                                        }}
+                                                    />
+                                                    {/* Sweet spot tick */}
+                                                    <div
+                                                        className="absolute top-[7px] h-3 w-0.5 bg-emerald-400 rounded-full pointer-events-none z-10"
+                                                        style={{ left: `${sweetPercent}%` }}
+                                                    />
+                                                    <input
+                                                        type="range"
+                                                        min={config.min}
+                                                        max={config.max}
+                                                        step={1}
+                                                        value={hourlyVal || config.sweet}
+                                                        onChange={e => setTradeRates(prev => ({
+                                                            ...prev,
+                                                            [trade]: { ...prev[trade], hourly: e.target.value }
+                                                        }))}
+                                                        className="w-full h-5 appearance-none bg-transparent relative z-20 cursor-pointer [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-slate-100 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#6C6CFF] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5"
+                                                    />
+                                                </div>
+                                                <div className="flex justify-between text-[10px] text-slate-300 mt-0.5">
+                                                    <span>£{config.min}</span>
+                                                    <span className="text-emerald-500 font-medium">Most choose ~£{config.sweet}</span>
+                                                    <span>£{config.max}</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Day Rate */}
+                                            <div>
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                    <label className="text-xs font-medium text-slate-500">Day Rate</label>
+                                                    <div className="text-lg font-bold text-slate-800">£{tradeRates[trade]?.day || '0'}<span className="text-xs font-normal text-slate-400">/day</span></div>
+                                                </div>
+
+                                                {/* Slider with warm zone */}
+                                                <div className="relative">
+                                                    <div
+                                                        className="absolute top-[9px] h-2 bg-emerald-100 rounded-full pointer-events-none z-0"
+                                                        style={{
+                                                            left: `${Math.max(0, daySweetPercent - 10)}%`,
+                                                            width: '20%',
+                                                        }}
+                                                    />
+                                                    <div
+                                                        className="absolute top-[7px] h-3 w-0.5 bg-emerald-400 rounded-full pointer-events-none z-10"
+                                                        style={{ left: `${daySweetPercent}%` }}
+                                                    />
+                                                    <input
+                                                        type="range"
+                                                        min={config.dayMin}
+                                                        max={config.dayMax}
+                                                        step={5}
+                                                        value={dayVal || config.daySweet}
+                                                        onChange={e => setTradeRates(prev => ({
+                                                            ...prev,
+                                                            [trade]: { ...prev[trade], day: e.target.value }
+                                                        }))}
+                                                        className="w-full h-5 appearance-none bg-transparent relative z-20 cursor-pointer [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-slate-100 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#6C6CFF] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5"
+                                                    />
+                                                </div>
+                                                <div className="flex justify-between text-[10px] text-slate-300 mt-0.5">
+                                                    <span>£{config.dayMin}</span>
+                                                    <span className="text-emerald-500 font-medium">Most choose ~£{config.daySweet}</span>
+                                                    <span>£{config.dayMax}</span>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
 
