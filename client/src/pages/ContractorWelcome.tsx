@@ -9,7 +9,7 @@ import { ArrowRight, Check, PoundSterling, Clock, Wrench, Droplets, Zap, PaintBu
 function CalendarFillAnimation() {
     const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     const filledDays = [0, 2, 3, 4]; // Mon, Wed, Thu, Fri get filled
-    const amounts = ["£180", "£220", "£350", "£180"];
+    const amounts = ["£140", "£160", "£180", "£150"];
 
     return (
         <div className="relative w-full h-full flex items-center justify-center">
@@ -92,7 +92,7 @@ function CalendarFillAnimation() {
                         transition={{ delay: 2.6 }}
                         className="text-lg font-black text-white"
                     >
-                        £930
+                        £630
                     </motion.span>
                 </motion.div>
             </motion.div>
@@ -225,7 +225,7 @@ function RateAnimation() {
         return () => clearInterval(climbInterval);
     }, [tradeIndex]);
 
-    const dailyEarnings = animatedRate * 8;
+    const dailyEarnings = animatedRate * 4; // Half-day slot (AM or PM = 4 hours)
     const sliderPercent = ((animatedRate - trade.min) / (trade.max - trade.min)) * 100;
     const sweetPercent = ((trade.sweet - trade.min) / (trade.max - trade.min)) * 100;
 
@@ -313,7 +313,7 @@ function RateAnimation() {
 
                 {/* Daily Earnings */}
                 <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
-                    <div className="text-emerald-600 text-xs font-medium mb-0.5">Per spare day</div>
+                    <div className="text-emerald-600 text-xs font-medium mb-0.5">Per half-day slot</div>
                     <div className="text-2xl font-black text-emerald-700 tabular-nums">
                         £{dailyEarnings}
                     </div>
