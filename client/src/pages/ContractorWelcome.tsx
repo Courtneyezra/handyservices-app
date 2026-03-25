@@ -306,18 +306,18 @@ function RateAnimation() {
                             exit={{ opacity: 0 }}
                             className="text-[10px] text-emerald-600 font-semibold mb-3 flex items-center justify-center gap-1"
                         >
-                            <Check size={10} /> Most tradies choose around £{trade.sweet}/hr
+                            <Check size={10} /> Recommended fill-up rate: £{trade.sweet}/hr
                         </motion.div>
                     )}
                 </AnimatePresence>
 
                 {/* Daily Earnings */}
                 <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
-                    <div className="text-emerald-600 text-xs font-medium mb-0.5">That's</div>
+                    <div className="text-emerald-600 text-xs font-medium mb-0.5">Per spare day</div>
                     <div className="text-2xl font-black text-emerald-700 tabular-nums">
                         £{dailyEarnings}
                     </div>
-                    <div className="text-emerald-500 text-xs">/day (8 hours)</div>
+                    <div className="text-emerald-500 text-xs">instead of £0</div>
                 </div>
 
                 {/* Paid Badge */}
@@ -337,7 +337,7 @@ function RateAnimation() {
 function ChecklistAnimation() {
     const steps = [
         { label: "Pick your trades", emoji: "🔧" },
-        { label: "Set your rates", emoji: "💰" },
+        { label: "Set your fill-up rate", emoji: "💰" },
         { label: "Mark your free days", emoji: "📅" },
     ];
 
@@ -454,14 +454,14 @@ const slides = [
     },
     {
         id: 3,
-        title: "Your Rate. Your Rules.",
-        desc: "Set your hourly rate. We find jobs that pay it. No haggling.",
+        title: "Fill Your Spare Days. Get Paid.",
+        desc: "Set your fill-up rate — what you earn when we fill days you'd otherwise have free.",
         component: <RateAnimation />,
     },
     {
         id: 4,
         title: "Set Up in 2 Minutes. Jobs This Week.",
-        desc: "Pick your skills. Set your rate. Plot your days. That's it.",
+        desc: "Pick your skills. Set your fill-up rate. Plot your free days. Done.",
         component: <ChecklistAnimation />,
     },
 ];
