@@ -270,13 +270,16 @@ export default function ContractorRegister() {
     };
 
     return (
-        <div className="min-h-screen bg-white text-slate-900 font-sans flex flex-col">
+        <div className="min-h-screen bg-[#0F172A] text-white font-sans flex flex-col">
             {showConfetti && <ConfettiTools />}
             {/* Minimal Header */}
-            <div className="h-16 flex items-center px-6 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-lg bg-[#6C6CFF] flex items-center justify-center text-white font-bold text-lg">H</div>
-                    <span className="font-bold text-xl tracking-tight">Handy</span>
+            <div className="h-14 flex items-center justify-center border-b border-white/5 bg-[#0F172A]/95 backdrop-blur-sm">
+                <div className="flex items-center gap-2.5">
+                    <img src="/logo.png" alt="Handy" className="w-7 h-7 object-contain" />
+                    <div className="flex flex-col leading-none">
+                        <span className="font-bold text-base text-white">Handy</span>
+                        <span className="font-normal text-[9px] text-slate-400 uppercase tracking-wider">Services</span>
+                    </div>
                 </div>
             </div>
 
@@ -286,13 +289,13 @@ export default function ContractorRegister() {
 
                     {/* Header Text */}
                     <div className="text-center space-y-2">
-                        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+                        <h1 className="text-2xl font-bold tracking-tight text-white">
                             {step === 1 && "First, tell us about you"}
                             {step === 2 && "Secure your account"}
                             {step === 3 && "Name your workspace"}
                             {step === 4 && "Where are you based?"}
                             {step === 5 && "What do you do?"}
-                            {step === 6 && "Set your rates"}
+                            {step === 6 && "Set your fill-up rates"}
                         </h1>
                         <p className="text-slate-500">
                             {step === 1 && "We need these details to create your profile."}
@@ -300,14 +303,14 @@ export default function ContractorRegister() {
                             {step === 3 && "This will be the name of your digital office."}
                             {step === 4 && "We'll show you jobs within your service radius."}
                             {step === 5 && "Pick your trades, then select the specific jobs you handle."}
-                            {step === 6 && "Set your hourly rate per category. We'll find jobs that pay it."}
+                            {step === 6 && "Set your fill-up rate per category. This is what you earn on spare days."}
                         </p>
                     </div>
 
                     {/* Progress Bar */}
                     <div className="flex gap-2 max-w-md mx-auto w-full">
                         {[1, 2, 3, 4, 5, 6].map(i => (
-                            <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors ${i <= step ? "bg-[#6C6CFF]" : "bg-slate-100"}`} />
+                            <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors ${i <= step ? "bg-[#6C6CFF]" : "bg-slate-800"}`} />
                         ))}
                     </div>
 
@@ -317,33 +320,33 @@ export default function ContractorRegister() {
                         {step === 1 && (
                             <div className="space-y-4 animate-in fade-in slide-in-from-right-8 duration-500">
                                 <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">First Name</label>
+                                    <label className="block text-sm font-semibold text-slate-300 mb-1.5">First Name</label>
                                     <input
                                         autoFocus
                                         type="text"
                                         value={formData.firstName}
                                         onChange={handleChange('firstName')}
-                                        className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-[#6C6CFF] focus:ring-4 focus:ring-[#6C6CFF]/10 outline-none transition-all"
+                                        className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder:text-slate-500 focus:border-[#6C6CFF] focus:ring-4 focus:ring-[#6C6CFF]/10 outline-none transition-all"
                                         placeholder="e.g. John"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Last Name</label>
+                                    <label className="block text-sm font-semibold text-slate-300 mb-1.5">Last Name</label>
                                     <input
                                         type="text"
                                         value={formData.lastName}
                                         onChange={handleChange('lastName')}
-                                        className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-[#6C6CFF] focus:ring-4 focus:ring-[#6C6CFF]/10 outline-none transition-all"
+                                        className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder:text-slate-500 focus:border-[#6C6CFF] focus:ring-4 focus:ring-[#6C6CFF]/10 outline-none transition-all"
                                         placeholder="e.g. Smith"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email Address</label>
+                                    <label className="block text-sm font-semibold text-slate-300 mb-1.5">Email Address</label>
                                     <input
                                         type="email"
                                         value={formData.email}
                                         onChange={handleChange('email')}
-                                        className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-[#6C6CFF] focus:ring-4 focus:ring-[#6C6CFF]/10 outline-none transition-all"
+                                        className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder:text-slate-500 focus:border-[#6C6CFF] focus:ring-4 focus:ring-[#6C6CFF]/10 outline-none transition-all"
                                         placeholder="john@example.com"
                                     />
                                 </div>
@@ -354,14 +357,14 @@ export default function ContractorRegister() {
                         {step === 2 && (
                             <div className="space-y-4 animate-in fade-in slide-in-from-right-8 duration-500">
                                 <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
+                                    <label className="block text-sm font-semibold text-slate-300 mb-1.5">Password</label>
                                     <div className="relative">
                                         <input
                                             autoFocus
                                             type={showPassword ? "text" : "password"}
                                             value={formData.password}
                                             onChange={handleChange('password')}
-                                            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-[#6C6CFF] focus:ring-4 focus:ring-[#6C6CFF]/10 outline-none transition-all"
+                                            className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder:text-slate-500 focus:border-[#6C6CFF] focus:ring-4 focus:ring-[#6C6CFF]/10 outline-none transition-all"
                                             placeholder="Min. 8 characters"
                                         />
                                         <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
@@ -376,24 +379,24 @@ export default function ContractorRegister() {
                         {step === 3 && (
                             <div className="space-y-4 animate-in fade-in slide-in-from-right-8 duration-500">
                                 <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-1.5">Business Name</label>
+                                    <label className="block text-sm font-semibold text-slate-300 mb-1.5">Business Name</label>
                                     <input
                                         autoFocus
                                         type="text"
                                         value={formData.businessName}
                                         onChange={handleChange('businessName')}
-                                        className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-[#6C6CFF] focus:ring-4 focus:ring-[#6C6CFF]/10 outline-none transition-all"
+                                        className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder:text-slate-500 focus:border-[#6C6CFF] focus:ring-4 focus:ring-[#6C6CFF]/10 outline-none transition-all"
                                         placeholder="e.g. Smith & Sons"
                                     />
                                 </div>
 
                                 {/* URL Preview */}
-                                <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+                                <div className="p-4 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-between">
                                     <div className="flex items-center text-sm text-slate-500 overflow-hidden">
                                         <Globe size={16} className="mr-2 text-slate-400 flex-shrink-0" />
                                         <span className="truncate">
                                             handy.com/
-                                            <span className="text-slate-900 font-medium">
+                                            <span className="text-white font-medium">
                                                 {formData.slug || 'your-business'}
                                             </span>
                                         </span>
@@ -404,7 +407,7 @@ export default function ContractorRegister() {
                                             {isCheckingSlug ? (
                                                 <Loader2 className="w-4 h-4 text-[#6C6CFF] animate-spin" />
                                             ) : slugAvailable ? (
-                                                <span className="text-emerald-600 flex items-center gap-1 text-xs font-bold bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100">
+                                                <span className="text-emerald-600 flex items-center gap-1 text-xs font-bold bg-emerald-500/10 px-2 py-1 rounded-full border border-emerald-500/20">
                                                     <CheckCircle2 size={12} /> Available
                                                 </span>
                                             ) : (
@@ -444,7 +447,7 @@ export default function ContractorRegister() {
                                     const selectedCount = categories.filter(c => selectedCategories.includes(c)).length;
 
                                     return (
-                                        <div key={trade.id} className="rounded-xl border border-slate-200 overflow-hidden">
+                                        <div key={trade.id} className="rounded-xl border border-slate-700 overflow-hidden">
                                             {/* Trade Header */}
                                             <button
                                                 type="button"
@@ -454,12 +457,12 @@ export default function ContractorRegister() {
                                                         : [...prev, trade.id]
                                                 )}
                                                 className={`w-full p-4 flex items-center justify-between text-left transition-colors ${
-                                                    selectedCount > 0 ? 'bg-[#6C6CFF]/5' : 'bg-white hover:bg-slate-50'
+                                                    selectedCount > 0 ? 'bg-[#6C6CFF]/5' : 'bg-slate-900 hover:bg-slate-800'
                                                 }`}
                                             >
                                                 <div className="flex items-center gap-3">
                                                     <span className="text-xl">{trade.icon}</span>
-                                                    <span className="font-semibold text-slate-800">{trade.label}</span>
+                                                    <span className="font-semibold text-white">{trade.label}</span>
                                                     {selectedCount > 0 && (
                                                         <span className="text-xs font-medium text-[#6C6CFF] bg-[#6C6CFF]/10 px-2 py-0.5 rounded-full">
                                                             {selectedCount} selected
@@ -471,7 +474,7 @@ export default function ContractorRegister() {
 
                                             {/* Sub-categories */}
                                             {isExpanded && (
-                                                <div className="px-4 pb-4 pt-2 border-t border-slate-100 space-y-2">
+                                                <div className="px-4 pb-4 pt-2 border-t border-slate-700 space-y-2">
                                                     {categories.map(catSlug => {
                                                         const isSelected = selectedCategories.includes(catSlug);
                                                         const label = CATEGORY_LABELS[catSlug] || catSlug;
@@ -502,7 +505,7 @@ export default function ContractorRegister() {
                                                                 className={`w-full p-3 rounded-lg border text-left text-sm transition-all flex items-center justify-between ${
                                                                     isSelected
                                                                         ? 'border-[#6C6CFF] bg-[#6C6CFF]/5 text-[#6C6CFF] font-medium'
-                                                                        : 'border-slate-100 text-slate-600 hover:border-slate-200'
+                                                                        : 'border-slate-700 text-slate-600 hover:border-slate-700'
                                                                 }`}
                                                             >
                                                                 <span>{label}</span>
@@ -538,11 +541,11 @@ export default function ContractorRegister() {
                                     const isNearSweet = Math.abs(hourlyVal - config.sweet) <= 5;
 
                                     return (
-                                        <div key={trade} className="p-4 rounded-xl border border-slate-200 space-y-4">
+                                        <div key={trade} className="p-4 rounded-xl border border-slate-700 space-y-4">
                                             <div className="flex items-center justify-between">
-                                                <h3 className="font-semibold text-slate-800">{(CATEGORY_LABELS as Record<string, string>)[trade] || trade}</h3>
+                                                <h3 className="font-semibold text-white">{(CATEGORY_LABELS as Record<string, string>)[trade] || trade}</h3>
                                                 {isNearSweet && (
-                                                    <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                                    <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full flex items-center gap-1">
                                                         <CheckCircle2 size={10} /> Popular rate
                                                     </span>
                                                 )}
@@ -552,7 +555,7 @@ export default function ContractorRegister() {
                                             <div>
                                                 <div className="flex items-center justify-between mb-1.5">
                                                     <label className="text-xs font-medium text-slate-500">Hourly Rate</label>
-                                                    <div className="text-lg font-bold text-slate-800">£{tradeRates[trade]?.hourly || '0'}<span className="text-xs font-normal text-slate-400">/hr</span></div>
+                                                    <div className="text-lg font-bold text-white">£{tradeRates[trade]?.hourly || '0'}<span className="text-xs font-normal text-slate-400">/hr</span></div>
                                                 </div>
 
                                                 {/* Slider with warm zone */}
@@ -580,7 +583,7 @@ export default function ContractorRegister() {
                                                             ...prev,
                                                             [trade]: { ...prev[trade], hourly: e.target.value }
                                                         }))}
-                                                        className="w-full h-5 appearance-none bg-transparent relative z-20 cursor-pointer [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-slate-100 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#6C6CFF] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5"
+                                                        className="w-full h-5 appearance-none bg-transparent relative z-20 cursor-pointer [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-slate-800 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#6C6CFF] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5"
                                                     />
                                                 </div>
                                                 <div className="flex justify-between text-[10px] text-slate-300 mt-0.5">
@@ -594,7 +597,7 @@ export default function ContractorRegister() {
                                             <div>
                                                 <div className="flex items-center justify-between mb-1.5">
                                                     <label className="text-xs font-medium text-slate-500">Day Rate</label>
-                                                    <div className="text-lg font-bold text-slate-800">£{tradeRates[trade]?.day || '0'}<span className="text-xs font-normal text-slate-400">/day</span></div>
+                                                    <div className="text-lg font-bold text-white">£{tradeRates[trade]?.day || '0'}<span className="text-xs font-normal text-slate-400">/day</span></div>
                                                 </div>
 
                                                 {/* Slider with warm zone */}
@@ -620,7 +623,7 @@ export default function ContractorRegister() {
                                                             ...prev,
                                                             [trade]: { ...prev[trade], day: e.target.value }
                                                         }))}
-                                                        className="w-full h-5 appearance-none bg-transparent relative z-20 cursor-pointer [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-slate-100 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#6C6CFF] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5"
+                                                        className="w-full h-5 appearance-none bg-transparent relative z-20 cursor-pointer [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-slate-800 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#6C6CFF] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5"
                                                     />
                                                 </div>
                                                 <div className="flex justify-between text-[10px] text-slate-300 mt-0.5">
