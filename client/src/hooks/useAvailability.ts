@@ -8,6 +8,7 @@ export interface DateAvailability {
   slots: ('am' | 'pm' | 'full')[];
   contractorCount?: number;
   isWeekend?: boolean;
+  isFallback?: boolean;
 }
 
 export interface AvailabilityResponse {
@@ -17,6 +18,10 @@ export interface AvailabilityResponse {
 interface UseAvailabilityOptions {
   postcode?: string;
   serviceIds?: string[];
+  /** Granular job categories for contractor-filtered availability */
+  categories?: string[];
+  /** Estimated job time in minutes — if >240 only full-day slots returned */
+  timeEstimateMinutes?: number;
   days?: number;
   enabled?: boolean;
 }
@@ -33,11 +38,28 @@ interface UseAvailabilityOptions {
  * Returns available dates where at least one contractor can work.
  */
 export function useAvailability(options: UseAvailabilityOptions = {}) {
-  const { postcode, serviceIds, days = 28, enabled = true } = options;
+  const { postcode, serviceIds, categories, timeEstimateMinutes, days = 28, enabled = true } = options;
 
   return useQuery<AvailabilityResponse>({
-    queryKey: ['publicAvailability', postcode, serviceIds, days],
+    queryKey: ['publicAvailability', postcode, serviceIds, categories, timeEstimateMinutes, days],
     queryFn: async () => {
+      // Use category-filtered endpoint when categories are provided
+      if (categories && categories.length > 0) {
+        const params = new URLSearchParams();
+        params.set('categories', categories.join(','));
+        if (postcode) params.set('postcode', postcode);
+        if (timeEstimateMinutes) params.set('timeEstimateMinutes', timeEstimateMinutes.toString());
+        params.set('days', Math.min(days, 14).toString()); // 2-week window for filtered
+
+        const response = await fetch(`/api/public/availability/filtered?${params.toString()}`);
+        if (!response.ok) throw new Error('Failed to fetch filtered availability');
+
+        // Filtered endpoint returns array directly, wrap for compatibility
+        const dates: DateAvailability[] = await response.json();
+        return { dates };
+      }
+
+      // Fallback to existing unfiltered endpoint
       const params = new URLSearchParams();
       params.set('days', days.toString());
 

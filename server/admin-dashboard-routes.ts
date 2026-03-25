@@ -662,4 +662,51 @@ adminDashboardRouter.get('/funnel', async (req, res) => {
     }
 });
 
+// ==========================================
+// MARGIN CONFIG
+// ==========================================
+
+/**
+ * GET /api/admin/margin-config
+ * Returns category minimum margin percentages for admin dashboard.
+ */
+adminDashboardRouter.get('/margin-config', async (req, res) => {
+    try {
+        const { CATEGORY_MIN_MARGINS } = await import('./contextual-pricing/reference-rates');
+        res.json({ margins: CATEGORY_MIN_MARGINS });
+    } catch (error) {
+        console.error('[AdminDashboard] Margin config error:', error);
+        res.status(500).json({ error: 'Failed to fetch margin config' });
+    }
+});
+
+/**
+ * GET /api/admin/margin-alerts
+ * Returns quotes with thin or negative margins for admin review.
+ */
+adminDashboardRouter.get('/margin-alerts', async (req, res) => {
+    try {
+        const thinMarginQuotes = await db.select({
+            id: personalizedQuotes.id,
+            shortSlug: personalizedQuotes.shortSlug,
+            customerName: personalizedQuotes.customerName,
+            basePrice: personalizedQuotes.basePrice,
+            costPence: personalizedQuotes.costPence,
+            marginPercent: personalizedQuotes.marginPercent,
+            marginFlags: personalizedQuotes.marginFlags,
+            matchedContractorId: personalizedQuotes.matchedContractorId,
+            createdAt: personalizedQuotes.createdAt,
+        })
+        .from(personalizedQuotes)
+        .where(sql`${personalizedQuotes.marginFlags} IS NOT NULL AND jsonb_array_length(${personalizedQuotes.marginFlags}) > 0`)
+        .orderBy(desc(personalizedQuotes.createdAt))
+        .limit(50);
+
+        res.json({ alerts: thinMarginQuotes });
+    } catch (error) {
+        console.error('[AdminDashboard] Margin alerts error:', error);
+        res.status(500).json({ error: 'Failed to fetch margin alerts' });
+    }
+});
+
 export default adminDashboardRouter;

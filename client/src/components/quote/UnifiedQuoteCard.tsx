@@ -177,8 +177,23 @@ export function UnifiedQuoteCard({
     return () => window.removeEventListener('scroll', checkPriceCardPosition);
   }, []);
 
-  // Fetch system-wide availability (blocked dates, etc.)
+  // Extract unique job categories from line items for contractor-filtered availability
+  const jobCategories = useMemo(() => {
+    if (!pricingLineItems || pricingLineItems.length === 0) return undefined;
+    const cats = Array.from(new Set(pricingLineItems.map(li => li.category).filter(Boolean)));
+    return cats.length > 0 ? cats : undefined;
+  }, [pricingLineItems]);
+
+  // Estimate total time for full-day detection (>240min = require full day slot)
+  const totalEstimatedMinutes = useMemo(() => {
+    if (!pricingLineItems) return undefined;
+    return pricingLineItems.reduce((sum, li) => sum + (li.timeEstimateMinutes || 0), 0);
+  }, [pricingLineItems]);
+
+  // Fetch availability — filtered by contractor pool when categories available
   const { data: availabilityData } = useAvailability({
+    categories: jobCategories,
+    timeEstimateMinutes: totalEstimatedMinutes,
     days: config.maxDaysOut + 1,
   });
 

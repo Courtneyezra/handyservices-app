@@ -24,6 +24,7 @@ import { personalizedQuotes, leads } from '@shared/schema';
 import { normalizePhoneNumber } from '../phone-utils';
 import { selectContentForQuote } from '../content-library/selector';
 import { trackQuoteCreated } from '../posthog';
+import { calculateMultiLineCost, checkMargin } from '../margin-engine';
 import type {
   PricingContext,
   PricingComparisonResult,
@@ -699,6 +700,57 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
     const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
     const quoteUrl = `${baseUrl}/quote/${shortSlug}`;
 
+    // 6b. Margin Engine — calculate contractor cost & check margin
+    let marginData: {
+      costPence: number | null;
+      marginPence: number | null;
+      marginPercent: number | null;
+      marginFlags: string[] | null;
+      matchedContractorId: string | null;
+      matchedContractorRate: number | null;
+    } = {
+      costPence: null,
+      marginPence: null,
+      marginPercent: null,
+      marginFlags: null,
+      matchedContractorId: null,
+      matchedContractorRate: null,
+    };
+
+    try {
+      const costLines = result.lineItems.map((l) => ({
+        category: l.category as JobCategory,
+        timeEstimateMinutes: l.timeEstimateMinutes,
+      }));
+
+      if (costLines.length > 0) {
+        const costResult = await calculateMultiLineCost(costLines);
+        const primaryCategory = costLines.reduce(
+          (a, b) => (a.timeEstimateMinutes > b.timeEstimateMinutes ? a : b),
+          costLines[0]
+        ).category;
+
+        const marginResult = checkMargin(result.finalPricePence, costResult.totalCostPence, primaryCategory);
+
+        marginData = {
+          costPence: costResult.totalCostPence,
+          marginPence: marginResult.marginPence,
+          marginPercent: marginResult.marginPercent,
+          marginFlags: marginResult.flags.length > 0 ? marginResult.flags : null,
+          matchedContractorId: costResult.contractorId,
+          matchedContractorRate: costResult.contractorRate,
+        };
+
+        if (marginResult.flags.length > 0) {
+          console.log(`[ContextualQuote] ⚠️ Margin flags for ${shortSlug}: ${marginResult.flags.join(', ')}`);
+        } else {
+          console.log(`[ContextualQuote] ✅ Margin healthy: ${marginResult.marginPercent}% (cost: £${(costResult.totalCostPence / 100).toFixed(2)}, price: £${(result.finalPricePence / 100).toFixed(2)})`);
+        }
+      }
+    } catch (marginError) {
+      console.warn('[ContextualQuote] Margin calculation failed (non-blocking):', marginError instanceof Error ? marginError.message : marginError);
+    }
+
     // 7. Insert into personalizedQuotes
     const quoteInsertData = {
       id,
@@ -752,6 +804,14 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       // Quote attribution
       createdBy: input.createdBy || null,
       createdByName: input.createdByName || null,
+
+      // Margin Engine data
+      costPence: marginData.costPence,
+      marginPence: marginData.marginPence,
+      marginPercent: marginData.marginPercent,
+      marginFlags: marginData.marginFlags,
+      matchedContractorId: marginData.matchedContractorId,
+      matchedContractorRate: marginData.matchedContractorRate,
 
       createdAt: new Date(),
     };

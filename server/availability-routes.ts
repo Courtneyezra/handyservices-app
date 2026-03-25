@@ -218,6 +218,15 @@ router.post('/toggle', requireContractorAuth, async (req: Request, res: Response
             });
         }
 
+        // Update availability freshness timestamp
+        try {
+            await db.update(handymanProfiles)
+                .set({ lastAvailabilityRefresh: new Date() })
+                .where(eq(handymanProfiles.id, contractorId));
+        } catch (refreshErr) {
+            console.warn('[Availability] Failed to update freshness timestamp:', refreshErr);
+        }
+
         res.json({ success: true, date, isAvailable: finalIsAvailable, mode });
 
     } catch (error) {

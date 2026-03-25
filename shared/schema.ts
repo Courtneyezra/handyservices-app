@@ -389,6 +389,11 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     partnerStatus: varchar("partner_status", { length: 30 }).default('not_started'), // Partner application status
     partnerActivatedAt: timestamp("partner_activated_at"), // When they became a partner
 
+    // Availability freshness — updated when contractor toggles availability
+    lastAvailabilityRefresh: timestamp("last_availability_refresh"),
+    // Round-robin fairness — updated when contractor is assigned a job
+    lastAssignedAt: timestamp("last_assigned_at"),
+
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -406,9 +411,10 @@ export const handymanProfileRelations = relations(handymanProfiles, ({ one, many
 export const handymanSkills = pgTable("handyman_skills", {
     id: varchar("id").primaryKey().notNull(),
     handymanId: varchar("handyman_id").references(() => handymanProfiles.id).notNull(),
-    serviceId: varchar("service_id").references(() => productizedServices.id).notNull(),
-    hourlyRate: integer("hourly_rate"), // Override standard rate for this specific skill
-    dayRate: integer("day_rate"),       // Added for Day Rate support
+    serviceId: varchar("service_id").references(() => productizedServices.id),  // Nullable — legacy link to SKU
+    categorySlug: varchar("category_slug", { length: 50 }),  // Granular category from shared/categories.ts (e.g. 'plumbing_minor', 'tv_mounting')
+    hourlyRate: integer("hourly_rate"), // Override standard rate for this specific skill (pence)
+    dayRate: integer("day_rate"),       // Day rate (pence)
     proficiency: varchar("proficiency", { length: 20 }).default('competent'), // 'basic' | 'competent' | 'expert'
 });
 
@@ -788,6 +794,14 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     }>(),
 
     // Note: contextSignals field already exists above (line 664) — reused for raw context signals for analytics/retraining
+
+    // Margin Engine — Cost vs Price tracking
+    costPence: integer("cost_pence"),                    // Total contractor cost for this quote (pence)
+    marginPence: integer("margin_pence"),                // basePrice - costPence (pence)
+    marginPercent: integer("margin_percent"),             // (marginPence / basePrice) × 100
+    marginFlags: jsonb("margin_flags").$type<string[]>(), // Warning strings for admin dashboard
+    matchedContractorId: varchar("matched_contractor_id"), // Pre-matched contractor at quote time
+    matchedContractorRate: integer("matched_contractor_rate"), // Snapshot of their rate (pence/hr)
 
     // Creation timestamp
     createdAt: timestamp("created_at").defaultNow(),

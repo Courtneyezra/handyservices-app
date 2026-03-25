@@ -12,6 +12,10 @@ interface DateSelectorProps {
     className?: string;
     postcode?: string;
     serviceIds?: string[];
+    /** Job categories for contractor-filtered availability */
+    categories?: string[];
+    /** Estimated total job time in minutes */
+    timeEstimateMinutes?: number;
 }
 
 /**
@@ -27,15 +31,19 @@ export function DateSelector({
     onTimeSlotSelect,
     className = '',
     postcode,
-    serviceIds
+    serviceIds,
+    categories,
+    timeEstimateMinutes,
 }: DateSelectorProps) {
     const [scrollIndex, setScrollIndex] = useState(0);
     const datesPerView = 4;
 
-    // Fetch system-wide availability
+    // Fetch availability — filtered by contractor pool when categories provided
     const { data: availabilityData } = useAvailability({
         postcode,
         serviceIds,
+        categories,
+        timeEstimateMinutes,
         days: 21, // 3 weeks ahead
     });
 

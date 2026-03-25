@@ -1,29 +1,472 @@
 
 import { useState, useEffect } from "react";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { CheckCircle2, Calendar, CreditCard, TrendingUp, ArrowRight, Star, Smartphone, FileText, ChevronRight } from "lucide-react";
+import { ArrowRight, Check, PoundSterling, Clock, Wrench, Droplets, Zap, PaintBucket, Hammer, Grid3X3 } from "lucide-react";
+
+// --- Animation Components ---
+
+function CalendarFillAnimation() {
+    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const filledDays = [0, 2, 3, 4]; // Mon, Wed, Thu, Fri get filled
+    const amounts = ["£180", "£220", "£350", "£180"];
+
+    return (
+        <div className="relative w-full h-full flex items-center justify-center">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.08),transparent_70%)]" />
+
+            {/* Calendar Grid */}
+            <motion.div
+                initial={{ y: 30, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.4 }}
+                className="w-full max-w-xs bg-slate-900 rounded-2xl shadow-xl border border-slate-700 p-5 relative z-10"
+            >
+                {/* Header */}
+                <div className="flex items-center justify-between mb-4">
+                    <div className="text-sm font-bold text-slate-300">This Week</div>
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 2.2 }}
+                        className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full"
+                    >
+                        4 days booked
+                    </motion.div>
+                </div>
+
+                {/* Day Grid */}
+                <div className="grid grid-cols-7 gap-1.5">
+                    {/* Day Labels */}
+                    {days.map((day) => (
+                        <div key={day} className="text-[10px] font-medium text-slate-400 text-center pb-1">
+                            {day}
+                        </div>
+                    ))}
+
+                    {/* Day Blocks */}
+                    {days.map((day, idx) => {
+                        const fillIndex = filledDays.indexOf(idx);
+                        const isFilled = fillIndex !== -1;
+
+                        return (
+                            <motion.div
+                                key={`block-${day}`}
+                                initial={{ backgroundColor: "rgb(241, 245, 249)", scale: 1 }}
+                                animate={isFilled ? {
+                                    backgroundColor: "rgb(16, 185, 129)",
+                                    scale: [1, 1.15, 1],
+                                } : {}}
+                                transition={{
+                                    delay: isFilled ? 0.6 + (fillIndex * 0.35) : 0,
+                                    duration: 0.4,
+                                }}
+                                className="aspect-square rounded-lg flex items-center justify-center relative"
+                            >
+                                {isFilled && (
+                                    <motion.div
+                                        initial={{ opacity: 0, scale: 0 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        transition={{ delay: 0.8 + (fillIndex * 0.35), type: "spring" }}
+                                        className="text-white"
+                                    >
+                                        <PoundSterling size={14} />
+                                    </motion.div>
+                                )}
+                            </motion.div>
+                        );
+                    })}
+                </div>
+
+                {/* Earnings Row */}
+                <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 2.4 }}
+                    className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between"
+                >
+                    <span className="text-xs text-slate-400">This week</span>
+                    <motion.span
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 2.6 }}
+                        className="text-lg font-black text-white"
+                    >
+                        £930
+                    </motion.span>
+                </motion.div>
+            </motion.div>
+
+            {/* Floating "Job Added" toast */}
+            <motion.div
+                initial={{ x: 80, opacity: 0 }}
+                animate={{ x: 0, opacity: [0, 1, 1, 0] }}
+                transition={{ delay: 1.0, duration: 2, times: [0, 0.1, 0.7, 1] }}
+                className="absolute top-16 right-4 bg-emerald-500 text-white px-3 py-2 rounded-xl shadow-lg text-xs font-semibold z-20 flex items-center gap-1.5"
+            >
+                <Check size={12} /> Job added
+            </motion.div>
+        </div>
+    );
+}
+
+function SkillsMatchAnimation() {
+    const skills = [
+        { id: "plumbing", label: "Plumbing", icon: <Droplets size={14} />, color: "bg-blue-500" },
+        { id: "electrical", label: "Electrical", icon: <Zap size={14} />, color: "bg-amber-500" },
+        { id: "joinery", label: "Joinery", icon: <Hammer size={14} />, color: "bg-orange-600" },
+        { id: "tiling", label: "Tiling", icon: <Grid3X3 size={14} />, color: "bg-cyan-500" },
+        { id: "decorating", label: "Decorating", icon: <PaintBucket size={14} />, color: "bg-pink-500" },
+        { id: "handyman", label: "Handyman", icon: <Wrench size={14} />, color: "bg-violet-500" },
+    ];
+
+    const matchedJobs = [
+        { skill: "plumbing", title: "Leaky tap repair", area: "NG5", pay: "£85" },
+        { skill: "electrical", title: "Socket replacement", area: "NG3", pay: "£120" },
+        { skill: "handyman", title: "Flatpack assembly", area: "NG7", pay: "£95" },
+    ];
+
+    return (
+        <div className="relative w-full h-full flex items-center justify-center px-4">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(108,108,255,0.08),transparent_70%)]" />
+
+            <div className="flex gap-4 items-center relative z-10">
+                {/* Skills Column */}
+                <div className="flex flex-col gap-2">
+                    {skills.map((skill, idx) => (
+                        <motion.div
+                            key={skill.id}
+                            initial={{ x: -40, opacity: 0 }}
+                            animate={{ x: 0, opacity: 1 }}
+                            transition={{ delay: 0.2 + (idx * 0.1) }}
+                            className="flex items-center gap-2 bg-slate-800 rounded-xl px-3 py-2 shadow-sm border border-slate-700"
+                        >
+                            <div className={`w-6 h-6 rounded-full ${skill.color} flex items-center justify-center text-white`}>
+                                {skill.icon}
+                            </div>
+                            <span className="text-xs font-medium text-slate-300 whitespace-nowrap">{skill.label}</span>
+                        </motion.div>
+                    ))}
+                </div>
+
+                {/* Arrow connector */}
+                <motion.div
+                    initial={{ opacity: 0, scale: 0 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 1.0 }}
+                    className="text-[#6C6CFF]"
+                >
+                    <ArrowRight size={24} />
+                </motion.div>
+
+                {/* Matched Jobs */}
+                <div className="flex flex-col gap-2">
+                    {matchedJobs.map((job, idx) => (
+                        <motion.div
+                            key={job.title}
+                            initial={{ x: 40, opacity: 0 }}
+                            animate={{ x: 0, opacity: 1 }}
+                            transition={{ delay: 1.2 + (idx * 0.25) }}
+                            className="bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-700 w-40"
+                        >
+                            <div className="text-xs font-semibold text-white">{job.title}</div>
+                            <div className="flex items-center justify-between mt-1.5">
+                                <span className="text-[10px] text-slate-400">{job.area}</span>
+                                <span className="text-xs font-bold text-emerald-600">{job.pay}</span>
+                            </div>
+                        </motion.div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Shared trade rate config — single source of truth for ranges & sweet spots
+const TRADE_RATES = [
+    { id: "plumbing", label: "Plumbing", icon: <Droplets size={14} />, color: "bg-blue-500", min: 40, max: 80, sweet: 60 },
+    { id: "electrical", label: "Electrical", icon: <Zap size={14} />, color: "bg-amber-500", min: 45, max: 85, sweet: 65 },
+    { id: "joinery", label: "Joinery", icon: <Hammer size={14} />, color: "bg-orange-600", min: 35, max: 75, sweet: 55 },
+    { id: "tiling", label: "Tiling", icon: <Grid3X3 size={14} />, color: "bg-cyan-500", min: 30, max: 70, sweet: 50 },
+    { id: "decorating", label: "Decorating", icon: <PaintBucket size={14} />, color: "bg-pink-500", min: 25, max: 65, sweet: 45 },
+    { id: "handyman", label: "Handyman", icon: <Wrench size={14} />, color: "bg-violet-500", min: 25, max: 55, sweet: 40 },
+] as const;
+
+function RateAnimation() {
+    const [tradeIndex, setTradeIndex] = useState(0);
+    const [animatedRate, setAnimatedRate] = useState(TRADE_RATES[0].min);
+    const [settling, setSettling] = useState(false);
+
+    const trade = TRADE_RATES[tradeIndex];
+
+    // Animate rate climbing from min → sweet spot, then cycle to next trade
+    useEffect(() => {
+        let step = 0;
+        const stepsToSweet = 12;
+        const rateRange = trade.sweet - trade.min;
+        setAnimatedRate(trade.min);
+        setSettling(false);
+
+        const climbInterval = setInterval(() => {
+            step++;
+            if (step <= stepsToSweet) {
+                // Ease-out curve: fast start, slow finish
+                const progress = 1 - Math.pow(1 - (step / stepsToSweet), 2);
+                setAnimatedRate(Math.round(trade.min + rateRange * progress));
+            } else if (step === stepsToSweet + 1) {
+                setSettling(true);
+            } else if (step > stepsToSweet + 12) {
+                // Move to next trade after a pause
+                clearInterval(climbInterval);
+                setTradeIndex(prev => (prev + 1) % TRADE_RATES.length);
+            }
+        }, 120);
+
+        return () => clearInterval(climbInterval);
+    }, [tradeIndex]);
+
+    const dailyEarnings = animatedRate * 8;
+    const sliderPercent = ((animatedRate - trade.min) / (trade.max - trade.min)) * 100;
+    const sweetPercent = ((trade.sweet - trade.min) / (trade.max - trade.min)) * 100;
+
+    return (
+        <div className="relative w-full h-full flex items-center justify-center">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.08),transparent_70%)]" />
+
+            <motion.div
+                initial={{ y: 30, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.4 }}
+                className="w-full max-w-xs bg-slate-900 rounded-2xl shadow-xl border border-slate-700 p-5 relative z-10 text-center"
+            >
+                {/* Trade chip */}
+                <AnimatePresence mode="wait">
+                    <motion.div
+                        key={trade.id}
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 8 }}
+                        transition={{ duration: 0.2 }}
+                        className="inline-flex items-center gap-2 bg-slate-800 rounded-full px-3 py-1.5 mb-3"
+                    >
+                        <div className={`w-5 h-5 rounded-full ${trade.color} flex items-center justify-center text-white`}>
+                            {trade.icon}
+                        </div>
+                        <span className="text-xs font-semibold text-slate-300">{trade.label}</span>
+                    </motion.div>
+                </AnimatePresence>
+
+                {/* Rate Display */}
+                <div className="text-4xl font-black text-white mb-0.5 tabular-nums">
+                    £{animatedRate}
+                </div>
+                <div className="text-slate-400 text-sm mb-5">/hour</div>
+
+                {/* Slider Track with warm zone */}
+                <div className="relative h-2.5 bg-slate-100 rounded-full mb-1.5">
+                    {/* Warm zone highlight */}
+                    <div
+                        className="absolute top-0 h-2.5 bg-emerald-100 rounded-full"
+                        style={{
+                            left: `${sweetPercent - 12}%`,
+                            width: "24%",
+                        }}
+                    />
+                    {/* Sweet spot marker */}
+                    <div
+                        className="absolute top-0 h-2.5 w-1 bg-emerald-400 rounded-full"
+                        style={{ left: `${sweetPercent}%` }}
+                    />
+                    {/* Fill */}
+                    <motion.div
+                        className="absolute top-0 left-0 h-2.5 bg-[#6C6CFF] rounded-full"
+                        animate={{ width: `${sliderPercent}%` }}
+                        transition={{ duration: 0.1 }}
+                    />
+                    {/* Thumb */}
+                    <motion.div
+                        className="absolute top-1/2 -translate-y-1/2 w-5 h-5 bg-[#6C6CFF] rounded-full border-2 border-white shadow-md"
+                        animate={{ left: `${sliderPercent}%` }}
+                        transition={{ duration: 0.1 }}
+                        style={{ marginLeft: "-10px" }}
+                    />
+                </div>
+                {/* Range labels */}
+                <div className="flex justify-between text-[10px] text-slate-300 mb-4 px-0.5">
+                    <span>£{trade.min}</span>
+                    <span>£{trade.max}</span>
+                </div>
+
+                {/* Sweet spot label */}
+                <AnimatePresence>
+                    {settling && (
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="text-[10px] text-emerald-600 font-semibold mb-3 flex items-center justify-center gap-1"
+                        >
+                            <Check size={10} /> Most tradies choose around £{trade.sweet}/hr
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Daily Earnings */}
+                <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
+                    <div className="text-emerald-600 text-xs font-medium mb-0.5">That's</div>
+                    <div className="text-2xl font-black text-emerald-700 tabular-nums">
+                        £{dailyEarnings}
+                    </div>
+                    <div className="text-emerald-500 text-xs">/day (8 hours)</div>
+                </div>
+
+                {/* Paid Badge */}
+                <motion.div
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ delay: 2.0, type: "spring", stiffness: 300 }}
+                    className="absolute -top-3 -right-3 bg-emerald-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1"
+                >
+                    <Clock size={10} /> Paid in 48hrs
+                </motion.div>
+            </motion.div>
+        </div>
+    );
+}
+
+function ChecklistAnimation() {
+    const steps = [
+        { label: "Pick your trades", emoji: "🔧" },
+        { label: "Set your rates", emoji: "💰" },
+        { label: "Mark your free days", emoji: "📅" },
+    ];
+
+    return (
+        <div className="relative w-full h-full flex items-center justify-center">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(108,108,255,0.08),transparent_70%)]" />
+
+            <motion.div
+                initial={{ y: 30, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.4 }}
+                className="w-full max-w-xs bg-slate-900 rounded-2xl shadow-xl border border-slate-700 p-6 relative z-10"
+            >
+                {/* Timer badge */}
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.3 }}
+                    className="text-center mb-5"
+                >
+                    <span className="text-xs font-semibold text-[#6C6CFF] bg-indigo-50 px-3 py-1 rounded-full">
+                        Takes 2 minutes
+                    </span>
+                </motion.div>
+
+                {/* Checklist */}
+                <div className="space-y-3">
+                    {steps.map((step, idx) => (
+                        <motion.div
+                            key={step.label}
+                            initial={{ x: -20, opacity: 0 }}
+                            animate={{ x: 0, opacity: 1 }}
+                            transition={{ delay: 0.5 + (idx * 0.15) }}
+                            className="flex items-center gap-3"
+                        >
+                            {/* Checkbox */}
+                            <motion.div
+                                initial={{ backgroundColor: "rgb(241, 245, 249)", borderColor: "rgb(203, 213, 225)" }}
+                                animate={{
+                                    backgroundColor: "rgb(16, 185, 129)",
+                                    borderColor: "rgb(16, 185, 129)",
+                                }}
+                                transition={{ delay: 1.0 + (idx * 0.4) }}
+                                className="w-7 h-7 rounded-lg border-2 flex items-center justify-center flex-shrink-0"
+                            >
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ delay: 1.1 + (idx * 0.4), type: "spring" }}
+                                >
+                                    <Check size={14} className="text-white" />
+                                </motion.div>
+                            </motion.div>
+
+                            {/* Label */}
+                            <div className="flex items-center gap-2">
+                                <span className="text-base">{step.emoji}</span>
+                                <span className="text-sm font-medium text-slate-300">{step.label}</span>
+                            </div>
+                        </motion.div>
+                    ))}
+                </div>
+
+                {/* Done banner */}
+                <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 2.6 }}
+                    className="mt-5 pt-4 border-t border-slate-100 text-center"
+                >
+                    <div className="text-sm font-bold text-white">That's it. Jobs start coming in.</div>
+                </motion.div>
+            </motion.div>
+
+            {/* Floating confetti-like dots */}
+            {[
+                { x: -100, y: -80, color: "bg-emerald-400", delay: 2.8 },
+                { x: 110, y: -60, color: "bg-[#6C6CFF]", delay: 2.9 },
+                { x: -80, y: 60, color: "bg-amber-400", delay: 3.0 },
+                { x: 100, y: 70, color: "bg-pink-400", delay: 3.1 },
+                { x: -40, y: -100, color: "bg-cyan-400", delay: 2.85 },
+                { x: 60, y: 90, color: "bg-emerald-300", delay: 3.05 },
+            ].map((dot, idx) => (
+                <motion.div
+                    key={idx}
+                    initial={{ opacity: 0, scale: 0 }}
+                    animate={{ opacity: [0, 1, 0], scale: [0, 1.2, 0.8] }}
+                    transition={{ delay: dot.delay, duration: 1.5 }}
+                    className={`absolute w-3 h-3 ${dot.color} rounded-full z-20`}
+                    style={{
+                        left: `calc(50% + ${dot.x}px)`,
+                        top: `calc(50% + ${dot.y}px)`,
+                    }}
+                />
+            ))}
+        </div>
+    );
+}
+
+// --- Slide Definitions ---
 
 const slides = [
     {
         id: 1,
-        title: "Run your business from your pocket",
-        desc: "Manage jobs, schedule visits, and track your team in one simple app.",
-        component: <SlideOneAnimation />
+        title: "Got Spare Days? We'll Fill Them.",
+        desc: "Jobs ready to go. You pick the days. We handle the rest.",
+        component: <CalendarFillAnimation />,
     },
     {
         id: 2,
-        title: "Get paid instantly",
-        desc: "Send professional invoices and take card payments on the job. No more chasing.",
-        component: <SlideTwoAnimation />
+        title: "We Match Jobs to What You Do",
+        desc: "Tell us your skills. We send you work that fits.",
+        component: <SkillsMatchAnimation />,
     },
     {
         id: 3,
-        title: "Professionalize your trade",
-        desc: "Your own website, booking link, and automated reminders. Look like a pro.",
-        component: <SlideThreeAnimation />
-    }
+        title: "Your Rate. Your Rules.",
+        desc: "Set your hourly rate. We find jobs that pay it. No haggling.",
+        component: <RateAnimation />,
+    },
+    {
+        id: 4,
+        title: "Set Up in 2 Minutes. Jobs This Week.",
+        desc: "Pick your skills. Set your rate. Plot your days. That's it.",
+        component: <ChecklistAnimation />,
+    },
 ];
+
+// --- Main Component ---
 
 export default function ContractorWelcome() {
     const [currentSlide, setCurrentSlide] = useState(0);
@@ -37,25 +480,27 @@ export default function ContractorWelcome() {
         }
     };
 
+    const isLastSlide = currentSlide === slides.length - 1;
+
     return (
-        <div className="min-h-screen bg-white text-slate-900 flex flex-col font-sans">
+        <div className="min-h-screen bg-[#0F172A] text-white flex flex-col font-sans">
             {/* Top Bar */}
-            <div className="h-16 flex items-center justify-center border-b border-slate-100 sticky top-0 bg-white z-50">
-                <div className="flex items-center gap-3">
+            <div className="h-14 flex items-center justify-center border-b border-white/5 sticky top-0 bg-[#0F172A]/95 backdrop-blur-sm z-50">
+                <div className="flex items-center gap-2.5">
                     <img
                         src="/logo.png"
                         alt="Handy"
-                        className="w-8 h-8 object-contain"
+                        className="w-7 h-7 object-contain"
                     />
                     <div className="flex flex-col leading-none">
-                        <span className="font-bold text-lg text-slate-900">Handy</span>
-                        <span className="font-normal text-[10px] text-slate-500 uppercase tracking-wider">Services</span>
+                        <span className="font-bold text-base text-white">Handy</span>
+                        <span className="font-normal text-[9px] text-slate-400 uppercase tracking-wider">Services</span>
                     </div>
                 </div>
             </div>
 
-            {/* Main Carousel Area */}
-            <div className="flex-1 flex flex-col relative overflow-hidden">
+            {/* Main Carousel Area — fits in one screen */}
+            <div className="flex-1 flex flex-col relative overflow-hidden justify-between">
                 <AnimatePresence mode="wait">
                     <motion.div
                         key={currentSlide}
@@ -63,21 +508,16 @@ export default function ContractorWelcome() {
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -20 }}
                         transition={{ duration: 0.3 }}
-                        className="flex-1 flex flex-col"
+                        className="flex flex-col"
                     >
-                        {/* Animation Container - 50% height */}
-                        <div className="h-[50vh] w-full relative bg-slate-50 flex items-center justify-center overflow-hidden">
-                            {slides[currentSlide].component}
-                        </div>
-
-                        {/* Text Area */}
-                        <div className="flex-1 px-8 pt-8 pb-4 flex flex-col items-center text-center max-w-md mx-auto">
+                        {/* Text Area — above animation on mobile */}
+                        <div className="px-6 pt-4 pb-2 flex flex-col items-center text-center max-w-md mx-auto">
                             <motion.h2
                                 key={`t-${currentSlide}`}
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: 0.2 }}
-                                className="text-3xl font-bold text-slate-900 mb-4 leading-tight"
+                                transition={{ delay: 0.1 }}
+                                className="text-xl sm:text-2xl font-bold text-white mb-1.5 leading-tight"
                             >
                                 {slides[currentSlide].title}
                             </motion.h2>
@@ -85,237 +525,66 @@ export default function ContractorWelcome() {
                                 key={`d-${currentSlide}`}
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: 0.3 }}
-                                className="text-slate-500 text-lg leading-relaxed"
+                                transition={{ delay: 0.2 }}
+                                className="text-slate-400 text-sm leading-relaxed"
                             >
                                 {slides[currentSlide].desc}
                             </motion.p>
                         </div>
+
+                        {/* Animation Container */}
+                        <div className="flex-1 w-full relative flex items-center justify-center overflow-hidden px-4 max-h-[55vh]">
+                            {slides[currentSlide].component}
+                        </div>
                     </motion.div>
                 </AnimatePresence>
 
-                {/* Indicators */}
-                <div className="flex justify-center gap-2 mb-8">
-                    {slides.map((_, idx) => (
-                        <div
-                            key={idx}
-                            className={`h-2 rounded-full transition-all duration-300 ${idx === currentSlide ? "w-8 bg-[#6C6CFF]" : "w-2 bg-slate-200"
-                                }`}
-                        />
-                    ))}
-                </div>
-
-                {/* Action Button */}
-                <div className="px-6 pb-10 w-full max-w-md mx-auto relative z-20">
-                    <button
-                        onClick={nextSlide}
-                        className="w-full bg-[#6C6CFF] hover:bg-[#5858E0] active:scale-95 transition-all text-white font-bold text-lg py-4 rounded-2xl shadow-xl shadow-blue-500/20 flex items-center justify-center gap-2"
-                    >
-                        {currentSlide === slides.length - 1 ? "Get Started" : "Next"}
-                        <ArrowRight size={20} className="opacity-80" />
-                    </button>
-                    {currentSlide !== slides.length - 1 && (
-                        <div className="mt-4 text-center">
+                {/* Bottom section — indicators + button always visible */}
+                <div className="flex-shrink-0 pb-6 pt-2">
+                    {/* Indicators */}
+                    <div className="flex justify-center gap-2 mb-4">
+                        {slides.map((_, idx) => (
                             <button
-                                onClick={() => setLocation("/contractor/register")}
-                                className="text-slate-400 font-medium text-sm hover:text-[#6C6CFF] transition-colors"
-                            >
-                                Skip intro
-                            </button>
-                        </div>
-                    )}
+                                key={idx}
+                                onClick={() => setCurrentSlide(idx)}
+                                className={`h-1.5 rounded-full transition-all duration-300 ${idx === currentSlide ? "w-7 bg-[#6C6CFF]" : "w-1.5 bg-slate-600 hover:bg-slate-500"
+                                    }`}
+                            />
+                        ))}
+                    </div>
+
+                    {/* Action Button */}
+                    <div className="px-6 w-full max-w-md mx-auto relative z-20">
+                        <button
+                            onClick={nextSlide}
+                            className="w-full bg-[#6C6CFF] hover:bg-[#5858E0] active:scale-[0.98] transition-all text-white font-bold text-base py-3.5 rounded-2xl shadow-xl shadow-indigo-500/20 flex items-center justify-center gap-2"
+                        >
+                            {isLastSlide ? "Let's Go" : "Next"}
+                            <ArrowRight size={18} className="opacity-80" />
+                        </button>
+                        {!isLastSlide && (
+                            <div className="mt-2 text-center">
+                                <button
+                                    onClick={() => setLocation("/contractor/register")}
+                                    className="text-slate-500 font-medium text-xs hover:text-[#6C6CFF] transition-colors"
+                                >
+                                    Skip intro
+                                </button>
+                            </div>
+                        )}
+                        {isLastSlide && (
+                            <div className="mt-2 text-center">
+                                <button
+                                    onClick={() => setLocation("/contractor/login")}
+                                    className="text-slate-500 font-medium text-xs hover:text-[#6C6CFF] transition-colors"
+                                >
+                                    Already have an account? Sign in
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
     );
 }
-
-// --- Animation Components ---
-
-function SlideOneAnimation() {
-    return (
-        <div className="relative w-full h-full flex items-center justify-center">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.1),transparent_70%)]" />
-
-            {/* Phone Mockup */}
-            <motion.div
-                initial={{ y: 50, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.5 }}
-                className="w-48 h-80 bg-white rounded-3xl border-4 border-slate-200 shadow-2xl relative z-10 overflow-hidden flex flex-col"
-            >
-                <div className="h-6 bg-slate-50 border-b border-slate-100 flex justify-center pt-2">
-                    <div className="w-12 h-1.5 bg-slate-200 rounded-full" />
-                </div>
-
-                {/* App Content */}
-                <div className="p-4 space-y-3">
-                    {/* Header */}
-                    <div className="flex items-center justify-between">
-                        <div className="w-8 h-8 rounded-full bg-slate-100" />
-                        <div className="w-20 h-3 bg-slate-100 rounded" />
-                    </div>
-
-                    {/* Jobs List - Staggered Entry */}
-                    {[1, 2, 3].map((i) => (
-                        <motion.div
-                            key={i}
-                            initial={{ x: -50, opacity: 0 }}
-                            animate={{ x: 0, opacity: 1 }}
-                            transition={{ delay: 0.4 + (i * 0.15) }}
-                            className="p-3 rounded-xl bg-blue-50 border border-blue-100 flex items-center gap-3"
-                        >
-                            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white">
-                                <FileText size={14} />
-                            </div>
-                            <div className="space-y-1.5 flex-1">
-                                <div className="w-20 h-2 bg-blue-200 rounded" />
-                                <div className="w-12 h-1.5 bg-blue-100 rounded" />
-                            </div>
-                            <CheckCircle2 size={14} className="text-blue-400" />
-                        </motion.div>
-                    ))}
-                </div>
-            </motion.div>
-
-            {/* Floating Elements */}
-            <motion.div
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ delay: 1, type: "spring" }}
-                className="absolute top-1/4 right-8 bg-white p-3 rounded-2xl shadow-lg border border-slate-100 z-20"
-            >
-                <Calendar className="text-orange-500 w-6 h-6" />
-            </motion.div>
-            <motion.div
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ delay: 1.2, type: "spring" }}
-                className="absolute bottom-1/3 left-8 bg-white p-3 rounded-2xl shadow-lg border border-slate-100 z-20"
-            >
-                <Smartphone className="text-blue-500 w-6 h-6" />
-            </motion.div>
-        </div>
-    );
-}
-
-function SlideTwoAnimation() {
-    return (
-        <div className="relative w-full h-full flex items-center justify-center">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.1),transparent_70%)]" />
-
-            {/* Invoice Card */}
-            <motion.div
-                initial={{ scale: 0.8, opacity: 0, rotate: -5 }}
-                animate={{ scale: 1, opacity: 1, rotate: 0 }}
-                transition={{ duration: 0.5 }}
-                className="w-64 h-40 bg-white rounded-2xl shadow-xl border border-slate-100 p-5 flex flex-col justify-between relative z-10"
-            >
-                <div className="space-y-2">
-                    <div className="flex justify-between">
-                        <div className="w-20 h-3 bg-slate-100 rounded" />
-                        <div className="w-8 h-8 rounded-full bg-slate-50" />
-                    </div>
-                    <div className="w-32 h-2 bg-slate-100 rounded" />
-                    <div className="w-24 h-2 bg-slate-100 rounded" />
-                </div>
-
-                <div className="flex justify-between items-end border-t border-slate-50 pt-3">
-                    <div className="text-xs text-slate-400">Total</div>
-                    <div className="text-xl font-bold text-slate-800">£1,250.00</div>
-                </div>
-            </motion.div>
-
-            {/* Credit Card Wipe Effect */}
-            <motion.div
-                initial={{ x: 200, y: 100, opacity: 0 }}
-                animate={{ x: 60, y: 40, opacity: 1 }}
-                transition={{ delay: 0.5, type: "spring" }}
-                className="absolute z-20 bg-slate-900 w-40 h-24 rounded-xl shadow-2xl p-4 flex flex-col justify-between"
-            >
-                <div className="flex justify-end">
-                    <div className="w-8 h-5 bg-white/20 rounded-md" />
-                </div>
-                <div className="space-y-2">
-                    <div className="w-full h-2 bg-white/20 rounded" />
-                    <div className="w-16 h-2 bg-white/20 rounded" />
-                </div>
-            </motion.div>
-
-            {/* PAID Stamp */}
-            <motion.div
-                initial={{ scale: 2, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ delay: 1.2, type: "spring", stiffness: 300 }}
-                className="absolute z-30 bg-emerald-500 text-white px-6 py-2 rounded-xl shadow-lg shadow-emerald-500/30 transform -rotate-12 border-2 border-white"
-            >
-                <span className="font-black text-xl tracking-widest">PAID</span>
-            </motion.div>
-        </div>
-    );
-}
-
-function SlideThreeAnimation() {
-    return (
-        <div className="relative w-full h-full flex items-center justify-center">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(139,92,246,0.1),transparent_70%)]" />
-
-            {/* Profile Card */}
-            <motion.div
-                initial={{ y: 20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.5 }}
-                className="w-64 bg-white rounded-2xl shadow-xl border border-purple-100 p-6 flex flex-col items-center text-center relative z-10"
-            >
-                {/* Avatar Transformation */}
-                <div className="relative mb-4">
-                    <motion.div
-                        initial={{ opacity: 1 }}
-                        animate={{ opacity: 0 }}
-                        transition={{ delay: 0.8, duration: 0.2 }}
-                        className="w-20 h-20 rounded-full bg-slate-200 border-4 border-white shadow-sm flex items-center justify-center"
-                    >
-                        <TrendingUp className="text-slate-400" />
-                    </motion.div>
-
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.5 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: 0.9, type: "spring" }}
-                        className="absolute inset-0 w-20 h-20 rounded-full bg-gradient-to-tr from-[#6C6CFF] to-purple-500 border-4 border-white shadow-lg flex items-center justify-center text-white"
-                    >
-                        <Star className="fill-current w-10 h-10" />
-                    </motion.div>
-
-                    {/* Badge Popup */}
-                    <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        transition={{ delay: 1.4, type: "spring" }}
-                        className="absolute -right-2 -bottom-2 w-8 h-8 bg-amber-400 text-white rounded-full flex items-center justify-center font-bold text-xs shadow-md border-2 border-white"
-                    >
-                        5.0
-                    </motion.div>
-                </div>
-
-                {/* Name & Title */}
-                <div className="w-full space-y-2 mb-4">
-                    <div className="h-4 bg-slate-800 rounded-full w-3/4 mx-auto" />
-                    <div className="h-2 bg-slate-200 rounded-full w-1/2 mx-auto" />
-                </div>
-
-                {/* Website Link Animation */}
-                <motion.div
-                    initial={{ width: 0, opacity: 0 }}
-                    animate={{ width: "100%", opacity: 1 }}
-                    transition={{ delay: 1.8, duration: 0.5 }}
-                    className="h-8 bg-purple-50 rounded-lg flex items-center px-3 gap-2 overflow-hidden"
-                >
-                    <div className="w-4 h-4 rounded-full bg-purple-200 flex-shrink-0" />
-                    <div className="h-2 bg-purple-200 rounded-full flex-1" />
-                </motion.div>
-            </motion.div>
-        </div>
-    );
-}
-

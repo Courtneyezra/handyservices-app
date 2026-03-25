@@ -1,7 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
-import ContractorAppShell from "@/components/layout/ContractorAppShell";
-import { Loader2, ArrowLeft, MapPin, Calendar, Clock, CheckCircle2, XCircle, Upload, Camera, ImageIcon, AlertCircle, PenTool, Play, Pause, Timer } from "lucide-react";
+import { Loader2, ArrowLeft, MapPin, Calendar, Clock, CheckCircle2, Upload, Camera, ImageIcon, PenTool, Play, Pause, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -92,47 +91,6 @@ export default function JobDetailsPage() {
             return res.json();
         },
         enabled: !!id,
-    });
-
-    const acceptMutation = useMutation({
-        mutationFn: async () => {
-            const token = localStorage.getItem('contractorToken');
-            const res = await fetch(`/api/jobs/${id}/accept`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`,
-                },
-            });
-            if (!res.ok) throw new Error("Failed to accept");
-            return res.json();
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["job", id] });
-            toast({ title: "Job Accepted", description: "This job is now in your schedule." });
-        },
-        onError: () => toast({ title: "Error", description: "Could not accept job.", variant: "destructive" })
-    });
-
-    const rejectMutation = useMutation({
-        mutationFn: async () => {
-            const token = localStorage.getItem('contractorToken');
-            const res = await fetch(`/api/jobs/${id}/reject`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`,
-                },
-                body: JSON.stringify({ reason: "Contractor declined" })
-            });
-            if (!res.ok) throw new Error("Failed to reject");
-            return res.json();
-        },
-        onSuccess: () => {
-            setLocation("/contractor/dashboard");
-            toast({ title: "Job Rejected", description: "You have declined this job." });
-        },
-        onError: () => toast({ title: "Error", description: "Failed to reject.", variant: "destructive" })
     });
 
     // Upload photos with progress tracking
@@ -267,10 +225,10 @@ export default function JobDetailsPage() {
     if (!job) return <div className="p-8 text-center">Job not found</div>;
 
     return (
-        <ContractorAppShell>
+        <>
             {/* Header */}
             <div className="bg-white p-4 items-center flex gap-4 border-b sticky top-0 z-10">
-                <Button variant="ghost" size="icon" onClick={() => window.history.back()}>
+                <Button variant="ghost" size="icon" onClick={() => setLocation('/contractor/dashboard/jobs')}>
                     <ArrowLeft className="w-5 h-5" />
                 </Button>
                 <div>
@@ -318,19 +276,7 @@ export default function JobDetailsPage() {
                     </div>
                 </div>
 
-                {/* Actions */}
-                {job.assignmentStatus === 'assigned' && (
-                    <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t flex gap-3 z-20 pb-8">
-                        <Button variant="outline" className="flex-1 border-red-200 text-red-600 hover:bg-red-50 h-12 rounded-xl" onClick={() => rejectMutation.mutate()}>
-                            <XCircle className="w-4 h-4 mr-2" /> Decline
-                        </Button>
-                        <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white h-12 rounded-xl" onClick={() => acceptMutation.mutate()}>
-                            <CheckCircle2 className="w-4 h-4 mr-2" /> Accept Job
-                        </Button>
-                    </div>
-                )}
-
-                {['accepted', 'in_progress'].includes(job.assignmentStatus) && completionStep === 'idle' && (
+                {['accepted', 'in_progress', 'assigned'].includes(job.assignmentStatus) && completionStep === 'idle' && (
                     <div className="fixed bottom-0 left-0 right-0 p-4 bg-white border-t z-20 pb-8 space-y-3">
                         {/* Time tracking button when not running */}
                         {!isTimerRunning && elapsedSeconds === 0 && (
@@ -593,6 +539,6 @@ export default function JobDetailsPage() {
                     </div>
                 )}
             </div>
-        </ContractorAppShell>
+        </>
     );
 }

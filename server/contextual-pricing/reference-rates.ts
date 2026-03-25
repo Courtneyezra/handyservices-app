@@ -248,3 +248,40 @@ export function getAllCategories(): JobCategory[] {
 }
 
 export { CATEGORY_RATES };
+
+// ============================================================================
+// MINIMUM MARGIN TARGETS (per category)
+// ============================================================================
+
+/**
+ * Minimum acceptable margin % per category.
+ * Specialist trades (plumbing, electrical) have higher minimums because
+ * the contractor pool is smaller and rates are higher.
+ * Flagged in admin when margin drops below target — does NOT block quotes.
+ */
+export const CATEGORY_MIN_MARGINS: Record<JobCategory, number> = {
+  general_fixing: 20,
+  flat_pack: 20,
+  tv_mounting: 20,
+  carpentry: 25,
+  plumbing_minor: 25,
+  electrical_minor: 30,
+  painting: 20,
+  tiling: 25,
+  plastering: 25,
+  lock_change: 25,
+  guttering: 20,
+  pressure_washing: 20,
+  fencing: 20,
+  garden_maintenance: 20,
+  bathroom_fitting: 30,
+  kitchen_fitting: 30,
+  door_fitting: 25,
+  flooring: 20,
+  curtain_blinds: 20,
+  silicone_sealant: 20,
+  shelving: 20,
+  furniture_repair: 20,
+  waste_removal: 20,
+  other: 20,
+};

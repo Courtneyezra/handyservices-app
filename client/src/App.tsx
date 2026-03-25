@@ -99,28 +99,18 @@ const LandlordIssuesPage = lazy(() => import("@/pages/landlord/IssuesPage"));
 const ContractorLogin = lazy(() => import("./pages/ContractorLogin"));
 const ContractorRegister = lazy(() => import("./pages/ContractorRegister"));
 const ContractorWelcome = lazy(() => import("./pages/ContractorWelcome"));
-const ContractorPortal = lazy(() => import("./pages/ContractorPortal"));
-const ContractorCalendar = lazy(() => import("./pages/ContractorCalendar"));
-const ContractorProfile = lazy(() => import("./pages/ContractorProfile"));
-const ContractorServiceArea = lazy(() => import("./pages/ContractorServiceArea"));
-
-// Contractor Dashboard (Phase 3)
-const ContractorDashboardHome = lazy(() => import("./pages/ContractorMobileDashboard"));
-const ContractorInboxPage = lazy(() => import("./pages/contractor/dashboard/InboxPage"));
-const FollowUpInboxPage = lazy(() => import("./pages/contractor/dashboard/InboxPage"));
-const BookingRequestsPage = lazy(() => import("./pages/contractor/dashboard/BookingRequestsPage"));
-const NewQuotePage = lazy(() => import("./pages/contractor/dashboard/quotes/NewQuotePage"));
-const QuotesListPage = lazy(() => import("./pages/contractor/dashboard/quotes/QuotesListPage"));
-const JobsPage = lazy(() => import("./pages/contractor/dashboard/JobsPage"));
-const QuoteDetailsPage = lazy(() => import("./pages/contractor/dashboard/quotes/QuoteDetailsPage"));
-const JobDetailsPage = lazy(() => import("./pages/contractor/dashboard/JobDetailsPage"));
 const ContractorOnboarding = lazy(() => import('./pages/ContractorOnboarding'));
-const ContractorSettingsPage = lazy(() => import('./pages/contractor/dashboard/ContractorSettingsPage'));
 const ContractorAppLanding = lazy(() => import('./pages/ContractorAppLanding'));
-const ExpensesPage = lazy(() => import('./pages/contractor/dashboard/ExpensesPage'));
-const CreateInvoicePage = lazy(() => import('./pages/contractor/invoices/CreateInvoicePage'));
-const ContractorDashboardLayout = lazy(() => import('./pages/contractor/ContractorDashboardLayout'));
-const PartnerOnboardingModal = lazy(() => import('./pages/PartnerOnboardingModal'));
+
+// Contractor Portal — 3-tab layout
+const ContractorPortalLayout = lazy(() => import('./pages/contractor/ContractorPortalLayout'));
+const CalendarTab = lazy(() => import('./pages/contractor/dashboard/CalendarTab'));
+const MyJobsTab = lazy(() => import('./pages/contractor/dashboard/MyJobsTab'));
+const ProfileTab = lazy(() => import('./pages/contractor/dashboard/ProfileTab'));
+const JobDetailsPage = lazy(() => import("./pages/contractor/dashboard/JobDetailsPage"));
+
+// Admin follow-up inbox (shares component with contractor inbox)
+const FollowUpInboxPage = lazy(() => import("./pages/contractor/dashboard/InboxPage"));
 
 
 
@@ -344,19 +334,33 @@ function Router() {
                 <Route path="/contractor">
                     <Redirect to="/contractor/dashboard" />
                 </Route>
+                {/* Contractor Portal — 3-tab layout */}
                 <Route path="/contractor/dashboard">
                     <ProtectedRoute role="contractor">
-                        <ContractorDashboardHome />
+                        <ContractorPortalLayout>
+                            <CalendarTab />
+                        </ContractorPortalLayout>
                     </ProtectedRoute>
                 </Route>
-                <Route path="/contractor/dashboard/inbox">
+                <Route path="/contractor/dashboard/jobs">
                     <ProtectedRoute role="contractor">
-                        <ContractorInboxPage />
+                        <ContractorPortalLayout>
+                            <MyJobsTab />
+                        </ContractorPortalLayout>
                     </ProtectedRoute>
                 </Route>
-                <Route path="/contractor/dashboard/bookings">
+                <Route path="/contractor/dashboard/jobs/:id">
                     <ProtectedRoute role="contractor">
-                        <BookingRequestsPage />
+                        <ContractorPortalLayout>
+                            <JobDetailsPage />
+                        </ContractorPortalLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/contractor/dashboard/settings">
+                    <ProtectedRoute role="contractor">
+                        <ContractorPortalLayout>
+                            <ProfileTab />
+                        </ContractorPortalLayout>
                     </ProtectedRoute>
                 </Route>
                 <Route path="/contractor/onboarding">
@@ -364,66 +368,11 @@ function Router() {
                         <ContractorOnboarding />
                     </ProtectedRoute>
                 </Route>
-                <Route path="/contractor/partner-onboarding">
-                    <ProtectedRoute role="contractor">
-                        <PartnerOnboardingModal />
-                    </ProtectedRoute>
-                </Route>
-                <Route path="/contractor/dashboard/quotes/new">
-                    <ProtectedRoute role="contractor">
-                        <NewQuotePage />
-                    </ProtectedRoute>
-                </Route>
-                <Route path="/contractor/dashboard/quotes">
-                    <ProtectedRoute role="contractor">
-                        <QuotesListPage />
-                    </ProtectedRoute>
-                </Route>
-                <Route path="/contractor/dashboard/quotes/:id">
-                    <ProtectedRoute role="contractor">
-                        <QuoteDetailsPage />
-                    </ProtectedRoute>
-                </Route>
-                <Route path="/contractor/dashboard/jobs">
-                    <ProtectedRoute role="contractor">
-                        <JobsPage />
-                    </ProtectedRoute>
-                </Route>
-                <Route path="/contractor/dashboard/jobs/:id">
-                    <ProtectedRoute role="contractor">
-                        <JobDetailsPage />
-                    </ProtectedRoute>
-                </Route>
-                <Route path="/contractor/financials">
-                    <ProtectedRoute role="contractor">
-                        <ExpensesPage />
-                    </ProtectedRoute>
-                </Route>
-                <Route path="/contractor/create-invoice">
-                    <ProtectedRoute role="contractor">
-                        <CreateInvoicePage />
-                    </ProtectedRoute>
-                </Route>
-                <Route path="/contractor/calendar">
-                    <ProtectedRoute role="contractor">
-                        <ContractorCalendar />
-                    </ProtectedRoute>
-                </Route>
                 <Route path="/contractor/profile">
                     {() => {
                         window.location.href = '/contractor/dashboard/settings';
                         return null;
                     }}
-                </Route>
-                <Route path="/contractor/service-area">
-                    <ProtectedRoute role="contractor">
-                        <ContractorServiceArea />
-                    </ProtectedRoute>
-                </Route>
-                <Route path="/contractor/dashboard/settings">
-                    <ProtectedRoute role="contractor">
-                        <ContractorSettingsPage />
-                    </ProtectedRoute>
                 </Route>
 
                 {/* ============ ADMIN ROUTES (Protected) ============ */}

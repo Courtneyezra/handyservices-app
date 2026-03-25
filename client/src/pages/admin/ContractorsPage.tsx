@@ -32,7 +32,12 @@ import {
     Wrench,
     Phone,
     Mail,
+    AlertTriangle,
+    Shield,
+    CreditCard,
+    DollarSign,
 } from 'lucide-react';
+import { CATEGORY_LABELS } from '@shared/categories';
 
 interface Contractor {
     id: string;
@@ -55,6 +60,17 @@ interface Contractor {
         hourlyRate: number;
     }>;
     totalJobs: number;
+    earningsThisWeekPence: number;
+    earningsThisMonthPence: number;
+    earningsAllTimePence: number;
+    categorySkills: Array<{ categorySlug: string; hourlyRate: number; dayRate: number }>;
+    insuranceUrl: string | null;
+    stripeConnectId: string | null;
+    lastAvailabilityRefresh: string | null;
+    isStaleAvailability: boolean;
+    verificationStatus: string;
+    avgMarginPercent: number | null;
+    quotesWithThinMargin: number;
     weeklyPatterns: Array<{
         dayOfWeek: number;
         startTime: string;
@@ -70,6 +86,10 @@ interface Contractor {
 }
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function getCategoryLabelFromSlug(slug: string): string {
+    return (CATEGORY_LABELS as Record<string, string>)[slug] || slug;
+}
 
 export default function ContractorsPage() {
     const [searchTerm, setSearchTerm] = useState('');
@@ -162,7 +182,7 @@ export default function ContractorsPage() {
             </div>
 
             {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 <Card>
                     <CardContent className="pt-6">
                         <div className="flex items-center gap-2">
@@ -213,6 +233,32 @@ export default function ContractorsPage() {
                         </div>
                     </CardContent>
                 </Card>
+                <Card>
+                    <CardContent className="pt-6">
+                        <div className="flex items-center gap-2">
+                            <AlertTriangle className="h-5 w-5 text-red-500" />
+                            <div>
+                                <p className="text-2xl font-bold text-red-600">
+                                    {contractors?.filter(c => c.isStaleAvailability).length || 0}
+                                </p>
+                                <p className="text-sm text-muted-foreground">Stale Availability</p>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardContent className="pt-6">
+                        <div className="flex items-center gap-2">
+                            <DollarSign className="h-5 w-5 text-amber-500" />
+                            <div>
+                                <p className="text-2xl font-bold text-amber-600">
+                                    {contractors?.filter(c => c.quotesWithThinMargin > 0).length || 0}
+                                </p>
+                                <p className="text-sm text-muted-foreground">Margin Alerts</p>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
             </div>
 
             {/* Contractors Table */}
@@ -232,6 +278,10 @@ export default function ContractorsPage() {
                                 <TableHead>Skills</TableHead>
                                 <TableHead>Jobs</TableHead>
                                 <TableHead>Availability</TableHead>
+                                <TableHead>Categories</TableHead>
+                                <TableHead>Earnings</TableHead>
+                                <TableHead>Margin</TableHead>
+                                <TableHead>Status</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -307,10 +357,54 @@ export default function ContractorsPage() {
                                                 })}
                                             </div>
                                         </TableCell>
+                                        <TableCell>
+                                            <Badge variant="outline">{contractor.categorySkills?.length || 0}</Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                            <span className="text-green-600 font-medium">
+                                                £{(contractor.earningsThisMonthPence / 100).toFixed(0)}
+                                            </span>
+                                        </TableCell>
+                                        <TableCell>
+                                            {contractor.avgMarginPercent != null ? (
+                                                <span className={
+                                                    contractor.avgMarginPercent >= 25
+                                                        ? 'text-green-600'
+                                                        : contractor.avgMarginPercent >= 15
+                                                            ? 'text-amber-600'
+                                                            : 'text-red-600'
+                                                }>
+                                                    {contractor.avgMarginPercent}%
+                                                </span>
+                                            ) : (
+                                                <span className="text-muted-foreground">&mdash;</span>
+                                            )}
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex items-center gap-1">
+                                                <span
+                                                    className={`w-2 h-2 rounded-full inline-block ${
+                                                        contractor.verificationStatus === 'verified'
+                                                            ? 'bg-green-500'
+                                                            : 'bg-red-500'
+                                                    }`}
+                                                    title={contractor.verificationStatus || 'Unverified'}
+                                                />
+                                                <span title={contractor.insuranceUrl ? 'Insured' : 'No insurance'}>
+                                                    {contractor.insuranceUrl ? '🛡️' : '❌'}
+                                                </span>
+                                                <span title={contractor.stripeConnectId ? 'Stripe connected' : 'No Stripe'}>
+                                                    {contractor.stripeConnectId ? '💳' : '—'}
+                                                </span>
+                                                {contractor.isStaleAvailability && (
+                                                    <span title="Stale availability">⏰</span>
+                                                )}
+                                            </div>
+                                        </TableCell>
                                     </TableRow>
                                     {expandedRows.has(contractor.id) && (
                                         <TableRow>
-                                            <TableCell colSpan={8} className="bg-muted/30">
+                                            <TableCell colSpan={12} className="bg-muted/30">
                                                 <div className="p-4 space-y-4">
                                                     {/* Skills & Rates */}
                                                     <div>
@@ -398,6 +492,78 @@ export default function ContractorsPage() {
                                                         <div>
                                                             <h4 className="font-semibold mb-1">Bio</h4>
                                                             <p className="text-sm text-muted-foreground">{contractor.bio}</p>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Category Skills & Rates */}
+                                                    {contractor.categorySkills?.length > 0 && (
+                                                        <div className="space-y-2">
+                                                            <h4 className="font-semibold text-sm">Category Skills & Rates</h4>
+                                                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                                                {contractor.categorySkills.map(cs => (
+                                                                    <div key={cs.categorySlug} className="bg-slate-50 rounded-lg p-2 text-sm">
+                                                                        <div className="font-medium">{getCategoryLabelFromSlug(cs.categorySlug)}</div>
+                                                                        <div className="text-slate-500">£{cs.hourlyRate}/hr • £{cs.dayRate}/day</div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Earnings Breakdown */}
+                                                    <div>
+                                                        <h4 className="font-semibold text-sm mb-2">Earnings</h4>
+                                                        <div className="grid grid-cols-3 gap-3">
+                                                            <div className="bg-emerald-50 rounded-lg p-3 text-center">
+                                                                <div className="text-xs text-slate-500">This Week</div>
+                                                                <div className="text-lg font-bold text-emerald-600">£{(contractor.earningsThisWeekPence / 100).toFixed(0)}</div>
+                                                            </div>
+                                                            <div className="bg-emerald-50 rounded-lg p-3 text-center">
+                                                                <div className="text-xs text-slate-500">This Month</div>
+                                                                <div className="text-lg font-bold text-emerald-600">£{(contractor.earningsThisMonthPence / 100).toFixed(0)}</div>
+                                                            </div>
+                                                            <div className="bg-slate-50 rounded-lg p-3 text-center">
+                                                                <div className="text-xs text-slate-500">All Time</div>
+                                                                <div className="text-lg font-bold text-slate-700">£{(contractor.earningsAllTimePence / 100).toFixed(0)}</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Margin Health */}
+                                                    {contractor.avgMarginPercent != null && (
+                                                        <div>
+                                                            <h4 className="font-semibold text-sm mb-2">Margin Health</h4>
+                                                            <div className="flex items-center gap-4">
+                                                                <div>Avg Margin: <span className={contractor.avgMarginPercent >= 25 ? 'text-green-600' : contractor.avgMarginPercent >= 15 ? 'text-amber-600' : 'text-red-600'}>{contractor.avgMarginPercent}%</span></div>
+                                                                {contractor.quotesWithThinMargin > 0 && <Badge variant="destructive">{contractor.quotesWithThinMargin} thin margin quotes</Badge>}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Insurance & Stripe Status */}
+                                                    <div>
+                                                        <h4 className="font-semibold text-sm mb-2">Verification & Payments</h4>
+                                                        <div className="flex gap-4">
+                                                            <div className="flex items-center gap-1">
+                                                                {contractor.insuranceUrl ? <CheckCircle className="w-4 h-4 text-green-500" /> : <XCircle className="w-4 h-4 text-red-500" />}
+                                                                <span className="text-sm">Insurance</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                {contractor.stripeConnectId ? <CheckCircle className="w-4 h-4 text-green-500" /> : <XCircle className="w-4 h-4 text-red-500" />}
+                                                                <span className="text-sm">Stripe</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                {contractor.verificationStatus === 'verified' ? <CheckCircle className="w-4 h-4 text-green-500" /> : <XCircle className="w-4 h-4 text-amber-500" />}
+                                                                <span className="text-sm">{contractor.verificationStatus || 'Unverified'}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Stale Availability Warning */}
+                                                    {contractor.isStaleAvailability && (
+                                                        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 flex items-center gap-2">
+                                                            <AlertTriangle className="w-4 h-4" />
+                                                            Availability not updated in over 7 days. Last refreshed: {contractor.lastAvailabilityRefresh ? new Date(contractor.lastAvailabilityRefresh).toLocaleDateString() : 'Never'}
                                                         </div>
                                                     )}
                                                 </div>
