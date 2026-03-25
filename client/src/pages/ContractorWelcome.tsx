@@ -483,7 +483,7 @@ export default function ContractorWelcome() {
     const isLastSlide = currentSlide === slides.length - 1;
 
     return (
-        <div className="min-h-screen bg-[#0F172A] text-white flex flex-col font-sans">
+        <div className="h-[100dvh] bg-[#0F172A] text-white flex flex-col font-sans overflow-hidden">
             {/* Top Bar */}
             <div className="h-14 flex items-center justify-center border-b border-white/5 sticky top-0 bg-[#0F172A]/95 backdrop-blur-sm z-50">
                 <div className="flex items-center gap-2.5">
@@ -499,8 +499,8 @@ export default function ContractorWelcome() {
                 </div>
             </div>
 
-            {/* Main Carousel Area — fits in one screen */}
-            <div className="flex-1 flex flex-col relative overflow-hidden justify-between">
+            {/* Main Carousel Area — everything stacks, button pinned to bottom */}
+            <div className="flex-1 flex flex-col relative overflow-hidden">
                 <AnimatePresence mode="wait">
                     <motion.div
                         key={currentSlide}
@@ -508,7 +508,7 @@ export default function ContractorWelcome() {
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -20 }}
                         transition={{ duration: 0.3 }}
-                        className="flex flex-col"
+                        className="flex-1 flex flex-col"
                     >
                         {/* Text Area — above animation on mobile */}
                         <div className="px-6 pt-4 pb-2 flex flex-col items-center text-center max-w-md mx-auto">
@@ -532,15 +532,15 @@ export default function ContractorWelcome() {
                             </motion.p>
                         </div>
 
-                        {/* Animation Container */}
-                        <div className="flex-1 w-full relative flex items-center justify-center overflow-hidden px-4 max-h-[55vh]">
+                        {/* Animation Container — takes remaining space */}
+                        <div className="flex-1 w-full relative flex items-center justify-center overflow-hidden px-4">
                             {slides[currentSlide].component}
                         </div>
                     </motion.div>
                 </AnimatePresence>
 
-                {/* Bottom section — indicators + button always visible */}
-                <div className="flex-shrink-0 pb-6 pt-2">
+                {/* Bottom section — pinned to bottom */}
+                <div className="mt-auto flex-shrink-0 pb-6 pt-4">
                     {/* Indicators */}
                     <div className="flex justify-center gap-2 mb-4">
                         {slides.map((_, idx) => (
