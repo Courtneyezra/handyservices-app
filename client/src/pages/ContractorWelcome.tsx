@@ -97,15 +97,6 @@ function CalendarFillAnimation() {
                 </motion.div>
             </motion.div>
 
-            {/* Floating "Job Added" toast */}
-            <motion.div
-                initial={{ x: 80, opacity: 0 }}
-                animate={{ x: 0, opacity: [0, 1, 1, 0] }}
-                transition={{ delay: 1.0, duration: 2, times: [0, 0.1, 0.7, 1] }}
-                className="absolute top-16 right-4 bg-emerald-500 text-white px-3 py-2 rounded-xl shadow-lg text-xs font-semibold z-20 flex items-center gap-1.5"
-            >
-                <Check size={12} /> Job added
-            </motion.div>
         </div>
     );
 }
@@ -115,8 +106,6 @@ function SkillsMatchAnimation() {
         { id: "plumbing", label: "Plumbing", icon: <Droplets size={14} />, color: "bg-blue-500" },
         { id: "electrical", label: "Electrical", icon: <Zap size={14} />, color: "bg-amber-500" },
         { id: "joinery", label: "Joinery", icon: <Hammer size={14} />, color: "bg-orange-600" },
-        { id: "tiling", label: "Tiling", icon: <Grid3X3 size={14} />, color: "bg-cyan-500" },
-        { id: "decorating", label: "Decorating", icon: <PaintBucket size={14} />, color: "bg-pink-500" },
         { id: "handyman", label: "Handyman", icon: <Wrench size={14} />, color: "bg-violet-500" },
     ];
 
@@ -192,144 +181,89 @@ const TRADE_RATES = [
     { id: "handyman", label: "Handyman", icon: <Wrench size={14} />, color: "bg-violet-500", min: 25, max: 55, sweet: 40 },
 ] as const;
 
-function RateAnimation() {
-    const [tradeIndex, setTradeIndex] = useState(0);
-    const [animatedRate, setAnimatedRate] = useState(TRADE_RATES[0].min);
-    const [settling, setSettling] = useState(false);
+function PaymentNotificationsAnimation() {
+    const payments = [
+        { job: "Tap repair", area: "NG5", amount: "85.00", time: "Today, 2:34pm" },
+        { job: "TV mounting", area: "NG3", amount: "65.00", time: "Yesterday, 4:12pm" },
+        { job: "Flat pack assembly", area: "NG7", amount: "70.00", time: "Mon, 11:45am" },
+    ];
 
-    const trade = TRADE_RATES[tradeIndex];
+    const [runningTotal, setRunningTotal] = useState(0);
+    const targetTotal = 220;
 
-    // Animate rate climbing from min → sweet spot, then cycle to next trade
+    // Animate running total after all cards land
     useEffect(() => {
-        let step = 0;
-        const stepsToSweet = 12;
-        const rateRange = trade.sweet - trade.min;
-        setAnimatedRate(trade.min);
-        setSettling(false);
-
-        const climbInterval = setInterval(() => {
-            step++;
-            if (step <= stepsToSweet) {
-                // Ease-out curve: fast start, slow finish
-                const progress = 1 - Math.pow(1 - (step / stepsToSweet), 2);
-                setAnimatedRate(Math.round(trade.min + rateRange * progress));
-            } else if (step === stepsToSweet + 1) {
-                setSettling(true);
-            } else if (step > stepsToSweet + 12) {
-                // Move to next trade after a pause
-                clearInterval(climbInterval);
-                setTradeIndex(prev => (prev + 1) % TRADE_RATES.length);
-            }
-        }, 120);
-
-        return () => clearInterval(climbInterval);
-    }, [tradeIndex]);
-
-    const dailyEarnings = animatedRate * 4; // Half-day slot (AM or PM = 4 hours)
-    const sliderPercent = ((animatedRate - trade.min) / (trade.max - trade.min)) * 100;
-    const sweetPercent = ((trade.sweet - trade.min) / (trade.max - trade.min)) * 100;
+        const startDelay = setTimeout(() => {
+            let current = 0;
+            const steps = 20;
+            const increment = targetTotal / steps;
+            const interval = setInterval(() => {
+                current += increment;
+                if (current >= targetTotal) {
+                    setRunningTotal(targetTotal);
+                    clearInterval(interval);
+                } else {
+                    setRunningTotal(Math.round(current));
+                }
+            }, 40);
+            return () => clearInterval(interval);
+        }, 2200);
+        return () => clearTimeout(startDelay);
+    }, []);
 
     return (
-        <div className="relative w-full h-full flex items-center justify-center">
+        <div className="relative w-full h-full flex items-center justify-center px-4">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.08),transparent_70%)]" />
 
-            <motion.div
-                initial={{ y: 30, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.4 }}
-                className="w-full max-w-xs bg-slate-900 rounded-2xl shadow-xl border border-slate-700 p-5 relative z-10 text-center"
-            >
-                {/* Trade chip */}
-                <AnimatePresence mode="wait">
+            <div className="w-full max-w-xs relative z-10 space-y-2.5">
+                {/* Payment cards — Monzo style */}
+                {payments.map((payment, idx) => (
                     <motion.div
-                        key={trade.id}
-                        initial={{ opacity: 0, y: -8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 8 }}
-                        transition={{ duration: 0.2 }}
-                        className="inline-flex items-center gap-2 bg-slate-800 rounded-full px-3 py-1.5 mb-3"
-                    >
-                        <div className={`w-5 h-5 rounded-full ${trade.color} flex items-center justify-center text-white`}>
-                            {trade.icon}
-                        </div>
-                        <span className="text-xs font-semibold text-slate-300">{trade.label}</span>
-                    </motion.div>
-                </AnimatePresence>
-
-                {/* Rate Display */}
-                <div className="text-4xl font-black text-white mb-0.5 tabular-nums">
-                    £{animatedRate}
-                </div>
-                <div className="text-slate-400 text-sm mb-5">/hour</div>
-
-                {/* Slider Track with warm zone */}
-                <div className="relative h-2.5 bg-slate-100 rounded-full mb-1.5">
-                    {/* Warm zone highlight */}
-                    <div
-                        className="absolute top-0 h-2.5 bg-emerald-100 rounded-full"
-                        style={{
-                            left: `${sweetPercent - 12}%`,
-                            width: "24%",
+                        key={payment.job}
+                        initial={{ y: -30, opacity: 0, scale: 0.95 }}
+                        animate={{ y: 0, opacity: 1, scale: 1 }}
+                        transition={{
+                            delay: 0.4 + (idx * 0.5),
+                            type: "spring",
+                            stiffness: 300,
+                            damping: 24,
                         }}
-                    />
-                    {/* Sweet spot marker */}
-                    <div
-                        className="absolute top-0 h-2.5 w-1 bg-emerald-400 rounded-full"
-                        style={{ left: `${sweetPercent}%` }}
-                    />
-                    {/* Fill */}
-                    <motion.div
-                        className="absolute top-0 left-0 h-2.5 bg-[#6C6CFF] rounded-full"
-                        animate={{ width: `${sliderPercent}%` }}
-                        transition={{ duration: 0.1 }}
-                    />
-                    {/* Thumb */}
-                    <motion.div
-                        className="absolute top-1/2 -translate-y-1/2 w-5 h-5 bg-[#6C6CFF] rounded-full border-2 border-white shadow-md"
-                        animate={{ left: `${sliderPercent}%` }}
-                        transition={{ duration: 0.1 }}
-                        style={{ marginLeft: "-10px" }}
-                    />
-                </div>
-                {/* Range labels */}
-                <div className="flex justify-between text-[10px] text-slate-300 mb-4 px-0.5">
-                    <span>£{trade.min}</span>
-                    <span>£{trade.max}</span>
-                </div>
+                        className="bg-white rounded-2xl p-3.5 shadow-lg border-l-4 border-emerald-500 flex items-center gap-3"
+                    >
+                        {/* Green circle icon */}
+                        <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
+                            <ArrowRight size={16} className="text-white rotate-[-135deg]" />
+                        </div>
 
-                {/* Sweet spot label */}
-                <AnimatePresence>
-                    {settling && (
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.9 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="text-[10px] text-emerald-600 font-semibold mb-3 flex items-center justify-center gap-1"
-                        >
-                            <Check size={10} /> Recommended fill-up rate: £{trade.sweet}/hr
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+                        {/* Details */}
+                        <div className="flex-1 min-w-0">
+                            <div className="text-sm font-bold text-slate-900">{payment.job}</div>
+                            <div className="text-[11px] text-slate-400">{payment.area} · {payment.time}</div>
+                        </div>
 
-                {/* Daily Earnings */}
-                <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
-                    <div className="text-emerald-600 text-xs font-medium mb-0.5">Per half-day slot</div>
-                    <div className="text-2xl font-black text-emerald-700 tabular-nums">
-                        £{dailyEarnings}
-                    </div>
-                    <div className="text-emerald-500 text-xs">instead of £0</div>
-                </div>
+                        {/* Amount */}
+                        <div className="text-right flex-shrink-0">
+                            <div className="text-base font-black text-emerald-600 tabular-nums">
+                                +£{payment.amount}
+                            </div>
+                        </div>
+                    </motion.div>
+                ))}
 
-                {/* Paid Badge */}
+                {/* Running total */}
                 <motion.div
-                    initial={{ scale: 0, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ delay: 2.0, type: "spring", stiffness: 300 }}
-                    className="absolute -top-3 -right-3 bg-emerald-500 text-white text-[10px] font-bold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 2.2 }}
+                    className="flex items-center justify-between pt-2 px-1"
                 >
-                    <Clock size={10} /> Paid in 48hrs
+                    <span className="text-xs font-medium text-slate-400">This week</span>
+                    <span className="text-xl font-black text-white tabular-nums">
+                        £{runningTotal}
+                    </span>
                 </motion.div>
-            </motion.div>
+            </div>
+
         </div>
     );
 }
@@ -457,7 +391,7 @@ const slides = [
         id: 3,
         title: "Fill Your Spare Days. Get Paid.",
         desc: "Set your fill-up rate — what you earn when we fill days you'd otherwise have free.",
-        component: <RateAnimation />,
+        component: <PaymentNotificationsAnimation />,
     },
     {
         id: 4,
