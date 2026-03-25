@@ -443,6 +443,7 @@ const slides = [
     {
         id: 1,
         title: "PROFIT FROM YOUR SPARE DAYS",
+        highlight: "SPARE DAYS",
         desc: "We connect you with ready-to-go jobs in your area. You pick the days. We handle the rest.",
         component: <CalendarFillAnimation />,
     },
@@ -525,7 +526,14 @@ export default function ContractorWelcome() {
                                             : 'text-xl sm:text-2xl'
                                     }`}
                                 >
-                                    {slides[currentSlide].title}
+                                    {slides[currentSlide].highlight
+                                        ? <>
+                                            {slides[currentSlide].title.split(slides[currentSlide].highlight!)[0]}
+                                            <span className="text-[#6C6CFF]">{slides[currentSlide].highlight}</span>
+                                            {slides[currentSlide].title.split(slides[currentSlide].highlight!)[1]}
+                                          </>
+                                        : slides[currentSlide].title
+                                    }
                                 </motion.h2>
                                 <motion.p
                                     key={`d-${currentSlide}`}
