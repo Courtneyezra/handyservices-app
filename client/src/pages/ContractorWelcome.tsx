@@ -519,8 +519,7 @@ export default function ContractorWelcome() {
                                     initial={{ opacity: 0, y: 10 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ delay: 0.1 }}
-                                    className="text-2xl sm:text-3xl font-black text-white mb-2 leading-none tracking-tight"
-                                    style={{ fontFamily: "'Georgia', 'Times New Roman', serif" }}
+                                    className="text-xl sm:text-2xl font-bold text-white mb-1.5 leading-tight"
                                 >
                                     {slides[currentSlide].title}
                                 </motion.h2>
