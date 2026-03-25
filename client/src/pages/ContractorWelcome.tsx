@@ -510,31 +510,34 @@ export default function ContractorWelcome() {
                         transition={{ duration: 0.3 }}
                         className="flex-1 flex flex-col"
                     >
-                        {/* Text Area — above animation on mobile */}
-                        <div className="px-6 pt-4 pb-2 flex flex-col items-center text-center max-w-md mx-auto">
-                            <motion.h2
-                                key={`t-${currentSlide}`}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: 0.1 }}
-                                className="text-xl sm:text-2xl font-bold text-white mb-1.5 leading-tight"
-                            >
-                                {slides[currentSlide].title}
-                            </motion.h2>
-                            <motion.p
-                                key={`d-${currentSlide}`}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: 0.2 }}
-                                className="text-slate-400 text-sm leading-relaxed"
-                            >
-                                {slides[currentSlide].desc}
-                            </motion.p>
-                        </div>
+                        {/* Content group — text + animation centered together */}
+                        <div className="flex-1 flex flex-col items-center justify-center px-4">
+                            {/* Text */}
+                            <div className="pb-4 flex flex-col items-center text-center max-w-md">
+                                <motion.h2
+                                    key={`t-${currentSlide}`}
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: 0.1 }}
+                                    className="text-xl sm:text-2xl font-bold text-white mb-1.5 leading-tight"
+                                >
+                                    {slides[currentSlide].title}
+                                </motion.h2>
+                                <motion.p
+                                    key={`d-${currentSlide}`}
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: 0.2 }}
+                                    className="text-slate-400 text-sm leading-relaxed"
+                                >
+                                    {slides[currentSlide].desc}
+                                </motion.p>
+                            </div>
 
-                        {/* Animation Container — takes remaining space */}
-                        <div className="flex-1 w-full relative flex items-center justify-center overflow-hidden px-4">
+                            {/* Animation */}
+                            <div className="w-full h-[280px] relative flex items-center justify-center overflow-hidden">
                             {slides[currentSlide].component}
+                            </div>
                         </div>
                     </motion.div>
                 </AnimatePresence>
