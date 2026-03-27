@@ -18,6 +18,7 @@ import {
     ClipboardCheck,
     HelpCircle,
     Video,
+    Eye,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -63,6 +64,7 @@ interface PipelineItem {
     hasWhatsAppWindow: boolean;
     quoteId?: string;
     quoteSlug?: string;
+    quoteViewCount: number;
     createdAt: string | null;
 }
 
@@ -147,6 +149,9 @@ function LeadChip({ item, onClick }: { item: PipelineItem; onClick: () => void }
                     >
                         {item.slaStatus === 'overdue' && <AlertTriangle className="h-3 w-3 text-red-500 flex-shrink-0" />}
                         {item.slaStatus === 'warning' && <Clock className="h-3 w-3 text-yellow-500 flex-shrink-0" />}
+                        {item.quoteViewCount >= 3 && !item.stage.startsWith('booked') && !item.stage.startsWith('completed') && (
+                            <Eye className="h-3 w-3 text-orange-500 flex-shrink-0" />
+                        )}
                         <span className="truncate">{item.customerName.split(' ')[0]}</span>
                     </button>
                 </TooltipTrigger>
@@ -158,6 +163,12 @@ function LeadChip({ item, onClick }: { item: PipelineItem; onClick: () => void }
                             <Clock className="h-3 w-3" />
                             <span>{item.timeInStage} in stage</span>
                         </div>
+                        {item.quoteViewCount >= 3 && (
+                            <div className="flex items-center gap-2 text-xs text-orange-500 font-medium">
+                                <Eye className="h-3 w-3" />
+                                <span>{item.quoteViewCount} quote views — follow up!</span>
+                            </div>
+                        )}
                         <p className="text-xs text-primary">{item.nextAction}</p>
                     </div>
                 </TooltipContent>
@@ -219,6 +230,29 @@ function LeadDetailPanel({
                         )}
                     </div>
                 </div>
+
+                {/* Quote View Alert */}
+                {item.quoteViewCount >= 3 && (
+                    <div className="rounded-lg border border-orange-300 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 p-3 space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-medium text-orange-700 dark:text-orange-400">
+                            <Eye className="h-4 w-4" />
+                            {item.quoteViewCount} quote views — not booked
+                        </div>
+                        <p className="text-xs text-orange-600 dark:text-orange-500">Customer is interested but hesitating. Follow up now.</p>
+                        <Button
+                            size="sm"
+                            className="w-full bg-green-600 hover:bg-green-700 text-white"
+                            onClick={() => {
+                                const firstName = item.customerName.split(' ')[0];
+                                const msg = `Hi ${firstName}! I noticed you've been looking at your quote — happy to answer any questions or adjust anything. Just let me know!`;
+                                window.open(`https://wa.me/${item.phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+                            }}
+                        >
+                            <MessageSquare className="h-4 w-4 mr-1" />
+                            Follow Up on WhatsApp
+                        </Button>
+                    </div>
+                )}
 
                 {/* Job */}
                 <div className="space-y-2">

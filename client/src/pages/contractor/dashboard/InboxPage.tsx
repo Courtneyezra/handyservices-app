@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquare, Phone, Globe, Mic, CheckCircle2, Loader2, Check, ChevronDown, MapPin, Play } from "lucide-react";
+import { MessageSquare, Phone, Globe, Mic, CheckCircle2, Loader2, Check, ChevronDown, MapPin, Play, Eye, PhoneCallback } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { openWhatsApp, getWhatsAppErrorMessage } from "@/lib/whatsapp-helper";
@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 // Types
 interface InboxItem {
     id: string;
-    itemType: 'call' | 'lead';
+    itemType: 'call' | 'lead' | 'quote_views';
     customerName: string;
     phone: string;
     summary: string | null;
@@ -26,6 +26,28 @@ interface InboxItem {
     outcome: string | null;
 }
 
+type TabFilter = 'all' | 'quote_views' | 'ai_calls' | 'web_forms';
+
+const TABS: { key: TabFilter; label: string; icon: React.ReactNode; color: string }[] = [
+    { key: 'all', label: 'All', icon: null, color: 'text-foreground' },
+    { key: 'quote_views', label: 'Quote Views', icon: <Eye className="w-3.5 h-3.5" />, color: 'text-orange-400' },
+    { key: 'ai_calls', label: 'AI Calls', icon: <Mic className="w-3.5 h-3.5" />, color: 'text-purple-400' },
+    { key: 'web_forms', label: 'Web Forms', icon: <Globe className="w-3.5 h-3.5" />, color: 'text-blue-400' },
+];
+
+function getItemTab(item: InboxItem): TabFilter {
+    if (item.itemType === 'quote_views') return 'quote_views';
+    if (item.itemType === 'call' || item.source.includes('AI Agent')) return 'ai_calls';
+    return 'web_forms';
+}
+
+// Card border accent by type
+function getCardAccent(item: InboxItem): string {
+    if (item.itemType === 'quote_views') return 'border-l-orange-500';
+    if (item.itemType === 'call' || item.source.includes('AI Agent')) return 'border-l-purple-500';
+    return 'border-l-blue-500';
+}
+
 function getUrgencyDot(urgency: number) {
     switch (urgency) {
         case 1: return "bg-red-500 animate-pulse";
@@ -36,6 +58,9 @@ function getUrgencyDot(urgency: number) {
 }
 
 function getSourceBadge(source: string) {
+    if (source.includes('Quote Views')) {
+        return { bg: "bg-orange-500/15 text-orange-400", label: source };
+    }
     if (source.includes('Missed') || source.includes('Hung Up') || source.includes('Busy')) {
         return { bg: "bg-red-500/15 text-red-400", label: source };
     }
@@ -53,6 +78,9 @@ function getSourceBadge(source: string) {
 
 function getSourceIcon(source: string) {
     const cls = "w-3.5 h-3.5";
+    if (source.includes('Quote Views')) {
+        return <Eye className={cls} />;
+    }
     if (source.includes('Missed') || source.includes('Out-of-Hours') || source.includes('Hung Up') || source.includes('Busy')) {
         return <Phone className={cls} />;
     }
@@ -67,7 +95,17 @@ function getSourceIcon(source: string) {
 
 function buildFollowUpMessage(item: InboxItem): string {
     const name = item.customerName?.split(' ')[0] || 'there';
-    return `Hi ${name}, thanks for getting in touch with V6 Handyman Services! I'm following up on your enquiry. When's a good time to discuss?`;
+    if (item.itemType === 'quote_views') {
+        return `Hi ${name}! I noticed you've been looking at your quote — happy to answer any questions or adjust anything. Just let me know!`;
+    }
+    // Extract first line of job summary for context (before any transcript)
+    const jobContext = item.summary
+        ? item.summary.split('\n')[0].substring(0, 100).trim()
+        : '';
+    if (jobContext && name !== 'Unknown' && name !== 'Website Visitor') {
+        return `Hi ${name}, it's Handy Services. Are you still interested in a quote for ${jobContext.toLowerCase()}?`;
+    }
+    return `Hi ${name}, it's Handy Services. Are you still interested in getting a quote? Let us know and we'll get one across to you.`;
 }
 
 // Subscribe to Web Push via service worker (works even when app is backgrounded)
@@ -111,6 +149,7 @@ async function subscribeToPush() {
 export default function InboxPage() {
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [resolvingIds, setResolvingIds] = useState<Set<string>>(new Set());
+    const [activeTab, setActiveTab] = useState<TabFilter>('all');
     const queryClient = useQueryClient();
     const { toast } = useToast();
 
@@ -133,6 +172,22 @@ export default function InboxPage() {
 
     // Filter out items being resolved (optimistic removal)
     const visibleItems = inboxItems.filter(item => !resolvingIds.has(item.id));
+
+    // Tab counts
+    const tabCounts = useMemo(() => {
+        const counts: Record<TabFilter, number> = { all: 0, quote_views: 0, ai_calls: 0, web_forms: 0 };
+        visibleItems.forEach(item => {
+            counts.all++;
+            counts[getItemTab(item)]++;
+        });
+        return counts;
+    }, [visibleItems]);
+
+    // Filtered items by active tab
+    const filteredItems = useMemo(() => {
+        if (activeTab === 'all') return visibleItems;
+        return visibleItems.filter(item => getItemTab(item) === activeTab);
+    }, [visibleItems, activeTab]);
 
     // WebSocket for real-time UI updates (push notifications handled by service worker)
     useEffect(() => {
@@ -211,17 +266,52 @@ export default function InboxPage() {
         }
     }, [handleResolve, toast]);
 
+    // Call back + auto-resolve
+    const handleCallBack = useCallback((item: InboxItem) => {
+        window.open(`tel:${item.phone}`, '_blank');
+        handleResolve(item.id);
+    }, [handleResolve]);
+
     return (
         <div className="min-h-screen bg-background pb-20">
             {/* Header */}
-            <div className="sticky top-0 z-10 bg-card border-b border-border px-4 py-3">
-                <div className="flex items-center justify-between">
+            <div className="sticky top-0 z-10 bg-card border-b border-border">
+                <div className="flex items-center justify-between px-4 py-3">
                     <h1 className="text-lg font-bold text-foreground">Follow-Ups</h1>
                     {visibleItems.length > 0 && (
                         <span className="bg-amber-500/20 text-amber-400 text-xs font-bold px-2.5 py-1 rounded-full">
                             {visibleItems.length} pending
                         </span>
                     )}
+                </div>
+
+                {/* Filter Tabs */}
+                <div className="flex px-2 pb-2 gap-1 overflow-x-auto">
+                    {TABS.map(tab => (
+                        <button
+                            key={tab.key}
+                            onClick={() => setActiveTab(tab.key)}
+                            className={cn(
+                                "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all",
+                                activeTab === tab.key
+                                    ? "bg-foreground text-background"
+                                    : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                            )}
+                        >
+                            {tab.icon}
+                            {tab.label}
+                            {tabCounts[tab.key] > 0 && (
+                                <span className={cn(
+                                    "ml-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full",
+                                    activeTab === tab.key
+                                        ? "bg-background/20 text-background"
+                                        : "bg-muted text-muted-foreground"
+                                )}>
+                                    {tabCounts[tab.key]}
+                                </span>
+                            )}
+                        </button>
+                    ))}
                 </div>
             </div>
 
@@ -232,17 +322,18 @@ export default function InboxPage() {
                         <Loader2 className="w-6 h-6 animate-spin mr-2" />
                         Loading...
                     </div>
-                ) : visibleItems.length === 0 ? (
+                ) : filteredItems.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
                         <CheckCircle2 className="w-12 h-12 mb-3 opacity-30" />
                         <p className="font-medium">All caught up!</p>
-                        <p className="text-sm mt-1">No pending follow-ups</p>
+                        <p className="text-sm mt-1">No pending follow-ups{activeTab !== 'all' ? ` in ${TABS.find(t => t.key === activeTab)?.label}` : ''}</p>
                     </div>
                 ) : (
                     <AnimatePresence initial={false} mode="popLayout">
-                        {visibleItems.map((item) => {
+                        {filteredItems.map((item) => {
                             const isExpanded = expandedId === item.id;
                             const badge = getSourceBadge(item.source);
+                            const isCall = item.itemType === 'call' || item.source.includes('AI Agent');
                             return (
                                 <motion.div
                                     key={item.id}
@@ -251,7 +342,10 @@ export default function InboxPage() {
                                     animate={{ opacity: 1, y: 0 }}
                                     exit={{ opacity: 0, x: -100, height: 0, marginBottom: 0 }}
                                     transition={{ duration: 0.3 }}
-                                    className="bg-card rounded-xl border border-border shadow-sm overflow-hidden"
+                                    className={cn(
+                                        "bg-card rounded-xl border shadow-sm overflow-hidden border-l-4",
+                                        getCardAccent(item)
+                                    )}
                                 >
                                     {/* Card header — tap to expand */}
                                     <button
@@ -348,13 +442,33 @@ export default function InboxPage() {
                                             WhatsApp
                                         </button>
                                         <div className="w-px bg-border" />
-                                        <button
-                                            onClick={() => handleResolve(item.id)}
-                                            className="flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold text-muted-foreground active:bg-muted/50 transition-colors"
-                                        >
-                                            <Check className="w-4 h-4" />
-                                            Dealt With
-                                        </button>
+                                        {isCall ? (
+                                            <>
+                                                <button
+                                                    onClick={() => handleCallBack(item)}
+                                                    className="flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold text-purple-400 bg-purple-500/10 active:bg-purple-500/20 transition-colors"
+                                                >
+                                                    <Phone className="w-4 h-4" />
+                                                    Call Back
+                                                </button>
+                                                <div className="w-px bg-border" />
+                                                <button
+                                                    onClick={() => handleResolve(item.id)}
+                                                    className="flex-[0.7] flex items-center justify-center gap-2 py-3 text-sm font-semibold text-muted-foreground active:bg-muted/50 transition-colors"
+                                                >
+                                                    <Check className="w-4 h-4" />
+                                                    Done
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <button
+                                                onClick={() => handleResolve(item.id)}
+                                                className="flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold text-muted-foreground active:bg-muted/50 transition-colors"
+                                            >
+                                                <Check className="w-4 h-4" />
+                                                Dealt With
+                                            </button>
+                                        )}
                                     </div>
                                 </motion.div>
                             );

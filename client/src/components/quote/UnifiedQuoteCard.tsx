@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Check, Calendar, Clock, Tag, Shield, Zap,
   ChevronRight, Percent, Sparkles, Star, Plus,
-  Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle
+  Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -82,6 +82,8 @@ interface UnifiedQuoteCardProps {
   payInFullDiscountPercent?: number;
   /** Flexible timing downsell discount percentage (0-100). Default from SchedulingConfig. */
   flexibleDiscountPercent?: number;
+  /** Quote short slug for WhatsApp deep-link. */
+  shortSlug?: string;
 }
 
 export function UnifiedQuoteCard({
@@ -103,6 +105,7 @@ export function UnifiedQuoteCard({
   depositPercent: depositPercentProp,
   payInFullDiscountPercent: payInFullDiscountPercentProp,
   flexibleDiscountPercent: flexibleDiscountPercentProp,
+  shortSlug,
 }: UnifiedQuoteCardProps) {
   // Booking mode flags — when bookingModes is provided, only show those options
   const showStandardDate = !bookingModes || bookingModes.includes('standard_date');
@@ -132,7 +135,6 @@ export function UnifiedQuoteCard({
   const [selectedAddOns, setSelectedAddOns] = useState<string[]>([]);
   const [useDownsell, setUseDownsell] = useState(false);
   const [showAllDates, setShowAllDates] = useState(false);
-  const [showBreakdown, setShowBreakdown] = useState(false);
   const [payFull, setPayFull] = useState(false);
 
   // Deposit / Pay-in-full config (configurable via admin pricing settings)
@@ -608,68 +610,56 @@ export function UnifiedQuoteCard({
             }
           </div>
 
-          {/* Collapsible Price Breakdown */}
+          {/* Inline Price Breakdown (always visible) */}
           {pricingLineItems && pricingLineItems.length > 0 && (
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={() => setShowBreakdown(prev => !prev)}
-                className={`mx-auto flex items-center gap-1.5 text-xs font-medium transition-colors ${
-                  isDarkTheme ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                See price breakdown
-                <motion.span
-                  animate={{ rotate: showBreakdown ? 180 : 0 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <ChevronRight className="w-3.5 h-3.5 rotate-90" />
-                </motion.span>
-              </button>
-              <AnimatePresence>
-                {showBreakdown && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.25, ease: 'easeInOut' }}
-                    className="overflow-hidden"
-                  >
-                    <div className={`mt-3 pt-3 border-t text-left space-y-2 ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
-                      {pricingLineItems.map((item) => (
-                        <div key={item.lineId}>
-                          <div className="flex justify-between text-sm">
-                            <span className={isDarkTheme ? 'text-slate-300' : 'text-slate-700'}>{item.description}</span>
-                            <span className={`font-medium ml-4 whitespace-nowrap ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                              £{Math.round(item.guardedPricePence / 100)}
-                            </span>
-                          </div>
-                          {(item.materialsWithMarginPence || 0) > 0 && (
-                            <div className="flex justify-between text-xs ml-4 mt-0.5">
-                              <span className={isDarkTheme ? 'text-slate-400' : 'text-slate-500'}>Materials included</span>
-                              <span className={isDarkTheme ? 'text-slate-400' : 'text-slate-500'}>
-                                £{Math.round(item.materialsWithMarginPence! / 100)}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                      {batchDiscount?.applied && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-[#7DB00E] font-medium">Multi-job discount ({batchDiscount.discountPercent}%)</span>
-                          <span className="text-[#7DB00E] font-medium">-£{Math.round(batchDiscount.savingsPence / 100)}</span>
-                        </div>
+            <div className={`mt-3 pt-3 border-t text-left space-y-2 ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
+              {pricingLineItems.map((item) => {
+                const materialsStr = (item.materialsWithMarginPence || 0) > 0
+                  ? `incl. materials`
+                  : '';
+                return (
+                  <div key={item.lineId} className="flex justify-between items-start gap-3 text-sm">
+                    <div className="min-w-0">
+                      <span className={isDarkTheme ? 'text-slate-200' : 'text-slate-800'}>{item.description}</span>
+                      {materialsStr && (
+                        <span className={`ml-1.5 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
+                          · {materialsStr}
+                        </span>
                       )}
-                      <div className={`border-t pt-2 flex justify-between font-bold ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
-                        <span className={isDarkTheme ? 'text-white' : 'text-slate-900'}>Total</span>
-                        <span className="text-[#7DB00E]">£{Math.round(total / 100)}</span>
-                      </div>
                     </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                    <span className={`font-medium whitespace-nowrap ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                      £{Math.round((item.guardedPricePence + (item.materialsWithMarginPence || 0)) / 100)}
+                    </span>
+                  </div>
+                );
+              })}
+              {batchDiscount?.applied && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-[#7DB00E] font-medium">Multi-job discount ({batchDiscount.discountPercent}%)</span>
+                  <span className="text-[#7DB00E] font-medium">-£{Math.round(batchDiscount.savingsPence / 100)}</span>
+                </div>
+              )}
+              <div className={`border-t pt-2 flex justify-between font-bold ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
+                <span className={isDarkTheme ? 'text-white' : 'text-slate-900'}>Total</span>
+                <span className="text-[#7DB00E]">£{Math.round(total / 100)}</span>
+              </div>
             </div>
           )}
+
+          {/* WhatsApp question link — reduces decision anxiety */}
+          <div className="mt-3 text-center">
+            <a
+              href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I have a question about my quote${shortSlug ? ` (${shortSlug})` : ''}`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`inline-flex items-center gap-1.5 text-xs transition-colors ${
+                isDarkTheme ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              Have a question? Chat with us
+            </a>
+          </div>
 
           {/* What's Included - Contextual bullets override segment-driven */}
           <div className={`mt-4 pt-4 border-t ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>

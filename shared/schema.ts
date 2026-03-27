@@ -764,6 +764,7 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     // Automation Dedup Tracking
     reminderSentAt: timestamp("reminder_sent_at"), // Quote reminder automation sent
     followupSentAt: timestamp("followup_sent_at"), // Quote viewed follow-up automation sent
+    viewNudgeSentAt: timestamp("view_nudge_sent_at"), // Nudge sent after 3rd view (dedup)
 
     // Quote Attribution (who created this quote — for VA commission tracking)
     createdBy: varchar("created_by"), // User ID of the admin/VA who created this quote
