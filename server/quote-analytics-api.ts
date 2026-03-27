@@ -388,4 +388,55 @@ router.get('/api/analytics/quotes/section-engagement', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/analytics/quotes/section-conversion
+// Joins quoteSectionEvents with personalizedQuotes to show which sections
+// correlate with conversion (booked_at IS NOT NULL).
+// ---------------------------------------------------------------------------
+router.get('/api/analytics/quotes/section-conversion', async (req, res) => {
+  try {
+    const daysBack = parseInt(req.query.days as string) || 30;
+    const since = new Date();
+    since.setDate(since.getDate() - daysBack);
+
+    const result = await db.execute(sql`
+      SELECT
+        qse.section,
+        COUNT(DISTINCT qse.quote_id) AS quotes_reached_section,
+        COUNT(DISTINCT CASE WHEN pq.booked_at IS NOT NULL THEN qse.quote_id END) AS quotes_converted,
+        ROUND(
+          100.0 * COUNT(DISTINCT CASE WHEN pq.booked_at IS NOT NULL THEN qse.quote_id END)
+          / NULLIF(COUNT(DISTINCT qse.quote_id), 0),
+          1
+        ) AS conversion_rate_percent,
+        ROUND(AVG(qse.dwell_time_ms)::numeric, 0) AS avg_dwell_ms
+      FROM quote_section_events qse
+      JOIN personalized_quotes pq ON qse.quote_id = pq.id
+      WHERE qse.created_at >= ${since}
+      GROUP BY qse.section
+      ORDER BY conversion_rate_percent DESC NULLS LAST
+    `);
+
+    return res.json({
+      period: { days: daysBack, since: since.toISOString() },
+      sections: (result.rows as Array<{
+        section: string;
+        quotes_reached_section: string;
+        quotes_converted: string;
+        conversion_rate_percent: string | null;
+        avg_dwell_ms: string;
+      }>).map(row => ({
+        section: row.section,
+        quotesReachedSection: Number(row.quotes_reached_section),
+        quotesConverted: Number(row.quotes_converted),
+        conversionRatePercent: row.conversion_rate_percent !== null ? Number(row.conversion_rate_percent) : null,
+        avgDwellMs: Math.round(Number(row.avg_dwell_ms) || 0),
+      })),
+    });
+  } catch (error) {
+    console.error('[Analytics] Section conversion error:', error);
+    return res.status(500).json({ error: 'Failed to fetch section conversion data' });
+  }
+});
+
 export default router;

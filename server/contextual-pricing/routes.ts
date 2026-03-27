@@ -12,7 +12,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
-import { eq } from 'drizzle-orm';
+import { eq, gte, and, sql } from 'drizzle-orm';
 import { generateContextualPrice } from './engine';
 import { generateMultiLinePrice } from './multi-line-engine';
 import { generateEVEPricingQuote, EVE_SEGMENT_RATES } from '../eve-pricing-engine';
@@ -532,6 +532,7 @@ const contextualQuoteInputSchema = z.object({
   email: z.string().email().optional().or(z.literal('')),
   address: z.string().optional(),
   postcode: z.string().optional(),
+  vaContext: z.string().max(2000).optional(),
 
   // Job details
   jobDescription: z.string().optional(),
@@ -622,6 +623,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         materialsCostPence: l.materialsCostPence || 0,
       })),
       signals,
+      vaContext: input.vaContext,
     };
 
     // 3. Select content from the content library based on job categories + signals
@@ -646,8 +648,57 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       );
     }
 
+    // 3b. Fetch historical win rate for similar quotes (last 90 days) — non-blocking
+    let historicalWinRate: number | undefined;
+    try {
+      const winRateResult = await db
+        .select({
+          total: sql<number>`COUNT(*)`,
+          booked: sql<number>`COUNT(CASE WHEN booked_at IS NOT NULL THEN 1 END)`,
+        })
+        .from(personalizedQuotes)
+        .where(
+          and(
+            gte(personalizedQuotes.createdAt, new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)),
+          )
+        )
+        .limit(1);
+
+      if (winRateResult[0] && Number(winRateResult[0].total) >= 5) {
+        historicalWinRate = Math.round(
+          (Number(winRateResult[0].booked) / Number(winRateResult[0].total)) * 100,
+        );
+        console.log(`[ContextualQuote] Historical win rate: ${historicalWinRate}% (${winRateResult[0].booked}/${winRateResult[0].total})`);
+      }
+    } catch {
+      // Non-blocking — if this fails, continue without win rate data
+      historicalWinRate = undefined;
+    }
+
+    // Attach win rate to the request so the LLM can calibrate confidence
+    multiLineRequest.historicalWinRate = historicalWinRate;
+
     // 4. Call multi-line pricing engine (with content-library claims if available)
     const result = await generateMultiLinePrice(multiLineRequest, approvedClaimTexts);
+
+    // 4a. Dead zone detection — £100-£200 band has 0% conversion in analytics
+    // Apply enhanced value framing as a post-processing step (after LLM has set the price)
+    const isDeadZone = result.finalPricePence >= 10000 && result.finalPricePence <= 20000;
+    if (isDeadZone) {
+      // Ensure "Fixed price — no surprises" and "90-day workmanship guarantee" are in valueBullets
+      const deadZoneValueClaims = ['Fixed price — no surprises', '90-day workmanship guarantee'];
+      for (const claim of deadZoneValueClaims) {
+        if (!result.messaging.valueBullets.includes(claim)) {
+          result.messaging.valueBullets.push(claim);
+        }
+      }
+
+      // Per-day cost reframing: anchors the price against the daily cost of procrastination
+      const pricePerDay = Math.round(result.finalPricePence / 100 / 30);
+      result.messaging.deadZoneFraming = `That's around £${pricePerDay} a day for 30 days of not having to think about this.`;
+
+      console.log(`[ContextualQuote] Dead zone detected (${result.finalPricePence}p) — enhanced framing applied. Per-day: £${pricePerDay}`);
+    }
 
     // 4b. Override booking modes from content library if available
     if (contentSelection?.bookingModes && contentSelection.bookingModes.length > 0) {
@@ -869,34 +920,59 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
 
     // 8. Build WhatsApp message
     const firstName = input.customerName.split(' ')[0] || input.customerName;
-    const whatsappValueLinesText = (result.messaging.whatsappValueLines || [])
-      .map((line) => line)
-      .join('\n');
+    const layoutTier = result.messaging.layoutTier || 'standard';
 
-    const whatsappMessage = [
-      `Hi ${firstName},`,
-      '',
-      result.messaging.contextualMessage,
-      '',
-      whatsappValueLinesText,
-      '',
-      'View your quote and book directly:',
-      quoteUrl,
-      '',
-      result.messaging.whatsappClosing,
-      '',
-      '4.9\u2605 rated \u00B7 \u00A32M insured',
-    ].join('\n');
-
-    const waPhone = formatPhoneForWhatsApp(normalizedPhone || input.phone);
-    const whatsappSendUrl = `https://wa.me/${waPhone}?text=${encodeURIComponent(whatsappMessage)}`;
-
-    // 9. Format total for display
+    // 9. Format total for display (moved before message assembly so it can be used in directPriceMessage)
     const totalPounds = result.finalPricePence / 100;
     const totalFormatted =
       totalPounds % 1 === 0
         ? `\u00A3${totalPounds.toFixed(0)}`
         : `\u00A3${totalPounds.toFixed(2)}`;
+
+    // Link label varies by job complexity — feels human, not corporate
+    const linkLabel =
+      layoutTier === 'quick'
+        ? "Here's the link:"
+        : layoutTier === 'complex'
+          ? "Got everything in the quote with a full breakdown:"
+          : "Here's the quote:";
+
+    // Add batch nudge for single-job quotes — surfaces the "while we're there" opportunity
+    const batchNudge = input.lines.length === 1
+      ? '\n\nAnything else to sort while we\'re there? Happy to add it to the same visit.'
+      : '';
+
+    const whatsappMessage = [
+      `Hey ${firstName},`,
+      '',
+      result.messaging.contextualMessage,
+      '',
+      linkLabel,
+      quoteUrl,
+      '',
+      result.messaging.whatsappClosing,
+    ].join('\n') + batchNudge;
+
+    const waPhone = formatPhoneForWhatsApp(normalizedPhone || input.phone);
+    const whatsappSendUrl = `https://wa.me/${waPhone}?text=${encodeURIComponent(whatsappMessage)}`;
+
+    // Build direct price message for quick tier jobs (no link — price inline)
+    // Round to nearest £1 for inline direct price messages — reads more human
+    const directPriceRounded = Math.round(result.finalPricePence / 100);
+    const directPriceFormatted = `£${directPriceRounded}`;
+
+    let directPriceMessage: string | null = null;
+    if (layoutTier === 'quick' && result.finalPricePence > 0) {
+      directPriceMessage = [
+        `Hey ${firstName},`,
+        '',
+        result.messaging.contextualMessage,
+        '',
+        `Fixed price: ${directPriceFormatted} — all included.`,
+        '',
+        result.messaging.whatsappClosing,
+      ].join('\n') + batchNudge;
+    }
 
     // 10. Return response
     return res.status(201).json({
@@ -906,6 +982,10 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       quoteUrl,
       whatsappMessage,
       whatsappSendUrl,
+      directPriceMessage,
+      directPriceSendUrl: directPriceMessage
+        ? `https://wa.me/${waPhone}?text=${encodeURIComponent(directPriceMessage)}`
+        : null,
       pricing: {
         totalPence: result.finalPricePence,
         totalFormatted,
@@ -924,6 +1004,9 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         ...(result.messaging.reviewReason
           ? { reviewReason: result.messaging.reviewReason }
           : {}),
+        ...(result.messaging.deadZoneFraming
+          ? { deadZoneFraming: result.messaging.deadZoneFraming }
+          : {}),
       },
       // Content library selections (for frontend rendering)
       ...(contentSelection
@@ -934,8 +1017,43 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
               hassleItems: contentSelection.hassleItems,
               images: contentSelection.images,
             },
+            selectedContent: {
+              guarantee: contentSelection.guarantee
+                ? {
+                    id: contentSelection.guarantee.id,
+                    title: contentSelection.guarantee.title,
+                    description: contentSelection.guarantee.description,
+                    items: contentSelection.guarantee.items,
+                    badges: contentSelection.guarantee.badges,
+                  }
+                : null,
+              testimonials: contentSelection.testimonials.map((t) => ({
+                id: t.id,
+                author: t.author,
+                location: t.location,
+                text: t.text,
+                rating: t.rating,
+                jobCategories: t.jobCategories,
+              })),
+              hassleItems: contentSelection.hassleItems.map((h) => ({
+                id: h.id,
+                withoutUs: h.withoutUs,
+                withUs: h.withUs,
+              })),
+              claims: contentSelection.claims.map((c) => ({
+                id: c.id,
+                text: c.text,
+                category: c.category,
+              })),
+              images: contentSelection.images.map((i) => ({
+                id: i.id,
+                url: i.url,
+                alt: i.alt,
+                placement: i.placement,
+              })),
+            },
           }
-        : {}),
+        : { selectedContent: null }),
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

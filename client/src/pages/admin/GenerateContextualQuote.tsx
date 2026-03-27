@@ -81,6 +81,8 @@ interface QuoteResult {
   quoteUrl: string;
   whatsappMessage: string;
   whatsappSendUrl: string;
+  directPriceMessage: string | null;
+  directPriceSendUrl: string | null;
   pricing: {
     totalPence: number;
     totalFormatted: string;
@@ -216,11 +218,28 @@ export default function GenerateContextualQuote() {
     previousAvgPricePence: 0,
   });
 
+  // ── VA Context ──
+  const [vaContext, setVaContext] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  // ── Behavioural signals ──
+  const [behavioralSignals, setBehavioralSignals] = useState({
+    isCommercialPremises: false,
+    wontBePresent: false,
+    priceConscious: false,
+  });
+
   // ── Call card selection ──
   const [selectedCallerId, setSelectedCallerId] = useState<string | null>(null);
 
   // ── Result ──
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
+
+  // ── Send mode: 'direct' shows inline price message, 'full' shows quote link message ──
+  const [sendMode, setSendMode] = useState<'full' | 'direct'>('direct');
 
   // ── Clipboard state ──
   const [copiedMessage, setCopiedMessage] = useState(false);
@@ -232,7 +251,7 @@ export default function GenerateContextualQuote() {
   const livePreviewAbortRef = useRef<AbortController | null>(null);
   const livePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchLivePreview = useCallback(async (items: LineItem[], sigs: ContextSignals) => {
+  const fetchLivePreview = useCallback(async (items: LineItem[], sigs: ContextSignals, enrichedContext?: string) => {
     // Cancel any in-flight request
     livePreviewAbortRef.current?.abort();
 
@@ -268,6 +287,7 @@ export default function GenerateContextualQuote() {
             previousJobCount: sigs.previousJobCount,
             previousAvgPricePence: sigs.previousAvgPricePence,
           },
+          vaContext: enrichedContext,
         }),
         signal: controller.signal,
       });
@@ -286,16 +306,25 @@ export default function GenerateContextualQuote() {
     }
   }, []);
 
-  // Debounced effect: re-fetch live preview when line items or signals change
+  // Debounced effect: re-fetch live preview when line items, signals, or context change
   useEffect(() => {
     if (livePreviewTimerRef.current) clearTimeout(livePreviewTimerRef.current);
     livePreviewTimerRef.current = setTimeout(() => {
-      fetchLivePreview(lineItems, signals);
+      const behavioralNotes = [
+        behavioralSignals.isCommercialPremises ? 'commercial premises' : '',
+        behavioralSignals.wontBePresent ? "customer won't be present" : '',
+        behavioralSignals.priceConscious ? 'customer seemed price-conscious' : '',
+      ].filter(Boolean).join(', ');
+      const enrichedVaContext = [
+        vaContext.trim(),
+        behavioralNotes ? `Additional notes: ${behavioralNotes}` : '',
+      ].filter(Boolean).join('\n') || undefined;
+      fetchLivePreview(lineItems, signals, enrichedVaContext);
     }, 600);
     return () => {
       if (livePreviewTimerRef.current) clearTimeout(livePreviewTimerRef.current);
     };
-  }, [lineItems, signals, fetchLivePreview]);
+  }, [lineItems, signals, vaContext, behavioralSignals, fetchLivePreview]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // API: Fetch recent callers
@@ -364,7 +393,7 @@ export default function GenerateContextualQuote() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   const createQuoteMutation = useMutation({
-    mutationFn: async (): Promise<QuoteResult> => {
+    mutationFn: async (enrichedVaContext?: string): Promise<QuoteResult> => {
       const adminUser = JSON.parse(localStorage.getItem('adminUser') || '{}');
       const res = await fetch('/api/pricing/create-contextual-quote', {
         method: 'POST',
@@ -391,6 +420,7 @@ export default function GenerateContextualQuote() {
             previousJobCount: signals.previousJobCount,
             previousAvgPricePence: signals.previousAvgPricePence,
           },
+          vaContext: enrichedVaContext,
           sourceCallId: selectedCallerId || undefined,
           createdBy: adminUser?.id || undefined,
           createdByName: adminUser?.name || adminUser?.email || undefined,
@@ -404,6 +434,8 @@ export default function GenerateContextualQuote() {
     },
     onSuccess: (result) => {
       setQuoteResult(result);
+      // Default to direct price for quick tier (no link), full quote for all other tiers
+      setSendMode(result.messaging.layoutTier === 'quick' && result.directPriceMessage ? 'direct' : 'full');
       toast({ title: 'Quote Created!', description: 'Ready to send via WhatsApp.' });
     },
     onError: (error: Error) => {
@@ -460,6 +492,48 @@ export default function GenerateContextualQuote() {
     parseJobMutation.mutate(jobDescription.trim());
   };
 
+  const handleToggleRecording = async () => {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+
+    try {
+      setRecordingError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'context.webm');
+
+        try {
+          const res = await fetch('/api/transcribe', { method: 'POST', body: formData });
+          const data = await res.json();
+          if (data.text) {
+            setVaContext(prev => prev ? `${prev} ${data.text}` : data.text);
+          }
+        } catch {
+          setRecordingError('Transcription failed — type it instead');
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch {
+      setRecordingError('Microphone access needed — type it instead');
+    }
+  };
+
   const handleGenerate = () => {
     if (!customerName.trim()) {
       toast({ title: 'Missing name', description: 'Customer name is required.', variant: 'destructive' });
@@ -484,12 +558,29 @@ export default function GenerateContextualQuote() {
     if (hasMaterials && signals.materialsSupply === 'labor_only') {
       setSignals((prev) => ({ ...prev, materialsSupply: 'we_supply' }));
     }
-    createQuoteMutation.mutate();
+
+    // Build enriched vaContext combining typed/spoken context with VA checkbox signals
+    const behavioralNotes = [
+      behavioralSignals.isCommercialPremises ? 'commercial premises' : '',
+      behavioralSignals.wontBePresent ? "customer won't be present" : '',
+      behavioralSignals.priceConscious ? 'customer seemed price-conscious' : '',
+    ].filter(Boolean).join(', ');
+
+    const enrichedVaContext = [
+      vaContext.trim(),
+      behavioralNotes ? `Additional notes: ${behavioralNotes}` : '',
+    ].filter(Boolean).join('\n') || undefined;
+
+    createQuoteMutation.mutate(enrichedVaContext);
   };
 
   const handleCopyMessage = () => {
     if (!quoteResult) return;
-    navigator.clipboard.writeText(quoteResult.whatsappMessage);
+    const msgToCopy =
+      sendMode === 'direct' && quoteResult.directPriceMessage
+        ? quoteResult.directPriceMessage
+        : quoteResult.whatsappMessage;
+    navigator.clipboard.writeText(msgToCopy);
     setCopiedMessage(true);
     toast({ title: 'Copied!' });
     setTimeout(() => setCopiedMessage(false), 2000);
@@ -519,13 +610,31 @@ export default function GenerateContextualQuote() {
       line_item_count: quoteResult.pricing.lineItems.length,
       batch_discount_applied: quoteResult.pricing.batchDiscount.applied,
       layout_tier: quoteResult.messaging.layoutTier,
+      send_mode: 'full',
       sent_by: 'admin', // VA sent from admin panel
     });
     window.open(quoteResult.whatsappSendUrl, '_blank');
   };
 
+  const handleSendDirectPrice = () => {
+    if (!quoteResult?.directPriceSendUrl) return;
+    trackEvent('cq_whatsapp_sent', {
+      quote_id: quoteResult.quoteId,
+      short_slug: quoteResult.shortSlug,
+      total_price_pence: quoteResult.pricing.totalPence,
+      total_price_pounds: quoteResult.pricing.totalFormatted,
+      line_item_count: quoteResult.pricing.lineItems.length,
+      batch_discount_applied: quoteResult.pricing.batchDiscount.applied,
+      layout_tier: quoteResult.messaging.layoutTier,
+      send_mode: 'direct',
+      sent_by: 'admin',
+    });
+    window.open(quoteResult.directPriceSendUrl, '_blank');
+  };
+
   const handleReset = () => {
     setQuoteResult(null);
+    setSendMode('direct');
     setCustomerName('');
     setPhone('');
     setEmail('');
@@ -534,6 +643,10 @@ export default function GenerateContextualQuote() {
     setJobDescription('');
     setLineItems([]);
     setSelectedCallerId(null);
+    setVaContext('');
+    setIsRecording(false);
+    setRecordingError(null);
+    setBehavioralSignals({ isCommercialPremises: false, wontBePresent: false, priceConscious: false });
     setSignals({
       urgency: 'standard',
       materialsSupply: 'labor_only',
@@ -905,6 +1018,15 @@ export default function GenerateContextualQuote() {
                   </Button>
                 )}
 
+                {lineItems.length === 1 && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                    <span className="text-amber-400 text-sm">💡</span>
+                    <p className="text-xs text-amber-300/80">
+                      Anything else to sort while we're there? Multi-job quotes convert 2× better.
+                    </p>
+                  </div>
+                )}
+
                 {/* Live Engine Price Preview */}
                 {lineItems.length > 0 && (
                   <>
@@ -965,6 +1087,65 @@ export default function GenerateContextualQuote() {
                     )}
                   </>
                 )}
+              </CardContent>
+            </Card>
+
+            {/* ─── Section 4b: VA Context ─── */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Customer Context</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-zinc-300">
+                      Customer Context
+                    </label>
+                    <span className="text-xs text-zinc-500">Speak or type — who are they, what's their situation</span>
+                  </div>
+
+                  {/* Record button */}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleToggleRecording}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                        isRecording
+                          ? 'bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse'
+                          : 'bg-zinc-800 text-zinc-300 border border-zinc-700 hover:border-zinc-500'
+                      }`}
+                    >
+                      <span>{isRecording ? '⏹ Stop' : '🎙 Record'}</span>
+                      {isRecording && <span className="text-xs">Recording...</span>}
+                    </button>
+                    {recordingError && (
+                      <span className="text-xs text-red-400 self-center">{recordingError}</span>
+                    )}
+                  </div>
+
+                  {/* Text area */}
+                  <textarea
+                    value={vaContext}
+                    onChange={(e) => setVaContext(e.target.value)}
+                    placeholder="e.g. Sarah's a landlord, rental in Beeston, tenant flagged a dripping tap. She won't be there, relaxed about timing, asked about price briefly but didn't push back."
+                    className="w-full h-24 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 resize-none focus:outline-none focus:border-zinc-500"
+                  />
+
+                  {/* Context quality indicator */}
+                  {vaContext.trim().length > 0 && (
+                    <div className={`flex items-center gap-2 text-xs ${
+                      vaContext.trim().length < 50 ? 'text-amber-400' :
+                      vaContext.trim().length < 120 ? 'text-lime-400' :
+                      'text-emerald-400'
+                    }`}>
+                      <span>{
+                        vaContext.trim().length < 50 ? '○ Thin context — add more if you can' :
+                        vaContext.trim().length < 120 ? '◑ Good context' :
+                        '● Rich context — great'
+                      }</span>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
 
@@ -1059,6 +1240,28 @@ export default function GenerateContextualQuote() {
                     </div>
                   </div>
                 )}
+
+                {/* Behavioural signals — what the VA noticed on the call */}
+                <div className="space-y-2 border-t border-border pt-3">
+                  <label className="text-xs font-medium text-zinc-500 uppercase tracking-wide">What you noticed on the call</label>
+                  <div className="flex flex-wrap gap-3">
+                    {[
+                      { key: 'isCommercialPremises', label: 'Commercial premises' },
+                      { key: 'wontBePresent', label: "Won't be present" },
+                      { key: 'priceConscious', label: 'Price-conscious' },
+                    ].map(({ key, label }) => (
+                      <label key={key} className="flex items-center gap-2 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={behavioralSignals[key as keyof typeof behavioralSignals]}
+                          onChange={(e) => setBehavioralSignals(prev => ({ ...prev, [key]: e.target.checked }))}
+                          className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 accent-lime-500"
+                        />
+                        <span className="text-sm text-zinc-300 group-hover:text-zinc-100">{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
@@ -1174,22 +1377,86 @@ export default function GenerateContextualQuote() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
+                {/* Quick tier: two send options */}
+                {quoteResult.messaging.layoutTier === 'quick' && quoteResult.directPriceMessage && (
+                  <div className="flex flex-col sm:flex-row gap-2 pb-1">
+                    <button
+                      onClick={() => setSendMode('direct')}
+                      className={`flex-1 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                        sendMode === 'direct'
+                          ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30'
+                          : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                          💬 Send Direct Price
+                        </span>
+                        {sendMode === 'direct' && (
+                          <Badge className="text-[10px] bg-amber-500 text-white border-0 py-0">Selected</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">Price sent in the message — no link to click</p>
+                    </button>
+                    <button
+                      onClick={() => setSendMode('full')}
+                      className={`flex-1 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                        sendMode === 'full'
+                          ? 'border-zinc-400 bg-zinc-50 dark:bg-zinc-800/50'
+                          : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+                          📋 Send Full Quote
+                        </span>
+                        {sendMode === 'full' && (
+                          <Badge variant="secondary" className="text-[10px] py-0">Selected</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">Opens the full quote page with breakdown</p>
+                    </button>
+                  </div>
+                )}
+
                 {/* Message Preview (WhatsApp bubble style) */}
                 <div className="bg-[#1a2e1a] rounded-lg p-3 sm:p-4 border border-green-800/30">
                   <div className="text-sm text-green-100/90 whitespace-pre-wrap max-h-64 overflow-y-auto leading-relaxed">
-                    {quoteResult.whatsappMessage}
+                    {sendMode === 'direct' && quoteResult.directPriceMessage
+                      ? quoteResult.directPriceMessage
+                      : quoteResult.whatsappMessage}
                   </div>
                 </div>
 
                 {/* Action Buttons */}
                 <div className="flex flex-col sm:flex-row gap-2">
-                  <Button
-                    onClick={handleSendWhatsApp}
-                    className="w-full sm:flex-1 bg-green-600 hover:bg-green-700 h-11 text-sm font-semibold"
-                  >
-                    <FaWhatsapp className="w-4 h-4 mr-2" />
-                    Send via WhatsApp
-                  </Button>
+                  {quoteResult.messaging.layoutTier === 'quick' && quoteResult.directPriceMessage ? (
+                    sendMode === 'direct' ? (
+                      <Button
+                        onClick={handleSendDirectPrice}
+                        className="w-full sm:flex-1 bg-amber-500 hover:bg-amber-600 h-11 text-sm font-semibold text-white"
+                      >
+                        <FaWhatsapp className="w-4 h-4 mr-2" />
+                        Send Direct Price
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={handleSendWhatsApp}
+                        className="w-full sm:flex-1 bg-green-600 hover:bg-green-700 h-11 text-sm font-semibold"
+                      >
+                        <FaWhatsapp className="w-4 h-4 mr-2" />
+                        Send Full Quote
+                      </Button>
+                    )
+                  ) : (
+                    <Button
+                      onClick={handleSendWhatsApp}
+                      className="w-full sm:flex-1 bg-green-600 hover:bg-green-700 h-11 text-sm font-semibold"
+                    >
+                      <FaWhatsapp className="w-4 h-4 mr-2" />
+                      Send via WhatsApp
+                    </Button>
+                  )}
                   <Button variant="outline" onClick={handleCopyMessage} className="sm:flex-1 h-10">
                     {copiedMessage ? <Check className="w-4 h-4 mr-1.5" /> : <Copy className="w-4 h-4 mr-1.5" />}
                     Copy Message

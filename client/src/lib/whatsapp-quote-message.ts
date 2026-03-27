@@ -145,53 +145,40 @@ export function buildQuoteWhatsAppMessage({
 
 export interface ContextualQuoteMessageParams {
   firstName: string;
-  jobDescription?: string;
   quoteUrl: string;
   contextualMessage: string;
-  whatsappValueLines: string[];
   whatsappClosing: string;
-  availableDates?: string[];
+  layoutTier?: 'quick' | 'standard' | 'complex';
 }
 
 /**
  * Build a WhatsApp message for contextual (non-segment) quotes.
- * Uses AI-generated contextual messaging instead of segment-based templates.
+ * Reads like a message from a real person — not a corporate notification.
+ * No footer, no feature bullets, no corporate link label.
  */
 export function buildContextualQuoteWhatsAppMessage({
   firstName,
-  jobDescription,
   quoteUrl,
   contextualMessage,
-  whatsappValueLines,
   whatsappClosing,
-  availableDates,
+  layoutTier,
 }: ContextualQuoteMessageParams): string {
-  const greeting = `Hi ${firstName},`;
+  // Link label varies by job size — stays conversational
+  const linkLabel =
+    layoutTier === 'quick'
+      ? "Here's the link:"
+      : layoutTier === 'complex'
+        ? "Got everything in the quote with a full breakdown:"
+        : "Here's the quote:";
 
-  const jobLine = jobDescription
-    ? `\n\n*Job:* ${cleanJobDescription(jobDescription)}`
-    : '';
-
-  const message = `\n\n${contextualMessage}`;
-
-  const valueLines = whatsappValueLines
-    .map(line => `✨ ${line}`)
-    .join('\n');
-
-  const link = `\n\nView your quote and book directly:\n${quoteUrl}`;
-
-  let dates = '';
-  if (availableDates && availableDates.length > 0) {
-    const dateList = availableDates
-      .slice(0, 3)
-      .map(d => `• ${d}`)
-      .join('\n');
-    dates = `\n\n*Available slots:*\n${dateList}`;
-  }
-
-  const closing = `\n\n${whatsappClosing}`;
-
-  const footer = '\n\n_4.9★ rated · £2M insured_';
-
-  return `${greeting}${jobLine}${message}\n\n${valueLines}${link}${dates}${closing}${footer}`;
+  return [
+    `Hey ${firstName},`,
+    '',
+    contextualMessage,
+    '',
+    linkLabel,
+    quoteUrl,
+    '',
+    whatsappClosing,
+  ].join('\n');
 }

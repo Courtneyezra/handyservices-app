@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "./db";
-import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, segmentEnum, invoices, invoiceTokens, contractorJobs } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, segmentEnum, invoices, invoiceTokens, contractorJobs, contentClaims, contentGuarantees, contentTestimonials, contentHassleItems, contentImages } from "@shared/schema";
+import { eq, desc, inArray } from "drizzle-orm";
 import crypto from 'crypto';
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -865,6 +865,88 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
             }
         }
 
+        // Enrich with content library objects from selectedContentIds
+        let selectedContent: {
+            guarantee: { id: number; title: string; description: string | null; items: unknown; badges: unknown } | null;
+            testimonials: { id: number; author: string; location: string | null; text: string; rating: number; jobCategories: string[] | null }[];
+            hassleItems: { id: number; withoutUs: string; withUs: string }[];
+            claims: { id: number; text: string; category: string | null }[];
+            images: { id: number; url: string; alt: string | null; placement: string | null }[];
+        } | null = null;
+
+        const contentIds = (quote as any).selectedContentIds as {
+            claimIds?: number[];
+            guaranteeId?: number | null;
+            testimonialIds?: number[];
+            hassleItemIds?: number[];
+            imageIds?: number[];
+        } | null | undefined;
+
+        if (contentIds) {
+            try {
+                const [
+                    guaranteeRows,
+                    testimonialRows,
+                    hassleItemRows,
+                    claimRows,
+                    imageRows,
+                ] = await Promise.all([
+                    contentIds.guaranteeId != null
+                        ? db.select({
+                            id: contentGuarantees.id,
+                            title: contentGuarantees.title,
+                            description: contentGuarantees.description,
+                            items: contentGuarantees.items,
+                            badges: contentGuarantees.badges,
+                          }).from(contentGuarantees).where(eq(contentGuarantees.id, contentIds.guaranteeId)).limit(1)
+                        : Promise.resolve([]),
+                    contentIds.testimonialIds && contentIds.testimonialIds.length > 0
+                        ? db.select({
+                            id: contentTestimonials.id,
+                            author: contentTestimonials.author,
+                            location: contentTestimonials.location,
+                            text: contentTestimonials.text,
+                            rating: contentTestimonials.rating,
+                            jobCategories: contentTestimonials.jobCategories,
+                          }).from(contentTestimonials).where(inArray(contentTestimonials.id, contentIds.testimonialIds))
+                        : Promise.resolve([]),
+                    contentIds.hassleItemIds && contentIds.hassleItemIds.length > 0
+                        ? db.select({
+                            id: contentHassleItems.id,
+                            withoutUs: contentHassleItems.withoutUs,
+                            withUs: contentHassleItems.withUs,
+                          }).from(contentHassleItems).where(inArray(contentHassleItems.id, contentIds.hassleItemIds))
+                        : Promise.resolve([]),
+                    contentIds.claimIds && contentIds.claimIds.length > 0
+                        ? db.select({
+                            id: contentClaims.id,
+                            text: contentClaims.text,
+                            category: contentClaims.category,
+                          }).from(contentClaims).where(inArray(contentClaims.id, contentIds.claimIds))
+                        : Promise.resolve([]),
+                    contentIds.imageIds && contentIds.imageIds.length > 0
+                        ? db.select({
+                            id: contentImages.id,
+                            url: contentImages.url,
+                            alt: contentImages.alt,
+                            placement: contentImages.placement,
+                          }).from(contentImages).where(inArray(contentImages.id, contentIds.imageIds))
+                        : Promise.resolve([]),
+                ]);
+
+                selectedContent = {
+                    guarantee: guaranteeRows[0] ?? null,
+                    testimonials: testimonialRows,
+                    hassleItems: hassleItemRows,
+                    claims: claimRows,
+                    images: imageRows,
+                };
+            } catch (contentFetchError) {
+                console.warn('[Quote GET] Failed to fetch selectedContent (non-blocking):', contentFetchError instanceof Error ? contentFetchError.message : contentFetchError);
+                // selectedContent stays null — frontend falls back to hardcoded defaults
+            }
+        }
+
         // Enrich with segment-specific tier names
         // Use the direct segment field from database (B3.4), fallback to leadClassification for legacy quotes
         const quoteSegment = quote.segment || ((quote as any).leadClassification as any)?.segment || 'UNKNOWN';
@@ -895,7 +977,8 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
                 hasContractors: matchingContractors.length > 0,
                 availableDates: availableDates,
                 matchCount: matchingContractors.length
-            }
+            },
+            selectedContent,
         });
 
     } catch (error) {

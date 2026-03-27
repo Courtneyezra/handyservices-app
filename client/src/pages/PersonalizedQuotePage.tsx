@@ -567,6 +567,24 @@ export interface PersonalizedQuote {
   batchDiscount?: BatchDiscount;
   finalPricePence?: number;
   subtotalPence?: number;
+  /** Dead zone framing note (shown near price when quote lands in £100-£200 band) */
+  deadZoneFraming?: string;
+
+  // Context signals (Phase 5b)
+  contextSignals?: {
+    urgency?: string;
+    isReturningCustomer?: boolean;
+    [key: string]: unknown;
+  };
+
+  // Content library selections (Phase 5c)
+  selectedContent?: {
+    guarantee: { id: number; title: string; copy: string; icon?: string } | null;
+    testimonials: { id: number; author: string; location?: string; text: string; rating?: number; jobCategory?: string }[];
+    hassleItems: { id: number; heading: string; body: string }[];
+    claims: { id: number; text: string; category?: string }[];
+    images: { id: number; url: string; alt?: string; context?: string }[];
+  } | null;
 }
 
 // Client Type Skins Configuration
@@ -1841,13 +1859,13 @@ function ContextualTrustStrip({ showRiskReversal = false, googleRating, reviewCo
 }
 
 /** Simple Book Now CTA — single button, date selection happens after */
-function ContextualBookNowButton({ onClick }: { onClick?: () => void }) {
+function ContextualBookNowButton({ onClick, label = 'Book Now' }: { onClick?: () => void; label?: string }) {
   return (
     <button
       onClick={onClick}
       className="w-full py-4 px-6 bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg rounded-xl shadow-lg hover:shadow-xl transition-all"
     >
-      Book Now
+      {label}
     </button>
   );
 }
@@ -2014,8 +2032,11 @@ function CategorisedPricingLineItems({
   );
 }
 
+type ReviewForCard = { text: string; author: string; detail?: string; location?: string };
+
 /** Google review card */
-function ContextualGoogleReviewCard({ review }: { review: typeof GOOGLE_REVIEWS[0] }) {
+function ContextualGoogleReviewCard({ review }: { review: ReviewForCard }) {
+  const byline = review.location || review.detail;
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4">
       <div className="flex gap-0.5 mb-2">
@@ -2024,7 +2045,7 @@ function ContextualGoogleReviewCard({ review }: { review: typeof GOOGLE_REVIEWS[
         ))}
       </div>
       <p className="text-sm text-slate-600 italic">"{review.text}"</p>
-      <p className="text-xs text-slate-400 mt-2">— {review.author}, {review.detail}</p>
+      <p className="text-xs text-slate-400 mt-2">— {review.author}{byline ? `, ${byline}` : ''}</p>
     </div>
   );
 }
@@ -2093,6 +2114,24 @@ function ContextualQuoteLayout({
   const bulletLimit = layoutTier === 'quick' ? 3 : layoutTier === 'standard' ? 4 : 5;
   const displayBullets = (quote.valueBullets || []).slice(0, bulletLimit);
 
+  // Contextual CTA copy — falls back to "Book Now"
+  const ctaCopy = (() => {
+    const signals = quote.contextSignals;
+    if (signals?.urgency === 'emergency') return 'Book Emergency Slot';
+    if (quote.selectedContent?.hassleItems?.some(h => h.heading?.toLowerCase().includes('tenant'))) return 'Sort My Rental';
+    if (layoutTier === 'quick') return 'Book Now';
+    return 'Get This Sorted';
+  })();
+
+  // Testimonials — content library if available, fall back to hardcoded
+  const testimonialsToShow: ReviewForCard[] = quote.selectedContent?.testimonials?.length
+    ? quote.selectedContent.testimonials.map(t => ({ text: t.text, author: t.author, location: t.location }))
+    : GOOGLE_REVIEWS;
+
+  // Guarantee copy — content library if available, fall back to hardcoded
+  const guaranteeCopy = quote.selectedContent?.guarantee?.copy || 'Not right? We return and fix it free. No questions.';
+  const guaranteeTitle = quote.selectedContent?.guarantee?.title || 'Our Guarantee';
+
   // Shared brand hero block
   const brandHero = (
     <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 text-center">
@@ -2129,7 +2168,7 @@ function ContextualQuoteLayout({
           Processing...
         </span>
       ) : (
-        'Book Now'
+        ctaCopy
       )}
     </Button>
   );
@@ -2165,6 +2204,11 @@ function ContextualQuoteLayout({
         £{formatPrice(totalPrice)}
       </p>
       <p className="text-xs text-slate-400 mt-1">Fixed price — no hidden extras</p>
+      {quote.deadZoneFraming && (
+        <p className="text-xs text-zinc-500 text-center mt-1 italic">
+          {quote.deadZoneFraming}
+        </p>
+      )}
     </div>
   );
 
@@ -2206,6 +2250,22 @@ function ContextualQuoteLayout({
 
         <div data-track-section="book_cta">{bookNowCTA}</div>
         <div data-track-section="trust_strip"><ContextualTrustStrip googleRating={pricingSettings?.googleRating} reviewCount={pricingSettings?.reviewCount} /></div>
+        {/* Batch nudge — show only for single job quotes */}
+        {quote.pricingLineItems && quote.pricingLineItems.length === 1 && (
+          <div className="text-center space-y-2 pt-2">
+            <p className="text-xs text-zinc-500">Got more jobs? Add them to this visit</p>
+            <a
+              href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I'd like to add another job to my quote for ${quote.customerName}`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 text-sm text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 transition-colors"
+            >
+              <span>+</span>
+              <span>Add another job to this visit</span>
+            </a>
+            <p className="text-xs text-zinc-600">One visit — everything sorted</p>
+          </div>
+        )}
         {whatsappFallback}
       </>
     );
@@ -2253,12 +2313,46 @@ function ContextualQuoteLayout({
           </div>
         )}
 
+        {/* Hassle items — why customers choose us */}
+        {quote.selectedContent?.hassleItems && quote.selectedContent.hassleItems.length > 0 && (
+          <div data-track-section="hassle_items" className="space-y-2">
+            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Why customers choose us</p>
+            <div className="space-y-2">
+              {quote.selectedContent.hassleItems.slice(0, 3).map((item) => (
+                <div key={item.id} className="flex items-start gap-3 p-3 bg-zinc-900/50 rounded-lg border border-zinc-800">
+                  <span className="text-lime-400 mt-0.5">✓</span>
+                  <div>
+                    <p className="text-sm font-medium text-zinc-200">{item.heading}</p>
+                    {item.body && <p className="text-xs text-zinc-400 mt-0.5">{item.body}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div data-track-section="book_cta">{bookNowCTA}</div>
         <div data-track-section="trust_strip"><ContextualTrustStrip googleRating={pricingSettings?.googleRating} reviewCount={pricingSettings?.reviewCount} /></div>
 
-        {/* Single Google review for social proof */}
-        <div data-track-section="google_review"><ContextualGoogleReviewCard review={GOOGLE_REVIEWS[0]} /></div>
+        {/* Single review for social proof — content library if available, hardcoded fallback */}
+        <div data-track-section="google_review"><ContextualGoogleReviewCard review={testimonialsToShow[0]} /></div>
 
+        {/* Batch nudge — show only for single job quotes */}
+        {quote.pricingLineItems && quote.pricingLineItems.length === 1 && (
+          <div className="text-center space-y-2 pt-2">
+            <p className="text-xs text-zinc-500">Got more jobs? Add them to this visit</p>
+            <a
+              href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I'd like to add another job to my quote for ${quote.customerName}`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 text-sm text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 transition-colors"
+            >
+              <span>+</span>
+              <span>Add another job to this visit</span>
+            </a>
+            <p className="text-xs text-zinc-600">One visit — everything sorted</p>
+          </div>
+        )}
         {whatsappFallback}
       </>
     );
@@ -2298,6 +2392,11 @@ function ContextualQuoteLayout({
           £{formatPrice(totalPrice)}
         </p>
         <p className="text-xs text-slate-400 mt-1">Fixed price — no hidden extras</p>
+        {quote.deadZoneFraming && (
+          <p className="text-xs text-zinc-500 text-center mt-1 italic">
+            {quote.deadZoneFraming}
+          </p>
+        )}
       </div>
 
       {/* Value bullets (max 5) */}
@@ -2311,13 +2410,31 @@ function ContextualQuoteLayout({
         </div>
       )}
 
-      {/* Guarantee statement */}
+      {/* Hassle items — why customers choose us */}
+      {quote.selectedContent?.hassleItems && quote.selectedContent.hassleItems.length > 0 && (
+        <div data-track-section="hassle_items" className="space-y-2">
+          <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">Why customers choose us</p>
+          <div className="space-y-2">
+            {quote.selectedContent.hassleItems.slice(0, 3).map((item) => (
+              <div key={item.id} className="flex items-start gap-3 p-3 bg-zinc-900/50 rounded-lg border border-zinc-800">
+                <span className="text-lime-400 mt-0.5">✓</span>
+                <div>
+                  <p className="text-sm font-medium text-zinc-200">{item.heading}</p>
+                  {item.body && <p className="text-xs text-zinc-400 mt-0.5">{item.body}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Guarantee statement — content library if available, hardcoded fallback */}
       <div data-track-section="guarantee" className="bg-[#7DB00E]/5 border border-[#7DB00E]/20 rounded-xl p-4 text-center">
         <div className="flex items-center justify-center gap-2 mb-1">
           <ShieldCheck className="w-4 h-4 text-[#7DB00E]" />
-          <p className="text-sm font-semibold text-[#7DB00E]">Our Guarantee</p>
+          <p className="text-sm font-semibold text-[#7DB00E]">{guaranteeTitle}</p>
         </div>
-        <p className="text-sm text-slate-600">Not right? We return and fix it free. No questions.</p>
+        <p className="text-sm text-slate-600">{guaranteeCopy}</p>
       </div>
 
       <div data-track-section="book_cta">{bookNowCTA}</div>
@@ -2325,13 +2442,29 @@ function ContextualQuoteLayout({
       {/* Trust strip with risk reversal for complex quotes */}
       <div data-track-section="trust_strip"><ContextualTrustStrip showRiskReversal googleRating={pricingSettings?.googleRating} reviewCount={pricingSettings?.reviewCount} /></div>
 
-      {/* Multiple Google reviews for social proof */}
+      {/* Multiple reviews for social proof — content library if available, hardcoded fallback */}
       <div data-track-section="google_reviews" className="space-y-3">
-        {GOOGLE_REVIEWS.map((review, i) => (
+        {testimonialsToShow.map((review, i) => (
           <ContextualGoogleReviewCard key={i} review={review} />
         ))}
       </div>
 
+      {/* Batch nudge — show only for single job quotes */}
+        {quote.pricingLineItems && quote.pricingLineItems.length === 1 && (
+          <div className="text-center space-y-2 pt-2">
+            <p className="text-xs text-zinc-500">Got more jobs? Add them to this visit</p>
+            <a
+              href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I'd like to add another job to my quote for ${quote.customerName}`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 text-sm text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 transition-colors"
+            >
+              <span>+</span>
+              <span>Add another job to this visit</span>
+            </a>
+            <p className="text-xs text-zinc-600">One visit — everything sorted</p>
+          </div>
+        )}
       {whatsappFallback}
     </>
   );
@@ -2454,6 +2587,10 @@ export default function PersonalizedQuotePage() {
       }
       if (!data.subtotalPence && data.pricingLayerBreakdown?.subtotalPence) {
         data.subtotalPence = data.pricingLayerBreakdown.subtotalPence;
+      }
+      // Extract deadZoneFraming from pricingLayerBreakdown.messaging if not at top level
+      if (!data.deadZoneFraming && data.pricingLayerBreakdown?.messaging?.deadZoneFraming) {
+        data.deadZoneFraming = data.pricingLayerBreakdown.messaging.deadZoneFraming;
       }
       return data;
     },
@@ -2623,7 +2760,7 @@ export default function PersonalizedQuotePage() {
         email: quote.email || undefined,
         segment: quote.segment || 'UNKNOWN',
         postcode: quote.postcode || undefined,
-        is_returning_customer: (quote as any).contextSignals?.isReturningCustomer || false,
+        is_returning_customer: quote.contextSignals?.isReturningCustomer || false,
         first_quote_date: quote.createdAt,
       });
     }

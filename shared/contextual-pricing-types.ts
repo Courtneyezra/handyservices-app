@@ -101,6 +101,12 @@ export interface QuoteMessaging {
   requiresHumanReview: boolean;
   /** Why human review is needed (only set when requiresHumanReview is true) */
   reviewReason?: string;
+  /**
+   * Dead zone framing note shown near the price when the quote lands in the
+   * £100-£200 band (0% conversion in analytics). E.g. "That's around £5 a
+   * day for 30 days of not having to think about this."
+   */
+  deadZoneFraming?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -337,6 +343,14 @@ export interface MultiLineRequest {
   lines: JobLine[];
   /** Raw contextual signals for this quote */
   signals: ContextualSignals;
+  /** Free-text context about the customer captured by the VA after speaking with them */
+  vaContext?: string;
+  /**
+   * Historical win rate percentage for similar quotes over the last 90 days
+   * (e.g. 35 means 35% of similar quotes converted). Passed to the LLM so it
+   * can calibrate confidence. Omitted when fewer than 5 comparable quotes exist.
+   */
+  historicalWinRate?: number;
 }
 
 /** Price result for a single line item */

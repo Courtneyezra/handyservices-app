@@ -176,6 +176,12 @@ IMPORTANT CONSTRAINTS:
 
 After pricing, generate customer-facing messaging for this quote.
 
+CUSTOMER CONTEXT GUARDRAILS:
+- If customer context is provided above, use it to shape ALL messaging — headline, contextualMessage, whatsappClosing, and valueBullets selection
+- NEVER invent details about the customer not present in the context (do not assume property type, situation, or preferences if not stated)
+- If no customer context is provided, use job signals only and keep messaging generic but warm
+- Customer context may be imperfect or incomplete — extract what's useful, ignore the rest
+
 APPROVED CLAIMS (you may ONLY use these exact phrases in valueBullets and whatsappValueLines):
 ${(approvedClaims || APPROVED_CLAIMS as unknown as string[]).map(c => `- "${c}"`).join('\n')}
 
@@ -187,10 +193,10 @@ Select the 3-5 most relevant claims based on the customer's context signals. For
 
 RULES:
 - contextualHeadline: Max 6 words. Punchy, specific to the job. e.g. "Your Kitchen Sorted", "Taps Fixed, Shelves Up", "Rental Ready by Friday"
-- contextualMessage: 1-2 sentences. Plain English, no marketing speak. Sounds like a friendly Nottingham tradesperson.
+- contextualMessage: 1-2 sentences. Plain English, no marketing speak. Sounds like a friendly Nottingham tradesperson texting a customer. Naturally weave in the single most relevant value point for their situation (e.g. "no need to be there" for landlords, "fixed price so no surprises" for price-conscious customers, "can get it sorted this week" for urgent jobs). Never list features. Never sound like a brochure.
 - valueBullets: Exactly 3-5 items. MUST be from APPROVED_CLAIMS list only.
 - whatsappValueLines: Exactly 2 items. MUST be from APPROVED_CLAIMS list. Pick the 2 most compelling for this customer.
-- whatsappClosing: 1 sentence. Natural, warm. Reference customer context if relevant (e.g. "Happy to coordinate with your tenant" for landlords).
+- whatsappClosing: 1 sentence. Sounds like a real person texting, not a company. Short, warm, direct. Reference their specific situation if relevant (e.g. "Happy to sort it around your tenant" for landlords, "Let me know if this week works" for standard jobs, "Can get someone there today if that helps" for emergencies). Never start with "We". Never sound like a notification.
 - proposalSummary: A professional scope-of-work summary in plain English.
   RULES:
   - 2-4 sentences maximum (40-80 words).
@@ -215,6 +221,11 @@ RULES:
 function buildUserPrompt(request: MultiLineRequest): string {
   const signals = request.signals;
 
+  let vaContextBlock = '';
+  if (request.vaContext && request.vaContext.trim().length > 0) {
+    vaContextBlock = `ABOUT THIS CUSTOMER (captured by our team after speaking with them):\n"${request.vaContext.trim()}"\n\n`;
+  }
+
   const linesList = request.lines
     .map(
       (line, i) =>
@@ -222,7 +233,11 @@ function buildUserPrompt(request: MultiLineRequest): string {
     )
     .join('\n');
 
-  return `Price these ${request.lines.length} job line(s):
+  const winRateLine = request.historicalWinRate !== undefined && request.historicalWinRate !== null
+    ? `\nHistorical context: Similar quotes convert at ${request.historicalWinRate}% — price with this in mind.`
+    : '';
+
+  return `${vaContextBlock}Price these ${request.lines.length} job line(s):
 
 ${linesList}
 
@@ -230,7 +245,7 @@ Contextual signals:
   urgency: ${signals.urgency}
   materialsSupply: ${signals.materialsSupply}
   timeOfService: ${signals.timeOfService}
-  isReturningCustomer: ${signals.isReturningCustomer ? `Yes (${signals.previousJobCount} previous jobs, avg £${signals.previousAvgPricePence !== null ? (signals.previousAvgPricePence / 100).toFixed(2) : 'N/A'})` : 'No (new customer)'}`;
+  isReturningCustomer: ${signals.isReturningCustomer ? `Yes (${signals.previousJobCount} previous jobs, avg £${signals.previousAvgPricePence !== null ? (signals.previousAvgPricePence / 100).toFixed(2) : 'N/A'})` : 'No (new customer)'}${winRateLine}`;
 }
 
 // ---------------------------------------------------------------------------

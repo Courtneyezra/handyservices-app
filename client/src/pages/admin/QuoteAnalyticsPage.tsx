@@ -100,6 +100,19 @@ interface SectionEngagementData {
   sections: SectionEngagement[];
 }
 
+interface SectionConversionRow {
+  section: string;
+  quotesReachedSection: number;
+  quotesConverted: number;
+  conversionRatePercent: number | null;
+  avgDwellMs: number;
+}
+
+interface SectionConversionData {
+  period: { days: number; since: string };
+  sections: SectionConversionRow[];
+}
+
 // Section display names and order (maps data-track-section values to labels)
 const SECTION_ORDER: Record<string, { label: string; position: number }> = {
   hero: { label: 'Hero / Brand', position: 1 },
@@ -199,6 +212,15 @@ export default function QuoteAnalyticsPage() {
       return res.json();
     },
     enabled: showPricingLayers,
+  });
+
+  const { data: sectionConversionData } = useQuery<SectionConversionData>({
+    queryKey: ['quote-analytics-section-conversion', days],
+    queryFn: async () => {
+      const res = await fetch(`/api/analytics/quotes/section-conversion?days=${days}`);
+      if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    },
   });
 
   if (isLoading || !data) {
@@ -408,6 +430,68 @@ export default function QuoteAnalyticsPage() {
               <span className="ml-2">Bar width = avg dwell time</span>
             </div>
           </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Section-to-Conversion Correlation */}
+      <Card className="border-slate-200">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-emerald-500" /> Section-to-Conversion Correlation
+          </CardTitle>
+          <p className="text-xs text-slate-400">Which sections correlate with customers who go on to book</p>
+        </CardHeader>
+        <CardContent>
+          {!sectionConversionData || sectionConversionData.sections.length === 0 ? (
+            <div className="py-6 text-center">
+              <TrendingUp className="w-8 h-8 text-slate-200 mx-auto mb-3" />
+              <p className="text-sm text-slate-400 font-medium">No conversion data yet</p>
+              <p className="text-xs text-slate-300 mt-1">Appears once customers view quotes and some go on to book</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-slate-500">
+                    <th className="pb-2 font-medium">Section</th>
+                    <th className="pb-2 font-medium text-right">Quotes reached</th>
+                    <th className="pb-2 font-medium text-right">Converted</th>
+                    <th className="pb-2 font-medium text-right">Conversion rate</th>
+                    <th className="pb-2 font-medium text-right">Avg dwell time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sectionConversionData.sections.map(row => {
+                    const rate = row.conversionRatePercent;
+                    const rateStr = rate !== null ? `${rate}%` : 'N/A';
+                    const isHighConv = rate !== null && rate >= 20;
+                    const label = SECTION_ORDER[row.section]?.label || row.section.replace(/_/g, ' ');
+                    return (
+                      <tr key={row.section} className="border-b border-slate-50">
+                        <td className="py-2 font-medium text-slate-900 capitalize">{label}</td>
+                        <td className="py-2 text-right text-slate-600">{row.quotesReachedSection}</td>
+                        <td className="py-2 text-right text-green-600 font-medium">{row.quotesConverted}</td>
+                        <td className="py-2 text-right">
+                          <Badge
+                            variant={isHighConv ? 'default' : 'secondary'}
+                            className="text-xs min-w-[50px] justify-center"
+                          >
+                            {rateStr}
+                          </Badge>
+                        </td>
+                        <td className="py-2 text-right text-slate-500">
+                          {row.avgDwellMs >= 1000
+                            ? `${(row.avgDwellMs / 1000).toFixed(1)}s`
+                            : `${row.avgDwellMs}ms`}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <p className="text-[10px] text-slate-400 mt-2">Conversion rate = % of quotes that reached this section and went on to book</p>
+            </div>
           )}
         </CardContent>
       </Card>
