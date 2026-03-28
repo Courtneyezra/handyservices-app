@@ -45,6 +45,11 @@ interface QuoteViewedProps {
   hassleItemCount?: number;
   valueBulletCount?: number;
   bookingModesShown?: BookingMode[];
+  // Contextual content identifiers (for image/headline A/B analysis)
+  imageShown?: string;             // filename or URL of image selected for this quote
+  customerType?: string;           // derived from vaContext: homeowner/landlord/professional/etc.
+  vaContextLength?: number;        // character length of vaContext — proxy for context richness
+  hasContextualHeadline?: boolean; // whether LLM-generated headline was shown
   // Meta
   isRevisit: boolean;
   hoursAfterCreation: number;
@@ -204,6 +209,11 @@ export function trackQuoteViewed(props: QuoteViewedProps): void {
     hassle_item_count: props.hassleItemCount,
     value_bullet_count: props.valueBulletCount,
     booking_modes_shown: props.bookingModesShown,
+    // Contextual content identifiers
+    image_shown: props.imageShown,
+    customer_type: props.customerType,
+    va_context_length: props.vaContextLength,
+    has_contextual_headline: props.hasContextualHeadline,
 
     // Revisit & timing
     is_revisit: props.isRevisit,

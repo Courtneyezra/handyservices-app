@@ -47,6 +47,7 @@ import contextualPricingRouter from './contextual-pricing/routes';
 import quoteAnalyticsRouter from './quote-analytics-api';
 import contentLibraryRouter from './content-library/routes';
 import contentRouter from './content';
+import quotePlatformRouter, { autoSeedIfEmpty as autoSeedQuotePlatform } from './quote-platform/routes';
 import { setupCronJobs } from './cron';
 import uploadRouter from "./upload";
 import invoiceRouter from './invoices'; // B2: Invoice management
@@ -150,6 +151,9 @@ app.get('/api/health', (req, res) => {
 
 // Start Cron Jobs
 setupCronJobs();
+
+// Auto-seed quote platform tables if empty
+autoSeedQuotePlatform();
 
 // ==========================================
 // DOMAIN ROUTING MIDDLEWARE
@@ -262,6 +266,7 @@ app.use(quotesRouter);
 app.use(contextualPricingRouter);
 app.use(quoteAnalyticsRouter);
 app.use(contentLibraryRouter);
+app.use('/api/quote-platform', quotePlatformRouter);
 app.use(leadsRouter);
 app.use('/api', voiceRouter);
 app.use('/api', reviewsRouter); // API: Google Reviews

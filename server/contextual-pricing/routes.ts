@@ -20,7 +20,7 @@ import { getAllCategories } from './reference-rates';
 import { JobCategoryValues } from '@shared/contextual-pricing-types';
 import { parseJobDescription } from './job-parser';
 import { db } from '../db';
-import { personalizedQuotes, leads } from '@shared/schema';
+import { personalizedQuotes, leads, quotePlatformImages, quotePlatformHeadlines } from '@shared/schema';
 import { normalizePhoneNumber } from '../phone-utils';
 import { selectContentForQuote } from '../content-library/selector';
 import { trackQuoteCreated } from '../posthog';
@@ -824,6 +824,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       // Contextual messaging fields
       contextualHeadline: result.messaging.contextualHeadline,
       contextualMessage: result.messaging.contextualMessage,
+      jobTopLine: result.jobTopLine || result.messaging.jobTopLine || undefined,
       proposalSummary: result.messaging.proposalSummary,
       valueBullets: result.messaging.valueBullets,
       whatsappValueLines: result.messaging.whatsappValueLines,
@@ -974,6 +975,20 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       ].join('\n') + batchNudge;
     }
 
+    // Detect managed tier signals from vaContext (landlord/remote/tenant scenarios)
+    const vaCtxLower = (input.vaContext || '').toLowerCase();
+    const MANAGED_SIGNALS = ['remote', 'away', 'tenant', 'photo', 'key collect', 'key pickup', 'landlord', "not there", "won't be", "can't be", "wont be", "cant be", 'send me', 'rental', 'airbnb', 'letting', 'buy to let', 'btl', 'estate agent'];
+    const managedTierAvailable = MANAGED_SIGNALS.some(kw => vaCtxLower.includes(kw));
+
+    // Add-on bundle: Photo Report + Tenant Coordination (£55, saving £20 vs. separate)
+    const addOnPricing = {
+      bundlePricePence: 5500,
+      bundleSavingPence: 2000,
+      bundleLabel: 'Photo Report + Tenant Coordination',
+      bundleItems: ['Full photo report on completion', 'Tenant coordination (we liaise so you don\'t have to)'],
+      individualPricePence: 7500,
+    };
+
     // 10. Return response
     return res.status(201).json({
       success: true,
@@ -986,12 +1001,15 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       directPriceSendUrl: directPriceMessage
         ? `https://wa.me/${waPhone}?text=${encodeURIComponent(directPriceMessage)}`
         : null,
+      managedTierAvailable,
+      addOnPricing,
       pricing: {
         totalPence: result.finalPricePence,
         totalFormatted,
         lineItems: result.lineItems,
         batchDiscount: result.batchDiscount,
       },
+      jobTopLine: result.jobTopLine || '',
       messaging: {
         headline: result.messaging.contextualHeadline,
         message: result.messaging.contextualMessage,
@@ -1068,6 +1086,90 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       error: 'Failed to create contextual quote',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/quote-platform/images/track-view
+// Increment view_count on a quote platform image. No auth — called from public quote page.
+// ---------------------------------------------------------------------------
+router.post('/api/quote-platform/images/track-view', async (req, res) => {
+  try {
+    const { imageId } = req.body;
+    if (!imageId || typeof imageId !== 'number') {
+      return res.status(400).json({ error: 'imageId (number) required' });
+    }
+    await db
+      .update(quotePlatformImages)
+      .set({ viewCount: sql`${quotePlatformImages.viewCount} + 1` })
+      .where(eq(quotePlatformImages.id, imageId));
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('[quote-platform/images/track-view]', error);
+    return res.status(500).json({ error: 'Failed to track image view' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/quote-platform/images/track-booking
+// Increment booking_count on a quote platform image. No auth — called from public quote page.
+// ---------------------------------------------------------------------------
+router.post('/api/quote-platform/images/track-booking', async (req, res) => {
+  try {
+    const { imageId } = req.body;
+    if (!imageId || typeof imageId !== 'number') {
+      return res.status(400).json({ error: 'imageId (number) required' });
+    }
+    await db
+      .update(quotePlatformImages)
+      .set({ bookingCount: sql`${quotePlatformImages.bookingCount} + 1` })
+      .where(eq(quotePlatformImages.id, imageId));
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('[quote-platform/images/track-booking]', error);
+    return res.status(500).json({ error: 'Failed to track image booking' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/quote-platform/headlines/track-view
+// Increment view_count on a quote platform headline variant.
+// ---------------------------------------------------------------------------
+router.post('/api/quote-platform/headlines/track-view', async (req, res) => {
+  try {
+    const { headlineId } = req.body;
+    if (!headlineId || typeof headlineId !== 'number') {
+      return res.status(400).json({ error: 'headlineId (number) required' });
+    }
+    await db
+      .update(quotePlatformHeadlines)
+      .set({ viewCount: sql`${quotePlatformHeadlines.viewCount} + 1` })
+      .where(eq(quotePlatformHeadlines.id, headlineId));
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('[quote-platform/headlines/track-view]', error);
+    return res.status(500).json({ error: 'Failed to track headline view' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/quote-platform/headlines/track-booking
+// Increment booking_count on a quote platform headline variant.
+// ---------------------------------------------------------------------------
+router.post('/api/quote-platform/headlines/track-booking', async (req, res) => {
+  try {
+    const { headlineId } = req.body;
+    if (!headlineId || typeof headlineId !== 'number') {
+      return res.status(400).json({ error: 'headlineId (number) required' });
+    }
+    await db
+      .update(quotePlatformHeadlines)
+      .set({ bookingCount: sql`${quotePlatformHeadlines.bookingCount} + 1` })
+      .where(eq(quotePlatformHeadlines.id, headlineId));
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('[quote-platform/headlines/track-booking]', error);
+    return res.status(500).json({ error: 'Failed to track headline booking' });
   }
 });
 

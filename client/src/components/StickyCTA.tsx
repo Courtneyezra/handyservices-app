@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { Phone, MessageCircle, Shield, Calendar, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { StickyTimerProgress } from "@/components/quote/QuoteTimerContext";
 
 interface StickyCTAProps {
     isVisible: boolean;
@@ -66,6 +67,8 @@ export function StickyCTA({
                     {/* Subtle Toolbox Design - Slate Theme */}
                     {/* Changed to solid bg-slate-900 for seamless tab merger */}
                     <div className="relative bg-slate-900 shadow-2xl overflow-visible border-t border-slate-700/50">
+                        {/* Timer drain bar — top edge, amber → orange → red */}
+                        <StickyTimerProgress />
 
                         {/* Top Handle (Subtle) */}
                         <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-800 rounded-full px-6 py-1 border border-slate-700 shadow-lg" />

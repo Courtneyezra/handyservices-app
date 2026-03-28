@@ -54,6 +54,7 @@ const QuoteAnalyticsPage = lazy(() => import("@/pages/admin/QuoteAnalyticsPage")
 const QuoteTestLab = lazy(() => import("@/pages/admin/QuoteTestLab"));
 const QuoteFlowDiagram = lazy(() => import("@/pages/admin/QuoteFlowDiagram"));
 const ContentLibrary = lazy(() => import("@/pages/admin/ContentLibrary"));
+const QuotePlatformPage = lazy(() => import("@/pages/admin/QuotePlatformPage"));
 const PricingSettingsPage = lazy(() => import("@/pages/admin/PricingSettingsPage"));
 const PricingEnginePage = lazy(() => import("@/pages/admin/PricingEnginePage"));
 const LiveCallTestWizard = lazy(() => import("@/pages/admin/LiveCallTestWizard"));
@@ -602,6 +603,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <ContentLibrary />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/quote-platform">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <QuotePlatformPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

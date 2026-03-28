@@ -165,7 +165,7 @@ export function UnifiedQuoteCard({
       const priceEl = priceCardRef.current;
       if (!priceEl) return;
       const rect = priceEl.getBoundingClientRect();
-      if (rect.bottom < 0) {
+      if (rect.top < 0) {
         setStickyCTAActivated(true);
       }
     };

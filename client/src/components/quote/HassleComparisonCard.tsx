@@ -42,13 +42,14 @@ const GENERIC_COMPARISONS: HassleComparison[] = [
 interface HassleComparisonCardProps {
   segment?: string;
   maxItems?: number;
+  hideTitle?: boolean;
   contextualItems?: {
     withoutUs: string[];
     withUs: string[];
   };
 }
 
-export function HassleComparisonCard({ segment, maxItems = 4, contextualItems }: HassleComparisonCardProps) {
+export function HassleComparisonCard({ segment, maxItems = 4, hideTitle = false, contextualItems }: HassleComparisonCardProps) {
   let comparisons: HassleComparison[];
 
   if (contextualItems) {
@@ -76,10 +77,12 @@ export function HassleComparisonCard({ segment, maxItems = 4, contextualItems }:
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-      <div className="px-6 py-4 bg-slate-50 border-b border-slate-100">
-        <h3 className="font-bold text-slate-800 text-lg">{headlines.title}</h3>
-        <p className="text-slate-500 text-sm mt-0.5">{headlines.subtitle}</p>
-      </div>
+      {!hideTitle && (
+        <div className="px-6 py-4 bg-slate-50 border-b border-slate-100">
+          <h3 className="font-bold text-slate-800 text-lg">{headlines.title}</h3>
+          <p className="text-slate-500 text-sm mt-0.5">{headlines.subtitle}</p>
+        </div>
+      )}
 
       {/* Desktop: 2-column grid */}
       <div className="hidden md:block divide-y divide-slate-100">

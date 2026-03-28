@@ -805,6 +805,9 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
 
     // Creation timestamp
     createdAt: timestamp("created_at").defaultNow(),
+
+    // Preserved column — exists in DB, keep to prevent data loss
+    viewNudgeSentAt: timestamp("view_nudge_sent_at"),
 });
 
 export type UrgencyReasonType = z.infer<typeof urgencyReasonEnum>;
@@ -2245,3 +2248,66 @@ export const quoteSectionEvents = pgTable("quote_section_events", {
   index("idx_section_events_section").on(table.section),
   index("idx_section_events_created").on(table.createdAt),
 ]);
+
+// ---------------------------------------------------------------------------
+// Quote Platform — Image Library
+// ---------------------------------------------------------------------------
+export const quotePlatformImages = pgTable("quote_platform_images", {
+  id: serial("id").primaryKey(),
+  url: text("url").notNull(),
+  filename: text("filename").notNull(),
+  altText: text("alt_text"),
+  archetypes: jsonb("archetypes").$type<string[]>().default([]),
+  genderCue: varchar("gender_cue", { length: 20 }).default('neutral'),
+  jobTypes: jsonb("job_types").$type<string[]>().default([]),
+  isActive: boolean("is_active").notNull().default(true),
+  viewCount: integer("view_count").notNull().default(0),
+  bookingCount: integer("booking_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_qp_images_active").on(table.isActive),
+]);
+
+// ---------------------------------------------------------------------------
+// Quote Platform — Headline Variants
+// ---------------------------------------------------------------------------
+export const quotePlatformHeadlines = pgTable("quote_platform_headlines", {
+  id: serial("id").primaryKey(),
+  section: varchar("section", { length: 50 }).notNull(), // social_proof | guarantee | hassle_comparison | hero_sub
+  text: text("text").notNull(),
+  customerType: varchar("customer_type", { length: 50 }).notNull().default('homeowners'),
+  isActive: boolean("is_active").notNull().default(true),
+  viewCount: integer("view_count").notNull().default(0),
+  bookingCount: integer("booking_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_qp_headlines_section").on(table.section),
+  index("idx_qp_headlines_active").on(table.isActive),
+]);
+
+// ---------------------------------------------------------------------------
+// Quote Platform — Testimonials
+// ---------------------------------------------------------------------------
+export const quotePlatformTestimonials = pgTable("quote_platform_testimonials", {
+  id: serial("id").primaryKey(),
+  author: text("author").notNull(),
+  text: text("text").notNull(),
+  rating: integer("rating").notNull().default(5),
+  archetype: varchar("archetype", { length: 50 }).default('homeowner'),
+  location: text("location"),
+  source: varchar("source", { length: 20 }).default('manual'),
+  isActive: boolean("is_active").notNull().default(true),
+  viewCount: integer("view_count").notNull().default(0),
+  bookingCount: integer("booking_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_qp_testimonials_archetype").on(table.archetype),
+  index("idx_qp_testimonials_active").on(table.isActive),
+]);
+
+export type QuotePlatformImage = typeof quotePlatformImages.$inferSelect;
+export type InsertQuotePlatformImage = typeof quotePlatformImages.$inferInsert;
+export type QuotePlatformHeadline = typeof quotePlatformHeadlines.$inferSelect;
+export type InsertQuotePlatformHeadline = typeof quotePlatformHeadlines.$inferInsert;
+export type QuotePlatformTestimonial = typeof quotePlatformTestimonials.$inferSelect;
+export type InsertQuotePlatformTestimonial = typeof quotePlatformTestimonials.$inferInsert;

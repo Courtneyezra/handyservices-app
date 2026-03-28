@@ -164,6 +164,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             items: [
                                 { icon: Sparkles, label: "New Quote", href: "/admin/generate-contextual-quote" },
                                 { icon: BarChart3, label: "Quote Analytics", href: "/admin/quote-analytics" },
+                                { icon: LayoutTemplate, label: "Quote Platform", href: "/admin/quote-platform" },
                                 { icon: DollarSign, label: "Quote Generator (Classic)", href: "/admin/generate-quote" },
                                 { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
                                 { icon: Wrench, label: "Booking Visits", href: "/admin/visits" },

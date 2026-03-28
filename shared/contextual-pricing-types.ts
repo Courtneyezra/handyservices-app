@@ -85,6 +85,8 @@ export interface QuoteMessaging {
   contextualHeadline: string;
   /** 1-2 sentence summary for the customer */
   contextualMessage: string;
+  /** 3-7 word polished job summary for the hero, e.g. "Dripping tap sorted for good" */
+  jobTopLine?: string;
   /** AI-generated scope-of-work summary (2-4 sentences, 40-80 words) */
   proposalSummary: string;
   /** 3-5 approved claim bullets for the quote page */
@@ -418,6 +420,8 @@ export interface MultiLineResult {
   contextualHeadline: string;
   /** Customer-facing value message */
   contextualMessage: string;
+  /** 3-7 word polished job summary for the hero */
+  jobTopLine?: string;
   /** Guardrail check results from Layer 4 */
   guardrails: GuardrailResult;
   /** LLM-generated customer-facing messaging */

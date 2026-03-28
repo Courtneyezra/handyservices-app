@@ -78,6 +78,7 @@ export interface MultiLineLLMResult {
   confidence: 'high' | 'medium' | 'low';
   contextualHeadline: string;
   contextualMessage: string;
+  jobTopLine: string;
   messaging: QuoteMessaging;
 }
 
@@ -154,6 +155,7 @@ OUTPUT FORMAT — respond with ONLY this JSON structure:
   "confidence": "high",
   "contextualHeadline": "Your Kitchen Sorted",
   "contextualMessage": "We'll fix your tap and mount those shelves in one visit.",
+  "jobTopLine": "Dripping tap fixed + shelves mounted",
   "valueBullets": ["Fixed price — no surprises", "Photo report on completion", "Full cleanup included"],
   "whatsappValueLines": ["Fixed price — no surprises", "Photo report on completion"],
   "whatsappClosing": "Happy to sort this for you. Just tap the link when you're ready.",
@@ -192,11 +194,12 @@ Select the 3-5 most relevant claims based on the customer's context signals. For
 - Property manager → "Tax-ready invoice emailed same day", "Property manager dashboard access"
 
 RULES:
-- contextualHeadline: Max 6 words. Punchy, specific to the job. e.g. "Your Kitchen Sorted", "Taps Fixed, Shelves Up", "Rental Ready by Friday"
+- contextualHeadline: Max 6 words. Punchy, outcome-focused, specific to the job. BANNED endings — never end with: "Sorted", "Done", "Complete", "Finished", "Work Done", "Job Done", "Jobs Sorted", "All Done". Use concrete outcomes instead: e.g. "No More Drips. Peace of Mind.", "Taps Fixed, Tenant Happy", "Market-Ready Home This Weekend", "Your Leak Stopped Today"
 - contextualMessage: 1-2 sentences. Plain English, no marketing speak. Sounds like a friendly Nottingham tradesperson texting a customer. Naturally weave in the single most relevant value point for their situation (e.g. "no need to be there" for landlords, "fixed price so no surprises" for price-conscious customers, "can get it sorted this week" for urgent jobs). Never list features. Never sound like a brochure.
 - valueBullets: Exactly 3-5 items. MUST be from APPROVED_CLAIMS list only.
 - whatsappValueLines: Exactly 2 items. MUST be from APPROVED_CLAIMS list. Pick the 2 most compelling for this customer.
 - whatsappClosing: 1 sentence. Sounds like a real person texting, not a company. Short, warm, direct. Reference their specific situation if relevant (e.g. "Happy to sort it around your tenant" for landlords, "Let me know if this week works" for standard jobs, "Can get someone there today if that helps" for emergencies). Never start with "We". Never sound like a notification.
+- jobTopLine: 3-7 words. A polished, natural-language summary of what's being done. Reads like a friendly confirmation, not a task list. No technical jargon. Examples: "Dripping tap sorted for good", "Shelves up, walls clean", "Fence panel and gate fixed", "Tap replaced, no more drips". Never start with "We". Never use "Job" or "Task".
 - proposalSummary: A professional scope-of-work summary in plain English.
   RULES:
   - 2-4 sentences maximum (40-80 words).
@@ -319,12 +322,17 @@ function validateMessaging(response: any, lineCount: number, approvedClaims?: st
     proposalSummary = message;
   }
 
+  // jobTopLine — polished summary of the work
+  let jobTopLine = (response.jobTopLine || '').replace(/!/g, '').trim();
+  if (!jobTopLine) jobTopLine = '';
+
   // Layout tier is deterministic based on line count
   const layoutTier = getLayoutTier(lineCount);
 
   return {
     contextualHeadline: headline,
     contextualMessage: message,
+    jobTopLine,
     proposalSummary,
     valueBullets: validBullets,
     whatsappValueLines: validWhatsapp,
@@ -455,6 +463,7 @@ function validateLLMResponse(
     confidence,
     contextualHeadline: messaging.contextualHeadline,
     contextualMessage: messaging.contextualMessage,
+    jobTopLine: messaging.jobTopLine || '',
     messaging,
   };
 }

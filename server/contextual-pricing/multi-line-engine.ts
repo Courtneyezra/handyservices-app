@@ -388,6 +388,7 @@ export async function generateMultiLinePrice(
     confidence: llmResult.confidence,
     contextualHeadline: finalMessaging.contextualHeadline,
     contextualMessage: finalMessaging.contextualMessage,
+    jobTopLine: llmResult.jobTopLine || finalMessaging.jobTopLine || '',
     guardrails,
     messaging: finalMessaging,
   };

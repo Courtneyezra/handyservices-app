@@ -1289,15 +1289,34 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
   // Icon mapping for stats
   const statIcons = [Zap, Star, UserCheck];
 
-  // Determine location from postcode
   // Determine location from postcode or address
   const postcode = quote.postcode?.toUpperCase() || '';
   const address = quote.address?.toLowerCase() || '';
-
+  const postcodeArea = postcode.match(/^[A-Z]{1,2}/)?.[0] || '';
+  const POSTCODE_CITIES: Record<string, string> = {
+    NG: 'Nottingham', DE: 'Derby', LE: 'Leicester', S: 'Sheffield',
+    B: 'Birmingham', M: 'Manchester', L: 'Liverpool', LS: 'Leeds',
+    BS: 'Bristol', E: 'London', EC: 'London', N: 'London', W: 'London',
+    SW: 'London', SE: 'London', NW: 'London', WC: 'London',
+    CV: 'Coventry', NE: 'Newcastle', G: 'Glasgow', EH: 'Edinburgh',
+    CF: 'Cardiff', BN: 'Brighton', SO: 'Southampton', OX: 'Oxford',
+    CB: 'Cambridge', MK: 'Milton Keynes', PE: 'Peterborough',
+  };
   const locationName =
-    postcode.startsWith('DE') || address.includes('derby') ? 'Derby' :
-      postcode.startsWith('NG') || address.includes('nottingham') ? 'Nottingham' :
-        'Local';
+    address.includes('derby') ? 'Derby' :
+    address.includes('nottingham') ? 'Nottingham' :
+    POSTCODE_CITIES[postcodeArea] || 'your area';
+
+  // Derive customer type from vaContext for contextual H2
+  const vaCtxSocial = ((quote as any).contextSignals?.vaContext || '').toLowerCase();
+  const customerType =
+    /landlord|rental|tenant|buy.to.let|btl|letting/.test(vaCtxSocial) ? 'landlords' :
+    /property manager|portfolio|prop mgr|managing agent/.test(vaCtxSocial) ? 'property managers' :
+    /office|business|company|commercial|shop/.test(vaCtxSocial) ? 'businesses' :
+    /professional|busy exec|corporate/.test(vaCtxSocial) ? 'professionals' :
+    'homeowners';
+
+  const socialProofTitle = `Trusted by ${locationName} ${customerType}`;
 
   // Lazy load Wistia scripts — only when video section enters viewport
   const videoRef = useRef<HTMLDivElement>(null);
@@ -1342,7 +1361,7 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
             Proven Reliability
           </div>
           <h2 className="text-3xl md:text-4xl font-bold text-[#1D2D3D] mb-4">
-            {content.mainTitle}
+            {socialProofTitle}
           </h2>
           <p className="text-slate-500 mb-8">
             {content.description}
@@ -1390,6 +1409,31 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
     </SectionWrapper>
   );
 };
+
+/**
+ * Pick the best hero background image based on vaContext and job type.
+ * Uses local assets — DB-backed image selection to be wired later.
+ */
+function getHeroImage(quote: PersonalizedQuote): string {
+  const vaCtx = ((quote as any).contextSignals?.vaContext || '').toLowerCase();
+  const jobDesc = (quote.jobDescription || '').toLowerCase();
+  const firstCategory = quote.pricingLineItems?.[0]?.category || '';
+
+  // Archetype detection
+  const isLandlord = /landlord|rental|tenant|buy.to.let|btl|letting/.test(vaCtx);
+  const isElderly = /elderly|older|pensioner|senior/.test(vaCtx);
+
+  // Job type detection
+  const isPlumbing = /plumb|tap|leak|pipe|drain|toilet|shower|boiler/.test(jobDesc) ||
+    firstCategory === 'plumbing_minor';
+  const isPainting = /paint|decor|wall|colour|color/.test(jobDesc) ||
+    firstCategory === 'painting';
+
+  if (isElderly || isLandlord) return '/assets/quote-images/older-person-door.jpg';
+  if (isPlumbing) return '/assets/quote-images/plumber-smile.jpg';
+  if (isPainting) return '/assets/quote-images/painting.png';
+  return '/assets/quote-images/door-greeting.jpg';
+}
 
 const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any }) => {
   // Get segment content
@@ -1460,7 +1504,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
       {/* Background Image with Overlay */}
       <div className="absolute inset-0 z-0 select-none">
         <img
-          src="/assets/quote-images/door-greeting.jpg"
+          src={getHeroImage(quote)}
           alt="Friendly Plumber"
           className="w-full h-full object-cover opacity-50 contrast-125"
         />
@@ -1485,44 +1529,32 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
           </div>
         )}
 
-        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 drop-shadow-sm text-white leading-tight">
+        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-4 drop-shadow-sm text-white leading-tight">
           Hi {quote.customerName.split(' ')[0]},
         </h1>
 
-        {/* Job summary card — shown on ALL segments */}
-        <p className="text-sm md:text-base text-slate-300 font-light leading-relaxed mb-6 px-4 md:px-0 max-w-lg mx-auto">
-          {content.subtitle}
+        {/* Contextual headline — punchy outcome statement, only for contextual quotes */}
+        {isContextual && content.title && (
+          <p className="text-2xl font-bold text-white/90 italic mb-3 drop-shadow-sm">
+            "{content.title}"
+          </p>
+        )}
+
+        {/* Job line — AI-polished for contextual quotes, raw fallback otherwise */}
+        <p className="text-slate-400 text-sm mb-6 px-4 md:px-0">
+          {(isContextual && (quote as any).jobTopLine) ? (quote as any).jobTopLine : getJobTopLine()}
         </p>
 
-        {/* Job confirmation card */}
-        <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-5 mb-6 max-w-md mx-auto text-left">
-          <div className="flex items-start gap-4">
-            <div className="flex-1">
-              <p className="text-[#7DB00E] text-xs font-bold uppercase tracking-widest mb-1">
-                Job Summary
-              </p>
-              <p className="text-white font-medium mb-1 leading-snug line-clamp-2 text-ellipsis overflow-hidden">
-                {getJobTopLine()}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Quote Prepared By Mike */}
+        {/* Quote Prepared By */}
         <div className="flex items-center justify-center gap-3 mb-10">
           <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#7DB00E] shadow-xl">
-            <img
-              src="/assets/quote-images/plumber-smile.jpg"
-              alt="Mike"
-              className="w-full h-full object-cover"
-            />
+            <img src="/assets/quote-images/plumber-smile.jpg" alt="Mike" className="w-full h-full object-cover" />
           </div>
           <div className="text-left">
             <div className="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-0.5">Prepared by</div>
             <div className="text-white font-bold text-lg leading-none">Mike <span className="text-[#7DB00E] text-sm font-normal">from HandyServices</span></div>
           </div>
         </div>
-
 
       </motion.div>
       {/* Timer progress bar at bottom of hero */}
@@ -1632,9 +1664,24 @@ const ValueProof = ({ quote, config }: { quote: PersonalizedQuote, config: any }
 const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: any }) => {
   // Get segment content
   const segmentKey = quote.segment && SEGMENT_CONTENT_MAP[quote.segment] ? quote.segment : 'DEFAULT';
-  const content = SEGMENT_CONTENT_MAP[segmentKey].guarantee;
+  const content = { ...SEGMENT_CONTENT_MAP[segmentKey].guarantee };
   const isBusyPro = quote.segment === 'BUSY_PRO';
   const isOlderWoman = quote.segment === 'OLDER_WOMAN';
+  const isContextualGuarantee = quote.segment === 'CONTEXTUAL' || !!(quote?.layoutTier && quote?.valueBullets);
+
+  // For contextual quotes, override mainTitle based on customerType from vaContext
+  if (isContextualGuarantee) {
+    const vaCtx = ((quote as any).contextSignals?.vaContext || '').toLowerCase();
+    const isLandlord = /landlord|rental|tenant|buy.to.let|btl|letting/.test(vaCtx);
+    const isProfessional = /property manager|portfolio|prop mgr|managing agent|professional|busy exec|corporate|office|business|company|commercial|shop/.test(vaCtx);
+    if (isLandlord) {
+      content.mainTitle = 'Your property protected. 90-day guarantee.';
+    } else if (isProfessional) {
+      content.mainTitle = 'Zero hassle. 90-day guarantee.';
+    } else {
+      content.mainTitle = 'Not right? We return and fix it free.';
+    }
+  }
 
   // Icon mapping
   const iconMap: Record<string, any> = {
@@ -2770,6 +2817,30 @@ export default function PersonalizedQuotePage() {
     const createdAt = quote.createdAt ? new Date(quote.createdAt).getTime() : Date.now();
     const hoursAfterCreation = Math.round((Date.now() - createdAt) / 3600000);
 
+    // Derive analytics metadata for contextual content fields
+    const vaCtxRaw: string = (quote as any).contextSignals?.vaContext || '';
+    const vaCtxLower = vaCtxRaw.toLowerCase();
+    const derivedCustomerType =
+      /landlord|rental|tenant|buy.to.let|btl|letting/.test(vaCtxLower) ? 'landlord' :
+      /property manager|portfolio|prop mgr|managing agent/.test(vaCtxLower) ? 'property_manager' :
+      /office|business|company|commercial|shop/.test(vaCtxLower) ? 'business' :
+      /professional|busy exec|corporate/.test(vaCtxLower) ? 'professional' :
+      'homeowner';
+    const segKey = (quote.segment || 'DEFAULT') as keyof typeof SEGMENT_CONTENT_MAP;
+    const derivedImageShown: string | undefined =
+      quote.selectedContent?.images?.[0]?.url ||
+      (SEGMENT_CONTENT_MAP[segKey] as any)?.guarantee?.image ||
+      undefined;
+    // DB image ID for platform-level view tracking (fire-and-forget, no auth needed)
+    const dbImageId: number | undefined = quote.selectedContent?.images?.[0]?.id;
+    if (dbImageId) {
+      fetch('/api/quote-platform/images/track-view', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageId: dbImageId }),
+      }).catch(() => {});
+    }
+
     // Fire $pageview for PostHog heatmaps, scroll depth, and session recordings
     capturePageView({
       quote_id: quote.id,
@@ -2794,6 +2865,11 @@ export default function PersonalizedQuotePage() {
       // Content shown
       valueBulletCount: quote.valueBullets?.length || 0,
       bookingModesShown: quote.bookingModes || [],
+      // Contextual content identifiers (Task 1)
+      imageShown: derivedImageShown,
+      customerType: derivedCustomerType,
+      vaContextLength: vaCtxRaw.length,
+      hasContextualHeadline: !!(quote.contextualHeadline),
       // Revisit & timing
       isRevisit: tracking.isRevisit,
       hoursAfterCreation,
@@ -3017,6 +3093,16 @@ export default function PersonalizedQuotePage() {
     } catch (trackError) {
       console.warn('Booking tracking failed:', trackError);
       // Continue - payment is complete
+    }
+
+    // Track image booking count in quote platform DB (fire-and-forget)
+    const bookedImageId = quote?.selectedContent?.images?.[0]?.id;
+    if (bookedImageId) {
+      fetch('/api/quote-platform/images/track-booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageId: bookedImageId }),
+      }).catch(() => {});
     }
 
     // PostHog: Track the conversion event
@@ -3256,7 +3342,7 @@ export default function PersonalizedQuotePage() {
         {/* Value Sections Flow */}
         <ValueHero quote={quote} config={config} />
 
-        {/* Unified Social Proof Section - Same for all segments */}
+        {/* Unified Social Proof Section */}
         <ValueSocialProof quote={quote} pricingSettings={pricingSettings ?? undefined} />
 
         <ValueGuarantee quote={quote} config={config} />
@@ -3264,7 +3350,22 @@ export default function PersonalizedQuotePage() {
         {/* Hassle Comparison — "Without Us vs With Us" */}
         <SectionWrapper className="bg-white">
           <div className="max-w-2xl mx-auto">
-            <HassleComparisonCard segment={quote.segment || 'UNKNOWN'} />
+            {(() => {
+              const vaCtx = ((quote as any).contextSignals?.vaContext || '').toLowerCase();
+              const customerType =
+                /landlord|rental|tenant|buy.to.let|btl|letting/.test(vaCtx) ? 'landlords' :
+                /property manager|portfolio|prop mgr|managing agent/.test(vaCtx) ? 'property managers' :
+                /office|business|company|commercial|shop/.test(vaCtx) ? 'businesses' :
+                /professional|busy exec|corporate/.test(vaCtx) ? 'professionals' :
+                'homeowners';
+              const hassleTitle = isContextualQuote ? `Why ${customerType} choose us.` : undefined;
+              return (
+                <>
+                  {hassleTitle && <h3 className="text-2xl font-bold text-slate-800 mb-4">{hassleTitle}</h3>}
+                  <HassleComparisonCard segment={quote.segment || 'UNKNOWN'} hideTitle={!!hassleTitle} />
+                </>
+              );
+            })()}
           </div>
         </SectionWrapper>
 
@@ -3311,6 +3412,17 @@ export default function PersonalizedQuotePage() {
                 pricingLineItems={isContextualQuote ? quote.pricingLineItems : undefined}
                 mikePhotoUrl={mikeProfilePhoto}
               />
+
+              {/* Mike badge — trust signal before price card */}
+              <div className="flex items-center justify-center gap-3 mb-6 mt-2">
+                <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-[#7DB00E] shadow-lg flex-shrink-0">
+                  <img src="/assets/quote-images/plumber-smile.jpg" alt="Mike" className="w-full h-full object-cover" />
+                </div>
+                <div className="text-left">
+                  <div className="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-0.5">Prepared by</div>
+                  <div className="text-[#1D2D3D] font-bold text-base leading-none">Mike <span className="text-[#7DB00E] text-sm font-normal">from HandyServices</span></div>
+                </div>
+              </div>
 
               {/* Price Card + Booking Flow */}
               {quotePrice > 0 && !hasBooked && (
