@@ -773,6 +773,7 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     // Contextual Pricing Engine (Phase 3)
     contextualHeadline: varchar("contextual_headline", { length: 100 }), // LLM-generated headline (e.g. "Your Kitchen Sorted")
     contextualMessage: text("contextual_message"), // 1-2 sentence summary
+    jobTopLine: text("job_top_line"),
     proposalSummary: text("proposal_summary"), // AI-generated scope-of-work summary (2-4 sentences, 40-80 words)
     valueBullets: jsonb("value_bullets").$type<string[]>(), // 3-5 approved claim bullets for quote page
     whatsappValueLines: jsonb("whatsapp_value_lines").$type<string[]>(), // 2 WhatsApp value lines
@@ -803,6 +804,9 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     marginFlags: jsonb("margin_flags").$type<string[]>(), // Warning strings for admin dashboard
     matchedContractorId: varchar("matched_contractor_id"), // Pre-matched contractor at quote time
     matchedContractorRate: integer("matched_contractor_rate"), // Snapshot of their rate (pence/hr)
+
+    // VA-specified available booking dates for this quote (overrides system availability when set)
+    availableDates: jsonb("available_dates").$type<string[]>(),
 
     // Creation timestamp
     createdAt: timestamp("created_at").defaultNow(),

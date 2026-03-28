@@ -13,6 +13,8 @@ import { QuoteCard } from './components/QuoteCard';
 import { QuotesList } from './components/QuotesList';
 import { RegenerateQuoteDialog } from './components/RegenerateQuoteDialog';
 import { EditQuoteDialog } from './components/EditQuoteDialog';
+import { QuotePreviewModal } from '@/components/quote/QuotePreviewModal';
+import type { PreviewQuote } from '@/components/quote/QuotePreviewModal';
 
 // Define Interface locally or import if centralized. 
 export interface PersonalizedQuote {
@@ -63,6 +65,10 @@ export default function QuotesPage() {
     // Edit Dialog State
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [selectedQuoteForEdit, setSelectedQuoteForEdit] = useState<PersonalizedQuote | null>(null);
+
+    // Preview Modal State
+    const [previewOpen, setPreviewOpen] = useState(false);
+    const [selectedQuoteForPreview, setSelectedQuoteForPreview] = useState<PreviewQuote | null>(null);
 
     // Fetch system-wide availability for WhatsApp messages
     const { data: availabilityData } = useAvailability({ days: 14 });
@@ -118,6 +124,22 @@ export default function QuotesPage() {
     const handleOpenEdit = (quote: PersonalizedQuote) => {
         setSelectedQuoteForEdit(quote);
         setEditDialogOpen(true);
+    };
+
+    const handleOpenPreview = (quote: PersonalizedQuote) => {
+        setSelectedQuoteForPreview({
+            quoteId: quote.id,
+            shortSlug: quote.shortSlug,
+            customerName: quote.customerName,
+            phone: quote.phone,
+            email: quote.email,
+            address: (quote as any).address ?? null,
+            postcode: quote.postcode ?? null,
+            basePrice: quote.basePrice ?? null,
+            pricingLineItems: (quote as any).pricingLineItems ?? null,
+            availableDates: (quote as any).availableDates ?? null,
+        });
+        setPreviewOpen(true);
     };
 
     const handleEditSaved = () => {
@@ -260,6 +282,7 @@ export default function QuotesPage() {
                                 onDelete={handleDelete}
                                 onRegenerate={handleOpenRegenerate as any}
                                 onEdit={handleOpenEdit as any}
+                                onPreview={handleOpenPreview as any}
                                 availableDates={availableDates}
                             />
                         ) : (
@@ -271,6 +294,7 @@ export default function QuotesPage() {
                                         onDelete={handleDelete}
                                         onRegenerate={handleOpenRegenerate as any}
                                         onEdit={handleOpenEdit as any}
+                                        onPreview={handleOpenPreview as any}
                                         availableDates={availableDates}
                                     />
                                 ))}
@@ -298,6 +322,18 @@ export default function QuotesPage() {
                     onSaved={handleEditSaved}
                 />
             )}
+
+            <QuotePreviewModal
+                open={previewOpen}
+                quote={selectedQuoteForPreview}
+                onClose={() => {
+                    setPreviewOpen(false);
+                    setSelectedQuoteForPreview(null);
+                }}
+                onSaved={() => {
+                    queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
+                }}
+            />
         </div>
     );
 }

@@ -84,6 +84,8 @@ interface UnifiedQuoteCardProps {
   flexibleDiscountPercent?: number;
   /** Quote short slug for WhatsApp deep-link. */
   shortSlug?: string;
+  /** VA-specified available dates (YYYY-MM-DD strings). When set, only these dates are shown in the calendar. */
+  allowedDates?: string[] | null;
 }
 
 export function UnifiedQuoteCard({
@@ -106,6 +108,7 @@ export function UnifiedQuoteCard({
   payInFullDiscountPercent: payInFullDiscountPercentProp,
   flexibleDiscountPercent: flexibleDiscountPercentProp,
   shortSlug,
+  allowedDates,
 }: UnifiedQuoteCardProps) {
   // Booking mode flags — when bookingModes is provided, only show those options
   const showStandardDate = !bookingModes || bookingModes.includes('standard_date');
@@ -246,9 +249,19 @@ export function UnifiedQuoteCard({
   }, [config, unavailableDates]);
 
   // When urgent_premium mode is disabled, filter out next-day priority dates
-  const filteredDates = !showUrgentPremium
-    ? availableDates.filter(d => !d.isNextDay)
-    : availableDates;
+  // When allowedDates is set, restrict calendar to only those VA-specified dates
+  const allowedDateSet = useMemo(() =>
+    allowedDates && allowedDates.length > 0 ? new Set(allowedDates) : null,
+  [allowedDates]);
+
+  const filteredDates = availableDates.filter(d => {
+    if (!showUrgentPremium && d.isNextDay) return false;
+    if (allowedDateSet) {
+      const dateStr = d.date.toISOString().slice(0, 10);
+      return allowedDateSet.has(dateStr);
+    }
+    return true;
+  });
   const visibleDates = showAllDates ? filteredDates : filteredDates.slice(0, 8);
 
   // Combine config add-ons with any quote-specific extras

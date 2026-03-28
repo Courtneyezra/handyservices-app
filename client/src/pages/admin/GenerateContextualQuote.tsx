@@ -29,7 +29,10 @@ import {
   ExternalLink,
   AlertTriangle,
   Info,
+  Eye,
 } from 'lucide-react';
+import { QuotePreviewModal } from '@/components/quote/QuotePreviewModal';
+import type { PreviewQuote } from '@/components/quote/QuotePreviewModal';
 import { FaWhatsapp } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 import { buildContextualQuoteWhatsAppMessage } from '@/lib/whatsapp-quote-message';
@@ -237,6 +240,7 @@ export default function GenerateContextualQuote() {
 
   // ── Result ──
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   // ── Send mode: 'direct' shows inline price message, 'full' shows quote link message ──
   const [sendMode, setSendMode] = useState<'full' | 'direct'>('direct');
@@ -1495,13 +1499,42 @@ export default function GenerateContextualQuote() {
               </Button>
             </div>
 
-            {/* Reset Button */}
-            <Button variant="ghost" onClick={handleReset} className="w-full mt-1 h-9 text-sm">
-              Create Another Quote
-            </Button>
+            {/* Preview + Reset buttons */}
+            <div className="flex gap-2 mt-1">
+              <Button
+                variant="outline"
+                onClick={() => setPreviewOpen(true)}
+                className="flex-1 h-9 text-sm border-[#7DB00E]/40 text-[#7DB00E] hover:bg-[#7DB00E]/10"
+              >
+                <Eye className="w-4 h-4 mr-1.5" />Preview & Edit
+              </Button>
+              <Button variant="ghost" onClick={handleReset} className="flex-1 h-9 text-sm">
+                New Quote
+              </Button>
+            </div>
           </div>
         )}
       </div>
+
+      {/* Quote Preview Modal */}
+      {quoteResult && (
+        <QuotePreviewModal
+          open={previewOpen}
+          onClose={() => setPreviewOpen(false)}
+          quote={{
+            quoteId: quoteResult.quoteId,
+            shortSlug: quoteResult.shortSlug,
+            customerName: customerName,
+            phone: phone,
+            email: null,
+            address: null,
+            postcode: postcode || null,
+            basePrice: quoteResult.pricing.totalPence,
+            pricingLineItems: quoteResult.pricing.lineItems as any,
+            availableDates: null,
+          } satisfies PreviewQuote}
+        />
+      )}
     </div>
   );
 }

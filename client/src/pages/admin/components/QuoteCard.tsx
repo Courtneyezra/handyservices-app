@@ -41,10 +41,11 @@ interface QuoteCardProps {
     onDelete: (id: string) => void;
     onRegenerate: (quote: PersonalizedQuote) => void;
     onEdit?: (quote: PersonalizedQuote) => void;
+    onPreview?: (quote: PersonalizedQuote) => void;
     availableDates?: DateAvailability[];
 }
 
-export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, availableDates = [] }: QuoteCardProps) {
+export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, availableDates = [] }: QuoteCardProps) {
     const { toast } = useToast();
     const [, setLocation] = useLocation();
 
@@ -212,6 +213,24 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, availableDate
                                 <TooltipContent>View quote</TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
+
+                        {onPreview && (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-8 w-8 text-[#7DB00E] hover:text-[#6a9a0b] hover:bg-green-50 border-[#7DB00E]/30"
+                                            onClick={(e) => { e.stopPropagation(); onPreview(quote); }}
+                                        >
+                                            <Eye className="h-4 w-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Preview & edit</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
 
                         {onEdit && (
                             <TooltipProvider>

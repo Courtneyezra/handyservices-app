@@ -17,11 +17,38 @@
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
-import { eq, sql, count, isNotNull, desc } from 'drizzle-orm';
+import fs from 'fs';
+import { eq, sql, count, isNotNull, desc, and, gte } from 'drizzle-orm';
 import { S3Client, PutObjectCommand, ObjectCannedACL } from '@aws-sdk/client-s3';
 import { nanoid } from 'nanoid';
 import { db } from '../db';
 import { requireAdmin } from '../auth';
+
+// ---------------------------------------------------------------------------
+// Analytics reset timestamp — persisted so it survives server restarts
+// ---------------------------------------------------------------------------
+
+const RESET_TIMESTAMP_FILE = path.join(process.cwd(), '.analytics-reset-at.json');
+
+function loadResetAt(): Date | null {
+  try {
+    if (fs.existsSync(RESET_TIMESTAMP_FILE)) {
+      const { resetAt } = JSON.parse(fs.readFileSync(RESET_TIMESTAMP_FILE, 'utf8'));
+      return resetAt ? new Date(resetAt) : null;
+    }
+  } catch {}
+  return null;
+}
+
+function saveResetAt(date: Date): void {
+  try {
+    fs.writeFileSync(RESET_TIMESTAMP_FILE, JSON.stringify({ resetAt: date.toISOString() }), 'utf8');
+  } catch (e) {
+    console.error('[quote-platform] Failed to persist analyticsResetAt:', e);
+  }
+}
+
+let analyticsResetAt: Date | null = loadResetAt();
 import {
   quotePlatformImages,
   quotePlatformHeadlines,
@@ -430,8 +457,12 @@ router.delete('/testimonials/:id', async (req, res) => {
 router.get('/analytics', requireAdmin, async (req, res) => {
   try {
     const pq = personalizedQuotes;
+    // Only count CONTEXTUAL segment quotes created after the last analytics reset
+    const contextualFilter = analyticsResetAt
+      ? and(eq(pq.segment, 'CONTEXTUAL'), gte(pq.createdAt, analyticsResetAt))
+      : eq(pq.segment, 'CONTEXTUAL');
 
-    // Funnel from personalizedQuotes
+    // Funnel — CONTEXTUAL quotes only
     const [funnelData] = await db
       .select({
         total_quotes: count(),
@@ -440,7 +471,7 @@ router.get('/analytics', requireAdmin, async (req, res) => {
         total_paid: count(pq.depositPaidAt),
       })
       .from(pq)
-      .where(isNotNull(pq.layoutTier));
+      .where(contextualFilter);
 
     // Layout tier breakdown
     const layoutTiers = await db
@@ -451,34 +482,52 @@ router.get('/analytics', requireAdmin, async (req, res) => {
         booked_count: count(pq.bookedAt),
       })
       .from(pq)
-      .where(isNotNull(pq.layoutTier))
+      .where(and(contextualFilter, isNotNull(pq.layoutTier)))
       .groupBy(pq.layoutTier);
 
-    // Top performing image by booking_count
-    const [topImage] = await db
+    // Headline performance — which AI-generated headlines convert best
+    const headlinePerf = await db
+      .select({
+        headline: pq.contextualHeadline,
+        total: count(),
+        viewed: count(pq.viewedAt),
+        booked: count(pq.bookedAt),
+      })
+      .from(pq)
+      .where(and(contextualFilter, isNotNull(pq.contextualHeadline)))
+      .groupBy(pq.contextualHeadline)
+      .orderBy(desc(count(pq.bookedAt)))
+      .limit(10);
+
+    // Image performance from quotePlatformImages (view/booking counts incremented by tracking endpoints)
+    const imagePerf = await db
       .select({
         id: quotePlatformImages.id,
         url: quotePlatformImages.url,
-        booking_count: quotePlatformImages.bookingCount,
+        alt: quotePlatformImages.altText,
+        archetypes: quotePlatformImages.archetypes,
         view_count: quotePlatformImages.viewCount,
+        booking_count: quotePlatformImages.bookingCount,
       })
       .from(quotePlatformImages)
       .where(eq(quotePlatformImages.isActive, true))
       .orderBy(desc(quotePlatformImages.bookingCount))
-      .limit(1);
+      .limit(10);
 
-    // Top performing headline by booking_count
-    const [topHeadline] = await db
-      .select({
-        id: quotePlatformHeadlines.id,
-        text: quotePlatformHeadlines.text,
-        section: quotePlatformHeadlines.section,
-        booking_count: quotePlatformHeadlines.bookingCount,
-      })
-      .from(quotePlatformHeadlines)
-      .where(eq(quotePlatformHeadlines.isActive, true))
-      .orderBy(desc(quotePlatformHeadlines.bookingCount))
-      .limit(1);
+    // VA context quality breakdown (none / short <50 chars / rich ≥50 chars)
+    const allContextual = await db
+      .select({ contextSignals: pq.contextSignals, viewedAt: pq.viewedAt, bookedAt: pq.bookedAt })
+      .from(pq)
+      .where(contextualFilter);
+
+    const contextBuckets = { none: 0, short: 0, rich: 0 };
+    const contextConversions = { none: 0, short: 0, rich: 0 };
+    for (const row of allContextual) {
+      const ctx = row.contextSignals ? JSON.stringify(row.contextSignals) : '';
+      const bucket = ctx.length === 0 ? 'none' : ctx.length < 100 ? 'short' : 'rich';
+      contextBuckets[bucket]++;
+      if (row.bookedAt) contextConversions[bucket]++;
+    }
 
     const sent = Number(funnelData?.total_quotes ?? 0);
     const viewed = Number(funnelData?.total_viewed ?? 0);
@@ -486,24 +535,58 @@ router.get('/analytics', requireAdmin, async (req, res) => {
     const paid = Number(funnelData?.total_paid ?? 0);
 
     return res.json({
+      reset_at: analyticsResetAt ? analyticsResetAt.toISOString() : null,
       funnel: { sent, viewed, booked, paid },
       tiers: layoutTiers.map(t => ({
         tier: t.layout_tier,
         count: Number(t.quote_count),
         viewed: Number(t.viewed_count),
         booked: Number(t.booked_count),
-        conversion: t.viewed_count ? Math.round((Number(t.booked_count) / Number(t.viewed_count)) * 100) : 0,
+        conversion: Number(t.viewed_count) > 0 ? Math.round((Number(t.booked_count) / Number(t.viewed_count)) * 100) : 0,
       })),
-      top_image: topImage
-        ? { url: topImage.url, alt: null, conversion_rate: topImage.view_count ? (Number(topImage.booking_count) / Number(topImage.view_count)) * 100 : 0 }
-        : null,
-      top_headline: topHeadline
-        ? { text: topHeadline.text, section: topHeadline.section, conversion_rate: 0 }
-        : null,
+      headline_performance: headlinePerf.map(h => ({
+        headline: h.headline,
+        total: Number(h.total),
+        viewed: Number(h.viewed),
+        booked: Number(h.booked),
+        conversion: Number(h.viewed) > 0 ? Math.round((Number(h.booked) / Number(h.viewed)) * 100) : 0,
+      })),
+      image_performance: imagePerf.map(img => ({
+        id: img.id,
+        url: img.url,
+        alt: img.alt,
+        archetypes: img.archetypes ?? [],
+        view_count: Number(img.view_count ?? 0),
+        booking_count: Number(img.booking_count ?? 0),
+        conversion_rate: Number(img.view_count ?? 0) > 0
+          ? Math.round((Number(img.booking_count ?? 0) / Number(img.view_count ?? 0)) * 100)
+          : 0,
+      })),
+      context_quality: {
+        buckets: contextBuckets,
+        conversions: contextConversions,
+      },
     });
   } catch (error) {
     console.error('[quote-platform/analytics] GET error:', error);
     return res.status(500).json({ error: 'Failed to fetch analytics' });
+  }
+});
+
+// Reset analytics — zeros image/headline counters AND stamps a resetAt date so funnel only counts new quotes
+// Optional body: { since: ISO8601 string } to set a specific start date instead of now
+router.post('/analytics/reset', requireAdmin, async (req, res) => {
+  try {
+    await db.update(quotePlatformImages).set({ viewCount: 0, bookingCount: 0 });
+    await db.update(quotePlatformHeadlines).set({ viewCount: 0, bookingCount: 0 });
+    const customDate = req.body?.since ? new Date(req.body.since) : null;
+    analyticsResetAt = (customDate && !isNaN(customDate.getTime())) ? customDate : new Date();
+    saveResetAt(analyticsResetAt);
+    console.log(`[quote-platform/analytics] Reset: counters zeroed, analyticsResetAt = ${analyticsResetAt.toISOString()}`);
+    return res.json({ ok: true, reset_at: analyticsResetAt.toISOString(), message: 'Analytics reset. Only quotes created after this timestamp will appear in the funnel.' });
+  } catch (error) {
+    console.error('[quote-platform/analytics] Reset error:', error);
+    return res.status(500).json({ error: 'Failed to reset analytics' });
   }
 });
 

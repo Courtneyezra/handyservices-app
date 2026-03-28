@@ -191,15 +191,17 @@ Select the 3-5 most relevant claims based on the customer's context signals. For
 - Landlord/tenant situation → "Tenant coordination available", "Photo report on completion"
 - Urgent need → "Emergency same-day available", "Scheduled within 48-72 hours"
 - Budget-conscious → "Fixed price — no surprises", "No call-out fee"
-- Property manager → "Tax-ready invoice emailed same day", "Property manager dashboard access"
+- Property manager OR customer mentions invoice/tax/receipt → MUST include "Tax-ready invoice emailed same day"
+- After-hours or weekend → MUST include "Evening/weekend slots available"
+- We are supplying materials → MUST include "Materials sourced for you"
 
 RULES:
 - contextualHeadline: Max 6 words. Punchy, outcome-focused, specific to the job. BANNED endings — never end with: "Sorted", "Done", "Complete", "Finished", "Work Done", "Job Done", "Jobs Sorted", "All Done". Use concrete outcomes instead: e.g. "No More Drips. Peace of Mind.", "Taps Fixed, Tenant Happy", "Market-Ready Home This Weekend", "Your Leak Stopped Today"
-- contextualMessage: 1-2 sentences. Plain English, no marketing speak. Sounds like a friendly Nottingham tradesperson texting a customer. Naturally weave in the single most relevant value point for their situation (e.g. "no need to be there" for landlords, "fixed price so no surprises" for price-conscious customers, "can get it sorted this week" for urgent jobs). Never list features. Never sound like a brochure.
+- contextualMessage: 1-2 sentences. Plain English, no marketing speak. Sounds like a friendly Nottingham tradesperson texting a customer. Naturally weave in the single most relevant value point for their situation (e.g. "no need to be there" for landlords, "fixed price so no surprises" for price-conscious customers, "can get it sorted this week" for urgent jobs, "good to hear from you again" for returning customers). Never list features. Never sound like a brochure.
 - valueBullets: Exactly 3-5 items. MUST be from APPROVED_CLAIMS list only.
 - whatsappValueLines: Exactly 2 items. MUST be from APPROVED_CLAIMS list. Pick the 2 most compelling for this customer.
 - whatsappClosing: 1 sentence. Sounds like a real person texting, not a company. Short, warm, direct. Reference their specific situation if relevant (e.g. "Happy to sort it around your tenant" for landlords, "Let me know if this week works" for standard jobs, "Can get someone there today if that helps" for emergencies). Never start with "We". Never sound like a notification.
-- jobTopLine: 3-7 words. A polished, natural-language summary of what's being done. Reads like a friendly confirmation, not a task list. No technical jargon. Examples: "Dripping tap sorted for good", "Shelves up, walls clean", "Fence panel and gate fixed", "Tap replaced, no more drips". Never start with "We". Never use "Job" or "Task".
+- jobTopLine: For 1-2 jobs: 3-7 words. For 3+ jobs: up to 12 words. A polished, natural-language summary of what's being done — covering ALL job lines. Reads like a friendly confirmation, not a task list. No technical jargon. For multi-job quotes, group related tasks (e.g. "Kitchen floor, bathroom regrouted, blinds hung" not "Floor, grout, blinds, panel, seal, paint, and more"). NEVER use "and more" or "etc" — always enumerate what's actually being done. Never start with "We". Never use "Job" or "Task". Examples: "Leaky tap fixed for good", "Fence fixed and gate painted", "Kitchen floor, grout, bath seal, and blinds all done".
 - proposalSummary: A professional scope-of-work summary in plain English.
   RULES:
   - 2-4 sentences maximum (40-80 words).
@@ -240,6 +242,25 @@ function buildUserPrompt(request: MultiLineRequest): string {
     ? `\nHistorical context: Similar quotes convert at ${request.historicalWinRate}% — price with this in mind.`
     : '';
 
+  const returningNote = signals.isReturningCustomer
+    ? `\n\nIMPORTANT: This is a RETURNING customer (${signals.previousJobCount} previous jobs). The contextualMessage MUST warmly acknowledge this — e.g. "good to hear from you again" or "great to have you back". Apply a 5-10% loyalty discount to pricing.`
+    : '';
+
+  const emergencyNote = signals.urgency === 'emergency'
+    ? `\n\nIMPORTANT: This is an EMERGENCY job. Apply the 30-50% emergency premium to ALL line prices. The contextualMessage MUST convey urgency and immediate reassurance — e.g. "We can be there within the hour" or "We'll get someone out to you straight away". The whatsappClosing MUST reference same-day availability. The valueBullets MUST include "Emergency same-day available".`
+    : '';
+
+  const timingNote = (signals.timeOfService === 'after_hours' || signals.timeOfService === 'weekend')
+    ? `\n\nIMPORTANT: This job is scheduled ${signals.timeOfService === 'weekend' ? 'on a weekend' : 'after hours / in the evening'}. Apply the 15-25% timing premium to ALL line prices. The valueBullets MUST include "Evening/weekend slots available".`
+    : '';
+
+  const absentLandlordNote = (
+    signals.timeOfService !== 'standard' ||
+    (request.vaContext && /landlord|tenant|letting|rental|can't be there|won't be there|cannot be there|not on site|send me photos|send photos/i.test(request.vaContext))
+  )
+    ? `\n\nIMPORTANT: The customer will NOT be present. The contextualMessage MUST acknowledge this — e.g. "no need for you to be there" or "we'll send you photos when it's done". Do NOT write as if they will be watching.`
+    : '';
+
   return `${vaContextBlock}Price these ${request.lines.length} job line(s):
 
 ${linesList}
@@ -248,7 +269,7 @@ Contextual signals:
   urgency: ${signals.urgency}
   materialsSupply: ${signals.materialsSupply}
   timeOfService: ${signals.timeOfService}
-  isReturningCustomer: ${signals.isReturningCustomer ? `Yes (${signals.previousJobCount} previous jobs, avg £${signals.previousAvgPricePence !== null ? (signals.previousAvgPricePence / 100).toFixed(2) : 'N/A'})` : 'No (new customer)'}${winRateLine}`;
+  isReturningCustomer: ${signals.isReturningCustomer ? `Yes (${signals.previousJobCount} previous jobs, avg £${signals.previousAvgPricePence !== null ? (signals.previousAvgPricePence / 100).toFixed(2) : 'N/A'})` : 'No (new customer)'}${winRateLine}${returningNote}${emergencyNote}${timingNote}${absentLandlordNote}`;
 }
 
 // ---------------------------------------------------------------------------

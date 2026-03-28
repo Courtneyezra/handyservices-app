@@ -1540,10 +1540,18 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
           </p>
         )}
 
-        {/* Job line — AI-polished for contextual quotes, raw fallback otherwise */}
-        <p className="text-slate-400 text-sm mb-6 px-4 md:px-0">
-          {(isContextual && (quote as any).jobTopLine) ? (quote as any).jobTopLine : getJobTopLine()}
-        </p>
+        {/* Job line — AI-polished for contextual quotes; raw fallback for non-contextual only */}
+        {isContextual ? (
+          (quote as any).jobTopLine ? (
+            <p className="text-slate-400 text-sm mb-6 px-4 md:px-0">
+              {(quote as any).jobTopLine}
+            </p>
+          ) : null
+        ) : (
+          <p className="text-slate-400 text-sm mb-6 px-4 md:px-0">
+            {getJobTopLine()}
+          </p>
+        )}
 
         {/* Quote Prepared By */}
         <div className="flex items-center justify-center gap-3 mb-10">
@@ -3437,6 +3445,7 @@ export default function PersonalizedQuotePage() {
                       batchDiscount={isContextualQuote && quote.batchDiscount ? quote.batchDiscount : undefined}
                       pricingLineItems={isContextualQuote && quote.pricingLineItems ? quote.pricingLineItems : undefined}
                       contextualBullets={isContextualQuote && quote.valueBullets ? quote.valueBullets : undefined}
+                      allowedDates={(quote as any).availableDates ?? null}
                       quoteId={quote.id}
                       jobDescription={quote.jobDescription}
                       location={quote.postcode?.split(' ')[0]}

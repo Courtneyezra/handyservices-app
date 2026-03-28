@@ -43,7 +43,7 @@ const CLAIMS_DATA = [
   // Signal-specific claims
   { text: "Same-day response available", category: "speed", jobCategories: null, signals: { urgency: "emergency" }, isUniversal: false },
   { text: "Scheduled within 48-72 hours", category: "speed", jobCategories: null, signals: { urgency: "standard" }, isUniversal: false },
-  { text: "All materials sourced and supplied", category: "convenience", jobCategories: null, signals: { materialsSupply: "we_supply" }, isUniversal: false },
+  { text: "Materials sourced for you", category: "convenience", jobCategories: null, signals: { materialsSupply: "we_supply" }, isUniversal: false },
   { text: "Labour only — use your own materials", category: "value", jobCategories: null, signals: { materialsSupply: "customer_supplied" }, isUniversal: false },
   { text: "Weekend availability", category: "convenience", jobCategories: null, signals: { timeOfService: "weekend" }, isUniversal: false },
   { text: "Evening slots available", category: "convenience", jobCategories: null, signals: { timeOfService: "after_hours" }, isUniversal: false },

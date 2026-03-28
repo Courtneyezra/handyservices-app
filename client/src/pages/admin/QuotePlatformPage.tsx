@@ -87,21 +87,12 @@ interface QPTestimonial {
 }
 
 interface QPAnalytics {
-  funnel: {
-    sent: number;
-    viewed: number;
-    booked: number;
-    paid: number;
-  };
-  tiers: Array<{
-    tier: string;
-    count: number;
-    viewed: number;
-    booked: number;
-    conversion: number;
-  }>;
-  top_image?: { url: string; alt?: string; conversion_rate: number };
-  top_headline?: { text: string; section: string; conversion_rate: number };
+  reset_at: string | null;
+  funnel: { sent: number; viewed: number; booked: number; paid: number };
+  tiers: Array<{ tier: string; count: number; viewed: number; booked: number; conversion: number }>;
+  headline_performance?: Array<{ headline: string | null; total: number; viewed: number; booked: number; conversion: number }>;
+  image_performance?: Array<{ id: number; url: string; alt: string | null; archetypes: string[]; view_count: number; booking_count: number; conversion_rate: number }>;
+  context_quality?: { buckets: Record<string, number>; conversions: Record<string, number> };
 }
 
 // ─── Shared sub-components ────────────────────────────────────────────────────
@@ -885,6 +876,10 @@ function TestimonialsTab() {
 
 // ─── Tab 4: Analytics ─────────────────────────────────────────────────────────
 function AnalyticsTab() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [resetting, setResetting] = useState(false);
+
   const { data: analytics, isLoading } = useQuery<QPAnalytics>({
     queryKey: ['/api/quote-platform/analytics'],
     queryFn: async () => {
@@ -895,15 +890,31 @@ function AnalyticsTab() {
     retry: false,
   });
 
-  function pct(a: number, b: number) {
-    return b > 0 ? Math.round((a / b) * 100) : 0;
+  async function handleReset() {
+    if (!confirm('Reset analytics to zero? This stamps a new start date — only quotes created AFTER this moment will appear in the funnel. Image/headline counters also reset.')) return;
+    setResetting(true);
+    try {
+      const r = await fetch('/api/quote-platform/analytics/reset', { method: 'POST', headers: auth() });
+      if (!r.ok) throw new Error('Reset failed');
+      toast({ title: 'Analytics reset', description: 'Clean slate from now. Only new quotes will count.' });
+      qc.invalidateQueries({ queryKey: ['/api/quote-platform/analytics'] });
+    } catch {
+      toast({ title: 'Reset failed', variant: 'destructive' });
+    } finally {
+      setResetting(false);
+    }
   }
+
+  function pct(a: number, b: number) { return b > 0 ? Math.round((a / b) * 100) : 0; }
 
   const funnel = analytics?.funnel ?? { sent: 0, viewed: 0, booked: 0, paid: 0 };
   const tiers = analytics?.tiers ?? [];
+  const headlines = analytics?.headline_performance ?? [];
+  const images = analytics?.image_performance ?? [];
+  const ctx = analytics?.context_quality;
 
   const funnelSteps = [
-    { label: 'Quotes Sent', value: funnel.sent, icon: Send, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/30' },
+    { label: 'Sent', value: funnel.sent, icon: Send, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/30' },
     { label: 'Viewed', value: funnel.viewed, icon: Eye, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/30' },
     { label: 'Booked', value: funnel.booked, icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/30' },
     { label: 'Paid', value: funnel.paid, icon: CreditCard, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/30' },
@@ -911,9 +922,29 @@ function AnalyticsTab() {
 
   return (
     <div className="space-y-6">
-      {isLoading ? (
-        <Ld />
-      ) : (
+      {/* Header row with reset button */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs text-slate-400">Contextual quotes only (segment = CONTEXTUAL)</p>
+          {analytics?.reset_at && (
+            <p className="text-xs text-slate-500 mt-0.5">
+              Tracking from: {new Date(analytics.reset_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}
+            </p>
+          )}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleReset}
+          disabled={resetting}
+          className="text-xs border-red-500/30 text-red-400 hover:bg-red-500/10"
+        >
+          {resetting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Trash2 className="w-3 h-3 mr-1" />}
+          Reset Analytics
+        </Button>
+      </div>
+
+      {isLoading ? <Ld /> : (
         <>
           {/* Funnel */}
           <Card className="bg-slate-800/40 border-slate-700/50">
@@ -936,13 +967,11 @@ function AnalyticsTab() {
                         <div className="text-xs text-slate-400 mt-0.5">{step.label}</div>
                         {i > 0 && (
                           <div className={`text-xs font-medium mt-1 ${rate >= 50 ? 'text-green-400' : rate >= 25 ? 'text-amber-400' : 'text-red-400'}`}>
-                            {rate}% from prev
+                            {rate}% step
                           </div>
                         )}
                       </div>
-                      {i < funnelSteps.length - 1 && (
-                        <ArrowRight className="w-4 h-4 text-slate-600 mx-1 flex-shrink-0" />
-                      )}
+                      {i < funnelSteps.length - 1 && <ArrowRight className="w-4 h-4 text-slate-600 mx-1 flex-shrink-0" />}
                     </div>
                   );
                 })}
@@ -950,41 +979,103 @@ function AnalyticsTab() {
             </CardContent>
           </Card>
 
-          {/* Tier breakdown */}
+          {/* Layout tier + VA context quality side by side */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Card className="bg-slate-800/40 border-slate-700/50">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                  <Users className="w-4 h-4" /> Layout Tiers
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {tiers.length === 0 ? (
+                  <p className="text-xs text-slate-500 py-4 text-center">No tier data yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {tiers.map((tier) => (
+                      <div key={tier.tier} className="flex items-center justify-between py-1.5 border-b border-slate-700/40 last:border-0">
+                        <span className="text-sm font-medium text-slate-200 capitalize">{tier.tier ?? '—'}</span>
+                        <div className="flex items-center gap-3 text-xs text-slate-400">
+                          <span>{tier.count} sent</span>
+                          <span>{tier.viewed} viewed</span>
+                          <Badge variant="outline" className={`text-[10px] ${tier.conversion >= 10 ? 'border-green-500/40 text-green-400 bg-green-500/10' : tier.conversion >= 5 ? 'border-amber-500/40 text-amber-400 bg-amber-500/10' : 'border-red-500/40 text-red-400 bg-red-500/10'}`}>
+                            {tier.conversion}%
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="bg-slate-800/40 border-slate-700/50">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                  <Filter className="w-4 h-4" /> VA Context Quality
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {!ctx ? (
+                  <p className="text-xs text-slate-500 py-4 text-center">No context data yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {(['none', 'short', 'rich'] as const).map((bucket) => {
+                      const total = ctx.buckets[bucket] ?? 0;
+                      const conv = ctx.conversions[bucket] ?? 0;
+                      return (
+                        <div key={bucket} className="flex items-center justify-between py-1.5 border-b border-slate-700/40 last:border-0">
+                          <div>
+                            <span className="text-sm font-medium text-slate-200 capitalize">{bucket}</span>
+                            <span className="text-xs text-slate-500 ml-2">{bucket === 'none' ? 'No context' : bucket === 'short' ? '<100 chars' : '≥100 chars'}</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-slate-400">
+                            <span>{total} quotes</span>
+                            <Badge variant="outline" className={`text-[10px] ${pct(conv, total) >= 10 ? 'border-green-500/40 text-green-400 bg-green-500/10' : 'border-slate-500/40 text-slate-400'}`}>
+                              {pct(conv, total)}% booked
+                            </Badge>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* AI Headline performance */}
           <Card className="bg-slate-800/40 border-slate-700/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-slate-300 flex items-center gap-2">
-                <Users className="w-4 h-4" /> Layout Tier Breakdown
+                <Award className="w-4 h-4 text-amber-400" /> AI Headline Performance (top 10)
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {tiers.length === 0 ? (
-                <p className="text-xs text-slate-500 py-4 text-center">No tier data available yet.</p>
+              {headlines.length === 0 ? (
+                <p className="text-xs text-slate-500 py-4 text-center">No headline data yet — quotes need to be generated with the new contextual engine.</p>
               ) : (
                 <div className="rounded-lg border border-slate-700/50 overflow-hidden">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-slate-700/30 text-xs text-slate-400">
-                        <th className="px-4 py-2 text-left">Tier</th>
+                        <th className="px-4 py-2 text-left">Headline</th>
                         <th className="px-4 py-2 text-right">Sent</th>
                         <th className="px-4 py-2 text-right">Viewed</th>
                         <th className="px-4 py-2 text-right">Booked</th>
-                        <th className="px-4 py-2 text-right">Conversion</th>
+                        <th className="px-4 py-2 text-right">Conv%</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700/50">
-                      {tiers.map((tier) => (
-                        <tr key={tier.tier} className="hover:bg-slate-700/20 transition-colors">
-                          <td className="px-4 py-2.5 font-medium text-slate-200 capitalize">{tier.tier}</td>
-                          <td className="px-4 py-2.5 text-right text-slate-300">{tier.count}</td>
-                          <td className="px-4 py-2.5 text-right text-slate-300">{tier.viewed}</td>
-                          <td className="px-4 py-2.5 text-right text-slate-300">{tier.booked}</td>
+                      {headlines.map((h, i) => (
+                        <tr key={i} className="hover:bg-slate-700/20">
+                          <td className="px-4 py-2.5 text-slate-200 italic text-xs max-w-[200px] truncate">"{h.headline ?? '—'}"</td>
+                          <td className="px-4 py-2.5 text-right text-slate-400 text-xs">{h.total}</td>
+                          <td className="px-4 py-2.5 text-right text-slate-400 text-xs">{h.viewed}</td>
+                          <td className="px-4 py-2.5 text-right text-slate-400 text-xs">{h.booked}</td>
                           <td className="px-4 py-2.5 text-right">
-                            <Badge
-                              variant="outline"
-                              className={`text-[10px] ${tier.conversion >= 10 ? 'border-green-500/40 text-green-400 bg-green-500/10' : tier.conversion >= 5 ? 'border-amber-500/40 text-amber-400 bg-amber-500/10' : 'border-red-500/40 text-red-400 bg-red-500/10'}`}
-                            >
-                              {tier.conversion.toFixed(1)}%
+                            <Badge variant="outline" className={`text-[10px] ${h.conversion >= 10 ? 'border-green-500/40 text-green-400 bg-green-500/10' : h.conversion >= 5 ? 'border-amber-500/40 text-amber-400 bg-amber-500/10' : 'border-slate-500/40 text-slate-400'}`}>
+                              {h.conversion}%
                             </Badge>
                           </td>
                         </tr>
@@ -996,61 +1087,42 @@ function AnalyticsTab() {
             </CardContent>
           </Card>
 
-          {/* Top performers */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Card className="bg-slate-800/40 border-slate-700/50">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-slate-300 flex items-center gap-2">
-                  <Image className="w-4 h-4 text-purple-400" /> Top Image
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {analytics?.top_image ? (
-                  <div className="space-y-2">
-                    <div className="aspect-video rounded-lg overflow-hidden bg-slate-900">
-                      <img
-                        src={analytics.top_image.url}
-                        alt={analytics.top_image.alt ?? 'Top image'}
-                        className="w-full h-full object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect fill="%23334155"/></svg>'; }}
-                      />
+          {/* Image performance */}
+          <Card className="bg-slate-800/40 border-slate-700/50">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                <Image className="w-4 h-4 text-purple-400" /> Image Performance (by view/booking counts)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {images.length === 0 ? (
+                <p className="text-xs text-slate-500 py-4 text-center">No image tracking data yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {images.map((img) => (
+                    <div key={img.id} className="flex items-center gap-3 py-2 border-b border-slate-700/40 last:border-0">
+                      <div className="w-14 h-10 rounded overflow-hidden bg-slate-900 flex-shrink-0">
+                        <img src={img.url} alt={img.alt ?? ''} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-slate-300 truncate">{img.alt ?? 'No alt text'}</p>
+                        <div className="flex gap-1 mt-0.5 flex-wrap">
+                          {img.archetypes?.slice(0, 3).map((a) => <TagBadge key={a} value={a} color="blue" />)}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-slate-400 flex-shrink-0">
+                        <span>{img.view_count} views</span>
+                        <span>{img.booking_count} bookings</span>
+                        <Badge variant="outline" className={`text-[10px] ${img.conversion_rate >= 10 ? 'border-green-500/40 text-green-400 bg-green-500/10' : img.conversion_rate > 0 ? 'border-amber-500/40 text-amber-400 bg-amber-500/10' : 'border-slate-500/40 text-slate-400'}`}>
+                          {img.conversion_rate}%
+                        </Badge>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-400">{analytics.top_image.alt ?? 'No alt text'}</span>
-                      <Badge variant="outline" className="text-[10px] border-green-500/40 text-green-400 bg-green-500/10">
-                        {analytics.top_image.conversion_rate.toFixed(1)}%
-                      </Badge>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 py-4 text-center">No image data yet.</p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="bg-slate-800/40 border-slate-700/50">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-slate-300 flex items-center gap-2">
-                  <Award className="w-4 h-4 text-amber-400" /> Top Headline
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {analytics?.top_headline ? (
-                  <div className="space-y-3">
-                    <p className="text-sm text-slate-200 leading-relaxed">"{analytics.top_headline.text}"</p>
-                    <div className="flex items-center justify-between">
-                      <TagBadge value={analytics.top_headline.section} color="amber" />
-                      <Badge variant="outline" className="text-[10px] border-green-500/40 text-green-400 bg-green-500/10">
-                        {analytics.top_headline.conversion_rate.toFixed(1)}%
-                      </Badge>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 py-4 text-center">No headline data yet.</p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </>
       )}
     </div>

@@ -636,8 +636,33 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       // If we got claims from the library, use them as the approved list for the LLM
       if (contentSelection.claims.length > 0) {
         approvedClaimTexts = contentSelection.claims.map((c) => c.text);
+
+        // Force-inject context-critical claims that the scoring may have missed
+        const vaLower = (input.vaContext || '').toLowerCase();
+        const FORCED_CLAIMS: Array<{ keywords: string[]; claim: string; signalMatch?: boolean }> = [
+          { keywords: ['invoice', 'tax', 'receipt', 'pays promptly', 'accounting', 'same-day invoice'], claim: 'Tax-ready invoice emailed same day' },
+          { keywords: ['photo', 'photos', 'report', 'send me', "won't be there", "can't be there", "cannot be there"], claim: 'Photo report on completion' },
+          { keywords: ['tenant', 'letting', 'rental', 'landlord'], claim: 'Tenant coordination available' },
+          // Signal-based force-injections (no vaContext keyword needed)
+          {
+            keywords: ['evening', 'weekend', 'after hours', 'after-hours', 'saturday', 'sunday', 'tonight', 'tonight'],
+            claim: 'Evening/weekend slots available',
+            signalMatch: signals.timeOfService === 'after_hours' || signals.timeOfService === 'weekend',
+          },
+          {
+            keywords: ['emergency', 'urgent', 'asap', 'right away', 'immediately', 'today', 'now'],
+            claim: 'Emergency same-day available',
+            signalMatch: signals.urgency === 'emergency',
+          },
+        ];
+        for (const { keywords, claim, signalMatch } of FORCED_CLAIMS) {
+          if (!approvedClaimTexts.includes(claim) && (signalMatch || keywords.some(kw => vaLower.includes(kw)))) {
+            approvedClaimTexts.push(claim);
+          }
+        }
+
         console.log(
-          `[ContextualQuote] Content library: ${approvedClaimTexts.length} claims matched for categories [${jobCategories.join(', ')}]`,
+          `[ContextualQuote] Content library: ${approvedClaimTexts.length} claims for categories [${jobCategories.join(', ')}]`,
         );
       }
     } catch (contentError) {
@@ -840,7 +865,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       batchDiscountPercent: result.batchDiscount.discountPercent,
 
       // Raw signals for analytics/retraining
-      contextSignals: input.signals || {},
+      contextSignals: { ...(input.signals || {}), vaContext: input.vaContext || null },
 
       // Content library: selected content IDs for conversion tracking
       selectedContentIds: contentSelection
@@ -1013,6 +1038,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       messaging: {
         headline: result.messaging.contextualHeadline,
         message: result.messaging.contextualMessage,
+        proposalSummary: result.messaging.proposalSummary,
         valueBullets: result.messaging.valueBullets,
         whatsappValueLines: result.messaging.whatsappValueLines,
         whatsappClosing: result.messaging.whatsappClosing,
@@ -1170,6 +1196,58 @@ router.post('/api/quote-platform/headlines/track-booking', async (req, res) => {
   } catch (error) {
     console.error('[quote-platform/headlines/track-booking]', error);
     return res.status(500).json({ error: 'Failed to track headline booking' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/pricing/quotes/:id — Edit and save a contextual quote in-place
+// ---------------------------------------------------------------------------
+
+router.patch('/quotes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      customerName,
+      phone,
+      email,
+      address,
+      postcode,
+      basePrice,           // in pence
+      pricingLineItems,    // LineItemResult[]
+      batchDiscountPercent,
+      availableDates,      // string[] | null — VA-specified booking dates
+    } = req.body;
+
+    const updates: Record<string, unknown> = {};
+    if (customerName !== undefined) updates.customerName = String(customerName).trim();
+    if (phone !== undefined) updates.phone = String(phone).trim();
+    if (email !== undefined) updates.email = email ? String(email).trim() : null;
+    if (address !== undefined) updates.address = address ? String(address).trim() : null;
+    if (postcode !== undefined) updates.postcode = postcode ? String(postcode).trim() : null;
+    if (basePrice !== undefined) updates.basePrice = Number(basePrice);
+    if (pricingLineItems !== undefined) updates.pricingLineItems = pricingLineItems;
+    if (batchDiscountPercent !== undefined) updates.batchDiscountPercent = Number(batchDiscountPercent);
+    if (availableDates !== undefined) updates.availableDates = availableDates; // null clears it
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    const [updated] = await db
+      .update(personalizedQuotes)
+      .set(updates)
+      .where(eq(personalizedQuotes.id, id))
+      .returning();
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Quote not found' });
+    }
+
+    console.log(`[quote-patch] Updated quote ${id} — fields: ${Object.keys(updates).join(', ')}`);
+    return res.json({ ok: true, quote: updated });
+  } catch (error) {
+    console.error('[quote-patch] Error:', error);
+    return res.status(500).json({ error: 'Failed to update quote' });
   }
 });
 
