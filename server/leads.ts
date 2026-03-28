@@ -801,6 +801,7 @@ leadsRouter.get('/api/admin/lead-pipeline', async (req, res) => {
             bookedAt: personalizedQuotes.bookedAt,
             segment: personalizedQuotes.segment,
             createdAt: personalizedQuotes.createdAt,
+            viewCount: personalizedQuotes.viewCount,
         }).from(personalizedQuotes);
 
         // 3. Fetch conversations for WhatsApp tracking
@@ -892,6 +893,7 @@ leadsRouter.get('/api/admin/lead-pipeline', async (req, res) => {
                         hasWhatsAppWindow: hasWhatsAppWindow(conversation?.lastInboundAt || null),
                         quoteId: quote?.id,
                         quoteSlug: quote?.shortSlug,
+                        quoteViewCount: quote?.viewCount ?? 0,
                         createdAt: lead.createdAt,
                     };
                 });

@@ -10,8 +10,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 import { db } from "./db";
-import { productizedServices, skuMatchLogs, calls, callSkus, handymanProfiles, conversations, leads } from "../shared/schema";
-import { desc, eq, and, ne, or, asc, isNull, lt } from "drizzle-orm";
+import { productizedServices, skuMatchLogs, calls, callSkus, handymanProfiles, conversations, leads, personalizedQuotes } from "../shared/schema";
+import { desc, eq, and, ne, or, asc, isNull, lt, gte } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 import { detectSku, detectMultipleTasks, loadAndCacheSkus } from "./skuDetector";
 import { setupTwilioSocket } from "./twilio-realtime";
@@ -1172,13 +1172,37 @@ app.get('/api/contractor/inbox', async (req, res) => {
             )
             .orderBy(desc(calls.startTime));
 
-        // 2. Fetch action-pending leads (newest first)
+        // 2. Fetch action-pending leads — only ElevenLabs AI agent and webform entries (no duplicates from backfills/system sources)
         const pendingLeads = await db.select()
             .from(leads)
-            .where(eq(leads.actionStatus, 'pending'))
+            .where(
+                and(
+                    eq(leads.actionStatus, 'pending'),
+                    or(
+                        eq(leads.source, 'eleven_labs_agent'),
+                        eq(leads.source, 'eleven_labs_tool'),
+                        eq(leads.source, 'desktop_hero_flow'),
+                        eq(leads.source, 'web_quote')
+                    )
+                )
+            )
             .orderBy(desc(leads.createdAt));
 
-        // 3. Normalize into unified shape
+        // 3. Fetch most recent quotes with 3+ views needing follow-up (last 20 to work through)
+        //    Exclude booked quotes — no need to follow up on someone who already converted
+        const hotQuotes = await db.select()
+            .from(personalizedQuotes)
+            .where(
+                and(
+                    gte(personalizedQuotes.viewCount, 3),
+                    isNull(personalizedQuotes.bookedAt),
+                    isNull(personalizedQuotes.viewNudgeSentAt)
+                )
+            )
+            .orderBy(desc(personalizedQuotes.lastViewedAt))
+            .limit(20);
+
+        // 4. Normalize into unified shape
         const items = [
             ...pendingCalls.map(call => ({
                 id: call.id,
@@ -1221,6 +1245,23 @@ app.get('/api/contractor/inbox', async (req, res) => {
                 tags: null,
                 outcome: null,
             })),
+            ...hotQuotes.map(quote => ({
+                id: `quote-${quote.id}`,
+                itemType: 'quote_views' as const,
+                customerName: quote.customerName || 'Unknown',
+                phone: quote.phone || '',
+                summary: `Viewed quote ${quote.viewCount} times without booking`,
+                source: `${quote.viewCount} Quote Views`,
+                sourceType: 'quote_views',
+                urgency: quote.viewCount! >= 5 ? 1 : 2,
+                actionStatus: 'pending',
+                address: null,
+                recordingUrl: null,
+                transcription: null,
+                timestamp: quote.lastViewedAt?.toISOString() || quote.viewedAt?.toISOString() || null,
+                tags: null,
+                outcome: null,
+            })),
         ];
 
         // Sort unified list: newest first
@@ -1248,8 +1289,13 @@ app.patch('/api/contractor/inbox/:id', async (req, res) => {
     }
 
     try {
-        // Lead IDs start with "lead_", call IDs are hex strings
-        if (id.startsWith('lead_')) {
+        // Quote view items use "quote-{id}" prefix, lead IDs start with "lead_", call IDs are hex strings
+        if (id.startsWith('quote-')) {
+            const quoteId = id.replace('quote-', '');
+            await db.update(personalizedQuotes)
+                .set({ viewNudgeSentAt: new Date() })
+                .where(eq(personalizedQuotes.id, quoteId));
+        } else if (id.startsWith('lead_')) {
             await db.update(leads)
                 .set({ actionStatus, updatedAt: new Date() })
                 .where(eq(leads.id, id));
