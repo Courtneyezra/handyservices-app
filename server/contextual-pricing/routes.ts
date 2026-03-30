@@ -982,23 +982,8 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
     const waPhone = formatPhoneForWhatsApp(normalizedPhone || input.phone);
     const whatsappSendUrl = `https://wa.me/${waPhone}?text=${encodeURIComponent(whatsappMessage)}`;
 
-    // Build direct price message for quick tier jobs (no link — price inline)
-    // Round to nearest £1 for inline direct price messages — reads more human
-    const directPriceRounded = Math.round(result.finalPricePence / 100);
-    const directPriceFormatted = `£${directPriceRounded}`;
-
-    let directPriceMessage: string | null = null;
-    if (layoutTier === 'quick' && result.finalPricePence > 0) {
-      directPriceMessage = [
-        `Hey ${firstName},`,
-        '',
-        result.messaging.contextualMessage,
-        '',
-        `Fixed price: ${directPriceFormatted} — all included.`,
-        '',
-        result.messaging.whatsappClosing,
-      ].join('\n') + batchNudge;
-    }
+    // Direct price messages removed — always send link-based quotes
+    const directPriceMessage: string | null = null;
 
     // Detect managed tier signals from vaContext (landlord/remote/tenant scenarios)
     const vaCtxLower = (input.vaContext || '').toLowerCase();

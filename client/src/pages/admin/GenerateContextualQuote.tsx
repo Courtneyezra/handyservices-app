@@ -242,8 +242,8 @@ export default function GenerateContextualQuote() {
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  // ── Send mode: 'direct' shows inline price message, 'full' shows quote link message ──
-  const [sendMode, setSendMode] = useState<'full' | 'direct'>('direct');
+  // ── Send mode: always 'full' (link-based quote message) ──
+  const [sendMode, setSendMode] = useState<'full' | 'direct'>('full');
 
   // ── Clipboard state ──
   const [copiedMessage, setCopiedMessage] = useState(false);
@@ -438,8 +438,7 @@ export default function GenerateContextualQuote() {
     },
     onSuccess: (result) => {
       setQuoteResult(result);
-      // Default to direct price for quick tier (no link), full quote for all other tiers
-      setSendMode(result.messaging.layoutTier === 'quick' && result.directPriceMessage ? 'direct' : 'full');
+      setSendMode('full');
       toast({ title: 'Quote Created!', description: 'Ready to send via WhatsApp.' });
     },
     onError: (error: Error) => {
@@ -580,11 +579,7 @@ export default function GenerateContextualQuote() {
 
   const handleCopyMessage = () => {
     if (!quoteResult) return;
-    const msgToCopy =
-      sendMode === 'direct' && quoteResult.directPriceMessage
-        ? quoteResult.directPriceMessage
-        : quoteResult.whatsappMessage;
-    navigator.clipboard.writeText(msgToCopy);
+    navigator.clipboard.writeText(quoteResult.whatsappMessage);
     setCopiedMessage(true);
     toast({ title: 'Copied!' });
     setTimeout(() => setCopiedMessage(false), 2000);
@@ -620,25 +615,10 @@ export default function GenerateContextualQuote() {
     window.open(quoteResult.whatsappSendUrl, '_blank');
   };
 
-  const handleSendDirectPrice = () => {
-    if (!quoteResult?.directPriceSendUrl) return;
-    trackEvent('cq_whatsapp_sent', {
-      quote_id: quoteResult.quoteId,
-      short_slug: quoteResult.shortSlug,
-      total_price_pence: quoteResult.pricing.totalPence,
-      total_price_pounds: quoteResult.pricing.totalFormatted,
-      line_item_count: quoteResult.pricing.lineItems.length,
-      batch_discount_applied: quoteResult.pricing.batchDiscount.applied,
-      layout_tier: quoteResult.messaging.layoutTier,
-      send_mode: 'direct',
-      sent_by: 'admin',
-    });
-    window.open(quoteResult.directPriceSendUrl, '_blank');
-  };
 
   const handleReset = () => {
     setQuoteResult(null);
-    setSendMode('direct');
+    setSendMode('full');
     setCustomerName('');
     setPhone('');
     setEmail('');
@@ -1381,86 +1361,23 @@ export default function GenerateContextualQuote() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                {/* Quick tier: two send options */}
-                {quoteResult.messaging.layoutTier === 'quick' && quoteResult.directPriceMessage && (
-                  <div className="flex flex-col sm:flex-row gap-2 pb-1">
-                    <button
-                      onClick={() => setSendMode('direct')}
-                      className={`flex-1 rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                        sendMode === 'direct'
-                          ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30'
-                          : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-sm font-semibold text-amber-700 dark:text-amber-400">
-                          💬 Send Direct Price
-                        </span>
-                        {sendMode === 'direct' && (
-                          <Badge className="text-[10px] bg-amber-500 text-white border-0 py-0">Selected</Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400">Price sent in the message — no link to click</p>
-                    </button>
-                    <button
-                      onClick={() => setSendMode('full')}
-                      className={`flex-1 rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                        sendMode === 'full'
-                          ? 'border-zinc-400 bg-zinc-50 dark:bg-zinc-800/50'
-                          : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-                          📋 Send Full Quote
-                        </span>
-                        {sendMode === 'full' && (
-                          <Badge variant="secondary" className="text-[10px] py-0">Selected</Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400">Opens the full quote page with breakdown</p>
-                    </button>
-                  </div>
-                )}
 
                 {/* Message Preview (WhatsApp bubble style) */}
                 <div className="bg-[#1a2e1a] rounded-lg p-3 sm:p-4 border border-green-800/30">
                   <div className="text-sm text-green-100/90 whitespace-pre-wrap max-h-64 overflow-y-auto leading-relaxed">
-                    {sendMode === 'direct' && quoteResult.directPriceMessage
-                      ? quoteResult.directPriceMessage
-                      : quoteResult.whatsappMessage}
+                    {quoteResult.whatsappMessage}
                   </div>
                 </div>
 
                 {/* Action Buttons */}
                 <div className="flex flex-col sm:flex-row gap-2">
-                  {quoteResult.messaging.layoutTier === 'quick' && quoteResult.directPriceMessage ? (
-                    sendMode === 'direct' ? (
-                      <Button
-                        onClick={handleSendDirectPrice}
-                        className="w-full sm:flex-1 bg-amber-500 hover:bg-amber-600 h-11 text-sm font-semibold text-white"
-                      >
-                        <FaWhatsapp className="w-4 h-4 mr-2" />
-                        Send Direct Price
-                      </Button>
-                    ) : (
-                      <Button
-                        onClick={handleSendWhatsApp}
-                        className="w-full sm:flex-1 bg-green-600 hover:bg-green-700 h-11 text-sm font-semibold"
-                      >
-                        <FaWhatsapp className="w-4 h-4 mr-2" />
-                        Send Full Quote
-                      </Button>
-                    )
-                  ) : (
-                    <Button
-                      onClick={handleSendWhatsApp}
-                      className="w-full sm:flex-1 bg-green-600 hover:bg-green-700 h-11 text-sm font-semibold"
-                    >
-                      <FaWhatsapp className="w-4 h-4 mr-2" />
-                      Send via WhatsApp
-                    </Button>
-                  )}
+                  <Button
+                    onClick={handleSendWhatsApp}
+                    className="w-full sm:flex-1 bg-green-600 hover:bg-green-700 h-11 text-sm font-semibold"
+                  >
+                    <FaWhatsapp className="w-4 h-4 mr-2" />
+                    Send via WhatsApp
+                  </Button>
                   <Button variant="outline" onClick={handleCopyMessage} className="sm:flex-1 h-10">
                     {copiedMessage ? <Check className="w-4 h-4 mr-1.5" /> : <Copy className="w-4 h-4 mr-1.5" />}
                     Copy Message
