@@ -1203,6 +1203,14 @@ router.patch('/quotes/:id', async (req, res) => {
       availableDates,      // string[] | null — VA-specified booking dates
     } = req.body;
 
+    // Fetch existing quote first so we can patch JSONB fields in JS
+    const [existing] = await db.select().from(personalizedQuotes)
+      .where(eq(personalizedQuotes.id, id));
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Quote not found' });
+    }
+
     const updates: Record<string, unknown> = {};
     if (customerName !== undefined) updates.customerName = String(customerName).trim();
     if (phone !== undefined) updates.phone = String(phone).trim();
@@ -1226,14 +1234,15 @@ router.patch('/quotes/:id', async (req, res) => {
       updates.basePrice = finalPrice;
       updates.materialsCostWithMarkupPence = materialsTotal;
 
-      // Patch pricingLayerBreakdown so finalPricePence/subtotalPence stay in sync
-      updates.pricingLayerBreakdown = sql`
-        COALESCE(pricing_layer_breakdown, '{}'::jsonb)
-          || jsonb_build_object(
-               'finalPricePence', ${finalPrice}::int,
-               'subtotalPence', ${labourTotal}::int
-             )
-      `;
+      // Patch pricingLayerBreakdown in JS (not raw SQL) so Drizzle serializes correctly
+      const existingBreakdown = (existing.pricingLayerBreakdown as Record<string, any>) || {};
+      updates.pricingLayerBreakdown = {
+        ...existingBreakdown,
+        finalPricePence: finalPrice,
+        subtotalPence: labourTotal,
+      };
+
+      console.log(`[quote-patch] Recalculated: labour=${labourTotal} materials=${materialsTotal} final=${finalPrice}`);
     }
 
     if (Object.keys(updates).length === 0) {
@@ -1245,10 +1254,6 @@ router.patch('/quotes/:id', async (req, res) => {
       .set(updates)
       .where(eq(personalizedQuotes.id, id))
       .returning();
-
-    if (!updated) {
-      return res.status(404).json({ error: 'Quote not found' });
-    }
 
     console.log(`[quote-patch] Updated quote ${id} — fields: ${Object.keys(updates).join(', ')}`);
     return res.json({ ok: true, quote: updated });
