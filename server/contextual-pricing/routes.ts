@@ -1214,6 +1214,28 @@ router.patch('/quotes/:id', async (req, res) => {
     if (batchDiscountPercent !== undefined) updates.batchDiscountPercent = Number(batchDiscountPercent);
     if (availableDates !== undefined) updates.availableDates = availableDates; // null clears it
 
+    // When line items change, recalculate finalPricePence and materials so
+    // the customer-facing page (which reads finalPricePence first) shows
+    // the updated total instead of the stale original.
+    if (pricingLineItems !== undefined) {
+      const items = Array.isArray(pricingLineItems) ? pricingLineItems : [];
+      const labourTotal = items.reduce((s: number, li: any) => s + (Number(li.guardedPricePence) || 0), 0);
+      const materialsTotal = items.reduce((s: number, li: any) => s + (Number(li.materialsWithMarginPence) || 0), 0);
+      const finalPrice = labourTotal + materialsTotal;
+
+      updates.basePrice = finalPrice;
+      updates.materialsCostWithMarkupPence = materialsTotal;
+
+      // Patch pricingLayerBreakdown so finalPricePence/subtotalPence stay in sync
+      updates.pricingLayerBreakdown = sql`
+        COALESCE(pricing_layer_breakdown, '{}'::jsonb)
+          || jsonb_build_object(
+               'finalPricePence', ${finalPrice}::int,
+               'subtotalPence', ${labourTotal}::int
+             )
+      `;
+    }
+
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'No valid fields to update' });
     }

@@ -92,7 +92,8 @@ function nextNDays(n: number): string[] {
 interface EditableLineItem {
   lineId: string;
   description: string;
-  pricePounds: string; // string for controlled input
+  pricePounds: string;     // labour price — string for controlled input
+  materialsPounds: string; // materials with margin — string for controlled input
 }
 
 function fromLineItems(items: LineItemResult[]): EditableLineItem[] {
@@ -100,6 +101,7 @@ function fromLineItems(items: LineItemResult[]): EditableLineItem[] {
     lineId: li.lineId,
     description: li.description,
     pricePounds: penceToGBP(li.guardedPricePence),
+    materialsPounds: penceToGBP(li.materialsWithMarginPence || 0),
   }));
 }
 
@@ -150,21 +152,26 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
     setEditOpen(true);
   }, [quote]);
 
-  // Computed total from line items
-  const totalPence = lineItems.reduce((sum, li) => {
+  // Computed totals from line items
+  const labourPence = lineItems.reduce((sum, li) => {
     const val = parseFloat(li.pricePounds);
     return sum + (isNaN(val) ? 0 : Math.round(val * 100));
   }, 0);
+  const materialsPence = lineItems.reduce((sum, li) => {
+    const val = parseFloat(li.materialsPounds);
+    return sum + (isNaN(val) ? 0 : Math.round(val * 100));
+  }, 0);
+  const totalPence = labourPence + materialsPence;
 
   // Line item helpers
-  function updateLineItem(lineId: string, field: 'description' | 'pricePounds', value: string) {
+  function updateLineItem(lineId: string, field: 'description' | 'pricePounds' | 'materialsPounds', value: string) {
     setLineItems(prev => prev.map(li => li.lineId === lineId ? { ...li, [field]: value } : li));
   }
 
   function addLineItem() {
     setLineItems(prev => [
       ...prev,
-      { lineId: `li_${Date.now()}`, description: '', pricePounds: '0.00' },
+      { lineId: `li_${Date.now()}`, description: '', pricePounds: '0.00', materialsPounds: '0.00' },
     ]);
   }
 
@@ -182,12 +189,13 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
     if (!quote) return;
     setSaving(true);
     try {
-      // Build updated line items (convert back to pence for guardedPricePence)
+      // Build updated line items (convert back to pence)
       const updatedLineItems = lineItems.map(li => ({
         ...(quote.pricingLineItems?.find((orig: any) => orig.lineId === li.lineId) ?? {}),
         lineId: li.lineId,
         description: li.description,
         guardedPricePence: gbpToPence(li.pricePounds),
+        materialsWithMarginPence: gbpToPence(li.materialsPounds),
       }));
 
       const body: Record<string, unknown> = {
@@ -390,16 +398,31 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-slate-400 text-xs">£</span>
-                              <Input
-                                value={li.pricePounds}
-                                onChange={e => updateLineItem(li.lineId, 'pricePounds', e.target.value)}
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                className="bg-slate-700 border-slate-600 text-white text-xs h-8 w-28"
-                              />
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-slate-500 text-[10px]">Labour</span>
+                                <span className="text-slate-400 text-xs">£</span>
+                                <Input
+                                  value={li.pricePounds}
+                                  onChange={e => updateLineItem(li.lineId, 'pricePounds', e.target.value)}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  className="bg-slate-700 border-slate-600 text-white text-xs h-8 w-24"
+                                />
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-slate-500 text-[10px]">Materials</span>
+                                <span className="text-slate-400 text-xs">£</span>
+                                <Input
+                                  value={li.materialsPounds}
+                                  onChange={e => updateLineItem(li.lineId, 'materialsPounds', e.target.value)}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  className="bg-slate-700 border-slate-600 text-white text-xs h-8 w-24"
+                                />
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -414,9 +437,21 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
                       <Plus className="w-3 h-3 mr-1.5" />Add line item
                     </Button>
                     {lineItems.length > 0 && (
-                      <div className="flex justify-between items-center pt-1 border-t border-slate-700/50">
-                        <span className="text-xs text-slate-400">Total</span>
-                        <span className="text-sm font-bold text-white">£{penceToGBP(totalPence)}</span>
+                      <div className="pt-1 border-t border-slate-700/50 space-y-1">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] text-slate-500">Labour</span>
+                          <span className="text-xs text-slate-400">£{penceToGBP(labourPence)}</span>
+                        </div>
+                        {materialsPence > 0 && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] text-slate-500">Materials</span>
+                            <span className="text-xs text-slate-400">£{penceToGBP(materialsPence)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-slate-400">Total</span>
+                          <span className="text-sm font-bold text-white">£{penceToGBP(totalPence)}</span>
+                        </div>
                       </div>
                     )}
                   </TabsContent>
