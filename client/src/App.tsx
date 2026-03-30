@@ -12,6 +12,7 @@ import HandymanLanding from "@/pages/HandymanLanding";
 import PropertyManagerLanding from "@/pages/PropertyManagerLanding";
 import BusinessLanding from "@/pages/BusinessLanding";
 import DerbyLanding from "@/pages/DerbyLanding";
+import CleaningLanding from "@/pages/CleaningLanding";
 import { Loader2, Wrench } from "lucide-react";
 
 // Admin/CRM pages - Eager loaded for smooth navigation within CRM
@@ -122,6 +123,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 
 // Public Contractor Profiles
 const ContractorPublicProfile = lazy(() => import("@/pages/public/ContractorPublicProfile"));
+const InstantPricePage = lazy(() => import("@/pages/InstantPricePage"));
 
 // Pitch/Sales Pages
 const PitchIndex = lazy(() => import("@/pages/pitch/PitchIndex"));
@@ -220,6 +222,7 @@ function Router() {
                 <Route path="/businesses" component={BusinessLanding} />
                 <Route path="/app" component={ContractorAppLanding} />
                 <Route path="/derby" component={DerbyLanding} />
+                <Route path="/cleaning" component={CleaningLanding} />
                 <Route path="/seasonal-guide" component={SeasonalMenu} />
                 <Route path="/l/:slug" component={LandingPageRender} />
 
@@ -293,7 +296,7 @@ function Router() {
 
                 {/* Coming soon */}
                 <Route path="/instant-price">
-                    <div className="p-10 text-center"><h1>Instant Price Page (Coming Soon)</h1></div>
+                    <InstantPricePage />
                 </Route>
 
                 {/* Training (public for now) */}
