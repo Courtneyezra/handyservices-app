@@ -107,12 +107,21 @@ function fromLineItems(items: LineItemResult[]): EditableLineItem[] {
 // Main component
 // ---------------------------------------------------------------------------
 
-export function QuotePreviewModal({ quote, open, onClose, onSaved }: QuotePreviewModalProps) {
+export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: QuotePreviewModalProps) {
   const { toast } = useToast();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editTab, setEditTab] = useState<'customer' | 'pricing' | 'scheduling'>('customer');
+
+  // Local copy of quote so edits persist across drawer open/close without
+  // requiring the parent to re-fetch before the user reopens the drawer.
+  const [localQuote, setLocalQuote] = useState<PreviewQuote | null>(null);
+  // Sync from prop whenever a new quote is passed in (or modal re-opens)
+  const quote = localQuote && localQuote.quoteId === quoteProp?.quoteId ? localQuote : quoteProp;
+  if (quoteProp && (!localQuote || localQuote.quoteId !== quoteProp.quoteId)) {
+    setLocalQuote(quoteProp);
+  }
 
   // Customer fields
   const [custName, setCustName] = useState('');
@@ -189,10 +198,9 @@ export function QuotePreviewModal({ quote, open, onClose, onSaved }: QuotePrevie
         postcode: custPostcode.trim() || null,
       };
 
-      if (lineItems.length > 0) {
-        body.pricingLineItems = updatedLineItems;
-        body.basePrice = totalPence;
-      }
+      // Always send line items & price so deletions/edits are persisted
+      body.pricingLineItems = updatedLineItems;
+      body.basePrice = totalPence;
 
       // availableDates: send null to clear, or array of selected dates
       body.availableDates = selectedDates.length > 0 ? selectedDates : null;
@@ -204,6 +212,19 @@ export function QuotePreviewModal({ quote, open, onClose, onSaved }: QuotePrevie
       });
 
       if (!res.ok) throw new Error('Save failed');
+
+      // Update local quote so re-opening the drawer shows the saved values
+      setLocalQuote(prev => prev ? {
+        ...prev,
+        customerName: custName.trim(),
+        phone: custPhone.trim(),
+        email: custEmail.trim() || null,
+        address: custAddress.trim() || null,
+        postcode: custPostcode.trim() || null,
+        basePrice: totalPence,
+        pricingLineItems: updatedLineItems as LineItemResult[],
+        availableDates: selectedDates.length > 0 ? selectedDates : null,
+      } : prev);
 
       toast({ title: 'Quote updated', description: 'Changes saved and live.' });
       setEditOpen(false);
