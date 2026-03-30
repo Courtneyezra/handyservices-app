@@ -1188,7 +1188,7 @@ router.post('/api/quote-platform/headlines/track-booking', async (req, res) => {
 // PATCH /api/pricing/quotes/:id — Edit and save a contextual quote in-place
 // ---------------------------------------------------------------------------
 
-router.patch('/quotes/:id', async (req, res) => {
+router.patch('/api/pricing/quotes/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const {
