@@ -27,24 +27,40 @@ interface UseAvailabilityOptions {
 }
 
 /**
+ * Hook to fetch availability config (master switch)
+ * When master switch is ON, quotes use admin-managed master availability
+ * instead of contractor-based availability.
+ */
+export function useAvailabilityConfig() {
+  return useQuery<{ useMasterSwitch: boolean }>({
+    queryKey: ['availabilityConfig'],
+    queryFn: async () => {
+      const response = await fetch('/api/public/availability/config');
+      if (!response.ok) return { useMasterSwitch: true }; // safe default
+      return response.json();
+    },
+    staleTime: 10 * 60 * 1000, // 10 minutes — rarely changes
+  });
+}
+
+/**
  * Hook to fetch system-wide availability for quote page date pickers
  *
- * Combines:
- * - Master blocked dates
- * - Master weekly patterns
- * - Contractor availability (patterns + overrides)
- * - Existing bookings
- *
- * Returns available dates where at least one contractor can work.
+ * Checks the master availability switch first:
+ * - If ON: always uses master availability (admin-controlled dates)
+ * - If OFF: uses contractor-filtered availability when categories provided
  */
 export function useAvailability(options: UseAvailabilityOptions = {}) {
   const { postcode, serviceIds, categories, timeEstimateMinutes, days = 28, enabled = true } = options;
 
+  const { data: config } = useAvailabilityConfig();
+  const useMasterSwitch = config?.useMasterSwitch ?? true; // default ON
+
   return useQuery<AvailabilityResponse>({
-    queryKey: ['publicAvailability', postcode, serviceIds, categories, timeEstimateMinutes, days],
+    queryKey: ['publicAvailability', postcode, serviceIds, categories, timeEstimateMinutes, days, useMasterSwitch],
     queryFn: async () => {
-      // Use category-filtered endpoint when categories are provided
-      if (categories && categories.length > 0) {
+      // Use category-filtered endpoint ONLY when master switch is OFF and categories provided
+      if (!useMasterSwitch && categories && categories.length > 0) {
         const params = new URLSearchParams();
         params.set('categories', categories.join(','));
         if (postcode) params.set('postcode', postcode);
@@ -59,7 +75,7 @@ export function useAvailability(options: UseAvailabilityOptions = {}) {
         return { dates };
       }
 
-      // Fallback to existing unfiltered endpoint
+      // Master switch ON or no categories — use master availability endpoint
       const params = new URLSearchParams();
       params.set('days', days.toString());
 
@@ -122,13 +138,13 @@ export function getUnavailableReason(
 
   switch (dateInfo.reason) {
     case 'master_blocked':
-      return 'This date is blocked';
+      return 'Fully booked';
     case 'day_inactive':
       return 'We don\'t operate on this day';
     case 'no_contractors':
-      return 'No contractors available';
+      return 'Fully booked';
     default:
-      return 'Unavailable';
+      return 'Fully booked';
   }
 }
 

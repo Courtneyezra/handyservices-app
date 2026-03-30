@@ -175,6 +175,8 @@ const DEFAULT_SETTINGS = {
     'twilio.business_hours_start': { value: '08:00', description: 'Business hours start time (HH:MM)' },
     'twilio.business_hours_end': { value: '18:00', description: 'Business hours end time (HH:MM)' },
     'twilio.business_days': { value: '1,2,3,4,5', description: 'Business days (1=Mon, 7=Sun)' },
+    // Availability settings
+    'availability.use_master_switch': { value: true, description: 'When ON, quote calendars use master availability instead of contractor availability. Short-term until enough contractors onboarded.' },
 };
 
 // Get all settings

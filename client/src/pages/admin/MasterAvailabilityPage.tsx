@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, getDaysInMonth, getDay, startOfMonth } from "date-fns";
-import { Loader2, Plus, Trash2, Calendar, Clock, Save, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, Plus, Trash2, Calendar, Clock, Save, ChevronLeft, ChevronRight, ToggleRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +50,47 @@ export default function MasterAvailabilityPage() {
     // New blocked date form
     const [newBlockedDate, setNewBlockedDate] = useState('');
     const [newBlockedReason, setNewBlockedReason] = useState('');
+
+    // Fetch master switch setting
+    const { data: masterSwitchData } = useQuery<{ useMasterSwitch: boolean }>({
+        queryKey: ["availabilityConfig"],
+        queryFn: async () => {
+            const res = await fetch("/api/public/availability/config");
+            if (!res.ok) return { useMasterSwitch: true };
+            return res.json();
+        },
+    });
+
+    const masterSwitchOn = masterSwitchData?.useMasterSwitch ?? true;
+
+    // Toggle master switch mutation
+    const toggleMasterSwitchMutation = useMutation({
+        mutationFn: async (enabled: boolean) => {
+            const res = await fetch("/api/settings/availability.use_master_switch", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+                body: JSON.stringify({ value: enabled }),
+            });
+            if (!res.ok) throw new Error("Failed to update master switch");
+            return res.json();
+        },
+        onSuccess: (_data, enabled) => {
+            queryClient.invalidateQueries({ queryKey: ["availabilityConfig"] });
+            toast({
+                title: enabled ? "Master Availability ON" : "Master Availability OFF",
+                description: enabled
+                    ? "Quotes now use your master calendar (this page)."
+                    : "Quotes now use individual contractor availability.",
+            });
+        },
+        onError: () => {
+            toast({
+                title: "Error",
+                description: "Failed to update master switch.",
+                variant: "destructive",
+            });
+        },
+    });
 
     // Fetch master availability patterns
     const { data: masterPatterns, isLoading: patternsLoading } = useQuery<MasterAvailability[]>({
@@ -251,6 +292,33 @@ export default function MasterAvailabilityPage() {
                 <h1 className="text-2xl font-bold text-gray-900">Master Availability</h1>
                 <p className="text-gray-500 mt-1">Set system-wide default availability patterns and blocked dates.</p>
             </div>
+
+            {/* Master Switch */}
+            <Card className={masterSwitchOn ? "border-[#7DB00E] bg-green-50/30" : "border-gray-200"}>
+                <CardContent className="py-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <ToggleRight className={`h-5 w-5 ${masterSwitchOn ? 'text-[#7DB00E]' : 'text-gray-400'}`} />
+                            <div>
+                                <p className="font-semibold text-gray-900">
+                                    Use Master Availability for Quotes
+                                </p>
+                                <p className="text-sm text-gray-500">
+                                    {masterSwitchOn
+                                        ? "ON — Quotes use this calendar. Blocked dates show as \"Fully Booked\"."
+                                        : "OFF — Quotes use individual contractor availability."
+                                    }
+                                </p>
+                            </div>
+                        </div>
+                        <Switch
+                            checked={masterSwitchOn}
+                            onCheckedChange={(checked) => toggleMasterSwitchMutation.mutate(checked)}
+                            disabled={toggleMasterSwitchMutation.isPending}
+                        />
+                    </div>
+                </CardContent>
+            </Card>
 
             {/* Weekly Pattern Editor */}
             <Card>

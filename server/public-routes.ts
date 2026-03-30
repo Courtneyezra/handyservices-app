@@ -187,6 +187,28 @@ router.get('/availability', async (req: Request, res: Response) => {
 });
 
 // ============================================================================
+// AVAILABILITY CONFIG (Master Switch)
+// ============================================================================
+
+/**
+ * GET /api/public/availability/config
+ * Returns availability configuration for the quote page.
+ * When use_master_switch is true, the client should use master availability
+ * instead of contractor-filtered availability.
+ */
+router.get('/availability/config', async (req: Request, res: Response) => {
+    try {
+        const { getSetting } = await import('./settings');
+        const useMasterSwitch = await getSetting('availability.use_master_switch');
+        res.json({ useMasterSwitch: useMasterSwitch ?? true });
+    } catch (error: any) {
+        console.error('[PublicAPI] Get availability config error:', error);
+        // Default to master switch ON (safe fallback)
+        res.json({ useMasterSwitch: true });
+    }
+});
+
+// ============================================================================
 // CONTRACTOR PUBLIC PROFILE ROUTES
 // ============================================================================
 

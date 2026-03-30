@@ -21,7 +21,7 @@ interface DateSelectorProps {
 /**
  * Horizontal scrollable date selector for mobile pricing cards.
  * Shows available booking dates with touch-friendly navigation.
- * No images - uses Lucide icons only.
+ * Blocked dates show "Fully Booked" instead of being hidden.
  */
 export function DateSelector({
     startDate,
@@ -60,15 +60,14 @@ export function DateSelector({
         return set;
     }, [availabilityData]);
 
-    // Generate 14 days starting from tier's earliest available, filtering out unavailable
+    // Generate 14 days starting from tier's earliest available
     const allDates = Array.from({ length: 14 }, (_, i) => addDays(startDate, i));
-    const availableDates = allDates.filter(date => !unavailableDatesSet.has(formatDateStr(date)));
 
-    // Get currently visible dates
-    const visibleDates = availableDates.slice(scrollIndex, scrollIndex + datesPerView);
+    // Get currently visible dates (show all dates, including unavailable)
+    const visibleDates = allDates.slice(scrollIndex, scrollIndex + datesPerView);
 
     const canScrollLeft = scrollIndex > 0;
-    const canScrollRight = scrollIndex + datesPerView < availableDates.length;
+    const canScrollRight = scrollIndex + datesPerView < allDates.length;
 
     const handleScrollLeft = () => {
         if (canScrollLeft) setScrollIndex(prev => Math.max(0, prev - 1));
@@ -107,33 +106,43 @@ export function DateSelector({
                 {/* Date Grid */}
                 <div className="flex gap-2 flex-1 overflow-hidden">
                     {visibleDates.map((date, idx) => {
-                        const isSelected = selectedDate &&
+                        const dateStr = formatDateStr(date);
+                        const isUnavailable = unavailableDatesSet.has(dateStr);
+                        const isSelected = !isUnavailable && selectedDate &&
                             format(date, 'yyyy-MM-dd') === format(selectedDate, 'yyyy-MM-dd');
 
                         return (
                             <button
                                 key={idx}
-                                onClick={() => onDateSelect(date)}
+                                onClick={() => !isUnavailable && onDateSelect(date)}
+                                disabled={isUnavailable}
                                 className={`
-                  flex flex-col items-center justify-center
+                  flex flex-col items-center justify-center relative
                   px-2 py-2 rounded-lg min-w-[60px]
                   transition-all duration-200
-                  ${isSelected
-                                        ? 'bg-[#7DB00E] text-white shadow-lg scale-105'
-                                        : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  ${isUnavailable
+                                        ? 'opacity-40 cursor-not-allowed bg-slate-100 border border-slate-200'
+                                        : isSelected
+                                            ? 'bg-[#7DB00E] text-white shadow-lg scale-105'
+                                            : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
                                     }
                 `}
-                                aria-label={format(date, 'EEEE, MMMM d')}
+                                aria-label={isUnavailable ? `${format(date, 'EEEE, MMMM d')} - Fully booked` : format(date, 'EEEE, MMMM d')}
                             >
-                                <span className="text-[10px] uppercase font-medium">
+                                <span className={`text-[10px] uppercase font-medium ${isUnavailable ? 'text-slate-400' : ''}`}>
                                     {format(date, 'EEE')}
                                 </span>
-                                <span className="text-xl font-bold my-0.5">
+                                <span className={`text-xl font-bold my-0.5 ${isUnavailable ? 'text-slate-400' : ''}`}>
                                     {format(date, 'd')}
                                 </span>
-                                <span className="text-[10px] uppercase">
+                                <span className={`text-[10px] uppercase ${isUnavailable ? 'text-slate-400' : ''}`}>
                                     {format(date, 'MMM')}
                                 </span>
+                                {isUnavailable && (
+                                    <span className="text-[7px] font-semibold text-red-400 mt-0.5">
+                                        Fully Booked
+                                    </span>
+                                )}
                             </button>
                         );
                     })}
