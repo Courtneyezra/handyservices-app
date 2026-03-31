@@ -68,11 +68,13 @@ TIME ESTIMATE GUIDANCE (from owner's experience):
 - Pressure washing: 120-180min
 
 INSTRUCTIONS:
-1. Split the description into separate, distinct tasks. Each task should be one unit of work.
-2. Assign the most appropriate category to each task.
-3. Estimate time based on the guidance above. If unsure, use reasonable estimates.
-4. Detect contextual signals from the text (see below).
-5. If the description mentions multiple of the same thing (e.g. "3 shelves"), keep as ONE line but adjust time accordingly.
+1. ALWAYS split the description into separate, distinct tasks. Each task should be one unit of work. This is CRITICAL — never combine different tasks into a single line.
+2. Even if the customer describes everything in one sentence, break it into individual tasks. E.g. "fix a tap, hang some shelves and paint the bedroom" = 3 separate lines.
+3. Assign the most appropriate category to each task.
+4. Estimate time based on the guidance above. If unsure, use reasonable estimates.
+5. Detect contextual signals from the text (see below).
+6. If the description mentions multiple of the same thing (e.g. "3 shelves"), keep as ONE line but adjust time accordingly.
+7. Aim for 2-6 line items for a typical multi-task job. Only return 1 line if the job genuinely is a single task.
 
 SIGNAL DETECTION — look for these clues in the text:
 - urgency: "urgent", "emergency", "ASAP", "today", "leaking" → "emergency"; "soon", "this week", "priority" → "priority"; otherwise → null
@@ -81,10 +83,12 @@ SIGNAL DETECTION — look for these clues in the text:
 
 ACCESS DIFFICULTY — If the text mentions access difficulty (e.g. "loft", "high ceiling", "crawlspace"), include that detail in the line item description so it's visible for pricing. For example, "fix the loft hatch" → description: "Fix loft hatch (loft access)".
 
-OUTPUT FORMAT — respond with ONLY this JSON:
+OUTPUT FORMAT — respond with ONLY this JSON (note: multiple lines for multi-task jobs):
 {
   "lines": [
-    {"description": "Fix leaking kitchen tap", "category": "plumbing_minor", "timeEstimateMinutes": 45}
+    {"description": "Fix leaking kitchen tap", "category": "plumbing_minor", "timeEstimateMinutes": 45},
+    {"description": "Hang 3 floating shelves in living room", "category": "shelving", "timeEstimateMinutes": 60},
+    {"description": "Assemble IKEA wardrobe", "category": "flat_pack", "timeEstimateMinutes": 120}
   ],
   "detectedSignals": {
     "urgency": "priority" | "emergency" | null,

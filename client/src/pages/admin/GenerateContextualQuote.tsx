@@ -137,6 +137,35 @@ const CATEGORY_OPTIONS = Object.entries(CATEGORY_LABELS).map(([value, label]) =>
   label,
 }));
 
+const TIME_OPTIONS = [
+  { value: 15, label: '15 min' },
+  { value: 30, label: '30 min' },
+  { value: 45, label: '45 min' },
+  { value: 60, label: '1 hr' },
+  { value: 90, label: '1.5 hr' },
+  { value: 120, label: '2 hr' },
+  { value: 150, label: '2.5 hr' },
+  { value: 180, label: '3 hr' },
+  { value: 240, label: '4 hr' },
+  { value: 300, label: '5 hr' },
+  { value: 360, label: '6 hr' },
+  { value: 480, label: '8 hr' },
+];
+
+/** Snap an arbitrary minute value to the nearest TIME_OPTIONS preset */
+function snapToNearestTimeOption(minutes: number): number {
+  let closest = TIME_OPTIONS[0].value;
+  let minDiff = Math.abs(minutes - closest);
+  for (const opt of TIME_OPTIONS) {
+    const diff = Math.abs(minutes - opt.value);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = opt.value;
+    }
+  }
+  return closest;
+}
+
 // Reference hourly rates (pence) and minimums for live estimate — mirrors server/contextual-pricing/reference-rates.ts
 const CATEGORY_RATES: Record<string, { hourly: number; min: number }> = {
   general_fixing: { hourly: 3000, min: 4500 },
@@ -364,12 +393,12 @@ export default function GenerateContextualQuote() {
       return res.json();
     },
     onSuccess: (result) => {
-      // Map parsed lines to our LineItem format
+      // Map parsed lines to our LineItem format, snapping time to nearest preset
       const newItems: LineItem[] = result.lines.map((line) => ({
         id: line.id || generateId(),
         description: line.description,
         category: line.category,
-        estimatedMinutes: line.timeEstimateMinutes,
+        estimatedMinutes: snapToNearestTimeOption(line.timeEstimateMinutes),
         materialsCostPounds: 0,
       }));
       setLineItems(newItems);
@@ -486,6 +515,7 @@ export default function GenerateContextualQuote() {
       prev.map((li) => (li.id === id ? { ...li, [field]: value } : li)),
     );
   };
+
 
   const handleParseJob = () => {
     if (!jobDescription.trim()) {
@@ -864,7 +894,7 @@ export default function GenerateContextualQuote() {
                         className="space-y-2 sm:space-y-0"
                       >
                         {/* Desktop: single row */}
-                        <div className="hidden sm:grid sm:grid-cols-[1fr_170px_80px_90px_32px] gap-2 items-end">
+                        <div className="hidden sm:grid sm:grid-cols-[1fr_170px_100px_90px_32px] gap-2 items-end">
                           <div>
                             {index === 0 && <Label className="text-xs text-muted-foreground mb-1 block">Description</Label>}
                             <Input
@@ -892,15 +922,22 @@ export default function GenerateContextualQuote() {
                             </Select>
                           </div>
                           <div>
-                            {index === 0 && <Label className="text-xs text-muted-foreground mb-1 block">Mins</Label>}
-                            <Input
-                              type="number"
-                              min={5}
-                              max={480}
-                              value={item.estimatedMinutes}
-                              onChange={(e) => handleUpdateLineItem(item.id, 'estimatedMinutes', parseInt(e.target.value) || 30)}
-                              className="text-center"
-                            />
+                            {index === 0 && <Label className="text-xs text-muted-foreground mb-1 block">Time</Label>}
+                            <Select
+                              value={String(item.estimatedMinutes)}
+                              onValueChange={(val) => handleUpdateLineItem(item.id, 'estimatedMinutes', parseInt(val))}
+                            >
+                              <SelectTrigger className="h-9 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {TIME_OPTIONS.map((opt) => (
+                                  <SelectItem key={opt.value} value={String(opt.value)} className="text-xs">
+                                    {opt.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </div>
                           <div>
                             {index === 0 && <Label className="text-xs text-muted-foreground mb-1 block">Materials £</Label>}
@@ -967,15 +1004,22 @@ export default function GenerateContextualQuote() {
                           </div>
                           <div className="grid grid-cols-2 gap-2">
                             <div>
-                              <Label className="text-xs text-muted-foreground mb-1 block">Minutes</Label>
-                              <Input
-                                type="number"
-                                min={5}
-                                max={480}
-                                value={item.estimatedMinutes}
-                                onChange={(e) => handleUpdateLineItem(item.id, 'estimatedMinutes', parseInt(e.target.value) || 30)}
-                                className="text-center"
-                              />
+                              <Label className="text-xs text-muted-foreground mb-1 block">Time</Label>
+                              <Select
+                                value={String(item.estimatedMinutes)}
+                                onValueChange={(val) => handleUpdateLineItem(item.id, 'estimatedMinutes', parseInt(val))}
+                              >
+                                <SelectTrigger className="h-9 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {TIME_OPTIONS.map((opt) => (
+                                    <SelectItem key={opt.value} value={String(opt.value)} className="text-xs">
+                                      {opt.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
                             </div>
                             <div>
                               <Label className="text-xs text-muted-foreground mb-1 block">Materials £</Label>
