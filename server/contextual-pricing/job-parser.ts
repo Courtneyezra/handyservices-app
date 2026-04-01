@@ -5,7 +5,7 @@
  * call) into structured job lines with categories and time estimates.
  * Also detects contextual signals that can pre-fill the Context Signals form.
  *
- * Uses GPT-4o-mini with a low temperature to produce consistent, structured
+ * Uses GPT-4o with a low temperature to produce consistent, structured
  * output. Falls back to a single "other" line if the LLM call fails.
  */
 
@@ -83,11 +83,24 @@ SIGNAL DETECTION — look for these clues in the text:
 
 ACCESS DIFFICULTY — If the text mentions access difficulty (e.g. "loft", "high ceiling", "crawlspace"), include that detail in the line item description so it's visible for pricing. For example, "fix the loft hatch" → description: "Fix loft hatch (loft access)".
 
+SPLITTING EXAMPLES — study these carefully:
+  Input: "Fit shelves into wall alcove, change light bulb to led, replace extractor fan"
+  Output: 3 lines → shelving (general_fixing), light bulb (electrical_minor), extractor fan (electrical_minor)
+
+  Input: "fix a tap, hang some shelves and paint the bedroom"
+  Output: 3 lines → tap (plumbing_minor), shelves (general_fixing), painting (painting)
+
+  Input: "assemble wardrobe and fix bathroom door"
+  Output: 2 lines → wardrobe (flat_pack), door (carpentry)
+
+  Input: "fix leaking tap"
+  Output: 1 line → tap (plumbing_minor)
+
 OUTPUT FORMAT — respond with ONLY this JSON (note: multiple lines for multi-task jobs):
 {
   "lines": [
     {"description": "Fix leaking kitchen tap", "category": "plumbing_minor", "timeEstimateMinutes": 45},
-    {"description": "Hang 3 floating shelves in living room", "category": "shelving", "timeEstimateMinutes": 60},
+    {"description": "Hang 3 floating shelves in living room", "category": "general_fixing", "timeEstimateMinutes": 60},
     {"description": "Assemble IKEA wardrobe", "category": "flat_pack", "timeEstimateMinutes": 120}
   ],
   "detectedSignals": {
@@ -195,11 +208,33 @@ function validateResponse(parsed: Record<string, unknown>): ParsedJobResult {
 // Main Export
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Pre-processing: count expected tasks from commas / "and" conjunctions
+// ---------------------------------------------------------------------------
+
+function estimateTaskCount(description: string): number {
+  // Normalise and split on commas and " and "
+  const parts = description
+    .split(/,|\band\b/i)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 3); // ignore tiny fragments
+  return Math.max(parts.length, 1);
+}
+
+function buildUserPrompt(description: string): string {
+  const expectedCount = estimateTaskCount(description);
+  const hint =
+    expectedCount > 1
+      ? `\n\nHINT: This description appears to contain approximately ${expectedCount} separate tasks. Make sure you return at least ${expectedCount} line items.`
+      : '';
+  return `Parse this job description into individual lines:\n\n"${description}"${hint}`;
+}
+
 /**
  * Parse a free-text job description into structured job lines with categories
  * and time estimates. Also detects contextual signals from the text.
  *
- * Uses GPT-4o-mini for parsing. Falls back to a single "other" line with
+ * Uses GPT-4o for parsing. Falls back to a single "other" line with
  * 60min estimate if the LLM call fails.
  */
 export async function parseJobDescription(
@@ -208,25 +243,22 @@ export async function parseJobDescription(
   try {
     const openai = getOpenAI();
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0.1,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: buildSystemPrompt(),
-        },
-        {
-          role: 'user',
-          content: `Parse this job description into individual lines:\n\n"${description}"`,
-        },
-      ],
-    });
+    const result = await callParser(openai, description);
 
-    const raw = response.choices[0].message.content || '{}';
-    const parsed = JSON.parse(raw);
-    return validateResponse(parsed);
+    // Post-processing guard: if AI returned 1 line but input clearly has
+    // multiple tasks (commas / "and"), retry once with a stronger nudge
+    const expectedCount = estimateTaskCount(description);
+    if (result.lines.length === 1 && expectedCount >= 2) {
+      console.log(
+        `[job-parser] AI returned 1 line but expected ~${expectedCount}. Retrying with stronger prompt.`,
+      );
+      const retry = await callParser(openai, description, true);
+      if (retry.lines.length > result.lines.length) {
+        return retry;
+      }
+    }
+
+    return result;
   } catch (error) {
     console.error(
       '[job-parser] OpenAI call failed, returning fallback:',
@@ -234,4 +266,39 @@ export async function parseJobDescription(
     );
     return buildFallback(description);
   }
+}
+
+// ---------------------------------------------------------------------------
+// LLM call helper (allows retry with stronger nudge)
+// ---------------------------------------------------------------------------
+
+async function callParser(
+  openai: ReturnType<typeof getOpenAI>,
+  description: string,
+  forceMultiLine = false,
+): Promise<ParsedJobResult> {
+  let userPrompt = buildUserPrompt(description);
+  if (forceMultiLine) {
+    userPrompt += `\n\nIMPORTANT: You MUST return MULTIPLE line items. The customer described several different tasks — do NOT combine them into one line. Each distinct job (e.g. shelves, light bulb, extractor fan) MUST be its own line item.`;
+  }
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    temperature: 0.1,
+    response_format: { type: 'json_object' },
+    messages: [
+      {
+        role: 'system',
+        content: buildSystemPrompt(),
+      },
+      {
+        role: 'user',
+        content: userPrompt,
+      },
+    ],
+  });
+
+  const raw = response.choices[0].message.content || '{}';
+  const parsed = JSON.parse(raw);
+  return validateResponse(parsed);
 }
