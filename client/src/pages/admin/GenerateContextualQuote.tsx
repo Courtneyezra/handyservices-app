@@ -137,33 +137,160 @@ const CATEGORY_OPTIONS = Object.entries(CATEGORY_LABELS).map(([value, label]) =>
   label,
 }));
 
-const TIME_OPTIONS = [
-  { value: 15, label: '15 min' },
-  { value: 30, label: '30 min' },
-  { value: 45, label: '45 min' },
-  { value: 60, label: '1 hr' },
-  { value: 90, label: '1.5 hr' },
-  { value: 120, label: '2 hr' },
-  { value: 150, label: '2.5 hr' },
-  { value: 180, label: '3 hr' },
-  { value: 240, label: '4 hr' },
-  { value: 300, label: '5 hr' },
-  { value: 360, label: '6 hr' },
-  { value: 480, label: '8 hr' },
+// ---------------------------------------------------------------------------
+// Time unit helpers — stores everything as minutes internally
+// ---------------------------------------------------------------------------
+
+type TimeUnit = 'min' | 'hr' | 'day';
+
+const TIME_UNITS: { value: TimeUnit; label: string; minutes: number }[] = [
+  { value: 'min', label: 'min', minutes: 1 },
+  { value: 'hr', label: 'hr', minutes: 60 },
+  { value: 'day', label: 'day', minutes: 480 }, // 8-hr working day
 ];
 
-/** Snap an arbitrary minute value to the nearest TIME_OPTIONS preset */
-function snapToNearestTimeOption(minutes: number): number {
-  let closest = TIME_OPTIONS[0].value;
-  let minDiff = Math.abs(minutes - closest);
-  for (const opt of TIME_OPTIONS) {
-    const diff = Math.abs(minutes - opt.value);
-    if (diff < minDiff) {
-      minDiff = diff;
-      closest = opt.value;
-    }
+/** Pick the best display unit for a given minute value */
+function bestUnit(totalMinutes: number): { amount: number; unit: TimeUnit } {
+  if (totalMinutes >= 480 && totalMinutes % 480 === 0) {
+    return { amount: totalMinutes / 480, unit: 'day' };
   }
-  return closest;
+  if (totalMinutes >= 60 && totalMinutes % 30 === 0) {
+    return { amount: parseFloat((totalMinutes / 60).toFixed(1)), unit: 'hr' };
+  }
+  return { amount: totalMinutes, unit: 'min' };
+}
+
+/** Convert amount + unit back to total minutes */
+function toMinutes(amount: number, unit: TimeUnit): number {
+  const unitDef = TIME_UNITS.find((u) => u.value === unit);
+  return Math.max(1, Math.round(amount * (unitDef?.minutes ?? 1)));
+}
+
+/** Compact time display for badges / summaries */
+function formatTime(totalMinutes: number): string {
+  const { amount, unit } = bestUnit(totalMinutes);
+  if (unit === 'day') return `${amount}d`;
+  if (unit === 'hr') return `${amount}h`;
+  return `${amount}m`;
+}
+
+/** Quick-pick presets for common job durations */
+const TIME_PRESETS = [
+  { label: '30m', minutes: 30 },
+  { label: '1h', minutes: 60 },
+  { label: '2h', minutes: 120 },
+  { label: '4h', minutes: 240 },
+  { label: '1d', minutes: 480 },
+  { label: '2d', minutes: 960 },
+];
+
+/** Step sizes: how much ± buttons add/subtract depending on current value */
+function getStep(currentMinutes: number): number {
+  if (currentMinutes < 60) return 15;       // under 1h → ±15min
+  if (currentMinutes < 480) return 30;      // under 1d → ±30min
+  return 480;                                // 1d+ → ±1 day
+}
+
+/** Format minutes into human-friendly label */
+function formatTimeLabel(totalMinutes: number): string {
+  if (totalMinutes >= 480 && totalMinutes % 480 === 0) {
+    const days = totalMinutes / 480;
+    return `${days} day${days !== 1 ? 's' : ''}`;
+  }
+  if (totalMinutes >= 60) {
+    const hrs = totalMinutes / 60;
+    return `${hrs % 1 === 0 ? hrs : hrs.toFixed(1)} hr${hrs !== 1 ? 's' : ''}`;
+  }
+  return `${totalMinutes} min`;
+}
+
+/**
+ * TimeInput — mobile-optimised stepper with quick-pick presets
+ *
+ * Desktop: compact [ - ] 1.5 hrs [ + ] inline
+ * Mobile:  [ - ] 1.5 hrs [ + ] row, then quick-pick chips below
+ */
+function TimeInput({
+  minutes,
+  onChange,
+  compact = false,
+}: {
+  minutes: number;
+  onChange: (newMinutes: number) => void;
+  compact?: boolean;
+}) {
+  const step = getStep(minutes);
+  const label = formatTimeLabel(minutes);
+  const isPreset = TIME_PRESETS.some((p) => p.minutes === minutes);
+
+  const decrement = () => onChange(Math.max(15, minutes - step));
+  const increment = () => onChange(minutes + step);
+
+  // Desktop compact: just stepper row
+  if (compact) {
+    return (
+      <div className="flex items-center gap-0.5">
+        <button
+          type="button"
+          onClick={decrement}
+          className="h-9 w-8 rounded-md border border-input bg-background text-sm font-medium hover:bg-accent active:scale-95 transition-transform flex items-center justify-center"
+        >
+          −
+        </button>
+        <div className="h-9 min-w-[70px] px-1 rounded-md border border-input bg-background flex items-center justify-center text-xs font-medium whitespace-nowrap">
+          {label}
+        </div>
+        <button
+          type="button"
+          onClick={increment}
+          className="h-9 w-8 rounded-md border border-input bg-background text-sm font-medium hover:bg-accent active:scale-95 transition-transform flex items-center justify-center"
+        >
+          +
+        </button>
+      </div>
+    );
+  }
+
+  // Mobile: stepper + quick-pick chips
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={decrement}
+          className="h-10 w-10 rounded-lg border border-input bg-background text-lg font-bold hover:bg-accent active:scale-95 transition-transform flex items-center justify-center shrink-0"
+        >
+          −
+        </button>
+        <div className="h-10 flex-1 rounded-lg border border-input bg-background flex items-center justify-center text-sm font-semibold">
+          {label}
+        </div>
+        <button
+          type="button"
+          onClick={increment}
+          className="h-10 w-10 rounded-lg border border-input bg-background text-lg font-bold hover:bg-accent active:scale-95 transition-transform flex items-center justify-center shrink-0"
+        >
+          +
+        </button>
+      </div>
+      <div className="flex gap-1 flex-wrap">
+        {TIME_PRESETS.map((p) => (
+          <button
+            key={p.minutes}
+            type="button"
+            onClick={() => onChange(p.minutes)}
+            className={`h-7 px-2.5 rounded-full text-xs font-medium transition-all active:scale-95 ${
+              minutes === p.minutes
+                ? 'bg-primary text-primary-foreground ring-1 ring-primary'
+                : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // Reference hourly rates (pence) and minimums for live estimate — mirrors server/contextual-pricing/reference-rates.ts
@@ -393,12 +520,12 @@ export default function GenerateContextualQuote() {
       return res.json();
     },
     onSuccess: (result) => {
-      // Map parsed lines to our LineItem format, snapping time to nearest preset
+      // Map parsed lines to our LineItem format — accepts any minute value
       const newItems: LineItem[] = result.lines.map((line) => ({
         id: line.id || generateId(),
         description: line.description,
         category: line.category,
-        estimatedMinutes: snapToNearestTimeOption(line.timeEstimateMinutes),
+        estimatedMinutes: line.timeEstimateMinutes,
         materialsCostPounds: 0,
       }));
       setLineItems(newItems);
@@ -894,7 +1021,7 @@ export default function GenerateContextualQuote() {
                         className="space-y-2 sm:space-y-0"
                       >
                         {/* Desktop: single row */}
-                        <div className="hidden sm:grid sm:grid-cols-[1fr_170px_100px_90px_32px] gap-2 items-end">
+                        <div className="hidden sm:grid sm:grid-cols-[1fr_170px_150px_90px_32px] gap-2 items-end">
                           <div>
                             {index === 0 && <Label className="text-xs text-muted-foreground mb-1 block">Description</Label>}
                             <Input
@@ -923,21 +1050,11 @@ export default function GenerateContextualQuote() {
                           </div>
                           <div>
                             {index === 0 && <Label className="text-xs text-muted-foreground mb-1 block">Time</Label>}
-                            <Select
-                              value={String(item.estimatedMinutes)}
-                              onValueChange={(val) => handleUpdateLineItem(item.id, 'estimatedMinutes', parseInt(val))}
-                            >
-                              <SelectTrigger className="h-9 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {TIME_OPTIONS.map((opt) => (
-                                  <SelectItem key={opt.value} value={String(opt.value)} className="text-xs">
-                                    {opt.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <TimeInput
+                              minutes={item.estimatedMinutes}
+                              onChange={(val) => handleUpdateLineItem(item.id, 'estimatedMinutes', val)}
+                              compact
+                            />
                           </div>
                           <div>
                             {index === 0 && <Label className="text-xs text-muted-foreground mb-1 block">Materials £</Label>}
@@ -1002,37 +1119,24 @@ export default function GenerateContextualQuote() {
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <Label className="text-xs text-muted-foreground mb-1 block">Time</Label>
-                              <Select
-                                value={String(item.estimatedMinutes)}
-                                onValueChange={(val) => handleUpdateLineItem(item.id, 'estimatedMinutes', parseInt(val))}
-                              >
-                                <SelectTrigger className="h-9 text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {TIME_OPTIONS.map((opt) => (
-                                    <SelectItem key={opt.value} value={String(opt.value)} className="text-xs">
-                                      {opt.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div>
-                              <Label className="text-xs text-muted-foreground mb-1 block">Materials £</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                step={1}
-                                placeholder="0"
-                                value={item.materialsCostPounds || ''}
-                                onChange={(e) => handleUpdateLineItem(item.id, 'materialsCostPounds', parseFloat(e.target.value) || 0)}
-                                className="text-center"
-                              />
-                            </div>
+                          <div>
+                            <Label className="text-xs text-muted-foreground mb-1 block">Time</Label>
+                            <TimeInput
+                              minutes={item.estimatedMinutes}
+                              onChange={(val) => handleUpdateLineItem(item.id, 'estimatedMinutes', val)}
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-muted-foreground mb-1 block">Materials £</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              step={1}
+                              placeholder="0"
+                              value={item.materialsCostPounds || ''}
+                              onChange={(e) => handleUpdateLineItem(item.id, 'materialsCostPounds', parseFloat(e.target.value) || 0)}
+                              className="h-10 text-center"
+                            />
                           </div>
                         </div>
                       </div>
