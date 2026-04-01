@@ -70,6 +70,7 @@ TIME ESTIMATE GUIDANCE (from owner's experience):
 INSTRUCTIONS:
 1. ALWAYS split the description into separate, distinct tasks. Each task should be one unit of work. This is CRITICAL — never combine different tasks into a single line.
 2. Even if the customer describes everything in one sentence, break it into individual tasks. E.g. "fix a tap, hang some shelves and paint the bedroom" = 3 separate lines. Tasks may also be separated by newlines — each line is a separate task.
+   IMPORTANT: "Supply and fit", "remove and replace", "strip and repaint" are SINGLE tasks — do NOT split compound verbs. "Supply and fit a mortice lock" = 1 line, NOT 2.
 3. Assign the most appropriate category to each task.
 4. Estimate time based on the guidance above. If unsure, use reasonable estimates.
 5. Detect contextual signals from the text (see below).
@@ -118,7 +119,8 @@ CONSTRAINTS:
 - timeEstimateMinutes must be a positive integer
 - description should be a clean, concise version of what the customer said
 - If you can't determine a signal, use null
-- Always return at least one line`;
+- Always return at least one line
+- CRITICAL: Respond with ONLY the JSON object. No preamble, no explanation, no thinking, no markdown. Just raw JSON starting with { and ending with }`;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,8 +218,13 @@ function validateResponse(parsed: Record<string, unknown>): ParsedJobResult {
 // ---------------------------------------------------------------------------
 
 function estimateTaskCount(description: string): number {
-  // Normalise and split on commas, " and ", and newlines
-  const parts = description
+  // First collapse compound verbs so "supply and fit" doesn't count as 2 tasks
+  const normalised = description.replace(
+    /\b(supply|remove|strip|take out|rip out|drain|disconnect)\s+and\s+(fit|replace|repaint|install|reconnect|dispose)\b/gi,
+    '$1_and_$2',
+  );
+  // Split on commas, " and ", and newlines
+  const parts = normalised
     .split(/,|\band\b|\n|\r/i)
     .map((s) => s.trim())
     .filter((s) => s.length > 3); // ignore tiny fragments
@@ -285,6 +292,35 @@ export async function parseJobDescription(
 }
 
 // ---------------------------------------------------------------------------
+// JSON extraction — handles preamble text, markdown fences, etc.
+// ---------------------------------------------------------------------------
+
+function extractJSON(text: string): string {
+  // 1. Try stripping markdown fences first
+  const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i);
+  if (fenceMatch) {
+    return fenceMatch[1].trim();
+  }
+
+  // 2. Find the first { ... } block (greedy — outermost braces)
+  const braceStart = text.indexOf('{');
+  if (braceStart !== -1) {
+    // Walk forward to find the matching closing brace
+    let depth = 0;
+    for (let i = braceStart; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      if (text[i] === '}') depth--;
+      if (depth === 0) {
+        return text.slice(braceStart, i + 1);
+      }
+    }
+  }
+
+  // 3. Last resort — return as-is, JSON.parse will throw and we'll fallback
+  return text.trim();
+}
+
+// ---------------------------------------------------------------------------
 // LLM call helper (allows retry with stronger nudge)
 // ---------------------------------------------------------------------------
 
@@ -315,8 +351,9 @@ async function callParser(
   const textBlock = response.content.find((block) => block.type === 'text');
   let raw = textBlock && textBlock.type === 'text' ? textBlock.text : '{}';
 
-  // Strip markdown code fences if Claude wraps the JSON (```json ... ```)
-  raw = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+  // Claude may return thinking text, markdown fences, or preamble before JSON.
+  // Extract the first valid JSON object from the response.
+  raw = extractJSON(raw);
 
   const parsed = JSON.parse(raw);
   return validateResponse(parsed);
