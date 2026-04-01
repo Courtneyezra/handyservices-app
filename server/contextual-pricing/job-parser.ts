@@ -310,7 +310,11 @@ async function callParser(
 
   // Extract text content from Claude's response
   const textBlock = response.content.find((block) => block.type === 'text');
-  const raw = textBlock && textBlock.type === 'text' ? textBlock.text : '{}';
+  let raw = textBlock && textBlock.type === 'text' ? textBlock.text : '{}';
+
+  // Strip markdown code fences if Claude wraps the JSON (```json ... ```)
+  raw = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+
   const parsed = JSON.parse(raw);
   return validateResponse(parsed);
 }
