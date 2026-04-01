@@ -5,11 +5,11 @@
  * call) into structured job lines with categories and time estimates.
  * Also detects contextual signals that can pre-fill the Context Signals form.
  *
- * Uses GPT-4o with a low temperature to produce consistent, structured
- * output. Falls back to a single "other" line if the LLM call fails.
+ * Uses Claude (Anthropic) with a low temperature to produce consistent,
+ * structured output. Falls back to a single "other" line if the LLM call fails.
  */
 
-import { getOpenAI } from '../openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { JobCategoryValues } from '@shared/contextual-pricing-types';
 import type { JobLine, ParsedJobResult } from '@shared/contextual-pricing-types';
 import { CATEGORY_RATES } from './reference-rates';
@@ -230,29 +230,42 @@ function buildUserPrompt(description: string): string {
   return `Parse this job description into individual lines:\n\n"${description}"${hint}`;
 }
 
+// ---------------------------------------------------------------------------
+// Anthropic client singleton
+// ---------------------------------------------------------------------------
+
+let _anthropic: Anthropic | null = null;
+
+function getAnthropic(): Anthropic {
+  if (!_anthropic) {
+    _anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+  }
+  return _anthropic;
+}
+
 /**
  * Parse a free-text job description into structured job lines with categories
  * and time estimates. Also detects contextual signals from the text.
  *
- * Uses GPT-4o for parsing. Falls back to a single "other" line with
- * 60min estimate if the LLM call fails.
+ * Uses Claude (Anthropic) for parsing. Falls back to a single "other" line
+ * with 60min estimate if the LLM call fails.
  */
 export async function parseJobDescription(
   description: string,
 ): Promise<ParsedJobResult> {
   try {
-    const openai = getOpenAI();
+    const client = getAnthropic();
 
-    const result = await callParser(openai, description);
+    const result = await callParser(client, description);
 
     // Post-processing guard: if AI returned 1 line but input clearly has
     // multiple tasks (commas / "and"), retry once with a stronger nudge
     const expectedCount = estimateTaskCount(description);
     if (result.lines.length === 1 && expectedCount >= 2) {
       console.log(
-        `[job-parser] AI returned 1 line but expected ~${expectedCount}. Retrying with stronger prompt.`,
+        `[job-parser] Claude returned 1 line but expected ~${expectedCount}. Retrying with stronger prompt.`,
       );
-      const retry = await callParser(openai, description, true);
+      const retry = await callParser(client, description, true);
       if (retry.lines.length > result.lines.length) {
         return retry;
       }
@@ -261,7 +274,7 @@ export async function parseJobDescription(
     return result;
   } catch (error) {
     console.error(
-      '[job-parser] OpenAI call failed, returning fallback:',
+      '[job-parser] Claude call failed, returning fallback:',
       error instanceof Error ? error.message : error,
     );
     return buildFallback(description);
@@ -273,7 +286,7 @@ export async function parseJobDescription(
 // ---------------------------------------------------------------------------
 
 async function callParser(
-  openai: ReturnType<typeof getOpenAI>,
+  client: Anthropic,
   description: string,
   forceMultiLine = false,
 ): Promise<ParsedJobResult> {
@@ -282,15 +295,12 @@ async function callParser(
     userPrompt += `\n\nIMPORTANT: You MUST return MULTIPLE line items. The customer described several different tasks — do NOT combine them into one line. Each distinct job (e.g. shelves, light bulb, extractor fan) MUST be its own line item.`;
   }
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
+  const response = await client.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 1024,
     temperature: 0.1,
-    response_format: { type: 'json_object' },
+    system: buildSystemPrompt(),
     messages: [
-      {
-        role: 'system',
-        content: buildSystemPrompt(),
-      },
       {
         role: 'user',
         content: userPrompt,
@@ -298,7 +308,9 @@ async function callParser(
     ],
   });
 
-  const raw = response.choices[0].message.content || '{}';
+  // Extract text content from Claude's response
+  const textBlock = response.content.find((block) => block.type === 'text');
+  const raw = textBlock && textBlock.type === 'text' ? textBlock.text : '{}';
   const parsed = JSON.parse(raw);
   return validateResponse(parsed);
 }

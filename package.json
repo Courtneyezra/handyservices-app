@@ -17,6 +17,7 @@
     "test:live-call": "npx tsx scripts/test-live-call-fixes.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.81.0",
     "@aws-sdk/client-s3": "^3.971.0",
     "@aws-sdk/s3-request-presigner": "^3.971.0",
     "@deepgram/sdk": "^4.11.3",
