@@ -69,7 +69,7 @@ TIME ESTIMATE GUIDANCE (from owner's experience):
 
 INSTRUCTIONS:
 1. ALWAYS split the description into separate, distinct tasks. Each task should be one unit of work. This is CRITICAL — never combine different tasks into a single line.
-2. Even if the customer describes everything in one sentence, break it into individual tasks. E.g. "fix a tap, hang some shelves and paint the bedroom" = 3 separate lines.
+2. Even if the customer describes everything in one sentence, break it into individual tasks. E.g. "fix a tap, hang some shelves and paint the bedroom" = 3 separate lines. Tasks may also be separated by newlines — each line is a separate task.
 3. Assign the most appropriate category to each task.
 4. Estimate time based on the guidance above. If unsure, use reasonable estimates.
 5. Detect contextual signals from the text (see below).
@@ -92,6 +92,9 @@ SPLITTING EXAMPLES — study these carefully:
 
   Input: "assemble wardrobe and fix bathroom door"
   Output: 2 lines → wardrobe (flat_pack), door (carpentry)
+
+  Input: "Supply and fit mortice lock to internal door\nSupply and fit mortice lock and make adjustments to door latch\nMake adjustments to bathroom door latch"
+  Output: 3 lines → mortice lock fitting (lock_change), mortice lock + door latch adjustment (lock_change), bathroom door latch adjustment (carpentry)
 
   Input: "fix leaking tap"
   Output: 1 line → tap (plumbing_minor)
@@ -213,9 +216,9 @@ function validateResponse(parsed: Record<string, unknown>): ParsedJobResult {
 // ---------------------------------------------------------------------------
 
 function estimateTaskCount(description: string): number {
-  // Normalise and split on commas and " and "
+  // Normalise and split on commas, " and ", and newlines
   const parts = description
-    .split(/,|\band\b/i)
+    .split(/,|\band\b|\n|\r/i)
     .map((s) => s.trim())
     .filter((s) => s.length > 3); // ignore tiny fragments
   return Math.max(parts.length, 1);
