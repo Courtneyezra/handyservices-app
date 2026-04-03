@@ -44,7 +44,7 @@ export function DateSelector({
         serviceIds,
         categories,
         timeEstimateMinutes,
-        days: 21, // 3 weeks ahead
+        days: 29, // 4 weeks ahead + buffer
     });
 
     // Build unavailable dates set
@@ -60,8 +60,8 @@ export function DateSelector({
         return set;
     }, [availabilityData]);
 
-    // Generate 14 days starting from tier's earliest available
-    const allDates = Array.from({ length: 14 }, (_, i) => addDays(startDate, i));
+    // Generate 28 days starting from tier's earliest available
+    const allDates = Array.from({ length: 28 }, (_, i) => addDays(startDate, i));
 
     // Get currently visible dates (show all dates, including unavailable)
     const visibleDates = allDates.slice(scrollIndex, scrollIndex + datesPerView);

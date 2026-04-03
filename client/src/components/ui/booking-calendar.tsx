@@ -44,8 +44,8 @@ export function BookingCalendar({ onSelect, selectedSlot, className, minDaysInFu
     }, [minDaysInFuture]);
 
 
-    // Show 2 weeks of availability in the slider
-    const nextDays = Array.from({ length: 14 }).map((_, i) => addDays(currentStartDate, i));
+    // Show 4 weeks of availability in the slider
+    const nextDays = Array.from({ length: 28 }).map((_, i) => addDays(currentStartDate, i));
 
     const handleDateSelect = (date: Date) => {
         setSelectedDate(date);

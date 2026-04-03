@@ -56,7 +56,7 @@ const formatPrice = (pence: number): string => {
 export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
     onDateSelect,
     minDate = new Date(),
-    maxWeeks = 2,
+    maxWeeks = 4,
     postcode,
     serviceIds,
     categories,
@@ -128,9 +128,14 @@ export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
         d => d.tier === 'priority' && !d.isWeekend && !d.isBooked
     );
 
-    // Split into 2 weeks (rows)
-    const week1 = dates.slice(0, 7);
-    const week2 = dates.slice(7, 14);
+    // Split into weekly rows
+    const weeks = useMemo(() => {
+        const result: DateOption[][] = [];
+        for (let i = 0; i < dates.length; i += 7) {
+            result.push(dates.slice(i, i + 7));
+        }
+        return result;
+    }, [dates]);
 
     const handleDateClick = (dateOption: DateOption) => {
         if (dateOption.isBooked) return; // Can't select booked dates
@@ -324,28 +329,22 @@ export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
 
     return (
         <div className="space-y-4">
-            {/* Mobile: Minimalistic 2-Row Grid */}
+            {/* Mobile: Minimalistic Grid */}
             <div className="md:hidden space-y-1.5">
-                {/* Week 1 */}
-                <div className="grid grid-cols-7 gap-1.5">
-                    {week1.map(renderMobileCard)}
-                </div>
-
-                {/* Week 2 */}
-                <div className="grid grid-cols-7 gap-1.5">
-                    {week2.map(renderMobileCard)}
-                </div>
+                {weeks.map((week, i) => (
+                    <div key={i} className="grid grid-cols-7 gap-1.5">
+                        {week.map(renderMobileCard)}
+                    </div>
+                ))}
             </div>
 
             {/* Desktop: Detailed Grid */}
             <div className="hidden md:block space-y-3">
-                <div className="grid grid-cols-7 gap-2">
-                    {week1.map(renderDetailedCard)}
-                </div>
-
-                <div className="grid grid-cols-7 gap-2">
-                    {week2.map(renderDetailedCard)}
-                </div>
+                {weeks.map((week, i) => (
+                    <div key={i} className="grid grid-cols-7 gap-2">
+                        {week.map(renderDetailedCard)}
+                    </div>
+                ))}
             </div>
         </div>
     );

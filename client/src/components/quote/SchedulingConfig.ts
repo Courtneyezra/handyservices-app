@@ -98,7 +98,7 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
     downsell: null, // Busy pros don't want slower
     showWeekendFee: true,
     showDiscountBadge: false,
-    maxDaysOut: 14, // 2 weeks max - they want it soon
+    maxDaysOut: 28, // 4 weeks
     useCardWrapper: true,
     priceLabel: 'Priority Service',
   },
@@ -117,7 +117,7 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
     },
     showWeekendFee: false, // Don't show weekend premium - they'll avoid it
     showDiscountBadge: true, // Show "SAVE X%"
-    maxDaysOut: 21, // More flexibility for budget
+    maxDaysOut: 28, // 4 weeks
     useCardWrapper: true,
     priceLabel: 'Standard Service',
   },
@@ -136,7 +136,7 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
     downsell: null,
     showWeekendFee: true,
     showDiscountBadge: false,
-    maxDaysOut: 14,
+    maxDaysOut: 28,
     useCardWrapper: true,
     priceLabel: 'Your Quote',
   },
@@ -163,7 +163,7 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
     },
     showWeekendFee: true,
     showDiscountBadge: false,
-    maxDaysOut: 21,
+    maxDaysOut: 28,
     useCardWrapper: true,
     priceLabel: 'Batch Service',
   },
@@ -196,7 +196,7 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
     downsell: null,
     showWeekendFee: false,
     showDiscountBadge: false,
-    maxDaysOut: 10,
+    maxDaysOut: 28,
     useCardWrapper: true,
     priceLabel: 'Job Price',
   },
@@ -229,7 +229,7 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
     downsell: null,
     showWeekendFee: false,
     showDiscountBadge: false,
-    maxDaysOut: 14,
+    maxDaysOut: 28,
     useCardWrapper: true,
     priceLabel: 'Job Price',
   },
@@ -249,7 +249,7 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
     downsell: null,
     showWeekendFee: false, // Business might want weekends
     showDiscountBadge: false,
-    maxDaysOut: 14,
+    maxDaysOut: 28,
     useCardWrapper: true, // Card format for business quotes
     priceLabel: 'Business Service',
   },
@@ -262,7 +262,7 @@ export const SEGMENT_SCHEDULING_CONFIG: Record<string, SegmentSchedulingConfig> 
     downsell: null,
     showWeekendFee: true,
     showDiscountBadge: true, // Show real batch discount when available
-    maxDaysOut: 14,
+    maxDaysOut: 28,
     useCardWrapper: true,
     priceLabel: 'Your Quote',
   },
