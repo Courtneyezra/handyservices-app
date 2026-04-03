@@ -1051,6 +1051,8 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
             schedulingFeeInPence,
         } = req.body;
 
+        console.log(`[track-booking] Quote ${id} — date: ${selectedDate}, timeSlot: ${timeSlotType}, tier: ${schedulingTier}, weekend: ${isWeekendBooking}, fee: ${schedulingFeeInPence}p`);
+
         // Calculate selected tier price
         const [quote] = await db.select().from(personalizedQuotes)
             .where(eq(personalizedQuotes.id, id));
@@ -1887,6 +1889,11 @@ quotesRouter.get('/api/personalized-quotes/:id/confirmation', async (req, res) =
                 selectedPackage: quote.selectedPackage,
                 selectedExtras: quote.selectedExtras || [],
                 selectedDate: quote.selectedDate,
+                timeSlotType: quote.timeSlotType,
+                exactTimeRequested: quote.exactTimeRequested,
+                schedulingTier: quote.schedulingTier,
+                isWeekendBooking: quote.isWeekendBooking,
+                schedulingFeeInPence: quote.schedulingFeeInPence,
                 depositAmountPence: quote.depositAmountPence,
                 depositPaidAt: quote.depositPaidAt,
             },

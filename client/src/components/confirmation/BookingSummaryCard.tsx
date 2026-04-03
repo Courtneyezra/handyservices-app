@@ -7,6 +7,8 @@ interface BookingSummaryCardProps {
   jobDescription: string;
   postcode: string;
   scheduledDate?: Date | string | null;
+  timeSlotType?: string;
+  exactTimeRequested?: string;
   selectedPackage?: string;
   selectedExtras?: string[];
   invoiceNumber?: string;
@@ -17,6 +19,8 @@ export function BookingSummaryCard({
   jobDescription,
   postcode,
   scheduledDate,
+  timeSlotType,
+  exactTimeRequested,
   selectedPackage,
   selectedExtras = [],
   invoiceNumber,
@@ -26,6 +30,20 @@ export function BookingSummaryCard({
   const formattedDate = scheduledDate
     ? format(new Date(scheduledDate), 'EEEE, d MMMM yyyy')
     : 'To be confirmed';
+
+  // Format time slot
+  const formatTimeSlot = (slot?: string, exactTime?: string) => {
+    if (exactTime) return exactTime;
+    switch (slot) {
+      case 'morning': return 'Morning (8am - 12pm)';
+      case 'afternoon': return 'Afternoon (12pm - 5pm)';
+      case 'first': return 'First Slot (8am - 9am)';
+      case 'exact': return exactTime || 'Exact Time';
+      case 'anytime': return 'Any Time';
+      default: return null;
+    }
+  };
+  const formattedTimeSlot = formatTimeSlot(timeSlotType, exactTimeRequested);
 
   // Truncate job description for display
   const truncatedJob =
@@ -81,6 +99,17 @@ export function BookingSummaryCard({
               </span>
               <span className="text-white font-medium">{formattedDate}</span>
             </div>
+
+            {/* Time Slot */}
+            {formattedTimeSlot && (
+              <div className="flex justify-between">
+                <span className="text-gray-400 flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  Time:
+                </span>
+                <span className="text-white font-medium">{formattedTimeSlot}</span>
+              </div>
+            )}
 
             {/* Package (if selected) */}
             {selectedPackage && (

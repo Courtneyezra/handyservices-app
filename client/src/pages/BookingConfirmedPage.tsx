@@ -32,6 +32,11 @@ interface ConfirmationData {
     selectedPackage?: string;
     selectedExtras?: string[];
     selectedDate?: string;
+    timeSlotType?: string;
+    exactTimeRequested?: string;
+    schedulingTier?: string;
+    isWeekendBooking?: boolean;
+    schedulingFeeInPence?: number;
     depositAmountPence: number;
     depositPaidAt: string;
   };
@@ -333,6 +338,8 @@ END:VCALENDAR`;
           jobDescription={quote.jobDescription}
           postcode={quote.postcode}
           scheduledDate={quote.selectedDate}
+          timeSlotType={quote.timeSlotType}
+          exactTimeRequested={quote.exactTimeRequested}
           selectedPackage={quote.selectedPackage}
           selectedExtras={quote.selectedExtras}
           invoiceNumber={invoice?.invoiceNumber}
