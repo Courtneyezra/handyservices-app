@@ -34,6 +34,10 @@ interface PersonalizedQuote {
     depositAmountPence: number | null;
     paymentType: string | null;
     stripePaymentIntentId: string | null;
+    // Scheduling fields
+    selectedDate: string | null;
+    timeSlotType: string | null;
+    exactTimeRequested: string | null;
 }
 
 interface QuoteCardProps {
@@ -168,6 +172,23 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, av
                         <Copy className="h-3 w-3" />
                     </Button>
                 </div>
+
+                {/* Booking Date */}
+                {quote.selectedDate ? (
+                    <div className="flex items-center gap-1.5 text-xs mb-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded px-2 py-1">
+                        <span className="font-medium">{format(new Date(quote.selectedDate), 'EEE d MMM')}</span>
+                        <span className="text-green-600/70 dark:text-green-500/70">
+                            {quote.timeSlotType === 'morning' ? '· Morning'
+                                : quote.timeSlotType === 'afternoon' ? '· Afternoon'
+                                : quote.timeSlotType === 'first' ? '· First Slot'
+                                : quote.timeSlotType === 'exact' ? `· ${quote.exactTimeRequested || 'Exact'}`
+                                : quote.timeSlotType === 'anytime' ? '· Any Time'
+                                : ''}
+                        </span>
+                    </div>
+                ) : (
+                    <div className="text-xs text-muted-foreground/40 mb-2">No booking date</div>
+                )}
 
                 {/* Meta Row */}
                 <div className="flex items-center gap-2 text-xs text-muted-foreground/60 mb-3">

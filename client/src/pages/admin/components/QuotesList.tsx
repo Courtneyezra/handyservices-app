@@ -41,6 +41,12 @@ interface PersonalizedQuote {
     depositPaidAt: string | null;
     depositAmountPence: number | null;
     paymentType: string | null;
+    // Scheduling fields
+    selectedDate: string | null;
+    timeSlotType: string | null;
+    exactTimeRequested: string | null;
+    schedulingTier: string | null;
+    isWeekendBooking: boolean | null;
 }
 
 interface QuotesListProps {
@@ -95,6 +101,7 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
                         <TableHead>Customer</TableHead>
                         <TableHead className="hidden sm:table-cell">Reference</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead className="hidden md:table-cell">Booking</TableHead>
                         <TableHead className="text-right">Value</TableHead>
                         <TableHead className="text-right hidden sm:table-cell">Payment</TableHead>
                         <TableHead className="text-right hidden md:table-cell">Created</TableHead>
@@ -155,6 +162,23 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
                                             <Badge variant="outline" className="text-blue-500 border-blue-200 text-[10px]">v{quote.regenerationCount + 1}</Badge>
                                         ) : null}
                                     </div>
+                                </TableCell>
+                                <TableCell className="hidden md:table-cell">
+                                    {quote.selectedDate ? (
+                                        <div className="text-sm">
+                                            <span className="font-medium">{format(new Date(quote.selectedDate), 'EEE d MMM')}</span>
+                                            <span className="text-xs text-muted-foreground block">
+                                                {quote.timeSlotType === 'morning' ? 'Morning (8am-12pm)'
+                                                    : quote.timeSlotType === 'afternoon' ? 'Afternoon (12pm-5pm)'
+                                                    : quote.timeSlotType === 'first' ? 'First Slot (8-9am)'
+                                                    : quote.timeSlotType === 'exact' ? (quote.exactTimeRequested || 'Exact Time')
+                                                    : quote.timeSlotType === 'anytime' ? 'Any Time'
+                                                    : quote.timeSlotType || ''}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <span className="text-xs text-muted-foreground/50">Not booked</span>
+                                    )}
                                 </TableCell>
                                 <TableCell className="text-right font-mono">
                                     {displayPrice ? `£${(displayPrice / 100).toFixed(0)}` : '-'}
