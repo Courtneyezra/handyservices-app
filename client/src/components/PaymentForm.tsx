@@ -164,7 +164,19 @@ export function PaymentForm({
         if (mode === 'visit') {
           setServerCalculatedAmount(data.amount);
           setDepositBreakdown(null); // No breakdown for flat visit fee
+        } else if (data.serverCalculatedAmount) {
+          setServerCalculatedAmount(data.serverCalculatedAmount);
+          // Only show deposit breakdown when not paying in full
+          if (data.depositBreakdown) {
+            setDepositBreakdown({
+              totalMaterialsCost: data.depositBreakdown.totalMaterialsCost || 0,
+              labourDepositComponent: data.depositBreakdown.labourDepositComponent || 0,
+            });
+          } else {
+            setDepositBreakdown(null);
+          }
         } else if (data.depositBreakdown?.total) {
+          // Fallback for backwards compatibility
           setServerCalculatedAmount(data.depositBreakdown.total);
           setDepositBreakdown({
             totalMaterialsCost: data.depositBreakdown.totalMaterialsCost || 0,
@@ -448,7 +460,9 @@ export function PaymentForm({
             Loading...
           </>
         ) : (
-          `Pay £${Math.round(serverCalculatedAmount / 100)} Deposit`
+          paymentType === 'full'
+            ? `Pay £${Math.round(serverCalculatedAmount / 100)}`
+            : `Pay £${Math.round(serverCalculatedAmount / 100)} Deposit`
         )}
       </Button>
 
@@ -471,7 +485,10 @@ export function PaymentForm({
       )}
 
       <p className="text-xs text-center text-gray-400">
-        Your payment is secured by Stripe. We'll charge £{Math.round(serverCalculatedAmount / 100)} to reserve your slot.
+        {paymentType === 'full'
+          ? `Your payment is secured by Stripe. Full payment of £${Math.round(serverCalculatedAmount / 100)}.`
+          : `Your payment is secured by Stripe. We'll charge £${Math.round(serverCalculatedAmount / 100)} to reserve your slot.`
+        }
       </p>
     </form>
   );

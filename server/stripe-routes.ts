@@ -136,19 +136,33 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         const settings = await getPricingSettings();
         const depositFraction = settings.depositPercent / 100;
 
-        // Calculate deposit
+        // Calculate deposit breakdown (always computed for display purposes)
         const depositBreakdown = calculateDeposit(totalJobPrice, totalMaterialsCost, depositFraction);
 
-        console.log('[Stripe] Deposit calculation:', {
-            baseTierPrice,
-            extrasTotal,
-            totalJobPrice,
-            totalMaterialsCost,
-            deposit: depositBreakdown.total
-        });
+        // Determine charge amount based on payment type
+        let chargeAmount: number;
+        if (paymentType === 'full') {
+            // Pay in full: charge the entire job price
+            chargeAmount = totalJobPrice;
+            console.log('[Stripe] Full payment:', {
+                baseTierPrice,
+                extrasTotal,
+                totalJobPrice,
+            });
+        } else {
+            // Deposit mode: charge materials + fraction of labour
+            chargeAmount = depositBreakdown.total;
+            console.log('[Stripe] Deposit calculation:', {
+                baseTierPrice,
+                extrasTotal,
+                totalJobPrice,
+                totalMaterialsCost,
+                deposit: depositBreakdown.total
+            });
+        }
 
         // Minimum Stripe charge is 30p (£0.30)
-        const chargeAmount = Math.max(depositBreakdown.total, 30);
+        chargeAmount = Math.max(chargeAmount, 30);
 
         // Generate idempotency key to prevent duplicate payment intents
         const idempotencyKey = generateIdempotencyKey(quoteId, 'standard', selectedExtras, paymentType, chargeAmount);
@@ -167,11 +181,13 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
                     customerEmail,
                     paymentType,
                     totalJobPrice: totalJobPrice.toString(),
-                    depositAmount: depositBreakdown.total.toString(),
+                    depositAmount: chargeAmount.toString(),
                     selectedExtras: selectedExtras.join(',')
                 },
                 receipt_email: customerEmail,
-                description: `Deposit for ${customerName}`
+                description: paymentType === 'full'
+                    ? `Full payment for ${customerName}`
+                    : `Deposit for ${customerName}`
             },
             {
                 idempotencyKey,
@@ -183,11 +199,13 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         res.json({
             clientSecret: paymentIntent.client_secret,
             paymentIntentId: paymentIntent.id,
-            depositBreakdown: {
+            serverCalculatedAmount: chargeAmount,
+            paymentType,
+            depositBreakdown: paymentType !== 'full' ? {
                 total: depositBreakdown.total,
                 totalMaterialsCost: depositBreakdown.totalMaterialsCost,
                 labourDepositComponent: depositBreakdown.labourDepositComponent
-            }
+            } : null,
         });
 
     } catch (error: any) {
@@ -248,6 +266,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                 const depositAmount = parseInt(paymentIntent.metadata?.depositAmount || '0', 10) || paymentIntent.amount;
                 const selectedExtras = paymentIntent.metadata?.selectedExtras?.split(',').filter(Boolean) || [];
                 const metadataEmail = paymentIntent.metadata?.customerEmail;
+                const metadataPaymentType = paymentIntent.metadata?.paymentType || 'full';
 
                 // Update personalizedQuotes with depositPaidAt
                 if (quoteId) {
@@ -275,6 +294,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             bookedAt: new Date(),
                             selectedPackage: quote.selectedPackage || 'standard',
                             selectedExtras: selectedExtras.length > 0 ? selectedExtras : quote.selectedExtras,
+                            paymentType: metadataPaymentType,
                         };
 
                         // If quote email is null but we have metadata email, update it
@@ -320,7 +340,9 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                 estimatedDuration: null,
                                 payoutPence: Math.round(totalJobPrice * 0.7), // 70% payout to contractor
                                 paymentStatus: 'unpaid',
-                                notes: `Deposit paid: £${(depositAmount / 100).toFixed(2)}`,
+                                notes: metadataPaymentType === 'full'
+                                    ? `Paid in full: £${(depositAmount / 100).toFixed(2)}`
+                                    : `Deposit paid: £${(depositAmount / 100).toFixed(2)}`,
                             });
 
                             console.log(`[Stripe Webhook] Job ${jobId} created for quote ${quoteId}`);

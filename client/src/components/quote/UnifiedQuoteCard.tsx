@@ -652,9 +652,15 @@ export function UnifiedQuoteCard({
                   <span className="text-[#7DB00E] font-medium">-£{Math.round(batchDiscount.savingsPence / 100)}</span>
                 </div>
               )}
+              {payFull && payFullSaving > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-[#7DB00E] font-medium">Pay in full discount ({Math.round(PAY_FULL_DISCOUNT * 100)}%)</span>
+                  <span className="text-[#7DB00E] font-medium">-£{Math.round(payFullSaving / 100)}</span>
+                </div>
+              )}
               <div className={`border-t pt-2 flex justify-between font-bold ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
                 <span className={isDarkTheme ? 'text-white' : 'text-slate-900'}>Total</span>
-                <span className="text-[#7DB00E]">£{Math.round(total / 100)}</span>
+                <span className="text-[#7DB00E]">£{Math.round((payFull ? payFullTotal : total) / 100)}</span>
               </div>
             </div>
           )}
