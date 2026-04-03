@@ -7,7 +7,7 @@ import InstallPrompt from "@/components/InstallPrompt";
 import { Link, useLocation } from "wouter";
 import { useLiveCall } from "@/contexts/LiveCallContext";
 import { cn } from "@/lib/utils";
-import handyLogo from "@/assets/handy-logo.png";
+import handyLogo from "@/assets/handy-logo.webp";
 
 interface SidebarLayoutProps {
     children: React.ReactNode;

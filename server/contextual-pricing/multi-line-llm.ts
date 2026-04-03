@@ -330,7 +330,7 @@ function validateMessaging(response: any, lineCount: number, approvedClaims?: st
   if (BANNED_PHRASES.some(p => proposalSummary.toLowerCase().includes(p))) {
     proposalSummary = ''; // will fallback below
   }
-  // Enforce word count: min 20, max 100
+  // Enforce word count: min 10, max 100
   const words = proposalSummary.split(/\s+/).filter(Boolean);
   if (words.length > 100) {
     // Truncate at last sentence boundary within 100 words
@@ -338,7 +338,7 @@ function validateMessaging(response: any, lineCount: number, approvedClaims?: st
     const lastPeriod = truncated.lastIndexOf('.');
     proposalSummary = lastPeriod > 0 ? truncated.slice(0, lastPeriod + 1) : truncated + '.';
   }
-  if (words.length < 20 || !proposalSummary) {
+  if (words.length < 10 || !proposalSummary) {
     // Fallback to contextualMessage
     proposalSummary = message;
   }
@@ -490,6 +490,100 @@ function validateLLMResponse(
 }
 
 // ---------------------------------------------------------------------------
+// Proposal Summary Retry
+// ---------------------------------------------------------------------------
+
+const GENERIC_SUMMARIES = [
+  "we'll get this sorted for you.",
+  "professional handyman service in nottingham.",
+];
+
+function isGenericSummary(summary: string): boolean {
+  const lower = summary.toLowerCase().trim();
+  return GENERIC_SUMMARIES.some(g => lower === g) || lower.length < 20;
+}
+
+/**
+ * Lightweight LLM retry focused only on generating a proposalSummary.
+ * Called when the main LLM response produced a generic/empty summary.
+ */
+async function retryProposalSummary(request: MultiLineRequest): Promise<string | null> {
+  try {
+    const openai = getOpenAI();
+    const linesList = request.lines
+      .map((line, i) => `${i + 1}. ${line.description} (${line.category})`)
+      .join('\n');
+
+    const vaContext = request.vaContext?.trim()
+      ? `\nCustomer context: "${request.vaContext.trim()}"\n`
+      : '';
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.2,
+      max_tokens: 200,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `You write professional scope-of-work summaries for a handyman company in Nottingham. Return JSON: {"proposalSummary": "..."}
+
+RULES:
+- 2-4 sentences (40-80 words). For a single task: 1-2 sentences (20-50 words).
+- Reference ALL job lines — do not skip any task.
+- Written as "We'll..." addressing the customer directly.
+- Tone: confident, competent tradesperson — not salesy or corporate.
+- NO prices, NO timelines, NO marketing claims, NO exclamation marks.
+- Group related tasks naturally.
+- End with a reassuring close (e.g. "Everything done in one visit." or "We'll leave it spotless.").`,
+        },
+        {
+          role: 'user',
+          content: `Write a proposalSummary for this job:\n${vaContext}\n${linesList}`,
+        },
+      ],
+    });
+
+    const raw = response.choices[0].message.content || '{}';
+    const parsed = JSON.parse(raw);
+    let summary = (parsed.proposalSummary || '').replace(/!/g, '').trim();
+
+    if (BANNED_PHRASES.some(p => summary.toLowerCase().includes(p))) {
+      return null;
+    }
+
+    const words = summary.split(/\s+/).filter(Boolean);
+    if (words.length < 8) return null;
+    if (words.length > 100) {
+      const truncated = words.slice(0, 100).join(' ');
+      const lastPeriod = truncated.lastIndexOf('.');
+      summary = lastPeriod > 0 ? truncated.slice(0, lastPeriod + 1) : truncated + '.';
+    }
+
+    console.log(`[multi-line-llm] Proposal summary retry succeeded (${words.length} words)`);
+    return summary;
+  } catch (error) {
+    console.error(
+      '[multi-line-llm] Proposal summary retry failed:',
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+}
+
+/**
+ * Build a basic proposalSummary from line item descriptions as last resort.
+ */
+function buildFallbackSummary(request: MultiLineRequest): string {
+  const tasks = request.lines.map(l => l.description.toLowerCase().trim());
+  if (tasks.length === 1) {
+    return `We'll take care of the ${tasks[0]}. Full cleanup included once we're done.`;
+  }
+  const last = tasks.pop();
+  return `We'll take care of the ${tasks.join(', ')} and ${last}. Everything done in one visit with full cleanup included.`;
+}
+
+// ---------------------------------------------------------------------------
 // Main Export
 // ---------------------------------------------------------------------------
 
@@ -528,12 +622,34 @@ export async function generateMultiLineLLMPrice(
 
     const raw = response.choices[0].message.content || '{}';
     const parsed = JSON.parse(raw);
-    return validateLLMResponse(parsed, expectedLineIds, approvedClaims);
+    const result = validateLLMResponse(parsed, expectedLineIds, approvedClaims);
+
+    // If proposalSummary is generic, retry with a focused LLM call
+    if (isGenericSummary(result.messaging.proposalSummary)) {
+      console.log('[multi-line-llm] proposalSummary is generic, retrying...');
+      const retrySummary = await retryProposalSummary(request);
+      if (retrySummary) {
+        result.messaging.proposalSummary = retrySummary;
+      } else {
+        // Last resort: build from line descriptions
+        result.messaging.proposalSummary = buildFallbackSummary(request);
+      }
+    }
+
+    return result;
   } catch (error) {
     console.error(
       '[multi-line-llm] OpenAI call failed, returning fallback:',
       error instanceof Error ? error.message : error,
     );
-    return buildFallbackResult(request, lineReferences);
+    const fallback = buildFallbackResult(request, lineReferences);
+    // Even in fallback, try to get a real proposalSummary
+    const retrySummary = await retryProposalSummary(request).catch(() => null);
+    if (retrySummary) {
+      fallback.messaging.proposalSummary = retrySummary;
+    } else {
+      fallback.messaging.proposalSummary = buildFallbackSummary(request);
+    }
+    return fallback;
   }
 }

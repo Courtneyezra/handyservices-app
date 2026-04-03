@@ -19,9 +19,9 @@ import { QuoteSkeleton } from '@/components/QuoteSkeleton';
 import { Elements } from '@stripe/react-stripe-js';
 import { stripePromise } from '@/lib/stripe';
 // import handymanPhoto from '@assets/Untitled design (27)_1762913661129.png';
-import handyServicesLogo from '../assets/handy-logo.png';
-import payIn3PromoImage from '../assets/pay-in-3-banner-original.jpg';
-import mikeProfilePhoto from '../assets/mike-profile-photo.png';
+import handyServicesLogo from '../assets/handy-logo.webp';
+import payIn3PromoImage from '../assets/pay-in-3-banner-original.webp';
+import mikeProfilePhoto from '../assets/mike-profile-photo.webp';
 import { NeonBadge } from '@/components/ui/neon-badge';
 import { format } from 'date-fns';
 // CountdownTimer removed - quotes no longer expire
@@ -824,7 +824,7 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
       title: "PEACE OF MIND",
       mainTitle: <span className="font-bold block leading-tight">Respect for you <br className="md:hidden" /> and your home.</span>,
       description: "We understand inviting someone into your home requires trust. We take that seriously.",
-      image: "/assets/quote-images/older-person-door.jpg",
+      image: "/assets/quote-images/older-person-door.webp",
       boxText: "Polite. Clean. Safe.",
       guaranteeItems: [
         { icon: 'Shield', title: "Safety First", text: "All staff are DBS-checked and ID-verified for your peace of mind." },
@@ -864,7 +864,7 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
       title: "PEACE OF MIND",
       mainTitle: <span className="font-bold block leading-tight">Your comfort and safety<br className="md:hidden" /> come first.</span>,
       description: "We know it matters who you let into your home. Every member of our team is vetted, polite, and takes the time to explain everything clearly.",
-      image: "/assets/quote-images/door-greeting.jpg",
+      image: "/assets/quote-images/door-greeting.webp",
       boxText: "Safe. Clean. Respectful.",
       guaranteeItems: [
         { icon: 'Shield', title: "Vetted & Verified", text: "All staff are DBS-checked and show ID on arrival. Your safety is our priority." },
@@ -962,7 +962,7 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
     },
     guarantee: {
       title: 'OUR GUARANTEE',
-      mainTitle: 'Not right? We return and fix it free.',
+      mainTitle: <span className="font-bold block leading-tight">Not right? We return<br /> and fix it free.</span>,
       description: 'Quality workmanship, full cleanup, and photo report on every job. No questions asked.',
       boxText: 'Quality guaranteed. No hidden fees.',
       guaranteeItems: [
@@ -1429,10 +1429,10 @@ function getHeroImage(quote: PersonalizedQuote): string {
   const isPainting = /paint|decor|wall|colour|color/.test(jobDesc) ||
     firstCategory === 'painting';
 
-  if (isElderly || isLandlord) return '/assets/quote-images/older-person-door.jpg';
-  if (isPlumbing) return '/assets/quote-images/plumber-smile.jpg';
-  if (isPainting) return '/assets/quote-images/painting.png';
-  return '/assets/quote-images/door-greeting.jpg';
+  if (isElderly || isLandlord) return '/assets/quote-images/older-person-door.webp';
+  if (isPlumbing) return '/assets/quote-images/plumber-smile.webp';
+  if (isPainting) return '/assets/quote-images/painting.webp';
+  return '/assets/quote-images/door-greeting.webp';
 }
 
 const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any }) => {
@@ -1507,6 +1507,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
           src={getHeroImage(quote)}
           alt="Friendly Plumber"
           className="w-full h-full object-cover opacity-50 contrast-125"
+          style={{ objectPosition: 'center 30%' }}
         />
         <div className={`absolute inset-0 bg-slate-900/80 mix-blend-multiply`} />
         <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent opacity-90" />
@@ -1556,7 +1557,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
         {/* Quote Prepared By */}
         <div className="flex items-center justify-center gap-3 mb-10">
           <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#7DB00E] shadow-xl">
-            <img src="/assets/quote-images/plumber-smile.jpg" alt="Mike" className="w-full h-full object-cover" />
+            <img src="/assets/quote-images/plumber-smile.webp" alt="Mike" className="w-full h-full object-cover" />
           </div>
           <div className="text-left">
             <div className="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-0.5">Prepared by</div>
@@ -1687,7 +1688,7 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
     } else if (isProfessional) {
       content.mainTitle = 'Zero hassle. 90-day guarantee.';
     } else {
-      content.mainTitle = 'Not right? We return and fix it free.';
+      content.mainTitle = <span className="font-bold block leading-tight">Not right? We return<br /> and fix it free.</span>;
     }
   }
 
@@ -1738,7 +1739,7 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
                 <div className="absolute inset-0 bg-[#7DB00E]/20 blur-3xl rounded-full" />
                 <div className={`p-1.5 bg-[#1D2D3D] rounded-full border-2 border-[#7DB00E] relative overflow-hidden w-24 h-24 flex items-center justify-center group shadow-xl`}>
                   <img
-                    src="/assets/quote-images/plumber-smile.jpg"
+                    src="/assets/quote-images/plumber-smile.webp"
                     alt="Guarantee"
                     className="w-full h-full object-cover rounded-full group-hover:scale-110 transition-transform duration-500 opacity-90"
                     loading="lazy"
@@ -3424,7 +3425,7 @@ export default function PersonalizedQuotePage() {
               {/* Mike badge — trust signal before price card */}
               <div className="flex items-center justify-center gap-3 mb-6 mt-2">
                 <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-[#7DB00E] shadow-lg flex-shrink-0">
-                  <img src="/assets/quote-images/plumber-smile.jpg" alt="Mike" className="w-full h-full object-cover" />
+                  <img src="/assets/quote-images/plumber-smile.webp" alt="Mike" className="w-full h-full object-cover" />
                 </div>
                 <div className="text-left">
                   <div className="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-0.5">Prepared by</div>

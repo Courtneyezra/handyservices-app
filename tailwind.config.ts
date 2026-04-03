@@ -75,7 +75,7 @@ export default {
             },
             fontFamily: {
                 sans: ["Poppins", "sans-serif"],
-                handwriting: ["Patrick Hand", "cursive"],
+                jakarta: ["Plus Jakarta Sans", "Poppins", "sans-serif"],
             },
         },
     },

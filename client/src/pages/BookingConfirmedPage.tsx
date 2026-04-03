@@ -16,7 +16,7 @@ import {
   WhatsNextCard,
 } from '@/components/confirmation';
 import type { CrossSellService } from '@/lib/cross-sell-recommendations';
-import handyServicesLogo from '../assets/handy-logo.png';
+import handyServicesLogo from '../assets/handy-logo.webp';
 
 interface ConfirmationData {
   quote: {

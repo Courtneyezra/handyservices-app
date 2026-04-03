@@ -19,7 +19,7 @@ import { Elements } from '@stripe/react-stripe-js';
 import { stripePromise } from '@/lib/stripe';
 import { PaymentForm } from '@/components/PaymentForm';
 import { ExpertStickyNote } from "@/components/ExpertStickyNote";
-import mikeProfilePhoto from '@assets/mike-profile-photo.png';
+import mikeProfilePhoto from '@assets/mike-profile-photo.webp';
 
 type TierId = 'standard' | 'priority' | 'emergency';
 
