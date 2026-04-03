@@ -5,9 +5,10 @@ import { useEffect, useState } from 'react';
 interface ConfirmationHeaderProps {
   customerName: string;
   depositAmount: number;
+  jobTopLine?: string;
 }
 
-export function ConfirmationHeader({ customerName, depositAmount }: ConfirmationHeaderProps) {
+export function ConfirmationHeader({ customerName, depositAmount, jobTopLine }: ConfirmationHeaderProps) {
   const [showConfetti, setShowConfetti] = useState(true);
 
   useEffect(() => {
@@ -87,6 +88,17 @@ export function ConfirmationHeader({ customerName, depositAmount }: Confirmation
       >
         Booking Confirmed!
       </motion.h1>
+
+      {jobTopLine && (
+        <motion.p
+          className="text-lg text-[#e8b323]/80 italic mb-1"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.55 }}
+        >
+          "{jobTopLine}"
+        </motion.p>
+      )}
 
       <motion.p
         className="text-xl text-gray-200 mb-4"

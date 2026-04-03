@@ -1811,9 +1811,13 @@ quotesRouter.get('/api/personalized-quotes/:id/confirmation', async (req, res) =
     try {
         const { id } = req.params;
 
-        // Get quote with all details
+        // Get quote by ID or short slug
+        const isUUID = id.length > 8 && id.includes('-');
         const [quote] = await db.select().from(personalizedQuotes)
-            .where(eq(personalizedQuotes.id, id));
+            .where(isUUID
+                ? eq(personalizedQuotes.id, id)
+                : eq(personalizedQuotes.shortSlug, id)
+            );
 
         if (!quote) {
             return res.status(404).json({ error: 'Quote not found' });
@@ -1896,6 +1900,15 @@ quotesRouter.get('/api/personalized-quotes/:id/confirmation', async (req, res) =
                 schedulingFeeInPence: quote.schedulingFeeInPence,
                 depositAmountPence: quote.depositAmountPence,
                 depositPaidAt: quote.depositPaidAt,
+                // Contextual quote fields
+                contextualHeadline: quote.contextualHeadline,
+                contextualMessage: quote.contextualMessage,
+                jobTopLine: quote.jobTopLine,
+                proposalSummary: quote.proposalSummary,
+                valueBullets: quote.valueBullets,
+                layoutTier: quote.layoutTier,
+                pricingLineItems: quote.pricingLineItems,
+                batchDiscountPercent: quote.batchDiscountPercent,
             },
             invoice: invoice ? {
                 id: invoice.id,

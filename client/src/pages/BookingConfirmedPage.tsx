@@ -11,6 +11,7 @@ import {
   ConfirmationHeader,
   BookingSummaryCard,
   SegmentValueCard,
+  ContextualValueCard,
   PortalIntroCard,
   CrossSellCard,
   WhatsNextCard,
@@ -39,6 +40,21 @@ interface ConfirmationData {
     schedulingFeeInPence?: number;
     depositAmountPence: number;
     depositPaidAt: string;
+    // Contextual quote fields
+    contextualHeadline?: string;
+    contextualMessage?: string;
+    jobTopLine?: string;
+    proposalSummary?: string;
+    valueBullets?: string[];
+    layoutTier?: string;
+    pricingLineItems?: Array<{
+      description: string;
+      guardedPricePence: number;
+      timeEstimateMinutes?: number;
+      materialsCostPence?: number;
+      materialsWithMarginPence?: number;
+    }>;
+    batchDiscountPercent?: number;
   };
   invoice?: {
     id: string;
@@ -61,9 +77,10 @@ interface ConfirmationData {
 }
 
 // Test data for each segment
-const TEST_SEGMENTS = ['PROP_MGR', 'LANDLORD', 'BUSY_PRO', 'SMALL_BIZ', 'DIY_DEFERRER', 'BUDGET', 'UNKNOWN'] as const;
+const TEST_SEGMENTS = ['CONTEXTUAL', 'PROP_MGR', 'LANDLORD', 'BUSY_PRO', 'SMALL_BIZ', 'DIY_DEFERRER', 'BUDGET', 'UNKNOWN'] as const;
 
 const TEST_JOB_DESCRIPTIONS: Record<string, string> = {
+  CONTEXTUAL: 'Mount 65" TV on living room wall with cable management, patch and paint 2 nail holes in hallway',
   PROP_MGR: 'Fix leaking tap in Unit 4B, replace toilet seat in Unit 2A',
   LANDLORD: 'Repair bathroom extractor fan at rental property, tenant reporting condensation',
   BUSY_PRO: 'Mount 65" TV on living room wall, hide cables in wall',
@@ -76,7 +93,7 @@ const TEST_JOB_DESCRIPTIONS: Record<string, string> = {
 function generateTestData(segment: string): ConfirmationData {
   const scheduledDate = addDays(new Date(), 3);
 
-  return {
+  const base: ConfirmationData = {
     quote: {
       id: 'test-quote-id',
       shortSlug: 'TEST123',
@@ -112,6 +129,45 @@ function generateTestData(segment: string): ConfirmationData {
       imageUrl: undefined,
     },
   };
+
+  // Contextual test data — uses AI-generated fields instead of segment content
+  if (segment === 'CONTEXTUAL') {
+    return {
+      ...base,
+      quote: {
+        ...base.quote,
+        segment: 'CONTEXTUAL',
+        selectedPackage: undefined,
+        selectedExtras: undefined,
+        depositAmountPence: 4650,
+        contextualHeadline: 'Your Living Room Sorted',
+        contextualMessage: "We'll mount your TV with full cable management and patch those hallway holes — you won't need to lift a finger.",
+        jobTopLine: 'TV mounted, walls patched',
+        proposalSummary: 'Mount a 65-inch TV on the living room wall with in-wall cable management for a clean finish. Patch and paint two nail holes in the hallway to match existing decor. All materials included.',
+        valueBullets: [
+          'Fixed price — no surprises',
+          'Full cleanup included',
+          '90-day workmanship guarantee',
+          '£2M insured',
+          'Same-week scheduling',
+        ],
+        layoutTier: 'standard',
+        pricingLineItems: [
+          { description: 'Mount 65" TV with cable management', guardedPricePence: 12000, timeEstimateMinutes: 90 },
+          { description: 'Patch & paint 2 nail holes', guardedPricePence: 3500, timeEstimateMinutes: 30 },
+        ],
+        batchDiscountPercent: 10,
+      },
+      invoice: {
+        ...base.invoice!,
+        totalAmount: 15500,
+        depositPaid: 4650,
+        balanceDue: 10850,
+      },
+    };
+  }
+
+  return base;
 }
 
 function BookingConfirmedPage() {
@@ -277,6 +333,9 @@ END:VCALENDAR`;
 
   const { quote, invoice, portalToken, contractor } = data;
 
+  // Detect contextual quote — has AI-generated fields instead of segment content
+  const isContextualQuote = !!(quote.contextualHeadline && quote.valueBullets?.length);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800">
       {/* Header */}
@@ -331,6 +390,7 @@ END:VCALENDAR`;
         <ConfirmationHeader
           customerName={quote.customerName}
           depositAmount={quote.depositAmountPence}
+          jobTopLine={quote.jobTopLine}
         />
 
         {/* Booking Summary */}
@@ -352,12 +412,26 @@ END:VCALENDAR`;
           contractorName={contractor?.name}
         />
 
-        {/* Segment-Specific Value Card */}
-        <SegmentValueCard
-          segment={quote.segment}
-          onAction={handleAction}
-          portalToken={portalToken}
-        />
+        {/* Value Card — contextual or segment-based */}
+        {isContextualQuote ? (
+          <ContextualValueCard
+            contextualHeadline={quote.contextualHeadline!}
+            contextualMessage={quote.contextualMessage!}
+            proposalSummary={quote.proposalSummary}
+            valueBullets={quote.valueBullets!}
+            pricingLineItems={quote.pricingLineItems}
+            batchDiscountPercent={quote.batchDiscountPercent}
+            layoutTier={quote.layoutTier}
+            onAction={handleAction}
+            portalToken={portalToken}
+          />
+        ) : (
+          <SegmentValueCard
+            segment={quote.segment}
+            onAction={handleAction}
+            portalToken={portalToken}
+          />
+        )}
 
         {/* Portal Introduction */}
         {portalToken && (
@@ -368,8 +442,8 @@ END:VCALENDAR`;
           />
         )}
 
-        {/* Cross-Sell (if not budget segment) */}
-        {quote.segment !== 'BUDGET' && quote.segment !== 'OLDER_WOMAN' && (
+        {/* Cross-Sell (segment-based only, not for contextual quotes) */}
+        {!isContextualQuote && quote.segment !== 'BUDGET' && quote.segment !== 'OLDER_WOMAN' && (
           <CrossSellCard
             jobDescription={quote.jobDescription}
             segment={quote.segment}
