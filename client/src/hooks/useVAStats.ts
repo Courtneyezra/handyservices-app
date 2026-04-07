@@ -21,6 +21,34 @@ export interface RecentQuote {
   createdAt: string;
 }
 
+export interface EarningsPeriod {
+  sent: number;
+  accepted: number;
+  sendEarnings: number;
+  acceptEarnings: number;
+  total: number;
+}
+
+export interface LedgerRow {
+  period: string;
+  label: string;
+  sent: number;
+  booked: number;
+  sendEarnings: number;
+  acceptEarnings: number;
+  total: number;
+  paid: number;
+  note: string;
+}
+
+export interface Earnings {
+  month: EarningsPeriod;
+  week: EarningsPeriod;
+  allTime: { totalEarned: number; totalPaid: number; owed: number };
+  currentBracket: string;
+  ledger: LedgerRow[];
+}
+
 export interface VAStats {
   callsHandled: number;
   quotesSent: number;
@@ -28,6 +56,7 @@ export interface VAStats {
   conversionRate: number;
   segmentBreakdown: SegmentBreakdown[];
   recentQuotes: RecentQuote[];
+  earnings: Earnings;
 }
 
 export function useVAStats() {
@@ -43,6 +72,7 @@ export function useVAStats() {
       if (!res.ok) throw new Error("Failed to fetch VA stats");
       return res.json();
     },
+    retry: false,
     refetchInterval: 30000,
     staleTime: 15000,
   });

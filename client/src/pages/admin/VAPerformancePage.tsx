@@ -1,4 +1,4 @@
-import { Phone, FileText, CheckCircle, TrendingUp, Eye } from "lucide-react";
+import { Phone, FileText, CheckCircle, TrendingUp, Eye, PoundSterling, Send, Trophy, Wallet, Calendar } from "lucide-react";
 import { motion } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
 
@@ -112,6 +112,167 @@ export default function VAPerformancePage() {
           isLoading={isLoading}
         />
       </div>
+
+      {/* Earnings */}
+      {(() => {
+        const e = data?.earnings;
+        const weekTotal = e?.week.total ?? 0;
+        const monthTotal = e?.month.total ?? 0;
+        const allTimeEarned = e?.allTime.totalEarned ?? 0;
+        const allTimePaid = e?.allTime.totalPaid ?? 0;
+        const owed = e?.allTime.owed ?? 0;
+        const bracket = e?.currentBracket ?? "£10 each (1-20)";
+        const ledger = e?.ledger ?? [];
+
+        return (
+          <Card className="bg-card border-border overflow-hidden">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <PoundSterling className="w-4 h-4 text-emerald-500" />
+                Earnings
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="h-40 bg-muted animate-pulse rounded" />
+              ) : (
+                <div className="space-y-5">
+                  {/* Top row: hero cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {/* Owed */}
+                    <div className="bg-gradient-to-br from-emerald-500/10 to-amber-500/10 rounded-xl p-5 border border-emerald-500/20">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+                          <Wallet className="w-4 h-4 text-emerald-400" />
+                        </div>
+                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">This Month (owed)</span>
+                      </div>
+                      <p className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-amber-400">
+                        £{owed.toLocaleString()}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {e?.month.sent ?? 0} sent · {e?.month.accepted ?? 0} accepted
+                      </p>
+                    </div>
+
+                    {/* All-time earned */}
+                    <div className="bg-muted/30 rounded-xl p-5 border border-border">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                          <Trophy className="w-4 h-4 text-blue-400" />
+                        </div>
+                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">All-Time Earned</span>
+                      </div>
+                      <p className="text-2xl font-bold text-white">
+                        £{allTimeEarned.toLocaleString()}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Lifetime total
+                      </p>
+                    </div>
+
+                    {/* Already paid */}
+                    <div className="bg-muted/30 rounded-xl p-5 border border-border">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                          <CheckCircle className="w-4 h-4 text-purple-400" />
+                        </div>
+                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Already Paid</span>
+                      </div>
+                      <p className="text-2xl font-bold text-white">
+                        £{allTimePaid.toLocaleString()}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Previous periods
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* This week's breakdown */}
+                  <div className="bg-muted/20 rounded-xl p-4 border border-border/50">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">This Week</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex items-center gap-3">
+                        <Send className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                        <div>
+                          <p className="text-sm font-semibold text-white">£{(e?.week.sendEarnings ?? 0).toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">{e?.week.sent ?? 0} sent × £3</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Trophy className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                        <div>
+                          <p className="text-sm font-semibold text-white">£{(e?.week.acceptEarnings ?? 0).toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">{e?.week.accepted ?? 0} accepted · {bracket}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Payment history ledger */}
+                  {ledger.length > 0 && (
+                    <div className="bg-muted/20 rounded-xl p-4 border border-border/50">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">Payment History</p>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-xs text-muted-foreground border-b border-border/50">
+                              <th className="text-left pb-2 pr-3">Period</th>
+                              <th className="text-right pb-2 px-2">Sent</th>
+                              <th className="text-right pb-2 px-2">Booked</th>
+                              <th className="text-right pb-2 px-2">Send £</th>
+                              <th className="text-right pb-2 px-2">Accept £</th>
+                              <th className="text-right pb-2 px-2 font-semibold">Total</th>
+                              <th className="text-right pb-2 pl-2">Paid</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {ledger.map((row, i) => (
+                              <tr key={i} className="border-b border-border/20 last:border-0">
+                                <td className="py-2 pr-3">
+                                  <p className="font-medium text-white text-xs">{row.label}</p>
+                                  <p className="text-[10px] text-muted-foreground">{row.period}</p>
+                                </td>
+                                <td className="text-right py-2 px-2 tabular-nums">{row.sent}</td>
+                                <td className="text-right py-2 px-2 tabular-nums">{row.booked}</td>
+                                <td className="text-right py-2 px-2 tabular-nums">£{row.sendEarnings}</td>
+                                <td className="text-right py-2 px-2 tabular-nums">£{row.acceptEarnings}</td>
+                                <td className="text-right py-2 px-2 tabular-nums font-semibold text-white">£{row.total}</td>
+                                <td className="text-right py-2 pl-2 tabular-nums text-emerald-400">£{row.paid}</td>
+                              </tr>
+                            ))}
+                            {/* Current month live row */}
+                            <tr className="bg-emerald-500/5">
+                              <td className="py-2 pr-3">
+                                <p className="font-medium text-emerald-400 text-xs">This Month</p>
+                                <p className="text-[10px] text-muted-foreground">Live</p>
+                              </td>
+                              <td className="text-right py-2 px-2 tabular-nums">{e?.month.sent ?? 0}</td>
+                              <td className="text-right py-2 px-2 tabular-nums">{e?.month.accepted ?? 0}</td>
+                              <td className="text-right py-2 px-2 tabular-nums">£{e?.month.sendEarnings ?? 0}</td>
+                              <td className="text-right py-2 px-2 tabular-nums">£{e?.month.acceptEarnings ?? 0}</td>
+                              <td className="text-right py-2 px-2 tabular-nums font-semibold text-emerald-400">£{monthTotal}</td>
+                              <td className="text-right py-2 pl-2 tabular-nums text-amber-400">Pending</td>
+                            </tr>
+                          </tbody>
+                          <tfoot>
+                            <tr className="border-t border-border">
+                              <td className="py-2 pr-3 font-semibold text-white text-xs">Total</td>
+                              <td colSpan={4} />
+                              <td className="text-right py-2 px-2 font-bold text-white">£{allTimeEarned.toLocaleString()}</td>
+                              <td className="text-right py-2 pl-2 font-bold text-emerald-400">£{allTimePaid.toLocaleString()}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Segment Breakdown + Recent Quotes */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-5">

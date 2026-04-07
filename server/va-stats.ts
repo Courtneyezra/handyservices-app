@@ -5,6 +5,68 @@ import { eq, gte, and, sql, desc, count } from "drizzle-orm";
 
 export const vaStatsRouter = Router();
 
+/** Degressive acceptance brackets — resets monthly */
+function calcAcceptanceEarnings(accepted: number): number {
+  if (accepted <= 0) return 0;
+  let total = 0;
+  const t1 = Math.min(accepted, 20);
+  total += t1 * 10;
+  const t2 = Math.min(Math.max(accepted - 20, 0), 30);
+  total += t2 * 7;
+  const t3 = Math.min(Math.max(accepted - 50, 0), 30);
+  total += t3 * 5;
+  const t4 = Math.max(accepted - 80, 0);
+  total += t4 * 3;
+  return total;
+}
+
+function getCurrentBracket(accepted: number): string {
+  if (accepted <= 20) return "£10 each (1-20)";
+  if (accepted <= 50) return "£7 each (21-50)";
+  if (accepted <= 80) return "£5 each (51-80)";
+  return "£3 each (81+)";
+}
+
+/**
+ * Payment ledger — hardcoded historical records.
+ * Includes adjustments for deleted quotes (Stripe-verified).
+ */
+const PAYMENT_LEDGER = [
+  {
+    period: "Mar 9–13",
+    label: "Week 1",
+    sent: 26,
+    booked: 1,
+    sendEarnings: 78,
+    acceptEarnings: 10,
+    total: 88,
+    paid: 88,
+    note: "Mr Bhogal",
+  },
+  {
+    period: "Mar 13–27",
+    label: "Gap (deleted quotes)",
+    sent: 33,
+    booked: 11,
+    sendEarnings: 99,
+    acceptEarnings: 110,
+    total: 209,
+    paid: 209,
+    note: "Stripe-verified: Raul, Suzy, Christine, Karan, Carrie, James, Ash, Liz, Joe + 2 repeats",
+  },
+  {
+    period: "Mar 28–31",
+    label: "Week 3",
+    sent: 17,
+    booked: 5,
+    sendEarnings: 51,
+    acceptEarnings: 50,
+    total: 101,
+    paid: 96,
+    note: "Timothy, Cordelia, Panda property, James, Dale",
+  },
+];
+
 function getStartDate(period: string): Date | null {
   const now = new Date();
   switch (period) {
@@ -128,6 +190,46 @@ vaStatsRouter.get("/stats", async (req, res) => {
       createdAt: q.createdAt?.toISOString() ?? null,
     }));
 
+    // --- Earnings calculation ---
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const weekDay = now.getDay();
+    const weekDiff = now.getDate() - weekDay + (weekDay === 0 ? -6 : 1);
+    const weekStart = new Date(now.getFullYear(), now.getMonth(), weekDiff);
+
+    const [monthlyTotals, weeklyTotals] = await Promise.all([
+      db
+        .select({
+          sent: count(),
+          accepted: sql<number>`count(case when ${personalizedQuotes.selectedAt} is not null then 1 end)`.as("accepted"),
+        })
+        .from(personalizedQuotes)
+        .where(and(eq(personalizedQuotes.createdBy, userId), gte(personalizedQuotes.createdAt, monthStart))),
+      db
+        .select({
+          sent: count(),
+          accepted: sql<number>`count(case when ${personalizedQuotes.selectedAt} is not null then 1 end)`.as("accepted"),
+        })
+        .from(personalizedQuotes)
+        .where(and(eq(personalizedQuotes.createdBy, userId), gte(personalizedQuotes.createdAt, weekStart))),
+    ]);
+
+    const monthSent = Number(monthlyTotals[0]?.sent) || 0;
+    const monthAccepted = Number(monthlyTotals[0]?.accepted) || 0;
+    const weekSent = Number(weeklyTotals[0]?.sent) || 0;
+    const weekAccepted = Number(weeklyTotals[0]?.accepted) || 0;
+
+    const monthSendEarnings = monthSent * 3;
+    const monthAcceptEarnings = calcAcceptanceEarnings(monthAccepted);
+    const monthTotalEarnings = monthSendEarnings + monthAcceptEarnings;
+
+    const priorAccepted = monthAccepted - weekAccepted;
+    const weekAcceptEarnings = calcAcceptanceEarnings(monthAccepted) - calcAcceptanceEarnings(priorAccepted);
+    const weekSendEarnings = weekSent * 3;
+    const weekTotalEarnings = weekSendEarnings + weekAcceptEarnings;
+
+    const paidFromLedger = PAYMENT_LEDGER.reduce((sum, row) => sum + row.paid, 0);
+
     res.json({
       callsHandled,
       quotesSent,
@@ -135,6 +237,29 @@ vaStatsRouter.get("/stats", async (req, res) => {
       conversionRate,
       segmentBreakdown,
       recentQuotes,
+      earnings: {
+        month: {
+          sent: monthSent,
+          accepted: monthAccepted,
+          sendEarnings: monthSendEarnings,
+          acceptEarnings: monthAcceptEarnings,
+          total: monthTotalEarnings,
+        },
+        week: {
+          sent: weekSent,
+          accepted: weekAccepted,
+          sendEarnings: weekSendEarnings,
+          acceptEarnings: weekAcceptEarnings,
+          total: weekTotalEarnings,
+        },
+        allTime: {
+          totalEarned: paidFromLedger + monthTotalEarnings,
+          totalPaid: paidFromLedger,
+          owed: monthTotalEarnings,
+        },
+        currentBracket: getCurrentBracket(monthAccepted),
+        ledger: PAYMENT_LEDGER,
+      },
     });
   } catch (error) {
     console.error("VA Stats Error:", error);
