@@ -142,12 +142,15 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         // Determine charge amount based on payment type
         let chargeAmount: number;
         if (paymentType === 'full') {
-            // Pay in full: charge the entire job price
-            chargeAmount = totalJobPrice;
-            console.log('[Stripe] Full payment:', {
+            // Pay in full: apply pay-in-full discount (e.g. 3% off)
+            const payInFullDiscount = (settings.payInFullDiscountPercent || 3) / 100;
+            chargeAmount = Math.round(totalJobPrice * (1 - payInFullDiscount));
+            console.log('[Stripe] Full payment with discount:', {
                 baseTierPrice,
                 extrasTotal,
                 totalJobPrice,
+                discountPercent: settings.payInFullDiscountPercent,
+                chargeAmount,
             });
         } else {
             // Deposit mode: charge materials + fraction of labour
@@ -186,7 +189,7 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
                 },
                 receipt_email: customerEmail,
                 description: paymentType === 'full'
-                    ? `Full payment for ${customerName}`
+                    ? `Full payment for ${customerName} (${settings.payInFullDiscountPercent}% pay-in-full discount applied)`
                     : `Deposit for ${customerName}`
             },
             {
@@ -356,7 +359,8 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         const invoiceCount = Number(countResult?.count || 0);
                         const invoiceNumber = `INV-${year}-${String(invoiceCount + 1).padStart(4, '0')}`;
 
-                        const balanceDue = totalJobPrice - depositAmount;
+                        // When paid in full (with discount), balance is 0 — the discount is intentional
+                        const balanceDue = metadataPaymentType === 'full' ? 0 : totalJobPrice - depositAmount;
 
                         const lineItems = [{
                             description: quote.jobDescription || 'Handyman Service',
