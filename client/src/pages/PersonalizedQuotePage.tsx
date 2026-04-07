@@ -2557,6 +2557,7 @@ export default function PersonalizedQuotePage() {
   const [isWeekendBooking, setIsWeekendBooking] = useState(false);
   const [dateFee, setDateFee] = useState(0); // in pence
   const [timeSlotType, setTimeSlotType] = useState<TimeSlotType | null>(null);
+  const timeSlotTypeRef = useRef<TimeSlotType | null>(null);
   const [exactTime, setExactTime] = useState<string | null>(null);
   const [timeFee, setTimeFee] = useState(0); // in pence
 
@@ -3090,7 +3091,7 @@ export default function PersonalizedQuotePage() {
             // Scheduling fields
             selectedDate: selectedDate || selectedCalendarDateRef.current || selectedCalendarDate || undefined,
             schedulingTier: schedulingTier || undefined,
-            timeSlotType: timeSlotType || undefined,
+            timeSlotType: timeSlotTypeRef.current || timeSlotType || undefined,
             exactTimeRequested: exactTime || undefined,
             isWeekendBooking: isWeekendBooking,
             schedulingFeeInPence: dateFee + timeFee,
@@ -3466,6 +3467,7 @@ export default function PersonalizedQuotePage() {
                         }
                         if (config.timeSlot) {
                           setTimeSlotType(config.timeSlot as TimeSlotType);
+                          timeSlotTypeRef.current = config.timeSlot as TimeSlotType;
                         }
 
                         // Map add-ons to bundle type
