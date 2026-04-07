@@ -2553,6 +2553,7 @@ export default function PersonalizedQuotePage() {
   // [CALENDAR] Calendar-based scheduling state (replaces timingChoice for BUSY_PRO)
   const [schedulingTier, setSchedulingTier] = useState<SchedulingTier | null>(null);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<Date | null>(null);
+  const selectedCalendarDateRef = useRef<Date | null>(null);
   const [isWeekendBooking, setIsWeekendBooking] = useState(false);
   const [dateFee, setDateFee] = useState(0); // in pence
   const [timeSlotType, setTimeSlotType] = useState<TimeSlotType | null>(null);
@@ -3087,7 +3088,7 @@ export default function PersonalizedQuotePage() {
             selectedExtras: selectedExtras.length > 0 ? selectedExtras : undefined,
             paymentType: effectivePaymentType,
             // Scheduling fields
-            selectedDate: selectedDate || selectedCalendarDate || undefined,
+            selectedDate: selectedDate || selectedCalendarDateRef.current || selectedCalendarDate || undefined,
             schedulingTier: schedulingTier || undefined,
             timeSlotType: timeSlotType || undefined,
             exactTimeRequested: exactTime || undefined,
@@ -3125,7 +3126,7 @@ export default function PersonalizedQuotePage() {
         depositPence: Math.round(quotePrice * 0.3),
         paymentMode: effectivePaymentType as 'full' | 'installments',
         bookingMode: schedulingTier || undefined,
-        selectedDate: (selectedDate || selectedCalendarDate)?.toISOString(),
+        selectedDate: (selectedDate || selectedCalendarDateRef.current || selectedCalendarDate)?.toISOString(),
         schedulingTier: schedulingTier || undefined,
         timeSlotType: timeSlotType || undefined,
         selectedExtras,
@@ -3461,6 +3462,7 @@ export default function PersonalizedQuotePage() {
                         setHasApprovedProduct(true);
                         if (config.selectedDate) {
                           setSelectedCalendarDate(config.selectedDate);
+                          selectedCalendarDateRef.current = config.selectedDate;
                         }
                         if (config.timeSlot) {
                           setTimeSlotType(config.timeSlot as TimeSlotType);
