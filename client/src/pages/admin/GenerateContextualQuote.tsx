@@ -37,6 +37,7 @@ import type { PreviewQuote } from '@/components/quote/QuotePreviewModal';
 import { FaWhatsapp } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 import { buildContextualQuoteWhatsAppMessage } from '@/lib/whatsapp-quote-message';
+import { AddressInput, type AddressDetails } from '@/components/live-call/AddressInput';
 import type {
   JobCategory,
   ParsedJobResult,
@@ -786,6 +787,8 @@ export default function GenerateContextualQuote() {
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [postcode, setPostcode] = useState('');
+  const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
+  const [addressValidated, setAddressValidated] = useState(false);
 
   // ── Job description ──
   const [jobDescription, setJobDescription] = useState('');
@@ -1035,6 +1038,7 @@ export default function GenerateContextualQuote() {
           email: email || undefined,
           address: address || undefined,
           postcode: postcode || undefined,
+          coordinates: coordinates || undefined,
           jobDescription: jobDescription || lineItems.map(li => li.description).filter(Boolean).join(', ') || undefined,
           lines: lineItems.map((li) => ({
             id: li.id,
@@ -1084,6 +1088,8 @@ export default function GenerateContextualQuote() {
     setPhone(caller.phone || '');
     setAddress(caller.address || '');
     setPostcode(caller.postcode || '');
+    setCoordinates(null);
+    setAddressValidated(false);
 
     if (mode === 'all') {
       setJobDescription(caller.jobSummary || '');
@@ -1454,25 +1460,41 @@ export default function GenerateContextualQuote() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="cx-postcode" className="text-xs text-muted-foreground">Postcode</Label>
+                    <Label className="text-xs text-muted-foreground">Postcode</Label>
                     <Input
-                      id="cx-postcode"
                       placeholder="NG1 1AA"
                       value={postcode}
                       onChange={(e) => setPostcode(e.target.value)}
                       className="mt-1"
+                      readOnly={addressValidated}
                     />
+                    {addressValidated && (
+                      <p className="text-green-500 text-[10px] mt-0.5">✓ From verified address</p>
+                    )}
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="cx-address" className="text-xs text-muted-foreground">Address</Label>
-                  <Input
-                    id="cx-address"
-                    placeholder="123 Main Street, Nottingham"
+                  <AddressInput
                     value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    className="mt-1"
+                    onChange={(value: string, details?: AddressDetails) => {
+                      setAddress(value);
+                      if (details) {
+                        if (details.postcode) setPostcode(details.postcode);
+                        if (details.lat && details.lng) {
+                          setCoordinates({ lat: details.lat, lng: details.lng });
+                        }
+                        setAddressValidated(true);
+                      }
+                    }}
+                    isValidated={addressValidated}
+                    onValidationChange={setAddressValidated}
+                    placeholder="Start typing address..."
                   />
+                  {coordinates && (
+                    <p className="text-muted-foreground text-[10px] mt-0.5">
+                      📍 {coordinates.lat.toFixed(4)}, {coordinates.lng.toFixed(4)}
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>

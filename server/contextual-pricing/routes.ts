@@ -698,6 +698,7 @@ const contextualQuoteInputSchema = z.object({
   email: z.string().email().optional().or(z.literal('')),
   address: z.string().optional(),
   postcode: z.string().optional(),
+  coordinates: z.object({ lat: z.number(), lng: z.number() }).optional(),
   vaContext: z.string().max(2000).optional(),
 
   // Job details
@@ -1038,6 +1039,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       email: input.email || null,
       address: input.address || null,
       postcode: input.postcode || null,
+      coordinates: input.coordinates || null,
       jobDescription: input.jobDescription || input.lines.map((l) => l.description).join('; '),
       quoteMode: 'simple' as const,
       leadId: linkedLeadId,
