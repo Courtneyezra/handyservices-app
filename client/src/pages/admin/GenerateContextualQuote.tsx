@@ -1698,10 +1698,7 @@ export default function GenerateContextualQuote() {
                       </div>
                     ) : (
                       <div className="flex items-center justify-between py-1">
-                        <span className="text-sm text-muted-foreground">Estimated Total</span>
-                        <span className="text-xl font-bold text-amber-400">
-                          ~£{Math.round(lineItems.reduce((sum, item) => sum + estimateLineItemPence(item), 0) / 100)}
-                        </span>
+                        <span className="text-sm text-muted-foreground text-amber-500/70">Engine price unavailable — add a description and time estimate to see live pricing</span>
                       </div>
                     )}
                   </>
