@@ -902,52 +902,6 @@ export function UnifiedQuoteCard({
             </a>
           </div>
 
-          {/* What's Included - Tight pill strip */}
-          <div className={`mt-4 pt-4 border-t ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
-            <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1.5">
-              {(contextualBullets && contextualBullets.length > 0
-                ? contextualBullets
-                : getHassleComparisons(segment, 3).map(item => item.withUs)
-              ).map((bullet, i) => (
-                <span
-                  key={i}
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium whitespace-nowrap ${
-                    isDarkTheme
-                      ? 'bg-white/5 text-slate-300'
-                      : 'bg-slate-100 text-slate-600'
-                  }`}
-                >
-                  <Check className="w-3 h-3 text-[#7DB00E] flex-shrink-0" />
-                  {bullet}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Brand trust strip */}
-          <div className={`mt-4 pt-3 border-t ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
-            <div className="flex items-center justify-center gap-2 px-1">
-              <span className={`text-sm font-bold ${isDarkTheme ? 'text-white' : 'text-slate-800'}`}>Handy Services</span>
-              <span className={`w-1 h-1 rounded-full ${isDarkTheme ? 'bg-slate-500' : 'bg-slate-300'}`} />
-              <span className={`text-xs font-medium ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>£2M Insured</span>
-              <span className={`w-1 h-1 rounded-full ${isDarkTheme ? 'bg-slate-500' : 'bg-slate-300'}`} />
-              <span className={`text-xs font-medium ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>4.9★ Google</span>
-            </div>
-            <div className="flex justify-center gap-1.5 mt-2">
-              {['DBS Checked', '£2M Insured', '127 Reviews'].map((label) => (
-                <span
-                  key={label}
-                  className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
-                    isDarkTheme
-                      ? 'bg-[#7DB00E]/10 text-[#7DB00E] border border-[#7DB00E]/20'
-                      : 'bg-[#7DB00E]/10 text-[#5a8a00] border border-[#7DB00E]/20'
-                  }`}
-                >
-                  {label}
-                </span>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* Downsell Option (if available and flexible_discount mode enabled) */}
@@ -1121,7 +1075,7 @@ export function UnifiedQuoteCard({
                   }
                 }}
                 disabled={d.isBlocked}
-                className={`p-3 rounded-xl text-center transition-all relative ${
+                className={`p-3 rounded-xl text-center transition-all relative min-h-[97px] flex flex-col items-center justify-center ${
                   d.isBlocked
                     ? 'opacity-50 cursor-not-allowed' + (isDarkTheme ? ' bg-white/5 text-slate-500' : ' bg-slate-100 text-slate-400 border border-slate-200')
                     : isConfirmed
@@ -1198,16 +1152,6 @@ export function UnifiedQuoteCard({
                   </span>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* Large job: full-day indicator after confirming */}
-          {isLargeJob && confirmedDates.length > 0 && (
-            <div className={`flex items-center gap-3 mt-3 p-3 rounded-xl ${isDarkTheme ? 'bg-white/10' : 'bg-slate-100'}`}>
-              <Clock className="w-4 h-4 text-[#7DB00E] flex-shrink-0" />
-              <p className={`text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                Full day job (8am–6pm) — we'll confirm the best date within 24hrs
-              </p>
             </div>
           )}
 
@@ -1378,6 +1322,46 @@ export function UnifiedQuoteCard({
           )}
         </AnimatePresence>
 
+        {/* What's Included — near payment for trust at decision point */}
+        <div className={`grid grid-cols-4 gap-2`}>
+          {([
+            { icon: <Tag className="w-4 h-4" />, label: 'Fixed price' },
+            { icon: <Camera className="w-4 h-4" />, label: 'Photo report' },
+            { icon: <Sparkles className="w-4 h-4" />, label: 'Full cleanup' },
+            { icon: <Shield className="w-4 h-4" />, label: 'Guaranteed' },
+          ]).map((item, i) => (
+            <div
+              key={i}
+              className={`flex flex-col items-center justify-center rounded-lg py-2.5 px-1 text-center ${
+                isDarkTheme
+                  ? 'bg-white/5 border border-white/10'
+                  : 'bg-slate-50 border border-slate-200'
+              }`}
+            >
+              <div className="text-[#7DB00E] mb-1">{item.icon}</div>
+              <span className={`text-[10px] font-medium leading-tight ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
+                {item.label}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Trust strip — near payment for maximum conversion impact */}
+        <div className="flex flex-wrap items-center justify-center gap-1.5">
+          {['DBS Checked', '£2M Insured', '4.9★ Google', '127 Reviews'].map((label) => (
+            <span
+              key={label}
+              className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                isDarkTheme
+                  ? 'bg-[#7DB00E]/10 text-[#7DB00E] border border-[#7DB00E]/20'
+                  : 'bg-[#7DB00E]/10 text-[#5a8a00] border border-[#7DB00E]/20'
+              }`}
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+
         {/* Payment/Book Section */}
         <div ref={bookSectionRef}>
         {showInlinePayment && stripe ? (
@@ -1546,24 +1530,6 @@ export function UnifiedQuoteCard({
         )}
         </div>
 
-        {/* Trust Guarantees */}
-        <div className={`rounded-xl border divide-y ${isDarkTheme ? 'bg-white/5 border-white/10 divide-white/10' : 'bg-white border-slate-200 divide-slate-100'}`}>
-          {[
-            { icon: Shield, text: '£2M insured', sub: 'Your property is protected' },
-            { icon: Lock, text: 'Fixed price', sub: 'No surprises on the day' },
-            { icon: Check, text: '30-day guarantee', sub: 'Not right? We fix it free' },
-          ].map(({ icon: Icon, text, sub }) => (
-            <div key={text} className="flex items-center gap-3 px-4 py-3">
-              <div className="w-8 h-8 rounded-full bg-[#7DB00E]/10 flex items-center justify-center flex-shrink-0">
-                <Icon className="w-4 h-4 text-[#7DB00E]" />
-              </div>
-              <div>
-                <span className={`text-sm font-medium ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>{text}</span>
-                <span className={`text-sm ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}> · {sub}</span>
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* Sticky bottom CTA — portaled to body to avoid transform containment breaking fixed positioning */}
