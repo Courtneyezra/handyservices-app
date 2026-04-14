@@ -9,7 +9,7 @@
  * After per-line guardrails:
  *   - Sum guarded line prices → subtotal
  *   - Apply batch discount (capped at 15%)
- *   - Apply psychological pricing (end in 9) to FINAL total only
+ *   - Round all prices to whole pounds (nearest £1) — display = Stripe charge
  *   - Apply returning customer cap to the TOTAL
  *   - Assemble MultiLineResult
  */
@@ -17,6 +17,7 @@
 import { getReferencePrice } from './reference-rates';
 import { generateMultiLineLLMPrice } from './multi-line-llm';
 import type { LineReference } from './multi-line-llm';
+import { getAnthropic } from '../anthropic';
 import {
   getLayoutTier,
 } from '@shared/contextual-pricing-types';
@@ -89,13 +90,59 @@ function formatPence(pence: number): string {
 }
 
 /**
- * Psychological pricing: ensure the price ends in 9.
- * Rounds DOWN to the nearest number ending in 9.
+ * Polish a single description via Claude Haiku.
+ * Returns the original text on any error (fail-safe).
  */
-function ensurePriceEndsInNine(priceInPence: number): number {
-  const lastDigit = priceInPence % 10;
-  if (lastDigit === 9) return priceInPence;
-  return priceInPence - lastDigit + 9;
+async function polishDescription(description: string): Promise<string> {
+  const trimmed = description.trim();
+  if (trimmed.length < 5) return trimmed;
+
+  try {
+    const claude = getAnthropic();
+    const message = await claude.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 100,
+      system: `You are a job description polisher for a UK handyman service.
+Clean up rough notes into a clear, professional one-line scope of work.
+Rules:
+- Keep it SHORT (max 8-10 words). Customers see this on their quote.
+- Start with a verb: Fix, Mount, Install, Replace, Repair, Assemble, Paint, Hang, etc.
+- Remove filler words, prices, timings, and customer details.
+- Keep specific details that affect scope (e.g. "55 inch", "brick wall", "3 shelves").
+- UK English spelling.
+- Return ONLY the polished text. No quotes, no explanation.
+- If it's already clean, return it unchanged.`,
+      messages: [{ role: 'user', content: trimmed }],
+    });
+    const textBlock = message.content.find((b: any) => b.type === 'text');
+    return (textBlock as any)?.text?.trim() || trimmed;
+  } catch {
+    return trimmed;
+  }
+}
+
+/**
+ * Polish all line item descriptions in parallel.
+ * Returns a Map of lineId → polished description.
+ */
+async function polishAllDescriptions(
+  lines: { id: string; description: string }[],
+): Promise<Map<string, string>> {
+  const results = await Promise.all(
+    lines.map(async (line) => {
+      const polished = await polishDescription(line.description);
+      return [line.id, polished] as const;
+    }),
+  );
+  return new Map(results);
+}
+
+/**
+ * Round to whole pounds (nearest £1 = nearest 100 pence).
+ * All customer-facing prices must be whole pounds so display matches Stripe charge.
+ */
+function roundToWholePounds(priceInPence: number): number {
+  return Math.round(priceInPence / 100) * 100;
 }
 
 /**
@@ -152,6 +199,9 @@ function applyPerLineGuardrails(
     price = marginFloor;
   }
 
+  // Round to whole pounds — all customer-facing prices must be whole £
+  price = roundToWholePounds(price);
+
   return { guardedPricePence: price, adjustments };
 }
 
@@ -189,8 +239,11 @@ export async function generateMultiLinePrice(
     };
   });
 
-  // Layer 3 — Single LLM call for all lines (with optional content-library claims)
-  const llmResult = await generateMultiLineLLMPrice(request, lineReferences, approvedClaims);
+  // Layer 2 — Polish descriptions + Layer 3 LLM pricing (run in parallel)
+  const [polishedDescriptions, llmResult] = await Promise.all([
+    polishAllDescriptions(request.lines),
+    generateMultiLineLLMPrice(request, lineReferences, approvedClaims),
+  ]);
 
   // Layer 4 — Per-line guardrails (no psychological pricing per line)
   const allGuardrailAdjustments: string[] = [];
@@ -227,15 +280,15 @@ export async function generateMultiLinePrice(
       if (adj.startsWith('Margin')) allMarginsPassed = false;
     }
 
-    // Materials: apply margin to cost price
+    // Materials: apply margin to cost price, rounded to whole pounds
     const materialsCostPence = line.materialsCostPence || 0;
     const materialsWithMarginPence = materialsCostPence > 0
-      ? Math.round(materialsCostPence * (1 + materialsMargin))
+      ? roundToWholePounds(materialsCostPence * (1 + materialsMargin))
       : 0;
 
     return {
       lineId: line.id,
-      description: line.description,
+      description: polishedDescriptions.get(line.id) || line.description,
       category: line.category,
       timeEstimateMinutes: line.timeEstimateMinutes,
       referencePricePence: ref.referencePricePence,
@@ -266,7 +319,7 @@ export async function generateMultiLinePrice(
   );
   const effectiveDiscountPercent =
     request.lines.length > 1 ? rawDiscountPercent : 0;
-  const discountSavingsPence = Math.round(
+  const discountSavingsPence = roundToWholePounds(
     subtotalPence * (effectiveDiscountPercent / 100),
   );
   let finalPrice = (subtotalPence - discountSavingsPence) + totalMaterialsWithMarginPence;
@@ -297,7 +350,7 @@ export async function generateMultiLinePrice(
     // Scale the cap by the number of lines — a multi-line quote will naturally
     // be higher than the single-job average, so we scale proportionally.
     const lineCount = request.lines.length;
-    const returningCap = Math.round(
+    const returningCap = roundToWholePounds(
       signals.previousAvgPricePence * lineCount * 1.15,
     );
     if (finalPrice > returningCap) {
@@ -309,12 +362,12 @@ export async function generateMultiLinePrice(
     }
   }
 
-  // Psychological pricing — end in 9 on the FINAL total only
-  const prePsychPrice = finalPrice;
-  finalPrice = ensurePriceEndsInNine(finalPrice);
-  if (finalPrice !== prePsychPrice) {
+  // Whole-pounds rounding on the FINAL total
+  const preRoundPrice = finalPrice;
+  finalPrice = roundToWholePounds(finalPrice);
+  if (finalPrice !== preRoundPrice) {
     allGuardrailAdjustments.push(
-      `Psychological pricing: ${formatPence(prePsychPrice)} → ${formatPence(finalPrice)} (end in 9)`,
+      `Whole-pounds rounding: ${formatPence(preRoundPrice)} → ${formatPence(finalPrice)}`,
     );
   }
 

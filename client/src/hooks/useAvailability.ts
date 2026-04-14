@@ -155,3 +155,93 @@ export function getUnavailableReason(
 export function formatDateStr(date: Date): string {
   return format(date, 'yyyy-MM-dd');
 }
+
+// ============================================================================
+// QUOTE-SPECIFIC AVAILABILITY (Uses candidate contractor pool)
+// ============================================================================
+
+export interface QuoteDateAvailability {
+  date: string;
+  contractorCount: number;
+  slot: string;
+}
+
+interface UseQuoteAvailabilityOptions {
+  quoteId?: string;
+  slot: 'am' | 'pm' | 'full_day';
+  month?: string; // 'YYYY-MM'
+  enabled?: boolean;
+}
+
+/**
+ * Hook to fetch quote-specific availability.
+ * Uses the candidate contractor pool from the quote for accurate availability.
+ * Re-fetches when the selected slot changes.
+ */
+export function useQuoteAvailability(options: UseQuoteAvailabilityOptions) {
+  const { quoteId, slot, month, enabled = true } = options;
+
+  return useQuery<QuoteDateAvailability[]>({
+    queryKey: ['quoteAvailability', quoteId, slot, month],
+    queryFn: async () => {
+      if (!quoteId) return [];
+
+      const params = new URLSearchParams();
+      params.set('slot', slot);
+      if (month) params.set('month', month);
+
+      const response = await fetch(`/api/public/quote/${quoteId}/availability?${params.toString()}`);
+      if (!response.ok) throw new Error('Failed to fetch quote availability');
+      return response.json();
+    },
+    enabled: enabled && !!quoteId && !!slot,
+    staleTime: 2 * 60 * 1000, // 2 minutes — shorter for quote-specific data
+    refetchOnWindowFocus: true,
+  });
+}
+
+// ============================================================================
+// SLOT RESERVATION
+// ============================================================================
+
+export interface SlotReservation {
+  lockId: number;
+  contractorId: string;
+  contractorName: string;
+  expiresAt: string; // ISO string
+}
+
+/**
+ * Reserve a slot for a quote before payment.
+ * Returns lock info including contractor name for display.
+ */
+export async function reserveSlot(params: {
+  quoteId: string;
+  scheduledDate: string; // ISO string
+  scheduledSlot: 'am' | 'pm' | 'full_day';
+  candidateContractorIds?: string[];
+}): Promise<SlotReservation> {
+  const response = await fetch('/api/public/booking/reserve-slot', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || data.message || 'Failed to reserve slot');
+  }
+
+  return response.json();
+}
+
+/**
+ * Release a previously reserved slot (e.g., timer expired).
+ */
+export async function releaseSlotLock(lockId: number): Promise<void> {
+  await fetch('/api/public/booking/release-slot', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lockId }),
+  });
+}

@@ -44,14 +44,11 @@ export interface GuardrailCheckResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Psychological pricing: ensure the price ends in 9.
- * Rounds DOWN to the nearest number ending in 9.
- * (Own copy — intentionally decoupled from eve-pricing-engine.)
+ * Round to whole pounds (nearest £1 = nearest 100 pence).
+ * All customer-facing prices must be whole pounds so display matches Stripe charge.
  */
-function ensurePriceEndsInNine(priceInPence: number): number {
-  const lastDigit = priceInPence % 10;
-  if (lastDigit === 9) return priceInPence;
-  return priceInPence - lastDigit + 9;
+function roundToWholePounds(priceInPence: number): number {
+  return Math.round(priceInPence / 100) * 100;
 }
 
 /** Ceiling multiplier by urgency level */
@@ -170,15 +167,15 @@ export function applyGuardrails(
     }
   }
 
-  // 6. Psychological pricing — end in 9
-  const prePsych = price;
-  price = ensurePriceEndsInNine(price);
+  // 6. Round to whole pounds — display must match Stripe charge
+  const preRound = price;
+  price = roundToWholePounds(price);
 
-  if (price !== prePsych) {
+  if (price !== preRound) {
     adjustments.push({
-      rule: 'PSYCHOLOGICAL_PRICING',
-      description: `Adjusted ${formatPence(prePsych)} -> ${formatPence(price)} (end in 9).`,
-      before: prePsych,
+      rule: 'WHOLE_POUNDS_ROUNDING',
+      description: `Rounded ${formatPence(preRound)} -> ${formatPence(price)} (whole pounds).`,
+      before: preRound,
       after: price,
     });
   }

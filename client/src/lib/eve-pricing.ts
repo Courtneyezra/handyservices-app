@@ -23,10 +23,8 @@ export const EVE_SEGMENT_RATES: Record<string, number> = {
 /** Nottingham average handyman rate — floor guardrail */
 export const REFERENCE_RATE_PENCE = 3500;
 
-function ensurePriceEndsInNine(priceInPence: number): number {
-  const lastDigit = priceInPence % 10;
-  if (lastDigit === 9) return priceInPence;
-  return priceInPence - lastDigit + 9;
+function roundToWholePounds(priceInPence: number): number {
+  return Math.round(priceInPence / 100) * 100;
 }
 
 /**
@@ -43,7 +41,7 @@ export function calculateEVEPrice(segment: string, timeMinutes: number): number 
   const floor = Math.round(REFERENCE_RATE_PENCE * (minutes / 60));
   price = Math.max(price, floor);
 
-  return ensurePriceEndsInNine(price);
+  return roundToWholePounds(price);
 }
 
 /** Returns display string like "£74/hr" for a segment */

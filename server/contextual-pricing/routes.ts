@@ -12,7 +12,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
-import { eq, gte, and, sql } from 'drizzle-orm';
+import { eq, gte, and, sql, desc } from 'drizzle-orm';
+import { getAnthropic } from '../anthropic';
 import { generateContextualPrice } from './engine';
 import { generateMultiLinePrice } from './multi-line-engine';
 import { generateEVEPricingQuote, EVE_SEGMENT_RATES } from '../eve-pricing-engine';
@@ -20,11 +21,11 @@ import { getAllCategories } from './reference-rates';
 import { JobCategoryValues } from '@shared/contextual-pricing-types';
 import { parseJobDescription } from './job-parser';
 import { db } from '../db';
-import { personalizedQuotes, leads, quotePlatformImages, quotePlatformHeadlines } from '@shared/schema';
+import { personalizedQuotes, leads, quotePlatformImages, quotePlatformHeadlines, handymanProfiles, handymanSkills, users } from '@shared/schema';
 import { normalizePhoneNumber } from '../phone-utils';
 import { selectContentForQuote } from '../content-library/selector';
 import { trackQuoteCreated } from '../posthog';
-import { calculateMultiLineCost, checkMargin } from '../margin-engine';
+import { calculateMultiLineCost, checkMargin, calculateCostFromWTBP } from '../margin-engine';
 import type {
   PricingContext,
   PricingComparisonResult,
@@ -33,6 +34,7 @@ import type {
   MultiLineTestScenario,
   JobCategory,
   ContextualSignals,
+  MarginPreview,
 } from '@shared/contextual-pricing-types';
 
 const router = Router();
@@ -150,6 +152,59 @@ router.post('/api/pricing/parse-job', async (req, res) => {
       error: 'Failed to parse job description',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/pricing/polish-description
+// ---------------------------------------------------------------------------
+
+router.post('/api/pricing/polish-description', async (req, res) => {
+  try {
+    const { description } = req.body as { description: string };
+
+    if (!description || typeof description !== 'string') {
+      return res.status(400).json({ error: 'description is required' });
+    }
+    const trimmed = description.trim();
+    if (trimmed.length === 0) {
+      return res.status(400).json({ error: 'description must not be empty' });
+    }
+    // Too short to polish — return as-is
+    if (trimmed.length < 5) {
+      return res.json({ polished: trimmed });
+    }
+
+    const claude = getAnthropic();
+    const message = await claude.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 100,
+      system: `You are a job description polisher for a UK handyman service.
+Clean up Ben the estimator's rough notes into a clear, professional one-line scope of work.
+
+Rules:
+- Keep it SHORT (max 8–10 words). Customers see this on their quote.
+- Start with a verb: Fix, Mount, Install, Replace, Repair, Assemble, Paint, Hang, etc.
+- Remove filler words, prices, timings, and customer details.
+- Keep specific details that affect scope (e.g. "55 inch", "brick wall", "3 shelves").
+- UK English spelling (e.g. "metre" not "meter", "colour" not "color").
+- Return ONLY the polished text. No quotes, no explanation.
+- If it's already clean, return it unchanged.`,
+      messages: [
+        {
+          role: 'user',
+          content: trimmed,
+        },
+      ],
+    });
+
+    const textBlock = message.content.find((b: any) => b.type === 'text');
+    const polished = textBlock?.text?.trim() || trimmed;
+    return res.json({ polished });
+  } catch (error: any) {
+    console.error('[pricing/polish-description] Error:', error?.message || error);
+    // On error, return original — don't block the user
+    return res.json({ polished: req.body?.description?.trim() || '' });
   }
 });
 
@@ -360,7 +415,67 @@ router.post('/api/pricing/multi-quote', async (req, res) => {
     }
 
     const result = await generateMultiLinePrice(request);
-    return res.json(result);
+
+    // Calculate margin preview using revenue share model (non-blocking)
+    // Uses POST-discount prices so contractor + platform = engine total
+    let marginPreview: MarginPreview | undefined;
+    try {
+      // Apply batch discount proportionally to each line's labour price
+      const discountFactor = result.batchDiscount.applied
+        ? 1 - (result.batchDiscount.discountPercent / 100)
+        : 1;
+
+      const wtbpLines = result.lineItems.map((l) => ({
+        categorySlug: l.category,
+        pricePence: Math.round(l.guardedPricePence * discountFactor) + (l.materialsWithMarginPence || 0),
+        timeEstimateMinutes: l.timeEstimateMinutes || 60,
+      }));
+
+      if (wtbpLines.length > 0) {
+        const wtbpResult = await calculateCostFromWTBP(wtbpLines);
+        const perLineMargin = wtbpResult.perLineMargin;
+
+        const totalCustomer = perLineMargin.reduce((s, l) => s + l.customerPricePence, 0);
+        const totalCost = perLineMargin.reduce((s, l) => s + l.contractorCostPence, 0);
+        const totalMargin = totalCustomer - totalCost;
+        const totalMarginPct = totalCustomer > 0
+          ? Math.round((totalMargin / totalCustomer) * 100)
+          : 0;
+
+        const uncovered = wtbpResult.uncoveredCategories;
+
+        const flags: string[] = [...wtbpResult.flags];
+        if (totalMarginPct < 0) {
+          flags.push(`Negative margin: contractor cost exceeds quote price`);
+        } else if (totalMarginPct < 20) {
+          flags.push(`Critical: overall margin only ${totalMarginPct}%`);
+        } else if (totalMarginPct < 30) {
+          flags.push(`Thin margin: overall ${totalMarginPct}%`);
+        }
+        for (const pl of perLineMargin) {
+          if (pl.marginPercent < 20) {
+            flags.push(`${pl.categorySlug}: margin ${pl.marginPercent}%`);
+          }
+        }
+        if (uncovered.length > 0) {
+          flags.push(`No WTBP rate set for: ${uncovered.join(', ')}`);
+        }
+
+        marginPreview = {
+          totalCostPence: totalCost,
+          totalMarginPence: totalMargin,
+          totalMarginPercent: totalMarginPct,
+          perLineMargin,
+          uncoveredCategories: uncovered,
+          flags,
+        };
+      }
+    } catch (err) {
+      // Non-blocking — margin preview is optional
+      console.warn('[pricing/multi-quote] Margin preview failed:', err instanceof Error ? err.message : err);
+    }
+
+    return res.json({ ...result, marginPreview });
   } catch (error) {
     console.error('[pricing/multi-quote] Error:', error);
     return res.status(500).json({
@@ -522,6 +637,57 @@ router.get('/api/pricing/multi-scenarios', (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/pricing/contractors — Lightweight list for quote builder dropdown
+// ---------------------------------------------------------------------------
+
+router.get('/api/pricing/contractors', async (_req, res) => {
+  try {
+    const contractors = await db.select({
+      id: handymanProfiles.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      profileImageUrl: handymanProfiles.profileImageUrl,
+      availabilityStatus: handymanProfiles.availabilityStatus,
+      city: handymanProfiles.city,
+      postcode: handymanProfiles.postcode,
+    })
+    .from(handymanProfiles)
+    .innerJoin(users, eq(handymanProfiles.userId, users.id))
+    .orderBy(desc(handymanProfiles.lastAssignedAt));
+
+    // Get skills grouped by contractor
+    const allSkills = await db.select({
+      handymanId: handymanSkills.handymanId,
+      categorySlug: handymanSkills.categorySlug,
+      proficiency: handymanSkills.proficiency,
+    })
+    .from(handymanSkills);
+
+    const skillsMap = new Map<string, Array<{ categorySlug: string | null; proficiency: string | null }>>();
+    for (const s of allSkills) {
+      if (!skillsMap.has(s.handymanId)) skillsMap.set(s.handymanId, []);
+      skillsMap.get(s.handymanId)!.push({ categorySlug: s.categorySlug, proficiency: s.proficiency });
+    }
+
+    const result = contractors.map(c => ({
+      id: c.id,
+      name: `${c.firstName || ''} ${c.lastName || ''}`.trim() || 'Unnamed',
+      profileImageUrl: c.profileImageUrl,
+      availabilityStatus: c.availabilityStatus,
+      city: c.city,
+      postcode: c.postcode,
+      skills: skillsMap.get(c.id) || [],
+      categorySlugs: (skillsMap.get(c.id) || []).map(s => s.categorySlug).filter(Boolean),
+    }));
+
+    return res.json(result);
+  } catch (err) {
+    console.error('[pricing/contractors] Error:', err);
+    return res.status(500).json({ error: 'Failed to fetch contractors' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/pricing/create-contextual-quote
 // ---------------------------------------------------------------------------
 
@@ -565,6 +731,9 @@ const contextualQuoteInputSchema = z.object({
   sourceLeadId: z.string().optional(),
   createdBy: z.string().optional(),
   createdByName: z.string().optional(),
+
+  // Contractor assignment (optional — shows their profile on the quote page)
+  contractorId: z.string().optional(),
 });
 
 /**
@@ -793,6 +962,8 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       matchedContractorRate: null,
     };
 
+    let marginPreviewData: MarginPreview | undefined;
+
     try {
       const costLines = result.lineItems.map((l) => ({
         category: l.category as JobCategory,
@@ -817,10 +988,41 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
           matchedContractorRate: costResult.contractorRate,
         };
 
+        // Build revenue-share margin preview for the admin UI
+        // Apply batch discount proportionally so totals match engine total
+        const discountFactor = result.batchDiscount.applied
+          ? 1 - (result.batchDiscount.discountPercent / 100)
+          : 1;
+
+        const wtbpLines = result.lineItems.map((l) => ({
+          categorySlug: l.category,
+          pricePence: Math.round(l.guardedPricePence * discountFactor) + (l.materialsWithMarginPence || 0),
+          timeEstimateMinutes: l.timeEstimateMinutes || 60,
+        }));
+        const wtbpResult = await calculateCostFromWTBP(wtbpLines);
+
+        const totalCustomer = wtbpResult.perLineMargin.reduce((s, l) => s + l.customerPricePence, 0);
+        const totalCost = wtbpResult.perLineMargin.reduce((s, l) => s + l.contractorCostPence, 0);
+        const totalMargin = totalCustomer - totalCost;
+        const totalMarginPct = totalCustomer > 0
+          ? Math.round((totalMargin / totalCustomer) * 100)
+          : 0;
+
+        const flags: string[] = [...(marginResult.flags || []), ...wtbpResult.flags];
+
+        marginPreviewData = {
+          totalCostPence: totalCost,
+          totalMarginPence: totalMargin,
+          totalMarginPercent: totalMarginPct,
+          perLineMargin: wtbpResult.perLineMargin,
+          uncoveredCategories: wtbpResult.uncoveredCategories,
+          flags,
+        };
+
         if (marginResult.flags.length > 0) {
-          console.log(`[ContextualQuote] ⚠️ Margin flags for ${shortSlug}: ${marginResult.flags.join(', ')}`);
+          console.log(`[ContextualQuote] Margin flags for ${shortSlug}: ${marginResult.flags.join(', ')}`);
         } else {
-          console.log(`[ContextualQuote] ✅ Margin healthy: ${marginResult.marginPercent}% (cost: £${(costResult.totalCostPence / 100).toFixed(2)}, price: £${(result.finalPricePence / 100).toFixed(2)})`);
+          console.log(`[ContextualQuote] Margin healthy: ${marginResult.marginPercent}% (cost: £${(costResult.totalCostPence / 100).toFixed(2)}, price: £${(result.finalPricePence / 100).toFixed(2)})`);
         }
       }
     } catch (marginError) {
@@ -845,6 +1047,9 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
 
       // Segment marker for contextual quotes
       segment: 'CONTEXTUAL',
+
+      // Contractor assignment — shows their profile on the customer quote page
+      contractorId: input.contractorId || null,
 
       // Contextual messaging fields
       contextualHeadline: result.messaging.contextualHeadline,
@@ -1083,6 +1288,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
             },
           }
         : { selectedContent: null }),
+      ...(marginPreviewData ? { marginPreview: marginPreviewData } : {}),
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

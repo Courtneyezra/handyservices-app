@@ -125,7 +125,7 @@ function generateTestData(segment: string): ConfirmationData {
       scheduledDate: scheduledDate.toISOString(),
     },
     contractor: {
-      name: 'Mike the Handyman',
+      name: 'Ben the Handyman',
       imageUrl: undefined,
     },
   };

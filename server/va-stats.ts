@@ -65,6 +65,17 @@ const PAYMENT_LEDGER = [
     paid: 96,
     note: "Timothy, Cordelia, Panda property, James, Dale",
   },
+  {
+    period: "Apr 8",
+    label: "Top-up payment",
+    sent: 0,
+    booked: 0,
+    sendEarnings: 0,
+    acceptEarnings: 0,
+    total: 0,
+    paid: 75,
+    note: "Additional payment against April earnings",
+  },
 ];
 
 function getStartDate(period: string): Date | null {
@@ -228,7 +239,13 @@ vaStatsRouter.get("/stats", async (req, res) => {
     const weekSendEarnings = weekSent * 3;
     const weekTotalEarnings = weekSendEarnings + weekAcceptEarnings;
 
-    const paidFromLedger = PAYMENT_LEDGER.reduce((sum, row) => sum + row.paid, 0);
+    // Ledger totals include historical earnings + any current-month top-up payments
+    const ledgerEarned = PAYMENT_LEDGER.reduce((sum, row) => sum + row.total, 0);
+    const ledgerPaid = PAYMENT_LEDGER.reduce((sum, row) => sum + row.paid, 0);
+
+    const totalEarned = ledgerEarned + monthTotalEarnings;
+    const totalPaid = ledgerPaid;
+    const outstanding = totalEarned - totalPaid;
 
     res.json({
       callsHandled,
@@ -253,9 +270,9 @@ vaStatsRouter.get("/stats", async (req, res) => {
           total: weekTotalEarnings,
         },
         allTime: {
-          totalEarned: paidFromLedger + monthTotalEarnings,
-          totalPaid: paidFromLedger,
-          owed: monthTotalEarnings,
+          totalEarned,
+          totalPaid,
+          owed: outstanding,
         },
         currentBracket: getCurrentBracket(monthAccepted),
         ledger: PAYMENT_LEDGER,

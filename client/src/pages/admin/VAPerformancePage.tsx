@@ -139,19 +139,19 @@ export default function VAPerformancePage() {
                 <div className="space-y-5">
                   {/* Top row: hero cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {/* Owed */}
+                    {/* Outstanding */}
                     <div className="bg-gradient-to-br from-emerald-500/10 to-amber-500/10 rounded-xl p-5 border border-emerald-500/20">
                       <div className="flex items-center gap-2 mb-3">
                         <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
                           <Wallet className="w-4 h-4 text-emerald-400" />
                         </div>
-                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">This Month (owed)</span>
+                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Outstanding</span>
                       </div>
                       <p className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-amber-400">
                         £{owed.toLocaleString()}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {e?.month.sent ?? 0} sent · {e?.month.accepted ?? 0} accepted
+                        Total earned − total paid
                       </p>
                     </div>
 

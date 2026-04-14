@@ -61,11 +61,11 @@ interface ScopeOfWorksProps {
     summary?: string | null;
     proposalSummary?: string | null;
     pricingLineItems?: PricingLineItem[] | null;
-    mikePhotoUrl?: string;
+    estimatorPhotoUrl?: string;
     className?: string;
 }
 
-export function ScopeOfWorks({ text, summary, proposalSummary, pricingLineItems, mikePhotoUrl, className = '' }: ScopeOfWorksProps) {
+export function ScopeOfWorks({ text, summary, proposalSummary, pricingLineItems, estimatorPhotoUrl, className = '' }: ScopeOfWorksProps) {
     const hasProposal = proposalSummary && proposalSummary.length > 0;
     const hasLineItems = pricingLineItems && pricingLineItems.length > 0;
 
@@ -98,14 +98,14 @@ export function ScopeOfWorks({ text, summary, proposalSummary, pricingLineItems,
                         {formatContent(text)}
                     </div>
                 )}
-                {mikePhotoUrl && (
+                {estimatorPhotoUrl && (
                     <div className="flex items-center gap-2 justify-end mt-4 pt-3 border-t border-slate-100">
                         <div className="text-right">
-                            <div className="text-sm font-bold text-slate-900">Mike</div>
+                            <div className="text-sm font-bold text-slate-900">Ben</div>
                             <div className="text-[9px] font-bold uppercase text-[#7DB00E] tracking-wider">Estimator</div>
                         </div>
                         <div className="w-9 h-9 rounded-full border-2 border-[#7DB00E]/30 overflow-hidden shadow-sm">
-                            <img src={mikePhotoUrl} alt="Mike" className="w-full h-full object-cover" />
+                            <img src={estimatorPhotoUrl} alt="Ben" className="w-full h-full object-cover" />
                         </div>
                     </div>
                 )}
@@ -120,11 +120,11 @@ export function ScopeOfWorks({ text, summary, proposalSummary, pricingLineItems,
 /* ─── Estimator Footer ─── */
 
 interface EstimatorFooterProps {
-    mikePhotoUrl?: string;
+    estimatorPhotoUrl?: string;
     className?: string;
 }
 
-export function EstimatorFooter({ mikePhotoUrl, className = '' }: EstimatorFooterProps) {
+export function EstimatorFooter({ estimatorPhotoUrl, className = '' }: EstimatorFooterProps) {
     return (
         <div className={`flex items-center justify-between px-1 ${className}`}>
             <div className="flex items-center gap-1.5 text-xs text-slate-400">
@@ -133,12 +133,12 @@ export function EstimatorFooter({ mikePhotoUrl, className = '' }: EstimatorFoote
             </div>
             <div className="flex items-center gap-2">
                 <div className="text-right">
-                    <div className="text-sm font-bold text-slate-900">Mike</div>
+                    <div className="text-sm font-bold text-slate-900">Ben</div>
                     <div className="text-[9px] font-bold uppercase text-[#7DB00E] tracking-wider">Estimator</div>
                 </div>
-                {mikePhotoUrl && (
+                {estimatorPhotoUrl && (
                     <div className="w-9 h-9 rounded-full border-2 border-[#7DB00E]/30 overflow-hidden shadow-sm">
-                        <img src={mikePhotoUrl} alt="Mike" className="w-full h-full object-cover" />
+                        <img src={estimatorPhotoUrl} alt="Ben" className="w-full h-full object-cover" />
                     </div>
                 )}
             </div>
@@ -153,7 +153,7 @@ interface ExpertSpecSheetProps {
     summary?: string | null;
     customerName?: string;
     address?: string | null;
-    mikePhotoUrl?: string;
+    estimatorPhotoUrl?: string;
     className?: string;
     children?: React.ReactNode;
 }
@@ -161,7 +161,7 @@ interface ExpertSpecSheetProps {
 export function ExpertSpecSheet({
     text,
     summary,
-    mikePhotoUrl,
+    estimatorPhotoUrl,
     className = '',
     children
 }: ExpertSpecSheetProps) {
@@ -173,7 +173,7 @@ export function ExpertSpecSheet({
         >
             <ScopeOfWorks text={text} summary={summary} />
             {children && <div className="mt-6">{children}</div>}
-            <EstimatorFooter mikePhotoUrl={mikePhotoUrl} className="mt-4" />
+            <EstimatorFooter estimatorPhotoUrl={estimatorPhotoUrl} className="mt-4" />
         </motion.div>
     );
 }

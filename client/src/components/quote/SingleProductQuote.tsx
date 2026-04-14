@@ -33,6 +33,7 @@ interface SingleProductQuoteProps {
   segment?: string;
   onBook: (config: {
     selectedDate: Date;
+    selectedDates?: Date[];
     timeSlot: string;
     addOns: string[];
     totalPrice: number;
@@ -49,10 +50,32 @@ export function SingleProductQuote({
   onBook,
   isBooking = false,
 }: SingleProductQuoteProps) {
-  // State
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  // State — 3-date buffer model: customer picks up to 3 preferred dates
+  const MAX_DATES = 3;
+  const [selectedDates, setSelectedDates] = useState<Date[]>([]);
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<string | null>(null);
   const [selectedAddOns, setSelectedAddOns] = useState<string[]>([]);
+
+  // Helper: first selected date (for backward compatibility / fee calc)
+  const selectedDate = selectedDates.length > 0 ? selectedDates[0] : null;
+
+  const toggleDate = (date: Date) => {
+    setSelectedDates(prev => {
+      const exists = prev.find(d => d.toDateString() === date.toDateString());
+      if (exists) {
+        // Remove it
+        return prev.filter(d => d.toDateString() !== date.toDateString());
+      }
+      if (prev.length >= MAX_DATES) {
+        // Replace oldest selection
+        return [...prev.slice(1), date];
+      }
+      return [...prev, date];
+    });
+  };
+
+  const isDateSelected = (date: Date) =>
+    selectedDates.some(d => d.toDateString() === date.toDateString());
 
   // Generate available dates (next 14 days, excluding Sundays)
   const availableDates = useMemo(() => {
@@ -147,12 +170,13 @@ export function SingleProductQuote({
     );
   };
 
-  const canBook = selectedDate && selectedTimeSlot;
+  const canBook = selectedDates.length > 0 && selectedTimeSlot;
 
   const handleBook = () => {
-    if (!selectedDate || !selectedTimeSlot) return;
+    if (selectedDates.length === 0 || !selectedTimeSlot) return;
     onBook({
-      selectedDate,
+      selectedDate: selectedDates[0], // Primary date for backward compat
+      selectedDates, // All preferred dates for the buffer model
       timeSlot: selectedTimeSlot,
       addOns: selectedAddOns,
       totalPrice: total,
@@ -204,35 +228,62 @@ export function SingleProductQuote({
             </div>
           </div>
 
-          {/* Step 1: Select Date */}
+          {/* Step 1: Pick up to 3 preferred dates */}
           <div className="space-y-3">
             <h3 className="text-white font-semibold flex items-center gap-2">
               <Calendar className="w-5 h-5 text-[#7DB00E]" />
-              1. Choose your date
+              1. Pick up to 3 dates that work
             </h3>
+            <p className="text-slate-400 text-xs -mt-1">
+              We'll confirm the best one within 24 hours
+            </p>
             <div className="grid grid-cols-4 gap-2">
-              {availableDates.slice(0, 8).map((d) => (
-                <button
-                  key={d.date.toISOString()}
-                  onClick={() => setSelectedDate(d.date)}
-                  className={`p-3 rounded-xl text-center transition-all ${
-                    selectedDate?.toDateString() === d.date.toDateString()
-                      ? 'bg-[#7DB00E] text-slate-900 ring-2 ring-[#7DB00E] ring-offset-2 ring-offset-slate-900'
-                      : 'bg-white/10 text-white hover:bg-white/20'
-                  }`}
-                >
-                  <div className="text-xs font-medium">
-                    {format(d.date, 'EEE')}
-                  </div>
-                  <div className="text-lg font-bold">
-                    {format(d.date, 'd')}
-                  </div>
-                  {d.isWeekend && (
-                    <div className="text-[10px] text-amber-400 mt-0.5">+£25</div>
-                  )}
-                </button>
-              ))}
+              {availableDates.slice(0, 12).map((d) => {
+                const selected = isDateSelected(d.date);
+                const selectionIndex = selectedDates.findIndex(s => s.toDateString() === d.date.toDateString());
+                return (
+                  <button
+                    key={d.date.toISOString()}
+                    onClick={() => toggleDate(d.date)}
+                    className={`p-3 rounded-xl text-center transition-all relative ${
+                      selected
+                        ? 'bg-[#7DB00E] text-slate-900 ring-2 ring-[#7DB00E] ring-offset-2 ring-offset-slate-900'
+                        : 'bg-white/10 text-white hover:bg-white/20'
+                    }`}
+                  >
+                    {/* Selection badge (1, 2, 3) */}
+                    {selected && (
+                      <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-900 border-2 border-[#7DB00E] flex items-center justify-center">
+                        <span className="text-[10px] font-bold text-[#7DB00E]">{selectionIndex + 1}</span>
+                      </div>
+                    )}
+                    <div className="text-xs font-medium">
+                      {format(d.date, 'EEE')}
+                    </div>
+                    <div className="text-lg font-bold">
+                      {format(d.date, 'd')}
+                    </div>
+                    {d.isWeekend && (
+                      <div className={`text-[10px] mt-0.5 ${selected ? 'text-slate-700' : 'text-amber-400'}`}>+£25</div>
+                    )}
+                  </button>
+                );
+              })}
             </div>
+            {/* Selection summary */}
+            {selectedDates.length > 0 && (
+              <div className="flex items-center gap-2 text-xs">
+                <CalendarCheck className="w-3.5 h-3.5 text-[#7DB00E]" />
+                <span className="text-slate-300">
+                  {selectedDates.length === 1
+                    ? `${format(selectedDates[0], 'EEE d MMM')} selected — pick ${MAX_DATES - 1} more for faster scheduling`
+                    : selectedDates.length === 2
+                      ? `${selectedDates.map(d => format(d, 'EEE d')).join(' & ')} — 1 more for best availability`
+                      : `${selectedDates.map(d => format(d, 'EEE d')).join(', ')}`
+                  }
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Step 2: Select Time (only if date selected) */}
@@ -388,8 +439,10 @@ export function SingleProductQuote({
                 Book for £{Math.round(total / 100)}
                 <ChevronRight className="w-5 h-5" />
               </span>
+            ) : selectedDates.length === 0 ? (
+              'Pick your preferred dates to continue'
             ) : (
-              'Select date & time to book'
+              'Select arrival window to book'
             )}
           </Button>
 

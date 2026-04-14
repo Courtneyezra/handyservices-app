@@ -752,13 +752,11 @@ export function calculateTierPrice(
   }
 
   // Round to end in 9
-  return ensurePriceEndsInNine(Math.round(price));
+  return roundToWholePounds(Math.round(price));
 }
 
-function ensurePriceEndsInNine(priceInPence: number): number {
-  const lastDigit = priceInPence % 10;
-  if (lastDigit === 9) return priceInPence;
-  return priceInPence - lastDigit + 9;
+function roundToWholePounds(priceInPence: number): number {
+  return Math.round(priceInPence / 100) * 100;
 }
 
 /**

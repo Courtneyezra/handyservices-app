@@ -60,18 +60,25 @@ const PricingSettingsPage = lazy(() => import("@/pages/admin/PricingSettingsPage
 const PricingEnginePage = lazy(() => import("@/pages/admin/PricingEnginePage"));
 const LiveCallTestWizard = lazy(() => import("@/pages/admin/LiveCallTestWizard"));
 const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
+const DailyPlannerPage = lazy(() => import("@/pages/admin/DailyPlannerPage"));
+const TestDatePicker = lazy(() => import("@/pages/admin/TestDatePicker"));
 const TenantIssuesPage = lazy(() => import("@/pages/admin/TenantIssuesPage"));
 const QuotesPage = lazy(() => import("@/pages/admin/QuotesPage"));
 const EditQuotePage = lazy(() => import("@/pages/admin/EditQuotePage"));
 const BookingVisitsPage = lazy(() => import("@/pages/admin/BookingVisitsPage"));
 const MasterAvailabilityPage = lazy(() => import("@/pages/admin/MasterAvailabilityPage"));
 const ContractorsPage = lazy(() => import("@/pages/admin/ContractorsPage"));
+const ContractorDetailPage = lazy(() => import("@/pages/admin/ContractorDetailPage"));
 const PaymentsDashboardPage = lazy(() => import("@/pages/admin/PaymentsDashboardPage"));
 const DashboardPage = lazy(() => import("@/pages/admin/DashboardPage"));
 const OnboardingSlideDeck = lazy(() => import("@/pages/admin/OnboardingSlideDeck"));
 const VAResourcesPage = lazy(() => import("@/pages/admin/VAResourcesPage"));
 const VAPerformancePage = lazy(() => import("@/pages/admin/VAPerformancePage"));
 const VATrainingCenter = lazy(() => import("@/pages/admin/VATrainingCenter"));
+const CareersAdmin = lazy(() => import("@/pages/admin/CareersAdmin"));
+const BusinessModelDashboard = lazy(() => import("@/pages/admin/BusinessModelDashboard"));
+const DisputesPage = lazy(() => import("@/pages/admin/DisputesPage"));
+const WTBPRateCardPage = lazy(() => import("@/pages/admin/WTBPRateCardPage"));
 const LandingPageRender = lazy(() => import("@/pages/LandingPageRender"));
 import SmartBanner from "@/components/SmartBanner";
 
@@ -82,6 +89,9 @@ const PersonalizedQuotePage = lazy(() => import("@/pages/PersonalizedQuotePage")
 const BookingConfirmedPage = lazy(() => import("@/pages/BookingConfirmedPage"));
 const DiagnosticVisitPage = lazy(() => import("@/pages/DiagnosticVisitPage"));
 const SeasonalMenu = lazy(() => import("@/pages/SeasonalMenu"));
+const CareersPage = lazy(() => import("@/pages/CareersPage"));
+const PartnerPage = lazy(() => import("@/pages/PartnerPage"));
+const JoinPage = lazy(() => import("@/pages/JoinPage"));
 
 // Client Portal Pages (public, token-based access)
 const InvoiceView = lazy(() => import("@/pages/client/InvoiceView"));
@@ -109,6 +119,7 @@ const CalendarTab = lazy(() => import('./pages/contractor/dashboard/CalendarTab'
 const MyJobsTab = lazy(() => import('./pages/contractor/dashboard/MyJobsTab'));
 const ProfileTab = lazy(() => import('./pages/contractor/dashboard/ProfileTab'));
 const JobDetailsPage = lazy(() => import("./pages/contractor/dashboard/JobDetailsPage"));
+const EarningsPage = lazy(() => import("./pages/contractor/dashboard/EarningsPage"));
 
 // Admin follow-up inbox (shares component with contractor inbox)
 const FollowUpInboxPage = lazy(() => import("./pages/contractor/dashboard/InboxPage"));
@@ -224,6 +235,9 @@ function Router() {
                 <Route path="/derby" component={DerbyLanding} />
                 <Route path="/cleaning" component={CleaningLanding} />
                 <Route path="/seasonal-guide" component={SeasonalMenu} />
+                <Route path="/careers" component={CareersPage} />
+                <Route path="/partner" component={PartnerPage} />
+                <Route path="/join" component={JoinPage} />
                 <Route path="/l/:slug" component={LandingPageRender} />
 
                 {/* Customer-facing quote views - /quote is the canonical URL */}
@@ -366,6 +380,11 @@ function Router() {
                         </ContractorPortalLayout>
                     </ProtectedRoute>
                 </Route>
+                <Route path="/contractor/dashboard/earnings">
+                    <ProtectedRoute role="contractor">
+                        <EarningsPage />
+                    </ProtectedRoute>
+                </Route>
                 <Route path="/contractor/onboarding">
                     <ProtectedRoute role="contractor">
                         <ContractorOnboarding />
@@ -456,7 +475,7 @@ function Router() {
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
-                <Route path="/admin/live-call-test">
+                <Route path="/admin/live-call-wizard">
                     <ProtectedRoute role="admin">
                         <LiveCallTestWizard />
                     </ProtectedRoute>
@@ -510,6 +529,16 @@ function Router() {
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
+                <Route path="/admin/daily-planner">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <DailyPlannerPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/test-date-picker">
+                    <TestDatePicker />
+                </Route>
                 <Route path="/admin/tenant-issues">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
@@ -521,6 +550,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <MasterAvailabilityPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/contractors/:id">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <ContractorDetailPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
@@ -656,6 +692,35 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <VATrainingCenter />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/careers">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <CareersAdmin />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+
+                <Route path="/admin/business-model">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <BusinessModelDashboard />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/disputes">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <DisputesPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/wtbp-rates">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <WTBPRateCardPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

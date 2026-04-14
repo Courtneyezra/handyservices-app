@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { db } from "./db";
-import { contractorBookingRequests, handymanProfiles, personalizedQuotes, handymanSkills, productizedServices, contractorJobs, expenses } from "../shared/schema";
-import { eq, desc, and, gte, sql } from "drizzle-orm";
+import { contractorBookingRequests, handymanProfiles, personalizedQuotes, handymanSkills, productizedServices, contractorJobs, expenses, contractorPayouts } from "../shared/schema";
+import { eq, desc, and, gte, sql, isNull, or } from "drizzle-orm";
 import { requireContractorAuth } from "./contractor-auth";
 import { AutoSkuGenerator } from "./services";
 import { z } from "zod";
@@ -43,10 +43,74 @@ router.get('/bookings', requireContractorAuth, async (req: Request, res: Respons
 
         const bookings = await db.select()
             .from(contractorBookingRequests)
-            .where(eq(contractorBookingRequests.contractorId, profile.id))
+            .where(or(
+                eq(contractorBookingRequests.contractorId, profile.id),
+                eq(contractorBookingRequests.assignedContractorId, profile.id),
+            ))
             .orderBy(desc(contractorBookingRequests.createdAt));
 
-        res.json(bookings);
+        // Enrich with payment/payout data
+        const quoteIds = bookings.map(b => b.quoteId).filter(Boolean) as string[];
+        const bookingIds = bookings.map(b => b.id);
+
+        // Get customer payment info from quotes
+        let quotePaymentMap: Record<string, { paidAt: Date | null }> = {};
+        if (quoteIds.length > 0) {
+            const quotes = await db.select({
+                id: personalizedQuotes.id,
+                depositPaidAt: personalizedQuotes.depositPaidAt,
+                bookedAt: personalizedQuotes.bookedAt,
+            }).from(personalizedQuotes)
+              .where(sql`${personalizedQuotes.id} IN (${sql.join(quoteIds.map(id => sql`${id}`), sql`, `)})`);
+            for (const q of quotes) {
+                quotePaymentMap[q.id] = { paidAt: q.depositPaidAt || q.bookedAt };
+            }
+        }
+
+        // Get contractor job payout amounts
+        let jobPayoutMap: Record<string, number> = {};
+        if (quoteIds.length > 0) {
+            try {
+                const jobs = await db.select({
+                    quoteId: contractorJobs.quoteId,
+                    payoutPence: contractorJobs.payoutPence,
+                }).from(contractorJobs)
+                  .where(sql`${contractorJobs.quoteId} IN (${sql.join(quoteIds.map(id => sql`${id}`), sql`, `)})`);
+                for (const j of jobs) {
+                    if (j.quoteId && j.payoutPence) jobPayoutMap[j.quoteId] = j.payoutPence;
+                }
+            } catch { /* table may not have data */ }
+        }
+
+        // Get payout statuses
+        let payoutMap: Record<string, { status: string; paidAt: Date | null; netPence: number | null }> = {};
+        try {
+            const payouts = await db.select({
+                jobId: contractorPayouts.jobId,
+                status: contractorPayouts.status,
+                paidAt: contractorPayouts.paidAt,
+                netPence: contractorPayouts.netPayoutPence,
+            }).from(contractorPayouts)
+              .where(eq(contractorPayouts.contractorId, profile.id));
+            for (const p of payouts) {
+                if (p.jobId) payoutMap[p.jobId] = { status: p.status, paidAt: p.paidAt, netPence: p.netPence };
+            }
+        } catch { /* table may not exist */ }
+
+        const result = bookings.map(b => {
+            const payout = payoutMap[b.id];
+            const quotePayment = b.quoteId ? quotePaymentMap[b.quoteId] : null;
+            return {
+                ...b,
+                payoutPence: (b.quoteId ? jobPayoutMap[b.quoteId] : null) || null,
+                customerPaidAt: quotePayment?.paidAt || null,
+                payoutStatus: payout?.status || null,
+                payoutPaidAt: payout?.paidAt || null,
+                payoutNetPence: payout?.netPence || null,
+            };
+        });
+
+        res.json(result);
     } catch (error) {
         console.error('[ContractorDashboard] Get bookings error:', error);
         res.status(500).json({ error: 'Failed to fetch bookings' });
@@ -72,9 +136,13 @@ router.get('/quotes', requireContractorAuth, async (req: Request, res: Response)
             bookedAt: personalizedQuotes.bookedAt,
             expiresAt: personalizedQuotes.expiresAt,
             createdAt: personalizedQuotes.createdAt,
-            status: personalizedQuotes.installmentStatus // Using this as a proxy for now if needed, or deduce status on client
+            status: personalizedQuotes.installmentStatus, // Using this as a proxy for now if needed, or deduce status on client
+            // Contractor payout info from linked job record
+            payoutPence: contractorJobs.payoutPence,
+            estimatedDurationMinutes: contractorJobs.estimatedDuration,
         })
             .from(personalizedQuotes)
+            .leftJoin(contractorJobs, eq(contractorJobs.quoteId, personalizedQuotes.id))
             .where(eq(personalizedQuotes.contractorId, contractor.id))
             .orderBy(desc(personalizedQuotes.createdAt));
 
@@ -136,11 +204,17 @@ router.get('/services', requireContractorAuth, async (req: Request, res: Respons
 router.post('/bookings/:id/respond', requireContractorAuth, async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const { status } = req.body; // 'accepted' | 'declined'
+        const { status, declineReason, declineNotes } = req.body; // status: 'accepted' | 'declined'
         const contractor = (req as any).contractor;
 
         if (!['accepted', 'declined'].includes(status)) {
-            return res.status(400).json({ error: 'Invalid status' });
+            return res.status(400).json({ error: 'Invalid status. Must be "accepted" or "declined".' });
+        }
+
+        // Validate decline reason if declining
+        const validDeclineReasons = ['unavailable', 'too_far', 'schedule_conflict', 'other'];
+        if (status === 'declined' && declineReason && !validDeclineReasons.includes(declineReason)) {
+            return res.status(400).json({ error: 'Invalid decline reason' });
         }
 
         // Verify ownership
@@ -161,17 +235,108 @@ router.post('/bookings/:id/respond', requireContractorAuth, async (req: Request,
             return res.status(404).json({ error: 'Booking not found' });
         }
 
-        // Update status
-        await db.update(contractorBookingRequests)
-            .set({
-                status: status,
-                updatedAt: new Date()
-            })
-            .where(eq(contractorBookingRequests.id, id));
+        // Prevent responding to already-responded bookings
+        if (booking.status !== 'pending' && booking.assignmentStatus !== 'assigned') {
+            return res.status(400).json({ error: `Booking has already been ${booking.status}` });
+        }
 
-        // TODO: Send email/SMS notification to customer
+        if (status === 'accepted') {
+            // Accept the booking
+            const [updatedBooking] = await db.update(contractorBookingRequests)
+                .set({
+                    status: 'accepted',
+                    assignmentStatus: 'accepted',
+                    acceptedAt: new Date(),
+                    updatedAt: new Date()
+                })
+                .where(eq(contractorBookingRequests.id, id))
+                .returning();
 
-        res.json({ success: true, status });
+            // Update linked quote status if exists
+            if (booking.quoteId) {
+                await db.update(personalizedQuotes)
+                    .set({ bookedAt: new Date() })
+                    .where(eq(personalizedQuotes.id, booking.quoteId));
+            }
+
+            // Send acceptance confirmation email to customer
+            if (booking.customerEmail) {
+                try {
+                    const { sendBookingConfirmationEmail } = await import('./email-service');
+                    await sendBookingConfirmationEmail({
+                        customerName: booking.customerName,
+                        customerEmail: booking.customerEmail,
+                        jobDescription: booking.description || 'As discussed',
+                        scheduledDate: booking.scheduledDate?.toISOString() || null,
+                        depositPaid: 0,
+                        totalJobPrice: 0,
+                        balanceDue: 0,
+                        invoiceNumber: `BK-${id.substring(0, 8).toUpperCase()}`,
+                        jobId: id,
+                    });
+                } catch (emailError) {
+                    console.error('[ContractorDashboard] Failed to send acceptance email:', emailError);
+                    // Don't fail the request if email fails
+                }
+            }
+
+            console.log(`[ContractorDashboard] Booking ${id} accepted by contractor ${profile.id}`);
+            res.json({ success: true, status: 'accepted', booking: updatedBooking });
+
+        } else {
+            // Decline the booking
+            const [updatedBooking] = await db.update(contractorBookingRequests)
+                .set({
+                    status: 'declined',
+                    assignmentStatus: 'rejected',
+                    rejectedAt: new Date(),
+                    declineReason: declineReason || 'other',
+                    declineNotes: declineNotes || null,
+                    needsReassignment: true, // Flag for ops team
+                    updatedAt: new Date()
+                })
+                .where(eq(contractorBookingRequests.id, id))
+                .returning();
+
+            // Send internal notification to ops team about decline
+            try {
+                const opsEmail = process.env.OPS_NOTIFICATION_EMAIL || 'ops@handyservices.co.uk';
+                const { Resend } = await import('resend');
+                const resendKey = process.env.RESEND_API_KEY;
+                if (resendKey) {
+                    const resend = new Resend(resendKey);
+                    const reasonMap: Record<string, string> = {
+                        unavailable: 'Unavailable',
+                        too_far: 'Too far away',
+                        schedule_conflict: 'Schedule conflict',
+                        other: 'Other'
+                    };
+                    const reasonLabel = reasonMap[declineReason || 'other'] || 'Other';
+
+                    await resend.emails.send({
+                        from: 'Handy Services System <system@handyservices.co.uk>',
+                        to: [opsEmail],
+                        subject: `[DECLINED] Booking ${id.substring(0, 8)} needs reassignment`,
+                        html: `
+                            <h2>Contractor Declined Booking</h2>
+                            <p><strong>Booking:</strong> ${id}</p>
+                            <p><strong>Customer:</strong> ${booking.customerName}</p>
+                            <p><strong>Job:</strong> ${booking.description || 'N/A'}</p>
+                            <p><strong>Reason:</strong> ${reasonLabel}</p>
+                            ${declineNotes ? `<p><strong>Notes:</strong> ${declineNotes}</p>` : ''}
+                            <hr>
+                            <p style="color: red;"><strong>Action Required:</strong> This booking needs to be reassigned to another contractor.</p>
+                            <p><a href="${process.env.BASE_URL || 'https://app.handyservices.co.uk'}/admin/dispatch">Go to Dispatch Dashboard</a></p>
+                        `,
+                    });
+                }
+            } catch (emailError) {
+                console.error('[ContractorDashboard] Failed to send decline notification:', emailError);
+            }
+
+            console.log(`[ContractorDashboard] Booking ${id} declined by contractor ${profile.id}: ${declineReason || 'no reason'}`);
+            res.json({ success: true, status: 'declined', booking: updatedBooking });
+        }
     } catch (error) {
         console.error('[ContractorDashboard] Respond booking error:', error);
         res.status(500).json({ error: 'Failed to update booking' });

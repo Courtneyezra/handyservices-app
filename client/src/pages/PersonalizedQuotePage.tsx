@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar, Sun, Clipboard, Calculator, CreditCard, Gift, Play, Truck, Award, Sparkles, Package, Download, Building, FileText } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar, CalendarCheck, Sun, Clipboard, Calculator, CreditCard, Gift, Play, Truck, Award, Sparkles, Package, Download, Building, FileText } from 'lucide-react';
 import { SiGoogle, SiVisa, SiMastercard, SiAmericanexpress, SiApplepay, SiStripe, SiKlarna } from 'react-icons/si';
 import { FaWhatsapp, FaPaypal } from 'react-icons/fa';
 import { useToast } from '@/hooks/use-toast';
@@ -1541,14 +1541,8 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
           </p>
         )}
 
-        {/* Job line — AI-polished for contextual quotes; raw fallback for non-contextual only */}
-        {isContextual ? (
-          (quote as any).jobTopLine ? (
-            <p className="text-slate-400 text-sm mb-6 px-4 md:px-0">
-              {(quote as any).jobTopLine}
-            </p>
-          ) : null
-        ) : (
+        {/* Job line — only for non-contextual quotes (contextual quotes show line items in pricing card) */}
+        {!isContextual && (
           <p className="text-slate-400 text-sm mb-6 px-4 md:px-0">
             {getJobTopLine()}
           </p>
@@ -1557,11 +1551,11 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
         {/* Quote Prepared By */}
         <div className="flex items-center justify-center gap-3 mb-10">
           <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#7DB00E] shadow-xl">
-            <img src="/assets/quote-images/plumber-smile.webp" alt="Mike" className="w-full h-full object-cover" />
+            <img src="/assets/quote-images/ben-estimator.webp" alt="Ben" className="w-full h-full object-cover" />
           </div>
           <div className="text-left">
             <div className="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-0.5">Prepared by</div>
-            <div className="text-white font-bold text-lg leading-none">Mike <span className="text-[#7DB00E] text-sm font-normal">from HandyServices</span></div>
+            <div className="text-white font-bold text-lg leading-none">Ben <span className="text-[#7DB00E] text-sm font-normal">from HandyServices</span></div>
           </div>
         </div>
 
@@ -1734,19 +1728,19 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
                 </div>
               </div>
             ) : (
-              // Default Circular Badge
-              <div className="relative">
-                <div className="absolute inset-0 bg-[#7DB00E]/20 blur-3xl rounded-full" />
-                <div className={`p-1.5 bg-[#1D2D3D] rounded-full border-2 border-[#7DB00E] relative overflow-hidden w-24 h-24 flex items-center justify-center group shadow-xl`}>
-                  <img
-                    src="/assets/quote-images/plumber-smile.webp"
-                    alt="Guarantee"
-                    className="w-full h-full object-cover rounded-full group-hover:scale-110 transition-transform duration-500 opacity-90"
-                    loading="lazy"
-                  />
-                </div>
-                <div className="absolute -bottom-2 -right-2 bg-[#7DB00E] text-white text-[10px] font-bold px-2 py-0.5 rounded-full border border-[#1D2D3D]">
-                  PRO
+              // Rectangular contractor image — contextual engine picks image based on job type
+              <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-slate-900 shadow-xl border-4 border-white/10 ring-1 ring-slate-900/10 group">
+                <div className="absolute inset-0 bg-gradient-to-t from-[#1D2D3D] via-transparent to-transparent opacity-60 z-10" />
+                <img
+                  src={getHeroImage(quote)}
+                  alt="Professional handyman at work"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                  loading="lazy"
+                />
+                <div className="absolute bottom-4 right-4 z-20">
+                  <div className="bg-[#7DB00E] text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg border border-white/20">
+                    Verified Pro
+                  </div>
                 </div>
               </div>
             )}
@@ -2570,6 +2564,8 @@ export default function PersonalizedQuotePage() {
   const [paymentMode, setPaymentMode] = useState<'full' | 'installments'>('full'); // Track payment mode selection - default to full
   const [expandedMobileCard, setExpandedMobileCard] = useState<EEEPackageTier | null>(null); // Track which mobile card is expanded (accordion) - all start collapsed
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined); // Track selected date from mobile dateselect
+  const [selectedDatesBuffer, setSelectedDatesBuffer] = useState<Date[]>([]); // 3-date buffer model
+  const [dateTimePrefsBuffer, setDateTimePrefsBuffer] = useState<{ date: Date; timeSlot: 'am' | 'pm' | 'flexible' | 'full_day' }[]>([]); // Per-date time prefs
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<'AM' | 'PM' | undefined>(undefined); // Track selected time slot (AM/PM)
   // const [isExpiredState, setIsExpiredState] = useState(false); // Removed - quotes no longer expire
   const [showPaymentForm, setShowPaymentForm] = useState(false); // Controls visibility of the payment section
@@ -3090,6 +3086,12 @@ export default function PersonalizedQuotePage() {
             paymentType: effectivePaymentType,
             // Scheduling fields
             selectedDate: selectedDate || selectedCalendarDateRef.current || selectedCalendarDate || undefined,
+            selectedDates: selectedDatesBuffer.length > 0
+              ? selectedDatesBuffer.map(d => d.toISOString())
+              : undefined,
+            dateTimePreferences: dateTimePrefsBuffer.length > 0
+              ? dateTimePrefsBuffer.map(p => ({ date: p.date.toISOString(), timeSlot: p.timeSlot }))
+              : undefined,
             schedulingTier: schedulingTier || undefined,
             timeSlotType: timeSlotTypeRef.current || timeSlotType || undefined,
             exactTimeRequested: exactTime || undefined,
@@ -3421,19 +3423,8 @@ export default function PersonalizedQuotePage() {
                 summary={(quote.jobs as any)?.[0]?.summary}
                 proposalSummary={isContextualQuote ? (quote as any).proposalSummary : undefined}
                 pricingLineItems={isContextualQuote ? quote.pricingLineItems : undefined}
-                mikePhotoUrl={mikeProfilePhoto}
+                estimatorPhotoUrl={mikeProfilePhoto}
               />
-
-              {/* Mike badge — trust signal before price card */}
-              <div className="flex items-center justify-center gap-3 mb-6 mt-2">
-                <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-[#7DB00E] shadow-lg flex-shrink-0">
-                  <img src="/assets/quote-images/plumber-smile.webp" alt="Mike" className="w-full h-full object-cover" />
-                </div>
-                <div className="text-left">
-                  <div className="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-0.5">Prepared by</div>
-                  <div className="text-[#1D2D3D] font-bold text-base leading-none">Mike <span className="text-[#7DB00E] text-sm font-normal">from HandyServices</span></div>
-                </div>
-              </div>
 
               {/* Price Card + Booking Flow */}
               {quotePrice > 0 && !hasBooked && (
@@ -3446,7 +3437,7 @@ export default function PersonalizedQuotePage() {
                       customerEmail={quote.email || undefined}
                       bookingModes={isContextualQuote && quote.bookingModes ? quote.bookingModes : undefined}
                       batchDiscount={isContextualQuote && quote.batchDiscount ? quote.batchDiscount : undefined}
-                      pricingLineItems={isContextualQuote && quote.pricingLineItems ? quote.pricingLineItems : undefined}
+                      pricingLineItems={quote.pricingLineItems || undefined}
                       contextualBullets={isContextualQuote && quote.valueBullets ? quote.valueBullets : undefined}
                       allowedDates={(quote as any).availableDates ?? null}
                       quoteId={quote.id}
@@ -3456,6 +3447,13 @@ export default function PersonalizedQuotePage() {
                       depositPercent={pricingSettings?.depositPercent}
                       payInFullDiscountPercent={pricingSettings?.payInFullDiscountPercent}
                       flexibleDiscountPercent={pricingSettings?.flexibleDiscountPercent}
+                      contractor={quote.contractor ? {
+                        name: quote.contractor.name,
+                        profilePhotoUrl: quote.contractor.profilePhotoUrl,
+                        availabilityStatus: quote.contractor.availabilityStatus,
+                        bio: quote.contractor.bio,
+                        trustBadges: quote.contractor.trustBadges,
+                      } : null}
                       isBooking={isBooking}
                       onBook={async (config) => {
                         setIsBooking(true);
@@ -3464,6 +3462,13 @@ export default function PersonalizedQuotePage() {
                         if (config.selectedDate) {
                           setSelectedCalendarDate(config.selectedDate);
                           selectedCalendarDateRef.current = config.selectedDate;
+                        }
+                        // Store all preferred dates and per-date time prefs for the 3-date buffer model
+                        if (config.selectedDates && config.selectedDates.length > 0) {
+                          setSelectedDatesBuffer(config.selectedDates);
+                        }
+                        if (config.dateTimePreferences && config.dateTimePreferences.length > 0) {
+                          setDateTimePrefsBuffer(config.dateTimePreferences);
                         }
                         if (config.timeSlot) {
                           setTimeSlotType(config.timeSlot as TimeSlotType);
@@ -3476,7 +3481,9 @@ export default function PersonalizedQuotePage() {
                         }
 
                         // Show payment form (for non-flexible timing)
-                        if (!config.usedDownsell) {
+                        // Skip external payment section when multi-date buffer used (payment handled inline in card)
+                        const paidInline = config.selectedDates && config.selectedDates.length >= 3;
+                        if (!config.usedDownsell && !paidInline) {
                           setShowPaymentForm(true);
                           setTimeout(() => {
                             document.getElementById('payment-section')?.scrollIntoView({
@@ -3545,6 +3552,16 @@ export default function PersonalizedQuotePage() {
                     id="confirm-button"
                   >
                     <h3 className={`text-2xl font-bold mb-6 text-center ${quote.clientType === 'commercial' ? 'text-white' : 'text-slate-900'}`}>Complete Your Booking</h3>
+
+                    {/* 3-Date summary — dates already picked in UnifiedQuoteCard */}
+                    {selectedDatesBuffer.length > 0 && (
+                      <div className={`flex items-center gap-2 mb-4 text-sm ${quote.clientType === 'commercial' ? 'text-gray-300' : 'text-slate-600'}`}>
+                        <CalendarCheck className="w-4 h-4 text-[#7DB00E]" />
+                        <span>
+                          Preferred dates: {selectedDatesBuffer.map(dd => dd.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })).join(', ')}
+                        </span>
+                      </div>
+                    )}
 
                     {(() => {
                       // Theme Logic
@@ -3856,7 +3873,7 @@ export default function PersonalizedQuotePage() {
               summary={(quote.jobs as any)?.[0]?.summary}
               customerName={quote.customerName || ''}
               address={quote.address || quote.postcode}
-              mikePhotoUrl={mikeProfilePhoto}
+              estimatorPhotoUrl={mikeProfilePhoto}
               className="mt-8 transform max-w-xl mx-auto"
             />
           </div>

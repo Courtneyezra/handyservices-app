@@ -95,8 +95,8 @@ export function generateEVEPricingQuote(inputs: EVEPricingInputs): EVEPricingRes
   const floor = Math.round(REFERENCE_RATE_PENCE * (minutes / 60));
   price = Math.max(price, floor);
 
-  // 5. Psychological pricing
-  price = ensurePriceEndsInNine(price);
+  // 5. Round to whole pounds
+  price = roundToWholePounds(price);
 
   return {
     price,
@@ -110,8 +110,6 @@ export function generateEVEPricingQuote(inputs: EVEPricingInputs): EVEPricingRes
 // UTILITY
 // ============================================================================
 
-function ensurePriceEndsInNine(priceInPence: number): number {
-  const lastDigit = priceInPence % 10;
-  if (lastDigit === 9) return priceInPence;
-  return priceInPence - lastDigit + 9;
+function roundToWholePounds(priceInPence: number): number {
+  return Math.round(priceInPence / 100) * 100;
 }

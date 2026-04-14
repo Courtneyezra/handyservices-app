@@ -10,6 +10,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import { getAnthropic } from '../anthropic';
 import { JobCategoryValues } from '@shared/contextual-pricing-types';
 import type { JobLine, ParsedJobResult } from '@shared/contextual-pricing-types';
 import { CATEGORY_RATES } from './reference-rates';
@@ -240,19 +241,6 @@ function buildUserPrompt(description: string): string {
   return `Parse this job description into individual lines:\n\n"${description}"${hint}`;
 }
 
-// ---------------------------------------------------------------------------
-// Anthropic client singleton
-// ---------------------------------------------------------------------------
-
-let _anthropic: Anthropic | null = null;
-
-function getAnthropic(): Anthropic {
-  if (!_anthropic) {
-    _anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY from env
-  }
-  return _anthropic;
-}
-
 /**
  * Parse a free-text job description into structured job lines with categories
  * and time estimates. Also detects contextual signals from the text.
@@ -264,7 +252,7 @@ export async function parseJobDescription(
   description: string,
 ): Promise<ParsedJobResult> {
   try {
-    const client = getAnthropic();
+    const client: Anthropic = getAnthropic();
 
     const result = await callParser(client, description);
 

@@ -1,7 +1,7 @@
 /**
  * Layer 3: LLM Contextual Pricing
  *
- * Uses GPT-4o-mini to reason over ALL context signals — job category,
+ * Uses Claude (Anthropic) to reason over ALL context signals — job category,
  * customer segment, urgency, access difficulty, capacity, history — and
  * produce a price suggestion with customer-facing messaging.
  *
@@ -14,7 +14,7 @@
  * customer-facing copy, and a breakdown of adjustment factors.
  */
 
-import { getOpenAI } from '../openai';
+import { getAnthropic } from '../anthropic';
 import type {
   PricingContext,
   LLMPricingResult,
@@ -193,12 +193,40 @@ function validateLLMResponse(parsed: Record<string, unknown>): LLMPricingResult 
 // Main Export
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// JSON extraction — handles preamble text, markdown fences, etc.
+// ---------------------------------------------------------------------------
+
+function extractJSON(text: string): string {
+  // 1. Try stripping markdown fences first
+  const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i);
+  if (fenceMatch) {
+    return fenceMatch[1].trim();
+  }
+
+  // 2. Find the first { ... } block (greedy — outermost braces)
+  const braceStart = text.indexOf('{');
+  if (braceStart !== -1) {
+    let depth = 0;
+    for (let i = braceStart; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      if (text[i] === '}') depth--;
+      if (depth === 0) {
+        return text.slice(braceStart, i + 1);
+      }
+    }
+  }
+
+  // 3. Last resort — return as-is, JSON.parse will throw and we'll fallback
+  return text.trim();
+}
+
 /**
- * Call GPT-4o-mini with full pricing context and return a structured
+ * Call Claude (Anthropic) with full pricing context and return a structured
  * price suggestion with customer-facing messaging.
  *
- * If the OpenAI call fails or returns unparseable JSON, a fallback result
- * is returned at reference rate × 1.3 with low confidence.
+ * If the Anthropic call fails or returns unparseable JSON, a fallback result
+ * is returned at reference rate x 1.3 with low confidence.
  */
 export async function generateLLMPrice(
   context: PricingContext,
@@ -206,17 +234,14 @@ export async function generateLLMPrice(
   marketRange: { lowPence: number; highPence: number },
 ): Promise<LLMPricingResult> {
   try {
-    const openai = getOpenAI();
+    const client = getAnthropic();
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
       temperature: 0.1,
-      response_format: { type: 'json_object' },
+      max_tokens: 1024,
+      system: buildSystemPrompt(context, referenceRatePence, marketRange),
       messages: [
-        {
-          role: 'system',
-          content: buildSystemPrompt(context, referenceRatePence, marketRange),
-        },
         {
           role: 'user',
           content: buildUserPrompt(context),
@@ -224,12 +249,14 @@ export async function generateLLMPrice(
       ],
     });
 
-    const raw = response.choices[0].message.content || '{}';
+    const textBlock = response.content.find((block) => block.type === 'text');
+    let raw = textBlock && textBlock.type === 'text' ? textBlock.text : '{}';
+    raw = extractJSON(raw);
     const parsed = JSON.parse(raw);
     return validateLLMResponse(parsed);
   } catch (error) {
     console.error(
-      '[llm-pricer] OpenAI call failed, returning fallback:',
+      '[llm-pricer] Anthropic call failed, returning fallback:',
       error instanceof Error ? error.message : error,
     );
     return buildFallbackResult(referenceRatePence, context);

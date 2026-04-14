@@ -190,19 +190,19 @@ export function ExpertStickyNote({
                     {/* Signature Block */}
                     <div className="flex flex-col items-end transform -rotate-2">
                         <div className="font-['Kalam'] text-2xl md:text-3xl text-slate-800 font-bold leading-none mb-1">
-                            - Mike
+                            - Ben
                         </div>
                         <div className="text-[8px] md:text-[10px] font-sans text-slate-500 uppercase tracking-widest font-bold">
                             Verified Handyman
                         </div>
                     </div>
 
-                    {/* Mike's Photo - Circle matching signature flow */}
+                    {/* Ben's Photo - Circle matching signature flow */}
                     {mikePhotoUrl && (
                         <div className="w-10 h-10 md:w-12 md:h-12 rounded-full overflow-hidden border-2 border-slate-800/10 shadow-sm opacity-95 sepia-[0.1]">
                             <img
                                 src={mikePhotoUrl}
-                                alt="Mike"
+                                alt="Ben"
                                 className="w-full h-full object-cover"
                             />
                         </div>

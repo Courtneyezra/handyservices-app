@@ -585,7 +585,7 @@ export function generateValuePricingQuote(inputs: ValuePricingInputs): PricingRe
       ...TIER_CORE_DEFINITIONS.hassleFree, // Use 'Hassle Free' as the base template
       name: style === 'rate_card' ? 'Standard Rate' : style === 'pick_and_mix' ? 'Base Charge' : style === 'consultation' ? 'Diagnostic Visit' : 'Fixed Price',
       coreDescription: style === 'rate_card' ? 'Per agreed rate card' : style === 'pick_and_mix' ? 'Base fee + selected items' : style === 'consultation' ? 'Paid Diagnostic Visit' : 'Total for job',
-      price: style === 'consultation' ? finalPrice : ensurePriceEndsInNine(finalPrice),
+      price: style === 'consultation' ? finalPrice : roundToWholePounds(finalPrice),
       perks: [PERK_LIBRARY.basic_tidy], // Minimal perks
       isRecommended: true,
     };
@@ -629,21 +629,21 @@ export function generateValuePricingQuote(inputs: ValuePricingInputs): PricingRe
   // Generate tier packages with dynamic perks
   const essential: TierPackage = {
     ...TIER_CORE_DEFINITIONS.essential,
-    price: ensurePriceEndsInNine(essentialPrice),
+    price: roundToWholePounds(essentialPrice),
     perks: [...TIER_CORE_DEFINITIONS.essential.basePerks, ...selectDynamicPerks(inputs, 'essential')],
     isRecommended: recommendedTier === 'essential',
   };
 
   const hassleFree: TierPackage = {
     ...TIER_CORE_DEFINITIONS.hassleFree,
-    price: ensurePriceEndsInNine(hassleFreePrice),
+    price: roundToWholePounds(hassleFreePrice),
     perks: [...TIER_CORE_DEFINITIONS.hassleFree.basePerks, ...selectDynamicPerks(inputs, 'hassleFree')],
     isRecommended: recommendedTier === 'hassleFree',
   };
 
   const highStandard: TierPackage = {
     ...TIER_CORE_DEFINITIONS.highStandard,
-    price: ensurePriceEndsInNine(highStandardPrice),
+    price: roundToWholePounds(highStandardPrice),
     perks: [...TIER_CORE_DEFINITIONS.highStandard.basePerks, ...selectDynamicPerks(inputs, 'highStandard')],
     isRecommended: recommendedTier === 'highStandard',
   };
@@ -677,10 +677,8 @@ export function generateValuePricingQuote(inputs: ValuePricingInputs): PricingRe
 // UTILITY FUNCTIONS
 // ============================================================================
 
-function ensurePriceEndsInNine(priceInPence: number): number {
-  const lastDigit = priceInPence % 10;
-  if (lastDigit === 9) return priceInPence;
-  return priceInPence - lastDigit + 9;
+function roundToWholePounds(priceInPence: number): number {
+  return Math.round(priceInPence / 100) * 100;
 }
 
 // ============================================================================

@@ -835,10 +835,16 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
             if (profile) {
                 contractorDetails = {
                     name: `${profile.user.firstName} ${profile.user.lastName}`,
-                    companyName: `${profile.user.firstName} ${profile.user.lastName}`, // Fallback since no companyName in profile
+                    companyName: profile.businessName || `${profile.user.firstName} ${profile.user.lastName}`,
                     profilePhotoUrl: profile.profileImageUrl, // Correctly use profile image
                     coverPhotoUrl: profile.heroImageUrl, // Add cover photo
-                    slug: profile.slug
+                    slug: profile.slug,
+                    bio: profile.bio,
+                    trustBadges: profile.trustBadges,
+                    introVideoUrl: profile.introVideoUrl,
+                    reviews: profile.reviews,
+                    radiusMiles: profile.radiusMiles,
+                    availabilityStatus: profile.availabilityStatus,
                 };
             }
         }
@@ -1044,6 +1050,8 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
             paymentType,
             // Scheduling fields
             selectedDate,
+            selectedDates, // 3-date buffer: array of ISO date strings
+            dateTimePreferences, // Per-date time prefs: [{date, timeSlot}]
             schedulingTier,
             timeSlotType,
             exactTimeRequested,
@@ -1082,6 +1090,17 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
                 depositAmountPence,
                 // Scheduling fields
                 selectedDate: selectedDate ? new Date(selectedDate) : undefined,
+                // Store all preferred dates for the 3-date buffer model
+                availableDates: selectedDates && Array.isArray(selectedDates) && selectedDates.length > 0
+                  ? selectedDates.map((d: string | Date) => typeof d === 'string' ? d : new Date(d).toISOString().split('T')[0])
+                  : (selectedDate ? [new Date(selectedDate).toISOString().split('T')[0]] : undefined),
+                // Per-date time preferences for 3-date buffer model
+                dateTimePreferences: dateTimePreferences && Array.isArray(dateTimePreferences) && dateTimePreferences.length > 0
+                  ? dateTimePreferences.map((p: { date: string; timeSlot: string }) => ({
+                      date: typeof p.date === 'string' ? p.date.split('T')[0] : p.date,
+                      timeSlot: p.timeSlot,
+                    }))
+                  : undefined,
                 schedulingTier: schedulingTier || undefined,
                 timeSlotType: timeSlotType || undefined,
                 exactTimeRequested: exactTimeRequested || undefined,

@@ -64,6 +64,20 @@ export const leadSegmentEnum = pgEnum('lead_segment', ['EMERGENCY', 'BUSY_PRO', 
 export const LeadSegmentValues = ['EMERGENCY', 'BUSY_PRO', 'PROP_MGR', 'LANDLORD', 'SMALL_BIZ', 'TRUST_SEEKER', 'RENTER', 'DIY_DEFERRER', 'BUDGET', 'DEFAULT'] as const;
 export type LeadSegment = typeof LeadSegmentValues[number];
 
+// ==========================================
+// HANDY SERVICES FOUNDATION ENUMS
+// ==========================================
+
+export const scheduledSlotEnum = pgEnum('scheduled_slot', ['am', 'pm', 'full_day']);
+export const dayOfStatusEnum = pgEnum('day_of_status', ['scheduled', 'en_route', 'arrived', 'in_progress', 'access_failed', 'customer_unreachable', 'completed', 'cancelled_day_of']);
+export const variationStatusEnum = pgEnum('variation_status', ['pending_approval', 'approved', 'rejected', 'completed']);
+export const disputeStatusEnum = pgEnum('dispute_status', ['open', 'investigating', 'awaiting_contractor', 'awaiting_customer', 'resolved', 'escalated', 'closed']);
+export const disputeTypeEnum = pgEnum('dispute_type', ['quality', 'incomplete', 'damage', 'no_show', 'overcharge', 'other']);
+export const disputeResolutionEnum = pgEnum('dispute_resolution', ['refund_full', 'refund_partial', 'return_visit', 'no_action', 'insurance_claim']);
+export const payoutStatusEnum = pgEnum('payout_status', ['pending', 'processing', 'paid', 'failed', 'held', 'reversed']);
+export const incidentTypeEnum = pgEnum('incident_type', ['damage', 'safety_issue', 'weather_delay', 'access_issue', 'other']);
+export const completionTypeEnum = pgEnum('completion_type', ['full', 'partial', 'weather_hold', 'access_failed']);
+
 // Session storage table for authentication
 export const sessions = pgTable(
     "sessions",
@@ -807,12 +821,41 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
 
     // VA-specified available booking dates for this quote (overrides system availability when set)
     availableDates: jsonb("available_dates").$type<string[]>(),
+    // Per-date time preferences from 3-date buffer picker: [{date: "2026-04-15", timeSlot: "am"|"pm"|"full_day"}]
+    dateTimePreferences: jsonb("date_time_preferences").$type<{ date: string; timeSlot: 'am' | 'pm' | 'flexible' | 'full_day' }[]>(),
+
+    // Contractor Matching & Margin Tracking (Handy Services rebuild)
+    matchedContractorName: varchar("matched_contractor_name", { length: 255 }),
+    matchCoveragePercent: integer("match_coverage_percent"),
+    uncoveredCategories: text("uncovered_categories").array(),
+    matchFlags: text("match_flags").array(),
+    perLineMargin: jsonb("per_line_margin"), // [{categorySlug, customerPricePence, contractorRatePence, marginPence, marginPercent}]
+    pricingSnapshot: jsonb("pricing_snapshot"), // snapshot of pricing settings at creation time
+
+    // Candidate Contractor Pool — built at quote creation time
+    candidateContractorIds: jsonb("candidate_contractor_ids").$type<string[]>(), // All contractor IDs who can service this quote
+    candidatePoolSize: integer("candidate_pool_size"), // Total candidates found
+    fullCoverageCandidates: integer("full_coverage_candidates"), // Count who cover 100% of categories
+
+    // Booking Lock
+    bookingLockedAt: timestamp("booking_locked_at"),
+    bookingLockExpiresAt: timestamp("booking_lock_expires_at"),
+
+    // Refund Tracking
+    refundedAt: timestamp("refunded_at"),
+    refundAmountPence: integer("refund_amount_pence"),
+    refundReason: text("refund_reason"),
+
+    // Delivery Tracking
+    deliveryChannel: varchar("delivery_channel", { length: 20 }), // whatsapp | sms | email
+    deliveryStatus: varchar("delivery_status", { length: 20 }), // pending | delivered | read | failed
+
+    // Revocation
+    revokedAt: timestamp("revoked_at"),
 
     // Creation timestamp
     createdAt: timestamp("created_at").defaultNow(),
 
-    // Preserved column — exists in DB, keep to prevent data loss
-    viewNudgeSentAt: timestamp("view_nudge_sent_at"),
 });
 
 export type UrgencyReasonType = z.infer<typeof urgencyReasonEnum>;
@@ -962,6 +1005,9 @@ export const contractorBookingRequests = pgTable("contractor_booking_requests", 
     assignedAt: timestamp("assigned_at"), // When job was assigned
     acceptedAt: timestamp("accepted_at"), // When contractor accepted
     rejectedAt: timestamp("rejected_at"), // When contractor rejected
+    declineReason: varchar("decline_reason", { length: 50 }), // 'unavailable' | 'too_far' | 'schedule_conflict' | 'other'
+    declineNotes: text("decline_notes"), // Free-text notes when reason is 'other'
+    needsReassignment: boolean("needs_reassignment").default(false), // Flag for ops team to manually reassign
     completedAt: timestamp("completed_at"), // When job was marked complete
     assignmentStatus: varchar("assignment_status", { length: 20 }).default('unassigned'), // 'unassigned' | 'assigned' | 'accepted' | 'rejected' | 'in_progress' | 'completed'
 
@@ -973,6 +1019,21 @@ export const contractorBookingRequests = pgTable("contractor_booking_requests", 
 
     // Financial
     invoiceId: varchar("invoice_id").references(() => invoices.id), // Link to generated invoice
+
+    // Day-of Operations
+    scheduledSlot: scheduledSlotEnum("scheduled_slot"), // AM/PM/FULL_DAY
+    dayOfStatus: dayOfStatusEnum("day_of_status").default('scheduled'),
+    enRouteAt: timestamp("en_route_at"),
+    arrivedAt: timestamp("arrived_at"),
+    timerStartedAt: timestamp("timer_started_at"),
+    timerPausedAt: timestamp("timer_paused_at"),
+    timerAccumulatedSeconds: integer("timer_accumulated_seconds").default(0),
+    mustCheckInBy: timestamp("must_check_in_by"),
+    completionType: completionTypeEnum("completion_type"),
+    customerDeclinedSignature: boolean("customer_declined_signature").default(false),
+    customerDeclinedSignatureReason: text("customer_declined_signature_reason"),
+    payoutScheduledAt: timestamp("payout_scheduled_at"),
+    customerAccessNotes: text("customer_access_notes"),
 
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
@@ -2316,3 +2377,268 @@ export type QuotePlatformHeadline = typeof quotePlatformHeadlines.$inferSelect;
 export type InsertQuotePlatformHeadline = typeof quotePlatformHeadlines.$inferInsert;
 export type QuotePlatformTestimonial = typeof quotePlatformTestimonials.$inferSelect;
 export type InsertQuotePlatformTestimonial = typeof quotePlatformTestimonials.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Job Applications (recruitment pipeline)
+// ---------------------------------------------------------------------------
+export const applicationStatusEnum = pgEnum('application_status', [
+  'new',
+  'phone_screened',
+  'assessment_scheduled',
+  'assessed',
+  'offer_made',
+  'hired',
+  'rejected',
+  'withdrawn'
+]);
+
+export const jobApplications = pgTable('job_applications', {
+  id: text('id').primaryKey().$defaultFn(() => `app_${crypto.randomUUID()}`),
+
+  // Applicant details
+  firstName: text('first_name').notNull(),
+  lastName: text('last_name').notNull(),
+  phone: text('phone').notNull(),
+  email: text('email'),
+  postcode: text('postcode'),
+
+  // Skills & experience
+  trades: text('trades').array(), // ['carpentry', 'painting', 'plumbing', etc.]
+  yearsExperience: text('years_experience'), // '1-2', '3-5', '5-10', '10+'
+  hasOwnTools: boolean('has_own_tools'),
+  hasDrivingLicence: boolean('has_driving_licence'),
+  hasCSCS: boolean('has_cscs'),
+  currentSituation: text('current_situation'), // 'employed', 'self-employed', 'looking'
+
+  // Application
+  coverNote: text('cover_note'), // Optional free text from applicant
+  source: text('source'), // 'indeed', 'facebook', 'gumtree', 'referral', 'direct', 'checkatrade'
+
+  // Pipeline tracking
+  status: applicationStatusEnum('status').default('new').notNull(),
+  statusNotes: text('status_notes'), // Internal notes per status change
+  rating: integer('rating'), // 1-5 overall rating after assessment
+
+  // Assessment scores (from practical test)
+  assessmentSilicone: integer('assessment_silicone'), // 1-5
+  assessmentCarpentry: integer('assessment_carpentry'), // 1-5
+  assessmentPainting: integer('assessment_painting'), // 1-5
+  assessmentMounting: integer('assessment_mounting'), // 1-5
+  assessmentNotes: text('assessment_notes'),
+
+  // Timestamps
+  appliedAt: timestamp('applied_at').defaultNow().notNull(),
+  screenedAt: timestamp('screened_at'),
+  assessedAt: timestamp('assessed_at'),
+  hiredAt: timestamp('hired_at'),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type JobApplication = typeof jobApplications.$inferSelect;
+export type InsertJobApplication = typeof jobApplications.$inferInsert;
+
+// ==========================================
+// HANDY SERVICES FOUNDATION TABLES
+// ==========================================
+
+// WTBP Rate Card — what we pay contractors per category
+export const wtbpRateCard = pgTable('wtbp_rate_card', {
+    id: serial('id').primaryKey(),
+    categorySlug: varchar('category_slug', { length: 100 }).notNull(),
+    ratePence: integer('rate_pence').notNull(), // what we pay the contractor per hour in this category
+    rateType: varchar('rate_type', { length: 20 }).default('hourly'),
+    effectiveFrom: timestamp('effective_from').defaultNow().notNull(),
+    effectiveTo: timestamp('effective_to'), // null = current rate
+    notes: text('notes'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Contractor Payouts — payment tracking for contractor earnings
+export const contractorPayouts = pgTable('contractor_payouts', {
+    id: serial('id').primaryKey(),
+    jobId: varchar('job_id'), // FK to contractorBookingRequests (varchar PK)
+    contractorId: varchar('contractor_id').notNull(), // FK to handymanProfiles (varchar PK)
+    quoteId: varchar('quote_id'), // FK to personalizedQuotes
+    invoiceId: varchar('invoice_id'), // FK to invoices (varchar PK)
+    grossAmountPence: integer('gross_amount_pence').notNull(), // total customer paid for this job
+    platformFeePence: integer('platform_fee_pence').notNull(), // platform cut
+    netPayoutPence: integer('net_payout_pence').notNull(), // contractor receives
+    variationAmountPence: integer('variation_amount_pence').default(0),
+    stripeTransferId: varchar('stripe_transfer_id', { length: 255 }),
+    stripeTransferStatus: varchar('stripe_transfer_status', { length: 50 }),
+    stripeAccountId: varchar('stripe_account_id', { length: 255 }),
+    status: payoutStatusEnum('status').default('pending').notNull(),
+    failureReason: text('failure_reason'),
+    heldReason: text('held_reason'),
+    scheduledPayoutAt: timestamp('scheduled_payout_at'),
+    paidAt: timestamp('paid_at'),
+    reversedAt: timestamp('reversed_at'),
+    reversalReason: text('reversal_reason'),
+    stripeReversalId: varchar('stripe_reversal_id', { length: 255 }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Job Sheets — structured work instructions for contractors
+export const jobSheets = pgTable('job_sheets', {
+    id: serial('id').primaryKey(),
+    jobId: varchar('job_id').notNull(), // FK to contractorBookingRequests (varchar PK)
+    quoteId: varchar('quote_id'), // FK to personalizedQuotes
+    lineItems: jsonb('line_items'), // array of {description, categorySlug, estimatedMinutes, pricePence, contractorRatePence, materialsRequired[], status: 'pending'|'in_progress'|'completed'|'skipped'}
+    accessInstructions: text('access_instructions'),
+    parkingNotes: text('parking_notes'),
+    customerContactPreference: varchar('customer_contact_preference', { length: 50 }),
+    materialsChecklist: jsonb('materials_checklist'),
+    specialEquipmentNeeded: text('special_equipment_needed'),
+    generatedAt: timestamp('generated_at').defaultNow().notNull(),
+    viewedByContractorAt: timestamp('viewed_by_contractor_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Variation Orders — additional work requested on-site
+export const variationOrders = pgTable('variation_orders', {
+    id: serial('id').primaryKey(),
+    jobId: varchar('job_id').notNull(), // FK to contractorBookingRequests (varchar PK)
+    requestedByContractorId: varchar('requested_by_contractor_id').notNull(), // FK to handymanProfiles (varchar PK)
+    description: text('description').notNull(),
+    additionalPricePence: integer('additional_price_pence').notNull(),
+    additionalTimeMins: integer('additional_time_mins'),
+    materialsRequired: text('materials_required'),
+    materialsCostPence: integer('materials_cost_pence').default(0),
+    status: variationStatusEnum('status').default('pending_approval').notNull(),
+    customerApprovalMethod: varchar('customer_approval_method', { length: 50 }), // sms | signature | whatsapp | admin_override
+    customerApprovalAt: timestamp('customer_approval_at'),
+    customerApprovalSignature: text('customer_approval_signature'),
+    adminApprovalRequired: boolean('admin_approval_required').default(false),
+    adminApprovedAt: timestamp('admin_approved_at'),
+    adminApprovedBy: varchar('admin_approved_by', { length: 255 }),
+    approvalToken: varchar('approval_token', { length: 100 }), // for SMS/WhatsApp approval links
+    evidenceUrls: text('evidence_urls').array(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Disputes — customer complaint tracking
+export const disputes = pgTable('disputes', {
+    id: serial('id').primaryKey(),
+    jobId: varchar('job_id'), // FK to contractorBookingRequests (varchar PK)
+    invoiceId: varchar('invoice_id'), // FK to invoices (varchar PK)
+    quoteId: varchar('quote_id'),
+    contractorId: varchar('contractor_id'), // FK to handymanProfiles (varchar PK)
+    customerName: varchar('customer_name', { length: 255 }),
+    customerPhone: varchar('customer_phone', { length: 50 }),
+    customerEmail: varchar('customer_email', { length: 255 }),
+    type: disputeTypeEnum('type').notNull(),
+    status: disputeStatusEnum('status').default('open').notNull(),
+    priority: varchar('priority', { length: 20 }).default('medium'),
+    customerDescription: text('customer_description'),
+    customerEvidenceUrls: text('customer_evidence_urls').array(),
+    contractorResponse: text('contractor_response'),
+    contractorEvidenceUrls: text('contractor_evidence_urls').array(),
+    disputedLineItems: jsonb('disputed_line_items'), // [{lineItemIndex, reason, requestedRefundPence}]
+    resolution: disputeResolutionEnum('resolution'),
+    resolutionNotes: text('resolution_notes'),
+    resolvedBy: varchar('resolved_by', { length: 255 }),
+    resolvedAt: timestamp('resolved_at'),
+    refundAmountPence: integer('refund_amount_pence'),
+    refundStripeRefundId: varchar('refund_stripe_refund_id', { length: 255 }),
+    returnVisitJobId: varchar('return_visit_job_id'), // FK to contractorBookingRequests (varchar PK)
+    insuranceClaimRef: varchar('insurance_claim_ref', { length: 255 }),
+    contractorPenaltyApplied: boolean('contractor_penalty_applied').default(false),
+    payoutReversalId: integer('payout_reversal_id'),
+    escalatedAt: timestamp('escalated_at'),
+    escalatedTo: varchar('escalated_to', { length: 255 }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Job Incidents — on-site incident reporting
+export const jobIncidents = pgTable('job_incidents', {
+    id: serial('id').primaryKey(),
+    jobId: varchar('job_id').notNull(), // FK to contractorBookingRequests (varchar PK)
+    reportedByContractorId: varchar('reported_by_contractor_id').notNull(), // FK to handymanProfiles (varchar PK)
+    type: incidentTypeEnum('type').notNull(),
+    description: text('description').notNull(),
+    evidenceUrls: text('evidence_urls').array(),
+    insuranceClaimRequired: boolean('insurance_claim_required').default(false),
+    insuranceClaimRef: varchar('insurance_claim_ref', { length: 255 }),
+    resolution: text('resolution'),
+    resolvedAt: timestamp('resolved_at'),
+    resolvedBy: varchar('resolved_by', { length: 255 }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Credit Notes — refund/credit tracking against invoices
+export const creditNotes = pgTable('credit_notes', {
+    id: serial('id').primaryKey(),
+    invoiceId: varchar('invoice_id').notNull(), // FK to invoices (varchar PK)
+    reason: text('reason').notNull(),
+    amountPence: integer('amount_pence').notNull(),
+    lineItems: jsonb('line_items'),
+    issuedAt: timestamp('issued_at').defaultNow().notNull(),
+    issuedBy: varchar('issued_by', { length: 255 }),
+    refundStripePaymentIntentId: varchar('refund_stripe_payment_intent_id', { length: 255 }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Booking Slot Locks — prevent double-booking during checkout
+export const bookingSlotLocks = pgTable('booking_slot_locks', {
+    id: serial('id').primaryKey(),
+    quoteId: varchar('quote_id').notNull(),
+    contractorId: varchar('contractor_id', { length: 255 }).notNull(),
+    scheduledDate: timestamp('scheduled_date').notNull(),
+    scheduledSlot: scheduledSlotEnum('scheduled_slot').notNull(),
+    expiresAt: timestamp('expires_at').notNull(), // 5 min TTL
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Type exports for Handy Services foundation tables
+export type WtbpRateCard = typeof wtbpRateCard.$inferSelect;
+export type InsertWtbpRateCard = typeof wtbpRateCard.$inferInsert;
+export type ContractorPayout = typeof contractorPayouts.$inferSelect;
+export type InsertContractorPayout = typeof contractorPayouts.$inferInsert;
+export type JobSheet = typeof jobSheets.$inferSelect;
+export type InsertJobSheet = typeof jobSheets.$inferInsert;
+export type VariationOrder = typeof variationOrders.$inferSelect;
+export type InsertVariationOrder = typeof variationOrders.$inferInsert;
+export type Dispute = typeof disputes.$inferSelect;
+export type InsertDispute = typeof disputes.$inferInsert;
+export type JobIncident = typeof jobIncidents.$inferSelect;
+export type InsertJobIncident = typeof jobIncidents.$inferInsert;
+export type CreditNote = typeof creditNotes.$inferSelect;
+export type InsertCreditNote = typeof creditNotes.$inferInsert;
+export type BookingSlotLock = typeof bookingSlotLocks.$inferSelect;
+export type InsertBookingSlotLock = typeof bookingSlotLocks.$inferInsert;
+
+// ─── Partner Enquiries ──────────────────────────────────────────────────────
+
+export const partnerEnquiryStatusEnum = pgEnum('partner_enquiry_status', [
+  'new',
+  'contacted',
+  'qualified',
+  'meeting_scheduled',
+  'in_negotiation',
+  'signed',
+  'declined',
+]);
+
+export const partnerEnquiries = pgTable('partner_enquiries', {
+  id: text('id').primaryKey().$defaultFn(() => `penq_${crypto.randomUUID()}`),
+  fullName: text('full_name').notNull(),
+  email: text('email').notNull(),
+  phone: text('phone').notNull(),
+  territoryInterest: text('territory_interest'),
+  investmentBudget: text('investment_budget'),
+  currentSituation: text('current_situation'),
+  message: text('message'),
+  status: partnerEnquiryStatusEnum('status').default('new').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at'),
+});
+
+export type PartnerEnquiry = typeof partnerEnquiries.$inferSelect;
+export type InsertPartnerEnquiry = typeof partnerEnquiries.$inferInsert;

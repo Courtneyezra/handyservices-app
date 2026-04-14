@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -142,6 +142,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
                                 { icon: Inbox, label: "Inbox", href: "/admin/inbox", badge: "NEW" },
                                 { icon: LayoutTemplate, label: "Dispatch Board", href: "/admin/dispatch" },
+                                { icon: Calendar, label: "Daily Planner", href: "/admin/daily-planner" },
                                 { icon: BarChart3, label: "Reports Dashboard", href: "/admin/dashboard" },
                                 { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
                             ]
@@ -170,6 +171,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Wrench, label: "Booking Visits", href: "/admin/visits" },
                                 { icon: FileText, label: "Invoices", href: "/admin/invoices" },
                                 { icon: Package, label: "SKU Manager", href: "/admin/skus" },
+                                { icon: PoundSterling, label: "WTBP Rates", href: "/admin/wtbp-rates" },
                             ]
                         },
                         {

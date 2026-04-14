@@ -2,7 +2,7 @@ import { Router } from 'express';
 import Stripe from 'stripe';
 import crypto from 'crypto';
 import { db } from './db';
-import { personalizedQuotes, contractorJobs, invoices, leads } from '../shared/schema';
+import { personalizedQuotes, invoices, leads } from '../shared/schema';
 import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { updateLeadStage } from './lead-stage-engine';
@@ -290,11 +290,13 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         }
 
                         // 1. Update Quote (include email from metadata if quote email was null)
+                        // NOTE: Do NOT set bookedAt, contractorId, or selectedDate here.
+                        // The deposit marks the quote as "deposit paid" — booking confirmation
+                        // and contractor assignment happen later via Ben's dispatch action.
                         const updateFields: Record<string, any> = {
                             depositPaidAt: new Date(),
                             depositAmountPence: depositAmount,
                             stripePaymentIntentId: paymentIntent.id,
-                            bookedAt: new Date(),
                             selectedPackage: quote.selectedPackage || 'standard',
                             selectedExtras: selectedExtras.length > 0 ? selectedExtras : quote.selectedExtras,
                             paymentType: metadataPaymentType,
@@ -322,36 +324,10 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             if (extra) totalJobPrice += extra.priceInPence || 0;
                         }
 
-                        // 3. Create Job for Dispatching (only if contractor assigned)
-                        let jobId: string | null = null;
-
-                        if (quote.contractorId) {
-                            jobId = `job_${uuidv4().slice(0, 8)}`;
-
-                            await db.insert(contractorJobs).values({
-                                id: jobId,
-                                contractorId: quote.contractorId,
-                                quoteId: quoteId,
-                                leadId: quote.leadId || null,
-                                customerName: quote.customerName,
-                                customerPhone: quote.phone,
-                                address: quote.address || '',
-                                postcode: quote.postcode || '',
-                                jobDescription: quote.jobDescription || '',
-                                status: 'pending',
-                                scheduledDate: quote.selectedDate || null,
-                                estimatedDuration: null,
-                                payoutPence: Math.round(totalJobPrice * 0.7), // 70% payout to contractor
-                                paymentStatus: 'unpaid',
-                                notes: metadataPaymentType === 'full'
-                                    ? `Paid in full: £${(depositAmount / 100).toFixed(2)}`
-                                    : `Deposit paid: £${(depositAmount / 100).toFixed(2)}`,
-                            });
-
-                            console.log(`[Stripe Webhook] Job ${jobId} created for quote ${quoteId}`);
-                        } else {
-                            console.log(`[Stripe Webhook] No contractor assigned - job will be created during dispatch`);
-                        }
+                        // 3. Job creation removed — deposits go into the dispatch pool.
+                        // Ben (admin) will assign a contractor and create the job later.
+                        const jobId: string | null = null;
+                        console.log(`[Stripe Webhook] Deposit recorded for quote ${quoteId} — awaiting dispatch by admin`);
 
                         // 4. Generate Invoice (using COUNT for efficiency)
                         const year = new Date().getFullYear();
@@ -383,9 +359,9 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             depositPaid: depositAmount,
                             balanceDue: balanceDue,
                             lineItems: lineItems as any,
-                            status: balanceDue <= 0 ? 'paid' : 'sent',
+                            status: 'sent', // Always 'sent' — full booking confirmation happens at dispatch
                             dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days
-                            paidAt: balanceDue <= 0 ? new Date() : null,
+                            paidAt: null, // Will be set when job is completed and fully settled
                             stripePaymentIntentId: paymentIntent.id,
                             paymentMethod: 'stripe',
                             notes: jobId ? `Auto-generated from payment. Job ID: ${jobId}` : `Auto-generated from payment. Pending dispatch.`,
@@ -486,7 +462,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                     });
                                 }
 
-                                // Ops notification
+                                // Ops notification — dispatch pool alert for Ben
                                 await sendInternalBookingNotification({
                                     customerName: quote.customerName,
                                     customerEmail: effectiveEmail || '',
@@ -498,6 +474,8 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                     balanceDue,
                                     invoiceNumber,
                                     jobId,
+                                    availableDates: (quote as any).availableDates || null,
+                                    isDispatchPool: true,
                                 });
                             } catch (notifyError) {
                                 console.error('[Stripe Webhook] Notification send error (non-blocking):', notifyError);

@@ -2,9 +2,9 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Check, Calendar, Clock, Tag, Shield, Zap,
+  Check, Calendar, CalendarCheck, Clock, Tag, Shield, Zap,
   ChevronRight, Percent, Sparkles, Star, Plus,
-  Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle
+  Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle, User
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -18,11 +18,17 @@ import {
   BASE_TIME_SLOTS,
   getSchedulingConfig,
   getTimeSlotsForSegment,
-  applyPsychologicalPricing,
   type TimeSlotOption,
   type AddOnOption,
 } from './SchedulingConfig';
-import { useAvailability, formatDateStr } from '@/hooks/useAvailability';
+import {
+  useAvailability,
+  useQuoteAvailability,
+  formatDateStr,
+  reserveSlot,
+  releaseSlotLock,
+  type SlotReservation,
+} from '@/hooks/useAvailability';
 import { StickyTimerProgress } from './QuoteTimerContext';
 
 /** Which booking options to show on the card */
@@ -57,6 +63,8 @@ interface UnifiedQuoteCardProps {
   optionalExtras?: { label: string; description?: string; priceInPence: number }[] | null;
   onBook: (config: {
     selectedDate: Date | null;
+    selectedDates?: Date[]; // 3-date buffer model: customer picks up to 3 preferred dates
+    dateTimePreferences?: { date: Date; timeSlot: 'am' | 'pm' | 'flexible' | 'full_day' }[];
     timeSlot: string | null;
     addOns: string[];
     totalPrice: number;
@@ -86,6 +94,14 @@ interface UnifiedQuoteCardProps {
   shortSlug?: string;
   /** VA-specified available dates (YYYY-MM-DD strings). When set, only these dates are shown in the calendar. */
   allowedDates?: string[] | null;
+  /** Assigned contractor info for trust strip inside price card */
+  contractor?: {
+    name: string;
+    profilePhotoUrl?: string | null;
+    availabilityStatus?: string | null;
+    bio?: string | null;
+    trustBadges?: string[] | null;
+  } | null;
 }
 
 export function UnifiedQuoteCard({
@@ -109,6 +125,7 @@ export function UnifiedQuoteCard({
   flexibleDiscountPercent: flexibleDiscountPercentProp,
   shortSlug,
   allowedDates,
+  contractor,
 }: UnifiedQuoteCardProps) {
   // Booking mode flags — when bookingModes is provided, only show those options
   const showStandardDate = !bookingModes || bookingModes.includes('standard_date');
@@ -134,11 +151,31 @@ export function UnifiedQuoteCard({
 
   // State
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  // 3-date buffer: two-tap flow (tap date → pick AM/PM → confirmed)
+  type TimePref = 'am' | 'pm' | 'full_day';
+  interface ConfirmedDate { date: Date; timePref: TimePref; }
+  const [confirmedDates, setConfirmedDates] = useState<ConfirmedDate[]>([]);
+  const [pendingDate, setPendingDate] = useState<Date | null>(null); // awaiting AM/PM
+  const MAX_BUFFER_DATES = 3;
+  // Derived for backward compat
+  const selectedDates = confirmedDates.map(cd => cd.date);
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<string | null>(null);
   const [selectedAddOns, setSelectedAddOns] = useState<string[]>([]);
   const [useDownsell, setUseDownsell] = useState(false);
   const [showAllDates, setShowAllDates] = useState(false);
   const [payFull, setPayFull] = useState(false);
+
+  // Smart slot selection state (AM/PM/FULL_DAY for quote-specific availability)
+  type SlotChoice = 'am' | 'pm' | 'full_day';
+  const lineItemCount = pricingLineItems?.length || 1;
+  // isLargeJob defined after totalEstimatedMinutes (below)
+  const [selectedSlotChoice, setSelectedSlotChoice] = useState<SlotChoice>('am');
+
+  // Slot reservation state
+  const [reservation, setReservation] = useState<SlotReservation | null>(null);
+  const [isReserving, setIsReserving] = useState(false);
+  const [reserveError, setReserveError] = useState<string | null>(null);
+  const [countdownSeconds, setCountdownSeconds] = useState<number>(0);
 
   // Deposit / Pay-in-full config (configurable via admin pricing settings)
   const DEPOSIT_PERCENT = (depositPercentProp ?? 30) / 100;
@@ -151,7 +188,9 @@ export function UnifiedQuoteCard({
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [isLoadingPaymentIntent, setIsLoadingPaymentIntent] = useState(false);
   const [inlineEmail, setInlineEmail] = useState(customerEmail || '');
-  const effectiveEmail = customerEmail || (inlineEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inlineEmail) ? inlineEmail : undefined);
+  const [emailConfirmed, setEmailConfirmed] = useState(false);
+  const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(v);
+  const effectiveEmail = customerEmail || (emailConfirmed && isValidEmail(inlineEmail) ? inlineEmail : undefined);
 
   // Refs for scroll behavior
   const timeSectionRef = useRef<HTMLDivElement>(null);
@@ -163,7 +202,7 @@ export function UnifiedQuoteCard({
   // Sticky CTA: show once the price card has been scrolled past,
   // stays visible until the user selects a date (starts booking flow)
   const [stickyCTAActivated, setStickyCTAActivated] = useState(false);
-  const showStickyCTA = stickyCTAActivated && !selectedDate;
+  const showStickyCTA = stickyCTAActivated && selectedDates.length === 0;
 
   useEffect(() => {
     const checkPriceCardPosition = () => {
@@ -182,7 +221,7 @@ export function UnifiedQuoteCard({
     return () => window.removeEventListener('scroll', checkPriceCardPosition);
   }, []);
 
-  // Extract unique job categories from line items for contractor-filtered availability
+  // Extract unique job categories from line items for contractor-filtered availability (fallback)
   const jobCategories = useMemo(() => {
     if (!pricingLineItems || pricingLineItems.length === 0) return undefined;
     const cats = Array.from(new Set(pricingLineItems.map(li => li.category).filter(Boolean)));
@@ -195,25 +234,105 @@ export function UnifiedQuoteCard({
     return pricingLineItems.reduce((sum, li) => sum + (li.timeEstimateMinutes || 0), 0);
   }, [pricingLineItems]);
 
-  // Fetch availability — filtered by contractor pool when categories available
-  const { data: availabilityData } = useAvailability({
+  // A "large job" skips AM/PM selection — strictly based on estimated hours (≥4hrs)
+  const isLargeJob = totalEstimatedMinutes != null && totalEstimatedMinutes >= 240;
+
+  // Auto-set slot choice to full_day for large jobs on first render
+  useEffect(() => {
+    if (isLargeJob) {
+      setSelectedSlotChoice('full_day');
+    }
+  }, [isLargeJob]);
+
+  // Quote-specific availability: uses candidate contractor pool from quote
+  // Falls back to generic availability if quoteId is not provided
+  const { data: quoteAvailabilityData, isLoading: isLoadingQuoteAvailability } = useQuoteAvailability({
+    quoteId,
+    slot: selectedSlotChoice,
+    enabled: !!quoteId,
+  });
+
+  // Fallback: generic availability for quotes without an ID
+  const { data: fallbackAvailabilityData } = useAvailability({
     categories: jobCategories,
     timeEstimateMinutes: totalEstimatedMinutes,
     days: config.maxDaysOut + 1,
+    enabled: !quoteId,
   });
 
-  // Build set of unavailable dates for quick lookup
+  // Build set of available dates from quote-specific endpoint
+  // The quote endpoint returns only available dates (unlike generic which returns all)
+  const quoteAvailableDateSet = useMemo(() => {
+    if (!quoteAvailabilityData) return null;
+    const set = new Set<string>();
+    for (const d of quoteAvailabilityData) {
+      set.add(d.date);
+    }
+    return set;
+  }, [quoteAvailabilityData]);
+
+  // Build set of unavailable dates for quick lookup (fallback mode only)
   const unavailableDates = useMemo(() => {
     const set = new Set<string>();
-    if (availabilityData?.dates) {
-      for (const d of availabilityData.dates) {
+    if (!quoteId && fallbackAvailabilityData?.dates) {
+      for (const d of fallbackAvailabilityData.dates) {
         if (!d.isAvailable) {
           set.add(d.date);
         }
       }
     }
     return set;
-  }, [availabilityData]);
+  }, [quoteId, fallbackAvailabilityData]);
+
+  // Countdown timer for slot reservation
+  useEffect(() => {
+    if (!reservation) {
+      setCountdownSeconds(0);
+      return;
+    }
+
+    const expiresAt = new Date(reservation.expiresAt).getTime();
+
+    const tick = () => {
+      const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+      setCountdownSeconds(remaining);
+
+      if (remaining <= 0) {
+        // Timer expired - release the slot
+        releaseSlotLock(reservation.lockId).catch(() => {});
+        setReservation(null);
+        setReserveError('Your slot reservation expired. Please select a new date and time.');
+        setClientSecret(null);
+        setPaymentIntentId(null);
+      }
+    };
+
+    tick(); // Initial tick
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [reservation]);
+
+  // Release reservation on unmount (e.g. user navigates away)
+  const reservationRef = useRef(reservation);
+  reservationRef.current = reservation;
+  useEffect(() => {
+    return () => {
+      if (reservationRef.current) {
+        releaseSlotLock(reservationRef.current.lockId).catch(() => {});
+      }
+    };
+  }, []);
+
+  // When slot choice changes, release any existing reservation (new slot = new lock needed)
+  // but keep selectedDate — the new flow is: pick date → pick time slot
+  useEffect(() => {
+    // Release any existing reservation when slot changes
+    if (reservation) {
+      releaseSlotLock(reservation.lockId).catch(() => {});
+      setReservation(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSlotChoice]);
 
   // Generate dates including blocked ones (shown as "Fully Booked" for scarcity)
   // All date calculations anchored to UK time (Europe/London) so dates
@@ -226,7 +345,11 @@ export function UnifiedQuoteCard({
       if (BASE_SCHEDULING_RULES.sundaysClosed && date.getDay() === 0) continue; // Skip Sundays
 
       const dateStr = formatDateStr(date);
-      const isBlocked = unavailableDates.has(dateStr);
+      // When using quote-specific availability, a date is blocked if it's NOT in the available set
+      // When using fallback, a date is blocked if it IS in the unavailable set
+      const isBlocked = quoteAvailableDateSet
+        ? !quoteAvailableDateSet.has(dateStr)
+        : unavailableDates.has(dateStr);
 
       const isSaturday = date.getDay() === 6;
       const isNextDay = i === 1; // Tomorrow (UK time)
@@ -246,7 +369,7 @@ export function UnifiedQuoteCard({
       });
     }
     return dates;
-  }, [config, unavailableDates]);
+  }, [config, unavailableDates, quoteAvailableDateSet]);
 
   // When urgent_premium mode is disabled, filter out next-day priority dates
   // When allowedDates is set, restrict calendar to only those VA-specified dates
@@ -257,7 +380,7 @@ export function UnifiedQuoteCard({
   const filteredDates = availableDates.filter(d => {
     if (!showUrgentPremium && d.isNextDay) return false;
     if (allowedDateSet) {
-      const dateStr = d.date.toISOString().slice(0, 10);
+      const dateStr = formatDateStr(d.date);
       return allowedDateSet.has(dateStr);
     }
     return true;
@@ -319,8 +442,8 @@ export function UnifiedQuoteCard({
       }
     });
 
-    // Apply psychological pricing to avoid round numbers (Ramanujam principle)
-    const adjustedAmount = applyPsychologicalPricing(amount);
+    // Prices are already whole pounds from the engine — no client-side adjustment needed
+    const adjustedAmount = amount;
 
     // Calculate "was" price for discount badge
     // If we have real batch discount data, use the actual subtotal (before discount)
@@ -342,20 +465,23 @@ export function UnifiedQuoteCard({
       : 0;
     const labourPortion = adjustedAmount - totalMaterialsPence;
     const depositAmount = totalMaterialsPence > 0
-      ? applyPsychologicalPricing(totalMaterialsPence + Math.round(labourPortion * DEPOSIT_PERCENT))
-      : applyPsychologicalPricing(Math.round(adjustedAmount * DEPOSIT_PERCENT));
+      ? Math.round((totalMaterialsPence + Math.round(labourPortion * DEPOSIT_PERCENT)) / 100) * 100
+      : Math.round(Math.round(adjustedAmount * DEPOSIT_PERCENT) / 100) * 100;
     const balanceOnCompletion = adjustedAmount - depositAmount;
 
-    // Pay-in-full discount: small incentive for guaranteed cash flow
-    const payFullTotal = applyPsychologicalPricing(Math.round(adjustedAmount * (1 - PAY_FULL_DISCOUNT)));
+    // Pay-in-full discount: small incentive for guaranteed cash flow, rounded to whole £
+    const payFullTotal = Math.round(Math.round(adjustedAmount * (1 - PAY_FULL_DISCOUNT)) / 100) * 100;
     const payFullSaving = adjustedAmount - payFullTotal;
 
     return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving };
   }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, availableDates, allAddOns, config, batchDiscount, pricingLineItems]);
 
+  // All 3 buffer dates must be selected before payment unlocks
+  const allDatesSelected = confirmedDates.length >= MAX_BUFFER_DATES;
+
   // Determine if we should show inline payment
-  // Show inline Stripe card entry when date + time are selected (all segments) or when using downsell
-  const showInlinePayment = useDownsell || (selectedDate && selectedTimeSlot);
+  // Show inline Stripe card entry when: downsell, single-date with reservation, or all 3 buffer dates picked
+  const showInlinePayment = useDownsell || (selectedDate && selectedTimeSlot && reservation) || allDatesSelected;
 
   // Create payment intent when inline payment should be shown
   useEffect(() => {
@@ -386,6 +512,8 @@ export function UnifiedQuoteCard({
             chargeAmountPence: payFull ? payFullTotal : depositAmount,
             flexibleTiming: useDownsell,
             flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
+            lockId: reservation?.lockId || undefined,
+            contractorId: reservation?.contractorId || undefined,
           }),
           signal: abortController.signal,
         });
@@ -421,7 +549,7 @@ export function UnifiedQuoteCard({
       isCurrentRequest = false;
       abortController.abort();
     };
-  }, [showInlinePayment, useDownsell, quoteId, customerName, effectiveEmail, total, selectedAddOns, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount]);
+  }, [showInlinePayment, useDownsell, quoteId, customerName, effectiveEmail, total, selectedAddOns, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation]);
 
   // Handle inline payment submission
   const handlePayment = async (e: React.FormEvent) => {
@@ -452,12 +580,29 @@ export function UnifiedQuoteCard({
       if (stripeError) throw new Error(stripeError.message);
 
       if (paymentIntent?.status === 'succeeded') {
+        const chargeNow = payFull ? payFullTotal : depositAmount;
+        const balance = payFull ? 0 : balanceOnCompletion;
+        const mode = payFull ? 'full' as const : 'deposit' as const;
+
+        // Build per-date time preferences for multi-date buffer
+        const dateTimePreferences = confirmedDates.map(cd => ({
+          date: cd.date,
+          timeSlot: cd.timePref,
+        }));
+        const primaryTimePref = confirmedDates[0]?.timePref;
+        const backcompatSlot = primaryTimePref === 'pm' ? 'afternoon' : 'morning';
+
         // First call onBook to set booking details in parent state
         onBook({
-          selectedDate: useDownsell ? null : selectedDate,
-          timeSlot: useDownsell ? null : selectedTimeSlot,
+          selectedDate: useDownsell ? null : (confirmedDates[0]?.date || selectedDate),
+          selectedDates: confirmedDates.map(cd => cd.date),
+          dateTimePreferences: dateTimePreferences.length > 0 ? dateTimePreferences : undefined,
+          timeSlot: useDownsell ? null : backcompatSlot,
           addOns: selectedAddOns,
           totalPrice: total,
+          chargeNowPence: chargeNow,
+          balanceOnCompletionPence: balance,
+          paymentMode: mode,
           usedDownsell: useDownsell,
           flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
         });
@@ -483,7 +628,57 @@ export function UnifiedQuoteCard({
   };
 
   // Can book if: downsell selected (flexible timing) OR both date and time selected
-  const canBook = useDownsell || (selectedDate && selectedTimeSlot);
+  // Large jobs: just need dates (auto full day). Small jobs: dates selected is enough (each defaults to 'flexible')
+  // Can book when: downsell, or at least 1 confirmed date (with AM/PM chosen)
+  const canBook = useDownsell || allDatesSelected;
+
+  // Reserve a slot before showing payment — called when date + time are selected
+  const handleReserveSlot = async () => {
+    if (!quoteId || !selectedDate || !selectedTimeSlot) return;
+
+    setIsReserving(true);
+    setReserveError(null);
+
+    try {
+      // Map the selectedTimeSlot from the SchedulingConfig (morning/afternoon/first/exact)
+      // to the server's slot format (am/pm/full_day)
+      let slotForServer: 'am' | 'pm' | 'full_day' = selectedSlotChoice;
+      if (selectedTimeSlot === 'morning' || selectedTimeSlot === 'first') {
+        slotForServer = 'am';
+      } else if (selectedTimeSlot === 'afternoon') {
+        slotForServer = 'pm';
+      }
+
+      const result = await reserveSlot({
+        quoteId,
+        scheduledDate: selectedDate.toISOString(),
+        scheduledSlot: slotForServer,
+      });
+
+      setReservation(result);
+    } catch (err: any) {
+      const msg = err.message || 'Failed to reserve slot';
+      if (msg.includes('slot_taken') || msg.includes('just taken')) {
+        setReserveError('This slot was just taken. Please select another date or time.');
+        setSelectedDate(null);
+        setSelectedTimeSlot(null);
+      } else {
+        setReserveError(msg);
+      }
+    } finally {
+      setIsReserving(false);
+    }
+  };
+
+  // Auto-reserve when date and time are both selected (and not already reserved)
+  // Skip for buffer mode — all 3 dates required, contractor assigned later via dispatch
+  useEffect(() => {
+    if (selectedDate && selectedTimeSlot && quoteId && !reservation && !isReserving && !useDownsell && confirmedDates.length === 0) {
+      // Only auto-reserve for non-buffer single-date flow (no confirmed buffer dates)
+      handleReserveSlot();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, selectedTimeSlot, quoteId, confirmedDates.length]);
 
   const handleBook = () => {
     const chargeNow = payFull ? payFullTotal : depositAmount;
@@ -506,10 +701,21 @@ export function UnifiedQuoteCard({
       return;
     }
 
-    if (!selectedDate || !selectedTimeSlot) return;
+    if (confirmedDates.length === 0) return;
+    // Each confirmed date has its own AM/PM/full_day pref
+    const dateTimePreferences = confirmedDates.map(cd => ({
+      date: cd.date,
+      timeSlot: cd.timePref,
+    }));
+    // Primary time slot for backward compat: use first date's pref
+    const primaryTimePref = confirmedDates[0].timePref;
+    const backcompatTimeSlot = primaryTimePref === 'pm' ? 'afternoon' : 'morning';
+
     onBook({
-      selectedDate,
-      timeSlot: selectedTimeSlot,
+      selectedDate: confirmedDates[0].date,
+      selectedDates: confirmedDates.map(cd => cd.date),
+      dateTimePreferences,
+      timeSlot: backcompatTimeSlot,
       addOns: selectedAddOns,
       totalPrice: total,
       chargeNowPence: chargeNow,
@@ -625,42 +831,49 @@ export function UnifiedQuoteCard({
 
           {/* Inline Price Breakdown (always visible) */}
           {pricingLineItems && pricingLineItems.length > 0 && (
-            <div className={`mt-3 pt-3 border-t text-left space-y-2 ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
-              {pricingLineItems.map((item) => {
-                const materialsStr = (item.materialsWithMarginPence || 0) > 0
-                  ? `incl. materials`
-                  : '';
-                return (
-                  <div key={item.lineId} className="flex justify-between items-start gap-3 text-sm">
-                    <div className="min-w-0">
-                      <span className={isDarkTheme ? 'text-slate-200' : 'text-slate-800'}>{item.description}</span>
-                      {materialsStr && (
-                        <span className={`ml-1.5 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
-                          · {materialsStr}
-                        </span>
+            <div className={`mt-3 pt-3 border-t text-left ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
+              <div className="space-y-1.5">
+                {pricingLineItems.map((item) => {
+                  const hasMaterials = (item.materialsWithMarginPence || 0) > 0;
+                  const lineTotal = item.guardedPricePence + (item.materialsWithMarginPence || 0);
+                  return (
+                    <div key={item.lineId} className="flex items-center gap-2 text-[13px] leading-snug">
+                      <span className={`min-w-0 truncate ${isDarkTheme ? 'text-slate-300' : 'text-slate-700'}`}>
+                        {item.description}
+                      </span>
+                      {hasMaterials && (
+                        <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-full ${
+                          isDarkTheme ? 'bg-white/5 text-slate-500' : 'bg-slate-100 text-slate-400'
+                        }`}>+parts</span>
                       )}
+                      <span className={`ml-auto shrink-0 font-semibold tabular-nums ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                        £{Math.round(lineTotal / 100)}
+                      </span>
                     </div>
-                    <span className={`font-medium whitespace-nowrap ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                      £{Math.round((item.guardedPricePence + (item.materialsWithMarginPence || 0)) / 100)}
-                    </span>
-                  </div>
-                );
-              })}
-              {batchDiscount?.applied && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-[#7DB00E] font-medium">Multi-job discount ({batchDiscount.discountPercent}%)</span>
-                  <span className="text-[#7DB00E] font-medium">-£{Math.round(batchDiscount.savingsPence / 100)}</span>
+                  );
+                })}
+              </div>
+              {/* Discounts */}
+              {(batchDiscount?.applied || (payFull && payFullSaving > 0)) && (
+                <div className={`mt-2 pt-2 border-t space-y-1 ${isDarkTheme ? 'border-white/5' : 'border-slate-100'}`}>
+                  {batchDiscount?.applied && (
+                    <div className="flex justify-between text-[13px]">
+                      <span className="text-[#7DB00E] font-medium">Multi-job discount ({batchDiscount.discountPercent}%)</span>
+                      <span className="text-[#7DB00E] font-semibold tabular-nums">-£{Math.round(batchDiscount.savingsPence / 100)}</span>
+                    </div>
+                  )}
+                  {payFull && payFullSaving > 0 && (
+                    <div className="flex justify-between text-[13px]">
+                      <span className="text-[#7DB00E] font-medium">Pay in full ({Math.round(PAY_FULL_DISCOUNT * 100)}% off)</span>
+                      <span className="text-[#7DB00E] font-semibold tabular-nums">-£{Math.round(payFullSaving / 100)}</span>
+                    </div>
+                  )}
                 </div>
               )}
-              {payFull && payFullSaving > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-[#7DB00E] font-medium">Pay in full discount ({Math.round(PAY_FULL_DISCOUNT * 100)}%)</span>
-                  <span className="text-[#7DB00E] font-medium">-£{Math.round(payFullSaving / 100)}</span>
-                </div>
-              )}
-              <div className={`border-t pt-2 flex justify-between font-bold ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
+              {/* Total */}
+              <div className={`mt-2 pt-2 border-t flex justify-between items-center font-bold ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
                 <span className={isDarkTheme ? 'text-white' : 'text-slate-900'}>Total</span>
-                <span className="text-[#7DB00E]">£{Math.round((payFull ? payFullTotal : total) / 100)}</span>
+                <span className="text-[#7DB00E] text-lg tabular-nums">£{Math.round((payFull ? payFullTotal : total) / 100)}</span>
               </div>
             </div>
           )}
@@ -680,25 +893,99 @@ export function UnifiedQuoteCard({
             </a>
           </div>
 
-          {/* What's Included - Contextual bullets override segment-driven */}
+          {/* What's Included - Tight pill strip */}
           <div className={`mt-4 pt-4 border-t ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
-            <div className={`flex flex-wrap justify-center gap-x-4 gap-y-2 text-sm ${isDarkTheme ? 'text-slate-300' : 'text-slate-700'}`}>
-              {contextualBullets && contextualBullets.length > 0
-                ? contextualBullets.map((bullet, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <span className="text-[#7DB00E]"><Check className="w-4 h-4" /></span>
-                      {bullet}
-                    </div>
-                  ))
-                : getHassleComparisons(segment, 3).map((item, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <span className="text-[#7DB00E]"><Check className="w-4 h-4" /></span>
-                      {item.withUs}
-                    </div>
-                  ))
-              }
+            <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1.5">
+              {(contextualBullets && contextualBullets.length > 0
+                ? contextualBullets
+                : getHassleComparisons(segment, 3).map(item => item.withUs)
+              ).map((bullet, i) => (
+                <span
+                  key={i}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium whitespace-nowrap ${
+                    isDarkTheme
+                      ? 'bg-white/5 text-slate-300'
+                      : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  <Check className="w-3 h-3 text-[#7DB00E] flex-shrink-0" />
+                  {bullet}
+                </span>
+              ))}
             </div>
           </div>
+
+          {/* Contractor trust strip — small inline signal */}
+          {contractor && (
+            <div className={`mt-4 pt-3 border-t ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
+              <div className="flex items-center gap-3 px-1">
+                <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-[#7DB00E] flex-shrink-0">
+                  <img
+                    src={contractor.profilePhotoUrl || '/assets/quote-images/plumber-smile.webp'}
+                    alt={contractor.name}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="text-left min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-bold leading-tight ${isDarkTheme ? 'text-white' : 'text-slate-800'}`}>
+                      {contractor.name}
+                    </span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#7DB00E] animate-pulse flex-shrink-0" />
+                  </div>
+                  {/* One-liner bio — truncated to single line on mobile */}
+                  {contractor.bio ? (
+                    <p className={`text-[11px] leading-snug mt-0.5 line-clamp-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                      {contractor.bio}
+                    </p>
+                  ) : (
+                    <span className="text-[#7DB00E] text-[11px] font-medium">Available this week</span>
+                  )}
+                </div>
+              </div>
+              {/* Accolades — inline pills */}
+              <div className="flex justify-center gap-1.5 mt-2">
+                {(() => {
+                  const badges: string[] = Array.isArray(contractor.trustBadges) && contractor.trustBadges.length > 0
+                    ? contractor.trustBadges
+                    : ['dbs', 'insured'];
+                  const badgeLabels: Record<string, string> = {
+                    dbs: 'DBS ✓',
+                    insured: '£2M Insured ✓',
+                    dog_friendly: 'Pet Friendly ✓',
+                    verified: 'ID Verified ✓',
+                    gas_safe: 'Gas Safe ✓',
+                    electrical: 'Elec. Cert ✓',
+                  };
+                  return badges.map((badge) => (
+                    <span
+                      key={badge}
+                      className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                        isDarkTheme
+                          ? 'bg-[#7DB00E]/10 text-[#7DB00E] border border-[#7DB00E]/20'
+                          : 'bg-[#7DB00E]/10 text-[#5a8a00] border border-[#7DB00E]/20'
+                      }`}
+                    >
+                      {badgeLabels[badge] || `${badge} ✓`}
+                    </span>
+                  ));
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Fallback — generic estimator badge when no contractor assigned */}
+          {!contractor && (
+            <div className={`mt-4 pt-4 border-t flex items-center justify-center gap-3 ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
+              <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-[#7DB00E] flex-shrink-0">
+                <img src="/assets/quote-images/ben-estimator.webp" alt="Ben" className="w-full h-full object-cover" />
+              </div>
+              <div className="text-left">
+                <div className={`text-xs uppercase tracking-wider font-semibold ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Prepared by</div>
+                <div className={`text-sm font-bold leading-tight ${isDarkTheme ? 'text-white' : 'text-slate-800'}`}>Ben <span className="text-[#7DB00E] text-xs font-normal">from HandyServices</span></div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Downsell Option (if available and flexible_discount mode enabled) */}
@@ -762,30 +1049,120 @@ export function UnifiedQuoteCard({
           </div>
         )}
 
-        {/* Step 1: Date Selection - Hidden when using downsell or when standard_date mode disabled */}
+        {/* Step 1: 3-Date Buffer — split-button flow: tap date → button splits into AM/PM → tap half to confirm */}
         {!useDownsell && showStandardDate && (
         <div ref={dateSectionRef}>
-          <h4 className={`text-sm font-bold uppercase tracking-wide mb-3 flex items-center gap-2 ${isDarkTheme ? 'text-white' : 'text-slate-700'}`}>
+          <h4 className={`text-sm font-bold tracking-wide mb-1 flex items-center gap-2 ${isDarkTheme ? 'text-white' : 'text-slate-700'}`}>
             <Calendar className="w-4 h-4 text-[#7DB00E]" />
-            1. Choose your date
+            Pick your preferred dates
+            {isLoadingQuoteAvailability && (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
+            )}
           </h4>
+          <p className={`text-xs mb-3 ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+            We'll confirm the best one within 24 hours
+          </p>
           <div className="grid grid-cols-4 gap-2">
-            {visibleDates.map((d) => (
+            {visibleDates.map((d) => {
+              const confirmedIdx = confirmedDates.findIndex(cd => cd.date.toDateString() === d.date.toDateString());
+              const isConfirmed = confirmedIdx >= 0;
+              const isPending = pendingDate?.toDateString() === d.date.toDateString();
+              const confirmedEntry = isConfirmed ? confirmedDates[confirmedIdx] : null;
+
+              // Helper to confirm a pending date with a time pref
+              const confirmDate = (timePref: TimePref) => {
+                const newEntry: ConfirmedDate = { date: d.date, timePref };
+                setConfirmedDates(prev => {
+                  const next = prev.length >= MAX_BUFFER_DATES
+                    ? [...prev.slice(1), newEntry]
+                    : [...prev, newEntry];
+                  setSelectedDate(next[0].date);
+                  return next;
+                });
+                setPendingDate(null);
+                const autoSlot = timePref === 'pm' ? 'afternoon' : 'morning';
+                setSelectedTimeSlot(autoSlot);
+                setSelectedSlotChoice(timePref === 'pm' ? 'pm' : timePref === 'full_day' ? 'full_day' : 'am');
+              };
+
+              // SPLIT BUTTON: when pending, show AM/PM halves instead of normal date
+              if (isPending && !isLargeJob) {
+                return (
+                  <div key={d.date.toISOString()} className="flex flex-col gap-0.5">
+                    {/* Date label on top */}
+                    <div className={`text-[10px] font-semibold text-center py-0.5 rounded-t-xl ${isDarkTheme ? 'bg-amber-500/30 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
+                      {format(d.date, 'EEE d')}
+                    </div>
+                    {/* AM half */}
+                    <button
+                      type="button"
+                      onClick={() => confirmDate('am')}
+                      className={`py-2 rounded-none text-center transition-all ${
+                        isDarkTheme
+                          ? 'bg-white/10 text-white hover:bg-[#7DB00E] hover:text-slate-900'
+                          : 'bg-white text-slate-700 hover:bg-[#7DB00E] hover:text-white border-x border-t border-slate-200 hover:border-[#7DB00E]'
+                      }`}
+                    >
+                      <div className="font-bold text-xs">AM</div>
+                      <div className="text-[9px] opacity-60">8am–1pm</div>
+                    </button>
+                    {/* PM half */}
+                    <button
+                      type="button"
+                      onClick={() => confirmDate('pm')}
+                      className={`py-2 rounded-b-xl text-center transition-all ${
+                        isDarkTheme
+                          ? 'bg-white/10 text-white hover:bg-[#7DB00E] hover:text-slate-900'
+                          : 'bg-white text-slate-700 hover:bg-[#7DB00E] hover:text-white border-x border-b border-slate-200 hover:border-[#7DB00E]'
+                      }`}
+                    >
+                      <div className="font-bold text-xs">PM</div>
+                      <div className="text-[9px] opacity-60">1pm–6pm</div>
+                    </button>
+                  </div>
+                );
+              }
+
+              return (
               <button
                 key={d.date.toISOString()}
                 onClick={() => {
                   if (d.isBlocked) return;
-                  setSelectedDate(d.date);
-                  // Scroll to time section after a brief delay for animation
-                  setTimeout(() => {
-                    timeSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                  }, 150);
+                  if (reservation) {
+                    releaseSlotLock(reservation.lockId).catch(() => {});
+                    setReservation(null);
+                  }
+
+                  if (isConfirmed) {
+                    // Tap confirmed date → deselect
+                    const next = confirmedDates.filter(cd => cd.date.toDateString() !== d.date.toDateString());
+                    setConfirmedDates(next);
+                    setSelectedDate(next[0]?.date || null);
+                    return;
+                  }
+
+                  if (isLargeJob) {
+                    // Large jobs: auto-confirm as full_day
+                    const newEntry: ConfirmedDate = { date: d.date, timePref: 'full_day' };
+                    setConfirmedDates(prev => {
+                      const next = prev.length >= MAX_BUFFER_DATES
+                        ? [...prev.slice(1), newEntry]
+                        : [...prev, newEntry];
+                      setSelectedDate(next[0].date);
+                      setSelectedSlotChoice('full_day');
+                      setSelectedTimeSlot('morning');
+                      return next;
+                    });
+                  } else {
+                    // Small jobs: set as pending → button splits into AM/PM
+                    setPendingDate(d.date);
+                  }
                 }}
                 disabled={d.isBlocked}
                 className={`p-3 rounded-xl text-center transition-all relative ${
                   d.isBlocked
                     ? 'opacity-50 cursor-not-allowed' + (isDarkTheme ? ' bg-white/5 text-slate-500' : ' bg-slate-100 text-slate-400 border border-slate-200')
-                    : selectedDate?.toDateString() === d.date.toDateString()
+                    : isConfirmed
                     ? 'bg-[#7DB00E] text-slate-900 ring-2 ring-[#7DB00E] ring-offset-2' + (isDarkTheme ? ' ring-offset-slate-900' : '')
                     : d.isNextDay
                       ? 'date-card-shimmer ' + (isDarkTheme
@@ -796,7 +1173,13 @@ export function UnifiedQuoteCard({
                         : 'bg-slate-100 text-slate-700 hover:bg-slate-200')
                 }`}
               >
-                {d.isNextDay && !d.isBlocked && (
+                {/* Priority badge with ordinal for confirmed dates */}
+                {isConfirmed && confirmedEntry && (
+                  <div className={`absolute -top-2 -right-2 h-5 min-w-5 rounded-full border-2 border-[#7DB00E] flex items-center justify-center px-1.5 ${isDarkTheme ? 'bg-slate-900' : 'bg-white'}`}>
+                    <span className="text-[9px] font-bold text-[#7DB00E]">{confirmedIdx === 0 ? '1st' : confirmedIdx === 1 ? '2nd' : '3rd'}</span>
+                  </div>
+                )}
+                {d.isNextDay && !d.isBlocked && !isConfirmed && (
                   <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 text-[8px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded">
                     PRIORITY
                   </div>
@@ -805,12 +1188,67 @@ export function UnifiedQuoteCard({
                 <div className="text-lg font-bold">{format(d.date, 'd')}</div>
                 {d.isBlocked ? (
                   <div className="text-[9px] font-semibold text-red-500 mt-0.5">Fully Booked</div>
+                ) : isConfirmed && confirmedEntry && !isLargeJob ? (
+                  <div className="text-[9px] font-bold mt-0.5 text-slate-700">
+                    {confirmedEntry.timePref === 'am' ? 'Morning' : 'Afternoon'}
+                  </div>
                 ) : d.fee > 0 ? (
                   <div className="text-[10px] text-amber-400 mt-0.5">+£{d.fee / 100}</div>
                 ) : null}
               </button>
-            ))}
+              );
+            })}
           </div>
+
+          {/* Confirmed dates summary */}
+          {confirmedDates.length > 0 && !pendingDate && (
+            <div className="mt-3 space-y-1.5">
+              {confirmedDates.map((cd, idx) => (
+                <div key={cd.date.toDateString()} className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg ${isDarkTheme ? 'bg-white/5' : 'bg-slate-50 border border-slate-100'}`}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[9px] font-bold bg-[#7DB00E] text-slate-900 px-1.5">
+                      {idx === 0 ? '1st' : idx === 1 ? '2nd' : '3rd'}
+                    </div>
+                    <span className={`text-xs font-medium ${isDarkTheme ? 'text-white' : 'text-slate-700'}`}>
+                      {format(cd.date, 'EEE d MMM')}
+                    </span>
+                  </div>
+                  {!isLargeJob && (
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      cd.timePref === 'am'
+                        ? 'bg-blue-500/20 text-blue-400'
+                        : 'bg-orange-500/20 text-orange-400'
+                    }`}>
+                      {cd.timePref === 'am' ? 'Morning' : 'Afternoon'}
+                    </span>
+                  )}
+                </div>
+              ))}
+              {/* Nudge for more dates — payment unlocks at 3 */}
+              {confirmedDates.length < MAX_BUFFER_DATES && (
+                <div className={`flex items-center gap-2 text-xs mt-1 ${isDarkTheme ? 'text-amber-400/80' : 'text-amber-600'}`}>
+                  <CalendarCheck className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="font-medium">
+                    {confirmedDates.length === 1
+                      ? `Pick ${MAX_BUFFER_DATES - 1} more dates to continue`
+                      : '1 more date to unlock payment'
+                    }
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Large job: full-day indicator after confirming */}
+          {isLargeJob && confirmedDates.length > 0 && (
+            <div className={`flex items-center gap-3 mt-3 p-3 rounded-xl ${isDarkTheme ? 'bg-white/10' : 'bg-slate-100'}`}>
+              <Clock className="w-4 h-4 text-[#7DB00E] flex-shrink-0" />
+              <p className={`text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                Full day job (8am–6pm) — we'll confirm the best date within 24hrs
+              </p>
+            </div>
+          )}
+
           {!showAllDates && filteredDates.length > 8 && (
             <button
               onClick={() => setShowAllDates(true)}
@@ -822,54 +1260,68 @@ export function UnifiedQuoteCard({
         </div>
         )}
 
-        {/* Step 2: Time Selection (after date) - Hidden when using downsell */}
+        {/* Step 2: Reservation status + contractor info — only for single-date bookings, NOT 3-date buffer */}
         <AnimatePresence>
-          {!useDownsell && selectedDate && (
+          {!useDownsell && selectedDate && confirmedDates.length === 0 && (
             <motion.div
               ref={timeSectionRef}
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
+              className="space-y-3"
             >
-              <h4 className={`text-sm font-bold uppercase tracking-wide mb-3 flex items-center gap-2 ${isDarkTheme ? 'text-white' : 'text-slate-700'}`}>
-                <Clock className="w-4 h-4 text-[#7DB00E]" />
-                2. Choose arrival window
-              </h4>
-              <div className="grid grid-cols-2 gap-2">
-                {timeSlots.map((slot) => (
-                  <button
-                    key={slot.id}
-                    onClick={() => {
-                      setSelectedTimeSlot(slot.id);
-                      // Scroll to add-ons or book section after a brief delay
-                      setTimeout(() => {
-                        if (allAddOns.length > 0) {
-                          addOnsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        } else {
-                          bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }
-                      }, 150);
-                    }}
-                    className={`p-3 rounded-xl text-left transition-all ${
-                      selectedTimeSlot === slot.id
-                        ? 'bg-[#7DB00E] text-slate-900'
-                        : isDarkTheme
-                          ? 'bg-white/10 text-white hover:bg-white/20'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    <div className="font-semibold text-sm">{slot.label}</div>
-                    <div className={`text-xs ${selectedTimeSlot === slot.id ? 'text-slate-700' : isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                      {slot.description}
+              {/* Reserving spinner */}
+              {isReserving && (
+                <div className={`flex items-center gap-2 p-4 rounded-xl ${isDarkTheme ? 'bg-white/5' : 'bg-slate-50'}`}>
+                  <Loader2 className="w-5 h-5 animate-spin text-[#7DB00E]" />
+                  <span className={`text-sm ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
+                    Reserving your slot...
+                  </span>
+                </div>
+              )}
+
+              {/* Reservation error */}
+              {reserveError && (
+                <Alert variant="destructive" className="bg-red-50 border-red-200">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{reserveError}</AlertDescription>
+                </Alert>
+              )}
+
+              {/* Reservation success: contractor info + countdown */}
+              {reservation && (
+                <div className={`p-4 rounded-xl border space-y-3 ${isDarkTheme ? 'bg-[#7DB00E]/10 border-[#7DB00E]/30' : 'bg-green-50 border-green-200'}`}>
+                  {/* Contractor info */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-[#7DB00E]/20 flex items-center justify-center flex-shrink-0">
+                      <User className="w-5 h-5 text-[#7DB00E]" />
                     </div>
-                    {slot.fee > 0 && (
-                      <div className={`text-xs mt-1 ${selectedTimeSlot === slot.id ? 'text-slate-700' : 'text-amber-500'}`}>
-                        +£{slot.fee / 100}
+                    <div>
+                      <div className={`text-sm font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                        Your handyman: {reservation.contractorName}
                       </div>
-                    )}
-                  </button>
-                ))}
-              </div>
+                      <div className={`text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {confirmedDates.length > 1
+                          ? confirmedDates.map(cd => `${format(cd.date, 'EEE d')}${isLargeJob ? '' : ` ${cd.timePref.toUpperCase()}`}`).join(', ')
+                          : confirmedDates.length === 1
+                            ? `${format(confirmedDates[0].date, 'EEE d MMM')}${isLargeJob ? '' : ` · ${confirmedDates[0].timePref === 'am' ? 'Morning' : 'Afternoon'}`}`
+                            : ''
+                        }
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Countdown timer */}
+                  {countdownSeconds > 0 && (
+                    <div className="flex items-center gap-2">
+                      <Timer className="w-4 h-4 text-amber-500" />
+                      <span className={`text-xs font-medium ${countdownSeconds < 60 ? 'text-red-500' : 'text-amber-600'}`}>
+                        Your slot is held for {Math.floor(countdownSeconds / 60)}:{String(countdownSeconds % 60).padStart(2, '0')}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -887,7 +1339,7 @@ export function UnifiedQuoteCard({
                 <Tag className="w-4 h-4 text-[#7DB00E]" />
                 {config.addOnsLabel
                   ? config.addOnsLabel.replace('{location}', location || 'local')
-                  : (useDownsell ? 'Add extras (optional)' : '3. Add extras (optional)')}
+                  : (useDownsell ? 'Add extras (optional)' : 'Add extras (optional)')}
               </h4>
               <div className="space-y-2">
                 {allAddOns.map((addOn) => {
@@ -977,7 +1429,7 @@ export function UnifiedQuoteCard({
           >
             <h4 className={`text-sm font-bold uppercase tracking-wide flex items-center gap-2 ${isDarkTheme ? 'text-white' : 'text-slate-700'}`}>
               <CreditCard className="w-4 h-4 text-[#7DB00E]" />
-              3. Secure your slot
+              2. Secure your slot
             </h4>
             <div className={`rounded-xl p-4 ${isDarkTheme ? 'bg-white/5' : 'bg-slate-50'}`}>
               <div className="flex items-center gap-2 mb-3">
@@ -992,15 +1444,31 @@ export function UnifiedQuoteCard({
                   <label className={`text-sm font-medium ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
                     Email for receipt
                   </label>
-                  <input
-                    type="email"
-                    value={inlineEmail}
-                    onChange={e => setInlineEmail(e.target.value)}
-                    placeholder="your@email.com"
-                    className={`w-full border rounded-lg p-3 text-base outline-none focus:ring-2 focus:ring-[#7DB00E]/40 ${
-                      isDarkTheme ? 'border-white/20 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-900'
-                    }`}
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="email"
+                      value={inlineEmail}
+                      onChange={e => { setInlineEmail(e.target.value); setEmailConfirmed(false); }}
+                      onBlur={() => { if (isValidEmail(inlineEmail)) setEmailConfirmed(true); }}
+                      onKeyDown={e => { if (e.key === 'Enter' && isValidEmail(inlineEmail)) { e.preventDefault(); setEmailConfirmed(true); } }}
+                      placeholder="your@email.com"
+                      className={`flex-1 border rounded-lg p-3 text-base outline-none focus:ring-2 focus:ring-[#7DB00E]/40 ${
+                        isDarkTheme ? 'border-white/20 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-900'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { if (isValidEmail(inlineEmail)) setEmailConfirmed(true); }}
+                      disabled={!isValidEmail(inlineEmail)}
+                      className={`px-4 rounded-lg font-medium text-sm transition-all shrink-0 ${
+                        isValidEmail(inlineEmail)
+                          ? 'bg-[#7DB00E] text-white hover:bg-[#6a9a0c]'
+                          : isDarkTheme ? 'bg-white/5 text-slate-600 cursor-not-allowed' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                      }`}
+                    >
+                      Next
+                    </button>
+                  </div>
                 </div>
               ) : isLoadingPaymentIntent ? (
                 <div className="flex items-center justify-center py-6">

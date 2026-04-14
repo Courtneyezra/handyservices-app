@@ -429,6 +429,40 @@ export interface MultiLineResult {
 }
 
 // ---------------------------------------------------------------------------
+// Margin Preview (admin-only, returned alongside pricing results)
+// ---------------------------------------------------------------------------
+
+/** Per-line margin breakdown for a single line item */
+export interface MarginPreviewLine {
+  categorySlug: string;
+  customerPricePence: number;
+  /** Effective hourly rate the contractor earns (derived from revenue share or legacy WTBP) */
+  wtbpHourlyPence: number;
+  hours: number;
+  contractorCostPence: number;
+  marginPence: number;
+  marginPercent: number;
+  /** Revenue share tier: specialist | skilled | general | outdoor */
+  tier?: string;
+  /** Revenue share % for this tier (e.g. 45, 50, 55) */
+  revenueSharePercent?: number;
+  /** Which method set the pay: 'share' or 'floor' */
+  payMethod?: string;
+  /** Min hourly floor in pence */
+  minHourlyPence?: number;
+}
+
+/** Full margin preview for a multi-line quote */
+export interface MarginPreview {
+  totalCostPence: number;
+  totalMarginPence: number;
+  totalMarginPercent: number;
+  perLineMargin: MarginPreviewLine[];
+  uncoveredCategories: string[];
+  flags: string[];
+}
+
+// ---------------------------------------------------------------------------
 // Multi-Line LLM Response (with messaging fields)
 // ---------------------------------------------------------------------------
 

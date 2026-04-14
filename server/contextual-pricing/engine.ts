@@ -63,7 +63,7 @@ export async function generateContextualPrice(
     context.timeEstimateMinutes,
   );
 
-  // Layer 3 — LLM contextual pricing (async, calls OpenAI)
+  // Layer 3 — LLM contextual pricing (async, calls Anthropic)
   const llmResult = await generateLLMPrice(
     context,
     referenceResult.hourlyRatePence,

@@ -1,7 +1,8 @@
 import dns from "node:dns";
 dns.setDefaultResultOrder('ipv4first');
 
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ override: true });
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
@@ -52,6 +53,7 @@ import { setupCronJobs } from './cron';
 import uploadRouter from "./upload";
 import invoiceRouter from './invoices'; // B2: Invoice management
 import jobAssignmentRouter from './job-assignment'; // B5: Job assignment/dispatch
+import jobLifecycleRouter from './job-lifecycle'; // Day-of job lifecycle (en-route, timer, completion)
 import reviewsRouter from "./reviews-routes";
 import { leadTubeMapRouter } from './lead-tube-map'; // Lead Tube Map API
 import { callScriptRouter, initializeRealtimeHandler, setSimulateBroadcast } from './call-script'; // Call Script Tube Map API
@@ -71,6 +73,14 @@ import { trainingRouter as partnerTrainingRouter } from './training';
 import landlordPortalRouter from './landlord-portal'; // Property Maintenance AI Platform
 import tenantIssuesRouter from './tenant-issues'; // Admin Tenant Issues Hub
 import deflectionMetricsRouter from './routes/deflection-metrics'; // Troubleshooting Deflection Metrics
+import { careersRouter } from './careers-routes'; // Recruitment pipeline
+import { partnerRouter } from './partner-routes'; // Partner/area licensee enquiries
+import businessModelRouter from './business-model-routes'; // Business Model Forecast Dashboard
+import dailyPlannerRouter from './daily-planner-routes'; // Dispatch Daily Planner
+import wtbpRateCardRouter from './wtbp-routes'; // WTBP Rate Card (contractor pay rates)
+import { payoutRouter } from './payout-routes'; // Contractor payout routes
+import { disputeRouter } from './dispute-routes'; // Dispute resolution routes
+import { processPayouts, retryFailedPayouts } from './payout-engine'; // Payout cron engine
 import session from "express-session";
 import passport from "passport";
 import authRouter, { requireAdmin } from "./auth";
@@ -151,6 +161,44 @@ app.get('/api/health', (req, res) => {
 
 // Start Cron Jobs
 setupCronJobs();
+
+// Payout processing cron — runs every hour
+setInterval(async () => {
+    try {
+        console.log('[Payout Cron] Running scheduled payout processing...');
+        const result = await processPayouts();
+        console.log(`[Payout Cron] ${result.processed} processed, ${result.failed} failed, ${result.held} held`);
+
+        // Also retry any previously failed payouts
+        if (result.failed > 0) {
+            const retryResult = await retryFailedPayouts();
+            console.log(`[Payout Cron] Retried ${retryResult.retried}, skipped ${retryResult.skipped} (max retries)`);
+        }
+    } catch (err) {
+        console.error('[Payout Cron] Error:', err);
+    }
+}, 3600000); // Every hour
+
+// Overdue invoice check + dunning reminders — runs every hour
+setInterval(async () => {
+    try {
+        const { checkOverdueInvoices, runDunningSequence } = await import('./invoice-generator');
+
+        // 1. Mark overdue invoices
+        const count = await checkOverdueInvoices();
+        if (count > 0) {
+            console.log(`[Invoice Cron] ${count} invoice(s) marked as overdue`);
+        }
+
+        // 2. Send dunning reminders (Day 7, 14, 21, 30 escalation)
+        const dunning = await runDunningSequence();
+        if (dunning.reminded > 0 || dunning.escalated > 0) {
+            console.log(`[Invoice Cron] Dunning: ${dunning.reminded} reminders sent, ${dunning.escalated} escalated`);
+        }
+    } catch (err) {
+        console.error('[Invoice Cron] Error in invoice processing:', err);
+    }
+}, 3600000); // Every hour
 
 // Auto-seed quote platform tables if empty
 autoSeedQuotePlatform();
@@ -288,6 +336,7 @@ app.use('/api', contentRouter); // Landing Pages & Banners
 app.use('/api', uploadRouter);
 app.use(invoiceRouter); // B2: Invoice management
 app.use(jobAssignmentRouter); // B5: Job assignment/dispatch
+app.use(jobLifecycleRouter); // Day-of job lifecycle
 app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
 
 // Contractor Portal Routes
@@ -318,6 +367,40 @@ app.use(partnerTrainingRouter); // Partner training modules
 app.use('/api/landlord', landlordPortalRouter); // Landlord portal API
 app.use('/api/admin/tenant-issues', tenantIssuesRouter); // Admin Tenant Issues Hub
 app.use('/api/admin/deflection-metrics', requireAdmin, deflectionMetricsRouter); // Troubleshooting Deflection Metrics
+app.use(careersRouter); // Recruitment pipeline
+app.use(partnerRouter); // Partner/area licensee enquiries
+
+// ── Contractor Partner Applications (/join page) ────────────────────────────
+app.post('/api/join/apply', async (req, res) => {
+  try {
+    const { name, phone, trades, area, daysPerWeek, message } = req.body;
+    if (!name || !phone) {
+      return res.status(400).json({ error: 'Name and phone are required' });
+    }
+    // Store in partnerEnquiries table
+    const { db: database } = await import('./db');
+    const { partnerEnquiries } = await import('@shared/schema');
+    await database.insert(partnerEnquiries).values({
+      fullName: name,
+      email: '',
+      phone,
+      territoryInterest: area ? `contractor-${area}` : 'contractor-application',
+      investmentBudget: daysPerWeek || '',
+      currentSituation: Array.isArray(trades) ? trades.join(', ') : '',
+      message: message || '',
+    });
+    console.log(`[Join] Contractor application: ${name} — ${area || 'no area'} — ${phone}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Join] Application error:', err);
+    res.status(500).json({ error: 'Failed to save application' });
+  }
+});
+app.use(businessModelRouter); // Business Model Forecast Dashboard
+app.use('/api/admin/daily-planner', requireAdmin, dailyPlannerRouter); // Dispatch Daily Planner
+app.use(wtbpRateCardRouter); // WTBP Rate Card (contractor pay rates)
+app.use(payoutRouter); // Contractor payout & earnings routes
+app.use(disputeRouter); // Dispute resolution routes
 
 // Serve static assets (for hold music)
 app.use('/assets', express.static(path.join(__dirname, '../public/assets')));

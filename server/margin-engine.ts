@@ -10,10 +10,11 @@
  */
 
 import { db } from './db';
-import { handymanSkills, handymanProfiles } from '../shared/schema';
-import { eq } from 'drizzle-orm';
+import { handymanSkills, handymanProfiles, wtbpRateCard } from '../shared/schema';
+import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { CATEGORY_RATES, CATEGORY_MIN_MARGINS } from './contextual-pricing/reference-rates';
 import type { JobCategory } from '../shared/contextual-pricing-types';
+import { calculateMultiLineRevenueShare, type RevenueShareResult } from './revenue-share-tiers';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -118,6 +119,17 @@ export async function calculateQuoteCost(
 export async function calculateMultiLineCost(
   lines: Array<{ category: JobCategory; timeEstimateMinutes: number }>,
 ): Promise<CostResult & { totalCostPence: number; lineBreakdown: CostResult[] }> {
+  if (lines.length === 0) {
+    const empty: CostResult = {
+      costPence: 0,
+      contractorId: null,
+      contractorRate: 0,
+      categorySlug: 'other',
+      isFallback: true,
+    };
+    return { ...empty, totalCostPence: 0, lineBreakdown: [] };
+  }
+
   const lineResults: CostResult[] = [];
   let totalCostPence = 0;
 
@@ -180,5 +192,103 @@ export function checkMargin(
     isHealthy: marginPercent >= minMarginPercent,
     flags,
     minMarginPercent,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// WTBP Rate Card Cost Calculation
+// ---------------------------------------------------------------------------
+
+function fmtGBP(pence: number): string {
+  return `£${(pence / 100).toFixed(2)}`;
+}
+
+export interface WTBPCostResult {
+  totalCostPence: number;
+  totalMarginPence: number;
+  totalMarginPercent: number;
+  perLineMargin: Array<{
+    categorySlug: string;
+    customerPricePence: number;
+    /** @deprecated Use revenueSharePercent + tier instead */
+    wtbpHourlyPence: number;
+    hours: number;
+    contractorCostPence: number;
+    marginPence: number;
+    marginPercent: number;
+    /** Revenue share tier (specialist/skilled/general/outdoor) */
+    tier?: string;
+    /** Revenue share % for this tier */
+    revenueSharePercent?: number;
+    /** Which method set the pay: 'share' or 'floor' */
+    payMethod?: string;
+    /** Min hourly floor in pence */
+    minHourlyPence?: number;
+  }>;
+  uncoveredCategories: string[];
+  flags: string[];
+}
+
+/**
+ * Calculate contractor cost using Tiered Revenue Share model.
+ *
+ * Contractor pay = MAX(revenue_share, min_hourly_floor × hours)
+ *
+ * Tiers:
+ *   Specialist (electrical, plumbing, bathroom, kitchen): 55% share, £28/hr floor
+ *   Skilled (carpentry, tiling, plastering, lock change, door): 50% share, £22/hr floor
+ *   General (fixing, shelving, flat pack, curtains, painting, etc): 45% share, £18/hr floor
+ *   Outdoor (garden, waste, pressure washing, guttering, fencing, flooring): 45% share, £16/hr floor
+ *
+ * Replaces the old WTBP cost-plus model. Returns same interface for backward compatibility.
+ */
+export async function calculateCostFromWTBP(
+  lineItems: Array<{ categorySlug: string; pricePence: number; timeEstimateMinutes: number }>,
+): Promise<WTBPCostResult> {
+  // Guard: empty input
+  if (lineItems.length === 0) {
+    return {
+      totalCostPence: 0,
+      totalMarginPence: 0,
+      totalMarginPercent: 0,
+      perLineMargin: [],
+      uncoveredCategories: [],
+      flags: [],
+    };
+  }
+
+  // Use the revenue share model
+  const revShareResult = calculateMultiLineRevenueShare(
+    lineItems.map(l => ({
+      categorySlug: l.categorySlug as JobCategory,
+      pricePence: l.pricePence,
+      timeEstimateMinutes: l.timeEstimateMinutes,
+    })),
+  );
+
+  // Map to the existing WTBPCostResult interface for backward compat
+  const perLineMargin: WTBPCostResult['perLineMargin'] = revShareResult.lines.map(line => ({
+    categorySlug: line.categorySlug,
+    customerPricePence: line.customerPricePence,
+    // Legacy field — show the effective hourly rate the contractor earns
+    wtbpHourlyPence: line.hours > 0 ? Math.round(line.contractorPayPence / line.hours) : 0,
+    hours: line.hours,
+    contractorCostPence: line.contractorPayPence,
+    marginPence: line.platformKeepsPence,
+    marginPercent: line.marginPercent,
+    // New fields
+    tier: line.tier,
+    revenueSharePercent: line.revenueSharePercent,
+    payMethod: line.payMethod,
+    minHourlyPence: line.minHourlyPence,
+  }));
+
+  return {
+    totalCostPence: revShareResult.totalContractorPay,
+    totalMarginPence: revShareResult.totalPlatformKeeps,
+    totalMarginPercent: revShareResult.overallMarginPercent,
+    perLineMargin,
+    uncoveredCategories: [],
+    flags: revShareResult.flags,
   };
 }

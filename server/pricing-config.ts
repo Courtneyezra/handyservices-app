@@ -120,26 +120,11 @@ export interface PricingConfig extends AdditivePricingConfig {
   maximumHours: number;
 }
 
-// Function to ensure all prices end in 9 for pricing psychology
-function ensurePriceEndsInNine(price: number): number {
-  const rounded = Math.round(price);
-  const lastDigit = rounded % 10;
-  
-  if (lastDigit === 9) {
-    return rounded;
-  }
-  
-  // If last digit is 0-8, round up to next 9
-  // If last digit is 0, make it 9 (e.g., 150 -> 149)
-  if (lastDigit === 0) {
-    return rounded - 1;
-  } else {
-    // For 1-8, round up to 9 (e.g., 152 -> 159, 157 -> 159)
-    return rounded + (9 - lastDigit);
-  }
+function roundToWholePounds(priceInPence: number): number {
+  return Math.round(priceInPence / 100) * 100;
 }
 
-export { ensurePriceEndsInNine };
+export { roundToWholePounds };
 
 export const defaultAdditivePricingConfig: AdditivePricingConfig = {
   baseRate: 78,
@@ -306,7 +291,7 @@ export function calculateAdditiveJobPrice(
   const total = subtotal + config.calloutFee;
   
   // Apply pricing psychology - ensure price ends in 9
-  const final = ensurePriceEndsInNine(total);
+  const final = roundToWholePounds(total);
   
   return {
     laborCost,
@@ -842,9 +827,9 @@ export function calculateEEEPackagePricing(
   const eliteMarkup = Math.max(enforcedBasePrice * eliteMarkupPercent, eliteMinimumFee);
   
   // Calculate final prices with psychology pricing (end in 9)
-  const essentialPrice = ensurePriceEndsInNine(enforcedBasePrice);
-  const enhancedPrice = ensurePriceEndsInNine(enforcedBasePrice + enhancedMarkup);
-  const elitePrice = ensurePriceEndsInNine(enforcedBasePrice + eliteMarkup + aftercareFee);
+  const essentialPrice = roundToWholePounds(enforcedBasePrice);
+  const enhancedPrice = roundToWholePounds(enforcedBasePrice + enhancedMarkup);
+  const elitePrice = roundToWholePounds(enforcedBasePrice + eliteMarkup + aftercareFee);
   
   // Essential features: actual job tasks + basic service guarantees
   const essentialFeatures = [
@@ -1045,13 +1030,13 @@ export function calculateValueAnchoredPricing(
   
   // Calculate tier prices with rounding ONLY at the end
   // HHH tiers: anchor × [0.85, 1.00, 1.20]
-  const handyFixPrice = ensurePriceEndsInNine(anchorPrice * 0.85);
-  const hassleFreePrice = ensurePriceEndsInNine(anchorPrice * 1.00);
-  const highStandardPrice = ensurePriceEndsInNine(anchorPrice * 1.20);
+  const handyFixPrice = roundToWholePounds(anchorPrice * 0.85);
+  const hassleFreePrice = roundToWholePounds(anchorPrice * 1.00);
+  const highStandardPrice = roundToWholePounds(anchorPrice * 1.20);
   
   // Simple mode: use base cost directly
   const simpleQuote = quoteMode === 'simple' 
-    ? ensurePriceEndsInNine(totalBaseCost) 
+    ? roundToWholePounds(totalBaseCost) 
     : undefined;
   
   // Convert all prices from pounds to pence for storage/API
@@ -1263,9 +1248,9 @@ export function calculateHHHTierPrices(inputs: HHHStructuredInputs): HHHTierPric
   
   // Apply pricing psychology (ends in 9) and enforce minimums
   return {
-    handyFix: ensurePriceEndsInNine(Math.max(handyFix, TIER_MINIMUMS.handyFix)),
-    hassleFree: ensurePriceEndsInNine(Math.max(hassleFree, TIER_MINIMUMS.hassleFree)),
-    highStandard: ensurePriceEndsInNine(Math.max(highStandard, TIER_MINIMUMS.highStandard)),
+    handyFix: roundToWholePounds(Math.max(handyFix, TIER_MINIMUMS.handyFix)),
+    hassleFree: roundToWholePounds(Math.max(hassleFree, TIER_MINIMUMS.hassleFree)),
+    highStandard: roundToWholePounds(Math.max(highStandard, TIER_MINIMUMS.highStandard)),
     basePrice: Math.round(basePrice)
   };
 }

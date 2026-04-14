@@ -1,6 +1,5 @@
 import jsPDF from 'jspdf';
 import { format } from 'date-fns';
-import { applyPsychologicalPricing } from '@/components/quote/SchedulingConfig';
 
 interface QuotePDFData {
   quoteId: string;
@@ -18,9 +17,8 @@ export const generateQuotePDF = (data: QuotePDFData) => {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  // Apply psychological pricing
-  const adjustedPrice = applyPsychologicalPricing(data.priceInPence);
-  const priceDisplay = `£${Math.round(adjustedPrice / 100)}`;
+  // Prices are already whole pounds from the engine
+  const priceDisplay = `£${Math.round(data.priceInPence / 100)}`;
 
   // Colors
   const brandGreen = [125, 176, 14] as [number, number, number]; // #7DB00E

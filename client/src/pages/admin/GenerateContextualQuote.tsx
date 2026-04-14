@@ -30,6 +30,7 @@ import {
   AlertTriangle,
   Info,
   Eye,
+  Users,
 } from 'lucide-react';
 import { QuotePreviewModal } from '@/components/quote/QuotePreviewModal';
 import type { PreviewQuote } from '@/components/quote/QuotePreviewModal';
@@ -44,6 +45,7 @@ import type {
   LayoutTier,
   BookingMode,
   MultiLineResult,
+  MarginPreview,
 } from '@shared/contextual-pricing-types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -58,6 +60,16 @@ interface RecentCaller {
   postcode: string;
   jobSummary: string;
   calledAt: string | null;
+}
+
+interface ContractorOption {
+  id: string;
+  name: string;
+  profileImageUrl: string | null;
+  availabilityStatus: string | null;
+  city: string | null;
+  postcode: string | null;
+  categorySlugs: string[];
 }
 
 interface LineItem {
@@ -99,6 +111,7 @@ interface QuoteResult {
     requiresHumanReview: boolean;
     reviewReason?: string;
   };
+  marginPreview?: MarginPreview;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -136,6 +149,71 @@ const CATEGORY_OPTIONS = Object.entries(CATEGORY_LABELS).map(([value, label]) =>
   value,
   label,
 }));
+
+// Category icons for slab display
+const CATEGORY_ICONS: Record<string, string> = {
+  plumbing_minor: '🔧',
+  electrical_minor: '⚡',
+  tv_mounting: '📺',
+  painting: '🎨',
+  carpentry: '🪚',
+  flat_pack: '📦',
+  tiling: '🧱',
+  plastering: '🏗️',
+  lock_change: '🔒',
+  guttering: '🏠',
+  pressure_washing: '💦',
+  fencing: '🪵',
+  garden_maintenance: '🌿',
+  bathroom_fitting: '🚿',
+  kitchen_fitting: '🍳',
+  door_fitting: '🚪',
+  flooring: '🪵',
+  curtain_blinds: '🪟',
+  silicone_sealant: '🧴',
+  shelving: '📐',
+  furniture_repair: '🪑',
+  waste_removal: '🗑️',
+  general_fixing: '🔨',
+  other: '📋',
+};
+
+/**
+ * Auto-detect job category from description text.
+ * Returns the best matching category or null if uncertain.
+ */
+function autoDetectCategory(description: string): string | null {
+  const d = description.toLowerCase();
+  const rules: [RegExp, string][] = [
+    [/\b(tap|leak|pipe|drain|toilet|shower|boiler|plumb|cistern|radiator|stopcock)\b/, 'plumbing_minor'],
+    [/\b(tv|television|mount|bracket|wall.?mount)\b/, 'tv_mounting'],
+    [/\b(switch|socket|light|dimmer|spotlight|downlight|electric|fuse|circuit)\b/, 'electrical_minor'],
+    [/\b(paint|emulsion|gloss|primer|decor|wall.?paper)\b/, 'painting'],
+    [/\b(tile|tiling|grout|splash.?back|mosaic)\b/, 'tiling'],
+    [/\b(plaster|skim|render|patch|artex)\b/, 'plastering'],
+    [/\b(flat.?pack|ikea|assembly|assemble|wardrobe|desk|bookcase)\b/, 'flat_pack'],
+    [/\b(shelf|shelves|shelving|floating)\b/, 'shelving'],
+    [/\b(lock|yale|deadbolt|cylinder|door.?lock)\b/, 'lock_change'],
+    [/\b(gutter|fascia|soffit|downpipe)\b/, 'guttering'],
+    [/\b(pressure.?wash|jet.?wash|patio.?clean|driveway.?clean)\b/, 'pressure_washing'],
+    [/\b(fence|fencing|panel|post|gate)\b/, 'fencing'],
+    [/\b(garden|hedge|lawn|prune|tree|stump)\b/, 'garden_maintenance'],
+    [/\b(bathroom|bath|vanity|basin)\b/, 'bathroom_fitting'],
+    [/\b(kitchen|worktop|hob|oven|unit)\b/, 'kitchen_fitting'],
+    [/\b(door|hinge|handle|door.?fit)\b/, 'door_fitting'],
+    [/\b(floor|laminate|vinyl|carpet|lino)\b/, 'flooring'],
+    [/\b(curtain|blind|rail|track|roller)\b/, 'curtain_blinds'],
+    [/\b(silicone|seal|sealant|caulk|mould)\b/, 'silicone_sealant'],
+    [/\b(furniture|chair|table|drawer|cabinet)\b/, 'furniture_repair'],
+    [/\b(waste|rubbish|skip|clear|removal|dispose)\b/, 'waste_removal'],
+    [/\b(carpent|wood|timber|stud|batten|frame|joist|board)\b/, 'carpentry'],
+  ];
+
+  for (const [pattern, category] of rules) {
+    if (pattern.test(d)) return category;
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Time unit helpers — stores everything as minutes internally
@@ -226,24 +304,24 @@ function TimeInput({
   const decrement = () => onChange(Math.max(15, minutes - step));
   const increment = () => onChange(minutes + step);
 
-  // Desktop compact: just stepper row
+  // Compact: stepper row — full-width on mobile, inline on sm+
   if (compact) {
     return (
-      <div className="flex items-center gap-0.5">
+      <div className="flex items-center gap-0.5 w-full sm:w-auto">
         <button
           type="button"
           onClick={decrement}
-          className="h-9 w-8 rounded-md border border-input bg-background text-sm font-medium hover:bg-accent active:scale-95 transition-transform flex items-center justify-center"
+          className="h-10 sm:h-9 w-10 sm:w-8 rounded-md border border-input bg-background text-sm font-medium hover:bg-accent active:scale-95 transition-transform flex items-center justify-center shrink-0"
         >
           −
         </button>
-        <div className="h-9 min-w-[70px] px-1 rounded-md border border-input bg-background flex items-center justify-center text-xs font-medium whitespace-nowrap">
+        <div className="h-10 sm:h-9 flex-1 sm:flex-none sm:min-w-[70px] px-1 rounded-md border border-input bg-background flex items-center justify-center text-sm sm:text-xs font-medium whitespace-nowrap">
           {label}
         </div>
         <button
           type="button"
           onClick={increment}
-          className="h-9 w-8 rounded-md border border-input bg-background text-sm font-medium hover:bg-accent active:scale-95 transition-transform flex items-center justify-center"
+          className="h-10 sm:h-9 w-10 sm:w-8 rounded-md border border-input bg-background text-sm font-medium hover:bg-accent active:scale-95 transition-transform flex items-center justify-center shrink-0"
         >
           +
         </button>
@@ -290,6 +368,354 @@ function TimeInput({
         ))}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Margin Preview Panel — admin-only per-line margin breakdown
+// ---------------------------------------------------------------------------
+
+function getMarginColor(percent: number): string {
+  if (percent >= 40) return 'text-green-400';
+  if (percent >= 30) return 'text-yellow-400';
+  if (percent >= 20) return 'text-orange-400';
+  return 'text-red-400';
+}
+
+function getMarginBgColor(percent: number): string {
+  if (percent >= 40) return 'bg-green-500/10 border-green-500/20';
+  if (percent >= 30) return 'bg-yellow-500/10 border-yellow-500/20';
+  if (percent >= 20) return 'bg-orange-500/10 border-orange-500/20';
+  return 'bg-red-500/10 border-red-500/20';
+}
+
+const TIER_LABELS: Record<string, string> = {
+  specialist: 'Specialist',
+  skilled: 'Skilled',
+  general: 'General',
+  outdoor: 'Outdoor',
+};
+
+const TIER_COLORS: Record<string, string> = {
+  specialist: 'text-purple-400',
+  skilled: 'text-blue-400',
+  general: 'text-slate-400',
+  outdoor: 'text-emerald-400',
+};
+
+const TIER_BG_COLORS: Record<string, string> = {
+  specialist: 'bg-purple-500/15 border-purple-500/30 text-purple-300',
+  skilled: 'bg-blue-500/15 border-blue-500/30 text-blue-300',
+  general: 'bg-slate-500/15 border-slate-500/30 text-slate-300',
+  outdoor: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300',
+};
+
+function MarginPreviewPanel({ data }: { data: MarginPreview }) {
+  const [view, setView] = React.useState<'platform' | 'contractor'>('platform');
+  const p2p = (p: number) => `£${(p / 100).toFixed(0)}`;
+  const p2pDec = (p: number) => `£${(p / 100).toFixed(2)}`;
+  const hasRevShare = data.perLineMargin.some(l => l.tier);
+
+  const totalCustomerPrice = data.perLineMargin.reduce((s, l) => s + l.customerPricePence, 0);
+  const totalContractorPay = data.totalCostPence;
+  const totalHours = data.perLineMargin.reduce((s, l) => s + l.hours, 0);
+  const effectiveAvgHourly = totalHours > 0 ? Math.round(totalContractorPay / totalHours) : 0;
+
+  // Short category labels for mobile
+  const shortCat = (slug: string) => {
+    const full = CATEGORY_LABELS[slug] || slug;
+    // Trim to first word or key part for mobile
+    return full.replace(' (Minor)', '').replace(' & ', '/').replace('Flat Pack Assembly', 'Flat Pack').replace('General Fixing', 'Fixing').replace('Garden Maintenance', 'Garden');
+  };
+
+  return (
+    <Card className="border border-border">
+      <CardHeader className="pb-2 px-3 sm:px-6">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm flex items-center gap-1.5 min-w-0">
+            <AlertTriangle className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            <span className="truncate">{hasRevShare ? 'Rev Share' : 'Margin'}</span>
+          </CardTitle>
+          {hasRevShare && (
+            <div className="flex rounded-lg border border-border overflow-hidden text-[11px] shrink-0">
+              <button
+                type="button"
+                onClick={() => setView('platform')}
+                className={`px-2 sm:px-2.5 py-1 font-medium transition-colors ${
+                  view === 'platform'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-background text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Platform
+              </button>
+              <button
+                type="button"
+                onClick={() => setView('contractor')}
+                className={`px-2 sm:px-2.5 py-1 font-medium transition-colors ${
+                  view === 'contractor'
+                    ? 'bg-amber-600 text-white'
+                    : 'bg-background text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Contractor
+              </button>
+            </div>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 px-3 sm:px-6">
+        {/* ── PLATFORM VIEW ── */}
+        {view === 'platform' && (
+          <>
+            {/* Mobile: stacked cards · Desktop: table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border text-muted-foreground">
+                    <th className="text-left py-1.5 pr-2 font-medium">Category</th>
+                    <th className="text-right py-1.5 px-1 font-medium">Customer</th>
+                    <th className="text-right py-1.5 px-1 font-medium">{hasRevShare ? 'Tier' : 'Rate/hr'}</th>
+                    <th className="text-right py-1.5 px-1 font-medium">Hrs</th>
+                    <th className="text-right py-1.5 px-1 font-medium">{hasRevShare ? 'Contractor' : 'Cost'}</th>
+                    <th className="text-right py-1.5 px-1 font-medium">{hasRevShare ? 'Platform' : 'Margin'}</th>
+                    <th className="text-right py-1.5 pl-1 font-medium">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.perLineMargin.map((line, idx) => (
+                    <tr key={idx} className="border-b border-border/50">
+                      <td className="py-1.5 pr-2 text-foreground">{CATEGORY_LABELS[line.categorySlug] || line.categorySlug}</td>
+                      <td className="text-right py-1.5 px-1 text-foreground">{p2pDec(line.customerPricePence)}</td>
+                      <td className="text-right py-1.5 px-1">
+                        {hasRevShare && line.tier ? (
+                          <span className={TIER_COLORS[line.tier] || 'text-muted-foreground'}>
+                            {line.revenueSharePercent}%{line.payMethod === 'floor' && <span className="text-orange-400 ml-0.5">↑</span>}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">{p2pDec(line.wtbpHourlyPence)}</span>
+                        )}
+                      </td>
+                      <td className="text-right py-1.5 px-1 text-muted-foreground">{parseFloat(line.hours.toFixed(2))}</td>
+                      <td className="text-right py-1.5 px-1 text-muted-foreground">{p2pDec(line.contractorCostPence)}</td>
+                      <td className={`text-right py-1.5 px-1 font-medium ${getMarginColor(line.marginPercent)}`}>{p2pDec(line.marginPence)}</td>
+                      <td className={`text-right py-1.5 pl-1 font-medium ${getMarginColor(line.marginPercent)}`}>{line.marginPercent}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-border font-medium">
+                    <td className="py-2 pr-2 text-foreground">Total</td>
+                    <td className="text-right py-2 px-1 text-foreground">{p2pDec(totalCustomerPrice)}</td>
+                    <td className="py-2 px-1" /><td className="py-2 px-1" />
+                    <td className="text-right py-2 px-1 text-muted-foreground">{p2pDec(data.totalCostPence)}</td>
+                    <td className={`text-right py-2 px-1 ${getMarginColor(data.totalMarginPercent)}`}>{p2pDec(data.totalMarginPence)}</td>
+                    <td className={`text-right py-2 pl-1 ${getMarginColor(data.totalMarginPercent)}`}>{data.totalMarginPercent}%</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            {/* Mobile stacked rows */}
+            <div className="sm:hidden space-y-2">
+              {data.perLineMargin.map((line, idx) => (
+                <div key={idx} className="rounded-lg border border-border/50 px-3 py-2 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-foreground">{shortCat(line.categorySlug)}</span>
+                    {hasRevShare && line.tier && (
+                      <span className={`text-[10px] font-medium ${TIER_COLORS[line.tier]}`}>
+                        {line.revenueSharePercent}%{line.payMethod === 'floor' && <span className="text-orange-400 ml-0.5">↑</span>}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-muted-foreground">Customer {p2p(line.customerPricePence)} · {parseFloat(line.hours.toFixed(1))}h</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Sub {p2p(line.contractorCostPence)}</span>
+                      <span className={`font-semibold ${getMarginColor(line.marginPercent)}`}>{line.marginPercent}%</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Overall margin indicator */}
+            <div className={`rounded-md px-3 py-2 border ${getMarginBgColor(data.totalMarginPercent)}`}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">
+                  {hasRevShare ? 'Platform' : 'Margin'}
+                </span>
+                <span className={`text-sm font-bold ${getMarginColor(data.totalMarginPercent)}`}>
+                  {data.totalMarginPercent}% ({p2p(data.totalMarginPence)})
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── CONTRACTOR VIEW ── */}
+        {view === 'contractor' && hasRevShare && (
+          <>
+            {/* Desktop table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border text-muted-foreground">
+                    <th className="text-left py-1.5 pr-2 font-medium">Category</th>
+                    <th className="text-right py-1.5 px-1 font-medium">Tier</th>
+                    <th className="text-right py-1.5 px-1 font-medium">Hrs</th>
+                    <th className="text-right py-1.5 px-1 font-medium">Pay</th>
+                    <th className="text-right py-1.5 px-1 font-medium">Eff. /hr</th>
+                    <th className="text-right py-1.5 pl-1 font-medium">Method</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.perLineMargin.map((line, idx) => {
+                    const effHourly = line.hours > 0 ? Math.round(line.contractorCostPence / line.hours) : 0;
+                    const tierColor = line.tier ? TIER_COLORS[line.tier] : 'text-muted-foreground';
+                    return (
+                      <tr key={idx} className="border-b border-border/50">
+                        <td className="py-1.5 pr-2 text-foreground">{CATEGORY_LABELS[line.categorySlug] || line.categorySlug}</td>
+                        <td className={`text-right py-1.5 px-1 ${tierColor}`}>{line.tier ? TIER_LABELS[line.tier] : '—'}</td>
+                        <td className="text-right py-1.5 px-1 text-muted-foreground">{parseFloat(line.hours.toFixed(2))}</td>
+                        <td className="text-right py-1.5 px-1 text-amber-400 font-medium">{p2pDec(line.contractorCostPence)}</td>
+                        <td className="text-right py-1.5 px-1 text-foreground">{p2pDec(effHourly)}</td>
+                        <td className="text-right py-1.5 pl-1">
+                          {line.payMethod === 'floor' ? (
+                            <span className="text-orange-400">Floor</span>
+                          ) : (
+                            <span className="text-emerald-400">{line.revenueSharePercent}%</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-border font-medium">
+                    <td className="py-2 pr-2 text-foreground">Total</td>
+                    <td className="py-2 px-1" />
+                    <td className="text-right py-2 px-1 text-muted-foreground">{parseFloat(totalHours.toFixed(1))}</td>
+                    <td className="text-right py-2 px-1 text-amber-400 font-bold">{p2pDec(totalContractorPay)}</td>
+                    <td className="text-right py-2 px-1 text-foreground">{p2pDec(effectiveAvgHourly)}</td>
+                    <td className="py-2 pl-1" />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            {/* Mobile stacked rows */}
+            <div className="sm:hidden space-y-2">
+              {data.perLineMargin.map((line, idx) => {
+                const effHourly = line.hours > 0 ? Math.round(line.contractorCostPence / line.hours) : 0;
+                const tierColor = line.tier ? TIER_COLORS[line.tier] : 'text-muted-foreground';
+                return (
+                  <div key={idx} className="rounded-lg border border-border/50 px-3 py-2 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-foreground">{shortCat(line.categorySlug)}</span>
+                      <span className={`text-[10px] font-medium ${tierColor}`}>
+                        {line.tier ? TIER_LABELS[line.tier] : '—'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-muted-foreground">{parseFloat(line.hours.toFixed(1))}h · {p2p(effHourly)}/hr</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-amber-400 font-semibold">{p2p(line.contractorCostPence)}</span>
+                        {line.payMethod === 'floor' ? (
+                          <span className="text-orange-400 text-[10px]">Floor</span>
+                        ) : (
+                          <span className="text-emerald-400 text-[10px]">{line.revenueSharePercent}%</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Contractor earnings summary */}
+            <div className="rounded-md px-3 py-2.5 border bg-amber-500/10 border-amber-500/20">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-muted-foreground">Contractor Payout</span>
+                <span className="text-sm font-bold text-amber-400">{p2pDec(totalContractorPay)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Avg rate</span>
+                <span className="text-xs font-medium text-foreground">
+                  {p2p(effectiveAvgHourly)}/hr · {parseFloat(totalHours.toFixed(1))}h
+                </span>
+              </div>
+            </div>
+
+            {/* Per-tier breakdown chips */}
+            {(() => {
+              const tierGroups: Record<string, { pay: number; hours: number; lines: number }> = {};
+              data.perLineMargin.forEach(line => {
+                const t = line.tier || 'general';
+                if (!tierGroups[t]) tierGroups[t] = { pay: 0, hours: 0, lines: 0 };
+                tierGroups[t].pay += line.contractorCostPence;
+                tierGroups[t].hours += line.hours;
+                tierGroups[t].lines += 1;
+              });
+              return (
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(tierGroups).map(([tier, g]) => (
+                    <div key={tier} className={`rounded-lg px-2 py-1 border text-[10px] ${TIER_BG_COLORS[tier] || TIER_BG_COLORS.general}`}>
+                      <span className="font-semibold">{TIER_LABELS[tier] || tier}</span>
+                      <span className="opacity-70 ml-1">
+                        {g.lines}× · {p2p(g.pay)} · {p2p(g.hours > 0 ? Math.round(g.pay / g.hours) : 0)}/hr
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* Floor explanation */}
+            {data.perLineMargin.some(l => l.payMethod === 'floor') && (
+              <div className="rounded-md px-3 py-2 border bg-orange-500/10 border-orange-500/20">
+                <p className="text-[11px] text-orange-300">
+                  <span className="font-medium">Floor active</span> — min hourly exceeded share on some lines.
+                </p>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Revenue share legend */}
+        {hasRevShare && (
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px]">
+            <span className={`${TIER_COLORS.specialist}`}>Spec 55%</span>
+            <span className={`${TIER_COLORS.skilled}`}>Skill 50%</span>
+            <span className={`${TIER_COLORS.general}`}>Gen 45%</span>
+            <span className={`${TIER_COLORS.outdoor}`}>Out 45%</span>
+            <span className="text-orange-400">↑ floor</span>
+          </div>
+        )}
+
+        {/* Flags */}
+        {data.flags.length > 0 && (
+          <div className="space-y-1">
+            {data.flags.map((flag, idx) => (
+              <div key={idx} className="flex items-start gap-1.5 text-[11px] text-yellow-400">
+                <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                <span>{flag}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Info text */}
+        <p className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
+          <Info className="w-3 h-3 shrink-0" />
+          {view === 'contractor'
+            ? 'Pay = MAX(share, hourly floor)'
+            : hasRevShare
+              ? 'Contractor gets % of price (or min floor)'
+              : 'Warning only — does not block sending'}
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -391,6 +817,9 @@ export default function GenerateContextualQuote() {
     priceConscious: false,
   });
 
+  // ── Contractor assignment ──
+  const [selectedContractorId, setSelectedContractorId] = useState<string | null>(null);
+
   // ── Call card selection ──
   const [selectedCallerId, setSelectedCallerId] = useState<string | null>(null);
 
@@ -407,6 +836,7 @@ export default function GenerateContextualQuote() {
 
   // ── Live pricing preview (calls the real engine) ──
   const [livePreview, setLivePreview] = useState<MultiLineResult | null>(null);
+  const [liveMarginPreview, setLiveMarginPreview] = useState<MarginPreview | null>(null);
   const [livePreviewLoading, setLivePreviewLoading] = useState(false);
   const livePreviewAbortRef = useRef<AbortController | null>(null);
   const livePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -419,6 +849,7 @@ export default function GenerateContextualQuote() {
     const validItems = items.filter((li) => li.description.trim() && li.estimatedMinutes > 0);
     if (validItems.length === 0) {
       setLivePreview(null);
+      setLiveMarginPreview(null);
       setLivePreviewLoading(false);
       return;
     }
@@ -452,12 +883,15 @@ export default function GenerateContextualQuote() {
         signal: controller.signal,
       });
       if (!res.ok) throw new Error('Preview failed');
-      const data: MultiLineResult = await res.json();
-      setLivePreview(data);
+      const data = await res.json() as MultiLineResult & { marginPreview?: MarginPreview };
+      const { marginPreview: mp, ...pricingData } = data;
+      setLivePreview(pricingData);
+      setLiveMarginPreview(mp ?? null);
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         // Silently fall back — preview is non-critical
         setLivePreview(null);
+        setLiveMarginPreview(null);
       }
     } finally {
       if (!controller.signal.aborted) {
@@ -501,6 +935,43 @@ export default function GenerateContextualQuote() {
     },
     staleTime: 30_000,
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // API: Fetch contractors for assignment dropdown
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const { data: contractors } = useQuery<ContractorOption[]>({
+    queryKey: ['pricing-contractors'],
+    queryFn: async () => {
+      const res = await fetch('/api/pricing/contractors', {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error('Failed to fetch contractors');
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  // Auto-suggest best contractor based on line item categories
+  const suggestedContractor = useMemo(() => {
+    if (!contractors || contractors.length === 0 || lineItems.length === 0) return null;
+    const jobCategories = lineItems.map(li => li.category);
+
+    // Score each contractor: how many of the job categories they cover
+    const scored = contractors.map(c => {
+      const matchCount = jobCategories.filter(cat => c.categorySlugs.includes(cat)).length;
+      const isAvailable = c.availabilityStatus === 'available';
+      return {
+        ...c,
+        matchCount,
+        matchPercent: Math.round((matchCount / jobCategories.length) * 100),
+        score: matchCount * 10 + (isAvailable ? 5 : 0),
+      };
+    }).filter(c => c.matchCount > 0);
+
+    scored.sort((a, b) => b.score - a.score);
+    return scored[0] || null;
+  }, [contractors, lineItems]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // API: AI job parser
@@ -564,7 +1035,7 @@ export default function GenerateContextualQuote() {
           email: email || undefined,
           address: address || undefined,
           postcode: postcode || undefined,
-          jobDescription: jobDescription || undefined,
+          jobDescription: jobDescription || lineItems.map(li => li.description).filter(Boolean).join(', ') || undefined,
           lines: lineItems.map((li) => ({
             id: li.id,
             description: li.description,
@@ -582,6 +1053,7 @@ export default function GenerateContextualQuote() {
           },
           vaContext: enrichedVaContext,
           sourceCallId: selectedCallerId || undefined,
+          contractorId: selectedContractorId || undefined,
           createdBy: adminUser?.id || undefined,
           createdByName: adminUser?.name || adminUser?.email || undefined,
         }),
@@ -639,10 +1111,59 @@ export default function GenerateContextualQuote() {
 
   const handleUpdateLineItem = (id: string, field: keyof LineItem, value: string | number) => {
     setLineItems((prev) =>
-      prev.map((li) => (li.id === id ? { ...li, [field]: value } : li)),
+      prev.map((li) => {
+        if (li.id !== id) return li;
+        const updated = { ...li, [field]: value };
+        // Auto-detect category when description changes (only if user hasn't manually picked)
+        if (field === 'description' && typeof value === 'string' && value.length >= 3) {
+          const detected = autoDetectCategory(value);
+          if (detected && li.category === 'general_fixing') {
+            updated.category = detected as JobCategory;
+          }
+        }
+        return updated;
+      }),
     );
   };
 
+  // Track which items are being polished + their original text (before polish)
+  const [polishingIds, setPolishingIds] = useState<Set<string>>(new Set());
+  const originalDescriptions = useRef<Map<string, string>>(new Map());
+
+  const handlePolishDescription = useCallback(async (id: string, description: string) => {
+    const trimmed = description.trim();
+    if (trimmed.length < 5) return; // Too short to polish
+
+    // Don't re-polish if text hasn't changed since last blur
+    const lastOriginal = originalDescriptions.current.get(id);
+    if (lastOriginal === trimmed) return;
+
+    setPolishingIds((prev) => new Set(prev).add(id));
+    try {
+      const res = await fetch('/api/pricing/polish-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: trimmed }),
+      });
+      if (!res.ok) return;
+      const { polished } = await res.json();
+      if (polished && polished !== trimmed) {
+        originalDescriptions.current.set(id, trimmed);
+        handleUpdateLineItem(id, 'description', polished);
+      } else {
+        // Even if unchanged, record it so we don't re-call
+        originalDescriptions.current.set(id, trimmed);
+      }
+    } catch {
+      // Silently fail — don't interrupt the user
+    } finally {
+      setPolishingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, [handleUpdateLineItem]);
 
   const handleParseJob = () => {
     if (!jobDescription.trim()) {
@@ -775,6 +1296,7 @@ export default function GenerateContextualQuote() {
 
   const handleReset = () => {
     setQuoteResult(null);
+    setLiveMarginPreview(null);
     setSendMode('full');
     setCustomerName('');
     setPhone('');
@@ -784,6 +1306,7 @@ export default function GenerateContextualQuote() {
     setJobDescription('');
     setLineItems([]);
     setSelectedCallerId(null);
+    setSelectedContractorId(null);
     setVaContext('');
     setIsRecording(false);
     setRecordingError(null);
@@ -954,200 +1477,155 @@ export default function GenerateContextualQuote() {
               </CardContent>
             </Card>
 
-            {/* ─── Section 3: Job Description ─── */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Job Description</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div>
-                  <Label htmlFor="job-desc" className="text-xs text-muted-foreground">
-                    Job Description (optional -- leave blank if awaiting videos)
-                  </Label>
-                  <Textarea
-                    id="job-desc"
-                    placeholder="Describe the work needed... e.g. 'Fix leaking kitchen tap, hang 3 floating shelves in living room, assemble IKEA wardrobe in bedroom'"
-                    value={jobDescription}
-                    onChange={(e) => setJobDescription(e.target.value)}
-                    className="mt-1 min-h-[80px]"
-                    rows={3}
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleParseJob}
-                    disabled={parseJobMutation.isPending || !jobDescription.trim()}
-                    className="gap-1.5"
-                  >
-                    {parseJobMutation.isPending ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Wand2 className="w-3.5 h-3.5" />
-                    )}
-                    AI Parse into Line Items
-                  </Button>
-                  <span className="text-xs text-muted-foreground flex items-center gap-1" title="For best results, include: what needs doing, which rooms, any materials needed, how many items">
-                    <Info className="w-3 h-3" />
-                    Tip: Include rooms, quantities, materials
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* ─── Section 4: Line Items ─── */}
+            {/* ─── Section 3: Jobs (structured line-item slabs) ─── */}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center justify-between">
-                  <span>Line Items</span>
+                  <span>Jobs</span>
                   {lineItems.length > 0 && (
                     <Badge variant="outline" className="text-xs">
-                      {lineItems.length} item{lineItems.length > 1 ? 's' : ''}
+                      {lineItems.length} job{lineItems.length !== 1 ? 's' : ''}
                     </Badge>
                   )}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
+                {/* Job slabs */}
                 {lineItems.length === 0 ? (
-                  <div className="text-center py-6 text-sm text-muted-foreground border border-dashed rounded-lg">
-                    Add job details above or enter line items manually
+                  <div
+                    className="text-center py-8 border-2 border-dashed border-white/10 rounded-xl cursor-pointer hover:border-amber-500/30 hover:bg-amber-500/5 transition-all"
+                    onClick={handleAddLineItem}
+                  >
+                    <Plus className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">Add first job</p>
+                    <p className="text-xs text-muted-foreground/60 mt-1">One box per job — you decide the scope</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {lineItems.map((item, index) => (
-                      <div
-                        key={item.id}
-                        className="space-y-2 sm:space-y-0"
-                      >
-                        {/* Desktop: single row */}
-                        <div className="hidden sm:grid sm:grid-cols-[1fr_170px_150px_90px_32px] gap-2 items-end">
-                          <div>
-                            {index === 0 && <Label className="text-xs text-muted-foreground mb-1 block">Description</Label>}
-                            <Input
-                              placeholder="e.g. Fix leaking kitchen tap"
-                              value={item.description}
-                              onChange={(e) => handleUpdateLineItem(item.id, 'description', e.target.value)}
-                            />
+                    {lineItems.map((item, index) => {
+                      const icon = CATEGORY_ICONS[item.category] || '🔨';
+                      const categoryLabel = CATEGORY_LABELS[item.category] || 'General';
+                      const hasMaterials = item.materialsCostPounds > 0;
+                      const isPolishing = polishingIds.has(item.id);
+
+                      return (
+                        <div
+                          key={item.id}
+                          className={`rounded-xl border bg-white/[0.02] p-3 sm:p-4 space-y-3 relative group transition-colors ${
+                            isPolishing ? 'border-amber-500/30' : 'border-white/10'
+                          }`}
+                        >
+                          {/* Header: Job number + delete */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/50">
+                                Job {index + 1}
+                              </span>
+                              {isPolishing && (
+                                <span className="flex items-center gap-1 text-[10px] text-amber-400/70 animate-pulse">
+                                  <Wand2 className="w-2.5 h-2.5" />
+                                  polishing...
+                                </span>
+                              )}
+                            </div>
+                            {lineItems.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveLineItem(item.id)}
+                                className="text-muted-foreground/40 hover:text-red-400 transition-colors p-1 -m-1"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
-                          <div>
-                            {index === 0 && <Label className="text-xs text-muted-foreground mb-1 block">Category</Label>}
+
+                          {/* Description input — AI polishes on blur */}
+                          <Input
+                            placeholder="e.g. Fix leaking tap, Mount TV..."
+                            value={item.description}
+                            onChange={(e) => handleUpdateLineItem(item.id, 'description', e.target.value)}
+                            onBlur={() => handlePolishDescription(item.id, item.description)}
+                            className={`text-sm font-medium bg-transparent border-white/10 focus:border-amber-500/50 h-11 sm:h-10 transition-all ${
+                              isPolishing ? 'opacity-60' : ''
+                            }`}
+                          />
+
+                          {/* Category + Time — stacked on mobile, side-by-side on sm+ */}
+                          <div className="flex flex-col sm:flex-row gap-2">
                             <Select
                               value={item.category}
                               onValueChange={(val) => handleUpdateLineItem(item.id, 'category', val)}
                             >
-                              <SelectTrigger className="h-9 text-xs">
-                                <SelectValue />
+                              <SelectTrigger className="h-10 sm:h-9 text-sm sm:text-xs bg-transparent border-white/10 w-full sm:flex-1">
+                                <span className="flex items-center gap-1.5 truncate">
+                                  <span className="shrink-0">{icon}</span>
+                                  <span className="truncate">{categoryLabel}</span>
+                                </span>
                               </SelectTrigger>
                               <SelectContent>
                                 {CATEGORY_OPTIONS.map((opt) => (
                                   <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                                    {opt.label}
+                                    <span className="flex items-center gap-1.5">
+                                      <span>{CATEGORY_ICONS[opt.value] || '📋'}</span>
+                                      {opt.label}
+                                    </span>
                                   </SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
-                          </div>
-                          <div>
-                            {index === 0 && <Label className="text-xs text-muted-foreground mb-1 block">Time</Label>}
-                            <TimeInput
-                              minutes={item.estimatedMinutes}
-                              onChange={(val) => handleUpdateLineItem(item.id, 'estimatedMinutes', val)}
-                              compact
-                            />
-                          </div>
-                          <div>
-                            {index === 0 && <Label className="text-xs text-muted-foreground mb-1 block">Materials £</Label>}
-                            <Input
-                              type="number"
-                              min={0}
-                              step={1}
-                              placeholder="0"
-                              value={item.materialsCostPounds || ''}
-                              onChange={(e) => handleUpdateLineItem(item.id, 'materialsCostPounds', parseFloat(e.target.value) || 0)}
-                              className="text-center"
-                            />
-                          </div>
-                          <div>
-                            {index === 0 && <div className="h-4 mb-1" />}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-9 w-8 p-0 text-muted-foreground hover:text-destructive"
-                              onClick={() => handleRemoveLineItem(item.id)}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-                        </div>
-
-                        {/* Mobile: stacked rows */}
-                        <div className="sm:hidden space-y-2 rounded-lg border border-white/10 p-3">
-                          <div className="flex gap-2 items-start">
-                            <div className="flex-1">
-                              <Label className="text-xs text-muted-foreground mb-1 block">Description</Label>
-                              <Input
-                                placeholder="e.g. Fix leaking kitchen tap"
-                                value={item.description}
-                                onChange={(e) => handleUpdateLineItem(item.id, 'description', e.target.value)}
+                            <div className="w-full sm:w-auto sm:shrink-0">
+                              <TimeInput
+                                minutes={item.estimatedMinutes}
+                                onChange={(val) => handleUpdateLineItem(item.id, 'estimatedMinutes', val)}
+                                compact
                               />
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-9 w-8 p-0 mt-5 text-muted-foreground hover:text-destructive"
-                              onClick={() => handleRemoveLineItem(item.id)}
+                          </div>
+
+                          {/* Materials toggle */}
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateLineItem(item.id, 'materialsCostPounds', hasMaterials ? 0 : 1)}
+                              className={`text-sm sm:text-xs px-3 sm:px-2.5 py-1.5 sm:py-1 rounded-full border transition-all ${
+                                hasMaterials
+                                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                                  : 'border-white/10 text-muted-foreground/50 hover:border-white/20'
+                              }`}
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-                          <div>
-                            <Label className="text-xs text-muted-foreground mb-1 block">Category</Label>
-                            <Select
-                              value={item.category}
-                              onValueChange={(val) => handleUpdateLineItem(item.id, 'category', val)}
-                            >
-                              <SelectTrigger className="h-9 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {CATEGORY_OPTIONS.map((opt) => (
-                                  <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                                    {opt.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Label className="text-xs text-muted-foreground mb-1 block">Time</Label>
-                            <TimeInput
-                              minutes={item.estimatedMinutes}
-                              onChange={(val) => handleUpdateLineItem(item.id, 'estimatedMinutes', val)}
-                            />
-                          </div>
-                          <div>
-                            <Label className="text-xs text-muted-foreground mb-1 block">Materials £</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              step={1}
-                              placeholder="0"
-                              value={item.materialsCostPounds || ''}
-                              onChange={(e) => handleUpdateLineItem(item.id, 'materialsCostPounds', parseFloat(e.target.value) || 0)}
-                              className="h-10 text-center"
-                            />
+                              {hasMaterials ? '🧱 Materials' : '+ Materials'}
+                            </button>
+                            {hasMaterials && (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-sm sm:text-xs text-muted-foreground">£</span>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step={1}
+                                  placeholder="0"
+                                  value={item.materialsCostPounds || ''}
+                                  onChange={(e) => handleUpdateLineItem(item.id, 'materialsCostPounds', parseFloat(e.target.value) || 0)}
+                                  className="w-24 sm:w-20 h-10 sm:h-8 text-center text-sm bg-transparent border-white/10"
+                                />
+                              </div>
+                            )}
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
-                {lineItems.length < 10 && (
-                  <Button variant="outline" size="sm" onClick={handleAddLineItem} className="gap-1.5">
-                    <Plus className="w-3.5 h-3.5" />
-                    Add Line Item
-                  </Button>
+
+                {/* Add another job */}
+                {lineItems.length > 0 && lineItems.length < 10 && (
+                  <button
+                    type="button"
+                    onClick={handleAddLineItem}
+                    className="w-full py-2.5 rounded-xl border-2 border-dashed border-white/10 text-sm text-muted-foreground hover:border-amber-500/30 hover:text-amber-300 hover:bg-amber-500/5 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add another job
+                  </button>
                 )}
 
                 {lineItems.length === 1 && (
@@ -1158,6 +1636,8 @@ export default function GenerateContextualQuote() {
                     </p>
                   </div>
                 )}
+
+                {/* Job description is auto-derived from line items in the submit handler */}
 
                 {/* Live Engine Price Preview */}
                 {lineItems.length > 0 && (
@@ -1208,6 +1688,13 @@ export default function GenerateContextualQuote() {
                         <p className="text-[11px] text-muted-foreground/60">
                           Live from contextual pricing engine — includes all adjustments.
                         </p>
+
+                        {/* Live margin preview */}
+                        {liveMarginPreview && (
+                          <div className="mt-3">
+                            <MarginPreviewPanel data={liveMarginPreview} />
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="flex items-center justify-between py-1">
@@ -1221,6 +1708,190 @@ export default function GenerateContextualQuote() {
                 )}
               </CardContent>
             </Card>
+
+            {/* ─── Section 3b: Assign Contractor ─── */}
+            {contractors && contractors.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2 px-3 sm:px-6">
+                  <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                    <Users className="w-4 h-4" />
+                    Assign Handyman
+                    {selectedContractorId && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedContractorId(null)}
+                        className="ml-auto text-[10px] text-muted-foreground hover:text-foreground transition-colors font-normal"
+                      >
+                        × Remove
+                      </button>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-3 sm:px-6">
+                  <div className="space-y-2">
+                    {/* Auto-suggest banner — compact on mobile */}
+                    {suggestedContractor && !selectedContractorId && (
+                      <div
+                        className="flex items-center gap-2 sm:gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 sm:px-3 py-1.5 sm:py-2 cursor-pointer hover:bg-amber-500/15 transition-colors"
+                        onClick={() => setSelectedContractorId(suggestedContractor.id)}
+                      >
+                        {suggestedContractor.profileImageUrl ? (
+                          <img
+                            src={suggestedContractor.profileImageUrl}
+                            alt=""
+                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover border-2 border-amber-500/40 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-amber-500/20 flex items-center justify-center text-xs font-bold text-amber-400 shrink-0">
+                            {suggestedContractor.name.charAt(0)}
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs sm:text-sm font-medium text-amber-300 truncate">
+                            Suggested: {suggestedContractor.name}
+                          </div>
+                          <div className="text-[10px] sm:text-[11px] text-amber-400/70 truncate">
+                            {suggestedContractor.matchPercent}% match
+                            {suggestedContractor.availabilityStatus === 'available' && ' · Available'}
+                          </div>
+                        </div>
+                        <span className="text-[10px] sm:text-xs text-amber-400 font-medium shrink-0">Assign →</span>
+                      </div>
+                    )}
+
+                    {/* ── Mobile: horizontal compact rows ── */}
+                    <div className="sm:hidden space-y-1.5">
+                      {contractors.map((c) => {
+                        const isSelected = selectedContractorId === c.id;
+                        const isSuggested = suggestedContractor?.id === c.id;
+                        const jobCategories = lineItems.map(li => li.category);
+                        const matchCount = jobCategories.filter(cat => c.categorySlugs.includes(cat)).length;
+                        const isAvailable = c.availabilityStatus === 'available';
+
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => setSelectedContractorId(isSelected ? null : c.id)}
+                            className={`w-full flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-all ${
+                              isSelected
+                                ? 'border-primary bg-primary/10 ring-1 ring-primary'
+                                : 'border-border hover:border-muted-foreground/50 hover:bg-muted/30'
+                            }`}
+                          >
+                            {/* Avatar */}
+                            <div className="relative shrink-0">
+                              {c.profileImageUrl ? (
+                                <img
+                                  src={c.profileImageUrl}
+                                  alt=""
+                                  className={`w-8 h-8 rounded-full object-cover border-2 ${
+                                    isSelected ? 'border-primary' : 'border-border'
+                                  }`}
+                                />
+                              ) : (
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                                  isSelected ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'
+                                }`}>
+                                  {c.name.charAt(0)}
+                                </div>
+                              )}
+                              {isAvailable && (
+                                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-500 border border-background" />
+                              )}
+                            </div>
+                            {/* Info */}
+                            <div className="flex-1 min-w-0">
+                              <span className="text-xs font-medium text-foreground truncate block">{c.name}</span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {lineItems.length > 0 && matchCount > 0 ? `${matchCount}/${jobCategories.length} match` : isAvailable ? 'Available' : ''}
+                              </span>
+                            </div>
+                            {/* Badges — right side */}
+                            {isSuggested && !isSelected && (
+                              <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-amber-500/40 text-amber-400 shrink-0">
+                                Best
+                              </Badge>
+                            )}
+                            {isSelected && (
+                              <Badge className="text-[9px] px-1.5 py-0 bg-primary/20 text-primary border-primary/30 shrink-0">
+                                ✓
+                              </Badge>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* ── Desktop: card grid ── */}
+                    <div className="hidden sm:grid sm:grid-cols-3 gap-2">
+                      {contractors.map((c) => {
+                        const isSelected = selectedContractorId === c.id;
+                        const isSuggested = suggestedContractor?.id === c.id;
+                        const jobCategories = lineItems.map(li => li.category);
+                        const matchCount = jobCategories.filter(cat => c.categorySlugs.includes(cat)).length;
+                        const isAvailable = c.availabilityStatus === 'available';
+
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => setSelectedContractorId(isSelected ? null : c.id)}
+                            className={`relative flex flex-col items-center gap-1.5 rounded-lg border px-3 py-2.5 text-center transition-all ${
+                              isSelected
+                                ? 'border-primary bg-primary/10 ring-1 ring-primary'
+                                : 'border-border hover:border-muted-foreground/50 hover:bg-muted/30'
+                            }`}
+                          >
+                            {isAvailable && (
+                              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                            )}
+                            {c.profileImageUrl ? (
+                              <img
+                                src={c.profileImageUrl}
+                                alt=""
+                                className={`w-10 h-10 rounded-full object-cover border-2 ${
+                                  isSelected ? 'border-primary' : 'border-border'
+                                }`}
+                              />
+                            ) : (
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold ${
+                                isSelected ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'
+                              }`}>
+                                {c.name.charAt(0)}
+                              </div>
+                            )}
+                            <span className="text-xs font-medium text-foreground truncate w-full">{c.name}</span>
+                            {lineItems.length > 0 && matchCount > 0 && (
+                              <span className="text-[10px] text-muted-foreground">
+                                {matchCount}/{jobCategories.length} skills match
+                              </span>
+                            )}
+                            {isSuggested && !isSelected && (
+                              <Badge variant="outline" className="text-[9px] px-1 py-0 border-amber-500/40 text-amber-400">
+                                Best match
+                              </Badge>
+                            )}
+                            {isSelected && (
+                              <Badge className="text-[9px] px-1 py-0 bg-primary/20 text-primary border-primary/30">
+                                Assigned
+                              </Badge>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <p className="text-[10px] sm:text-[11px] text-muted-foreground/60 flex items-center gap-1">
+                      <Info className="w-3 h-3 shrink-0" />
+                      Contractor appears on customer quote page
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Old Section 4 removed — line items now in unified Jobs section above */}
 
             {/* ─── Section 4b: VA Context ─── */}
             <Card>
@@ -1499,6 +2170,11 @@ export default function GenerateContextualQuote() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Margin Preview (from created quote) */}
+            {quoteResult.marginPreview && (
+              <MarginPreviewPanel data={quoteResult.marginPreview} />
+            )}
 
             {/* WhatsApp Send Section */}
             <Card>

@@ -1,7 +1,7 @@
 /**
  * Layer 3: Multi-Line LLM Contextual Pricing
  *
- * Uses GPT-4o-mini to price MULTIPLE job lines in a single call.
+ * Uses Claude (Anthropic) to price MULTIPLE job lines in a single call.
  * Instead of segment-based rules, this version receives 4 raw contextual
  * signals (urgency, materialsSupply, timeOfService, isReturningCustomer)
  * and prices each line individually while also suggesting a batch discount.
@@ -15,7 +15,7 @@
  * discount, overall confidence, and customer-facing messaging.
  */
 
-import { getOpenAI } from '../openai';
+import { getAnthropic } from '../anthropic';
 import type {
   MultiLineRequest,
   PricingAdjustmentFactor,
@@ -509,7 +509,7 @@ function isGenericSummary(summary: string): boolean {
  */
 async function retryProposalSummary(request: MultiLineRequest): Promise<string | null> {
   try {
-    const openai = getOpenAI();
+    const client = getAnthropic();
     const linesList = request.lines
       .map((line, i) => `${i + 1}. ${line.description} (${line.category})`)
       .join('\n');
@@ -518,15 +518,11 @@ async function retryProposalSummary(request: MultiLineRequest): Promise<string |
       ? `\nCustomer context: "${request.vaContext.trim()}"\n`
       : '';
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
       temperature: 0.2,
       max_tokens: 200,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: `You write professional scope-of-work summaries for a handyman company in Nottingham. Return JSON: {"proposalSummary": "..."}
+      system: `You write professional scope-of-work summaries for a handyman company in Nottingham. Return JSON: {"proposalSummary": "..."}
 
 RULES:
 - 2-4 sentences (40-80 words). For a single task: 1-2 sentences (20-50 words).
@@ -536,7 +532,7 @@ RULES:
 - NO prices, NO timelines, NO marketing claims, NO exclamation marks.
 - Group related tasks naturally.
 - End with a reassuring close (e.g. "Everything done in one visit." or "We'll leave it spotless.").`,
-        },
+      messages: [
         {
           role: 'user',
           content: `Write a proposalSummary for this job:\n${vaContext}\n${linesList}`,
@@ -544,7 +540,9 @@ RULES:
       ],
     });
 
-    const raw = response.choices[0].message.content || '{}';
+    const textBlock = response.content.find((block) => block.type === 'text');
+    let raw = textBlock && textBlock.type === 'text' ? textBlock.text : '{}';
+    raw = extractJSON(raw);
     const parsed = JSON.parse(raw);
     let summary = (parsed.proposalSummary || '').replace(/!/g, '').trim();
 
@@ -587,13 +585,42 @@ function buildFallbackSummary(request: MultiLineRequest): string {
 // Main Export
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// JSON extraction — handles preamble text, markdown fences, etc.
+// ---------------------------------------------------------------------------
+
+function extractJSON(text: string): string {
+  // 1. Try stripping markdown fences first
+  const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i);
+  if (fenceMatch) {
+    return fenceMatch[1].trim();
+  }
+
+  // 2. Find the first { ... } block (greedy — outermost braces)
+  const braceStart = text.indexOf('{');
+  if (braceStart !== -1) {
+    let depth = 0;
+    for (let i = braceStart; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      if (text[i] === '}') depth--;
+      if (depth === 0) {
+        return text.slice(braceStart, i + 1);
+      }
+    }
+  }
+
+  // 3. Last resort — return as-is, JSON.parse will throw and we'll fallback
+  return text.trim();
+}
+
 /**
- * Call GPT-4o-mini with all job lines and contextual signals in a SINGLE
- * LLM call. Returns per-line prices, batch discount, and customer-facing
- * messaging.
+ * Call Claude (Anthropic) with all job lines and contextual signals in a
+ * SINGLE LLM call. Returns per-line prices, batch discount, and
+ * customer-facing messaging.
  *
- * If the OpenAI call fails or returns unparseable JSON, a fallback result
- * is returned at reference rate × 1.3 per line with 0% batch discount.
+ * If the Anthropic call fails or returns unparseable JSON, a fallback
+ * result is returned at reference rate x 1.3 per line with 0% batch
+ * discount.
  */
 export async function generateMultiLineLLMPrice(
   request: MultiLineRequest,
@@ -601,18 +628,15 @@ export async function generateMultiLineLLMPrice(
   approvedClaims?: string[],
 ): Promise<MultiLineLLMResult> {
   try {
-    const openai = getOpenAI();
+    const client = getAnthropic();
     const expectedLineIds = request.lines.map((l) => l.id);
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
       temperature: 0.1,
-      response_format: { type: 'json_object' },
+      max_tokens: 2048,
+      system: buildSystemPrompt(request, lineReferences, approvedClaims),
       messages: [
-        {
-          role: 'system',
-          content: buildSystemPrompt(request, lineReferences, approvedClaims),
-        },
         {
           role: 'user',
           content: buildUserPrompt(request),
@@ -620,7 +644,9 @@ export async function generateMultiLineLLMPrice(
       ],
     });
 
-    const raw = response.choices[0].message.content || '{}';
+    const textBlock = response.content.find((block) => block.type === 'text');
+    let raw = textBlock && textBlock.type === 'text' ? textBlock.text : '{}';
+    raw = extractJSON(raw);
     const parsed = JSON.parse(raw);
     const result = validateLLMResponse(parsed, expectedLineIds, approvedClaims);
 
@@ -639,7 +665,7 @@ export async function generateMultiLineLLMPrice(
     return result;
   } catch (error) {
     console.error(
-      '[multi-line-llm] OpenAI call failed, returning fallback:',
+      '[multi-line-llm] Anthropic call failed, returning fallback:',
       error instanceof Error ? error.message : error,
     );
     const fallback = buildFallbackResult(request, lineReferences);

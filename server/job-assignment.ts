@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db } from './db';
-import { contractorBookingRequests, handymanAvailability, contractorAvailabilityDates, handymanProfiles, users, personalizedQuotes } from '../shared/schema';
+import { contractorBookingRequests, handymanAvailability, contractorAvailabilityDates, handymanProfiles, users, personalizedQuotes, contractorJobs } from '../shared/schema';
 import { eq, and, gte, lte } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { sendJobAssignmentEmail } from './email-service';
@@ -236,7 +236,7 @@ jobAssignmentRouter.post('/api/jobs/:id/accept', requireContractor, async (req, 
 jobAssignmentRouter.post('/api/jobs/:id/reject', requireContractor, async (req, res) => {
     try {
         const { id } = req.params;
-        const { reason } = req.body;
+        const { declineReason, declineNotes } = req.body;
         const contractorId = (req as any).contractorId; // From auth middleware
 
         const jobResults = await db.select()
@@ -259,7 +259,9 @@ jobAssignmentRouter.post('/api/jobs/:id/reject', requireContractor, async (req, 
                 rejectedAt: new Date(),
                 assignmentStatus: 'rejected',
                 status: 'declined',
-                completionNotes: reason || 'Rejected by contractor',
+                declineReason: (declineReason as string) || 'other',
+                declineNotes: declineNotes || 'Rejected by contractor',
+                needsReassignment: true,
                 updatedAt: new Date()
             })
             .where(eq(contractorBookingRequests.id, id))
@@ -304,7 +306,33 @@ jobAssignmentRouter.get('/api/jobs/:id', async (req, res) => {
         if (result.length === 0) {
             return res.status(404).json({ error: "Job not found" });
         }
-        res.json(result[0]);
+
+        const booking = result[0];
+
+        // Enrich with payout data from contractorJobs if a linked job exists
+        let payoutPence: number | null = null;
+        let estimatedDurationMinutes: number | null = null;
+
+        if (booking.quoteId) {
+            const jobRecord = await db.select({
+                payoutPence: contractorJobs.payoutPence,
+                estimatedDuration: contractorJobs.estimatedDuration,
+            })
+                .from(contractorJobs)
+                .where(eq(contractorJobs.quoteId, booking.quoteId))
+                .limit(1);
+
+            if (jobRecord.length > 0) {
+                payoutPence = jobRecord[0].payoutPence;
+                estimatedDurationMinutes = jobRecord[0].estimatedDuration;
+            }
+        }
+
+        res.json({
+            ...booking,
+            payoutPence,
+            estimatedDurationMinutes,
+        });
     } catch (error: any) {
         res.status(500).json({ error: "Failed to fetch job" });
     }

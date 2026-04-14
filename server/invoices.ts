@@ -4,6 +4,7 @@ import { db } from './db';
 import { invoices, contractorBookingRequests, personalizedQuotes } from '../shared/schema';
 import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import { sendInvoiceEmail } from './email-service';
 
 // Helper to get Stripe instance lazily
 const getStripe = () => {
@@ -252,6 +253,25 @@ invoiceRouter.post('/api/invoices', async (req, res) => {
     }
 });
 
+// Get invoice HTML (for browser viewing / printing)
+invoiceRouter.get('/api/invoices/:id/html', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { generateInvoiceHtml } = await import('./invoice-generator');
+        const html = await generateInvoiceHtml(id);
+
+        if (!html) {
+            return res.status(404).json({ error: 'Invoice not found' });
+        }
+
+        res.setHeader('Content-Type', 'text/html');
+        res.send(html);
+    } catch (error: any) {
+        console.error('[Invoices] Error generating invoice HTML:', error);
+        res.status(500).json({ error: error.message || 'Failed to generate invoice HTML' });
+    }
+});
+
 // Get invoice by ID
 invoiceRouter.get('/api/invoices/:id', async (req, res) => {
     try {
@@ -341,7 +361,7 @@ invoiceRouter.post('/api/invoices/:id/mark-paid', async (req, res) => {
     }
 });
 
-// Send invoice to customer (placeholder - would integrate with email service)
+// Send invoice to customer via WhatsApp (and mark as sent)
 invoiceRouter.post('/api/invoices/:id/send', async (req, res) => {
     try {
         const { id } = req.params;
@@ -357,8 +377,7 @@ invoiceRouter.post('/api/invoices/:id/send', async (req, res) => {
 
         const invoice = results[0];
 
-        // TODO: Integrate with email service (SendGrid, etc.)
-        // For now, just mark as sent
+        // Mark as sent
         const [updated] = await db.update(invoices)
             .set({
                 status: 'sent',
@@ -368,12 +387,65 @@ invoiceRouter.post('/api/invoices/:id/send', async (req, res) => {
             .where(eq(invoices.id, id))
             .returning();
 
-        console.log(`[Invoices] Would send invoice ${invoice.invoiceNumber} to ${invoice.customerEmail}`);
+        // Send via email (primary delivery method)
+        const deliveryResults: { email?: boolean; whatsapp?: boolean } = {};
+        const baseUrl = process.env.BASE_URL || 'https://handyservices.uk';
+        const paymentLink = `${baseUrl}/invoice/${invoice.id}`;
+
+        if (invoice.customerEmail) {
+            const emailResult = await sendInvoiceEmail({
+                customerName: invoice.customerName || '',
+                customerEmail: invoice.customerEmail,
+                invoiceNumber: invoice.invoiceNumber,
+                totalAmount: invoice.totalAmount,
+                depositPaid: invoice.depositPaid,
+                balanceDue: invoice.balanceDue,
+                dueDate: invoice.dueDate,
+                paymentLink,
+                invoiceId: invoice.id,
+            });
+            deliveryResults.email = emailResult.success;
+            if (emailResult.success) {
+                console.log(`[Invoices] Invoice ${invoice.invoiceNumber} sent via email to ${invoice.customerEmail}`);
+            }
+        }
+
+        // Optional WhatsApp fallback (non-blocking, will silently fail if not available)
+        if (invoice.customerPhone) {
+            try {
+                const { sendWhatsAppMessage } = await import('./meta-whatsapp');
+                const formatPence = (p: number) => `\u00a3${(p / 100).toFixed(2)}`;
+                const message = [
+                    `\ud83d\udcc4 *Invoice ${invoice.invoiceNumber}*`,
+                    '',
+                    `Hi ${invoice.customerName || 'there'},`,
+                    '',
+                    `Your invoice for *${formatPence(invoice.balanceDue)}* is ready.`,
+                    '',
+                    `View & pay: ${paymentLink}`,
+                    '',
+                    `Thank you for choosing Handy Services \ud83d\udc4d`,
+                ].filter(Boolean).join('\n');
+
+                await sendWhatsAppMessage(invoice.customerPhone, message);
+                deliveryResults.whatsapp = true;
+            } catch {
+                // WhatsApp not available in production — this is expected
+                deliveryResults.whatsapp = false;
+            }
+        }
+
+        const deliveryMessage = deliveryResults.email
+            ? `Invoice sent via email to ${invoice.customerEmail}`
+            : deliveryResults.whatsapp
+                ? `Invoice sent via WhatsApp to ${invoice.customerPhone}`
+                : 'Invoice marked as sent but no delivery channel available (no email on file).';
 
         res.json({
             success: true,
             invoice: updated,
-            message: 'Invoice marked as sent. Email integration pending.'
+            delivery: deliveryResults,
+            message: deliveryMessage,
         });
     } catch (error: any) {
         console.error('[Invoices] Error sending invoice:', error);

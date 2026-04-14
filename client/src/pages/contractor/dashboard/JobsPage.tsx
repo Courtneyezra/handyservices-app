@@ -1,132 +1,87 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import ContractorAppShell from "@/components/layout/ContractorAppShell";
-import { ArrowLeft, Loader2, FileText, CheckCircle2, Calendar, Briefcase, Play, CheckSquare, Clock, Wrench } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import { ArrowLeft, Loader2, CheckCircle2, Calendar, Briefcase, Clock, Wrench, PoundSterling, MapPin, ChevronRight } from "lucide-react";
+import { format } from "date-fns";
 import { motion } from "framer-motion";
-import { Button } from "@/components/ui/button";
-import { useToast } from "@/hooks/use-toast";
 
-interface Quote {
+interface Booking {
     id: string;
-    shortSlug: string;
     customerName: string;
-    jobDescription: string;
-    quoteMode: 'hhh' | 'simple' | 'pick_and_mix';
-    basePricePence: number | null;
-    baseJobPricePence: number | null;
-    essentialPrice: number | null;
-    viewedAt: string | null;
-    bookedAt: string | null;
-    expiresAt: string | null;
+    customerPhone: string | null;
+    description: string | null;
+    status: string;
+    assignmentStatus: string;
+    scheduledDate: string | null;
+    scheduledSlot: string | null;
+    requestedSlot: string | null;
+    scheduledStartTime: string | null;
+    address: string | null;
+    postcode: string | null;
+    acceptedAt: string | null;
     createdAt: string;
-    status: string | null;
-    jobStatus?: 'pending' | 'in_progress' | 'completed' | null; // Job progress status
+    quoteId: string | null;
+    payoutPence?: number | null;
+    estimatedDurationMinutes?: number | null;
+}
+
+function formatSlot(booking: Booking): string {
+    if (booking.scheduledStartTime) return booking.scheduledStartTime;
+    const slot = booking.scheduledSlot || booking.requestedSlot;
+    if (slot === 'am') return 'Morning';
+    if (slot === 'pm') return 'Afternoon';
+    if (slot === 'full_day' || slot === 'full') return 'Full Day';
+    return '';
+}
+
+function statusConfig(status: string) {
+    switch (status) {
+        case 'accepted':
+            return { label: 'Confirmed', icon: CheckCircle2, bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', dot: 'bg-green-500' };
+        case 'assigned':
+            return { label: 'Action Needed', icon: Clock, bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', dot: 'bg-amber-500' };
+        case 'in_progress':
+            return { label: 'In Progress', icon: Wrench, bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500' };
+        case 'completed':
+            return { label: 'Completed', icon: CheckCircle2, bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', dot: 'bg-slate-400' };
+        default:
+            return { label: status, icon: Clock, bg: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', dot: 'bg-slate-400' };
+    }
 }
 
 export default function JobsPage() {
-    const { data: quotes, isLoading } = useQuery<Quote[]>({
-        queryKey: ['contractor-quotes'],
+    const { data: bookings, isLoading } = useQuery<Booking[]>({
+        queryKey: ['contractor-bookings'],
         queryFn: async () => {
             const token = localStorage.getItem('contractorToken');
-            const res = await fetch('/api/contractor/quotes', {
+            const res = await fetch('/api/contractor/bookings', {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            if (!res.ok) throw new Error('Failed to fetch quotes');
+            if (!res.ok) throw new Error('Failed to fetch jobs');
             return res.json();
         },
     });
 
-    const queryClient = useQueryClient();
-    const { toast } = useToast();
+    // Only show active jobs (not declined)
+    const jobs = bookings?.filter(b => b.assignmentStatus !== 'rejected' && b.status !== 'declined') || [];
 
-    // Update job status using the PATCH endpoint
-    const updateJobStatusMutation = useMutation({
-        mutationFn: async ({ quoteId, status }: { quoteId: string; status: 'in_progress' | 'completed' }) => {
-            const token = localStorage.getItem('contractorToken');
-            // Use the quote's shortSlug to update via the job-assignment route
-            // The jobs are stored in contractorBookingRequests, linked via quoteId
-            const res = await fetch(`/api/jobs/${quoteId}/complete`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`
-                },
-                body: JSON.stringify({ status })
-            });
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => ({}));
-                throw new Error(errorData.error || `Failed to ${status === 'in_progress' ? 'start' : 'complete'} job`);
-            }
-            return res.json();
-        },
-        onSuccess: (_, variables) => {
-            queryClient.invalidateQueries({ queryKey: ['contractor-quotes'] });
-            if (variables.status === 'in_progress') {
-                toast({ title: "Job Started", description: "You've started working on this job." });
-            } else {
-                toast({ title: "Job Completed!", description: "Great work! The job has been marked as complete." });
-            }
-        },
-        onError: (error: Error) => {
-            toast({ title: "Error", description: error.message || "Failed to update job. Please try again.", variant: "destructive" });
-        }
-    });
+    // Split into upcoming and completed
+    const upcoming = jobs.filter(j => j.assignmentStatus !== 'completed');
+    const completed = jobs.filter(j => j.assignmentStatus === 'completed');
 
-    // Filter only accepted (booked) quotes (which are effectively jobs)
-    // Note: The /quotes endpoint returns quotes. To get the `contractorJobId`, we might need to adjust the backend.
-    // Assuming for now the backend /quotes endpoint was updated or we need to separate Jobs fetching?
-    // Let's check QuotesListPage - it uses the same endpoint.
-    // If quote.bookedAt is present, it's a job.
-    // BUT does the quote object have the `contractorJobId`?
-    // The schema shows `contractorJobs` links to `quoteId`.
-    // The endpoint likely just joins them or we need to fetch `/jobs` instead.
-    // Let's assume for v1 MVP we are building on top of what exists.
-    // If the backend doesn't return contractorJobId, we can't call the API.
-    // I should probably have checked the GET /quotes response.
-    // Let's just create a GET /jobs endpoint to be clean or assume we filter here.
+    // Weekly earnings
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay());
+    weekStart.setHours(0, 0, 0, 0);
 
-    // Actually, let's create a dedicated useQuery for jobs if we want to be correct.
-    // But for speed, let's check if we can just filter.
-    const jobs = quotes?.filter(quote => !!quote.bookedAt);
+    const weekEarnings = jobs
+        .filter(j => j.assignmentStatus === 'completed' && j.acceptedAt && new Date(j.acceptedAt) >= weekStart)
+        .reduce((sum, j) => sum + (j.payoutPence || 0), 0);
 
-    // Helper to get price display
-    const getPriceDisplay = (quote: Quote) => {
-        if (quote.quoteMode === 'hhh') {
-            if (quote.essentialPrice) return `From £${(quote.essentialPrice / 100).toFixed(0)}`;
-            if (quote.baseJobPricePence) return `Est. £${(quote.baseJobPricePence / 100).toFixed(0)}`;
-        }
-        if (quote.basePricePence) return `£${(quote.basePricePence / 100).toFixed(0)}`;
-        return 'Price Pending';
-    };
-
-    // Helper to get job status display
-    const getJobStatusBadge = (job: Quote) => {
-        const status = job.jobStatus || 'pending';
-        switch (status) {
-            case 'completed':
-                return (
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-100 text-green-600 border border-green-200">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span className="text-xs font-bold">Completed</span>
-                    </div>
-                );
-            case 'in_progress':
-                return (
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-100 text-blue-600 border border-blue-200">
-                        <Wrench className="w-3.5 h-3.5" />
-                        <span className="text-xs font-bold">In Progress</span>
-                    </div>
-                );
-            default:
-                return (
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 text-amber-600 border border-amber-200">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span className="text-xs font-bold">Scheduled</span>
-                    </div>
-                );
-        }
-    };
+    const monthEarnings = jobs
+        .filter(j => j.assignmentStatus === 'completed' && j.acceptedAt && new Date(j.acceptedAt).getMonth() === now.getMonth())
+        .reduce((sum, j) => sum + (j.payoutPence || 0), 0);
 
     return (
         <ContractorAppShell>
@@ -137,101 +92,118 @@ export default function JobsPage() {
                         <ArrowLeft className="w-5 h-5" />
                     </button>
                 </Link>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-1">
                     <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
                         <Briefcase className="w-4 h-4" />
                     </div>
                     <h1 className="font-bold text-lg text-slate-800">My Jobs</h1>
                 </div>
+                {jobs.length > 0 && (
+                    <span className="text-xs font-medium text-slate-400">{upcoming.length} active</span>
+                )}
             </div>
 
+            {/* Earnings Strip */}
+            {jobs.length > 0 && (
+                <div className="flex gap-3 px-5 pt-4">
+                    <div className="flex-1 bg-emerald-50 rounded-xl p-3 border border-emerald-100">
+                        <p className="text-[10px] font-medium text-emerald-500 uppercase">This Week</p>
+                        <p className="text-lg font-bold text-emerald-800">£{(weekEarnings / 100).toFixed(0)}</p>
+                    </div>
+                    <div className="flex-1 bg-emerald-50 rounded-xl p-3 border border-emerald-100">
+                        <p className="text-[10px] font-medium text-emerald-500 uppercase">This Month</p>
+                        <p className="text-lg font-bold text-emerald-800">£{(monthEarnings / 100).toFixed(0)}</p>
+                    </div>
+                </div>
+            )}
+
             {/* Content */}
-            <div className="px-5 py-6 space-y-4">
+            <div className="px-5 py-4 space-y-3">
                 {isLoading ? (
                     <div className="flex flex-col items-center justify-center py-20 text-slate-500 gap-3">
-                        <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+                        <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
                         <p className="text-sm">Loading jobs...</p>
                     </div>
-                ) : jobs && jobs.length > 0 ? (
-                    <div className="space-y-3">
-                        {jobs.map((job) => (
-                            <Link key={job.id} href={`/contractor/dashboard/jobs/${job.shortSlug || job.id}`}>
-                                <motion.div
-                                    initial={{ opacity: 0, y: 10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className="block bg-white border border-gray-100 rounded-xl p-4 active:scale-[0.98] transition-all hover:bg-gray-50 cursor-pointer group shadow-sm"
-                                >
-                                    <div className="flex justify-between items-start mb-3">
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-base text-slate-800 line-clamp-1 group-hover:text-amber-600 transition-colors">{job.customerName}</span>
-                                            <span className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
-                                                <Calendar className="w-3 h-3" />
-                                                Booked {formatDistanceToNow(new Date(job.bookedAt!), { addSuffix: true })}
-                                            </span>
+                ) : upcoming.length > 0 ? (
+                    <>
+                        {upcoming.map((job, i) => {
+                            const sc = statusConfig(job.assignmentStatus);
+                            return (
+                                <Link key={job.id} href={`/contractor/dashboard/jobs/${job.id}`}>
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: i * 0.05 }}
+                                        className="bg-white border border-gray-100 rounded-xl p-4 active:scale-[0.98] transition-all hover:border-gray-200 cursor-pointer shadow-sm"
+                                    >
+                                        <div className="flex items-start justify-between mb-2">
+                                            <div className="flex-1 min-w-0">
+                                                <h3 className="font-bold text-base text-slate-800 truncate">{job.customerName}</h3>
+                                                {job.scheduledDate && (
+                                                    <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5">
+                                                        <Calendar className="w-3 h-3" />
+                                                        <span>{format(new Date(job.scheduledDate), "EEE, MMM d")}</span>
+                                                        {formatSlot(job) && <span className="text-slate-300">·</span>}
+                                                        {formatSlot(job) && <span>{formatSlot(job)}</span>}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-bold border ${sc.bg} ${sc.text} ${sc.border}`}>
+                                                    <div className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
+                                                    {sc.label}
+                                                </div>
+                                                <ChevronRight className="w-4 h-4 text-slate-300" />
+                                            </div>
                                         </div>
-                                        {getJobStatusBadge(job)}
-                                    </div>
 
-                                    {/* Status Actions - Show based on current job status */}
-                                    {job.jobStatus !== 'completed' && (
-                                        <div className="flex gap-2 mb-4">
-                                            {(!job.jobStatus || job.jobStatus === 'pending') && (
-                                                <Button
-                                                    size="sm"
-                                                    className="h-8 bg-blue-100 text-blue-600 hover:bg-blue-200 hover:text-blue-800 border border-blue-200 shadow-sm"
-                                                    disabled={updateJobStatusMutation.isPending}
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        updateJobStatusMutation.mutate({ quoteId: job.id, status: 'in_progress' });
-                                                    }}
-                                                >
-                                                    {updateJobStatusMutation.isPending ? (
-                                                        <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
-                                                    ) : (
-                                                        <Play className="w-3 h-3 mr-1.5" />
-                                                    )}
-                                                    Start Job
-                                                </Button>
+                                        {job.description && (
+                                            <p className="text-sm text-slate-500 line-clamp-1 mb-2">{job.description}</p>
+                                        )}
+
+                                        <div className="flex items-center justify-between pt-2 border-t border-gray-50">
+                                            {(job.address || job.postcode) && (
+                                                <span className="text-xs text-slate-400 flex items-center gap-1 truncate flex-1 mr-2">
+                                                    <MapPin className="w-3 h-3 shrink-0" />
+                                                    {job.postcode || job.address}
+                                                </span>
                                             )}
-                                            {(job.jobStatus === 'in_progress' || job.jobStatus === 'pending' || !job.jobStatus) && (
-                                                <Button
-                                                    size="sm"
-                                                    className="h-8 bg-emerald-100 text-emerald-600 hover:bg-emerald-200 hover:text-emerald-800 border border-emerald-200 shadow-sm"
-                                                    disabled={updateJobStatusMutation.isPending}
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        updateJobStatusMutation.mutate({ quoteId: job.id, status: 'completed' });
-                                                    }}
-                                                >
-                                                    {updateJobStatusMutation.isPending ? (
-                                                        <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
-                                                    ) : (
-                                                        <CheckSquare className="w-3 h-3 mr-1.5" />
-                                                    )}
-                                                    Complete
-                                                </Button>
+                                            {job.payoutPence != null && job.payoutPence > 0 && (
+                                                <span className="text-sm font-bold text-emerald-700 flex items-center gap-1 shrink-0">
+                                                    <PoundSterling className="w-3.5 h-3.5" />
+                                                    £{(job.payoutPence / 100).toFixed(2)}
+                                                </span>
                                             )}
                                         </div>
-                                    )}
+                                    </motion.div>
+                                </Link>
+                            );
+                        })}
 
-                                    <p className="text-sm text-slate-500 line-clamp-2 mb-4 leading-relaxed">
-                                        {job.jobDescription}
-                                    </p>
-
-                                    <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                                        <span className="text-xs text-slate-400">
-                                            {job.quoteMode === 'hhh' ? 'Magic Quote' : job.quoteMode === 'pick_and_mix' ? 'Pick & Mix' : 'Standard Quote'}
-                                        </span>
-                                        <span className="font-bold text-slate-700">
-                                            {getPriceDisplay(job)}
-                                        </span>
-                                    </div>
-                                </motion.div>
-                            </Link>
-                        ))}
-                    </div>
+                        {/* Completed section */}
+                        {completed.length > 0 && (
+                            <>
+                                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider pt-4">Completed ({completed.length})</h3>
+                                {completed.map((job) => (
+                                    <Link key={job.id} href={`/contractor/dashboard/jobs/${job.id}`}>
+                                        <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 opacity-75 hover:opacity-100 transition-opacity cursor-pointer">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <h3 className="font-medium text-sm text-slate-600">{job.customerName}</h3>
+                                                    <span className="text-xs text-slate-400">
+                                                        {job.scheduledDate ? format(new Date(job.scheduledDate), "MMM d") : ''}
+                                                    </span>
+                                                </div>
+                                                {job.payoutPence != null && job.payoutPence > 0 && (
+                                                    <span className="text-sm font-bold text-emerald-600">£{(job.payoutPence / 100).toFixed(2)}</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </Link>
+                                ))}
+                            </>
+                        )}
+                    </>
                 ) : (
                     <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
                         <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200">
@@ -239,8 +211,8 @@ export default function JobsPage() {
                         </div>
                         <div className="space-y-1">
                             <h3 className="font-bold text-slate-800 text-lg">No jobs yet</h3>
-                            <p className="text-slate-400 text-sm max-w-[200px] mx-auto">
-                                Accepted quotes will appear here as active jobs.
+                            <p className="text-slate-400 text-sm max-w-[220px] mx-auto">
+                                Keep your calendar updated and jobs will appear here automatically
                             </p>
                         </div>
                     </div>
