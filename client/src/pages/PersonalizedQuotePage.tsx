@@ -3447,13 +3447,7 @@ export default function PersonalizedQuotePage() {
                       depositPercent={pricingSettings?.depositPercent}
                       payInFullDiscountPercent={pricingSettings?.payInFullDiscountPercent}
                       flexibleDiscountPercent={pricingSettings?.flexibleDiscountPercent}
-                      contractor={quote.contractor ? {
-                        name: quote.contractor.name,
-                        profilePhotoUrl: quote.contractor.profilePhotoUrl,
-                        availabilityStatus: quote.contractor.availabilityStatus,
-                        bio: quote.contractor.bio,
-                        trustBadges: quote.contractor.trustBadges,
-                      } : null}
+                      contractor={null}
                       isBooking={isBooking}
                       onBook={async (config) => {
                         setIsBooking(true);
@@ -3864,7 +3858,7 @@ export default function PersonalizedQuotePage() {
       <div className="flex-1 px-4 py-3 pb-24 overflow-auto">
         <div className="max-w-2xl mx-auto">
           <div className="mb-6 rounded-xl overflow-hidden shadow-lg w-full h-auto relative">
-            <img src={quote.contractor?.coverPhotoUrl || payIn3PromoImage} className="w-full h-auto" />
+            <img src={payIn3PromoImage} className="w-full h-auto" />
           </div>
 
           <div className="mb-10 px-4">

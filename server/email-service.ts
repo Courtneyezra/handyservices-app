@@ -95,10 +95,10 @@ export async function sendBookingConfirmationEmail(data: BookingConfirmationData
         <div style="margin: 25px 0;">
             <h3 style="color: #1a1a2e;">What Happens Next?</h3>
             <ol style="padding-left: 20px; color: #555;">
-                <li style="margin-bottom: 10px;"><strong>Confirmation Call:</strong> We'll call you within 24 hours to confirm the details</li>
-                <li style="margin-bottom: 10px;"><strong>Pre-Job Reminder:</strong> You'll receive a reminder the day before your scheduled date</li>
-                <li style="margin-bottom: 10px;"><strong>Job Completion:</strong> Our contractor will complete the work and collect the balance</li>
-                <li style="margin-bottom: 10px;"><strong>Quality Check:</strong> We'll follow up to make sure you're 100% satisfied</li>
+                <li style="margin-bottom: 10px;"><strong>We're matching your job:</strong> We're reviewing your preferred dates and matching you with the best contractor in your area. You'll receive a WhatsApp within 24 hours confirming your date.</li>
+                <li style="margin-bottom: 10px;"><strong>Day-before reminder:</strong> You'll receive a reminder the day before your scheduled date.</li>
+                <li style="margin-bottom: 10px;"><strong>Job completed:</strong> Your contractor will complete the work and collect the balance.</li>
+                <li style="margin-bottom: 10px;"><strong>Follow-up:</strong> We'll follow up to make sure you're 100% satisfied.</li>
             </ol>
         </div>
 
@@ -645,7 +645,7 @@ Hi ${data.customerName}, your booking is confirmed.
 🔖 *Reference:* ${data.invoiceNumber}
 📅 *Scheduled:* ${data.scheduledDate || "We will confirm your date shortly"}
 
-We'll be in touch to confirm your appointment. Reply here if you have any questions!
+We're matching your job to the best contractor in your area. You'll receive a WhatsApp within 24 hours confirming your date and who's coming. Reply here if you have any questions!
 
 - Handy Services Team`;
 

@@ -915,77 +915,30 @@ export function UnifiedQuoteCard({
             </div>
           </div>
 
-          {/* Contractor trust strip — small inline signal */}
-          {contractor && (
-            <div className={`mt-4 pt-3 border-t ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
-              <div className="flex items-center gap-3 px-1">
-                <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-[#7DB00E] flex-shrink-0">
-                  <img
-                    src={contractor.profilePhotoUrl || '/assets/quote-images/plumber-smile.webp'}
-                    alt={contractor.name}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="text-left min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-sm font-bold leading-tight ${isDarkTheme ? 'text-white' : 'text-slate-800'}`}>
-                      {contractor.name}
-                    </span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#7DB00E] animate-pulse flex-shrink-0" />
-                  </div>
-                  {/* One-liner bio — truncated to single line on mobile */}
-                  {contractor.bio ? (
-                    <p className={`text-[11px] leading-snug mt-0.5 line-clamp-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                      {contractor.bio}
-                    </p>
-                  ) : (
-                    <span className="text-[#7DB00E] text-[11px] font-medium">Available this week</span>
-                  )}
-                </div>
-              </div>
-              {/* Accolades — inline pills */}
-              <div className="flex justify-center gap-1.5 mt-2">
-                {(() => {
-                  const badges: string[] = Array.isArray(contractor.trustBadges) && contractor.trustBadges.length > 0
-                    ? contractor.trustBadges
-                    : ['dbs', 'insured'];
-                  const badgeLabels: Record<string, string> = {
-                    dbs: 'DBS ✓',
-                    insured: '£2M Insured ✓',
-                    dog_friendly: 'Pet Friendly ✓',
-                    verified: 'ID Verified ✓',
-                    gas_safe: 'Gas Safe ✓',
-                    electrical: 'Elec. Cert ✓',
-                  };
-                  return badges.map((badge) => (
-                    <span
-                      key={badge}
-                      className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
-                        isDarkTheme
-                          ? 'bg-[#7DB00E]/10 text-[#7DB00E] border border-[#7DB00E]/20'
-                          : 'bg-[#7DB00E]/10 text-[#5a8a00] border border-[#7DB00E]/20'
-                      }`}
-                    >
-                      {badgeLabels[badge] || `${badge} ✓`}
-                    </span>
-                  ));
-                })()}
-              </div>
+          {/* Brand trust strip */}
+          <div className={`mt-4 pt-3 border-t ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
+            <div className="flex items-center justify-center gap-2 px-1">
+              <span className={`text-sm font-bold ${isDarkTheme ? 'text-white' : 'text-slate-800'}`}>Handy Services</span>
+              <span className={`w-1 h-1 rounded-full ${isDarkTheme ? 'bg-slate-500' : 'bg-slate-300'}`} />
+              <span className={`text-xs font-medium ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>£2M Insured</span>
+              <span className={`w-1 h-1 rounded-full ${isDarkTheme ? 'bg-slate-500' : 'bg-slate-300'}`} />
+              <span className={`text-xs font-medium ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>4.9★ Google</span>
             </div>
-          )}
-
-          {/* Fallback — generic estimator badge when no contractor assigned */}
-          {!contractor && (
-            <div className={`mt-4 pt-4 border-t flex items-center justify-center gap-3 ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
-              <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-[#7DB00E] flex-shrink-0">
-                <img src="/assets/quote-images/ben-estimator.webp" alt="Ben" className="w-full h-full object-cover" />
-              </div>
-              <div className="text-left">
-                <div className={`text-xs uppercase tracking-wider font-semibold ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Prepared by</div>
-                <div className={`text-sm font-bold leading-tight ${isDarkTheme ? 'text-white' : 'text-slate-800'}`}>Ben <span className="text-[#7DB00E] text-xs font-normal">from HandyServices</span></div>
-              </div>
+            <div className="flex justify-center gap-1.5 mt-2">
+              {['DBS Checked', '£2M Insured', '127 Reviews'].map((label) => (
+                <span
+                  key={label}
+                  className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                    isDarkTheme
+                      ? 'bg-[#7DB00E]/10 text-[#7DB00E] border border-[#7DB00E]/20'
+                      : 'bg-[#7DB00E]/10 text-[#5a8a00] border border-[#7DB00E]/20'
+                  }`}
+                >
+                  {label}
+                </span>
+              ))}
             </div>
-          )}
+          </div>
         </div>
 
         {/* Downsell Option (if available and flexible_discount mode enabled) */}
@@ -1288,17 +1241,16 @@ export function UnifiedQuoteCard({
                 </Alert>
               )}
 
-              {/* Reservation success: contractor info + countdown */}
+              {/* Reservation success: date confirmed + countdown */}
               {reservation && (
                 <div className={`p-4 rounded-xl border space-y-3 ${isDarkTheme ? 'bg-[#7DB00E]/10 border-[#7DB00E]/30' : 'bg-green-50 border-green-200'}`}>
-                  {/* Contractor info */}
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-[#7DB00E]/20 flex items-center justify-center flex-shrink-0">
-                      <User className="w-5 h-5 text-[#7DB00E]" />
+                      <Check className="w-5 h-5 text-[#7DB00E]" />
                     </div>
                     <div>
                       <div className={`text-sm font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                        Your handyman: {reservation.contractorName}
+                        Slot reserved
                       </div>
                       <div className={`text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                         {confirmedDates.length > 1

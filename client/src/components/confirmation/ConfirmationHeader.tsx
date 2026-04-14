@@ -106,7 +106,7 @@ export function ConfirmationHeader({ customerName, depositAmount, jobTopLine }: 
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.6 }}
       >
-        Thanks, {firstName}. We've got it from here.
+        Thanks, {firstName}. We're matching your job now — you'll hear from us within 24 hours.
       </motion.p>
 
       {/* Deposit badge */}

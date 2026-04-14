@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
-import { Phone, Calendar, Wrench, CheckCircle2 } from 'lucide-react';
+import { Users, Calendar, Wrench, CheckCircle2 } from 'lucide-react';
 
 interface WhatsNextCardProps {
   scheduledDate?: Date | string | null;
@@ -10,29 +10,31 @@ interface WhatsNextCardProps {
 export function WhatsNextCard({ scheduledDate, contractorName }: WhatsNextCardProps) {
   const steps = [
     {
-      icon: Phone,
-      title: 'Confirmation Call',
-      description: "We'll call you within 24 hours to confirm all details",
+      icon: Users,
+      title: "We're matching your job",
+      description:
+        "We'll review your preferred dates and match you with the best contractor in your area. You'll receive a WhatsApp within 24 hours confirming your date and who's coming.",
       status: 'upcoming',
     },
     {
       icon: Calendar,
-      title: 'Reminder',
-      description: "You'll receive a reminder the day before your booking",
+      title: 'Day-before reminder',
+      description:
+        "You'll get a WhatsApp reminder the day before with your contractor's name and arrival window.",
       status: 'pending',
     },
     {
       icon: Wrench,
-      title: 'Job Completed',
+      title: 'Job completed',
       description: contractorName
-        ? `${contractorName} will complete the work & collect balance`
-        : 'Our contractor completes the work & collects balance',
+        ? `${contractorName} completes the work and collects the balance.`
+        : 'Your contractor completes the work and collects the balance.',
       status: 'pending',
     },
     {
       icon: CheckCircle2,
-      title: 'Review',
-      description: "Share your experience and help others find great service",
+      title: 'Share your experience',
+      description: 'Leave a review and help others find great service.',
       status: 'pending',
     },
   ];

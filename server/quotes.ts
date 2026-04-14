@@ -824,30 +824,8 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
             }
         }
 
-        // Fetch Contractor Details if configured
-        let contractorDetails = undefined;
-        if (quote.contractorId) {
-            const profile = await db.query.handymanProfiles.findFirst({
-                where: eq(handymanProfiles.userId, quote.contractorId),
-                with: { user: true }
-            });
-
-            if (profile) {
-                contractorDetails = {
-                    name: `${profile.user.firstName} ${profile.user.lastName}`,
-                    companyName: profile.businessName || `${profile.user.firstName} ${profile.user.lastName}`,
-                    profilePhotoUrl: profile.profileImageUrl, // Correctly use profile image
-                    coverPhotoUrl: profile.heroImageUrl, // Add cover photo
-                    slug: profile.slug,
-                    bio: profile.bio,
-                    trustBadges: profile.trustBadges,
-                    introVideoUrl: profile.introVideoUrl,
-                    reviews: profile.reviews,
-                    radiusMiles: profile.radiusMiles,
-                    availabilityStatus: profile.availabilityStatus,
-                };
-            }
-        }
+        // Contractor details no longer sent to customer — contractors are assigned post-payment via dispatch pool
+        const contractorDetails = null;
 
         // MATCHING ENGINE: Calculate real-time availability
         let matchingContractors: any[] = [];

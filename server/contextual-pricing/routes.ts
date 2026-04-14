@@ -1092,8 +1092,9 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       marginPence: marginData.marginPence,
       marginPercent: marginData.marginPercent,
       marginFlags: marginData.marginFlags,
-      matchedContractorId: marginData.matchedContractorId,
-      matchedContractorRate: marginData.matchedContractorRate,
+      // matchedContractorId/Rate intentionally NOT saved — contractors are assigned post-payment via dispatch pool
+      matchedContractorId: null,
+      matchedContractorRate: null,
 
       createdAt: new Date(),
     };
