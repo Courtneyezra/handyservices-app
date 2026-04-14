@@ -22,6 +22,8 @@ import {
   Users,
   ChevronDown,
   ChevronUp,
+  Send,
+  AlertTriangle,
 } from "lucide-react";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,6 +61,11 @@ interface WeekDay {
   postcodeAreas: number;
 }
 
+interface BestFitDate {
+  date: string;
+  nearbyCount: number;
+}
+
 interface ClusterJob {
   id: string;
   customerName: string;
@@ -70,6 +77,7 @@ interface ClusterJob {
   coordinates: { lat: number; lng: number } | null;
   availableDates: string[] | null;
   phone: string | null;
+  bestFitDate?: BestFitDate | null;
 }
 
 interface ContractorScore {
@@ -84,6 +92,8 @@ interface ContractorScore {
 
 interface Cluster {
   postcodeArea: string;
+  areaLabel?: string | null;
+  radiusMiles?: number | null;
   jobs: ClusterJob[];
   totalValuePence: number;
   totalJobs: number;
@@ -231,19 +241,27 @@ function getMonday(d: Date): Date {
 
 // ─── Map Icons ──────────────────────────────────────────────────────────────
 
-function createJobIcon(color: string): L.DivIcon {
+function createJobIcon(color: string, opts?: { highlighted?: boolean; dimmed?: boolean }): L.DivIcon {
+  const size = opts?.highlighted ? 18 : 12;
+  const opacity = opts?.dimmed ? 0.3 : 1;
+  const boxShadow = opts?.highlighted
+    ? `0 0 8px 3px ${color}88, 0 1px 4px rgba(0,0,0,0.4)`
+    : "0 1px 4px rgba(0,0,0,0.4)";
+
   return L.divIcon({
     className: "",
     html: `<div style="
-      width: 12px; height: 12px;
+      width: ${size}px; height: ${size}px;
       background: ${color};
       border: 2px solid white;
       border-radius: 50%;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+      box-shadow: ${boxShadow};
+      opacity: ${opacity};
+      transition: all 0.2s ease;
     "></div>`,
-    iconSize: [12, 12],
-    iconAnchor: [6, 6],
-    popupAnchor: [0, -8],
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -(size / 2 + 2)],
   });
 }
 
@@ -300,6 +318,10 @@ export default function DailyPlannerPage() {
   // Per-cluster state: selected slot and contractor override
   const [clusterSlots, setClusterSlots] = useState<Record<string, string>>({});
   const [clusterContractors, setClusterContractors] = useState<Record<string, string>>({});
+
+  // Dispatch All confirmation dialog state
+  const [dispatchAllDialogOpen, setDispatchAllDialogOpen] = useState(false);
+  const [dispatchAllInProgress, setDispatchAllInProgress] = useState(false);
 
   // Dispatch modal state (fallback for individual jobs)
   const [dispatchModalOpen, setDispatchModalOpen] = useState(false);
@@ -536,6 +558,82 @@ export default function DailyPlannerPage() {
     });
   };
 
+  // ─── Dispatch All Handler ──────────────────────────────────────────────────
+  const handleDispatchAll = async () => {
+    if (!autoGroupData?.clusters.length) return;
+    setDispatchAllInProgress(true);
+
+    let totalDispatched = 0;
+    let totalSkipped = 0;
+    let failures: string[] = [];
+
+    for (const cluster of autoGroupData.clusters) {
+      const contractorId = getClusterContractor(cluster);
+      const slot = getClusterSlot(cluster.postcodeArea);
+
+      if (!contractorId) {
+        failures.push(`${cluster.areaLabel || cluster.postcodeArea}: no contractor selected`);
+        continue;
+      }
+
+      try {
+        const res = await fetch("/api/admin/daily-planner/confirm-cluster", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders },
+          body: JSON.stringify({
+            date: selectedDate,
+            slot,
+            contractorId,
+            jobIds: cluster.jobs.map((j) => j.id),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          failures.push(`${cluster.areaLabel || cluster.postcodeArea}: ${data.error || "failed"}`);
+        } else {
+          totalDispatched += data.dispatched || 0;
+          totalSkipped += data.skipped || 0;
+        }
+      } catch (err: any) {
+        failures.push(`${cluster.areaLabel || cluster.postcodeArea}: ${err.message}`);
+      }
+    }
+
+    setDispatchAllInProgress(false);
+    setDispatchAllDialogOpen(false);
+
+    // Refresh data
+    queryClient.invalidateQueries({ queryKey: ["daily-planner-week", weekStartStr] });
+    queryClient.invalidateQueries({ queryKey: ["daily-planner-autogroup", selectedDate] });
+
+    if (failures.length > 0) {
+      toast({
+        title: `Partially dispatched: ${totalDispatched} job${totalDispatched !== 1 ? "s" : ""} sent`,
+        description: `${failures.length} cluster${failures.length !== 1 ? "s" : ""} failed: ${failures.join("; ")}${totalSkipped > 0 ? `. ${totalSkipped} skipped (already dispatched).` : ""}`,
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: `${totalDispatched} job${totalDispatched !== 1 ? "s" : ""} dispatched successfully`,
+        description: totalSkipped > 0 ? `${totalSkipped} skipped (already dispatched).` : undefined,
+      });
+    }
+  };
+
+  // ─── Dispatch All summary info ─────────────────────────────────────────────
+  const dispatchAllJobCount = autoGroupData?.clusters.reduce((sum, c) => sum + c.totalJobs, 0) || 0;
+  const dispatchAllClusterCount = autoGroupData?.clusters.length || 0;
+  const dispatchAllContractorNames = useMemo(() => {
+    if (!autoGroupData?.clusters) return [];
+    const names = new Set<string>();
+    for (const cluster of autoGroupData.clusters) {
+      const contractorId = getClusterContractor(cluster);
+      const contractor = cluster.allContractors.find((c) => c.id === contractorId);
+      if (contractor) names.add(contractor.name);
+    }
+    return Array.from(names);
+  }, [autoGroupData, clusterContractors]);
+
   // ─── Loading ──────────────────────────────────────────────────────────────
   if (weekLoading) {
     return (
@@ -641,16 +739,28 @@ export default function DailyPlannerPage() {
         {/* Left Panel (45%) — Clusters */}
         <div className="w-[45%] flex-shrink-0 overflow-y-auto border-r border-border px-4 pb-4 md:px-6 space-y-4">
           {/* Selected Day Header */}
-          <div className="flex items-center justify-between pt-2">
-            <h2 className="text-sm font-semibold flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-primary" />
-              {format(parseISO(selectedDate), "EEEE d MMMM yyyy")}
-            </h2>
-            {autoGroupData && (
-              <Badge variant="outline" className="text-[10px]">
-                {autoGroupData.clusters.length} cluster{autoGroupData.clusters.length !== 1 ? "s" : ""},{" "}
-                {autoGroupData.clusters.reduce((sum, c) => sum + c.totalJobs, 0)} job{autoGroupData.clusters.reduce((sum, c) => sum + c.totalJobs, 0) !== 1 ? "s" : ""}
-              </Badge>
+          <div className="flex items-center justify-between pt-2 gap-2">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <h2 className="text-sm font-semibold flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-primary" />
+                {format(parseISO(selectedDate), "EEEE d MMMM yyyy")}
+              </h2>
+              {autoGroupData && (
+                <Badge variant="outline" className="text-[10px] flex-shrink-0">
+                  {autoGroupData.clusters.length} cluster{autoGroupData.clusters.length !== 1 ? "s" : ""},{" "}
+                  {autoGroupData.clusters.reduce((sum, c) => sum + c.totalJobs, 0)} job{autoGroupData.clusters.reduce((sum, c) => sum + c.totalJobs, 0) !== 1 ? "s" : ""}
+                </Badge>
+              )}
+            </div>
+            {autoGroupData && autoGroupData.clusters.length > 0 && (
+              <Button
+                size="sm"
+                className="bg-green-600 hover:bg-green-700 text-white flex-shrink-0"
+                onClick={() => setDispatchAllDialogOpen(true)}
+              >
+                <Send className="mr-1.5 h-3.5 w-3.5" />
+                Dispatch All ({dispatchAllJobCount} job{dispatchAllJobCount !== 1 ? "s" : ""})
+              </Button>
             )}
           </div>
 
@@ -688,16 +798,25 @@ export default function DailyPlannerPage() {
                   >
                     <CardHeader className="pb-2 px-4 pt-3">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-4 w-4 text-amber-600" />
-                          <CardTitle className="text-base">{cluster.postcodeArea}</CardTitle>
-                          <Badge variant="secondary" className="text-[10px]">
-                            {cluster.totalJobs} job{cluster.totalJobs !== 1 ? "s" : ""}
-                          </Badge>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <MapPin className="h-4 w-4 text-amber-600" />
+                            <CardTitle className="text-base">
+                              {cluster.areaLabel ? `${cluster.areaLabel} area` : cluster.postcodeArea}
+                            </CardTitle>
+                            <Badge variant="secondary" className="text-[10px]">
+                              {cluster.totalJobs} job{cluster.totalJobs !== 1 ? "s" : ""}
+                            </Badge>
+                            <span className="text-sm font-semibold text-green-600">
+                              {formatPence(cluster.totalValuePence)}
+                            </span>
+                          </div>
+                          {cluster.radiusMiles != null && (
+                            <span className="text-[10px] text-muted-foreground ml-6">
+                              {cluster.radiusMiles.toFixed(1)} mile radius
+                            </span>
+                          )}
                         </div>
-                        <span className="text-sm font-semibold text-green-600">
-                          {formatPence(cluster.totalValuePence)}
-                        </span>
                       </div>
 
                       {/* Suggested contractor */}
@@ -732,36 +851,72 @@ export default function DailyPlannerPage() {
                     <CardContent className="px-4 pb-4 space-y-3">
                       {/* Job list */}
                       <div className="space-y-2">
-                        {cluster.jobs.map((job) => (
-                          <div
-                            key={job.id}
-                            className="rounded-md border bg-muted/30 p-2.5"
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-medium truncate">
-                                    {job.customerName}
-                                  </span>
-                                  {job.basePrice && (
-                                    <span className="text-xs font-semibold text-green-600 flex-shrink-0">
-                                      {formatPence(job.basePrice)}
+                        {cluster.jobs.map((job) => {
+                          const hasBetterFit =
+                            job.bestFitDate &&
+                            job.bestFitDate.date !== selectedDate;
+                          return (
+                            <div
+                              key={job.id}
+                              className="rounded-md border bg-muted/30 p-2.5"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm font-medium truncate">
+                                      {job.customerName}
+                                    </span>
+                                    {job.basePrice && (
+                                      <span className="text-xs font-semibold text-green-600 flex-shrink-0">
+                                        {formatPence(job.basePrice)}
+                                      </span>
+                                    )}
+                                    {hasBetterFit && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[10px] py-0 px-1.5 border-amber-300 text-amber-700 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-700"
+                                      >
+                                        Better fit: {(() => {
+                                          try {
+                                            return format(parseISO(job.bestFitDate!.date), "EEE");
+                                          } catch {
+                                            return job.bestFitDate!.date;
+                                          }
+                                        })()} ({job.bestFitDate!.nearbyCount} nearby job{job.bestFitDate!.nearbyCount !== 1 ? "s" : ""})
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                                    {job.contextualHeadline || job.jobDescription}
+                                  </p>
+                                  {job.postcode && (
+                                    <span className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                                      <MapPin className="h-2.5 w-2.5" />
+                                      {job.address || job.postcode}
                                     </span>
                                   )}
+                                  {job.availableDates && job.availableDates.length > 0 && (
+                                    <div className="text-[10px] text-muted-foreground/70 mt-1">
+                                      Available:{" "}
+                                      {job.availableDates.map((d, i) => (
+                                        <span key={d}>
+                                          {i > 0 && " \u00b7 "}
+                                          {(() => {
+                                            try {
+                                              return format(parseISO(d), "EEE d");
+                                            } catch {
+                                              return d;
+                                            }
+                                          })()}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
-                                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                                  {job.contextualHeadline || job.jobDescription}
-                                </p>
-                                {job.postcode && (
-                                  <span className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                                    <MapPin className="h-2.5 w-2.5" />
-                                    {job.address || job.postcode}
-                                  </span>
-                                )}
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
 
                       {/* Time Slot Picker */}
@@ -948,11 +1103,17 @@ export default function DailyPlannerPage() {
               cluster.jobs.map((job) => {
                 if (!job.coordinates?.lat || !job.coordinates?.lng) return null;
                 const isHighlighted = highlightedCluster === cluster.postcodeArea;
+                const isDimmed = highlightedCluster !== null && !isHighlighted;
+                const icon = isHighlighted
+                  ? createJobIcon("#ef4444", { highlighted: true })
+                  : isDimmed
+                    ? createJobIcon("#f59e0b", { dimmed: true })
+                    : amberIcon;
                 return (
                   <Marker
                     key={`pool-${job.id}`}
                     position={[job.coordinates.lat, job.coordinates.lng]}
-                    icon={isHighlighted ? createJobIcon("#ef4444") : amberIcon}
+                    icon={icon}
                   >
                     <Popup>
                       <div className="min-w-[180px] p-1">
@@ -983,11 +1144,14 @@ export default function DailyPlannerPage() {
             {/* Green pins: Dispatched jobs */}
             {autoGroupData?.dispatched?.map((job) => {
               if (!job.coordinates?.lat || !job.coordinates?.lng) return null;
+              const dispatchedIcon = highlightedCluster
+                ? createJobIcon("#22c55e", { dimmed: true })
+                : greenIcon;
               return (
                 <Marker
                   key={`disp-${job.id}`}
                   position={[job.coordinates.lat, job.coordinates.lng]}
-                  icon={greenIcon}
+                  icon={dispatchedIcon}
                 >
                   <Popup>
                     <div className="min-w-[180px] p-1">
@@ -1220,6 +1384,66 @@ export default function DailyPlannerPage() {
                 <Truck className="mr-2 h-4 w-4" />
               )}
               Dispatch Job
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dispatch All Confirmation Dialog ─────────────────────────────── */}
+      <Dialog
+        open={dispatchAllDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && !dispatchAllInProgress) setDispatchAllDialogOpen(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Dispatch All Clusters
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. Jobs will be dispatched to contractors immediately.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-3 space-y-3">
+            <p className="text-sm">
+              Dispatch <span className="font-semibold">{dispatchAllJobCount} job{dispatchAllJobCount !== 1 ? "s" : ""}</span> across{" "}
+              <span className="font-semibold">{dispatchAllClusterCount} cluster{dispatchAllClusterCount !== 1 ? "s" : ""}</span>?
+            </p>
+            {dispatchAllContractorNames.length > 0 && (
+              <div className="text-sm">
+                <span className="text-muted-foreground">Contractors: </span>
+                <span className="font-medium">{dispatchAllContractorNames.join(", ")}</span>
+              </div>
+            )}
+            {dispatchAllContractorNames.length < dispatchAllClusterCount && (
+              <p className="text-xs text-amber-600">
+                Warning: {dispatchAllClusterCount - dispatchAllContractorNames.length} cluster{dispatchAllClusterCount - dispatchAllContractorNames.length !== 1 ? "s have" : " has"} no contractor selected and will be skipped.
+              </p>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setDispatchAllDialogOpen(false)}
+              disabled={dispatchAllInProgress}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white"
+              onClick={handleDispatchAll}
+              disabled={dispatchAllInProgress}
+            >
+              {dispatchAllInProgress ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="mr-2 h-4 w-4" />
+              )}
+              {dispatchAllInProgress ? "Dispatching..." : `Dispatch ${dispatchAllJobCount} Jobs`}
             </Button>
           </DialogFooter>
         </DialogContent>

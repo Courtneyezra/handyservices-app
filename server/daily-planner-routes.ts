@@ -14,6 +14,12 @@ import { eq, and, gte, lte, isNotNull, isNull, sql, desc } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { sendJobAssignmentEmail } from './email-service';
 import { sendWhatsAppMessage } from './meta-whatsapp';
+import {
+  generateSmartGrouping,
+  extractJobCategories,
+  type PoolJob,
+  type Contractor,
+} from './smart-planner-engine';
 
 const router = Router();
 
@@ -746,7 +752,7 @@ router.get('/week-overview', async (req: Request, res: Response) => {
   }
 });
 
-// ─── GET /auto-group — Auto-grouped clusters for a date ──────────────────────
+// ─── GET /auto-group — Distance-based smart clusters for a date ─────────────
 
 router.get('/auto-group', async (req: Request, res: Response) => {
   try {
@@ -755,8 +761,8 @@ router.get('/auto-group', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'date query param required (YYYY-MM-DD)' });
     }
 
-    // 1. Get pool jobs (deposit paid, not booked, not revoked) where date is in availableDates
-    const allPoolJobs = await db
+    // 1. Get ALL pool jobs (deposit paid, not booked, not revoked) — needed for best-fit-date calc
+    const allPoolJobRows = await db
       .select({
         id: personalizedQuotes.id,
         customerName: personalizedQuotes.customerName,
@@ -780,30 +786,23 @@ router.get('/auto-group', async (req: Request, res: Response) => {
         )
       );
 
-    // Filter to jobs available on the requested date
-    const poolJobs = allPoolJobs.filter(j => {
-      if (!j.availableDates || !Array.isArray(j.availableDates)) return false;
-      return (j.availableDates as string[]).some(ad => {
-        try { return ad.split('T')[0] === date; } catch { return ad === date; }
-      });
-    });
+    // Map DB rows to PoolJob[]
+    const allPoolJobs: PoolJob[] = allPoolJobRows.map(j => ({
+      id: j.id,
+      customerName: j.customerName,
+      phone: j.phone,
+      address: j.address,
+      postcode: j.postcode,
+      coordinates: j.coordinates as { lat: number; lng: number } | null,
+      availableDates: (j.availableDates as string[]) || [],
+      basePrice: j.basePrice || 0,
+      pricingLineItems: j.pricingLineItems,
+      contextualHeadline: j.contextualHeadline,
+      jobDescription: j.jobDescription,
+    }));
 
-    // 2. Group by postcode prefix
-    const getPostcodePrefix = (postcode: string | null): string => {
-      if (!postcode) return 'UNKNOWN';
-      const match = postcode.trim().toUpperCase().match(/^([A-Z]{1,2}\d{1,2})/);
-      return match ? match[1] : 'UNKNOWN';
-    };
-
-    const postcodeGroups = new Map<string, typeof poolJobs>();
-    for (const job of poolJobs) {
-      const prefix = getPostcodePrefix(job.postcode);
-      if (!postcodeGroups.has(prefix)) postcodeGroups.set(prefix, []);
-      postcodeGroups.get(prefix)!.push(job);
-    }
-
-    // 3. Get contractors
-    const contractors = await db
+    // 2. Get contractors
+    const contractorRows = await db
       .select({
         id: handymanProfiles.id,
         userId: handymanProfiles.userId,
@@ -811,6 +810,7 @@ router.get('/auto-group', async (req: Request, res: Response) => {
         postcode: handymanProfiles.postcode,
         latitude: handymanProfiles.latitude,
         longitude: handymanProfiles.longitude,
+        radiusMiles: handymanProfiles.radiusMiles,
         lastAssignedAt: handymanProfiles.lastAssignedAt,
         availabilityStatus: handymanProfiles.availabilityStatus,
       })
@@ -818,7 +818,7 @@ router.get('/auto-group', async (req: Request, res: Response) => {
       .where(sql`${handymanProfiles.availabilityStatus} != 'inactive'`);
 
     // Get contractor names
-    const contractorUserIds = contractors.map(c => c.userId).filter(Boolean) as string[];
+    const contractorUserIds = contractorRows.map(c => c.userId).filter(Boolean) as string[];
     let contractorUsers: { id: string; firstName: string | null; lastName: string | null }[] = [];
     if (contractorUserIds.length > 0) {
       contractorUsers = await db
@@ -840,7 +840,28 @@ router.get('/auto-group', async (req: Request, res: Response) => {
       skillsByContractor.set(skill.handymanId, existing);
     }
 
-    // 4. Get contractor workload for this date
+    const getContractorName = (c: typeof contractorRows[0]): string => {
+      const user = userMap.get(c.userId ?? '');
+      if (user) {
+        const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ');
+        if (fullName) return fullName;
+      }
+      return c.businessName || 'Unknown';
+    };
+
+    // Map to Contractor[]
+    const contractorList: Contractor[] = contractorRows.map(c => ({
+      id: c.id,
+      name: getContractorName(c),
+      latitude: c.latitude ? parseFloat(c.latitude) : null,
+      longitude: c.longitude ? parseFloat(c.longitude) : null,
+      postcode: c.postcode,
+      radiusMiles: c.radiusMiles ?? 10,
+      skills: skillsByContractor.get(c.id) || [],
+      lastAssignedAt: c.lastAssignedAt,
+    }));
+
+    // 3. Get contractor workload (existing commitments) for this date
     const dateStart = new Date(date);
     dateStart.setHours(0, 0, 0, 0);
     const dateEnd = new Date(date);
@@ -861,129 +882,20 @@ router.get('/auto-group', async (req: Request, res: Response) => {
         )
       );
 
-    const workloadByContractor = new Map<string, number>();
+    const commitmentsByContractor = new Map<string, number>();
     for (const b of bookings) {
       if (b.assignedContractorId) {
-        workloadByContractor.set(b.assignedContractorId, (workloadByContractor.get(b.assignedContractorId) || 0) + 1);
+        commitmentsByContractor.set(
+          b.assignedContractorId,
+          (commitmentsByContractor.get(b.assignedContractorId) || 0) + 1,
+        );
       }
     }
 
-    // Build contractor list with names and skills
-    const getContractorName = (c: typeof contractors[0]): string => {
-      const user = userMap.get(c.userId ?? '');
-      if (user) {
-        const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ');
-        if (fullName) return fullName;
-      }
-      return c.businessName || 'Unknown';
-    };
+    // 4. Run smart grouping engine
+    const smartResult = generateSmartGrouping(allPoolJobs, contractorList, date, commitmentsByContractor);
 
-    const getContractorPostcodePrefix = (postcode: string | null): string => {
-      if (!postcode) return '';
-      const match = postcode.trim().toUpperCase().match(/^([A-Z]{1,2}\d{1,2})/);
-      return match ? match[1] : '';
-    };
-
-    // Find oldest lastAssignedAt for fairness bonus
-    const assignedDates = contractors
-      .map(c => c.lastAssignedAt)
-      .filter((d): d is Date => d !== null)
-      .sort((a, b) => a.getTime() - b.getTime());
-    const oldestAssignedAt = assignedDates.length > 0 ? assignedDates[0].getTime() : 0;
-
-    // Extract job categories from pricing line items
-    const getJobCategories = (lineItems: any): string[] => {
-      if (!lineItems || !Array.isArray(lineItems)) return [];
-      return lineItems.map((item: any) => item.category).filter(Boolean);
-    };
-
-    // 5. Score contractors per cluster
-    const clusters: any[] = [];
-
-    for (const [postcodeArea, jobs] of postcodeGroups) {
-      const contractorScores: any[] = [];
-
-      for (const c of contractors) {
-        let score = 0;
-        const reasons: string[] = [];
-        const existingJobsOnDate = workloadByContractor.get(c.id) || 0;
-        const contractorPrefix = getContractorPostcodePrefix(c.postcode);
-        const contractorSkills = skillsByContractor.get(c.id) || [];
-
-        // Proximity: same postcode prefix = 40, else 20
-        if (contractorPrefix === postcodeArea) {
-          score += 40;
-          reasons.push('Same postcode area');
-        } else if (contractorPrefix) {
-          score += 20;
-          reasons.push('Different area');
-        }
-
-        // Skill overlap
-        const jobCategories = new Set(jobs.flatMap(j => getJobCategories(j.pricingLineItems)));
-        const skillMatches = contractorSkills.filter(s => jobCategories.has(s)).length;
-        score += Math.min(skillMatches * 10, 30);
-        if (skillMatches > 0) reasons.push(`${skillMatches} matching skill${skillMatches > 1 ? 's' : ''}`);
-
-        // Workload penalty
-        score += Math.max(0, 20 - existingJobsOnDate * 10);
-        reasons.push(`${existingJobsOnDate} job${existingJobsOnDate !== 1 ? 's' : ''} on this date`);
-
-        // Fairness bonus: oldest lastAssignedAt gets +10
-        if (c.lastAssignedAt && oldestAssignedAt && c.lastAssignedAt.getTime() === oldestAssignedAt) {
-          score += 10;
-          reasons.push('Longest since last assigned');
-        } else if (!c.lastAssignedAt) {
-          score += 10;
-          reasons.push('Never assigned');
-        }
-
-        contractorScores.push({
-          id: c.id,
-          name: getContractorName(c),
-          score,
-          reasons,
-          existingJobsOnDate,
-          skills: contractorSkills,
-          postcode: c.postcode,
-        });
-      }
-
-      // Sort by score descending
-      contractorScores.sort((a, b) => b.score - a.score);
-
-      const suggestedContractor = contractorScores.length > 0 ? contractorScores[0] : null;
-
-      clusters.push({
-        postcodeArea,
-        jobs: jobs.map(j => ({
-          id: j.id,
-          customerName: j.customerName,
-          jobDescription: j.jobDescription,
-          contextualHeadline: j.contextualHeadline,
-          basePrice: j.basePrice,
-          postcode: j.postcode,
-          address: j.address,
-          coordinates: j.coordinates,
-          availableDates: j.availableDates,
-          phone: j.phone,
-        })),
-        totalValuePence: jobs.reduce((sum, j) => sum + (j.basePrice || 0), 0),
-        totalJobs: jobs.length,
-        suggestedContractor,
-        allContractors: contractorScores.map(c => ({
-          id: c.id,
-          name: c.name,
-          score: c.score,
-          existingJobsOnDate: c.existingJobsOnDate,
-        })),
-      });
-    }
-
-    // Sort clusters by job count descending
-    clusters.sort((a, b) => b.totalJobs - a.totalJobs);
-
-    // Also get dispatched jobs for this date (for the "already dispatched" section)
+    // 5. Also get dispatched jobs for this date (for the "already dispatched" section)
     const dispatchedJobs = await db
       .select({
         id: personalizedQuotes.id,
@@ -1008,8 +920,8 @@ router.get('/auto-group', async (req: Request, res: Response) => {
         )
       );
 
-    // Build full contractor list for the response
-    const contractorList = contractors.map(c => ({
+    // 6. Build contractor list for the frontend (with raw lat/lng for map display)
+    const contractorListForResponse = contractorRows.map(c => ({
       id: c.id,
       name: getContractorName(c),
       postcode: c.postcode,
@@ -1018,15 +930,223 @@ router.get('/auto-group', async (req: Request, res: Response) => {
       longitude: c.longitude,
     }));
 
+    // Merge unlocated cluster into the clusters array (at the end)
+    const allClusters = [...smartResult.clusters];
+    if (smartResult.unlocated) {
+      allClusters.push(smartResult.unlocated);
+    }
+
     res.json({
       date,
-      clusters,
+      clusters: allClusters,
       dispatched: dispatchedJobs,
-      contractors: contractorList,
+      contractors: contractorListForResponse,
     });
   } catch (error: any) {
     console.error('[Daily Planner] Auto-group error:', error);
     res.status(500).json({ error: 'Failed to auto-group jobs', details: error.message });
+  }
+});
+
+// ─── POST /dispatch-all — Batch dispatch all clusters for a day ─────────────
+
+router.post('/dispatch-all', async (req: Request, res: Response) => {
+  try {
+    const { date, clusters: clusterInputs } = req.body as {
+      date: string;
+      clusters: Array<{ jobIds: string[]; contractorId: string; slot: string }>;
+    };
+
+    if (!date || !clusterInputs || !Array.isArray(clusterInputs)) {
+      return res.status(400).json({
+        error: 'Missing required fields: date, clusters[]',
+      });
+    }
+
+    const parsedDate = new Date(date);
+    if (isNaN(parsedDate.getTime())) {
+      return res.status(400).json({ error: 'date is not valid' });
+    }
+
+    let totalDispatched = 0;
+    let totalSkipped = 0;
+    const errors: string[] = [];
+    const now = new Date();
+
+    for (const cluster of clusterInputs) {
+      const { jobIds, contractorId, slot } = cluster;
+
+      if (!jobIds || !Array.isArray(jobIds) || jobIds.length === 0) {
+        errors.push('Cluster missing jobIds');
+        continue;
+      }
+      if (!contractorId) {
+        errors.push(`Cluster with ${jobIds.length} jobs missing contractorId`);
+        continue;
+      }
+      if (!['am', 'pm', 'full_day'].includes(slot)) {
+        errors.push(`Invalid slot "${slot}" for contractor ${contractorId}`);
+        continue;
+      }
+
+      // Fetch contractor info
+      const contractorResults = await db.select({
+        profileId: handymanProfiles.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+      })
+        .from(handymanProfiles)
+        .innerJoin(users, eq(handymanProfiles.userId, users.id))
+        .where(eq(handymanProfiles.id, contractorId))
+        .limit(1);
+
+      if (contractorResults.length === 0) {
+        errors.push(`Contractor ${contractorId} not found`);
+        continue;
+      }
+      const contractor = contractorResults[0];
+      const contractorName = [contractor.firstName, contractor.lastName].filter(Boolean).join(' ') || 'Contractor';
+
+      // Fetch all quotes for this cluster
+      const quotes = await db.select()
+        .from(personalizedQuotes)
+        .where(sql`${personalizedQuotes.id} IN (${sql.join(jobIds.map((id: string) => sql`${id}`), sql`, `)})`);
+
+      const slotMap: Record<string, string> = { am: 'AM', pm: 'PM', full_day: 'FULL_DAY' };
+      const scheduledSlotEnum = slotMap[slot];
+
+      const dispatched: string[] = [];
+      const skipped: string[] = [];
+      const jobSummaries: { customerName: string; address: string; description: string; jobId: string }[] = [];
+
+      // Dispatch in a transaction
+      await db.transaction(async (tx) => {
+        for (const quote of quotes) {
+          // Ghost job check: skip already booked or deposit not paid
+          if (quote.bookedAt) {
+            skipped.push(quote.id);
+            continue;
+          }
+          if (!quote.depositPaidAt) {
+            skipped.push(quote.id);
+            continue;
+          }
+
+          const jobId = uuidv4();
+
+          await tx.update(personalizedQuotes)
+            .set({
+              selectedDate: parsedDate,
+              timeSlotType: slot,
+              bookedAt: now,
+              matchedContractorId: contractorId,
+              matchedContractorName: contractorName,
+            })
+            .where(eq(personalizedQuotes.id, quote.id));
+
+          await tx.insert(contractorBookingRequests)
+            .values({
+              id: jobId,
+              contractorId: contractorId,
+              assignedContractorId: contractorId,
+              customerName: quote.customerName,
+              customerEmail: quote.email || undefined,
+              customerPhone: quote.phone,
+              quoteId: quote.id,
+              scheduledDate: parsedDate,
+              requestedSlot: scheduledSlotEnum,
+              status: 'pending',
+              assignmentStatus: 'assigned',
+              assignedAt: now,
+              description: quote.jobDescription,
+              createdAt: now,
+              updatedAt: now,
+            });
+
+          if (quote.leadId) {
+            await tx.update(leads)
+              .set({ stage: 'booked', stageUpdatedAt: now })
+              .where(eq(leads.id, quote.leadId));
+          }
+
+          dispatched.push(quote.id);
+          jobSummaries.push({
+            customerName: quote.customerName,
+            address: quote.address || quote.postcode || '',
+            description: quote.jobDescription,
+            jobId,
+          });
+        }
+      });
+
+      // Update lastAssignedAt
+      if (dispatched.length > 0) {
+        await db.update(handymanProfiles)
+          .set({ lastAssignedAt: now })
+          .where(eq(handymanProfiles.id, contractorId));
+      }
+
+      // Send customer WhatsApp notifications (best-effort)
+      const slotLabel: Record<string, string> = {
+        am: 'morning (AM)',
+        pm: 'afternoon (PM)',
+        full_day: 'full day',
+      };
+      const formattedDate = parsedDate.toLocaleDateString('en-GB', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+      });
+
+      for (const quote of quotes) {
+        if (skipped.includes(quote.id)) continue;
+        try {
+          const whatsappMessage =
+            `Great news, ${quote.customerName}! Your booking is confirmed. ` +
+            `${contractorName} will visit on ${formattedDate}, ${slotLabel[slot]}. ` +
+            `We'll send a reminder the day before. If you need anything, just reply here.`;
+          await sendWhatsAppMessage(quote.phone, whatsappMessage);
+        } catch (whatsappError) {
+          // Non-blocking
+        }
+      }
+
+      // Send ONE contractor email per cluster
+      if (contractor.email && jobSummaries.length > 0) {
+        try {
+          const jobLines = jobSummaries.map((j, i) => `${i + 1}. ${j.customerName} — ${j.address}\n   ${j.description}`).join('\n\n');
+          const combinedDescription = `You have ${jobSummaries.length} job(s) scheduled:\n\n${jobLines}`;
+          await sendJobAssignmentEmail({
+            contractorName,
+            contractorEmail: contractor.email,
+            customerName: `${jobSummaries.length} customers`,
+            address: `${jobSummaries.length} locations`,
+            jobDescription: combinedDescription,
+            scheduledDate: date,
+            jobId: jobSummaries[0].jobId,
+          });
+        } catch (emailError) {
+          // Non-blocking
+        }
+      }
+
+      totalDispatched += dispatched.length;
+      totalSkipped += skipped.length;
+
+      if (skipped.length > 0) {
+        errors.push(`${skipped.length} job(s) skipped for ${contractorName} (already booked or no deposit)`);
+      }
+    }
+
+    console.log(`[Daily Planner] Dispatch-all: ${totalDispatched} dispatched, ${totalSkipped} skipped, ${errors.length} errors`);
+
+    res.json({
+      dispatched: totalDispatched,
+      skipped: totalSkipped,
+      errors,
+    });
+  } catch (error: any) {
+    console.error('[Daily Planner] Dispatch-all error:', error);
+    res.status(500).json({ error: error.message || 'Failed to batch dispatch' });
   }
 });
 
