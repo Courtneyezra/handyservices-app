@@ -479,6 +479,15 @@ export function UnifiedQuoteCard({
   // All 3 buffer dates must be selected before payment unlocks
   const allDatesSelected = confirmedDates.length >= MAX_BUFFER_DATES;
 
+  // Auto-scroll to payment/email section once all preferred dates are confirmed
+  useEffect(() => {
+    if (allDatesSelected) {
+      setTimeout(() => {
+        bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+    }
+  }, [allDatesSelected]);
+
   // Determine if we should show inline payment
   // Show inline Stripe card entry when: downsell, single-date with reservation, or all 3 buffer dates picked
   const showInlinePayment = useDownsell || (selectedDate && selectedTimeSlot && reservation) || allDatesSelected;
