@@ -762,6 +762,7 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     completedInstallments: integer("completed_installments").default(0), // How many installments have been paid
     nextInstallmentDate: timestamp("next_installment_date"), // When the next installment is due
     depositPaidAt: timestamp("deposit_paid_at"), // When the deposit was successfully paid
+    completedAt: timestamp("completed_at"), // When the job was marked as completed (for invoicing)
 
     // Deposit Tracking (for audit trail)
     depositAmountPence: integer("deposit_amount_pence"), // Calculated deposit amount in pence

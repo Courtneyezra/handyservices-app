@@ -487,24 +487,73 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                     }
                 }
 
-                // Also check for direct invoice payments (existing logic)
-                const invoiceResults = await db.select()
-                    .from(invoices)
-                    .where(eq(invoices.stripePaymentIntentId, paymentIntent.id))
-                    .limit(1);
+                // Handle direct invoice balance payments (from /api/invoices/:id/pay)
+                const invoiceId = paymentIntent.metadata?.invoiceId;
+                if (invoiceId) {
+                    const invoiceResults = await db.select()
+                        .from(invoices)
+                        .where(eq(invoices.id, invoiceId))
+                        .limit(1);
 
-                if (invoiceResults.length > 0 && !quoteId) {
-                    // Only update if this wasn't already handled as a quote payment
-                    await db.update(invoices)
-                        .set({
-                            status: 'paid',
-                            paidAt: new Date(),
-                            paymentMethod: 'stripe',
-                            updatedAt: new Date()
-                        })
-                        .where(eq(invoices.id, invoiceResults[0].id));
+                    if (invoiceResults.length > 0 && invoiceResults[0].status !== 'paid') {
+                        const paidInvoice = invoiceResults[0];
+                        const now = new Date();
 
-                    console.log('[Stripe Webhook] Invoice marked as paid:', invoiceResults[0].invoiceNumber);
+                        // Mark this invoice as paid
+                        await db.update(invoices)
+                            .set({
+                                status: 'paid',
+                                paidAt: now,
+                                balanceDue: 0,
+                                stripePaymentIntentId: paymentIntent.id,
+                                paymentMethod: 'stripe',
+                                updatedAt: now,
+                            })
+                            .where(eq(invoices.id, invoiceId));
+
+                        console.log(`[Stripe Webhook] Invoice ${paidInvoice.invoiceNumber} balance paid via Stripe`);
+
+                        // If this is a consolidated invoice, mark all child invoices as paid too
+                        try {
+                            const notesData = paidInvoice.notes ? JSON.parse(paidInvoice.notes) : null;
+                            if (notesData?.isConsolidated && Array.isArray(notesData.childInvoiceIds)) {
+                                const { inArray } = await import('drizzle-orm');
+                                await db.update(invoices)
+                                    .set({
+                                        status: 'paid',
+                                        paidAt: now,
+                                        balanceDue: 0,
+                                        paymentMethod: 'stripe',
+                                        updatedAt: now,
+                                    })
+                                    .where(inArray(invoices.id, notesData.childInvoiceIds));
+
+                                console.log(`[Stripe Webhook] Marked ${notesData.childInvoiceIds.length} child invoices as paid (consolidated payment)`);
+                            }
+                        } catch (e) {
+                            // notes might not be JSON — that's fine, not a consolidated invoice
+                        }
+                    }
+                } else if (!quoteId) {
+                    // Fallback: check by stripePaymentIntentId match
+                    const invoiceResults = await db.select()
+                        .from(invoices)
+                        .where(eq(invoices.stripePaymentIntentId, paymentIntent.id))
+                        .limit(1);
+
+                    if (invoiceResults.length > 0) {
+                        await db.update(invoices)
+                            .set({
+                                status: 'paid',
+                                paidAt: new Date(),
+                                balanceDue: 0,
+                                paymentMethod: 'stripe',
+                                updatedAt: new Date()
+                            })
+                            .where(eq(invoices.id, invoiceResults[0].id));
+
+                        console.log('[Stripe Webhook] Invoice marked as paid:', invoiceResults[0].invoiceNumber);
+                    }
                 }
                 break;
             }
