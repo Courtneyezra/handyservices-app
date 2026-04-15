@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Search, LayoutGrid, List as ListIcon, FileText, CreditCard, Clock, CheckCircle } from 'lucide-react';
+import { Loader2, Search, LayoutGrid, List as ListIcon, FileText, CreditCard, Clock, CheckCircle, CheckSquare, Receipt, ExternalLink, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAvailability } from '@/hooks/useAvailability';
@@ -47,9 +47,11 @@ export interface PersonalizedQuote {
     leadId: string | null;
     createdAt: string;
     visitTierMode?: 'tiers' | 'fixed' | null;
+    completedAt: string | null;
+    address?: string | null;
 }
 
-type FilterMode = 'all' | 'booked' | 'pending';
+type FilterMode = 'all' | 'booked' | 'completed' | 'pending';
 
 export default function QuotesPage() {
     const { toast } = useToast();
@@ -69,6 +71,76 @@ export default function QuotesPage() {
     // Preview Modal State
     const [previewOpen, setPreviewOpen] = useState(false);
     const [selectedQuoteForPreview, setSelectedQuoteForPreview] = useState<PreviewQuote | null>(null);
+
+    // Selection state for bulk actions
+    const [selectedQuoteIds, setSelectedQuoteIds] = useState<Set<string>>(new Set());
+    const [generatedInvoiceLink, setGeneratedInvoiceLink] = useState<string | null>(null);
+
+    const toggleQuoteSelection = (id: string) => {
+        setSelectedQuoteIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const toggleSelectAll = (quoteIds: string[]) => {
+        const allSelected = quoteIds.every(id => selectedQuoteIds.has(id));
+        if (allSelected) {
+            setSelectedQuoteIds(new Set());
+        } else {
+            setSelectedQuoteIds(new Set(quoteIds));
+        }
+    };
+
+    // Mark quotes as completed
+    const markCompleteMutation = useMutation({
+        mutationFn: async (quoteIds: string[]) => {
+            const res = await fetch('/api/quotes/mark-complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ quoteIds }),
+            });
+            if (!res.ok) throw new Error('Failed to mark complete');
+            return res.json();
+        },
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
+            setSelectedQuoteIds(new Set());
+            toast({ title: 'Jobs Completed', description: `${data.completed} job(s) marked as completed.` });
+        },
+        onError: () => {
+            toast({ title: 'Error', description: 'Failed to mark jobs as complete.', variant: 'destructive' });
+        },
+    });
+
+    // Generate consolidated invoice
+    const generateInvoiceMutation = useMutation({
+        mutationFn: async (quoteIds: string[]) => {
+            const res = await fetch('/api/invoices/consolidated', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ quoteIds }),
+            });
+            if (!res.ok) throw new Error('Failed to generate invoice');
+            return res.json();
+        },
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
+            queryClient.invalidateQueries({ queryKey: ['invoices'] });
+            setSelectedQuoteIds(new Set());
+            const link = `${window.location.origin}/invoice/${data.invoice.id}`;
+            setGeneratedInvoiceLink(link);
+            toast({
+                title: 'Invoice Generated',
+                description: `${data.invoice.invoiceNumber} — ${data.summary.totalQuotes} jobs, ${data.summary.totalProperties} properties. Balance: £${(data.summary.balanceDue / 100).toFixed(2)}`,
+            });
+        },
+        onError: () => {
+            toast({ title: 'Error', description: 'Failed to generate invoice.', variant: 'destructive' });
+        },
+    });
 
     // Fetch system-wide availability for WhatsApp messages
     const { data: availabilityData } = useAvailability({ days: 14 });
@@ -96,14 +168,21 @@ export default function QuotesPage() {
 
     // Apply status filter
     const displayQuotes = generatedQuotes.filter(q => {
-        if (filterMode === 'booked') return !!q.depositPaidAt || !!q.bookedAt;
+        if (filterMode === 'booked') return (!!q.depositPaidAt || !!q.bookedAt) && !q.completedAt;
+        if (filterMode === 'completed') return !!q.completedAt;
         if (filterMode === 'pending') return !q.depositPaidAt && !q.bookedAt;
         return true; // 'all'
     });
 
     // Count stats
-    const bookedCount = generatedQuotes.filter(q => !!q.depositPaidAt || !!q.bookedAt).length;
+    const bookedCount = generatedQuotes.filter(q => (!!q.depositPaidAt || !!q.bookedAt) && !q.completedAt).length;
+    const completedCount = generatedQuotes.filter(q => !!q.completedAt).length;
     const pendingCount = generatedQuotes.filter(q => !q.depositPaidAt && !q.bookedAt).length;
+
+    // Get selected quotes for action bar
+    const selectedQuotes = displayQuotes.filter(q => selectedQuoteIds.has(q.id));
+    const canMarkComplete = selectedQuotes.length > 0 && selectedQuotes.every(q => (!!q.depositPaidAt || !!q.bookedAt) && !q.completedAt);
+    const canGenerateInvoice = selectedQuotes.length > 0 && selectedQuotes.every(q => !!q.completedAt || !!q.depositPaidAt || !!q.bookedAt);
 
     const handleDelete = async (id: string) => {
         try {
@@ -208,19 +287,24 @@ export default function QuotesPage() {
             </div>
 
             {/* Filter Tabs */}
-            <Tabs value={filterMode} onValueChange={(v) => setFilterMode(v as FilterMode)} className="w-full">
-                <TabsList className="grid w-full max-w-md grid-cols-3">
-                    <TabsTrigger value="all" className="flex items-center gap-2">
+            <Tabs value={filterMode} onValueChange={(v) => { setFilterMode(v as FilterMode); setSelectedQuoteIds(new Set()); setGeneratedInvoiceLink(null); }} className="w-full">
+                <TabsList className="grid w-full max-w-xl grid-cols-4">
+                    <TabsTrigger value="all" className="flex items-center gap-1">
                         <FileText className="h-4 w-4" />
                         All
                         <Badge variant="secondary" className="ml-1 text-xs">{generatedQuotes.length}</Badge>
                     </TabsTrigger>
-                    <TabsTrigger value="booked" className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-600" />
+                    <TabsTrigger value="booked" className="flex items-center gap-1">
+                        <CreditCard className="h-4 w-4 text-blue-600" />
                         Booked
-                        <Badge className="ml-1 text-xs bg-green-600">{bookedCount}</Badge>
+                        <Badge className="ml-1 text-xs bg-blue-600">{bookedCount}</Badge>
                     </TabsTrigger>
-                    <TabsTrigger value="pending" className="flex items-center gap-2">
+                    <TabsTrigger value="completed" className="flex items-center gap-1">
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        Done
+                        <Badge className="ml-1 text-xs bg-green-600">{completedCount}</Badge>
+                    </TabsTrigger>
+                    <TabsTrigger value="pending" className="flex items-center gap-1">
                         <Clock className="h-4 w-4 text-amber-600" />
                         Pending
                         <Badge variant="outline" className="ml-1 text-xs">{pendingCount}</Badge>
@@ -246,20 +330,90 @@ export default function QuotesPage() {
 
             <div className="space-y-4">
                 <div className="flex items-center gap-2">
-                    {filterMode === 'booked' ? (
+                    {filterMode === 'completed' ? (
                         <CheckCircle className="h-5 w-5 text-green-500" />
+                    ) : filterMode === 'booked' ? (
+                        <CreditCard className="h-5 w-5 text-blue-500" />
                     ) : filterMode === 'pending' ? (
                         <Clock className="h-5 w-5 text-amber-500" />
                     ) : (
                         <FileText className="h-5 w-5 text-emerald-500" />
                     )}
                     <h3 className="text-lg font-bold text-foreground">
-                        {filterMode === 'booked' ? 'Booked Jobs' : filterMode === 'pending' ? 'Pending Quotes' : 'All Quotes'}
+                        {filterMode === 'completed' ? 'Completed Jobs' : filterMode === 'booked' ? 'Booked Jobs' : filterMode === 'pending' ? 'Pending Quotes' : 'All Quotes'}
                     </h3>
-                    <Badge variant="secondary" className={`ml-2 ${filterMode === 'booked' ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' : 'bg-emerald-900/10 text-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-300'}`}>
+                    <Badge variant="secondary" className={`ml-2 ${
+                        filterMode === 'completed' ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' :
+                        filterMode === 'booked' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' :
+                        'bg-emerald-900/10 text-emerald-600 dark:bg-emerald-900/50 dark:text-emerald-300'
+                    }`}>
                         {displayQuotes.length}
                     </Badge>
                 </div>
+
+                {/* Bulk Action Bar */}
+                {selectedQuoteIds.size > 0 && (
+                    <Card className="border-blue-500/50 bg-blue-500/5">
+                        <CardContent className="py-3 px-4 flex flex-wrap items-center gap-3">
+                            <Badge variant="secondary" className="bg-blue-600 text-white">
+                                {selectedQuoteIds.size} selected
+                            </Badge>
+                            {canMarkComplete && (
+                                <Button
+                                    size="sm"
+                                    onClick={() => markCompleteMutation.mutate(Array.from(selectedQuoteIds))}
+                                    disabled={markCompleteMutation.isPending}
+                                    className="bg-green-600 hover:bg-green-500 text-white"
+                                >
+                                    {markCompleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <CheckSquare className="h-4 w-4 mr-1" />}
+                                    Mark Complete
+                                </Button>
+                            )}
+                            {canGenerateInvoice && (
+                                <Button
+                                    size="sm"
+                                    onClick={() => generateInvoiceMutation.mutate(Array.from(selectedQuoteIds))}
+                                    disabled={generateInvoiceMutation.isPending}
+                                    className="bg-amber-500 hover:bg-amber-400 text-black"
+                                >
+                                    {generateInvoiceMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Receipt className="h-4 w-4 mr-1" />}
+                                    Generate Invoice ({selectedQuoteIds.size} jobs)
+                                </Button>
+                            )}
+                            <Button size="sm" variant="ghost" onClick={() => setSelectedQuoteIds(new Set())}>
+                                Clear
+                            </Button>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {/* Generated Invoice Link */}
+                {generatedInvoiceLink && (
+                    <Card className="border-green-500/50 bg-green-500/5">
+                        <CardContent className="py-3 px-4 flex flex-wrap items-center gap-3">
+                            <Receipt className="h-5 w-5 text-green-500" />
+                            <span className="text-sm font-medium">Invoice generated!</span>
+                            <code className="text-xs bg-muted px-2 py-1 rounded font-mono flex-1 min-w-0 truncate">{generatedInvoiceLink}</code>
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                    navigator.clipboard.writeText(generatedInvoiceLink);
+                                    toast({ title: 'Copied', description: 'Invoice link copied to clipboard.' });
+                                }}
+                            >
+                                <Copy className="h-3.5 w-3.5 mr-1" /> Copy
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => window.open(generatedInvoiceLink, '_blank')}
+                            >
+                                <ExternalLink className="h-3.5 w-3.5 mr-1" /> Open
+                            </Button>
+                        </CardContent>
+                    </Card>
+                )}
 
                 {isLoadingQuotes ? (
                     <div className="flex items-center justify-center py-12">
@@ -272,33 +426,71 @@ export default function QuotesPage() {
                                 <CardContent className="py-12 text-center text-muted-foreground">
                                     {searchQuery ? 'No quotes found matching your search.' :
                                      filterMode === 'booked' ? 'No booked jobs yet.' :
+                                     filterMode === 'completed' ? 'No completed jobs yet.' :
                                      filterMode === 'pending' ? 'No pending quotes.' :
                                      'No quotes sent yet.'}
                                 </CardContent>
                             </Card>
-                        ) : viewMode === 'list' ? (
-                            <QuotesList
-                                quotes={displayQuotes as any}
-                                onDelete={handleDelete}
-                                onRegenerate={handleOpenRegenerate as any}
-                                onEdit={handleOpenEdit as any}
-                                onPreview={handleOpenPreview as any}
-                                availableDates={availableDates}
-                            />
                         ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {displayQuotes.map((quote) => (
-                                    <QuoteCard
-                                        key={quote.id}
-                                        quote={quote as any}
+                            <>
+                                {/* Select All for booked/completed tabs */}
+                                {(filterMode === 'booked' || filterMode === 'completed') && displayQuotes.length > 0 && (
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                        <input
+                                            type="checkbox"
+                                            checked={displayQuotes.every(q => selectedQuoteIds.has(q.id))}
+                                            onChange={() => toggleSelectAll(displayQuotes.map(q => q.id))}
+                                            className="w-4 h-4 rounded border-gray-300"
+                                        />
+                                        <span>Select all ({displayQuotes.length})</span>
+                                    </div>
+                                )}
+
+                                {viewMode === 'list' ? (
+                                    <QuotesList
+                                        quotes={displayQuotes as any}
                                         onDelete={handleDelete}
                                         onRegenerate={handleOpenRegenerate as any}
                                         onEdit={handleOpenEdit as any}
                                         onPreview={handleOpenPreview as any}
                                         availableDates={availableDates}
                                     />
-                                ))}
-                            </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {displayQuotes.map((quote) => (
+                                            <div key={quote.id} className="relative">
+                                                {/* Selection checkbox */}
+                                                {(filterMode === 'booked' || filterMode === 'completed' || filterMode === 'all') && (!!quote.depositPaidAt || !!quote.bookedAt) && (
+                                                    <div className="absolute top-2 left-2 z-10">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selectedQuoteIds.has(quote.id)}
+                                                            onChange={() => toggleQuoteSelection(quote.id)}
+                                                            className="w-5 h-5 rounded border-gray-300 cursor-pointer"
+                                                        />
+                                                    </div>
+                                                )}
+                                                {/* Completed badge */}
+                                                {quote.completedAt && (
+                                                    <div className="absolute top-2 right-2 z-10">
+                                                        <Badge className="bg-green-600 text-white text-[10px]">
+                                                            <CheckCircle className="h-3 w-3 mr-1" /> Done
+                                                        </Badge>
+                                                    </div>
+                                                )}
+                                                <QuoteCard
+                                                    quote={quote as any}
+                                                    onDelete={handleDelete}
+                                                    onRegenerate={handleOpenRegenerate as any}
+                                                    onEdit={handleOpenEdit as any}
+                                                    onPreview={handleOpenPreview as any}
+                                                    availableDates={availableDates}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </>
                         )}
                     </>
                 )}

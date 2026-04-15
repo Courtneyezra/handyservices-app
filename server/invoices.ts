@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import Stripe from 'stripe';
 import { db } from './db';
-import { invoices, contractorBookingRequests, personalizedQuotes } from '../shared/schema';
-import { eq, sql } from 'drizzle-orm';
+import { invoices, contractorBookingRequests, personalizedQuotes, leads } from '../shared/schema';
+import { eq, sql, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { sendInvoiceEmail } from './email-service';
+import { getInvoiceUpsells, getWhatsAppNumber, type InvoiceUpsell } from './invoice-upsells';
 
 // Helper to get Stripe instance lazily
 const getStripe = () => {
@@ -512,6 +513,427 @@ invoiceRouter.post('/api/invoices/:id/pay', async (req, res) => {
     } catch (error: any) {
         console.error('[Invoices] Error creating payment:', error);
         res.status(500).json({ error: error.message || 'Failed to create payment' });
+    }
+});
+
+// ==========================================
+// PUBLIC INVOICE PAGE (with quote context + upsells)
+// ==========================================
+
+invoiceRouter.get('/api/invoices/public/:invoiceId', async (req, res) => {
+    try {
+        const { invoiceId } = req.params;
+
+        const results = await db.select()
+            .from(invoices)
+            .where(eq(invoices.id, invoiceId))
+            .limit(1);
+
+        if (results.length === 0) {
+            return res.status(404).json({ error: 'Invoice not found' });
+        }
+
+        const invoice = results[0];
+
+        // Fetch quote context if available
+        let quoteContext: {
+            jobDescription: string;
+            address: string;
+            customerName: string;
+            segment: string | null;
+            pricingLineItems: any;
+        } | null = null;
+
+        if (invoice.quoteId) {
+            const quoteResults = await db.select()
+                .from(personalizedQuotes)
+                .where(eq(personalizedQuotes.id, invoice.quoteId))
+                .limit(1);
+
+            if (quoteResults.length > 0) {
+                const quote = quoteResults[0];
+                quoteContext = {
+                    jobDescription: quote.jobDescription || '',
+                    address: quote.address || '',
+                    customerName: quote.customerName,
+                    segment: quote.segment,
+                    pricingLineItems: quote.pricingLineItems,
+                };
+            }
+        }
+
+        // Fetch job evidence photos if available
+        let jobEvidence: { evidenceUrls: string[]; completedAt: string | null; completionNotes: string | null } | null = null;
+
+        if (invoice.quoteId) {
+            const jobResults = await db.select()
+                .from(contractorBookingRequests)
+                .where(eq(contractorBookingRequests.quoteId, invoice.quoteId))
+                .limit(1);
+
+            if (jobResults.length > 0 && jobResults[0].status === 'completed') {
+                jobEvidence = {
+                    evidenceUrls: (jobResults[0].evidenceUrls as string[]) || [],
+                    completedAt: jobResults[0].completedAt ? jobResults[0].completedAt.toISOString() : null,
+                    completionNotes: jobResults[0].completionNotes,
+                };
+            }
+        }
+
+        // Get contextual upsells
+        const upsellContext = {
+            customerName: invoice.customerName || quoteContext?.customerName || '',
+            jobDescription: quoteContext?.jobDescription || '',
+            notes: invoice.notes || '',
+            lineItems: (invoice.lineItems as any[]) || [],
+        };
+
+        const upsells = getInvoiceUpsells(upsellContext);
+        const whatsappNumber = getWhatsAppNumber();
+
+        res.json({
+            invoice: {
+                id: invoice.id,
+                invoiceNumber: invoice.invoiceNumber,
+                customerName: invoice.customerName,
+                customerEmail: invoice.customerEmail,
+                customerPhone: invoice.customerPhone,
+                customerAddress: invoice.customerAddress,
+                totalAmount: invoice.totalAmount,
+                depositPaid: invoice.depositPaid,
+                balanceDue: invoice.balanceDue,
+                lineItems: invoice.lineItems,
+                status: invoice.status,
+                dueDate: invoice.dueDate,
+                paidAt: invoice.paidAt,
+                createdAt: invoice.createdAt,
+            },
+            quoteContext,
+            jobEvidence,
+            upsells,
+            whatsappNumber,
+        });
+
+    } catch (error: any) {
+        console.error('[Invoices] Error fetching public invoice:', error);
+        res.status(500).json({ error: 'Failed to fetch invoice' });
+    }
+});
+
+// ==========================================
+// MANUAL INVOICE GENERATION (for Panda / ad-hoc jobs)
+// ==========================================
+
+invoiceRouter.post('/api/invoices/generate-manual', async (req, res) => {
+    try {
+        const {
+            customerName,
+            customerEmail,
+            customerPhone,
+            customerAddress,
+            lineItems,
+            notes,
+            dueDate,
+        } = req.body;
+
+        if (!customerName || !lineItems || lineItems.length === 0) {
+            return res.status(400).json({ error: 'customerName and lineItems are required' });
+        }
+
+        // Calculate totals
+        let totalAmount = 0;
+        const processedLineItems = lineItems.map((item: any) => {
+            const quantity = item.quantity || 1;
+            const unitPrice = item.unitPrice || item.priceInPence || 0;
+            const total = quantity * unitPrice;
+            totalAmount += total;
+            return {
+                description: item.description,
+                quantity,
+                unitPrice,
+                total,
+            };
+        });
+
+        // Generate invoice number
+        const year = new Date().getFullYear();
+        const [countResult] = await db.select({ count: sql<number>`count(*)` }).from(invoices);
+        const invoiceCount = Number(countResult?.count || 0);
+        const invoiceNumber = `INV-${year}-${String(invoiceCount + 1).padStart(4, '0')}`;
+
+        const invoiceId = uuidv4();
+        const newInvoice = {
+            id: invoiceId,
+            invoiceNumber,
+            quoteId: null,
+            customerId: null,
+            contractorId: null,
+            customerName,
+            customerEmail: customerEmail || null,
+            customerPhone: customerPhone || null,
+            customerAddress: customerAddress || null,
+            totalAmount,
+            depositPaid: 0,
+            balanceDue: totalAmount,
+            lineItems: processedLineItems as any,
+            status: 'draft' as const,
+            dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+            notes: notes || null,
+            paymentMethod: null,
+            customerNotes: null,
+        };
+
+        const [createdInvoice] = await db.insert(invoices).values(newInvoice).returning();
+
+        const baseUrl = process.env.BASE_URL || 'https://handyservices.uk';
+        const invoiceLink = `${baseUrl}/invoice/${invoiceId}`;
+
+        res.json({
+            success: true,
+            invoice: createdInvoice,
+            invoiceLink,
+        });
+
+    } catch (error: any) {
+        console.error('[Invoices] Error generating manual invoice:', error);
+        res.status(500).json({ error: error.message || 'Failed to generate invoice' });
+    }
+});
+
+// ==========================================
+// MARK QUOTES AS COMPLETED
+// ==========================================
+
+invoiceRouter.post('/api/quotes/mark-complete', async (req, res) => {
+    try {
+        const { quoteIds } = req.body;
+
+        if (!quoteIds || !Array.isArray(quoteIds) || quoteIds.length === 0) {
+            return res.status(400).json({ error: 'quoteIds array is required' });
+        }
+
+        const updated = await db.update(personalizedQuotes)
+            .set({ completedAt: new Date() })
+            .where(inArray(personalizedQuotes.id, quoteIds))
+            .returning({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName });
+
+        console.log(`[Invoices] Marked ${updated.length} quotes as completed`);
+
+        res.json({
+            success: true,
+            completed: updated.length,
+            quotes: updated,
+        });
+    } catch (error: any) {
+        console.error('[Invoices] Error marking quotes complete:', error);
+        res.status(500).json({ error: error.message || 'Failed to mark quotes as complete' });
+    }
+});
+
+// ==========================================
+// CONSOLIDATED INVOICE (multiple quotes → one invoice, grouped by property)
+// ==========================================
+
+invoiceRouter.post('/api/invoices/consolidated', async (req, res) => {
+    try {
+        const { quoteIds, customerName, customerEmail, customerPhone } = req.body;
+
+        if (!quoteIds || !Array.isArray(quoteIds) || quoteIds.length === 0) {
+            return res.status(400).json({ error: 'quoteIds array is required' });
+        }
+
+        // Fetch all quotes
+        const quotes = await db.select()
+            .from(personalizedQuotes)
+            .where(inArray(personalizedQuotes.id, quoteIds));
+
+        if (quotes.length === 0) {
+            return res.status(404).json({ error: 'No quotes found' });
+        }
+
+        const year = new Date().getFullYear();
+        const [countResult] = await db.select({ count: sql<number>`count(*)` }).from(invoices);
+        let invoiceSeq = Number(countResult?.count || 0);
+
+        const firstQuote = quotes[0];
+        const effectiveName = customerName || firstQuote.customerName;
+        const effectiveEmail = customerEmail || firstQuote.email || null;
+        const effectivePhone = customerPhone || firstQuote.phone || null;
+
+        // Create one invoice per quote, each with its own INV number
+        const childInvoices: any[] = [];
+        let grandTotal = 0;
+        let totalDeposits = 0;
+
+        for (const quote of quotes) {
+            const deposit = quote.depositAmountPence || 0;
+            const quoteBasePrice = quote.basePrice || 0;
+            const pricingLineItems = (quote.pricingLineItems as any[]) || [];
+            const address = quote.address || quote.postcode || 'Unspecified property';
+
+            // Build line items from pricingLineItems
+            const lineItems: any[] = [];
+            if (pricingLineItems.length > 0) {
+                for (const li of pricingLineItems) {
+                    const labourPrice = li.guardedPricePence || li.llmSuggestedPricePence || li.referencePricePence || 0;
+                    const materialsPrice = li.materialsWithMarginPence || 0;
+                    const fullPrice = labourPrice + materialsPrice;
+                    lineItems.push({
+                        description: li.description,
+                        quantity: 1,
+                        unitPrice: fullPrice,
+                        total: fullPrice,
+                    });
+                }
+            } else {
+                lineItems.push({
+                    description: quote.jobDescription || 'Service',
+                    quantity: 1,
+                    unitPrice: quoteBasePrice,
+                    total: quoteBasePrice,
+                });
+            }
+
+            // Add selected extras
+            let extrasTotal = 0;
+            if (quote.selectedExtras && Array.isArray(quote.selectedExtras)) {
+                const optionalExtras = (quote.optionalExtras as any[]) || [];
+                for (const extraLabel of quote.selectedExtras as string[]) {
+                    const extra = optionalExtras.find((e: any) => e.label === extraLabel);
+                    if (extra && extra.priceInPence) {
+                        lineItems.push({
+                            description: `  + ${extra.label}`,
+                            quantity: 1,
+                            unitPrice: extra.priceInPence,
+                            total: extra.priceInPence,
+                        });
+                        extrasTotal += extra.priceInPence;
+                    }
+                }
+            }
+
+            const quoteTotal = quoteBasePrice + extrasTotal;
+            const quoteBalance = quoteTotal - deposit;
+
+            invoiceSeq++;
+            const invoiceNumber = `INV-${year}-${String(invoiceSeq).padStart(4, '0')}`;
+            const invoiceId = uuidv4();
+
+            const newInvoice = {
+                id: invoiceId,
+                invoiceNumber,
+                quoteId: quote.id,
+                customerId: null,
+                contractorId: null,
+                customerName: effectiveName,
+                customerEmail: effectiveEmail,
+                customerPhone: effectivePhone,
+                customerAddress: address,
+                totalAmount: quoteTotal,
+                depositPaid: deposit,
+                balanceDue: quoteBalance,
+                lineItems: lineItems as any,
+                status: 'draft' as const,
+                dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+                notes: null,
+                paymentMethod: null,
+                customerNotes: null,
+            };
+
+            const [created] = await db.insert(invoices).values(newInvoice).returning();
+            childInvoices.push({ ...created, propertyAddress: address });
+
+            grandTotal += quoteTotal;
+            totalDeposits += deposit;
+        }
+
+        const balanceDue = grandTotal - totalDeposits;
+
+        // Create a parent consolidated invoice that references the children
+        // This is what the customer sees — one page, one payment
+        invoiceSeq++;
+        const parentInvoiceNumber = `INV-${year}-${String(invoiceSeq).padStart(4, '0')}`;
+        const parentId = uuidv4();
+
+        // Build consolidated line items with per-quote sections
+        const consolidatedLineItems: any[] = [];
+        for (const child of childInvoices) {
+            consolidatedLineItems.push({
+                description: `--- ${child.propertyAddress} ---`,
+                quantity: 0,
+                unitPrice: 0,
+                total: 0,
+                isPropertyHeader: true,
+                propertyAddress: child.propertyAddress,
+                invoiceNumber: child.invoiceNumber,
+                sectionTotal: child.totalAmount,
+                sectionDeposit: child.depositPaid,
+                sectionBalance: child.balanceDue,
+            });
+            for (const item of (child.lineItems as any[])) {
+                consolidatedLineItems.push({
+                    ...item,
+                    propertyAddress: child.propertyAddress,
+                    invoiceNumber: child.invoiceNumber,
+                });
+            }
+        }
+
+        const parentInvoice = {
+            id: parentId,
+            invoiceNumber: parentInvoiceNumber,
+            quoteId: null,
+            customerId: null,
+            contractorId: null,
+            customerName: effectiveName,
+            customerEmail: effectiveEmail,
+            customerPhone: effectivePhone,
+            customerAddress: null,
+            totalAmount: grandTotal,
+            depositPaid: totalDeposits,
+            balanceDue,
+            lineItems: consolidatedLineItems as any,
+            status: 'draft' as const,
+            dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+            notes: JSON.stringify({
+                isConsolidated: true,
+                childInvoiceIds: childInvoices.map((c: any) => c.id),
+                childInvoiceNumbers: childInvoices.map((c: any) => c.invoiceNumber),
+            }),
+            paymentMethod: null,
+            customerNotes: null,
+        };
+
+        const [createdParent] = await db.insert(invoices).values(parentInvoice).returning();
+
+        const baseUrl = process.env.BASE_URL || 'https://handyservices.uk';
+        const invoiceLink = `${baseUrl}/invoice/${parentId}`;
+
+        console.log(`[Invoices] Consolidated: parent ${parentInvoiceNumber} with ${childInvoices.length} child invoices. Total: £${(grandTotal / 100).toFixed(2)}, Balance: £${(balanceDue / 100).toFixed(2)}`);
+
+        res.json({
+            success: true,
+            invoice: createdParent,
+            invoiceLink,
+            childInvoices: childInvoices.map((c: any) => ({
+                id: c.id,
+                invoiceNumber: c.invoiceNumber,
+                address: c.propertyAddress,
+                total: c.totalAmount,
+                deposit: c.depositPaid,
+                balance: c.balanceDue,
+            })),
+            summary: {
+                totalQuotes: quotes.length,
+                grandTotal,
+                totalDeposits,
+                balanceDue,
+            },
+        });
+
+    } catch (error: any) {
+        console.error('[Invoices] Error generating consolidated invoice:', error);
+        res.status(500).json({ error: error.message || 'Failed to generate consolidated invoice' });
     }
 });
 
