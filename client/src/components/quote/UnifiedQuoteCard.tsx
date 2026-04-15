@@ -1374,7 +1374,7 @@ export function UnifiedQuoteCard({
           >
             <h4 className={`text-sm font-bold uppercase tracking-wide flex items-center gap-2 ${isDarkTheme ? 'text-white' : 'text-slate-700'}`}>
               <CreditCard className="w-4 h-4 text-[#7DB00E]" />
-              2. Secure your slot
+              2. Complete your booking
             </h4>
             <div className={`rounded-xl p-4 ${isDarkTheme ? 'bg-white/5' : 'bg-slate-50'}`}>
               <div className="flex items-center gap-2 mb-3">
