@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Search, LayoutGrid, List as ListIcon, FileText, CreditCard, Clock, CheckCircle, CheckSquare, Receipt, ExternalLink, Copy } from 'lucide-react';
+import { Loader2, Search, LayoutGrid, List as ListIcon, FileText, CreditCard, Clock, CheckCircle, CheckSquare, Receipt, ExternalLink, Copy, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAvailability } from '@/hooks/useAvailability';
@@ -75,6 +75,7 @@ export default function QuotesPage() {
     // Selection state for bulk actions
     const [selectedQuoteIds, setSelectedQuoteIds] = useState<Set<string>>(new Set());
     const [generatedInvoiceLink, setGeneratedInvoiceLink] = useState<string | null>(null);
+    const [generatedWhatsappMessage, setGeneratedWhatsappMessage] = useState<string | null>(null);
 
     const toggleQuoteSelection = (id: string) => {
         setSelectedQuoteIds(prev => {
@@ -132,6 +133,7 @@ export default function QuotesPage() {
             setSelectedQuoteIds(new Set());
             const link = `${window.location.origin}/invoice/${data.invoice.id}`;
             setGeneratedInvoiceLink(link);
+            setGeneratedWhatsappMessage(data.whatsappMessage ?? null);
             toast({
                 title: 'Invoice Generated',
                 description: `${data.invoice.invoiceNumber} — ${data.summary.totalQuotes} jobs, ${data.summary.totalProperties} properties. Balance: £${(data.summary.balanceDue / 100).toFixed(2)}`,
@@ -390,27 +392,46 @@ export default function QuotesPage() {
                 {/* Generated Invoice Link */}
                 {generatedInvoiceLink && (
                     <Card className="border-green-500/50 bg-green-500/5">
-                        <CardContent className="py-3 px-4 flex flex-wrap items-center gap-3">
-                            <Receipt className="h-5 w-5 text-green-500" />
-                            <span className="text-sm font-medium">Invoice generated!</span>
-                            <code className="text-xs bg-muted px-2 py-1 rounded font-mono flex-1 min-w-0 truncate">{generatedInvoiceLink}</code>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                    navigator.clipboard.writeText(generatedInvoiceLink);
-                                    toast({ title: 'Copied', description: 'Invoice link copied to clipboard.' });
-                                }}
-                            >
-                                <Copy className="h-3.5 w-3.5 mr-1" /> Copy
-                            </Button>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => window.open(generatedInvoiceLink, '_blank')}
-                            >
-                                <ExternalLink className="h-3.5 w-3.5 mr-1" /> Open
-                            </Button>
+                        <CardContent className="py-3 px-4 space-y-3">
+                            <div className="flex flex-wrap items-center gap-3">
+                                <Receipt className="h-5 w-5 text-green-500" />
+                                <span className="text-sm font-medium">Invoice generated!</span>
+                                <code className="text-xs bg-muted px-2 py-1 rounded font-mono flex-1 min-w-0 truncate">{generatedInvoiceLink}</code>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(generatedInvoiceLink);
+                                        toast({ title: 'Copied', description: 'Invoice link copied to clipboard.' });
+                                    }}
+                                >
+                                    <Copy className="h-3.5 w-3.5 mr-1" /> Copy Link
+                                </Button>
+                                {generatedWhatsappMessage && (
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(generatedWhatsappMessage);
+                                            toast({ title: 'Message copied', description: 'Paste into WhatsApp to send.' });
+                                        }}
+                                    >
+                                        <MessageCircle className="h-3.5 w-3.5 mr-1" /> Copy Message
+                                    </Button>
+                                )}
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => window.open(generatedInvoiceLink, '_blank')}
+                                >
+                                    <ExternalLink className="h-3.5 w-3.5 mr-1" /> Open
+                                </Button>
+                            </div>
+                            {generatedWhatsappMessage && (
+                                <pre className="text-xs bg-muted/60 px-3 py-2 rounded whitespace-pre-wrap font-sans text-muted-foreground border border-border/50">
+                                    {generatedWhatsappMessage}
+                                </pre>
+                            )}
                         </CardContent>
                     </Card>
                 )}
