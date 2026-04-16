@@ -31,7 +31,11 @@ import {
   Info,
   Eye,
   Users,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
+import { format as formatDate, getDaysInMonth, getDay, startOfMonth } from 'date-fns';
 import { QuotePreviewModal } from '@/components/quote/QuotePreviewModal';
 import type { PreviewQuote } from '@/components/quote/QuotePreviewModal';
 import { FaWhatsapp } from 'react-icons/fa';
@@ -813,6 +817,10 @@ export default function GenerateContextualQuote() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
+  // ── Manual available dates (admin-picked whitelist for customer date picker) ──
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [datePickerMonth, setDatePickerMonth] = useState(new Date());
+
   // ── Behavioural signals ──
   const [behavioralSignals, setBehavioralSignals] = useState({
     isCommercialPremises: false,
@@ -1060,6 +1068,7 @@ export default function GenerateContextualQuote() {
           contractorId: selectedContractorId || undefined,
           createdBy: adminUser?.id || undefined,
           createdByName: adminUser?.name || adminUser?.email || undefined,
+          availableDates,
         }),
       });
       if (!res.ok) {
@@ -1240,6 +1249,10 @@ export default function GenerateContextualQuote() {
       toast({ title: 'Incomplete items', description: 'All line items need a description.', variant: 'destructive' });
       return;
     }
+    if (availableDates.length === 0) {
+      toast({ title: 'Pick available dates', description: 'Select at least one date the customer can book.', variant: 'destructive' });
+      return;
+    }
     // Auto-set materialsSupply when any line has materials
     const hasMaterials = lineItems.some((li) => li.materialsCostPounds > 0);
     if (hasMaterials && signals.materialsSupply === 'labor_only') {
@@ -1317,6 +1330,8 @@ export default function GenerateContextualQuote() {
     setIsRecording(false);
     setRecordingError(null);
     setBehavioralSignals({ isCommercialPremises: false, wontBePresent: false, priceConscious: false });
+    setAvailableDates([]);
+    setDatePickerMonth(new Date());
     setSignals({
       urgency: 'standard',
       materialsSupply: 'labor_only',
@@ -1328,7 +1343,7 @@ export default function GenerateContextualQuote() {
   };
 
   // Validate form completeness for button state
-  const canGenerate = customerName.trim() && phone.trim() && lineItems.length > 0 && lineItems.every((li) => li.description.trim());
+  const canGenerate = customerName.trim() && phone.trim() && lineItems.length > 0 && lineItems.every((li) => li.description.trim()) && availableDates.length > 0;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // RENDER
@@ -2087,6 +2102,128 @@ export default function GenerateContextualQuote() {
               </CardContent>
             </Card>
 
+            {/* ─── Section 5b: Available Dates (required) ─── */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Calendar className="w-4 h-4" />
+                  Available Dates <span className="text-red-500">*</span>
+                </CardTitle>
+                <p className="text-xs text-zinc-500">
+                  Pick the dates the customer can book. Only selected dates will show as available on the quote.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {/* Month nav */}
+                <div className="flex items-center justify-between">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDatePickerMonth(prev => {
+                      const d = new Date(prev);
+                      d.setMonth(d.getMonth() - 1);
+                      return d;
+                    })}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <span className="text-sm font-medium">
+                    {formatDate(datePickerMonth, 'MMMM yyyy')}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDatePickerMonth(prev => {
+                      const d = new Date(prev);
+                      d.setMonth(d.getMonth() + 1);
+                      return d;
+                    })}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+
+                {/* Day headers */}
+                <div className="grid grid-cols-7 gap-1">
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                    <div key={d} className="text-center text-[10px] font-medium text-zinc-500 uppercase py-1">
+                      {d}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Calendar grid */}
+                <div className="grid grid-cols-7 gap-1">
+                  {Array.from({ length: getDay(startOfMonth(datePickerMonth)) }).map((_, i) => (
+                    <div key={`empty-${i}`} className="aspect-square" />
+                  ))}
+                  {Array.from({ length: getDaysInMonth(datePickerMonth) }).map((_, i) => {
+                    const day = i + 1;
+                    const year = datePickerMonth.getFullYear();
+                    const month = datePickerMonth.getMonth();
+                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const dateObj = new Date(year, month, day);
+                    const isPast = dateObj < today;
+                    const isToday = dateObj.getTime() === today.getTime();
+                    const isSelected = availableDates.includes(dateStr);
+
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        disabled={isPast}
+                        onClick={() => {
+                          setAvailableDates(prev =>
+                            prev.includes(dateStr)
+                              ? prev.filter(d => d !== dateStr)
+                              : [...prev, dateStr].sort()
+                          );
+                        }}
+                        className={`
+                          aspect-square rounded-md text-xs font-medium transition-all
+                          ${isPast ? 'text-zinc-700 cursor-not-allowed' : 'cursor-pointer'}
+                          ${isSelected
+                            ? 'bg-lime-500/30 border-2 border-lime-400 text-lime-100'
+                            : isPast
+                              ? 'bg-transparent'
+                              : 'bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                          }
+                          ${isToday ? 'ring-1 ring-blue-400' : ''}
+                        `}
+                      >
+                        {day}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Selected summary */}
+                <div className="text-xs text-zinc-500 flex items-center justify-between pt-1">
+                  <span>
+                    {availableDates.length === 0
+                      ? <span className="text-amber-400">No dates selected — pick at least one</span>
+                      : <>{availableDates.length} date{availableDates.length === 1 ? '' : 's'} selected</>
+                    }
+                  </span>
+                  {availableDates.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs text-zinc-400"
+                      onClick={() => setAvailableDates([])}
+                    >
+                      Clear all
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
             {/* ─── Section 6: Generate Button ─── */}
             <Button
               size="lg"
@@ -2291,7 +2428,7 @@ export default function GenerateContextualQuote() {
             postcode: postcode || null,
             basePrice: quoteResult.pricing.totalPence,
             pricingLineItems: quoteResult.pricing.lineItems as any,
-            availableDates: null,
+            availableDates: availableDates.length > 0 ? availableDates : null,
           } satisfies PreviewQuote}
         />
       )}

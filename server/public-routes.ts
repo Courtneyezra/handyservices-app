@@ -472,6 +472,42 @@ router.get('/quote/:quoteId/availability', async (req: Request, res: Response) =
             return res.status(404).json({ error: 'Quote not found' });
         }
 
+        // HARD WHITELIST: If admin picked specific available dates at quote creation,
+        // those are the ONLY dates returned — bypass all contractor/master logic.
+        const manualDates = quote.availableDates as string[] | null;
+        if (manualDates && manualDates.length > 0) {
+            const ukNow = toZonedTime(new Date(), UK_TIMEZONE);
+            const ukToday = startOfDay(ukNow);
+            const currentHour = ukNow.getHours();
+            const todayStr = formatTz(ukToday, 'yyyy-MM-dd', { timeZone: UK_TIMEZONE });
+
+            // Optional month filter
+            let monthStart: string | null = null;
+            let monthEnd: string | null = null;
+            if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+                const monthDate = parseISO(`${monthParam}-01`);
+                monthStart = formatTz(startOfMonth(monthDate), 'yyyy-MM-dd', { timeZone: UK_TIMEZONE });
+                monthEnd = formatTz(endOfMonth(monthDate), 'yyyy-MM-dd', { timeZone: UK_TIMEZONE });
+            }
+
+            const results = manualDates
+                .filter(d => {
+                    if (d < todayStr) return false;
+                    if (monthStart && monthEnd && (d < monthStart || d > monthEnd)) return false;
+                    // Time-of-day cutoff: today with an AM slot after noon is not bookable
+                    if (d === todayStr) {
+                        if (slot === 'am' && currentHour >= 12) return false;
+                        if (slot === 'pm' && currentHour >= 15) return false;
+                        if (slot === 'full_day' && currentHour >= 12) return false;
+                    }
+                    return true;
+                })
+                .sort()
+                .map(date => ({ date, contractorCount: 1, slot }));
+
+            return res.json(results);
+        }
+
         const candidateIds = quote.candidateContractorIds as string[] | null;
 
         // 2. Edge case: no candidate pool — fall back to category-based filtering

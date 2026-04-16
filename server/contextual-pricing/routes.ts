@@ -735,6 +735,11 @@ const contextualQuoteInputSchema = z.object({
 
   // Contractor assignment (optional — shows their profile on the quote page)
   contractorId: z.string().optional(),
+
+  // Admin-picked available dates (hard whitelist for customer date picker). Required at generation time.
+  availableDates: z
+    .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'availableDates must be YYYY-MM-DD'))
+    .min(1, 'Select at least one available date'),
 });
 
 /**
@@ -1088,6 +1093,9 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       // Quote attribution
       createdBy: input.createdBy || null,
       createdByName: input.createdByName || null,
+
+      // Admin-picked available dates (hard whitelist for customer date picker)
+      availableDates: input.availableDates,
 
       // Margin Engine data
       costPence: marginData.costPence,
