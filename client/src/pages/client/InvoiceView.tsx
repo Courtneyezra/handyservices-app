@@ -771,34 +771,7 @@ function InvoicePageContent() {
           </motion.div>
         )}
 
-        {/* ============================================ */}
-        {/* JOB SUMMARY */}
-        {/* ============================================ */}
-        {quoteContext?.jobDescription && (
-          <motion.div {...fadeInUp}>
-            <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 border border-gray-700/50">
-              <div className="flex items-center gap-2 mb-3">
-                <Wrench className="h-4 w-4 text-[#7DB00E]" />
-                <span className="text-[10px] text-[#7DB00E] uppercase tracking-widest font-bold">Job Summary</span>
-              </div>
-              <p className="text-white font-semibold text-lg leading-snug mb-2">{quoteContext.jobDescription}</p>
-              {quoteContext.address && (
-                <p className="text-sm text-gray-400 flex items-center gap-1.5">
-                  <MapPin className="h-3.5 w-3.5 shrink-0" />
-                  {quoteContext.address}
-                </p>
-              )}
-              {jobEvidence?.completedAt && (
-                <div className="mt-3 inline-flex items-center gap-1.5 bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-1.5">
-                  <Check className="h-3.5 w-3.5 text-green-400" />
-                  <span className="text-xs text-green-400 font-medium">
-                    Completed {formatDate(jobEvidence.completedAt)}
-                  </span>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
+        {/* Job Summary removed — the line items table below already shows the same info. */}
 
         {/* ============================================ */}
         {/* EVIDENCE PHOTOS */}

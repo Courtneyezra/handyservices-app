@@ -7,6 +7,7 @@ import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { updateLeadStage } from './lead-stage-engine';
 import { getPricingSettings } from './pricing-settings';
+import { insertInvoiceWithRetry } from './invoices';
 
 // Helper to get Stripe instance lazily
 const getStripe = () => {
@@ -329,12 +330,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         const jobId: string | null = null;
                         console.log(`[Stripe Webhook] Deposit recorded for quote ${quoteId} — awaiting dispatch by admin`);
 
-                        // 4. Generate Invoice (using COUNT for efficiency)
-                        const year = new Date().getFullYear();
-                        const [countResult] = await db.select({ count: sql<number>`count(*)` }).from(invoices);
-                        const invoiceCount = Number(countResult?.count || 0);
-                        const invoiceNumber = `INV-${year}-${String(invoiceCount + 1).padStart(4, '0')}`;
-
+                        // 4. Generate Invoice (MAX+1 numbering with retry on collisions)
                         // When paid in full (with discount), balance is 0 — the discount is intentional
                         const balanceDue = metadataPaymentType === 'full' ? 0 : totalJobPrice - depositAmount;
 
@@ -346,7 +342,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         }];
 
                         const invoiceId = uuidv4();
-                        await db.insert(invoices).values({
+                        const createdInvoice = await insertInvoiceWithRetry((invoiceNumber) => ({
                             id: invoiceId,
                             invoiceNumber,
                             quoteId: quoteId,
@@ -365,7 +361,8 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             stripePaymentIntentId: paymentIntent.id,
                             paymentMethod: 'stripe',
                             notes: jobId ? `Auto-generated from payment. Job ID: ${jobId}` : `Auto-generated from payment. Pending dispatch.`,
-                        });
+                        }));
+                        const invoiceNumber = createdInvoice.invoiceNumber;
 
                         console.log(`[Stripe Webhook] Invoice ${invoiceNumber} created (Balance: £${(balanceDue / 100).toFixed(2)})`);
 

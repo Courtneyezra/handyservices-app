@@ -2,6 +2,7 @@ import { Router } from 'express';
 import Stripe from 'stripe';
 import { db } from './db';
 import { invoices, contractorBookingRequests, personalizedQuotes, leads } from '../shared/schema';
+import type { Invoice, InsertInvoice } from '../shared/schema';
 import { eq, sql, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { sendInvoiceEmail } from './email-service';
@@ -15,6 +16,107 @@ const getStripe = () => {
     }
     return new Stripe(stripeSecretKey, { apiVersion: '2024-06-20' });
 };
+
+// Generate next invoice number with MAX+1 and retry on unique-constraint collision.
+// Tolerates gaps from deleted invoices (COUNT+1 does not). Matches the pattern in
+// server/invoice-generator.ts:175-217.
+export async function insertInvoiceWithRetry(
+    buildRow: (invoiceNumber: string) => Omit<InsertInvoice, 'invoiceNumber'>,
+    maxRetries = 5,
+): Promise<Invoice> {
+    const year = new Date().getFullYear();
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const [maxResult] = await db
+            .select({ maxNum: sql<string>`max(invoice_number)` })
+            .from(invoices);
+        let nextSeq = 1;
+        const match = maxResult?.maxNum?.match(/INV-\d{4}-(\d+)/);
+        if (match) nextSeq = parseInt(match[1], 10) + 1;
+        const invoiceNumber = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
+        try {
+            const [created] = await db
+                .insert(invoices)
+                .values({ ...buildRow(invoiceNumber), invoiceNumber } as InsertInvoice)
+                .returning();
+            return created;
+        } catch (err: any) {
+            const isDuplicate = err?.code === '23505'
+                || err?.message?.includes('unique')
+                || err?.message?.includes('duplicate');
+            if (isDuplicate && attempt < maxRetries - 1) continue;
+            throw err;
+        }
+    }
+    throw new Error('Failed to generate unique invoice number after retries');
+}
+
+// ---- WhatsApp message builders ----
+function firstName(full: string | null | undefined): string {
+    return (full || '').trim().split(/\s+/)[0] || 'there';
+}
+
+function pounds(pence: number | null | undefined): string {
+    return `£${((pence ?? 0) / 100).toFixed(2)}`;
+}
+
+function buildSingleInvoiceMessage(
+    _quote: typeof personalizedQuotes.$inferSelect,
+    invoice: Invoice,
+    link: string,
+): string {
+    // Build job list from line items (pricing-engine output — already polished),
+    // not from raw jobDescription which may contain VA spelling/grammar issues.
+    const lineItems = (invoice.lineItems as Array<{ description: string; isPropertyHeader?: boolean }> | null) || [];
+    const jobItems = lineItems
+        .filter((li) => !li?.isPropertyHeader && !/^\s*\+\s/.test(li?.description || ''))
+        .map((li) => li.description)
+        .filter(Boolean);
+
+    const jobBlock = jobItems.length === 0
+        ? 'Your invoice is ready.'
+        : jobItems.length === 1
+            ? `Your invoice for "${jobItems[0]}" is ready.`
+            : `Your invoice is ready:\n${jobItems.map((j) => `• ${j}`).join('\n')}`;
+
+    const hasDeposit = (invoice.depositPaid ?? 0) > 0;
+    const amountBlock = hasDeposit
+        ? `Total: *${pounds(invoice.totalAmount)}* · Deposit received: ${pounds(invoice.depositPaid)}\nBalance due: *${pounds(invoice.balanceDue)}*`
+        : `Amount due: *${pounds(invoice.balanceDue)}*`;
+    return `📄 *Invoice ${invoice.invoiceNumber}*
+
+Hi ${firstName(invoice.customerName)},
+
+${jobBlock}
+
+${amountBlock}
+
+View & pay: ${link}
+
+Thank you for choosing Handy Services 👍`;
+}
+
+function buildConsolidatedInvoiceMessage(
+    quotes: Array<typeof personalizedQuotes.$inferSelect>,
+    parent: Invoice,
+    link: string,
+): string {
+    const propertiesLine = quotes.length === 1 ? '1 property' : `${quotes.length} properties`;
+    const hasDeposits = (parent.depositPaid ?? 0) > 0;
+    const amountBlock = hasDeposits
+        ? `Total: *${pounds(parent.totalAmount)}* · Deposits received: ${pounds(parent.depositPaid)}\nBalance due: *${pounds(parent.balanceDue)}*`
+        : `Total due: *${pounds(parent.balanceDue)}*`;
+    return `📄 *Invoice ${parent.invoiceNumber}*
+
+Hi ${firstName(parent.customerName)},
+
+Consolidated invoice for ${quotes.length} jobs across ${propertiesLine} is ready.
+
+${amountBlock}
+
+View & pay all: ${link}
+
+Thank you for choosing Handy Services 👍`;
+}
 
 export const invoiceRouter = Router();
 
@@ -118,12 +220,6 @@ invoiceRouter.post('/api/invoices/generate', async (req, res) => {
 
         const balanceDue = totalAmount - depositPaid;
 
-        // Generate invoice number using COUNT (optimized)
-        const year = new Date().getFullYear();
-        const [countResult] = await db.select({ count: sql<number>`count(*)` }).from(invoices);
-        const invoiceCount = Number(countResult?.count || 0);
-        const invoiceNumber = `INV-${year}-${String(invoiceCount + 1).padStart(4, '0')}`;
-
         // Create line items
         const lineItems = [];
         if (quote) {
@@ -144,8 +240,8 @@ invoiceRouter.post('/api/invoices/generate', async (req, res) => {
             }
         }
 
-        // Create invoice
-        const newInvoice = {
+        // Create invoice (MAX+1 numbering with retry on collisions)
+        const createdInvoice = await insertInvoiceWithRetry((invoiceNumber) => ({
             id: uuidv4(),
             invoiceNumber,
             quoteId: quote?.id || quoteId,
@@ -164,9 +260,7 @@ invoiceRouter.post('/api/invoices/generate', async (req, res) => {
             paymentMethod: null,
             notes: null,
             customerNotes: null,
-        };
-
-        const [createdInvoice] = await db.insert(invoices).values(newInvoice).returning();
+        }));
 
         // Update job with invoice reference if jobId provided
         if (jobId) {
@@ -215,13 +309,7 @@ invoiceRouter.post('/api/invoices', async (req, res) => {
             };
         });
 
-        // Generate invoice number using COUNT (optimized)
-        const year = new Date().getFullYear();
-        const [countResult] = await db.select({ count: sql<number>`count(*)` }).from(invoices);
-        const invoiceCount = Number(countResult?.count || 0);
-        const invoiceNumber = `INV-${year}-${String(invoiceCount + 1).padStart(4, '0')}`;
-
-        const newInvoice = {
+        const createdInvoice = await insertInvoiceWithRetry((invoiceNumber) => ({
             id: uuidv4(),
             invoiceNumber,
             contractorId,
@@ -239,9 +327,7 @@ invoiceRouter.post('/api/invoices', async (req, res) => {
             notes: notes || null,
             createdAt: new Date(),
             updatedAt: new Date()
-        };
-
-        const [createdInvoice] = await db.insert(invoices).values(newInvoice).returning();
+        }));
 
         res.json({
             success: true,
@@ -655,14 +741,8 @@ invoiceRouter.post('/api/invoices/generate-manual', async (req, res) => {
             };
         });
 
-        // Generate invoice number
-        const year = new Date().getFullYear();
-        const [countResult] = await db.select({ count: sql<number>`count(*)` }).from(invoices);
-        const invoiceCount = Number(countResult?.count || 0);
-        const invoiceNumber = `INV-${year}-${String(invoiceCount + 1).padStart(4, '0')}`;
-
         const invoiceId = uuidv4();
-        const newInvoice = {
+        const createdInvoice = await insertInvoiceWithRetry((invoiceNumber) => ({
             id: invoiceId,
             invoiceNumber,
             quoteId: null,
@@ -681,9 +761,7 @@ invoiceRouter.post('/api/invoices/generate-manual', async (req, res) => {
             notes: notes || null,
             paymentMethod: null,
             customerNotes: null,
-        };
-
-        const [createdInvoice] = await db.insert(invoices).values(newInvoice).returning();
+        }));
 
         const baseUrl = process.env.BASE_URL || 'https://handyservices.uk';
         const invoiceLink = `${baseUrl}/invoice/${invoiceId}`;
@@ -734,6 +812,56 @@ invoiceRouter.post('/api/quotes/mark-complete', async (req, res) => {
 // CONSOLIDATED INVOICE (multiple quotes → one invoice, grouped by property)
 // ==========================================
 
+// Build line items + totals for a single quote. Used by both single and bulk paths.
+function buildQuoteLineItems(quote: typeof personalizedQuotes.$inferSelect) {
+    const deposit = quote.depositAmountPence || 0;
+    const quoteBasePrice = quote.basePrice || 0;
+    const pricingLineItems = (quote.pricingLineItems as any[]) || [];
+    const address = quote.address || quote.postcode || 'Unspecified property';
+
+    const lineItems: any[] = [];
+    if (pricingLineItems.length > 0) {
+        for (const li of pricingLineItems) {
+            const labourPrice = li.guardedPricePence || li.llmSuggestedPricePence || li.referencePricePence || 0;
+            const materialsPrice = li.materialsWithMarginPence || 0;
+            const fullPrice = labourPrice + materialsPrice;
+            lineItems.push({
+                description: li.description,
+                quantity: 1,
+                unitPrice: fullPrice,
+                total: fullPrice,
+            });
+        }
+    } else {
+        lineItems.push({
+            description: quote.jobDescription || 'Service',
+            quantity: 1,
+            unitPrice: quoteBasePrice,
+            total: quoteBasePrice,
+        });
+    }
+
+    let extrasTotal = 0;
+    if (quote.selectedExtras && Array.isArray(quote.selectedExtras)) {
+        const optionalExtras = (quote.optionalExtras as any[]) || [];
+        for (const extraLabel of quote.selectedExtras as string[]) {
+            const extra = optionalExtras.find((e: any) => e.label === extraLabel);
+            if (extra && extra.priceInPence) {
+                lineItems.push({
+                    description: `  + ${extra.label}`,
+                    quantity: 1,
+                    unitPrice: extra.priceInPence,
+                    total: extra.priceInPence,
+                });
+                extrasTotal += extra.priceInPence;
+            }
+        }
+    }
+
+    const quoteTotal = quoteBasePrice + extrasTotal;
+    return { lineItems, quoteTotal, deposit, quoteBalance: quoteTotal - deposit, address };
+}
+
 invoiceRouter.post('/api/invoices/consolidated', async (req, res) => {
     try {
         const { quoteIds, customerName, customerEmail, customerPhone } = req.body;
@@ -751,76 +879,19 @@ invoiceRouter.post('/api/invoices/consolidated', async (req, res) => {
             return res.status(404).json({ error: 'No quotes found' });
         }
 
-        const year = new Date().getFullYear();
-        const [countResult] = await db.select({ count: sql<number>`count(*)` }).from(invoices);
-        let invoiceSeq = Number(countResult?.count || 0);
-
         const firstQuote = quotes[0];
         const effectiveName = customerName || firstQuote.customerName;
         const effectiveEmail = customerEmail || firstQuote.email || null;
         const effectivePhone = customerPhone || firstQuote.phone || null;
+        const baseUrl = process.env.BASE_URL || 'https://handyservices.uk';
 
-        // Create one invoice per quote, each with its own INV number
-        const childInvoices: any[] = [];
-        let grandTotal = 0;
-        let totalDeposits = 0;
+        // ---- Single-quote path: create one plain invoice, no parent wrapper ----
+        if (quotes.length === 1) {
+            const quote = quotes[0];
+            const { lineItems, quoteTotal, deposit, quoteBalance, address } = buildQuoteLineItems(quote);
 
-        for (const quote of quotes) {
-            const deposit = quote.depositAmountPence || 0;
-            const quoteBasePrice = quote.basePrice || 0;
-            const pricingLineItems = (quote.pricingLineItems as any[]) || [];
-            const address = quote.address || quote.postcode || 'Unspecified property';
-
-            // Build line items from pricingLineItems
-            const lineItems: any[] = [];
-            if (pricingLineItems.length > 0) {
-                for (const li of pricingLineItems) {
-                    const labourPrice = li.guardedPricePence || li.llmSuggestedPricePence || li.referencePricePence || 0;
-                    const materialsPrice = li.materialsWithMarginPence || 0;
-                    const fullPrice = labourPrice + materialsPrice;
-                    lineItems.push({
-                        description: li.description,
-                        quantity: 1,
-                        unitPrice: fullPrice,
-                        total: fullPrice,
-                    });
-                }
-            } else {
-                lineItems.push({
-                    description: quote.jobDescription || 'Service',
-                    quantity: 1,
-                    unitPrice: quoteBasePrice,
-                    total: quoteBasePrice,
-                });
-            }
-
-            // Add selected extras
-            let extrasTotal = 0;
-            if (quote.selectedExtras && Array.isArray(quote.selectedExtras)) {
-                const optionalExtras = (quote.optionalExtras as any[]) || [];
-                for (const extraLabel of quote.selectedExtras as string[]) {
-                    const extra = optionalExtras.find((e: any) => e.label === extraLabel);
-                    if (extra && extra.priceInPence) {
-                        lineItems.push({
-                            description: `  + ${extra.label}`,
-                            quantity: 1,
-                            unitPrice: extra.priceInPence,
-                            total: extra.priceInPence,
-                        });
-                        extrasTotal += extra.priceInPence;
-                    }
-                }
-            }
-
-            const quoteTotal = quoteBasePrice + extrasTotal;
-            const quoteBalance = quoteTotal - deposit;
-
-            invoiceSeq++;
-            const invoiceNumber = `INV-${year}-${String(invoiceSeq).padStart(4, '0')}`;
-            const invoiceId = uuidv4();
-
-            const newInvoice = {
-                id: invoiceId,
+            const created = await insertInvoiceWithRetry((invoiceNumber) => ({
+                id: uuidv4(),
                 invoiceNumber,
                 quoteId: quote.id,
                 customerId: null,
@@ -838,9 +909,56 @@ invoiceRouter.post('/api/invoices/consolidated', async (req, res) => {
                 notes: null,
                 paymentMethod: null,
                 customerNotes: null,
-            };
+            }));
 
-            const [created] = await db.insert(invoices).values(newInvoice).returning();
+            const invoiceLink = `${baseUrl}/invoice/${created.id}`;
+            const whatsappMessage = buildSingleInvoiceMessage(quote, created, invoiceLink);
+
+            console.log(`[Invoices] Single: ${created.invoiceNumber} for quote ${quote.id}. Total: £${(quoteTotal / 100).toFixed(2)}, Balance: £${(quoteBalance / 100).toFixed(2)}`);
+
+            return res.json({
+                success: true,
+                invoice: created,
+                invoiceLink,
+                whatsappMessage,
+                summary: {
+                    totalQuotes: 1,
+                    totalProperties: 1,
+                    grandTotal: quoteTotal,
+                    totalDeposits: deposit,
+                    balanceDue: quoteBalance,
+                },
+            });
+        }
+
+        // ---- Bulk path: children + consolidated parent ----
+        const childInvoices: any[] = [];
+        let grandTotal = 0;
+        let totalDeposits = 0;
+
+        for (const quote of quotes) {
+            const { lineItems, quoteTotal, deposit, quoteBalance, address } = buildQuoteLineItems(quote);
+
+            const created = await insertInvoiceWithRetry((invoiceNumber) => ({
+                id: uuidv4(),
+                invoiceNumber,
+                quoteId: quote.id,
+                customerId: null,
+                contractorId: null,
+                customerName: effectiveName,
+                customerEmail: effectiveEmail,
+                customerPhone: effectivePhone,
+                customerAddress: address,
+                totalAmount: quoteTotal,
+                depositPaid: deposit,
+                balanceDue: quoteBalance,
+                lineItems: lineItems as any,
+                status: 'draft' as const,
+                dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+                notes: null,
+                paymentMethod: null,
+                customerNotes: null,
+            }));
             childInvoices.push({ ...created, propertyAddress: address });
 
             grandTotal += quoteTotal;
@@ -848,12 +966,6 @@ invoiceRouter.post('/api/invoices/consolidated', async (req, res) => {
         }
 
         const balanceDue = grandTotal - totalDeposits;
-
-        // Create a parent consolidated invoice that references the children
-        // This is what the customer sees — one page, one payment
-        invoiceSeq++;
-        const parentInvoiceNumber = `INV-${year}-${String(invoiceSeq).padStart(4, '0')}`;
-        const parentId = uuidv4();
 
         // Build consolidated line items with per-quote sections
         const consolidatedLineItems: any[] = [];
@@ -879,9 +991,10 @@ invoiceRouter.post('/api/invoices/consolidated', async (req, res) => {
             }
         }
 
-        const parentInvoice = {
+        const parentId = uuidv4();
+        const createdParent = await insertInvoiceWithRetry((invoiceNumber) => ({
             id: parentId,
-            invoiceNumber: parentInvoiceNumber,
+            invoiceNumber,
             quoteId: null,
             customerId: null,
             contractorId: null,
@@ -902,19 +1015,18 @@ invoiceRouter.post('/api/invoices/consolidated', async (req, res) => {
             }),
             paymentMethod: null,
             customerNotes: null,
-        };
+        }));
 
-        const [createdParent] = await db.insert(invoices).values(parentInvoice).returning();
-
-        const baseUrl = process.env.BASE_URL || 'https://handyservices.uk';
         const invoiceLink = `${baseUrl}/invoice/${parentId}`;
+        const whatsappMessage = buildConsolidatedInvoiceMessage(quotes, createdParent, invoiceLink);
 
-        console.log(`[Invoices] Consolidated: parent ${parentInvoiceNumber} with ${childInvoices.length} child invoices. Total: £${(grandTotal / 100).toFixed(2)}, Balance: £${(balanceDue / 100).toFixed(2)}`);
+        console.log(`[Invoices] Consolidated: parent ${createdParent.invoiceNumber} with ${childInvoices.length} child invoices. Total: £${(grandTotal / 100).toFixed(2)}, Balance: £${(balanceDue / 100).toFixed(2)}`);
 
         res.json({
             success: true,
             invoice: createdParent,
             invoiceLink,
+            whatsappMessage,
             childInvoices: childInvoices.map((c: any) => ({
                 id: c.id,
                 invoiceNumber: c.invoiceNumber,
@@ -925,6 +1037,7 @@ invoiceRouter.post('/api/invoices/consolidated', async (req, res) => {
             })),
             summary: {
                 totalQuotes: quotes.length,
+                totalProperties: quotes.length,
                 grandTotal,
                 totalDeposits,
                 balanceDue,
