@@ -569,7 +569,7 @@ async function buildAvailabilityResponse(
     const rangeStartStr = formatTz(rangeStart, 'yyyy-MM-dd', { timeZone: UK_TIMEZONE });
     const rangeEndStr = formatTz(rangeEnd, 'yyyy-MM-dd', { timeZone: UK_TIMEZONE });
 
-    const [dateOverrides, weeklyPatterns, bookingConflicts, slotLocks] = await Promise.all([
+    const [dateOverrides, weeklyPatterns, bookingConflicts, slotLocks, masterBlocked] = await Promise.all([
         // Date-specific availability overrides
         db.select()
             .from(contractorAvailabilityDates)
@@ -605,7 +605,18 @@ async function buildAvailabilityResponse(
                 lte(bookingSlotLocks.scheduledDate, rangeEnd),
                 gte(bookingSlotLocks.expiresAt, new Date()) // not expired
             )),
+
+        // Master blocked dates — hard override: always unavailable regardless of contractor pool
+        db.select()
+            .from(masterBlockedDates)
+            .where(and(
+                gte(masterBlockedDates.date, rangeStartStr),
+                lte(masterBlockedDates.date, rangeEndStr)
+            )),
     ]);
+
+    // Index master blocked dates for O(1) lookup
+    const blockedDateSet = new Set(masterBlocked.map(b => String(b.date)));
 
     // Index date overrides: Map<contractorId-dateStr, override>
     const overrideMap = new Map<string, typeof dateOverrides[0]>();
@@ -664,6 +675,9 @@ async function buildAvailabilityResponse(
             if (slot === 'pm' && currentHour >= 15) continue;
             if (slot === 'full_day' && currentHour >= 12) continue; // FULL_DAY needs AM, so same cutoff as AM
         }
+
+        // Master blocked date — hard override, always unavailable
+        if (blockedDateSet.has(dateStr)) continue;
 
         let availableCount = 0;
 
