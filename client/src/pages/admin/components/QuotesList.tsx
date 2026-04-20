@@ -47,6 +47,7 @@ interface PersonalizedQuote {
     exactTimeRequested: string | null;
     schedulingTier: string | null;
     isWeekendBooking: boolean | null;
+    dateTimePreferences: { date: string; timeSlot: 'am' | 'pm' | 'flexible' | 'full_day' }[] | null;
 }
 
 interface QuotesListProps {
@@ -164,7 +165,23 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
                                     </div>
                                 </TableCell>
                                 <TableCell className="hidden md:table-cell">
-                                    {quote.selectedDate ? (
+                                    {quote.dateTimePreferences && quote.dateTimePreferences.length > 0 ? (
+                                        <div className="text-sm space-y-0.5">
+                                            {quote.dateTimePreferences.map((pref, i) => {
+                                                const slotLabel = pref.timeSlot === 'am' ? 'AM'
+                                                    : pref.timeSlot === 'pm' ? 'PM'
+                                                    : pref.timeSlot === 'full_day' ? 'Full day'
+                                                    : 'Flexible';
+                                                return (
+                                                    <div key={pref.date + i} className="flex items-baseline gap-1.5">
+                                                        <span className="text-[10px] font-bold text-muted-foreground">{i + 1}.</span>
+                                                        <span className="font-medium">{format(new Date(pref.date), 'EEE d MMM')}</span>
+                                                        <span className="text-xs text-muted-foreground">· {slotLabel}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : quote.selectedDate ? (
                                         <div className="text-sm">
                                             <span className="font-medium">{format(new Date(quote.selectedDate), 'EEE d MMM')}</span>
                                             <span className="text-xs text-muted-foreground block">

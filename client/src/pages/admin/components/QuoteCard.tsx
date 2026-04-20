@@ -38,6 +38,7 @@ interface PersonalizedQuote {
     selectedDate: string | null;
     timeSlotType: string | null;
     exactTimeRequested: string | null;
+    dateTimePreferences: { date: string; timeSlot: 'am' | 'pm' | 'flexible' | 'full_day' }[] | null;
 }
 
 interface QuoteCardProps {
@@ -173,8 +174,24 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, av
                     </Button>
                 </div>
 
-                {/* Booking Date */}
-                {quote.selectedDate ? (
+                {/* Booking Dates — show all 3 customer picks if present */}
+                {quote.dateTimePreferences && quote.dateTimePreferences.length > 0 ? (
+                    <div className="text-xs mb-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded px-2 py-1 space-y-0.5">
+                        {quote.dateTimePreferences.map((pref, i) => {
+                            const slotLabel = pref.timeSlot === 'am' ? 'AM'
+                                : pref.timeSlot === 'pm' ? 'PM'
+                                : pref.timeSlot === 'full_day' ? 'Full day'
+                                : 'Flexible';
+                            return (
+                                <div key={pref.date + i} className="flex items-baseline gap-1.5">
+                                    <span className="text-[10px] font-bold opacity-70">{i + 1}.</span>
+                                    <span className="font-medium">{format(new Date(pref.date), 'EEE d MMM')}</span>
+                                    <span className="text-green-600/70 dark:text-green-500/70">· {slotLabel}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : quote.selectedDate ? (
                     <div className="flex items-center gap-1.5 text-xs mb-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded px-2 py-1">
                         <span className="font-medium">{format(new Date(quote.selectedDate), 'EEE d MMM')}</span>
                         <span className="text-green-600/70 dark:text-green-500/70">
