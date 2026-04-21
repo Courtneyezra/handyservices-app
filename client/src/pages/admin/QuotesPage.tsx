@@ -4,10 +4,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Search, LayoutGrid, List as ListIcon, FileText, CreditCard, Clock, CheckCircle, CheckSquare, Receipt, ExternalLink, Copy, MessageCircle } from 'lucide-react';
+import { Loader2, Search, LayoutGrid, List as ListIcon, FileText, CreditCard, Clock, CheckCircle, CheckSquare, Receipt, ExternalLink, Copy, MessageCircle, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAvailability } from '@/hooks/useAvailability';
+
+const REVIEW_LINK_SUFFIX = `\n\n⭐ Enjoyed the work? A quick Google review means the world to us:\nhttps://g.page/r/CaTBbeu5MahxEBM/review`;
 
 import { QuoteCard } from './components/QuoteCard';
 import { QuotesList } from './components/QuotesList';
@@ -76,6 +80,7 @@ export default function QuotesPage() {
     const [selectedQuoteIds, setSelectedQuoteIds] = useState<Set<string>>(new Set());
     const [generatedInvoiceLink, setGeneratedInvoiceLink] = useState<string | null>(null);
     const [generatedWhatsappMessage, setGeneratedWhatsappMessage] = useState<string | null>(null);
+    const [includeReviewLink, setIncludeReviewLink] = useState(true);
 
     const toggleQuoteSelection = (id: string) => {
         setSelectedQuoteIds(prev => {
@@ -412,7 +417,8 @@ export default function QuotesPage() {
                                         size="sm"
                                         variant="outline"
                                         onClick={() => {
-                                            navigator.clipboard.writeText(generatedWhatsappMessage);
+                                            const message = generatedWhatsappMessage + (includeReviewLink ? REVIEW_LINK_SUFFIX : '');
+                                            navigator.clipboard.writeText(message);
                                             toast({ title: 'Message copied', description: 'Paste into WhatsApp to send.' });
                                         }}
                                     >
@@ -428,9 +434,22 @@ export default function QuotesPage() {
                                 </Button>
                             </div>
                             {generatedWhatsappMessage && (
-                                <pre className="text-xs bg-muted/60 px-3 py-2 rounded whitespace-pre-wrap font-sans text-muted-foreground border border-border/50">
-                                    {generatedWhatsappMessage}
-                                </pre>
+                                <>
+                                    <div className="flex items-center gap-2">
+                                        <Switch
+                                            id="include-review-link"
+                                            checked={includeReviewLink}
+                                            onCheckedChange={setIncludeReviewLink}
+                                        />
+                                        <Label htmlFor="include-review-link" className="text-xs flex items-center gap-1 cursor-pointer">
+                                            <Star className="h-3.5 w-3.5 text-amber-500" />
+                                            Include Google review request
+                                        </Label>
+                                    </div>
+                                    <pre className="text-xs bg-muted/60 px-3 py-2 rounded whitespace-pre-wrap font-sans text-muted-foreground border border-border/50">
+                                        {generatedWhatsappMessage + (includeReviewLink ? REVIEW_LINK_SUFFIX : '')}
+                                    </pre>
+                                </>
                             )}
                         </CardContent>
                     </Card>
