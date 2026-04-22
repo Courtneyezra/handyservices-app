@@ -846,18 +846,26 @@ export function UnifiedQuoteCard({
                   const hasMaterials = (item.materialsWithMarginPence || 0) > 0;
                   const lineTotal = item.guardedPricePence + (item.materialsWithMarginPence || 0);
                   return (
-                    <div key={item.lineId} className="flex items-center gap-2 text-[13px] leading-snug">
-                      <span className={`min-w-0 truncate ${isDarkTheme ? 'text-slate-300' : 'text-slate-700'}`}>
-                        {item.description}
-                      </span>
-                      {hasMaterials && (
-                        <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-full ${
-                          isDarkTheme ? 'bg-white/5 text-slate-500' : 'bg-slate-100 text-slate-400'
-                        }`}>+parts</span>
+                    <div key={item.lineId} className="text-[13px] leading-snug">
+                      <div className="flex items-start gap-2">
+                        <span className={`shrink-0 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} aria-hidden>•</span>
+                        <span className={`min-w-0 flex-1 ${isDarkTheme ? 'text-slate-300' : 'text-slate-700'}`}>
+                          {item.description}
+                        </span>
+                        {hasMaterials && (
+                          <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-full ${
+                            isDarkTheme ? 'bg-white/5 text-slate-500' : 'bg-slate-100 text-slate-400'
+                          }`}>+parts</span>
+                        )}
+                        <span className={`shrink-0 font-semibold tabular-nums ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                          £{Math.round(lineTotal / 100)}
+                        </span>
+                      </div>
+                      {item.details && (
+                        <p className={`text-[11px] leading-relaxed mt-0.5 ml-4 ${isDarkTheme ? 'text-slate-500' : 'text-slate-500'}`}>
+                          {item.details}
+                        </p>
                       )}
-                      <span className={`ml-auto shrink-0 font-semibold tabular-nums ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                        £{Math.round(lineTotal / 100)}
-                      </span>
                     </div>
                   );
                 })}
