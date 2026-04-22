@@ -590,10 +590,17 @@ function buildFallbackSummary(request: MultiLineRequest): string {
 // ---------------------------------------------------------------------------
 
 function extractJSON(text: string): string {
-  // 1. Try stripping markdown fences first
+  // 1. Try stripping complete markdown fences first (opening AND closing)
   const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i);
   if (fenceMatch) {
     return fenceMatch[1].trim();
+  }
+
+  // 1b. Handle truncated responses with opening fence but no closing fence
+  // (can happen when max_tokens cuts off mid-output).
+  const openFenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*)$/i);
+  if (openFenceMatch) {
+    text = openFenceMatch[1].trim();
   }
 
   // 2. Find the first { ... } block (greedy — outermost braces)
@@ -607,6 +614,9 @@ function extractJSON(text: string): string {
         return text.slice(braceStart, i + 1);
       }
     }
+    // Unbalanced — truncated mid-JSON. Return what we have from the first {
+    // so the caller's fallback path sees a meaningful error rather than backticks.
+    return text.slice(braceStart);
   }
 
   // 3. Last resort — return as-is, JSON.parse will throw and we'll fallback
@@ -634,7 +644,7 @@ export async function generateMultiLineLLMPrice(
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       temperature: 0.1,
-      max_tokens: 2048,
+      max_tokens: 8192,
       system: buildSystemPrompt(request, lineReferences, approvedClaims),
       messages: [
         {
