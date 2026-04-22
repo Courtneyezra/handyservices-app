@@ -60,7 +60,7 @@ interface UnifiedQuoteCardProps {
   quoteId?: string;
   jobDescription?: string;
   location?: string; // e.g., "Fulham" - used for social proof labels
-  optionalExtras?: { label: string; description?: string; priceInPence: number }[] | null;
+  optionalExtras?: { label: string; description?: string; priceInPence: number; badge?: string }[] | null;
   onBook: (config: {
     selectedDate: Date | null;
     selectedDates?: Date[]; // 3-date buffer model: customer picks up to 3 preferred dates
@@ -870,6 +870,61 @@ export function UnifiedQuoteCard({
                   );
                 })}
               </div>
+              {/* Optional extras (ticked add-ons below line items) */}
+              {(optionalExtras?.length ?? 0) > 0 && (
+                <div className={`mt-3 pt-3 border-t space-y-2 ${isDarkTheme ? 'border-white/10' : 'border-slate-100'}`}>
+                  <p className={`text-[11px] font-semibold uppercase tracking-wide ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Optional extras
+                  </p>
+                  {optionalExtras!.map((extra, idx) => {
+                    const id = `extra_${idx}`;
+                    const isSelected = selectedAddOns.includes(id);
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => toggleAddOn(id)}
+                        className={`w-full text-left text-[13px] leading-snug rounded-md px-2 py-2 transition-colors ${
+                          isSelected
+                            ? (isDarkTheme ? 'bg-[#7DB00E]/10' : 'bg-[#7DB00E]/10')
+                            : (isDarkTheme ? 'hover:bg-white/5' : 'hover:bg-slate-50')
+                        }`}
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className={`shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center mt-0.5 ${
+                            isSelected
+                              ? 'bg-[#7DB00E] border-[#7DB00E]'
+                              : (isDarkTheme ? 'border-slate-500' : 'border-slate-300')
+                          }`}>
+                            {isSelected && <Check className="w-3 h-3 text-slate-900" strokeWidth={3} />}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={`font-medium ${isDarkTheme ? 'text-slate-200' : 'text-slate-800'}`}>
+                                {extra.label}
+                              </span>
+                              {extra.badge && (
+                                <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-[#7DB00E]/20 text-[#7DB00E] font-medium inline-flex items-center gap-1">
+                                  <Sparkles className="w-2.5 h-2.5" />
+                                  {extra.badge}
+                                </span>
+                              )}
+                            </div>
+                            {extra.description && (
+                              <p className={`text-[11px] leading-relaxed mt-0.5 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                                {extra.description}
+                              </p>
+                            )}
+                          </div>
+                          <span className={`shrink-0 font-semibold tabular-nums ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                            +£{Math.round(extra.priceInPence / 100)}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               {/* Discounts */}
               {(batchDiscount?.applied || (payFull && payFullSaving > 0)) && (
                 <div className={`mt-2 pt-2 border-t space-y-1 ${isDarkTheme ? 'border-white/5' : 'border-slate-100'}`}>
