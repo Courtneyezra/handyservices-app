@@ -1973,7 +1973,13 @@ function PricingLineItems({
             }`}
           >
             <div className="min-w-0">
-              <p className="text-sm font-medium text-slate-800 leading-snug">{item.description}</p>
+              <p className="text-sm font-medium text-slate-800 leading-snug flex gap-1.5">
+                <span className="text-slate-400" aria-hidden>•</span>
+                <span>{item.description}</span>
+              </p>
+              {item.details && (
+                <p className="text-xs text-slate-500 leading-snug mt-1 ml-3">{item.details}</p>
+              )}
               <Badge variant="secondary" className="mt-1 text-[10px] font-medium">
                 {CATEGORY_LABELS[item.category] || item.category}
               </Badge>
@@ -2055,7 +2061,15 @@ function CategorisedPricingLineItems({
                     i < items.length - 1 ? 'border-b border-slate-100' : ''
                   }`}
                 >
-                  <p className="text-sm text-slate-700 leading-snug min-w-0">{item.description}</p>
+                  <div className="min-w-0">
+                    <p className="text-sm text-slate-700 leading-snug flex gap-1.5">
+                      <span className="text-slate-400" aria-hidden>•</span>
+                      <span>{item.description}</span>
+                    </p>
+                    {item.details && (
+                      <p className="text-xs text-slate-500 leading-snug mt-1 ml-3">{item.details}</p>
+                    )}
+                  </div>
                   <p className="text-sm font-semibold text-slate-800 text-right w-14">£{formatPrice(item.guardedPricePence)}</p>
                 </div>
               ))}

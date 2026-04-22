@@ -377,6 +377,12 @@ export interface LineItemResult {
   materialsCostPence: number;
   /** Material cost with margin applied (what the customer pays for materials) */
   materialsWithMarginPence: number;
+  /**
+   * Optional 1-2 sentence detailed description shown to the customer under the line title.
+   * When present, the quote and invoice pages render this as muted sub-text.
+   * Populated via the admin description-toggle flow (or manually for bespoke high-ticket jobs).
+   */
+  details?: string | null;
 }
 
 /** Batch discount applied when multiple lines are quoted together */

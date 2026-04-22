@@ -35,6 +35,7 @@ interface LineItem {
   sectionTotal?: number;
   sectionDeposit?: number;
   sectionBalance?: number;
+  details?: string | null;
 }
 
 interface Invoice {
@@ -445,10 +446,15 @@ function InvoiceLineItems({ lineItems, customerName, invoiceDate, dueDate }: { l
                     )}
                     {/* Desktop: full row with bullet */}
                     <div className="hidden sm:grid grid-cols-[1fr_60px_90px] gap-2 px-5 py-3.5 hover:bg-gray-700/10 transition-colors">
-                      <span className="text-white text-sm flex items-center gap-2.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#7DB00E]/60 shrink-0" />
-                        {item.description}
-                      </span>
+                      <div className="flex flex-col">
+                        <span className="text-white text-sm flex items-start gap-2.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#7DB00E]/60 shrink-0 mt-1.5" />
+                          <span>{item.description}</span>
+                        </span>
+                        {item.details && (
+                          <p className="text-xs text-gray-400 leading-relaxed mt-1 ml-4">{item.details}</p>
+                        )}
+                      </div>
                       <span className="text-gray-400 text-sm text-center">{item.quantity || ""}</span>
                       <span className="text-white text-sm font-medium text-right">{item.total > 0 ? formatPence(item.total) : ""}</span>
                     </div>
@@ -490,10 +496,15 @@ function InvoiceLineItems({ lineItems, customerName, invoiceDate, dueDate }: { l
               </div>
             )}
             <div className="hidden sm:grid grid-cols-[1fr_60px_90px] gap-2 px-6 py-4 hover:bg-gray-700/10 transition-colors">
-              <span className="text-white text-sm font-medium flex items-center gap-2.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#7DB00E]/60 shrink-0" />
-                {item.description}
-              </span>
+              <div className="flex flex-col">
+                <span className="text-white text-sm font-medium flex items-start gap-2.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#7DB00E]/60 shrink-0 mt-1.5" />
+                  <span>{item.description}</span>
+                </span>
+                {item.details && (
+                  <p className="text-xs text-gray-400 leading-relaxed mt-1 ml-4">{item.details}</p>
+                )}
+              </div>
               <span className="text-gray-400 text-sm text-center">{item.quantity || ""}</span>
               <span className="text-white text-sm font-semibold text-right">{item.total > 0 ? formatPence(item.total) : ""}</span>
             </div>

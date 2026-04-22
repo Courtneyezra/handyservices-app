@@ -830,6 +830,7 @@ function buildQuoteLineItems(quote: typeof personalizedQuotes.$inferSelect) {
                 quantity: 1,
                 unitPrice: fullPrice,
                 total: fullPrice,
+                details: li.details || null,
             });
         }
     } else {
