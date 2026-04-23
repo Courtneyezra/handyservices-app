@@ -1460,7 +1460,7 @@ export function UnifiedQuoteCard({
                       onBlur={() => { if (isValidEmail(inlineEmail)) setEmailConfirmed(true); }}
                       onKeyDown={e => { if (e.key === 'Enter' && isValidEmail(inlineEmail)) { e.preventDefault(); setEmailConfirmed(true); } }}
                       placeholder="your@email.com"
-                      className={`flex-1 border rounded-lg p-3 text-base outline-none focus:ring-2 focus:ring-[#7DB00E]/40 ${
+                      className={`flex-1 min-w-0 border rounded-lg p-3 text-base outline-none focus:ring-2 focus:ring-[#7DB00E]/40 ${
                         isDarkTheme ? 'border-white/20 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-900'
                       }`}
                     />
