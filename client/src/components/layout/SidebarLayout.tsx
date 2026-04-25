@@ -171,6 +171,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Wrench, label: "Booking Visits", href: "/admin/visits" },
                                 { icon: FileText, label: "Invoices", href: "/admin/invoices" },
                                 { icon: Package, label: "SKU Manager", href: "/admin/skus" },
+                                { icon: Sparkles, label: "Extras Library", href: "/admin/extras" },
                                 { icon: PoundSterling, label: "WTBP Rates", href: "/admin/wtbp-rates" },
                             ]
                         },

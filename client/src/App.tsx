@@ -64,6 +64,7 @@ const DailyPlannerPage = lazy(() => import("@/pages/admin/DailyPlannerPage"));
 const TestDatePicker = lazy(() => import("@/pages/admin/TestDatePicker"));
 const TenantIssuesPage = lazy(() => import("@/pages/admin/TenantIssuesPage"));
 const QuotesPage = lazy(() => import("@/pages/admin/QuotesPage"));
+const ExtrasCatalogPage = lazy(() => import("@/pages/admin/ExtrasCatalogPage"));
 const EditQuotePage = lazy(() => import("@/pages/admin/EditQuotePage"));
 const BookingVisitsPage = lazy(() => import("@/pages/admin/BookingVisitsPage"));
 const MasterAvailabilityPage = lazy(() => import("@/pages/admin/MasterAvailabilityPage"));
@@ -515,6 +516,13 @@ function Router() {
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
+                <Route path="/admin/extras">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <ExtrasCatalogPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
                 <Route path="/admin/visits">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
@@ -754,11 +762,25 @@ function Router() {
                     </ProtectedRoute>
                 </Route>
                 <Route path="/admin/pipeline">
-                    <ProtectedRoute role="admin">
-                        <SidebarLayout>
-                            <LeadPipelinePage />
-                        </SidebarLayout>
-                    </ProtectedRoute>
+                    {(() => {
+                        // Embed mode = rendered inside the Chrome extension's
+                        // floating iframe on web.whatsapp.com. Skip SidebarLayout
+                        // so the Kanban fills the panel with no CRM chrome.
+                        const isEmbed =
+                            typeof window !== 'undefined' &&
+                            new URLSearchParams(window.location.search).get('embed') === '1';
+                        return (
+                            <ProtectedRoute role="admin">
+                                {isEmbed ? (
+                                    <LeadPipelinePage />
+                                ) : (
+                                    <SidebarLayout>
+                                        <LeadPipelinePage />
+                                    </SidebarLayout>
+                                )}
+                            </ProtectedRoute>
+                        );
+                    })()}
                 </Route>
                 <Route path="/admin/tube-map">
                     <ProtectedRoute role="admin">

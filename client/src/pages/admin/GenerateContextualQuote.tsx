@@ -83,6 +83,29 @@ interface LineItem {
   category: JobCategory;
   estimatedMinutes: number;
   materialsCostPounds: number; // in pounds for easier input, converted to pence on submit
+  details?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Optional Extras types
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ExtrasCatalogEntry {
+  id: string;
+  label: string;
+  description: string;
+  priceInPence: number;
+  badge?: string | null;
+  isActive: boolean;
+}
+
+interface OptionalExtra {
+  label: string;
+  description: string;
+  priceInPence: number;
+  badge?: string;
+  // Tracks whether this came from the library (id) or is a custom one
+  catalogId?: string;
 }
 
 interface ContextSignals {
@@ -821,6 +844,16 @@ export default function GenerateContextualQuote() {
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [datePickerMonth, setDatePickerMonth] = useState(new Date());
 
+  // ── Optional extras (library + custom) attached to this quote ──
+  const [optionalExtras, setOptionalExtras] = useState<OptionalExtra[]>([]);
+  const [showCustomExtraForm, setShowCustomExtraForm] = useState(false);
+  const [customExtraDraft, setCustomExtraDraft] = useState<{ label: string; description: string; pricePounds: string; badge: string }>({
+    label: '',
+    description: '',
+    pricePounds: '',
+    badge: '',
+  });
+
   // ── Behavioural signals ──
   const [behavioralSignals, setBehavioralSignals] = useState({
     isCommercialPremises: false,
@@ -963,6 +996,29 @@ export default function GenerateContextualQuote() {
     staleTime: 60_000,
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // API: Fetch optional extras catalog (library)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const { data: extrasCatalog } = useQuery<ExtrasCatalogEntry[]>({
+    queryKey: ['admin-extras-catalog'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/extras-catalog', {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error('Failed to fetch extras catalog');
+      const data = await res.json();
+      // Backend wraps the array as { extras: [...] }
+      return Array.isArray(data) ? data : (data?.extras ?? []);
+    },
+    staleTime: 60_000,
+  });
+
+  const activeExtrasCatalog = useMemo(
+    () => (Array.isArray(extrasCatalog) ? extrasCatalog : []).filter((e) => e.isActive),
+    [extrasCatalog],
+  );
+
   // Auto-suggest best contractor based on line item categories
   const suggestedContractor = useMemo(() => {
     if (!contractors || contractors.length === 0 || lineItems.length === 0) return null;
@@ -1054,6 +1110,7 @@ export default function GenerateContextualQuote() {
             category: li.category,
             estimatedMinutes: li.estimatedMinutes,
             materialsCostPence: Math.round(li.materialsCostPounds * 100) || 0,
+            details: li.details ?? null,
           })),
           signals: {
             urgency: signals.urgency,
@@ -1069,6 +1126,14 @@ export default function GenerateContextualQuote() {
           createdBy: adminUser?.id || undefined,
           createdByName: adminUser?.name || adminUser?.email || undefined,
           availableDates,
+          optionalExtras: optionalExtras.length
+            ? optionalExtras.map((e) => ({
+                label: e.label,
+                description: e.description,
+                priceInPence: e.priceInPence,
+                ...(e.badge ? { badge: e.badge } : {}),
+              }))
+            : undefined,
         }),
       });
       if (!res.ok) {
@@ -1143,7 +1208,55 @@ export default function GenerateContextualQuote() {
 
   // Track which items are being polished + their original text (before polish)
   const [polishingIds, setPolishingIds] = useState<Set<string>>(new Set());
+  const [polishingDetailIds, setPolishingDetailIds] = useState<Set<string>>(new Set());
+  const [draftingDetailIds, setDraftingDetailIds] = useState<Set<string>>(new Set());
   const originalDescriptions = useRef<Map<string, string>>(new Map());
+  const originalDetails = useRef<Map<string, string>>(new Map());
+  // Track which line ids have already had a detail draft attempted, so we don't
+  // repeatedly call the auto-draft endpoint on every polish.
+  const draftedDetailIds = useRef<Set<string>>(new Set());
+
+  // Auto-draft a "what's included" detail for a line — called after polish succeeds.
+  // Only runs if the line's `details` field is currently empty (so we don't
+  // overwrite anything the user typed manually).
+  const autoDraftLineDetail = useCallback(async (id: string, polishedTitle: string, category: JobCategory, currentVaContext: string) => {
+    // Skip if we've already attempted a draft for this line
+    if (draftedDetailIds.current.has(id)) return;
+    draftedDetailIds.current.add(id);
+
+    setDraftingDetailIds((prev) => new Set(prev).add(id));
+    try {
+      const res = await fetch('/api/pricing/draft-line-detail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          lineDescription: polishedTitle,
+          category,
+          vaContext: currentVaContext || undefined,
+        }),
+      });
+      if (!res.ok) return;
+      const { detail } = await res.json();
+      if (typeof detail === 'string' && detail.trim().length > 0) {
+        // Only populate if the user hasn't typed anything in the meantime
+        setLineItems((prev) =>
+          prev.map((li) => {
+            if (li.id !== id) return li;
+            if (li.details && li.details.trim().length > 0) return li;
+            return { ...li, details: detail };
+          }),
+        );
+      }
+    } catch {
+      // Silently fail — auto-draft is non-critical
+    } finally {
+      setDraftingDetailIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, []);
 
   const handlePolishDescription = useCallback(async (id: string, description: string) => {
     const trimmed = description.trim();
@@ -1154,6 +1267,7 @@ export default function GenerateContextualQuote() {
     if (lastOriginal === trimmed) return;
 
     setPolishingIds((prev) => new Set(prev).add(id));
+    let polishedFinal: string | null = null;
     try {
       const res = await fetch('/api/pricing/polish-description', {
         method: 'POST',
@@ -1165,14 +1279,61 @@ export default function GenerateContextualQuote() {
       if (polished && polished !== trimmed) {
         originalDescriptions.current.set(id, trimmed);
         handleUpdateLineItem(id, 'description', polished);
+        polishedFinal = polished;
       } else {
         // Even if unchanged, record it so we don't re-call
         originalDescriptions.current.set(id, trimmed);
+        polishedFinal = trimmed;
       }
     } catch {
       // Silently fail — don't interrupt the user
     } finally {
       setPolishingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+
+    // Follow-up: auto-draft the "details" field if empty.
+    // Look up the most recent line state so we don't draft over user-typed details.
+    if (polishedFinal) {
+      const line = lineItems.find((li) => li.id === id);
+      const hasManualDetail = line?.details && line.details.trim().length > 0;
+      if (!hasManualDetail) {
+        const currentCategory = (line?.category ?? 'general_fixing') as JobCategory;
+        autoDraftLineDetail(id, polishedFinal, currentCategory, vaContext);
+      }
+    }
+  }, [handleUpdateLineItem, autoDraftLineDetail, lineItems, vaContext]);
+
+  // Polish a manually-edited detail textarea on blur (mirrors title polish behaviour).
+  const handlePolishDetail = useCallback(async (id: string, detail: string) => {
+    const trimmed = detail.trim();
+    if (trimmed.length < 5) return;
+
+    const lastOriginal = originalDetails.current.get(id);
+    if (lastOriginal === trimmed) return;
+
+    setPolishingDetailIds((prev) => new Set(prev).add(id));
+    try {
+      const res = await fetch('/api/pricing/polish-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: trimmed }),
+      });
+      if (!res.ok) return;
+      const { polished } = await res.json();
+      if (polished && polished !== trimmed) {
+        originalDetails.current.set(id, trimmed);
+        handleUpdateLineItem(id, 'details', polished);
+      } else {
+        originalDetails.current.set(id, trimmed);
+      }
+    } catch {
+      // Silently fail
+    } finally {
+      setPolishingDetailIds((prev) => {
         const next = new Set(prev);
         next.delete(id);
         return next;
@@ -1332,6 +1493,9 @@ export default function GenerateContextualQuote() {
     setBehavioralSignals({ isCommercialPremises: false, wontBePresent: false, priceConscious: false });
     setAvailableDates([]);
     setDatePickerMonth(new Date());
+    setOptionalExtras([]);
+    setShowCustomExtraForm(false);
+    setCustomExtraDraft({ label: '', description: '', pricePounds: '', badge: '' });
     setSignals({
       urgency: 'standard',
       materialsSupply: 'labor_only',
@@ -1586,6 +1750,32 @@ export default function GenerateContextualQuote() {
                               isPolishing ? 'opacity-60' : ''
                             }`}
                           />
+
+                          {/* Detail textarea — auto-drafted after polish, optional */}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor={`line-detail-${item.id}`} className="text-[10px] text-muted-foreground/70">
+                                Detail (optional)
+                              </Label>
+                              {(draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id)) && (
+                                <span className="flex items-center gap-1 text-[10px] text-amber-400/70 animate-pulse">
+                                  <Wand2 className="w-2.5 h-2.5" />
+                                  {draftingDetailIds.has(item.id) ? 'drafting...' : 'polishing...'}
+                                </span>
+                              )}
+                            </div>
+                            <Textarea
+                              id={`line-detail-${item.id}`}
+                              placeholder="What's included in this line — auto-drafted, edit if needed."
+                              value={item.details ?? ''}
+                              onChange={(e) => handleUpdateLineItem(item.id, 'details', e.target.value)}
+                              onBlur={() => handlePolishDetail(item.id, item.details ?? '')}
+                              rows={3}
+                              className={`text-xs bg-transparent border-white/10 focus:border-amber-500/50 resize-none transition-all ${
+                                draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) ? 'opacity-60' : ''
+                              }`}
+                            />
+                          </div>
 
                           {/* Category + Time — stacked on mobile, side-by-side on sm+ */}
                           <div className="flex flex-col sm:flex-row gap-2">
@@ -2098,6 +2288,230 @@ export default function GenerateContextualQuote() {
                       </label>
                     ))}
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* ─── Section 5a: Optional Extras (library + custom) ─── */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Optional Extras</CardTitle>
+                <p className="text-xs text-zinc-500">
+                  Add-ons the customer can tick on their quote page. Pick from the library or add custom.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Library picker */}
+                {activeExtrasCatalog.length > 0 ? (
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">From the library</Label>
+                    <div className="space-y-1.5">
+                      {activeExtrasCatalog.map((entry) => {
+                        const checked = optionalExtras.some((e) => e.catalogId === entry.id);
+                        return (
+                          <label
+                            key={entry.id}
+                            className={`flex items-start gap-2.5 rounded-lg border px-2.5 py-2 cursor-pointer transition-colors ${
+                              checked
+                                ? 'border-amber-500/40 bg-amber-500/10'
+                                : 'border-white/10 hover:border-white/20 hover:bg-white/[0.02]'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setOptionalExtras((prev) => [
+                                    ...prev,
+                                    {
+                                      label: entry.label,
+                                      description: entry.description,
+                                      priceInPence: entry.priceInPence,
+                                      badge: entry.badge ?? undefined,
+                                      catalogId: entry.id,
+                                    },
+                                  ]);
+                                } else {
+                                  setOptionalExtras((prev) => prev.filter((x) => x.catalogId !== entry.id));
+                                }
+                              }}
+                              className="mt-0.5 w-4 h-4 rounded border-zinc-600 bg-zinc-800 accent-amber-500 shrink-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-medium text-foreground">{entry.label}</span>
+                                {entry.badge && (
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-400">
+                                    {entry.badge}
+                                  </Badge>
+                                )}
+                                <span className="text-xs text-muted-foreground ml-auto shrink-0">
+                                  £{(entry.priceInPence / 100).toFixed(0)}
+                                </span>
+                              </div>
+                              {entry.description && (
+                                <p className="text-[11px] text-muted-foreground/70 mt-0.5">{entry.description}</p>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground/60">No library extras yet — add a custom one below.</p>
+                )}
+
+                {/* Selected list (custom + picked) */}
+                {optionalExtras.length > 0 && (
+                  <div className="space-y-2 border-t border-border pt-3">
+                    <Label className="text-xs text-muted-foreground">Selected for this quote ({optionalExtras.length})</Label>
+                    <div className="space-y-1.5">
+                      {optionalExtras.map((extra, idx) => (
+                        <div
+                          key={`${extra.catalogId ?? 'custom'}-${idx}`}
+                          className="flex items-start gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-medium text-foreground">{extra.label}</span>
+                              {extra.badge && (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-400">
+                                  {extra.badge}
+                                </Badge>
+                              )}
+                              {!extra.catalogId && (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-zinc-500/40 text-zinc-400">
+                                  custom
+                                </Badge>
+                              )}
+                              <span className="text-xs text-muted-foreground ml-auto shrink-0">
+                                £{(extra.priceInPence / 100).toFixed(0)}
+                              </span>
+                            </div>
+                            {extra.description && (
+                              <p className="text-[11px] text-muted-foreground/70 mt-0.5">{extra.description}</p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setOptionalExtras((prev) => prev.filter((_, i) => i !== idx))}
+                            className="text-muted-foreground/40 hover:text-red-400 transition-colors p-1 -m-1 shrink-0"
+                            aria-label="Remove extra"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Add custom extra */}
+                <div className="border-t border-border pt-3">
+                  {!showCustomExtraForm ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowCustomExtraForm(true)}
+                      className="text-xs"
+                    >
+                      <Plus className="w-3.5 h-3.5 mr-1" />
+                      Add custom extra
+                    </Button>
+                  ) : (
+                    <div className="space-y-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+                      <Label className="text-xs text-amber-300">New custom extra</Label>
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground">Label</Label>
+                        <Input
+                          placeholder="e.g. Hallway clean-up"
+                          value={customExtraDraft.label}
+                          onChange={(e) => setCustomExtraDraft((d) => ({ ...d, label: e.target.value }))}
+                          className="mt-1 h-8 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground">Description</Label>
+                        <Textarea
+                          placeholder="What's included…"
+                          value={customExtraDraft.description}
+                          onChange={(e) => setCustomExtraDraft((d) => ({ ...d, description: e.target.value }))}
+                          rows={2}
+                          className="mt-1 text-xs resize-none"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-[10px] text-muted-foreground">Price (£)</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step={1}
+                            placeholder="25"
+                            value={customExtraDraft.pricePounds}
+                            onChange={(e) => setCustomExtraDraft((d) => ({ ...d, pricePounds: e.target.value }))}
+                            className="mt-1 h-8 text-xs"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px] text-muted-foreground">Badge (optional)</Label>
+                          <Input
+                            placeholder="Popular"
+                            value={customExtraDraft.badge}
+                            onChange={(e) => setCustomExtraDraft((d) => ({ ...d, badge: e.target.value }))}
+                            className="mt-1 h-8 text-xs"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="text-xs h-8"
+                          onClick={() => {
+                            const label = customExtraDraft.label.trim();
+                            const priceNum = parseFloat(customExtraDraft.pricePounds);
+                            if (!label) {
+                              toast({ title: 'Label required', description: 'Give the extra a label.', variant: 'destructive' });
+                              return;
+                            }
+                            if (!Number.isFinite(priceNum) || priceNum < 0) {
+                              toast({ title: 'Invalid price', description: 'Enter a valid £ amount.', variant: 'destructive' });
+                              return;
+                            }
+                            setOptionalExtras((prev) => [
+                              ...prev,
+                              {
+                                label,
+                                description: customExtraDraft.description.trim(),
+                                priceInPence: Math.round(priceNum * 100),
+                                badge: customExtraDraft.badge.trim() || undefined,
+                              },
+                            ]);
+                            setCustomExtraDraft({ label: '', description: '', pricePounds: '', badge: '' });
+                            setShowCustomExtraForm(false);
+                          }}
+                        >
+                          Add
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs h-8"
+                          onClick={() => {
+                            setShowCustomExtraForm(false);
+                            setCustomExtraDraft({ label: '', description: '', pricePounds: '', badge: '' });
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

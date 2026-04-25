@@ -29,6 +29,7 @@ import { testRouter } from "./test-routes";
 import { dashboardRouter } from "./dashboard";
 import { whatsappRouter } from "./whatsapp-api";
 import { metaWhatsAppRouter, attachMetaWebSocket } from "./meta-whatsapp";
+import { whatsappExtRouter } from "./whatsapp-ext-routes";
 import { trainingRouter } from './training-routes';
 import { pushRouter } from './web-push';
 import handymenRouter from './handymen';
@@ -45,6 +46,7 @@ import placesRouter from './places-routes';
 import { stripeRouter } from './stripe-routes';
 import { elevenLabsWebhookRouter } from './eleven-labs/webhook';
 import contextualPricingRouter from './contextual-pricing/routes';
+import { quoteExtrasCatalogRouter } from './quote-extras-catalog';
 import quoteAnalyticsRouter from './quote-analytics-api';
 import contentLibraryRouter from './content-library/routes';
 import contentRouter from './content';
@@ -312,6 +314,7 @@ app.use(extractCallDataRouter);
 // app.use(express.static(path.join(__dirname, '../client/dist'))); // REMOVED: Conflicts with Vite Dev Server
 app.use(quotesRouter);
 app.use(contextualPricingRouter);
+app.use(quoteExtrasCatalogRouter);
 app.use(quoteAnalyticsRouter);
 app.use(contentLibraryRouter);
 app.use('/api/quote-platform', quotePlatformRouter);
@@ -322,6 +325,7 @@ app.use('/api/places', placesRouter); // API: Places Search
 app.use('/api', testRouter);
 app.use('/api/whatsapp', whatsappRouter); // Legacy Twilio Webhooks
 app.use('/api/whatsapp', metaWhatsAppRouter); // Meta Cloud API Webhooks
+app.use('/api/whatsapp', whatsappExtRouter); // Chrome Extension ingest (ext-ingest, ext-ping)
 app.use('/api/dashboard', requireAdmin, dashboardRouter);
 app.use('/api/va', requireAdmin, vaStatsRouter);
 app.use('/api/handymen', handymenRouter);

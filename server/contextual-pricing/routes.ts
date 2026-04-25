@@ -26,6 +26,7 @@ import { normalizePhoneNumber } from '../phone-utils';
 import { selectContentForQuote } from '../content-library/selector';
 import { trackQuoteCreated } from '../posthog';
 import { calculateMultiLineCost, checkMargin, calculateCostFromWTBP } from '../margin-engine';
+import { incrementExtrasPickCount } from '../quote-extras-catalog';
 import type {
   PricingContext,
   PricingComparisonResult,
@@ -205,6 +206,83 @@ Rules:
     console.error('[pricing/polish-description] Error:', error?.message || error);
     // On error, return original — don't block the user
     return res.json({ polished: req.body?.description?.trim() || '' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/pricing/draft-line-detail
+// LLM-drafted 1-2 sentence customer-facing detail for a quote line item.
+// Returned text is rendered as muted sub-text under the line title on the
+// quote/invoice pages. Failure is non-blocking — empty string lets the
+// admin form leave the field empty.
+// ---------------------------------------------------------------------------
+
+router.post('/api/pricing/draft-line-detail', async (req, res) => {
+  try {
+    const { lineDescription, category, vaContext } = req.body as {
+      lineDescription?: string;
+      category?: string;
+      vaContext?: string;
+    };
+
+    if (!lineDescription || typeof lineDescription !== 'string') {
+      return res.status(400).json({ error: 'lineDescription is required' });
+    }
+    const trimmed = lineDescription.trim();
+    if (trimmed.length === 0) {
+      return res.status(400).json({ error: 'lineDescription must not be empty' });
+    }
+
+    const claude = getAnthropic();
+    const userPayloadParts: string[] = [`Line: ${trimmed}`];
+    if (category && typeof category === 'string' && category.trim()) {
+      userPayloadParts.push(`Category: ${category.trim()}`);
+    }
+    if (vaContext && typeof vaContext === 'string' && vaContext.trim()) {
+      // Cap context to keep prompt cheap
+      userPayloadParts.push(`Context: ${vaContext.trim().slice(0, 600)}`);
+    }
+
+    const message = await claude.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 150,
+      temperature: 0.3,
+      system: `You draft short customer-facing detail lines for a UK handyman quote.
+
+Given a single quote line (the scope), write a 1-2 sentence detail describing what's actually included on this line — the work performed and what the customer ends up with.
+
+Rules:
+- 1-2 short sentences. No more.
+- Plain English. Reassuring but matter-of-fact tone.
+- No hype words ("amazing", "perfect", "expert"), no emoji, no exclamation marks.
+- UK English spelling (colour, metre, sealant).
+- Do NOT restate the line title verbatim. Add useful colour: method, materials, what's left at the end.
+- Do NOT include prices, timings, or contractor names.
+- Return ONLY the detail text. No quotes, no labels, no preamble.
+
+Examples:
+Line: "Reseal shower in ensuite bathroom"
+Detail: Strip the existing silicone, clean and dry the joints thoroughly, then apply fresh flexible bathroom-grade sealant. 24-hour cure before water contact.
+
+Line: "Replace pull cord on extractor fan"
+Detail: Fit a new pull cord to the bathroom extractor switch. Includes the pull-cord fitting itself so it operates reliably again.`,
+      messages: [
+        {
+          role: 'user',
+          content: userPayloadParts.join('\n'),
+        },
+      ],
+    });
+
+    const textBlock = message.content.find((b: any) => b.type === 'text');
+    const raw = textBlock?.text || '';
+    // Strip exclamation marks and trim whitespace before returning
+    const detail = raw.replace(/!+/g, '.').replace(/\s+\./g, '.').trim();
+    return res.json({ detail });
+  } catch (error: any) {
+    console.error('[pricing/draft-line-detail] Error:', error?.message || error);
+    // Non-blocking — frontend leaves the field empty
+    return res.json({ detail: '' });
   }
 });
 
@@ -711,9 +789,24 @@ const contextualQuoteInputSchema = z.object({
         category: z.enum(JobCategoryValues as unknown as [string, ...string[]]),
         estimatedMinutes: z.number().positive(),
         materialsCostPence: z.number().min(0).optional().default(0),
+        details: z.string().optional().nullable(),
       }),
     )
     .min(1, 'At least one line item is required'),
+
+  // Optional extras — picked from the catalog (or hand-rolled). Persisted onto
+  // the quote's `optional_extras` JSONB column so the customer page renders them
+  // as ticked add-on rows.
+  optionalExtras: z
+    .array(
+      z.object({
+        label: z.string().min(1),
+        description: z.string().min(1),
+        priceInPence: z.number().int().nonnegative(),
+        badge: z.string().optional().nullable(),
+      }),
+    )
+    .optional(),
 
   // Context signals (all optional — engine uses defaults)
   signals: z
@@ -880,6 +973,27 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
 
     // 4. Call multi-line pricing engine (with content-library claims if available)
     const result = await generateMultiLinePrice(multiLineRequest, approvedClaimTexts);
+
+    // 4a-i. Map any admin-provided per-line `details` from the input onto the
+    // matching engine output line (by lineId). The engine doesn't know about
+    // these — they're customer-facing sub-text drafted via the LLM helper or
+    // entered manually in the admin form.
+    if (result.lineItems && result.lineItems.length > 0) {
+      const detailsByLineId = new Map<string, string>();
+      for (const l of input.lines) {
+        if (l.details && typeof l.details === 'string' && l.details.trim()) {
+          detailsByLineId.set(l.id, l.details.trim());
+        }
+      }
+      if (detailsByLineId.size > 0) {
+        for (const lineItem of result.lineItems) {
+          const detail = detailsByLineId.get(lineItem.lineId);
+          if (detail) {
+            lineItem.details = detail;
+          }
+        }
+      }
+    }
 
     // 4a. Dead zone detection — £100-£200 band has 0% conversion in analytics
     // Apply enhanced value framing as a post-processing step (after LLM has set the price)
@@ -1052,6 +1166,19 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       // Canonical price
       basePrice: result.finalPricePence,
 
+      // Optional extras picked from the catalog (or hand-rolled). Stored on the
+      // existing `optional_extras` JSONB column so the customer page renders
+      // them as ticked add-on rows. Null when nothing was picked.
+      optionalExtras:
+        input.optionalExtras && input.optionalExtras.length > 0
+          ? input.optionalExtras.map((x) => ({
+              label: x.label,
+              description: x.description,
+              priceInPence: x.priceInPence,
+              ...(x.badge ? { badge: x.badge } : {}),
+            }))
+          : null,
+
       // Segment marker for contextual quotes
       segment: 'CONTEXTUAL',
 
@@ -1111,6 +1238,13 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
 
     await db.insert(personalizedQuotes).values(quoteInsertData);
     console.log(`[ContextualQuote] Created quote ${shortSlug} (${id}), price: ${result.finalPricePence}p`);
+
+    // 7a. Bump the catalog pick-count for any extras that were chosen — fire-and-forget.
+    // Don't block the response if telemetry fails.
+    if (input.optionalExtras && input.optionalExtras.length > 0) {
+      const labels = input.optionalExtras.map((x) => x.label);
+      void incrementExtrasPickCount(labels);
+    }
 
     // 7b. Track in PostHog (server-side, non-blocking)
     try {

@@ -20,7 +20,10 @@ export const leadStageEnum = pgEnum('lead_stage', [
     'completed',
     'lost',
     'expired',
-    'declined'
+    'declined',
+    'new',
+    'pending',
+    'complete'
 ]);
 
 // Lead Route Enum - Which path the lead is on (Tube Map)
@@ -31,6 +34,10 @@ export const leadRouteEnum = pgEnum('lead_route', [
 ]);
 
 export const LeadStageValues = [
+    'new',
+    'pending',
+    'complete',
+    'lost',
     'new_lead',
     'contacted',
     'awaiting_video',
@@ -43,7 +50,6 @@ export const LeadStageValues = [
     'booked',
     'in_progress',
     'completed',
-    'lost',
     'expired',
     'declined'
 ] as const;
@@ -2378,6 +2384,34 @@ export type QuotePlatformHeadline = typeof quotePlatformHeadlines.$inferSelect;
 export type InsertQuotePlatformHeadline = typeof quotePlatformHeadlines.$inferInsert;
 export type QuotePlatformTestimonial = typeof quotePlatformTestimonials.$inferSelect;
 export type InsertQuotePlatformTestimonial = typeof quotePlatformTestimonials.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Optional Extras Catalog — reusable add-ons admins pick from when building a
+// contextual quote. The picked entries get serialised onto the quote's
+// `optional_extras` JSONB column (existing) so the customer page renders them
+// as ticked rows. Only the active entries surface in the picker.
+// ---------------------------------------------------------------------------
+export const quoteExtrasCatalog = pgTable("quote_extras_catalog", {
+  id: serial("id").primaryKey(),
+  label: varchar("label", { length: 120 }).notNull(),
+  description: text("description").notNull(),
+  priceInPence: integer("price_in_pence").notNull(),
+  /** Optional pill text rendered next to the title on the customer page (e.g. "Clean Team"). */
+  badge: varchar("badge", { length: 40 }),
+  /** Display order in the admin picker. Lower = higher in the list. */
+  sortOrder: integer("sort_order").notNull().default(100),
+  isActive: boolean("is_active").notNull().default(true),
+  /** Cumulative tracking — how often this entry has been picked into a quote. */
+  pickCount: integer("pick_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_extras_catalog_active").on(table.isActive),
+  index("idx_extras_catalog_sort").on(table.sortOrder),
+]);
+
+export type QuoteExtrasCatalog = typeof quoteExtrasCatalog.$inferSelect;
+export type InsertQuoteExtrasCatalog = typeof quoteExtrasCatalog.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Job Applications (recruitment pipeline)
