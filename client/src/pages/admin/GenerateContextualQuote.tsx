@@ -1930,43 +1930,110 @@ export default function GenerateContextualQuote() {
                       </div>
                     ) : livePreview ? (
                       <div className="space-y-2">
-                        {/* Per-line breakdown */}
-                        {livePreview.lineItems.length > 1 && (
-                          <div className="space-y-1">
-                            {livePreview.lineItems.map((li) => (
-                              <div key={li.lineId} className="flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground truncate mr-2">{li.description}</span>
-                                <span className="text-foreground font-medium shrink-0">
-                                  £{(li.guardedPricePence / 100).toFixed(0)}
-                                  {li.materialsWithMarginPence > 0 && (
-                                    <span className="text-muted-foreground ml-1">+ £{(li.materialsWithMarginPence / 100).toFixed(0)} materials</span>
-                                  )}
-                                </span>
+                        {/* Header */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
+                            Engine Breakdown
+                          </span>
+                          {livePreview.confidence && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] px-1.5 py-0 ${
+                                livePreview.confidence === 'high'
+                                  ? 'border-green-500/40 text-green-400'
+                                  : livePreview.confidence === 'medium'
+                                    ? 'border-amber-500/40 text-amber-400'
+                                    : 'border-red-500/40 text-red-400'
+                              }`}
+                            >
+                              {livePreview.confidence} confidence
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Per-line breakdown — always shown so the admin sees every line's number */}
+                        <div className="space-y-1.5">
+                          {livePreview.lineItems.map((li) => {
+                            const lineTotal = li.guardedPricePence + (li.materialsWithMarginPence || 0);
+                            return (
+                              <div key={li.lineId} className="text-xs space-y-0.5">
+                                <div className="flex items-start justify-between gap-2">
+                                  <span className="text-foreground/90 leading-snug flex-1 min-w-0">
+                                    {li.description}
+                                  </span>
+                                  <span className="text-foreground font-semibold shrink-0 tabular-nums">
+                                    £{(lineTotal / 100).toFixed(0)}
+                                  </span>
+                                </div>
+                                {li.materialsWithMarginPence > 0 && (
+                                  <div className="flex items-center justify-between gap-2 text-muted-foreground/60 text-[10px] pl-3">
+                                    <span>labour £{(li.guardedPricePence / 100).toFixed(0)} · materials £{(li.materialsWithMarginPence / 100).toFixed(0)}</span>
+                                  </div>
+                                )}
+                                {li.reasoning && (
+                                  <p className="text-[10px] text-muted-foreground/60 leading-snug pl-3 italic">
+                                    {li.reasoning}
+                                  </p>
+                                )}
                               </div>
-                            ))}
-                          </div>
-                        )}
+                            );
+                          })}
+                        </div>
 
-                        {/* Batch discount */}
-                        {livePreview.batchDiscount.applied && (
-                          <div className="flex items-center justify-between text-xs text-green-400">
-                            <span>Batch discount ({livePreview.batchDiscount.discountPercent}%)</span>
-                            <span>-£{(livePreview.batchDiscount.savingsPence / 100).toFixed(0)}</span>
-                          </div>
-                        )}
+                        <Separator className="my-2" />
 
-                        {/* Total */}
-                        <div className="flex items-center justify-between py-1">
-                          <span className="text-sm text-muted-foreground">
+                        {/* Subtotals */}
+                        <div className="space-y-1 text-xs">
+                          <div className="flex items-center justify-between text-muted-foreground">
+                            <span>Labour subtotal</span>
+                            <span className="tabular-nums">£{(livePreview.subtotalPence / 100).toFixed(0)}</span>
+                          </div>
+                          {livePreview.totalMaterialsWithMarginPence > 0 && (
+                            <div className="flex items-center justify-between text-muted-foreground">
+                              <span>Materials (incl. 27% margin)</span>
+                              <span className="tabular-nums">£{(livePreview.totalMaterialsWithMarginPence / 100).toFixed(0)}</span>
+                            </div>
+                          )}
+                          {livePreview.batchDiscount.applied && (
+                            <div className="flex items-start justify-between text-green-400">
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium">Multi-job discount ({livePreview.batchDiscount.discountPercent}%)</div>
+                                {livePreview.batchDiscount.reasoning && (
+                                  <p className="text-[10px] text-green-400/70 italic leading-snug mt-0.5">
+                                    {livePreview.batchDiscount.reasoning}
+                                  </p>
+                                )}
+                              </div>
+                              <span className="tabular-nums shrink-0 ml-2">−£{(livePreview.batchDiscount.savingsPence / 100).toFixed(0)}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Final total */}
+                        <div className="flex items-center justify-between py-2 border-t border-amber-500/20 mt-2">
+                          <span className="text-sm font-semibold text-foreground">
                             Engine Total
                             {livePreviewLoading && <Loader2 className="w-3 h-3 animate-spin inline ml-1.5" />}
                           </span>
-                          <span className="text-xl font-bold text-amber-400">
+                          <span className="text-2xl font-bold text-amber-400 tabular-nums">
                             £{(livePreview.finalPricePence / 100).toFixed(0)}
                           </span>
                         </div>
-                        <p className="text-[11px] text-muted-foreground/60">
-                          Live from contextual pricing engine — includes all adjustments.
+
+                        {/* Guardrail flags */}
+                        {(livePreview.guardrails?.floorTriggered || livePreview.guardrails?.ceilingTriggered || (livePreview.guardrails?.adjustments?.length ?? 0) > 0) && (
+                          <div className="space-y-0.5 pt-1">
+                            {livePreview.guardrails.floorTriggered && (
+                              <p className="text-[10px] text-amber-400/80">⚠ Floor triggered on at least one line — price raised to margin floor.</p>
+                            )}
+                            {livePreview.guardrails.ceilingTriggered && (
+                              <p className="text-[10px] text-amber-400/80">⚠ Ceiling triggered on at least one line — capped at 3× reference.</p>
+                            )}
+                          </div>
+                        )}
+
+                        <p className="text-[10px] text-muted-foreground/60 italic">
+                          Live from contextual pricing engine — Layer 1 reference + Layer 3 LLM + Layer 4 guardrails.
                         </p>
 
                         {/* Live margin preview */}
