@@ -87,6 +87,10 @@ import SmartBanner from "@/components/SmartBanner";
 const VideoQuote = lazy(() => import("@/pages/VideoQuote"));
 const VideoReview = lazy(() => import("@/pages/VideoReview"));
 const PersonalizedQuotePage = lazy(() => import("@/pages/PersonalizedQuotePage"));
+// Skeleton is eagerly imported (NOT lazy) so it can be the Suspense fallback
+// for PersonalizedQuotePage. If both were lazy we'd flash the wrench spinner
+// while the skeleton chunk itself loaded.
+import { QuoteSkeleton } from "@/components/QuoteSkeleton";
 const BookingConfirmedPage = lazy(() => import("@/pages/BookingConfirmedPage"));
 const DiagnosticVisitPage = lazy(() => import("@/pages/DiagnosticVisitPage"));
 const SeasonalMenu = lazy(() => import("@/pages/SeasonalMenu"));
@@ -241,16 +245,27 @@ function Router() {
                 <Route path="/join" component={JoinPage} />
                 <Route path="/l/:slug" component={LandingPageRender} />
 
-                {/* Customer-facing quote views - /quote is the canonical URL */}
+                {/* Customer-facing quote views - /quote is the canonical URL.
+                  *
+                  * Each route has its own inner <Suspense fallback={QuoteSkeleton}>
+                  * so the skeleton catches the lazy-chunk suspension instead of
+                  * the outer LoadingFallback (the spinning wrench). Customers go
+                  * straight from URL → skeleton → real quote, no spinner flash. */}
                 <Route path="/quote/:slug">
-                    <PersonalizedQuotePage />
+                    <Suspense fallback={<QuoteSkeleton />}>
+                        <PersonalizedQuotePage />
+                    </Suspense>
                 </Route>
                 {/* Legacy routes for backward compatibility */}
                 <Route path="/quote-link/:slug">
-                    <PersonalizedQuotePage />
+                    <Suspense fallback={<QuoteSkeleton />}>
+                        <PersonalizedQuotePage />
+                    </Suspense>
                 </Route>
                 <Route path="/q/:slug">
-                    <PersonalizedQuotePage />
+                    <Suspense fallback={<QuoteSkeleton />}>
+                        <PersonalizedQuotePage />
+                    </Suspense>
                 </Route>
                 <Route path="/booking-confirmed/:quoteId">
                     <BookingConfirmedPage />
