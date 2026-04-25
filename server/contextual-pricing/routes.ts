@@ -287,6 +287,129 @@ Detail: Fit a new pull cord to the bathroom extractor switch. Includes the pull-
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/pricing/suggest-extras
+// LLM-generated optional add-ons tailored to the customer context + jobs.
+// Returns 2-5 extras the customer might plausibly say yes to. The admin
+// reviews + ticks; only ticked extras land on the saved quote. Failure
+// is non-blocking — empty list means the admin still has the manual
+// library + custom-add to fall back on.
+// ---------------------------------------------------------------------------
+
+router.post('/api/pricing/suggest-extras', async (req, res) => {
+  try {
+    const { vaContext, segment, lines } = req.body as {
+      vaContext?: string;
+      segment?: string;
+      lines?: Array<{ description?: string; category?: string }>;
+    };
+
+    if (!Array.isArray(lines) || lines.length === 0) {
+      return res.json({ extras: [] });
+    }
+
+    // Build the context block for the LLM
+    const lineSummary = lines
+      .filter((l) => l && typeof l.description === 'string' && l.description.trim().length > 0)
+      .map((l) => {
+        const desc = (l.description || '').trim();
+        const cat = (l.category || '').trim();
+        return cat ? `- ${desc} (${cat})` : `- ${desc}`;
+      })
+      .join('\n');
+
+    if (lineSummary.length === 0) {
+      return res.json({ extras: [] });
+    }
+
+    const userPayloadParts: string[] = [`Job lines:\n${lineSummary}`];
+    if (segment && typeof segment === 'string' && segment.trim()) {
+      userPayloadParts.push(`Customer segment: ${segment.trim()}`);
+    }
+    if (vaContext && typeof vaContext === 'string' && vaContext.trim()) {
+      userPayloadParts.push(`Customer context: ${vaContext.trim().slice(0, 800)}`);
+    }
+
+    const claude = getAnthropic();
+    const message = await claude.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 800,
+      temperature: 0.4,
+      system: `You suggest optional add-on services for a UK handyman quote, tailored to the customer's situation and the jobs already in the quote.
+
+Output STRICT JSON only — an object: {"extras": [...]} where each extra is:
+{
+  "label": "short title under 8 words",
+  "description": "1 sentence customer-facing explanation of what's included",
+  "priceInPence": integer (UK pence; whole-pound figures only — multiples of 100),
+  "badge": "optional 1-2 word pill text" OR null,
+  "reasoning": "1 short sentence on why this extra is relevant given the context/jobs"
+}
+
+Rules:
+- Suggest 2 to 5 extras. Quality over quantity. If only 2 are genuinely relevant, return 2.
+- Must be plausibly relevant given the context AND the jobs. Don't suggest "Garden tidy" for a bathroom job.
+- Always whole-pound prices. Typical handyman extras: £20–£200.
+- Plain English, no hype, UK spelling.
+- No prices in the label or description text — price lives in priceInPence only.
+- Use the "badge" sparingly — only when it signals something important like "Clean Team" (specialist sub-team), "Same-day", "Specialist". Most extras don't need a badge.
+- Don't repeat anything already covered by the line items.
+
+Common extras and when they fit:
+- "Photo report on completion" (~£20–35) — when the customer is absent (landlord, can't be there, lives away, won't be present). Often free for landlords.
+- "Tax-ready invoice / detailed receipt" (~£0–15) — landlords, business customers, expense claims.
+- "Tenant coordination" (~£25–45) — landlord with current tenants in the property.
+- "Full kitchen deep clean" (~£140–200) — when there are kitchen jobs OR end-of-tenancy / pre-let context. Use badge "Clean Team".
+- "Full bathroom deep clean" (~£80–140) — when there are bathroom jobs OR end-of-tenancy. Use badge "Clean Team".
+- "EICR (electrical certificate)" (~£150–250) — landlord/rental context, regardless of jobs.
+- "Mattress / sofa removal" (~£60–140) — only when context mentions clear-out, end-of-tenancy, replacement.
+- "Anti-mould treatment" (~£40–80) — when jobs mention mould or damp.
+- "Smoke / CO alarm test + replacement batteries" (~£15–35) — landlord context.
+- "Same-day return for snags" (~£30–50) — high-ticket multi-day jobs.
+- "Tidy-up at end of each day" (~£25–40) — multi-day jobs in occupied property.
+
+Return ONLY the JSON object. No preamble, no code fences, no commentary.`,
+      messages: [
+        {
+          role: 'user',
+          content: userPayloadParts.join('\n\n'),
+        },
+      ],
+    });
+
+    const textBlock = message.content.find((b: any) => b.type === 'text');
+    let raw = textBlock?.text || '{"extras":[]}';
+    // Strip code fences if the model added them
+    raw = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+
+    let parsed: { extras?: any[] } = {};
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      console.warn('[pricing/suggest-extras] JSON parse failed, returning empty');
+      return res.json({ extras: [] });
+    }
+
+    const extras = (parsed.extras || [])
+      .filter((e: any) => e && typeof e.label === 'string' && typeof e.priceInPence === 'number')
+      .slice(0, 5)
+      .map((e: any) => ({
+        label: String(e.label).trim().slice(0, 120),
+        description: String(e.description || '').trim().slice(0, 400),
+        // Round to whole pounds (multiples of 100 pence)
+        priceInPence: Math.max(0, Math.round((e.priceInPence ?? 0) / 100) * 100),
+        badge: e.badge && String(e.badge).trim() ? String(e.badge).trim().slice(0, 40) : null,
+        reasoning: e.reasoning ? String(e.reasoning).trim().slice(0, 200) : null,
+      }));
+
+    return res.json({ extras });
+  } catch (error: any) {
+    console.error('[pricing/suggest-extras] Error:', error?.message || error);
+    // Non-blocking — admin still has library + custom-add
+    return res.json({ extras: [] });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/pricing/scenarios
 // ---------------------------------------------------------------------------
 

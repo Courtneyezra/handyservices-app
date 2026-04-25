@@ -109,6 +109,16 @@ interface OptionalExtra {
   catalogId?: string;
 }
 
+/** AI-generated extra suggestion — distinct from the saved OptionalExtra type
+ *  because it carries a "reasoning" field and is keyed by label until ticked. */
+interface AiSuggestedExtra {
+  label: string;
+  description: string;
+  priceInPence: number;
+  badge?: string | null;
+  reasoning?: string | null;
+}
+
 interface ContextSignals {
   urgency: 'standard' | 'priority' | 'emergency';
   materialsSupply: 'customer_supplied' | 'we_supply' | 'labor_only';
@@ -758,6 +768,12 @@ export default function GenerateContextualQuote() {
     badge: '',
   });
 
+  // ── AI-suggested extras (context + jobs driven) ──
+  const [aiSuggestedExtras, setAiSuggestedExtras] = useState<AiSuggestedExtra[]>([]);
+  const [aiSuggestionsLoading, setAiSuggestionsLoading] = useState(false);
+  const aiSuggestionsAbortRef = useRef<AbortController | null>(null);
+  const aiSuggestionsLastKeyRef = useRef<string>('');
+
   // ── Behavioural signals ──
   const [behavioralSignals, setBehavioralSignals] = useState({
     isCommercialPremises: false,
@@ -867,6 +883,61 @@ export default function GenerateContextualQuote() {
       if (livePreviewTimerRef.current) clearTimeout(livePreviewTimerRef.current);
     };
   }, [lineItems, signals, vaContext, behavioralSignals, fetchLivePreview]);
+
+  // ── AI extras suggestions: fired when lineItems / vaContext stabilise ──
+  const fetchAiSuggestedExtras = useCallback(async (force = false) => {
+    const validLines = lineItems.filter((li) => li.description.trim().length >= 5);
+    if (validLines.length === 0) {
+      setAiSuggestedExtras([]);
+      aiSuggestionsLastKeyRef.current = '';
+      return;
+    }
+    // Cache key — only re-fetch when signals change
+    const key = JSON.stringify({
+      ctx: vaContext.trim().slice(0, 600),
+      lines: validLines.map((l) => `${l.description.trim()}|${l.category}`).join('::'),
+    });
+    if (!force && key === aiSuggestionsLastKeyRef.current) return;
+    aiSuggestionsLastKeyRef.current = key;
+
+    aiSuggestionsAbortRef.current?.abort();
+    const controller = new AbortController();
+    aiSuggestionsAbortRef.current = controller;
+
+    setAiSuggestionsLoading(true);
+    try {
+      const res = await fetch('/api/pricing/suggest-extras', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        signal: controller.signal,
+        body: JSON.stringify({
+          vaContext: vaContext.trim() || undefined,
+          lines: validLines.map((l) => ({ description: l.description, category: l.category })),
+        }),
+      });
+      if (!res.ok) {
+        setAiSuggestedExtras([]);
+        return;
+      }
+      const data = await res.json();
+      setAiSuggestedExtras(Array.isArray(data?.extras) ? data.extras : []);
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') {
+        setAiSuggestedExtras([]);
+      }
+    } finally {
+      setAiSuggestionsLoading(false);
+    }
+  }, [lineItems, vaContext]);
+
+  // Debounced trigger — wait 1.2s after last edit before suggesting, so we
+  // don't burn LLM calls during typing.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      fetchAiSuggestedExtras(false);
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [fetchAiSuggestedExtras]);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // API: Fetch recent callers
@@ -2061,15 +2132,107 @@ export default function GenerateContextualQuote() {
               </CardContent>
             </Card>
 
-            {/* ─── Section 5a: Optional Extras (library + custom) ─── */}
+            {/* ─── Section 5a: Optional Extras (AI suggestions + library + custom) ─── */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Optional Extras</CardTitle>
+                <CardTitle className="text-base flex items-center justify-between gap-2">
+                  <span>Optional Extras</span>
+                  <button
+                    type="button"
+                    onClick={() => fetchAiSuggestedExtras(true)}
+                    disabled={aiSuggestionsLoading || lineItems.length === 0}
+                    title="Re-suggest from current context"
+                    aria-label="Refresh AI suggestions"
+                    className="text-muted-foreground/60 hover:text-amber-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${aiSuggestionsLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </CardTitle>
                 <p className="text-xs text-zinc-500">
-                  Add-ons the customer can tick on their quote page. Pick from the library or add custom.
+                  AI suggests context-relevant extras; you can also pick from the library or add custom.
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* AI Suggestions — context-driven, contextual to vaContext + jobs */}
+                {(aiSuggestedExtras.length > 0 || aiSuggestionsLoading) && (
+                  <div className="space-y-2">
+                    <Label className="text-xs text-amber-400/80 flex items-center gap-1.5">
+                      <Wand2 className="w-3 h-3" />
+                      AI suggestions
+                      {aiSuggestionsLoading && <span className="text-[10px] text-muted-foreground/60 animate-pulse ml-1">thinking...</span>}
+                    </Label>
+                    {aiSuggestedExtras.length === 0 && aiSuggestionsLoading && (
+                      <div className="text-[11px] text-muted-foreground/50 italic px-1">
+                        Reading context + jobs...
+                      </div>
+                    )}
+                    <div className="space-y-1.5">
+                      {aiSuggestedExtras.map((sug, idx) => {
+                        const checked = optionalExtras.some(
+                          (e) => !e.catalogId && e.label.toLowerCase() === sug.label.toLowerCase(),
+                        );
+                        return (
+                          <label
+                            key={`ai-${idx}`}
+                            className={`flex items-start gap-2.5 rounded-lg border px-2.5 py-2 cursor-pointer transition-colors ${
+                              checked
+                                ? 'border-amber-500/40 bg-amber-500/10'
+                                : 'border-amber-500/15 bg-amber-500/[0.04] hover:border-amber-500/30 hover:bg-amber-500/10'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setOptionalExtras((prev) => [
+                                    ...prev,
+                                    {
+                                      label: sug.label,
+                                      description: sug.description,
+                                      priceInPence: sug.priceInPence,
+                                      badge: sug.badge ?? undefined,
+                                    },
+                                  ]);
+                                } else {
+                                  setOptionalExtras((prev) =>
+                                    prev.filter(
+                                      (x) => !(!x.catalogId && x.label.toLowerCase() === sug.label.toLowerCase()),
+                                    ),
+                                  );
+                                }
+                              }}
+                              className="mt-0.5 w-4 h-4 rounded border-zinc-600 bg-zinc-800 accent-amber-500 shrink-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-medium text-foreground">{sug.label}</span>
+                                {sug.badge && (
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-400">
+                                    {sug.badge}
+                                  </Badge>
+                                )}
+                                <span className="text-xs text-muted-foreground ml-auto shrink-0">
+                                  £{Math.round(sug.priceInPence / 100)}
+                                </span>
+                              </div>
+                              {sug.description && (
+                                <p className="text-[11px] text-muted-foreground/70 mt-0.5">{sug.description}</p>
+                              )}
+                              {sug.reasoning && (
+                                <p className="text-[10px] text-amber-400/60 italic mt-0.5 flex items-start gap-1">
+                                  <Wand2 className="w-2.5 h-2.5 mt-0.5 shrink-0" />
+                                  <span>{sug.reasoning}</span>
+                                </p>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Library picker */}
                 {activeExtrasCatalog.length > 0 ? (
                   <div className="space-y-2">
