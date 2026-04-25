@@ -440,7 +440,6 @@ const TIER_BG_COLORS: Record<string, string> = {
 };
 
 function MarginPreviewPanel({ data }: { data: MarginPreview }) {
-  const [view, setView] = React.useState<'platform' | 'contractor'>('platform');
   const p2p = (p: number) => `£${(p / 100).toFixed(0)}`;
   const p2pDec = (p: number) => `£${(p / 100).toFixed(2)}`;
   const hasRevShare = data.perLineMargin.some(l => l.tier);
@@ -449,266 +448,165 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
   const totalContractorPay = data.totalCostPence;
   const totalHours = data.perLineMargin.reduce((s, l) => s + l.hours, 0);
   const effectiveAvgHourly = totalHours > 0 ? Math.round(totalContractorPay / totalHours) : 0;
+  const hasFloor = data.perLineMargin.some(l => l.payMethod === 'floor');
+
+  // Per-tier rollup for the chip strip
+  const tierGroups: Record<string, { pay: number; hours: number; lines: number }> = {};
+  data.perLineMargin.forEach(line => {
+    const t = line.tier || 'general';
+    if (!tierGroups[t]) tierGroups[t] = { pay: 0, hours: 0, lines: 0 };
+    tierGroups[t].pay += line.contractorCostPence;
+    tierGroups[t].hours += line.hours;
+    tierGroups[t].lines += 1;
+  });
 
   // Short category labels for mobile
   const shortCat = (slug: string) => {
     const full = CATEGORY_LABELS[slug] || slug;
-    // Trim to first word or key part for mobile
     return full.replace(' (Minor)', '').replace(' & ', '/').replace('Flat Pack Assembly', 'Flat Pack').replace('General Fixing', 'Fixing').replace('Garden Maintenance', 'Garden');
   };
 
   return (
     <Card className="border border-border">
       <CardHeader className="pb-2 px-3 sm:px-6">
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-sm flex items-center gap-1.5 min-w-0">
-            <AlertTriangle className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-            <span className="truncate">{hasRevShare ? 'Rev Share' : 'Margin'}</span>
-          </CardTitle>
-          {hasRevShare && (
-            <div className="flex rounded-lg border border-border overflow-hidden text-[11px] shrink-0">
-              <button
-                type="button"
-                onClick={() => setView('platform')}
-                className={`px-2 sm:px-2.5 py-1 font-medium transition-colors ${
-                  view === 'platform'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-background text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Platform
-              </button>
-              <button
-                type="button"
-                onClick={() => setView('contractor')}
-                className={`px-2 sm:px-2.5 py-1 font-medium transition-colors ${
-                  view === 'contractor'
-                    ? 'bg-amber-600 text-white'
-                    : 'bg-background text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Contractor
-              </button>
-            </div>
-          )}
-        </div>
+        <CardTitle className="text-sm flex items-center gap-1.5 min-w-0">
+          <AlertTriangle className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          <span className="truncate">{hasRevShare ? 'Rev Share — contractor & platform' : 'Margin'}</span>
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 px-3 sm:px-6">
-        {/* ── PLATFORM VIEW ── */}
-        {view === 'platform' && (
-          <>
-            {/* Mobile: stacked cards · Desktop: table */}
-            <div className="hidden sm:block overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border text-muted-foreground">
-                    <th className="text-left py-1.5 pr-2 font-medium">Category</th>
-                    <th className="text-right py-1.5 px-1 font-medium">Customer</th>
-                    <th className="text-right py-1.5 px-1 font-medium">{hasRevShare ? 'Tier' : 'Rate/hr'}</th>
-                    <th className="text-right py-1.5 px-1 font-medium">Hrs</th>
-                    <th className="text-right py-1.5 px-1 font-medium">{hasRevShare ? 'Contractor' : 'Cost'}</th>
-                    <th className="text-right py-1.5 px-1 font-medium">{hasRevShare ? 'Platform' : 'Margin'}</th>
-                    <th className="text-right py-1.5 pl-1 font-medium">%</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.perLineMargin.map((line, idx) => (
-                    <tr key={idx} className="border-b border-border/50">
-                      <td className="py-1.5 pr-2 text-foreground">{CATEGORY_LABELS[line.categorySlug] || line.categorySlug}</td>
-                      <td className="text-right py-1.5 px-1 text-foreground">{p2pDec(line.customerPricePence)}</td>
-                      <td className="text-right py-1.5 px-1">
-                        {hasRevShare && line.tier ? (
-                          <span className={TIER_COLORS[line.tier] || 'text-muted-foreground'}>
-                            {line.revenueSharePercent}%{line.payMethod === 'floor' && <span className="text-orange-400 ml-0.5">↑</span>}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">{p2pDec(line.wtbpHourlyPence)}</span>
-                        )}
-                      </td>
-                      <td className="text-right py-1.5 px-1 text-muted-foreground">{parseFloat(line.hours.toFixed(2))}</td>
-                      <td className="text-right py-1.5 px-1 text-muted-foreground">{p2pDec(line.contractorCostPence)}</td>
-                      <td className={`text-right py-1.5 px-1 font-medium ${getMarginColor(line.marginPercent)}`}>{p2pDec(line.marginPence)}</td>
-                      <td className={`text-right py-1.5 pl-1 font-medium ${getMarginColor(line.marginPercent)}`}>{line.marginPercent}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-border font-medium">
-                    <td className="py-2 pr-2 text-foreground">Total</td>
-                    <td className="text-right py-2 px-1 text-foreground">{p2pDec(totalCustomerPrice)}</td>
-                    <td className="py-2 px-1" /><td className="py-2 px-1" />
-                    <td className="text-right py-2 px-1 text-muted-foreground">{p2pDec(data.totalCostPence)}</td>
-                    <td className={`text-right py-2 px-1 ${getMarginColor(data.totalMarginPercent)}`}>{p2pDec(data.totalMarginPence)}</td>
-                    <td className={`text-right py-2 pl-1 ${getMarginColor(data.totalMarginPercent)}`}>{data.totalMarginPercent}%</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            {/* Mobile stacked rows */}
-            <div className="sm:hidden space-y-2">
-              {data.perLineMargin.map((line, idx) => (
-                <div key={idx} className="rounded-lg border border-border/50 px-3 py-2 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-foreground">{shortCat(line.categorySlug)}</span>
-                    {hasRevShare && line.tier && (
-                      <span className={`text-[10px] font-medium ${TIER_COLORS[line.tier]}`}>
-                        {line.revenueSharePercent}%{line.payMethod === 'floor' && <span className="text-orange-400 ml-0.5">↑</span>}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-muted-foreground">Customer {p2p(line.customerPricePence)} · {parseFloat(line.hours.toFixed(1))}h</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">Sub {p2p(line.contractorCostPence)}</span>
-                      <span className={`font-semibold ${getMarginColor(line.marginPercent)}`}>{line.marginPercent}%</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Overall margin indicator */}
-            <div className={`rounded-md px-3 py-2 border ${getMarginBgColor(data.totalMarginPercent)}`}>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">
-                  {hasRevShare ? 'Platform' : 'Margin'}
-                </span>
-                <span className={`text-sm font-bold ${getMarginColor(data.totalMarginPercent)}`}>
-                  {data.totalMarginPercent}% ({p2p(data.totalMarginPence)})
-                </span>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* ── CONTRACTOR VIEW ── */}
-        {view === 'contractor' && hasRevShare && (
-          <>
-            {/* Desktop table */}
-            <div className="hidden sm:block overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border text-muted-foreground">
-                    <th className="text-left py-1.5 pr-2 font-medium">Category</th>
-                    <th className="text-right py-1.5 px-1 font-medium">Tier</th>
-                    <th className="text-right py-1.5 px-1 font-medium">Hrs</th>
-                    <th className="text-right py-1.5 px-1 font-medium">Pay</th>
-                    <th className="text-right py-1.5 px-1 font-medium">Eff. /hr</th>
-                    <th className="text-right py-1.5 pl-1 font-medium">Method</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.perLineMargin.map((line, idx) => {
-                    const effHourly = line.hours > 0 ? Math.round(line.contractorCostPence / line.hours) : 0;
-                    const tierColor = line.tier ? TIER_COLORS[line.tier] : 'text-muted-foreground';
-                    return (
-                      <tr key={idx} className="border-b border-border/50">
-                        <td className="py-1.5 pr-2 text-foreground">{CATEGORY_LABELS[line.categorySlug] || line.categorySlug}</td>
-                        <td className={`text-right py-1.5 px-1 ${tierColor}`}>{line.tier ? TIER_LABELS[line.tier] : '—'}</td>
-                        <td className="text-right py-1.5 px-1 text-muted-foreground">{parseFloat(line.hours.toFixed(2))}</td>
-                        <td className="text-right py-1.5 px-1 text-amber-400 font-medium">{p2pDec(line.contractorCostPence)}</td>
-                        <td className="text-right py-1.5 px-1 text-foreground">{p2pDec(effHourly)}</td>
-                        <td className="text-right py-1.5 pl-1">
-                          {line.payMethod === 'floor' ? (
-                            <span className="text-orange-400">Floor</span>
-                          ) : (
-                            <span className="text-emerald-400">{line.revenueSharePercent}%</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-border font-medium">
-                    <td className="py-2 pr-2 text-foreground">Total</td>
-                    <td className="py-2 px-1" />
-                    <td className="text-right py-2 px-1 text-muted-foreground">{parseFloat(totalHours.toFixed(1))}</td>
-                    <td className="text-right py-2 px-1 text-amber-400 font-bold">{p2pDec(totalContractorPay)}</td>
-                    <td className="text-right py-2 px-1 text-foreground">{p2pDec(effectiveAvgHourly)}</td>
-                    <td className="py-2 pl-1" />
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            {/* Mobile stacked rows */}
-            <div className="sm:hidden space-y-2">
+        {/* Single combined table — desktop */}
+        <div className="hidden sm:block overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border text-muted-foreground">
+                <th className="text-left py-1.5 pr-2 font-medium">Category</th>
+                {hasRevShare && <th className="text-right py-1.5 px-1 font-medium">Tier</th>}
+                <th className="text-right py-1.5 px-1 font-medium">Hrs</th>
+                <th className="text-right py-1.5 px-1 font-medium">Customer</th>
+                <th className="text-right py-1.5 px-1 font-medium text-amber-400/80">Contractor</th>
+                <th className="text-right py-1.5 px-1 font-medium text-emerald-400/80">Platform</th>
+                <th className="text-right py-1.5 pl-1 font-medium">%</th>
+              </tr>
+            </thead>
+            <tbody>
               {data.perLineMargin.map((line, idx) => {
                 const effHourly = line.hours > 0 ? Math.round(line.contractorCostPence / line.hours) : 0;
                 const tierColor = line.tier ? TIER_COLORS[line.tier] : 'text-muted-foreground';
                 return (
-                  <div key={idx} className="rounded-lg border border-border/50 px-3 py-2 space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-foreground">{shortCat(line.categorySlug)}</span>
-                      <span className={`text-[10px] font-medium ${tierColor}`}>
-                        {line.tier ? TIER_LABELS[line.tier] : '—'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-muted-foreground">{parseFloat(line.hours.toFixed(1))}h · {p2p(effHourly)}/hr</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-amber-400 font-semibold">{p2p(line.contractorCostPence)}</span>
-                        {line.payMethod === 'floor' ? (
-                          <span className="text-orange-400 text-[10px]">Floor</span>
-                        ) : (
-                          <span className="text-emerald-400 text-[10px]">{line.revenueSharePercent}%</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  <tr key={idx} className="border-b border-border/50">
+                    <td className="py-1.5 pr-2 text-foreground">{CATEGORY_LABELS[line.categorySlug] || line.categorySlug}</td>
+                    {hasRevShare && (
+                      <td className={`text-right py-1.5 px-1 ${tierColor}`}>
+                        {line.tier ? (
+                          <>
+                            {TIER_LABELS[line.tier]} {line.revenueSharePercent}%
+                            {line.payMethod === 'floor' && <span className="text-orange-400 ml-0.5" title="Hourly floor exceeded share">↑</span>}
+                          </>
+                        ) : '—'}
+                      </td>
+                    )}
+                    <td className="text-right py-1.5 px-1 text-muted-foreground">{parseFloat(line.hours.toFixed(2))}</td>
+                    <td className="text-right py-1.5 px-1 text-foreground">{p2pDec(line.customerPricePence)}</td>
+                    <td className="text-right py-1.5 px-1 text-amber-400">
+                      {p2pDec(line.contractorCostPence)}
+                      <span className="text-muted-foreground/60 text-[10px] ml-1">({p2p(effHourly)}/hr)</span>
+                    </td>
+                    <td className={`text-right py-1.5 px-1 ${getMarginColor(line.marginPercent)}`}>{p2pDec(line.marginPence)}</td>
+                    <td className={`text-right py-1.5 pl-1 font-medium ${getMarginColor(line.marginPercent)}`}>{line.marginPercent}%</td>
+                  </tr>
                 );
               })}
-            </div>
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-border font-medium">
+                <td className="py-2 pr-2 text-foreground">Total</td>
+                {hasRevShare && <td className="py-2 px-1" />}
+                <td className="text-right py-2 px-1 text-muted-foreground">{parseFloat(totalHours.toFixed(1))}</td>
+                <td className="text-right py-2 px-1 text-foreground">{p2pDec(totalCustomerPrice)}</td>
+                <td className="text-right py-2 px-1 text-amber-400 font-bold">
+                  {p2pDec(totalContractorPay)}
+                  <span className="text-muted-foreground/60 text-[10px] ml-1">({p2p(effectiveAvgHourly)}/hr)</span>
+                </td>
+                <td className={`text-right py-2 px-1 ${getMarginColor(data.totalMarginPercent)}`}>{p2pDec(data.totalMarginPence)}</td>
+                <td className={`text-right py-2 pl-1 font-bold ${getMarginColor(data.totalMarginPercent)}`}>{data.totalMarginPercent}%</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
 
-            {/* Contractor earnings summary */}
-            <div className="rounded-md px-3 py-2.5 border bg-amber-500/10 border-amber-500/20">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-muted-foreground">Contractor Payout</span>
-                <span className="text-sm font-bold text-amber-400">{p2pDec(totalContractorPay)}</span>
+        {/* Mobile: stacked rows showing both contractor + platform per line */}
+        <div className="sm:hidden space-y-2">
+          {data.perLineMargin.map((line, idx) => {
+            const effHourly = line.hours > 0 ? Math.round(line.contractorCostPence / line.hours) : 0;
+            const tierColor = line.tier ? TIER_COLORS[line.tier] : 'text-muted-foreground';
+            return (
+              <div key={idx} className="rounded-lg border border-border/50 px-3 py-2 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-foreground">{shortCat(line.categorySlug)}</span>
+                  {hasRevShare && line.tier && (
+                    <span className={`text-[10px] font-medium ${tierColor}`}>
+                      {TIER_LABELS[line.tier]} {line.revenueSharePercent}%
+                      {line.payMethod === 'floor' && <span className="text-orange-400 ml-0.5">↑</span>}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="rounded bg-amber-500/5 border border-amber-500/15 px-2 py-1">
+                    <div className="text-muted-foreground/70 text-[9px] uppercase tracking-wider">Contractor</div>
+                    <div className="text-amber-400 font-semibold">{p2p(line.contractorCostPence)}</div>
+                    <div className="text-muted-foreground/60 text-[9px]">{parseFloat(line.hours.toFixed(1))}h · {p2p(effHourly)}/hr</div>
+                  </div>
+                  <div className={`rounded border px-2 py-1 ${getMarginBgColor(line.marginPercent)}`}>
+                    <div className="text-muted-foreground/70 text-[9px] uppercase tracking-wider">Platform</div>
+                    <div className={`font-semibold ${getMarginColor(line.marginPercent)}`}>{p2p(line.marginPence)}</div>
+                    <div className={`text-[9px] ${getMarginColor(line.marginPercent)}`}>{line.marginPercent}% margin</div>
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Avg rate</span>
-                <span className="text-xs font-medium text-foreground">
-                  {p2p(effectiveAvgHourly)}/hr · {parseFloat(totalHours.toFixed(1))}h
+            );
+          })}
+        </div>
+
+        {/* Combined summary — Contractor + Platform side by side */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-md px-3 py-2.5 border bg-amber-500/10 border-amber-500/20">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Contractor Payout</div>
+            <div className="text-base font-bold text-amber-400 tabular-nums">{p2pDec(totalContractorPay)}</div>
+            <div className="text-[10px] text-muted-foreground">
+              {p2p(effectiveAvgHourly)}/hr · {parseFloat(totalHours.toFixed(1))}h
+            </div>
+          </div>
+          <div className={`rounded-md px-3 py-2.5 border ${getMarginBgColor(data.totalMarginPercent)}`}>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Platform Margin</div>
+            <div className={`text-base font-bold tabular-nums ${getMarginColor(data.totalMarginPercent)}`}>{p2pDec(data.totalMarginPence)}</div>
+            <div className={`text-[10px] ${getMarginColor(data.totalMarginPercent)}`}>
+              {data.totalMarginPercent}% of {p2p(totalCustomerPrice)}
+            </div>
+          </div>
+        </div>
+
+        {/* Per-tier rollup chips (only when rev share has multiple tiers in play) */}
+        {hasRevShare && Object.keys(tierGroups).length > 1 && (
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(tierGroups).map(([tier, g]) => (
+              <div key={tier} className={`rounded-lg px-2 py-1 border text-[10px] ${TIER_BG_COLORS[tier] || TIER_BG_COLORS.general}`}>
+                <span className="font-semibold">{TIER_LABELS[tier] || tier}</span>
+                <span className="opacity-70 ml-1">
+                  {g.lines}× · {p2p(g.pay)} · {p2p(g.hours > 0 ? Math.round(g.pay / g.hours) : 0)}/hr
                 </span>
               </div>
-            </div>
+            ))}
+          </div>
+        )}
 
-            {/* Per-tier breakdown chips */}
-            {(() => {
-              const tierGroups: Record<string, { pay: number; hours: number; lines: number }> = {};
-              data.perLineMargin.forEach(line => {
-                const t = line.tier || 'general';
-                if (!tierGroups[t]) tierGroups[t] = { pay: 0, hours: 0, lines: 0 };
-                tierGroups[t].pay += line.contractorCostPence;
-                tierGroups[t].hours += line.hours;
-                tierGroups[t].lines += 1;
-              });
-              return (
-                <div className="flex flex-wrap gap-1.5">
-                  {Object.entries(tierGroups).map(([tier, g]) => (
-                    <div key={tier} className={`rounded-lg px-2 py-1 border text-[10px] ${TIER_BG_COLORS[tier] || TIER_BG_COLORS.general}`}>
-                      <span className="font-semibold">{TIER_LABELS[tier] || tier}</span>
-                      <span className="opacity-70 ml-1">
-                        {g.lines}× · {p2p(g.pay)} · {p2p(g.hours > 0 ? Math.round(g.pay / g.hours) : 0)}/hr
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
-
-            {/* Floor explanation */}
-            {data.perLineMargin.some(l => l.payMethod === 'floor') && (
-              <div className="rounded-md px-3 py-2 border bg-orange-500/10 border-orange-500/20">
-                <p className="text-[11px] text-orange-300">
-                  <span className="font-medium">Floor active</span> — min hourly exceeded share on some lines.
-                </p>
-              </div>
-            )}
-          </>
+        {/* Floor explanation */}
+        {hasFloor && (
+          <div className="rounded-md px-3 py-2 border bg-orange-500/10 border-orange-500/20">
+            <p className="text-[11px] text-orange-300">
+              <span className="font-medium">Floor active</span> — min hourly exceeded share on some lines, contractor pay raised to floor.
+            </p>
+          </div>
         )}
 
         {/* Revenue share legend */}
@@ -737,11 +635,9 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
         {/* Info text */}
         <p className="text-[10px] text-muted-foreground/60 flex items-center gap-1">
           <Info className="w-3 h-3 shrink-0" />
-          {view === 'contractor'
-            ? 'Pay = MAX(share, hourly floor)'
-            : hasRevShare
-              ? 'Contractor gets % of price (or min floor)'
-              : 'Warning only — does not block sending'}
+          {hasRevShare
+            ? 'Contractor pay = MAX(% of price, hourly floor). Platform = customer price − contractor pay.'
+            : 'Warning only — does not block sending'}
         </p>
       </CardContent>
     </Card>
