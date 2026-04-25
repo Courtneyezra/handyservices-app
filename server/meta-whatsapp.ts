@@ -38,7 +38,9 @@ export function attachMetaWebSocket(wsServer: WebSocketServer) {
 }
 
 // Broadcast to all connected clients
-function broadcast(type: string, data: any) {
+// Exported so the shared whatsapp-ingest helper (and other modules) can
+// push updates to the admin UI without depending on the module-local `wss`.
+export function broadcast(type: string, data: any) {
     if (!wss) return;
     const message = JSON.stringify({ type, data });
     wss.clients.forEach(client => {
