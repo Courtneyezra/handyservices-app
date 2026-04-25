@@ -1302,11 +1302,13 @@ export default function GenerateContextualQuote() {
 
     // Follow-up: auto-draft the "details" field if empty AND the global toggle is on.
     // Look up the most recent line state so we don't draft over user-typed details.
+    // We clear the once-per-line guard before calling so a title edit re-drafts.
     if (polishedFinal && showLineDetails) {
       const line = lineItems.find((li) => li.id === id);
       const hasManualDetail = line?.details && line.details.trim().length > 0;
       if (!hasManualDetail) {
         const currentCategory = (line?.category ?? 'general_fixing') as JobCategory;
+        draftedDetailIds.current.delete(id);
         autoDraftLineDetail(id, polishedFinal, currentCategory, vaContext);
       }
     }
@@ -1702,9 +1704,11 @@ export default function GenerateContextualQuote() {
                         onCheckedChange={(checked) => {
                           setShowLineDetails(checked);
                           if (checked) {
-                            // Auto-draft details for every existing line that doesn't have one yet
+                            // Auto-draft details for every existing line that doesn't have one yet.
+                            // Clear the once-per-line guard so re-toggling triggers fresh drafts.
                             for (const li of lineItems) {
                               if (!li.details && li.description.trim().length >= 5) {
+                                draftedDetailIds.current.delete(li.id);
                                 autoDraftLineDetail(li.id, li.description, li.category, vaContext);
                               }
                             }
