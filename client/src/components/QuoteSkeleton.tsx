@@ -1,3 +1,5 @@
+import handyServicesLogo from "../assets/handy-logo.webp";
+
 /**
  * Skeleton loading screen for PersonalizedQuotePage (contextual quote layout)
  *
@@ -303,16 +305,43 @@ export function QuoteSkeleton() {
                 aria-live="polite"
             >
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl px-6 py-7 max-w-sm w-full text-center pointer-events-auto">
-                    {/* Brand-color spinner dots */}
-                    <div className="flex items-center justify-center gap-1.5 mb-4">
-                        <div className="h-2.5 w-2.5 bg-[#e8b323] rounded-full animate-bounce" />
-                        <div
-                            className="h-2.5 w-2.5 bg-[#e8b323] rounded-full animate-bounce"
-                            style={{ animationDelay: "0.1s" }}
+                    {/* Inline keyframes for the logo breathe + halo float */}
+                    <style>{`
+                        @keyframes logo-breathe {
+                            0%, 100% { transform: scale(1) rotate(0deg); }
+                            50%      { transform: scale(1.08) rotate(-2deg); }
+                        }
+                        @keyframes halo-pulse {
+                            0%, 100% { transform: scale(1);   opacity: 0.45; }
+                            50%      { transform: scale(1.25); opacity: 0;   }
+                        }
+                    `}</style>
+
+                    {/* Animated brand logo with pulsing halo */}
+                    <div className="relative inline-flex items-center justify-center mb-4 h-16 w-16 mx-auto">
+                        <span
+                            aria-hidden
+                            className="absolute inset-0 rounded-full bg-[#e8b323]"
+                            style={{
+                                animation: "halo-pulse 1.8s ease-in-out infinite",
+                            }}
                         />
-                        <div
-                            className="h-2.5 w-2.5 bg-[#e8b323] rounded-full animate-bounce"
-                            style={{ animationDelay: "0.2s" }}
+                        <span
+                            aria-hidden
+                            className="absolute inset-1 rounded-full bg-[#e8b323]/40"
+                            style={{
+                                animation: "halo-pulse 1.8s ease-in-out infinite",
+                                animationDelay: "0.4s",
+                            }}
+                        />
+                        <img
+                            src={handyServicesLogo}
+                            alt="Handy Services"
+                            className="relative h-14 w-14 object-contain drop-shadow-sm"
+                            style={{
+                                animation: "logo-breathe 2s ease-in-out infinite",
+                                transformOrigin: "center",
+                            }}
                         />
                     </div>
 
