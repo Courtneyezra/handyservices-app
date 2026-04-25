@@ -34,6 +34,7 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
+  RefreshCw,
 } from 'lucide-react';
 import { format as formatDate, getDaysInMonth, getDay, startOfMonth } from 'date-fns';
 import { QuotePreviewModal } from '@/components/quote/QuotePreviewModal';
@@ -1210,6 +1211,10 @@ export default function GenerateContextualQuote() {
   const [polishingIds, setPolishingIds] = useState<Set<string>>(new Set());
   const [polishingDetailIds, setPolishingDetailIds] = useState<Set<string>>(new Set());
   const [draftingDetailIds, setDraftingDetailIds] = useState<Set<string>>(new Set());
+  // Global toggle: when on, every line shows a detail textarea that auto-drafts
+  // a customer-facing description after the title polishes. Off by default so
+  // simple quotes stay tidy; admin opts in for high-ticket / multi-line jobs.
+  const [showLineDetails, setShowLineDetails] = useState(false);
   const originalDescriptions = useRef<Map<string, string>>(new Map());
   const originalDetails = useRef<Map<string, string>>(new Map());
   // Track which line ids have already had a detail draft attempted, so we don't
@@ -1295,9 +1300,9 @@ export default function GenerateContextualQuote() {
       });
     }
 
-    // Follow-up: auto-draft the "details" field if empty.
+    // Follow-up: auto-draft the "details" field if empty AND the global toggle is on.
     // Look up the most recent line state so we don't draft over user-typed details.
-    if (polishedFinal) {
+    if (polishedFinal && showLineDetails) {
       const line = lineItems.find((li) => li.id === id);
       const hasManualDetail = line?.details && line.details.trim().length > 0;
       if (!hasManualDetail) {
@@ -1305,7 +1310,7 @@ export default function GenerateContextualQuote() {
         autoDraftLineDetail(id, polishedFinal, currentCategory, vaContext);
       }
     }
-  }, [handleUpdateLineItem, autoDraftLineDetail, lineItems, vaContext]);
+  }, [handleUpdateLineItem, autoDraftLineDetail, lineItems, vaContext, showLineDetails]);
 
   // Polish a manually-edited detail textarea on blur (mirrors title polish behaviour).
   const handlePolishDetail = useCallback(async (id: string, detail: string) => {
@@ -1681,13 +1686,38 @@ export default function GenerateContextualQuote() {
             {/* ─── Section 3: Jobs (structured line-item slabs) ─── */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center justify-between">
+                <CardTitle className="text-base flex items-center justify-between gap-3">
                   <span>Jobs</span>
-                  {lineItems.length > 0 && (
-                    <Badge variant="outline" className="text-xs">
-                      {lineItems.length} job{lineItems.length !== 1 ? 's' : ''}
-                    </Badge>
-                  )}
+                  <div className="flex items-center gap-3">
+                    {/* Detail toggle — when on, every line gets an auto-drafted "what's included" textarea */}
+                    <Label
+                      htmlFor="show-line-details"
+                      className="flex items-center gap-2 text-[11px] font-normal text-muted-foreground cursor-pointer select-none"
+                    >
+                      <Wand2 className="w-3 h-3 text-amber-400/70" />
+                      Detail
+                      <Switch
+                        id="show-line-details"
+                        checked={showLineDetails}
+                        onCheckedChange={(checked) => {
+                          setShowLineDetails(checked);
+                          if (checked) {
+                            // Auto-draft details for every existing line that doesn't have one yet
+                            for (const li of lineItems) {
+                              if (!li.details && li.description.trim().length >= 5) {
+                                autoDraftLineDetail(li.id, li.description, li.category, vaContext);
+                              }
+                            }
+                          }
+                        }}
+                      />
+                    </Label>
+                    {lineItems.length > 0 && (
+                      <Badge variant="outline" className="text-xs">
+                        {lineItems.length} job{lineItems.length !== 1 ? 's' : ''}
+                      </Badge>
+                    )}
+                  </div>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -1751,31 +1781,50 @@ export default function GenerateContextualQuote() {
                             }`}
                           />
 
-                          {/* Detail textarea — auto-drafted after polish, optional */}
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between">
-                              <Label htmlFor={`line-detail-${item.id}`} className="text-[10px] text-muted-foreground/70">
-                                Detail (optional)
-                              </Label>
-                              {(draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id)) && (
-                                <span className="flex items-center gap-1 text-[10px] text-amber-400/70 animate-pulse">
-                                  <Wand2 className="w-2.5 h-2.5" />
-                                  {draftingDetailIds.has(item.id) ? 'drafting...' : 'polishing...'}
-                                </span>
-                              )}
+                          {/* Detail textarea — gated on the global "Detail" toggle, auto-drafted after polish */}
+                          {showLineDetails && (
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <Label htmlFor={`line-detail-${item.id}`} className="text-[10px] text-muted-foreground/70">
+                                  Detail
+                                </Label>
+                                <div className="flex items-center gap-2">
+                                  {(draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id)) && (
+                                    <span className="flex items-center gap-1 text-[10px] text-amber-400/70 animate-pulse">
+                                      <Wand2 className="w-2.5 h-2.5" />
+                                      {draftingDetailIds.has(item.id) ? 'drafting...' : 'polishing...'}
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    title="Regenerate detail from the title"
+                                    aria-label="Regenerate detail"
+                                    disabled={draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) || !item.description?.trim()}
+                                    onClick={() => {
+                                      // Clear the once-per-line guard + the current detail, then re-draft
+                                      draftedDetailIds.current.delete(item.id);
+                                      handleUpdateLineItem(item.id, 'details', '');
+                                      autoDraftLineDetail(item.id, item.description, item.category, vaContext);
+                                    }}
+                                    className="text-muted-foreground/60 hover:text-amber-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                  >
+                                    <RefreshCw className={`w-3 h-3 ${draftingDetailIds.has(item.id) ? 'animate-spin' : ''}`} />
+                                  </button>
+                                </div>
+                              </div>
+                              <Textarea
+                                id={`line-detail-${item.id}`}
+                                placeholder="What's included in this line — auto-drafted, edit if needed."
+                                value={item.details ?? ''}
+                                onChange={(e) => handleUpdateLineItem(item.id, 'details', e.target.value)}
+                                onBlur={() => handlePolishDetail(item.id, item.details ?? '')}
+                                rows={3}
+                                className={`text-xs bg-transparent border-white/10 focus:border-amber-500/50 resize-none transition-all ${
+                                  draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) ? 'opacity-60' : ''
+                                }`}
+                              />
                             </div>
-                            <Textarea
-                              id={`line-detail-${item.id}`}
-                              placeholder="What's included in this line — auto-drafted, edit if needed."
-                              value={item.details ?? ''}
-                              onChange={(e) => handleUpdateLineItem(item.id, 'details', e.target.value)}
-                              onBlur={() => handlePolishDetail(item.id, item.details ?? '')}
-                              rows={3}
-                              className={`text-xs bg-transparent border-white/10 focus:border-amber-500/50 resize-none transition-all ${
-                                draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) ? 'opacity-60' : ''
-                              }`}
-                            />
-                          </div>
+                          )}
 
                           {/* Category + Time — stacked on mobile, side-by-side on sm+ */}
                           <div className="flex flex-col sm:flex-row gap-2">
