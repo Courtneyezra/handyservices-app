@@ -2675,13 +2675,22 @@ export default function PersonalizedQuotePage() {
   // Asset-readiness gate: keep the skeleton up until web fonts have settled
   // and the key above-the-fold images have been preloaded into the browser
   // cache. Without this, the user sees the skeleton vanish and then watches
-  // images / fonts pop in one by one ("flash of unstyled content"). Hard
-  // timeout at 2s so we never block on a slow asset.
+  // images / fonts pop in one by one ("flash of unstyled content").
+  //
+  // Three timing constants:
+  //   MIN_DISPLAY_MS   — minimum total skeleton time (measured from mount)
+  //                      so fast loads still give the brand moment + trust
+  //                      badges time to register with the user.
+  //   HARD_TIMEOUT_MS  — absolute cap; we never wait longer than this even
+  //                      if assets are still loading (better to show a
+  //                      half-painted page than a stuck skeleton).
   const [assetsReady, setAssetsReady] = useState(false);
+  const skeletonStartRef = useRef<number>(Date.now());
   useEffect(() => {
     if (isLoading || !quote) return;
     let cancelled = false;
-    const HARD_TIMEOUT_MS = 2000;
+    const MIN_DISPLAY_MS = 1400;
+    const HARD_TIMEOUT_MS = 3000;
 
     const run = async () => {
       const work = (async () => {
@@ -2718,8 +2727,20 @@ export default function PersonalizedQuotePage() {
         });
       })();
 
+      // Race work against the hard timeout so we never block forever.
       const timeout = new Promise<void>((resolve) => setTimeout(resolve, HARD_TIMEOUT_MS));
       await Promise.race([work, timeout]);
+
+      // Enforce minimum total skeleton display time so the loading card
+      // (logo + "fixed-price quote" headline + trust badges) is on screen
+      // long enough to actually register. Measured from page mount, not
+      // from when the quote arrived — slow loads aren't double-penalized.
+      const elapsed = Date.now() - skeletonStartRef.current;
+      const remaining = Math.max(0, MIN_DISPLAY_MS - elapsed);
+      if (remaining > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, remaining));
+      }
+
       if (!cancelled) setAssetsReady(true);
     };
 
