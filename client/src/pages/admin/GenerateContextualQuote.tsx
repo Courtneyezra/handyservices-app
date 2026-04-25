@@ -475,6 +475,11 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 px-3 sm:px-6">
+        {/* Per-line breakdown only when there's more than one line — for a
+            single-line quote the per-line numbers ARE the totals so showing
+            both is redundant. */}
+        {data.perLineMargin.length > 1 && (
+        <>
         {/* Single combined table — desktop */}
         <div className="hidden sm:block overflow-x-auto">
           <table className="w-full text-xs">
@@ -567,6 +572,8 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
             );
           })}
         </div>
+        </>
+        )}
 
         {/* Combined summary — Contractor + Platform side by side */}
         <div className="grid grid-cols-2 gap-2">
