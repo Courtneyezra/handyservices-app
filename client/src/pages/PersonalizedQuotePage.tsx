@@ -2672,6 +2672,61 @@ export default function PersonalizedQuotePage() {
     },
   });
 
+  // Asset-readiness gate: keep the skeleton up until web fonts have settled
+  // and the key above-the-fold images have been preloaded into the browser
+  // cache. Without this, the user sees the skeleton vanish and then watches
+  // images / fonts pop in one by one ("flash of unstyled content"). Hard
+  // timeout at 2s so we never block on a slow asset.
+  const [assetsReady, setAssetsReady] = useState(false);
+  useEffect(() => {
+    if (isLoading || !quote) return;
+    let cancelled = false;
+    const HARD_TIMEOUT_MS = 2000;
+
+    const run = async () => {
+      const work = (async () => {
+        // 1. Wait for declared @font-face fonts to settle.
+        const fonts = (typeof document !== 'undefined' ? (document as any).fonts : null);
+        if (fonts?.ready) {
+          try { await fonts.ready; } catch { /* non-fatal */ }
+        }
+
+        // 2. Preload critical images we know the page will paint.
+        const urls = new Set<string>();
+        const sc: any = (quote as any).selectedContent;
+        if (Array.isArray(sc?.images)) {
+          for (const img of sc.images) {
+            if (img?.url) urls.add(img.url);
+          }
+        }
+        const contractorImg = (quote as any).matchedContractor?.profileImageUrl
+          || (quote as any).matchedContractorProfileImageUrl;
+        if (contractorImg) urls.add(contractorImg);
+
+        if (urls.size > 0) {
+          await Promise.all([...urls].map((u) => new Promise<void>((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+            img.src = u;
+          })));
+        }
+
+        // 3. Two RAFs so the browser has a frame to lay out + paint.
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+      })();
+
+      const timeout = new Promise<void>((resolve) => setTimeout(resolve, HARD_TIMEOUT_MS));
+      await Promise.race([work, timeout]);
+      if (!cancelled) setAssetsReady(true);
+    };
+
+    run();
+    return () => { cancelled = true; };
+  }, [isLoading, quote]);
+
   // Fetch configurable pricing settings (social proof + pricing params from public endpoint)
   const { data: pricingSettings } = useQuery<{
     googleRating: string;
@@ -3162,7 +3217,9 @@ export default function PersonalizedQuotePage() {
     window.location.href = `/booking-confirmed/${quote.id}`;
   };
 
-  if (isLoading) {
+  // Keep the skeleton up while we wait for either the API or the assets
+  // (fonts + above-the-fold images). Real content swaps in as one piece.
+  if (isLoading || !assetsReady) {
     return <QuoteSkeleton />;
   }
 
