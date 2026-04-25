@@ -179,18 +179,38 @@ router.post('/api/pricing/polish-description', async (req, res) => {
     const claude = getAnthropic();
     const message = await claude.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 100,
-      system: `You are a job description polisher for a UK handyman service.
-Clean up Ben the estimator's rough notes into a clear, professional one-line scope of work.
+      max_tokens: 250,
+      system: `You polish a UK handyman quote line item AND propose a sensible time estimate + category for it.
 
-Rules:
-- Keep it SHORT (max 8–10 words). Customers see this on their quote.
+Output STRICT JSON only — an object: {"polished": "...", "estimatedMinutes": 60, "suggestedCategory": "flooring"}
+
+Rules for "polished":
+- Max 8-10 words. Customers see this on their quote.
 - Start with a verb: Fix, Mount, Install, Replace, Repair, Assemble, Paint, Hang, etc.
-- Remove filler words, prices, timings, and customer details.
-- Keep specific details that affect scope (e.g. "55 inch", "brick wall", "3 shelves").
-- UK English spelling (e.g. "metre" not "meter", "colour" not "color").
-- Return ONLY the polished text. No quotes, no explanation.
-- If it's already clean, return it unchanged.`,
+- Remove filler words, prices, timings, customer details.
+- Keep scope-affecting specifics (e.g. "55 inch", "brick wall", "3 shelves", "56 square metres").
+- UK English (metre, colour, sealant).
+- If already clean, return unchanged.
+
+Rules for "estimatedMinutes":
+- Integer minutes for a competent handyman to do this work end-to-end.
+- Round to nearest 15 min for jobs ≤ 2hrs; nearest 30 min for jobs > 2hrs; nearest 60 min for jobs > 8hrs (full day = 480 min).
+- Use the SCOPE INDICATORS in the line: "5 windowsills" → multiply unit time × 5; "56 square metres flooring" → calculate by area; "3 shelves" → 3× unit time.
+- Be realistic. Examples:
+   - "Fix leaky tap" → 45
+   - "Mount 55 inch TV on brick wall" → 90
+   - "Replace pull cord on extractor fan" → 20
+   - "Reseal bath silicone" → 45
+   - "Install 56 square metres herringbone laminate flooring" → 1920 (4 days)
+   - "Replace three damaged ceiling tiles" → 45
+   - "Sand and repaint 1m of skirting" → 45
+   - "Hang internal door" → 240
+- If the work is not specified clearly enough to estimate, use 60.
+
+Rules for "suggestedCategory" — pick exactly ONE from this list:
+general_fixing, flat_pack, tv_mounting, carpentry, plumbing_minor, electrical_minor, painting, tiling, plastering, lock_change, guttering, pressure_washing, fencing, garden_maintenance, bathroom_fitting, kitchen_fitting, door_fitting, flooring, curtain_blinds, silicone_sealant, shelving, furniture_repair, waste_removal, other
+
+Return ONLY the JSON object. No code fences, no commentary.`,
       messages: [
         {
           role: 'user',
@@ -200,8 +220,36 @@ Rules:
     });
 
     const textBlock = message.content.find((b: any) => b.type === 'text');
-    const polished = textBlock?.text?.trim() || trimmed;
-    return res.json({ polished });
+    let raw = textBlock?.text?.trim() || '';
+    // Strip code fences if present
+    raw = raw.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+
+    let parsed: { polished?: string; estimatedMinutes?: number; suggestedCategory?: string } = {};
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // LLM returned plain text — backward compatible: treat as polished only
+      return res.json({ polished: raw || trimmed });
+    }
+
+    const polished = (parsed.polished || '').trim() || trimmed;
+    // Sanity-check estimatedMinutes
+    const estimatedMinutes =
+      typeof parsed.estimatedMinutes === 'number' && Number.isFinite(parsed.estimatedMinutes) && parsed.estimatedMinutes > 0
+        ? Math.max(5, Math.min(60 * 24 * 14, Math.round(parsed.estimatedMinutes)))
+        : null;
+    // Sanity-check suggestedCategory against the allowed list
+    const ALLOWED_CATS = new Set([
+      'general_fixing','flat_pack','tv_mounting','carpentry','plumbing_minor','electrical_minor',
+      'painting','tiling','plastering','lock_change','guttering','pressure_washing','fencing',
+      'garden_maintenance','bathroom_fitting','kitchen_fitting','door_fitting','flooring',
+      'curtain_blinds','silicone_sealant','shelving','furniture_repair','waste_removal','other',
+    ]);
+    const suggestedCategory = parsed.suggestedCategory && ALLOWED_CATS.has(parsed.suggestedCategory)
+      ? parsed.suggestedCategory
+      : null;
+
+    return res.json({ polished, estimatedMinutes, suggestedCategory });
   } catch (error: any) {
     console.error('[pricing/polish-description] Error:', error?.message || error);
     // On error, return original — don't block the user

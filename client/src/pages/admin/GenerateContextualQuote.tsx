@@ -1247,6 +1247,8 @@ export default function GenerateContextualQuote() {
 
     setPolishingIds((prev) => new Set(prev).add(id));
     let polishedFinal: string | null = null;
+    let suggestedCategoryFromLLM: string | null = null;
+    let suggestedMinutesFromLLM: number | null = null;
     try {
       const res = await fetch('/api/pricing/polish-description', {
         method: 'POST',
@@ -1254,7 +1256,7 @@ export default function GenerateContextualQuote() {
         body: JSON.stringify({ description: trimmed }),
       });
       if (!res.ok) return;
-      const { polished } = await res.json();
+      const { polished, estimatedMinutes, suggestedCategory } = await res.json();
       if (polished && polished !== trimmed) {
         originalDescriptions.current.set(id, trimmed);
         handleUpdateLineItem(id, 'description', polished);
@@ -1264,6 +1266,12 @@ export default function GenerateContextualQuote() {
         originalDescriptions.current.set(id, trimmed);
         polishedFinal = trimmed;
       }
+      if (typeof estimatedMinutes === 'number' && estimatedMinutes > 0) {
+        suggestedMinutesFromLLM = estimatedMinutes;
+      }
+      if (typeof suggestedCategory === 'string' && suggestedCategory) {
+        suggestedCategoryFromLLM = suggestedCategory;
+      }
     } catch {
       // Silently fail — don't interrupt the user
     } finally {
@@ -1272,6 +1280,20 @@ export default function GenerateContextualQuote() {
         next.delete(id);
         return next;
       });
+    }
+
+    // Apply LLM-suggested time + category ONLY if the line is still on its
+    // defaults — never overwrite an admin-set value.
+    if (suggestedMinutesFromLLM != null || suggestedCategoryFromLLM != null) {
+      const line = lineItems.find((li) => li.id === id);
+      if (line) {
+        if (suggestedMinutesFromLLM != null && line.estimatedMinutes === 30) {
+          handleUpdateLineItem(id, 'estimatedMinutes', suggestedMinutesFromLLM);
+        }
+        if (suggestedCategoryFromLLM != null && line.category === 'general_fixing') {
+          handleUpdateLineItem(id, 'category', suggestedCategoryFromLLM as any);
+        }
+      }
     }
 
     // Follow-up: auto-draft the "details" field if empty AND the global toggle is on.
