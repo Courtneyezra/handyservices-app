@@ -440,8 +440,8 @@ const TIER_BG_COLORS: Record<string, string> = {
 };
 
 function MarginPreviewPanel({ data }: { data: MarginPreview }) {
-  const p2p = (p: number) => `£${(p / 100).toFixed(0)}`;
-  const p2pDec = (p: number) => `£${(p / 100).toFixed(2)}`;
+  // Whole-pound formatting throughout — customers don't pay pence
+  const p2p = (p: number) => `£${Math.round(p / 100)}`;
   const hasRevShare = data.perLineMargin.some(l => l.tier);
 
   const totalCustomerPrice = data.perLineMargin.reduce((s, l) => s + l.customerPricePence, 0);
@@ -507,12 +507,12 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
                       </td>
                     )}
                     <td className="text-right py-1.5 px-1 text-muted-foreground">{parseFloat(line.hours.toFixed(2))}</td>
-                    <td className="text-right py-1.5 px-1 text-foreground">{p2pDec(line.customerPricePence)}</td>
+                    <td className="text-right py-1.5 px-1 text-foreground">{p2p(line.customerPricePence)}</td>
                     <td className="text-right py-1.5 px-1 text-amber-400">
-                      {p2pDec(line.contractorCostPence)}
+                      {p2p(line.contractorCostPence)}
                       <span className="text-muted-foreground/60 text-[10px] ml-1">({p2p(effHourly)}/hr)</span>
                     </td>
-                    <td className={`text-right py-1.5 px-1 ${getMarginColor(line.marginPercent)}`}>{p2pDec(line.marginPence)}</td>
+                    <td className={`text-right py-1.5 px-1 ${getMarginColor(line.marginPercent)}`}>{p2p(line.marginPence)}</td>
                     <td className={`text-right py-1.5 pl-1 font-medium ${getMarginColor(line.marginPercent)}`}>{line.marginPercent}%</td>
                   </tr>
                 );
@@ -523,12 +523,12 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
                 <td className="py-2 pr-2 text-foreground">Total</td>
                 {hasRevShare && <td className="py-2 px-1" />}
                 <td className="text-right py-2 px-1 text-muted-foreground">{parseFloat(totalHours.toFixed(1))}</td>
-                <td className="text-right py-2 px-1 text-foreground">{p2pDec(totalCustomerPrice)}</td>
+                <td className="text-right py-2 px-1 text-foreground">{p2p(totalCustomerPrice)}</td>
                 <td className="text-right py-2 px-1 text-amber-400 font-bold">
-                  {p2pDec(totalContractorPay)}
+                  {p2p(totalContractorPay)}
                   <span className="text-muted-foreground/60 text-[10px] ml-1">({p2p(effectiveAvgHourly)}/hr)</span>
                 </td>
-                <td className={`text-right py-2 px-1 ${getMarginColor(data.totalMarginPercent)}`}>{p2pDec(data.totalMarginPence)}</td>
+                <td className={`text-right py-2 px-1 ${getMarginColor(data.totalMarginPercent)}`}>{p2p(data.totalMarginPence)}</td>
                 <td className={`text-right py-2 pl-1 font-bold ${getMarginColor(data.totalMarginPercent)}`}>{data.totalMarginPercent}%</td>
               </tr>
             </tfoot>
@@ -572,14 +572,14 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
         <div className="grid grid-cols-2 gap-2">
           <div className="rounded-md px-3 py-2.5 border bg-amber-500/10 border-amber-500/20">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Contractor Payout</div>
-            <div className="text-base font-bold text-amber-400 tabular-nums">{p2pDec(totalContractorPay)}</div>
+            <div className="text-base font-bold text-amber-400 tabular-nums">{p2p(totalContractorPay)}</div>
             <div className="text-[10px] text-muted-foreground">
               {p2p(effectiveAvgHourly)}/hr · {parseFloat(totalHours.toFixed(1))}h
             </div>
           </div>
           <div className={`rounded-md px-3 py-2.5 border ${getMarginBgColor(data.totalMarginPercent)}`}>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Platform Margin</div>
-            <div className={`text-base font-bold tabular-nums ${getMarginColor(data.totalMarginPercent)}`}>{p2pDec(data.totalMarginPence)}</div>
+            <div className={`text-base font-bold tabular-nums ${getMarginColor(data.totalMarginPercent)}`}>{p2p(data.totalMarginPence)}</div>
             <div className={`text-[10px] ${getMarginColor(data.totalMarginPercent)}`}>
               {data.totalMarginPercent}% of {p2p(totalCustomerPrice)}
             </div>
