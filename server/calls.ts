@@ -229,7 +229,6 @@ router.get("/", async (req: Request, res: Response) => {
                 outcome: call.outcome,
                 urgency: call.urgency,
                 status: call.status,
-                metadataJson: call.metadataJson,
                 missedReason: call.missedReason,
                 recordingUrl: finalRecordingUrl,
                 transcription: call.transcription,
