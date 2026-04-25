@@ -2149,7 +2149,7 @@ export default function GenerateContextualQuote() {
                   </button>
                 </CardTitle>
                 <p className="text-xs text-zinc-500">
-                  AI suggests context-relevant extras; you can also pick from the library or add custom.
+                  AI suggests context-relevant extras; you can also add a custom one-off below.
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -2231,68 +2231,6 @@ export default function GenerateContextualQuote() {
                       })}
                     </div>
                   </div>
-                )}
-
-                {/* Library picker */}
-                {activeExtrasCatalog.length > 0 ? (
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">From the library</Label>
-                    <div className="space-y-1.5">
-                      {activeExtrasCatalog.map((entry) => {
-                        const checked = optionalExtras.some((e) => e.catalogId === entry.id);
-                        return (
-                          <label
-                            key={entry.id}
-                            className={`flex items-start gap-2.5 rounded-lg border px-2.5 py-2 cursor-pointer transition-colors ${
-                              checked
-                                ? 'border-amber-500/40 bg-amber-500/10'
-                                : 'border-white/10 hover:border-white/20 hover:bg-white/[0.02]'
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setOptionalExtras((prev) => [
-                                    ...prev,
-                                    {
-                                      label: entry.label,
-                                      description: entry.description,
-                                      priceInPence: entry.priceInPence,
-                                      badge: entry.badge ?? undefined,
-                                      catalogId: entry.id,
-                                    },
-                                  ]);
-                                } else {
-                                  setOptionalExtras((prev) => prev.filter((x) => x.catalogId !== entry.id));
-                                }
-                              }}
-                              className="mt-0.5 w-4 h-4 rounded border-zinc-600 bg-zinc-800 accent-amber-500 shrink-0"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-sm font-medium text-foreground">{entry.label}</span>
-                                {entry.badge && (
-                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-400">
-                                    {entry.badge}
-                                  </Badge>
-                                )}
-                                <span className="text-xs text-muted-foreground ml-auto shrink-0">
-                                  £{(entry.priceInPence / 100).toFixed(0)}
-                                </span>
-                              </div>
-                              {entry.description && (
-                                <p className="text-[11px] text-muted-foreground/70 mt-0.5">{entry.description}</p>
-                              )}
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground/60">No library extras yet — add a custom one below.</p>
                 )}
 
                 {/* Selected list (custom + picked) */}
