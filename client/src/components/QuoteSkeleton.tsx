@@ -1,74 +1,302 @@
 /**
- * Skeleton loading screen for PersonalizedQuotePage
- * Shows a preview of the page structure while quote data is loading
+ * Skeleton loading screen for PersonalizedQuotePage (contextual quote layout)
+ *
+ * Mirrors the real page's section order, background, and rough block sizes
+ * so the transition from skeleton → loaded quote is seamless (no layout jump,
+ * no theme flash).
+ *
+ * Sections (top → bottom):
+ *  1. Scarcity banner strip
+ *  2. Value hero (headline + sub + contractor strip)
+ *  3. Social proof (rating strip + testimonial card)
+ *  4. Guarantee section
+ *  5. Hassle comparison (two-column "Without us / With us")
+ *  6. "Secure your slot" reveal header + Pay-in-3 banner
+ *  7. Scope of works card
+ *  8. Unified quote card (toggle, total, line items, extras, multi-job, total row)
+ *  9. Date picker grid
+ * 10. Trust badges + PDF link + payment methods
  */
 export function QuoteSkeleton() {
-    return (
-        <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 animate-pulse">
-            {/* Hero Section Skeleton */}
-            <div className="px-8 pt-20 pb-12 max-w-4xl mx-auto">
-                {/* Header */}
-                <div className="space-y-4 mb-12">
-                    <div className="h-8 bg-gray-700 rounded-lg w-3/4 mx-auto"></div>
-                    <div className="h-6 bg-gray-700 rounded-lg w-1/2 mx-auto"></div>
-                </div>
+    const Bar = ({ className = "" }: { className?: string }) => (
+        <div className={`bg-slate-200 rounded ${className}`} />
+    );
 
-                {/* Customer Info Card */}
-                <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 mb-8">
-                    <div className="space-y-3">
-                        <div className="h-5 bg-gray-700 rounded w-1/3"></div>
-                        <div className="h-4 bg-gray-700 rounded w-1/2"></div>
-                        <div className="h-4 bg-gray-700 rounded w-2/3"></div>
+    return (
+        <div className="min-h-screen bg-slate-50 font-sans text-slate-900 animate-pulse">
+            {/* 1. Scarcity Banner */}
+            <div className="w-full bg-slate-100 border-b border-slate-200 py-2 px-4">
+                <div className="max-w-4xl mx-auto flex items-center justify-center gap-3">
+                    <Bar className="h-3 w-3 rounded-full" />
+                    <Bar className="h-3 w-64" />
+                </div>
+            </div>
+
+            {/* 2. Value Hero */}
+            <section className="bg-white border-b border-slate-200 py-12 px-4">
+                <div className="max-w-3xl mx-auto text-center space-y-5">
+                    <Bar className="h-4 w-32 mx-auto" />
+                    <Bar className="h-10 w-3/4 mx-auto" />
+                    <Bar className="h-10 w-2/3 mx-auto" />
+                    <Bar className="h-5 w-1/2 mx-auto mt-4" />
+
+                    {/* Contractor / "Prepared by" strip */}
+                    <div className="flex items-center justify-center gap-4 pt-6">
+                        <div className="w-14 h-14 rounded-full bg-slate-200" />
+                        <div className="space-y-2">
+                            <Bar className="h-4 w-40" />
+                            <Bar className="h-3 w-28" />
+                        </div>
                     </div>
                 </div>
+            </section>
 
-                {/* Packages Section Skeleton */}
-                <div className="space-y-6 mt-12">
-                    <div className="h-10 bg-gray-700 rounded-lg w-1/2 mx-auto mb-8"></div>
+            {/* 3. Social Proof */}
+            <section className="bg-slate-50 py-12 px-4">
+                <div className="max-w-3xl mx-auto space-y-8">
+                    {/* 4.9 / 500+ / £2M strip */}
+                    <div className="grid grid-cols-3 gap-4">
+                        {[0, 1, 2].map((i) => (
+                            <div key={i} className="flex flex-col items-center gap-2">
+                                <Bar className="h-7 w-16" />
+                                <Bar className="h-3 w-20" />
+                            </div>
+                        ))}
+                    </div>
 
-                    {/* Package Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        {[1, 2, 3].map((i) => (
-                            <div key={i} className="bg-gray-800 rounded-xl p-6 border border-gray-700">
-                                {/* Package Header */}
-                                <div className="space-y-3 mb-6">
-                                    <div className="h-6 bg-gray-700 rounded w-3/4"></div>
-                                    <div className="h-8 bg-gray-700 rounded w-1/2"></div>
-                                </div>
+                    {/* Testimonial card */}
+                    <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-3">
+                        <Bar className="h-3 w-24" />
+                        <Bar className="h-4 w-full" />
+                        <Bar className="h-4 w-11/12" />
+                        <Bar className="h-4 w-3/4" />
+                        <div className="flex items-center gap-3 pt-2">
+                            <div className="w-10 h-10 rounded-full bg-slate-200" />
+                            <Bar className="h-3 w-32" />
+                        </div>
+                    </div>
+                </div>
+            </section>
 
-                                {/* Package Features */}
-                                <div className="space-y-2">
-                                    {[1, 2, 3, 4].map((j) => (
-                                        <div key={j} className="h-4 bg-gray-700 rounded w-full"></div>
-                                    ))}
-                                </div>
+            {/* 4. Guarantee */}
+            <section className="bg-white border-y border-slate-200 py-12 px-4">
+                <div className="max-w-2xl mx-auto text-center space-y-4">
+                    <Bar className="h-3 w-32 mx-auto" />
+                    <Bar className="h-8 w-2/3 mx-auto" />
+                    <Bar className="h-4 w-full" />
+                    <Bar className="h-4 w-5/6 mx-auto" />
+                </div>
+            </section>
 
-                                {/* CTA Button */}
-                                <div className="mt-6 h-12 bg-gray-700 rounded-lg"></div>
+            {/* 5. Hassle Comparison */}
+            <section className="bg-white py-12 px-4">
+                <div className="max-w-2xl mx-auto space-y-6">
+                    <Bar className="h-7 w-1/2" />
+                    <div className="grid grid-cols-2 gap-4">
+                        {[0, 1].map((col) => (
+                            <div
+                                key={col}
+                                className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-3"
+                            >
+                                <Bar className="h-4 w-24" />
+                                {[0, 1, 2, 3].map((row) => (
+                                    <Bar key={row} className="h-3 w-full" />
+                                ))}
                             </div>
                         ))}
                     </div>
                 </div>
+            </section>
 
-                {/* Additional Info Section */}
-                <div className="mt-12 space-y-4">
-                    <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
-                        <div className="h-5 bg-gray-700 rounded w-1/4 mb-4"></div>
-                        <div className="space-y-2">
-                            <div className="h-4 bg-gray-700 rounded w-full"></div>
-                            <div className="h-4 bg-gray-700 rounded w-5/6"></div>
-                            <div className="h-4 bg-gray-700 rounded w-4/6"></div>
-                        </div>
+            {/* 6. Reveal header + Pay-in-3 banner */}
+            <section className="bg-slate-50 pt-16 pb-4 px-4">
+                <div className="max-w-2xl mx-auto text-center space-y-4">
+                    {/* Pay in 3 banner */}
+                    <div className="rounded-xl bg-slate-200 h-20 max-w-lg mx-auto mb-6" />
+                    <Bar className="h-6 w-1/2 mx-auto" />
+                    <Bar className="h-12 w-3/4 mx-auto" />
+                    <Bar className="h-4 w-2/3 mx-auto" />
+                    {/* Confidence card */}
+                    <div className="max-w-lg mx-auto mt-6 bg-white border border-slate-200 p-5 rounded-xl space-y-2">
+                        <Bar className="h-3 w-full" />
+                        <Bar className="h-3 w-5/6 mx-auto" />
                     </div>
                 </div>
-            </div>
+            </section>
+
+            {/* 7. Scope of Works card */}
+            <section className="bg-slate-50 py-8 px-4">
+                <div className="max-w-2xl mx-auto bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-slate-200" />
+                        <div className="space-y-2">
+                            <Bar className="h-4 w-32" />
+                            <Bar className="h-3 w-24" />
+                        </div>
+                    </div>
+                    <Bar className="h-4 w-full" />
+                    <Bar className="h-4 w-11/12" />
+                    <Bar className="h-4 w-4/5" />
+                    <div className="space-y-2 pt-2">
+                        {[0, 1, 2].map((i) => (
+                            <div key={i} className="flex gap-2">
+                                <Bar className="h-3 w-3 rounded-full mt-1.5" />
+                                <Bar className="h-3 flex-1" />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </section>
+
+            {/* 8. Unified Quote Card */}
+            <section className="bg-slate-50 pt-4 pb-12 px-4">
+                <div className="max-w-2xl mx-auto bg-white border border-slate-200 rounded-2xl shadow-lg overflow-hidden">
+                    {/* Header: Save% + Total */}
+                    <div className="bg-slate-900 px-6 py-6 text-center space-y-3">
+                        <div className="inline-block bg-slate-700 rounded-full h-6 w-24" />
+                        <div className="bg-slate-700 h-12 w-48 rounded mx-auto" />
+                        <div className="bg-slate-700 h-3 w-32 rounded mx-auto" />
+                    </div>
+
+                    {/* Booking mode toggle */}
+                    <div className="px-6 pt-6">
+                        <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-lg">
+                            <div className="h-10 bg-white rounded-md shadow-sm" />
+                            <div className="h-10" />
+                        </div>
+                    </div>
+
+                    {/* Deposit / balance line */}
+                    <div className="px-6 py-4 flex justify-between items-center border-b border-slate-100">
+                        <Bar className="h-4 w-40" />
+                        <Bar className="h-4 w-20" />
+                    </div>
+
+                    {/* Line items */}
+                    <div className="px-6 py-4 space-y-5">
+                        <Bar className="h-3 w-32" />
+                        {[0, 1, 2].map((i) => (
+                            <div key={i} className="space-y-2 pb-4 border-b border-slate-100 last:border-0">
+                                <div className="flex justify-between gap-4">
+                                    <Bar className="h-4 w-2/3" />
+                                    <Bar className="h-4 w-16" />
+                                </div>
+                                <Bar className="h-3 w-11/12" />
+                                <Bar className="h-3 w-3/4" />
+                                <div className="flex flex-wrap gap-2 pt-1">
+                                    <div className="bg-slate-100 rounded-full h-5 w-20" />
+                                    <div className="bg-slate-100 rounded-full h-5 w-24" />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Optional Extras */}
+                    <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 space-y-4">
+                        <Bar className="h-3 w-36" />
+                        {[0, 1].map((i) => (
+                            <div
+                                key={i}
+                                className="flex items-start gap-3 bg-white border border-slate-200 rounded-lg p-3"
+                            >
+                                <div className="w-5 h-5 rounded border-2 border-slate-300 mt-0.5 flex-shrink-0" />
+                                <div className="flex-1 space-y-2">
+                                    <div className="flex justify-between gap-4">
+                                        <Bar className="h-4 w-1/2" />
+                                        <Bar className="h-4 w-14" />
+                                    </div>
+                                    <Bar className="h-3 w-full" />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Multi-job discount + Total */}
+                    <div className="px-6 py-4 border-t border-slate-200 space-y-3">
+                        <div className="flex justify-between">
+                            <Bar className="h-3 w-32" />
+                            <Bar className="h-3 w-16" />
+                        </div>
+                        <div className="flex justify-between items-center pt-2 border-t border-slate-100">
+                            <Bar className="h-5 w-20" />
+                            <Bar className="h-7 w-28" />
+                        </div>
+                    </div>
+
+                    {/* 9. Date Picker */}
+                    <div className="px-6 py-6 border-t border-slate-200 space-y-4">
+                        <Bar className="h-4 w-32" />
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                            {[0, 1, 2, 3, 4, 5].map((i) => (
+                                <div
+                                    key={i}
+                                    className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2 text-center"
+                                >
+                                    <div className="bg-slate-200 h-3 w-10 mx-auto rounded" />
+                                    <div className="bg-slate-200 h-6 w-8 mx-auto rounded" />
+                                    <div className="bg-slate-200 h-3 w-10 mx-auto rounded" />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* CTA button */}
+                    <div className="px-6 pb-6">
+                        <div className="h-14 bg-slate-300 rounded-xl" />
+                    </div>
+                </div>
+
+                {/* PDF download link */}
+                <div className="max-w-2xl mx-auto mt-3 flex items-center justify-center gap-2">
+                    <Bar className="h-4 w-4" />
+                    <Bar className="h-4 w-48" />
+                </div>
+            </section>
+
+            {/* 10. Trust badges + payment methods */}
+            <section className="bg-white border-t border-slate-200 py-8 px-4">
+                <div className="max-w-3xl mx-auto space-y-6">
+                    {/* Badge row: Fixed price · Photo report · Full cleanup · Guaranteed */}
+                    <div className="flex flex-wrap justify-center gap-x-6 gap-y-3">
+                        {[0, 1, 2, 3].map((i) => (
+                            <div key={i} className="flex items-center gap-2">
+                                <Bar className="h-4 w-4 rounded-full" />
+                                <Bar className="h-3 w-20" />
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* DBS / Insurance pills */}
+                    <div className="flex flex-wrap justify-center gap-3">
+                        {[0, 1, 2].map((i) => (
+                            <div
+                                key={i}
+                                className="bg-slate-100 border border-slate-200 rounded-full h-7 w-24"
+                            />
+                        ))}
+                    </div>
+
+                    {/* Payment methods strip */}
+                    <div className="flex flex-wrap justify-center gap-3 pt-2">
+                        {[0, 1, 2, 3, 4].map((i) => (
+                            <div key={i} className="bg-slate-100 rounded-md h-8 w-12" />
+                        ))}
+                    </div>
+                </div>
+            </section>
 
             {/* Subtle loading indicator */}
-            <div className="fixed bottom-8 right-8 flex items-center gap-2 bg-gray-800 px-4 py-2 rounded-full border border-gray-700">
-                <div className="h-2 w-2 bg-[#e8b323] rounded-full animate-bounce"></div>
-                <div className="h-2 w-2 bg-[#e8b323] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                <div className="h-2 w-2 bg-[#e8b323] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                <span className="text-gray-400 text-sm ml-2">Loading quote...</span>
+            <div className="fixed bottom-6 right-6 flex items-center gap-2 bg-white px-4 py-2 rounded-full border border-slate-200 shadow-md">
+                <div className="h-2 w-2 bg-[#e8b323] rounded-full animate-bounce" />
+                <div
+                    className="h-2 w-2 bg-[#e8b323] rounded-full animate-bounce"
+                    style={{ animationDelay: "0.1s" }}
+                />
+                <div
+                    className="h-2 w-2 bg-[#e8b323] rounded-full animate-bounce"
+                    style={{ animationDelay: "0.2s" }}
+                />
+                <span className="text-slate-500 text-sm ml-2">Loading quote…</span>
             </div>
         </div>
     );
