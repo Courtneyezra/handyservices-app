@@ -285,18 +285,62 @@ export function QuoteSkeleton() {
                 </div>
             </section>
 
-            {/* Subtle loading indicator */}
-            <div className="fixed bottom-6 right-6 flex items-center gap-2 bg-white px-4 py-2 rounded-full border border-slate-200 shadow-md">
-                <div className="h-2 w-2 bg-[#e8b323] rounded-full animate-bounce" />
-                <div
-                    className="h-2 w-2 bg-[#e8b323] rounded-full animate-bounce"
-                    style={{ animationDelay: "0.1s" }}
-                />
-                <div
-                    className="h-2 w-2 bg-[#e8b323] rounded-full animate-bounce"
-                    style={{ animationDelay: "0.2s" }}
-                />
-                <span className="text-slate-500 text-sm ml-2">Loading quote…</span>
+            {/*
+             * Centered loading card.
+             * Uses inset-0 + flex centering so it sits in the true viewport
+             * middle (both height and width). The skeleton shows through the
+             * subtle scrim — gives the page "shape" while the card delivers
+             * conversion-boosting reassurance during the 1-2s wait:
+             *   - "Preparing your fixed-price quote" (not generic "Loading")
+             *   - £2M Insured / DBS Checked / 4.9★ trust badges (lifted from
+             *     deeper in the page so even fast bouncers see them)
+             *   - "No surprises. No hidden fees." — kills the top quoting
+             *     objection at the moment attention is highest.
+             */}
+            <div
+                className="fixed inset-0 flex items-center justify-center bg-white/40 backdrop-blur-[1px] z-50 pointer-events-none px-4"
+                role="status"
+                aria-live="polite"
+            >
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl px-6 py-7 max-w-sm w-full text-center pointer-events-auto">
+                    {/* Brand-color spinner dots */}
+                    <div className="flex items-center justify-center gap-1.5 mb-4">
+                        <div className="h-2.5 w-2.5 bg-[#e8b323] rounded-full animate-bounce" />
+                        <div
+                            className="h-2.5 w-2.5 bg-[#e8b323] rounded-full animate-bounce"
+                            style={{ animationDelay: "0.1s" }}
+                        />
+                        <div
+                            className="h-2.5 w-2.5 bg-[#e8b323] rounded-full animate-bounce"
+                            style={{ animationDelay: "0.2s" }}
+                        />
+                    </div>
+
+                    {/* Headline — specific, not generic */}
+                    <h3 className="text-base font-semibold text-slate-900 mb-1">
+                        Preparing your fixed-price quote
+                    </h3>
+
+                    {/* Conversion line — kill the #1 objection */}
+                    <p className="text-sm text-slate-600 mb-5">
+                        No surprises. No hidden fees.
+                    </p>
+
+                    {/* Trust badges row */}
+                    <div className="flex items-center justify-center gap-x-3 gap-y-2 flex-wrap pt-4 border-t border-slate-100">
+                        <span className="inline-flex items-center gap-1 text-xs text-slate-700 font-medium">
+                            <span className="text-[#7DB00E]">✓</span> £2M Insured
+                        </span>
+                        <span className="text-slate-300">·</span>
+                        <span className="inline-flex items-center gap-1 text-xs text-slate-700 font-medium">
+                            <span className="text-[#7DB00E]">✓</span> DBS Checked
+                        </span>
+                        <span className="text-slate-300">·</span>
+                        <span className="inline-flex items-center gap-1 text-xs text-slate-700 font-medium">
+                            <span className="text-[#e8b323]">★</span> 4.9 Google
+                        </span>
+                    </div>
+                </div>
             </div>
         </div>
     );
