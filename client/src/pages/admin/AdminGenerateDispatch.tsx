@@ -342,6 +342,16 @@ export default function AdminGenerateDispatch() {
     // before navigating away.
     const [createdLink, setCreatedLink] = useState<{ dispatchId: string; publicUrl: string } | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const successRef = useRef<HTMLDivElement | null>(null);
+
+    // When the success card appears, scroll it into view — admin is at the
+    // bottom of the form (where the Preview & Send button is), but the card
+    // renders at the top, so without this they think nothing happened.
+    useEffect(() => {
+        if (createdLink && successRef.current) {
+            successRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }, [createdLink]);
 
     // Hydrate state once draft arrives
     useEffect(() => {
@@ -949,7 +959,7 @@ export default function AdminGenerateDispatch() {
                     flavour: 'short',
                 });
                 return (
-                    <div className="mb-6 bg-gradient-to-br from-blue-500/[0.08] to-card border-2 border-blue-500/40 rounded-xl p-5 space-y-4">
+                    <div ref={successRef} className="mb-6 bg-gradient-to-br from-blue-500/[0.08] to-card border-2 border-blue-500/40 rounded-xl p-5 space-y-4 scroll-mt-4">
                         <div>
                             <h3 className="font-bold text-base mb-2 flex items-center gap-2">
                                 <CheckCircle2 className="h-5 w-5 text-green-400" /> Shareable link ready
