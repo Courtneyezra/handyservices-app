@@ -285,86 +285,10 @@ export default function DispatchLinkPage() {
                                 </p>
                             )}
 
-                            <div className="mt-4 flex flex-wrap gap-1.5 items-center">
-                                {/* Duration band — replaces raw hours */}
-                                <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-white/[0.07] text-white/85 px-2.5 py-1 rounded-full border border-white/10">
-                                    <Clock className="h-3 w-3" /> {durationBand(dispatch.totalHours)}
-                                </span>
-                                {/* Skill mix — collapsed into a single pill with colored dots
-                                    showing the count of each tier. Saves 2-3 chips. */}
-                                {(() => {
-                                    const mix = skillMix(dispatch.tasks);
-                                    if (mix.length === 0) return null;
-                                    return (
-                                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-white/[0.07] text-white/85 px-2.5 py-1 rounded-full border border-white/10">
-                                            {mix.map((s, i) => (
-                                                <span key={s.tier} className="inline-flex items-center gap-0.5">
-                                                    <span className={`w-1.5 h-1.5 rounded-full ${tierDot(s.tier)}`} />
-                                                    <span className="tabular-nums">{s.count}</span>
-                                                    {i < mix.length - 1 && <span className="text-white/30 ml-0.5">·</span>}
-                                                </span>
-                                            ))}
-                                            <span className="text-white/55 ml-0.5">{dispatch.tasks.length} task{dispatch.tasks.length !== 1 ? "s" : ""}</span>
-                                        </span>
-                                    );
-                                })()}
-                                {/* Bond preview */}
-                                {dispatch.bondRequired && dispatch.bondAmountPence && (
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-[#F5A623]/15 text-[#F5A623] px-2.5 py-1 rounded-full border border-[#F5A623]/30">
-                                        <ShieldCheck className="h-3 w-3" /> {fmt(dispatch.bondAmountPence)} bond
-                                    </span>
-                                )}
-                                {/* Media count — only when >0 */}
-                                {(() => {
-                                    const totalPhotos = (dispatch.mediaUrls || []).filter((u) => !isVideo(u)).length
-                                        + dispatch.tasks.reduce((acc, t) => acc + (t.mediaUrls || []).filter((u) => !isVideo(u)).length, 0);
-                                    const totalVideos = (dispatch.mediaUrls || []).filter((u) => isVideo(u)).length
-                                        + dispatch.tasks.reduce((acc, t) => acc + (t.mediaUrls || []).filter((u) => isVideo(u)).length, 0);
-                                    if (totalPhotos === 0 && totalVideos === 0) return null;
-                                    return (
-                                        <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-white/[0.07] text-white/85 px-2.5 py-1 rounded-full border border-white/10">
-                                            <ImageIcon className="h-3 w-3" />
-                                            {totalPhotos + totalVideos}
-                                        </span>
-                                    );
-                                })()}
-                                {/* Risk flags — inline as compact icon chips, no labels */}
-                                {riskFlags(dispatch.tasks).map((f) => {
-                                    const Icon = f.icon;
-                                    return (
-                                        <span
-                                            key={f.key}
-                                            title={f.label}
-                                            className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-500/15 text-amber-300 border border-amber-400/30"
-                                        >
-                                            <Icon className="h-3.5 w-3.5" />
-                                        </span>
-                                    );
-                                })}
-                            </div>
-
-                            {/* Materials supplied — moved to a single subtle line, not a pill */}
-                            <p className="mt-2.5 inline-flex items-center gap-1.5 text-[11px] text-[#7DB00E]/90">
-                                <Package className="h-3 w-3" /> Materials supplied by Handy
+                            {/* Materials supplied — single line, no pills above */}
+                            <p className="mt-4 inline-flex items-center gap-2 text-[14px] sm:text-[15px] font-semibold text-[#7DB00E]">
+                                <Package className="h-4 w-4 sm:h-[18px] sm:w-[18px]" /> Materials supplied by Handy
                             </p>
-
-                            {/* Hidden — risk flags are now inline icons in the strip above */}
-                            {false && (() => {
-                                const flags = riskFlags(dispatch.tasks);
-                                if (flags.length === 0) return null;
-                                return (
-                                    <div className="mt-2 flex flex-wrap gap-1.5">
-                                        {flags.map((f) => {
-                                            const Icon = f.icon;
-                                            return (
-                                                <span key={f.key} className="inline-flex items-center gap-1 text-[11px] font-medium bg-amber-500/15 text-amber-300 px-2.5 py-1 rounded-full border border-amber-400/30">
-                                                    <Icon className="h-3 w-3" /> {f.label}
-                                                </span>
-                                            );
-                                        })}
-                                    </div>
-                                );
-                            })()}
 
                             {dispatch.preferredDates && dispatch.preferredDates.length > 0 && (
                                 <div className="mt-4 pt-4 border-t border-white/10">
