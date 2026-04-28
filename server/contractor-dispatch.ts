@@ -28,7 +28,7 @@ import {
 import { eq, desc, and } from 'drizzle-orm';
 import crypto from 'crypto';
 import Stripe from 'stripe';
-import { S3Client, PutObjectCommand, ObjectCannedACL } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { calculateMultiLineRevenueShare } from './revenue-share-tiers';
 import type { JobCategory } from '../shared/contextual-pricing-types';
 
@@ -48,16 +48,36 @@ function getStripe(): Stripe | null {
 export const contractorDispatchRouter = Router();
 
 // ─── S3 helper for photo uploads ────────────────────────────────────────────
+// Use the SAME env vars as server/storage.ts so we hit the same bucket the
+// rest of the app uploads to successfully. The previous AWS_S3_BUCKET default
+// pointed at a non-existent bucket, hence the "Amazon S3 upload error".
 
-const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || 'handy-services-media';
-const AWS_REGION = process.env.AWS_REGION || 'eu-west-2';
+const S3_ENDPOINT = process.env.S3_ENDPOINT;
+const S3_BUCKET = process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || '';
+const S3_REGION = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
+const S3_ACCESS_KEY = process.env.S3_ACCESS_KEY || process.env.AWS_ACCESS_KEY_ID || '';
+const S3_SECRET_KEY = process.env.S3_SECRET_KEY || process.env.AWS_SECRET_ACCESS_KEY || '';
+const S3_PUBLIC_URL_BASE = process.env.S3_PUBLIC_URL_BASE;
 
 let s3Client: S3Client | null = null;
 function getS3() {
   if (!s3Client) {
-    s3Client = new S3Client({ region: AWS_REGION });
+    if (!S3_BUCKET || !S3_ACCESS_KEY || !S3_SECRET_KEY) {
+      throw new Error('S3 credentials not configured (need S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY)');
+    }
+    s3Client = new S3Client({
+      region: S3_REGION,
+      ...(S3_ENDPOINT ? { endpoint: S3_ENDPOINT } : {}),
+      credentials: { accessKeyId: S3_ACCESS_KEY, secretAccessKey: S3_SECRET_KEY },
+    });
   }
   return s3Client;
+}
+
+function publicUrlFor(key: string): string {
+  if (S3_PUBLIC_URL_BASE) return `${S3_PUBLIC_URL_BASE}/${key}`;
+  if (S3_ENDPOINT) return `${S3_ENDPOINT}/${S3_BUCKET}/${key}`;
+  return `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${key}`;
 }
 
 async function uploadPhotoToS3(base64DataUrl: string, prefix: string): Promise<string> {
@@ -68,13 +88,12 @@ async function uploadPhotoToS3(base64DataUrl: string, prefix: string): Promise<s
   const buf = Buffer.from(b64, 'base64');
   const key = `${prefix}/${crypto.randomBytes(8).toString('hex')}.${ext}`;
   await getS3().send(new PutObjectCommand({
-    Bucket: AWS_S3_BUCKET,
+    Bucket: S3_BUCKET,
     Key: key,
     Body: buf,
     ContentType: mime,
-    ACL: ObjectCannedACL.public_read,
   }));
-  return `https://${AWS_S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}`;
+  return publicUrlFor(key);
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -878,13 +897,12 @@ contractorDispatchRouter.post('/api/admin/dispatch/:id/media',
       const buf = Buffer.from(b64, 'base64');
       const key = `${prefix}/${crypto.randomBytes(8).toString('hex')}.${ext}`;
       await getS3().send(new PutObjectCommand({
-        Bucket: AWS_S3_BUCKET,
+        Bucket: S3_BUCKET,
         Key: key,
         Body: buf,
         ContentType: mime,
-        ACL: ObjectCannedACL.public_read,
       }));
-      return `https://${AWS_S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}`;
+      return publicUrlFor(key);
     }
 
     const newDispatchUrls: string[] = [];

@@ -548,13 +548,18 @@ export default function AdminGenerateDispatch() {
                     setUploadPhase(`Uploading ${totalMB} MB to S3 (this can take a minute for video)…`);
                     await mediaMutation.mutateAsync({ dispatchId, body: { dispatchPhotos, taskMedia } });
                 } catch (mediaErr: any) {
-                    // Dispatch is created — surface the partial-success state clearly
+                    // Dispatch is created — surface the partial-success state clearly,
+                    // but STILL show the shareable link + WhatsApp message so admin can
+                    // share the job. Media can be re-attached later from the dashboard.
                     setActionResult({
                         kind: "err",
-                        msg: `Dispatch created (#${dispatchId.slice(-6)}), but media upload failed: ${mediaErr?.message || "unknown"}. You can re-attach media from the dispatch dashboard.`,
+                        msg: `Media upload failed: ${mediaErr?.message || "unknown"}. The dispatch (#${dispatchId.slice(-6)}) was created — copy the link below and share it now. Re-attach media from the dispatch dashboard when ready.`,
                     });
+                    if (publicUrlPath) {
+                        setCreatedLink({ dispatchId, publicUrl: `${window.location.origin}${publicUrlPath}` });
+                    }
+                    setUploadPhase(null);
                     setIsSubmitting(false);
-                    setTimeout(() => setLocation(`/admin/dispatch?new=${dispatchId}`), 2500);
                     return;
                 }
             }
