@@ -16,12 +16,14 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
     Check, X, AlertCircle, MapPin, Loader2, Lock, Hammer, Search, ImageIcon,
     ChevronDown, ShieldCheck, Package, Clock, Zap, Droplet, ArrowUpFromLine,
-    Play, Maximize2, MousePointerClick, UserCheck, CreditCard, Trophy,
+    Play, Maximize2, MousePointerClick, UserCheck, CreditCard, Trophy, Star,
 } from "lucide-react";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { stripePromise } from "@/lib/stripe";
 
 interface PublicDispatch {
     id: string;
@@ -48,6 +50,8 @@ interface OpenDispatchData {
     dispatch: PublicDispatch;
     isLocked: boolean;
     lockedToContractorName: string | null;
+    viewCount: number;
+    lastViewedAt: string | null;
 }
 
 interface PoolContractor {
@@ -121,6 +125,9 @@ export default function DispatchLinkPage() {
     const [error, setError] = useState<string | null>(null);
     const [expandedTaskNum, setExpandedTaskNum] = useState<number | null>(null);
     const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+    // After picking themselves, the modal pivots to the bond payment step.
+    // Holds the per-contractor token + display name so the payment form has context.
+    const [claimed, setClaimed] = useState<{ token: string; name: string } | null>(null);
 
     const { data, isLoading, isError } = useQuery<OpenDispatchData>({
         queryKey: ["dispatch-link", token],
@@ -140,19 +147,24 @@ export default function DispatchLinkPage() {
     });
 
     const claim = useMutation({
-        mutationFn: async (contractorId: string) => {
+        mutationFn: async (contractor: PoolContractor) => {
             const r = await fetch(`/api/dispatch-link/${token}/claim`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ contractorId }),
+                body: JSON.stringify({ contractorId: contractor.id }),
             });
             const body = await r.json();
             if (!r.ok) throw new Error(body.error || "claim failed");
-            return body;
+            return { contractorToken: body.token as string, name: contractor.name };
         },
-        onSuccess: ({ token: contractorToken }) => {
-            // Hand off to the existing per-contractor flow
-            setLocation(`/contractor-job/${contractorToken}`);
+        onSuccess: ({ contractorToken, name }) => {
+            // Don't redirect — pivot the modal straight into the bond payment step.
+            // If the dispatch has no bond required, fall through to the per-contractor page.
+            if (data?.dispatch.bondRequired) {
+                setClaimed({ token: contractorToken, name });
+            } else {
+                setLocation(`/contractor-job/${contractorToken}`);
+            }
         },
         onError: (e: any) => setError(e?.message || "Could not claim — try again."),
     });
@@ -245,6 +257,16 @@ export default function DispatchLinkPage() {
                         <div className="absolute -top-24 -right-24 w-80 h-80 bg-[#F5A623]/15 rounded-full blur-3xl pointer-events-none" />
                         <div className="absolute -bottom-32 -left-20 w-72 h-72 bg-[#7DB00E]/10 rounded-full blur-3xl pointer-events-none" />
 
+                        {/* Review bonus badge — top-right corner. Earned when the
+                            contractor secures a 5★ Google review post-completion. */}
+                        <div className="absolute top-3 right-3 z-10">
+                            <div className="inline-flex items-center gap-1.5 bg-[#F5A623] text-[#1B2A4A] px-2.5 py-1 rounded-full shadow-lg shadow-[#F5A623]/20 border border-[#F5A623]/40">
+                                <Star className="h-3 w-3 fill-[#1B2A4A] stroke-[#1B2A4A]" />
+                                <span className="text-[11px] font-bold tabular-nums leading-none">+£10</span>
+                                <span className="text-[10px] font-semibold uppercase tracking-[0.04em] leading-none">5★ bonus</span>
+                            </div>
+                        </div>
+
                         <div className="relative">
                             <p className="text-[10px] uppercase tracking-[0.12em] font-semibold text-white/55 mb-3">
                                 {dispatch.subtitle?.split(",")[0]?.trim() || dispatch.postcode} · #{dispatch.shortRef}
@@ -254,7 +276,7 @@ export default function DispatchLinkPage() {
                                 {fmt(dispatch.totalContractorPayPence)}
                             </p>
                             <p className="text-[12px] uppercase tracking-[0.08em] text-white/65 mt-2 font-medium">
-                                Net pay · {dispatch.tasks.length} task{dispatch.tasks.length !== 1 ? "s" : ""}
+                                Your pay · {dispatch.tasks.length} task{dispatch.tasks.length !== 1 ? "s" : ""}
                             </p>
 
                             {dispatch.proposalSummary && (
@@ -268,24 +290,31 @@ export default function DispatchLinkPage() {
                                 <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-white/[0.07] text-white/85 px-2.5 py-1 rounded-full border border-white/10">
                                     <Clock className="h-3 w-3" /> {durationBand(dispatch.totalHours)}
                                 </span>
-                                {/* Skill mix */}
-                                {skillMix(dispatch.tasks).map((s) => (
-                                    <span key={s.tier} className="inline-flex items-center gap-1 text-[11px] font-medium bg-white/[0.07] text-white/85 px-2.5 py-1 rounded-full border border-white/10">
-                                        <span className={`w-1.5 h-1.5 rounded-full ${tierDot(s.tier)}`} />
-                                        {s.count} {tierLabel(s.tier)}
-                                    </span>
-                                ))}
-                                {/* Materials supplied — Handy supplies materials by default */}
-                                <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-[#7DB00E]/15 text-[#7DB00E] px-2.5 py-1 rounded-full border border-[#7DB00E]/30">
-                                    <Package className="h-3 w-3" /> Materials supplied
-                                </span>
+                                {/* Skill mix — collapsed into a single pill with colored dots
+                                    showing the count of each tier. Saves 2-3 chips. */}
+                                {(() => {
+                                    const mix = skillMix(dispatch.tasks);
+                                    if (mix.length === 0) return null;
+                                    return (
+                                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-white/[0.07] text-white/85 px-2.5 py-1 rounded-full border border-white/10">
+                                            {mix.map((s, i) => (
+                                                <span key={s.tier} className="inline-flex items-center gap-0.5">
+                                                    <span className={`w-1.5 h-1.5 rounded-full ${tierDot(s.tier)}`} />
+                                                    <span className="tabular-nums">{s.count}</span>
+                                                    {i < mix.length - 1 && <span className="text-white/30 ml-0.5">·</span>}
+                                                </span>
+                                            ))}
+                                            <span className="text-white/55 ml-0.5">{dispatch.tasks.length} task{dispatch.tasks.length !== 1 ? "s" : ""}</span>
+                                        </span>
+                                    );
+                                })()}
                                 {/* Bond preview */}
                                 {dispatch.bondRequired && dispatch.bondAmountPence && (
                                     <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-[#F5A623]/15 text-[#F5A623] px-2.5 py-1 rounded-full border border-[#F5A623]/30">
                                         <ShieldCheck className="h-3 w-3" /> {fmt(dispatch.bondAmountPence)} bond
                                     </span>
                                 )}
-                                {/* Media count */}
+                                {/* Media count — only when >0 */}
                                 {(() => {
                                     const totalPhotos = (dispatch.mediaUrls || []).filter((u) => !isVideo(u)).length
                                         + dispatch.tasks.reduce((acc, t) => acc + (t.mediaUrls || []).filter((u) => !isVideo(u)).length, 0);
@@ -293,18 +322,34 @@ export default function DispatchLinkPage() {
                                         + dispatch.tasks.reduce((acc, t) => acc + (t.mediaUrls || []).filter((u) => isVideo(u)).length, 0);
                                     if (totalPhotos === 0 && totalVideos === 0) return null;
                                     return (
-                                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-white/[0.07] text-white/85 px-2.5 py-1 rounded-full border border-white/10">
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-white/[0.07] text-white/85 px-2.5 py-1 rounded-full border border-white/10">
                                             <ImageIcon className="h-3 w-3" />
-                                            {totalPhotos > 0 && `${totalPhotos} photo${totalPhotos !== 1 ? "s" : ""}`}
-                                            {totalPhotos > 0 && totalVideos > 0 && " · "}
-                                            {totalVideos > 0 && `${totalVideos} video${totalVideos !== 1 ? "s" : ""}`}
+                                            {totalPhotos + totalVideos}
                                         </span>
                                     );
                                 })()}
+                                {/* Risk flags — inline as compact icon chips, no labels */}
+                                {riskFlags(dispatch.tasks).map((f) => {
+                                    const Icon = f.icon;
+                                    return (
+                                        <span
+                                            key={f.key}
+                                            title={f.label}
+                                            className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-500/15 text-amber-300 border border-amber-400/30"
+                                        >
+                                            <Icon className="h-3.5 w-3.5" />
+                                        </span>
+                                    );
+                                })}
                             </div>
 
-                            {/* Risk flags — auto-derived from task warnings */}
-                            {(() => {
+                            {/* Materials supplied — moved to a single subtle line, not a pill */}
+                            <p className="mt-2.5 inline-flex items-center gap-1.5 text-[11px] text-[#7DB00E]/90">
+                                <Package className="h-3 w-3" /> Materials supplied by Handy
+                            </p>
+
+                            {/* Hidden — risk flags are now inline icons in the strip above */}
+                            {false && (() => {
                                 const flags = riskFlags(dispatch.tasks);
                                 if (flags.length === 0) return null;
                                 return (
@@ -521,19 +566,49 @@ export default function DispatchLinkPage() {
                 );
             })()}
 
-            {/* Sticky bottom CTA */}
+            {/* Sticky bottom CTA — with live scarcity pill above */}
             <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#E6E8EC] bg-white/95 backdrop-blur-md">
-                <div className="max-w-[680px] mx-auto px-4 py-3 flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                        <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#8B92A0] leading-none">Net pay</p>
-                        <p className="text-[20px] font-semibold tabular-nums text-[#0E1116] leading-tight mt-0.5">{fmt(dispatch.totalContractorPayPence)}</p>
+                <div className="max-w-[680px] mx-auto px-4 pt-2 pb-3">
+                    {/* Scarcity pill — view count + last-viewed age. Only shown when
+                        there's competitive activity to flag (>1 view OR seen <30m ago). */}
+                    {(() => {
+                        const views = data.viewCount || 0;
+                        const lastSeenMin = data.lastViewedAt
+                            ? Math.max(0, Math.floor((Date.now() - new Date(data.lastViewedAt).getTime()) / 60000))
+                            : null;
+                        const showRecent = lastSeenMin !== null && lastSeenMin <= 30;
+                        const showCount = views >= 2;
+                        if (!showRecent && !showCount) return null;
+                        const lastSeenLabel = lastSeenMin === 0 ? 'just now' : `${lastSeenMin}m ago`;
+                        return (
+                            <div className="flex items-center justify-center mb-2">
+                                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tabular-nums bg-red-50 text-red-700 border border-red-200 px-2.5 py-1 rounded-full">
+                                    <span className="relative flex h-1.5 w-1.5">
+                                        <span className="absolute inset-0 rounded-full bg-red-500 opacity-75 animate-ping" />
+                                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500" />
+                                    </span>
+                                    {showCount && <span>{views} contractors viewing</span>}
+                                    {showCount && showRecent && <span className="text-red-400">·</span>}
+                                    {showRecent && <span>last seen {lastSeenLabel}</span>}
+                                </span>
+                            </div>
+                        );
+                    })()}
+                    <div className="flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                            <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#8B92A0] leading-none">You earn</p>
+                            <p className="text-[20px] font-semibold tabular-nums text-[#0E1116] leading-tight mt-0.5">{fmt(dispatch.totalContractorPayPence)}</p>
+                        </div>
+                        <button
+                            onClick={() => setShowPicker(true)}
+                            className="px-5 py-3 rounded-xl font-semibold text-[14px] bg-[#3B7A3F] hover:bg-[#2F6133] text-white transition-all active:scale-[0.97] shadow-md shadow-[#3B7A3F]/20 inline-flex items-center gap-2"
+                        >
+                            <Hammer className="h-4 w-4" />
+                            {dispatch.bondRequired && dispatch.bondAmountPence
+                                ? `Lock for ${fmt(dispatch.bondAmountPence)}`
+                                : "I'm taking this"}
+                        </button>
                     </div>
-                    <button
-                        onClick={() => setShowPicker(true)}
-                        className="px-5 py-3 rounded-xl font-semibold text-[14px] bg-[#3B7A3F] hover:bg-[#2F6133] text-white transition-all active:scale-[0.97] shadow-md shadow-[#3B7A3F]/20 inline-flex items-center gap-2"
-                    >
-                        <Hammer className="h-4 w-4" /> I'm taking this
-                    </button>
                 </div>
             </div>
 
@@ -545,7 +620,11 @@ export default function DispatchLinkPage() {
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         className="fixed inset-0 z-[60] bg-[#0E1116]/40 backdrop-blur-sm flex items-end sm:items-center justify-center"
-                        onClick={() => { setShowPicker(false); setError(null); setSearch(""); }}
+                        onClick={() => {
+                            // Disallow closing while a payment is mid-flight.
+                            if (claim.isPending) return;
+                            setShowPicker(false); setError(null); setSearch(""); setClaimed(null);
+                        }}
                     >
                         <motion.div
                             initial={{ y: 20, opacity: 0 }}
@@ -554,70 +633,225 @@ export default function DispatchLinkPage() {
                             className="w-full sm:max-w-md bg-white sm:rounded-2xl rounded-t-3xl border-t sm:border border-[#E6E8EC] shadow-2xl max-h-[85vh] flex flex-col"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <div className="p-5 border-b border-[#E6E8EC]">
-                                <div className="flex items-center justify-between mb-1">
-                                    <h3 className="text-[16px] font-semibold">Pick yourself</h3>
-                                    <button onClick={() => { setShowPicker(false); setError(null); setSearch(""); }} className="text-[#8B92A0] hover:text-[#0E1116]">
-                                        <X className="h-5 w-5" />
-                                    </button>
-                                </div>
-                                <p className="text-[12px] text-[#5C6470] mb-3">From the Handy contractor pool. Search by name, city, or last 4 of phone.</p>
-                                <div className="relative">
-                                    <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8B92A0]" />
-                                    <input
-                                        type="text"
-                                        value={search}
-                                        onChange={(e) => setSearch(e.target.value)}
-                                        placeholder="Search…"
-                                        className="w-full bg-[#F7F8FA] border border-[#E6E8EC] rounded-lg pl-9 pr-3 py-2 text-[14px] focus:outline-none focus:border-[#3B7A3F] focus:ring-2 focus:ring-[#3B7A3F]/20"
-                                        autoFocus
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="flex-1 overflow-y-auto p-2">
-                                {poolLoading ? (
-                                    <div className="flex items-center justify-center py-10 gap-2 text-[#8B92A0]">
-                                        <Loader2 className="h-4 w-4 animate-spin" /> Loading contractor pool…
+                            {!claimed ? (
+                                <>
+                                    <div className="p-5 border-b border-[#E6E8EC]">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <h3 className="text-[16px] font-semibold">Pick yourself</h3>
+                                            <button onClick={() => { setShowPicker(false); setError(null); setSearch(""); }} className="text-[#8B92A0] hover:text-[#0E1116]">
+                                                <X className="h-5 w-5" />
+                                            </button>
+                                        </div>
+                                        <p className="text-[12px] text-[#5C6470] mb-3">From the Handy contractor pool. Search by name, city, or last 4 of phone.</p>
+                                        <div className="relative">
+                                            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8B92A0]" />
+                                            <input
+                                                type="text"
+                                                value={search}
+                                                onChange={(e) => setSearch(e.target.value)}
+                                                placeholder="Search…"
+                                                className="w-full bg-[#F7F8FA] border border-[#E6E8EC] rounded-lg pl-9 pr-3 py-2 text-[14px] focus:outline-none focus:border-[#3B7A3F] focus:ring-2 focus:ring-[#3B7A3F]/20"
+                                                autoFocus
+                                            />
+                                        </div>
                                     </div>
-                                ) : filteredPool.length === 0 ? (
-                                    <p className="text-center py-8 text-[14px] text-[#8B92A0]">
-                                        No contractors match. Try a shorter search.
-                                    </p>
-                                ) : (
-                                    filteredPool.map((c) => (
-                                        <button
-                                            key={c.id}
-                                            onClick={() => {
-                                                setError(null);
-                                                claim.mutate(c.id);
-                                            }}
-                                            disabled={claim.isPending}
-                                            className="w-full px-3 py-3 rounded-lg hover:bg-[#F1F3F6] disabled:opacity-50 flex items-center justify-between text-left transition-colors"
-                                        >
-                                            <div>
-                                                <p className="text-[14px] font-medium text-[#0E1116]">{c.name}</p>
-                                                <p className="text-[12px] text-[#8B92A0]">
-                                                    {c.city || "—"}{c.phoneSuffix && ` · phone ends ${c.phoneSuffix}`}
-                                                </p>
-                                            </div>
-                                            {claim.isPending ? <Loader2 className="h-4 w-4 animate-spin text-[#3B7A3F]" /> : <Check className="h-4 w-4 text-[#8B92A0]" />}
-                                        </button>
-                                    ))
-                                )}
-                            </div>
 
-                            {error && (
-                                <div className="p-4 border-t border-[#E6E8EC] bg-red-50">
-                                    <p className="text-[12px] text-red-700 flex items-center gap-1.5">
-                                        <AlertCircle className="h-3.5 w-3.5" /> {error}
-                                    </p>
-                                </div>
+                                    <div className="flex-1 overflow-y-auto p-2">
+                                        {poolLoading ? (
+                                            <div className="flex items-center justify-center py-10 gap-2 text-[#8B92A0]">
+                                                <Loader2 className="h-4 w-4 animate-spin" /> Loading contractor pool…
+                                            </div>
+                                        ) : filteredPool.length === 0 ? (
+                                            <p className="text-center py-8 text-[14px] text-[#8B92A0]">
+                                                No contractors match. Try a shorter search.
+                                            </p>
+                                        ) : (
+                                            filteredPool.map((c) => (
+                                                <button
+                                                    key={c.id}
+                                                    onClick={() => {
+                                                        setError(null);
+                                                        claim.mutate(c);
+                                                    }}
+                                                    disabled={claim.isPending}
+                                                    className="w-full px-3 py-3 rounded-lg hover:bg-[#F1F3F6] disabled:opacity-50 flex items-center justify-between text-left transition-colors"
+                                                >
+                                                    <div>
+                                                        <p className="text-[14px] font-medium text-[#0E1116]">{c.name}</p>
+                                                        <p className="text-[12px] text-[#8B92A0]">
+                                                            {c.city || "—"}{c.phoneSuffix && ` · phone ends ${c.phoneSuffix}`}
+                                                        </p>
+                                                    </div>
+                                                    {claim.isPending ? <Loader2 className="h-4 w-4 animate-spin text-[#3B7A3F]" /> : <Check className="h-4 w-4 text-[#8B92A0]" />}
+                                                </button>
+                                            ))
+                                        )}
+                                    </div>
+
+                                    {error && (
+                                        <div className="p-4 border-t border-[#E6E8EC] bg-red-50">
+                                            <p className="text-[12px] text-red-700 flex items-center gap-1.5">
+                                                <AlertCircle className="h-3.5 w-3.5" /> {error}
+                                            </p>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <BondStep
+                                    contractorToken={claimed.token}
+                                    contractorName={claimed.name}
+                                    bondAmountPence={dispatch.bondAmountPence || 0}
+                                    onBack={() => setClaimed(null)}
+                                    onPaid={() => setLocation(`/contractor-job/${claimed.token}`)}
+                                />
                             )}
                         </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>
         </div>
+    );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Inline bond payment — second step of the picker modal after self-identify
+// ───────────────────────────────────────────────────────────────────────────
+
+function BondStep({
+    contractorToken, contractorName, bondAmountPence, onBack, onPaid,
+}: {
+    contractorToken: string;
+    contractorName: string;
+    bondAmountPence: number;
+    onBack: () => void;
+    onPaid: () => void;
+}) {
+    const [clientSecret, setClientSecret] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        fetch(`/api/contractor-job/${contractorToken}/bond/intent`, { method: "POST" })
+            .then((r) => r.json())
+            .then((d) => {
+                if (cancelled) return;
+                if (d.clientSecret) setClientSecret(d.clientSecret);
+                else setError(d.error || "Could not start payment");
+            })
+            .catch(() => !cancelled && setError("Network error"));
+        return () => { cancelled = true; };
+    }, [contractorToken]);
+
+    return (
+        <div className="flex flex-col">
+            <div className="p-5 border-b border-[#E6E8EC]">
+                <div className="flex items-center gap-3">
+                    <button onClick={onBack} className="text-[#8B92A0] hover:text-[#0E1116] -ml-1 p-1" aria-label="Back">
+                        <ChevronDown className="h-5 w-5 rotate-90" />
+                    </button>
+                    <div className="flex-1">
+                        <h3 className="text-[16px] font-semibold leading-tight">Pay £{Math.round(bondAmountPence / 100)} bond</h3>
+                        <p className="text-[12px] text-[#5C6470] mt-0.5">{contractorName} · refunded same-day on completion</p>
+                    </div>
+                </div>
+            </div>
+
+            <div className="p-5 overflow-y-auto">
+                <div className="bg-[#F7F8FA] border border-[#E6E8EC] rounded-lg p-3 mb-4 flex items-start gap-2.5">
+                    <ShieldCheck className="h-4 w-4 text-[#3B7A3F] shrink-0 mt-0.5" />
+                    <p className="text-[12px] text-[#5C6470] leading-relaxed">
+                        Held by Stripe. <span className="font-semibold text-[#0E1116]">First to pay locks the job.</span> Bond returns to your card automatically when you mark complete.
+                    </p>
+                </div>
+
+                {error && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
+                        <p className="text-[12px] text-red-700 flex items-center gap-1.5"><AlertCircle className="h-3.5 w-3.5" /> {error}</p>
+                    </div>
+                )}
+
+                {!clientSecret || !stripePromise ? (
+                    <div className="bg-[#F7F8FA] border border-[#E6E8EC] rounded-lg p-4 flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 text-[#5C6470] animate-spin" />
+                        <p className="text-[12px] text-[#5C6470]">Setting up secure payment…</p>
+                    </div>
+                ) : (
+                    <Elements
+                        stripe={stripePromise}
+                        options={{
+                            clientSecret,
+                            appearance: {
+                                theme: "stripe",
+                                variables: {
+                                    colorPrimary: "#3B7A3F",
+                                    colorBackground: "#FFFFFF",
+                                    colorText: "#0E1116",
+                                    colorDanger: "#B42318",
+                                    borderRadius: "8px",
+                                    fontFamily: "system-ui, -apple-system, sans-serif",
+                                },
+                            },
+                        }}
+                    >
+                        <BondInlineForm contractorToken={contractorToken} onPaid={onPaid} />
+                    </Elements>
+                )}
+
+                <p className="text-center text-[10px] text-[#8B92A0] uppercase tracking-[0.08em] mt-4">
+                    <CreditCard className="h-3 w-3 inline-block mr-1" /> Secured by Stripe
+                </p>
+            </div>
+        </div>
+    );
+}
+
+function BondInlineForm({ contractorToken, onPaid }: { contractorToken: string; onPaid: () => void }) {
+    const stripe = useStripe();
+    const elements = useElements();
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!stripe || !elements) return;
+        setSubmitting(true);
+        setError(null);
+        const { error: stripeError } = await stripe.confirmPayment({
+            elements,
+            confirmParams: { return_url: window.location.href },
+            redirect: "if_required",
+        });
+        if (stripeError) {
+            setError(stripeError.message || "Payment failed");
+            setSubmitting(false);
+            return;
+        }
+        const r = await fetch(`/api/contractor-job/${contractorToken}/bond/confirm`, { method: "POST" });
+        const d = await r.json();
+        if (d.status === "held") {
+            onPaid();
+        } else {
+            setError(d.error || "Payment did not complete");
+        }
+        setSubmitting(false);
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-3">
+            <PaymentElement options={{ layout: "tabs" }} />
+            {error && (
+                <p className="text-[12px] text-red-600 flex items-center gap-1.5">
+                    <AlertCircle className="h-3.5 w-3.5" /> {error}
+                </p>
+            )}
+            <button
+                type="submit"
+                disabled={!stripe || !elements || submitting}
+                className="w-full py-3 bg-[#3B7A3F] hover:bg-[#2F6133] disabled:bg-[#E6E8EC] disabled:text-[#8B92A0] text-white font-semibold text-[14px] rounded-lg transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
+            >
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+                Pay & lock the job
+            </button>
+        </form>
     );
 }

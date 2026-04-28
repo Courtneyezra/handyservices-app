@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "./db";
-import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, segmentEnum, invoices, invoiceTokens, contractorJobs, contentClaims, contentGuarantees, contentTestimonials, contentHassleItems, contentImages } from "@shared/schema";
+import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, segmentEnum, invoices, invoiceTokens, contractorJobs, contentClaims, contentGuarantees, contentTestimonials, contentHassleItems, contentImages, jobDispatches, dispatchBonds, users } from "@shared/schema";
 import { eq, desc, inArray } from "drizzle-orm";
 import crypto from 'crypto';
 import { z } from "zod";
@@ -976,7 +976,67 @@ quotesRouter.get('/api/personalized-quotes', async (req, res) => {
     try {
         const allQuotes = await db.select().from(personalizedQuotes)
             .orderBy(desc(personalizedQuotes.createdAt));
-        res.json(allQuotes);
+
+        // Augment each quote with its dispatch + bond status (if any) so the admin
+        // Recent Quotes card can show "Dispatched · Richard N · bond £20 held".
+        // Strategy: one batched lookup of dispatches keyed by quote_id, then a
+        // second batched lookup of bonds + contractor names for the locked ones.
+        const quoteIds = allQuotes.map((q) => q.id);
+        const dispatchRows = quoteIds.length
+            ? await db.select().from(jobDispatches).where(inArray(jobDispatches.quoteId, quoteIds))
+            : [];
+
+        // For locked dispatches, fetch the contractor name + their held bond
+        const lockedContractorIds = dispatchRows
+            .map((d) => d.lockedToContractorId)
+            .filter((id): id is string => !!id);
+        const lockedDispatchIds = dispatchRows
+            .filter((d) => d.status === 'locked' || d.status === 'completed')
+            .map((d) => d.id);
+
+        const [contractorRows, bondRows] = await Promise.all([
+            lockedContractorIds.length
+                ? db.select({
+                    id: handymanProfiles.id,
+                    businessName: handymanProfiles.businessName,
+                    firstName: users.firstName,
+                    lastName: users.lastName,
+                  }).from(handymanProfiles)
+                    .leftJoin(users, eq(handymanProfiles.userId, users.id))
+                    .where(inArray(handymanProfiles.id, lockedContractorIds))
+                : Promise.resolve([] as Array<{ id: string; businessName: string | null; firstName: string | null; lastName: string | null }>),
+            lockedDispatchIds.length
+                ? db.select().from(dispatchBonds).where(inArray(dispatchBonds.dispatchId, lockedDispatchIds))
+                : Promise.resolve([] as any[]),
+        ]);
+
+        const contractorById = new Map(contractorRows.map((c) => [c.id, c]));
+        const bondByDispatch = new Map(bondRows.map((b: any) => [b.dispatchId, b]));
+        const dispatchByQuote = new Map(dispatchRows.map((d) => [d.quoteId, d]));
+
+        const augmented = allQuotes.map((q) => {
+            const d = dispatchByQuote.get(q.id);
+            if (!d) return { ...q, dispatch: null };
+            const c = d.lockedToContractorId ? contractorById.get(d.lockedToContractorId) : null;
+            const bond = bondByDispatch.get(d.id);
+            return {
+                ...q,
+                dispatch: {
+                    id: d.id,
+                    status: d.status,
+                    publicToken: d.publicToken,
+                    lockedAt: d.lockedAt,
+                    contractorName: c
+                        ? (c.businessName || [c.firstName, c.lastName].filter(Boolean).join(' ') || null)
+                        : null,
+                    bondStatus: bond?.status || null, // 'pending' | 'held' | 'refunded' | 'forfeited' | 'failed'
+                    bondAmountPence: bond?.amountPence ?? d.bondAmountPence ?? null,
+                    bondPaidAt: bond?.paidAt || null,
+                },
+            };
+        });
+
+        res.json(augmented);
     } catch (error) {
         console.error("List quotes error:", error);
         res.status(500).json({ error: "Failed to fetch quotes" });

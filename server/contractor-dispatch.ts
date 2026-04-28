@@ -33,8 +33,14 @@ import { calculateMultiLineRevenueShare } from './revenue-share-tiers';
 import type { JobCategory } from '../shared/contextual-pricing-types';
 
 // ─── Stripe lazy init ───────────────────────────────────────────────────────
+// In dev, prefer the test secret so it matches the test publishable key the
+// client mounts. In prod, prefer the live secret. Either way, fall back to the
+// other if only one is configured.
 function getStripe(): Stripe | null {
-  const key = (process.env.STRIPE_SECRET_KEY || '').replace(/^["']|["']$/g, '').trim();
+  const isDev = process.env.NODE_ENV !== 'production';
+  const live = (process.env.STRIPE_SECRET_KEY || '').replace(/^["']|["']$/g, '').trim();
+  const test = (process.env.STRIPE_TEST_SECRET_KEY || '').replace(/^["']|["']$/g, '').trim();
+  const key = isDev ? (test || live) : (live || test);
   if (!key || !key.startsWith('sk_')) return null;
   return new Stripe(key, { apiVersion: '2024-06-20' });
 }
@@ -153,9 +159,20 @@ contractorDispatchRouter.get('/api/dispatch-link/:token', async (req, res) => {
     // (no contractor has identified themselves yet on this URL)
     const isLocked = dispatch.status === 'locked' || dispatch.status === 'completed';
 
+    // Bump scarcity counters — only count views while the dispatch is still live.
+    if (!isLocked) {
+      const now = new Date();
+      await db.update(jobDispatches)
+        .set({ viewCount: (dispatch.viewCount || 0) + 1, lastViewedAt: now })
+        .where(eq(jobDispatches.id, dispatch.id));
+    }
+
     res.json({
       dispatch: privacyGated(dispatch, 'pending'),
       isLocked,
+      // Scarcity signals shown near the sticky CTA: total view count + last-view age.
+      viewCount: (dispatch.viewCount || 0) + (isLocked ? 0 : 1),
+      lastViewedAt: isLocked ? dispatch.lastViewedAt : new Date().toISOString(),
       lockedToContractorName: isLocked ? await (async () => {
         // Show only the locked contractor's name (not phone) — handy for
         // contractors who later open the link and want to know who got it.
@@ -449,6 +466,35 @@ contractorDispatchRouter.post('/api/contractor-job/:token/bond/confirm', async (
 
     if (pi.status === 'succeeded') {
       const now = new Date();
+
+      // Atomically lock the dispatch — first paid bond wins. If another contractor
+      // already paid, we lost the race: refund this PI immediately and tell the
+      // client the job is taken. (Race is rare but real with the open-link model.)
+      const lockUpdate = await db.update(jobDispatches)
+        .set({ status: 'locked', lockedToContractorId: link.contractorId, lockedAt: now, updatedAt: now })
+        .where(and(eq(jobDispatches.id, link.dispatchId), eq(jobDispatches.status, 'pending')))
+        .returning();
+
+      if (lockUpdate.length === 0) {
+        // Lost race — refund the bond automatically and mark this bond cancelled.
+        try {
+          await stripe.refunds.create({
+            payment_intent: bond.stripePaymentIntentId,
+            reason: 'requested_by_customer',
+            metadata: { reason: 'lost_race_to_lock', bondId: bond.id },
+          });
+        } catch (refundErr) {
+          console.error('[ContractorDispatch] race-loss refund failed:', refundErr);
+        }
+        await db.update(dispatchBonds)
+          .set({ status: 'refunded', updatedAt: new Date() })
+          .where(eq(dispatchBonds.id, bond.id));
+        return res.status(409).json({ error: 'Another contractor locked the job first — your bond is being refunded.' });
+      }
+
+      // Won the race — bond is held + dispatch is locked + this contractor's link
+      // moves to accepted in one go (the open-link flow doesn't require per-warning
+      // ack pre-lock; warnings remain visible on the post-lock job sheet).
       await db.update(dispatchBonds)
         .set({
           status: 'held',
@@ -457,8 +503,11 @@ contractorDispatchRouter.post('/api/contractor-job/:token/bond/confirm', async (
           updatedAt: now,
         })
         .where(eq(dispatchBonds.id, bond.id));
-      console.log(`[ContractorDispatch] 💰 bond held: ${bond.id} (${bond.amountPence}p) for ${link.contractorName}`);
-      return res.json({ ok: true, status: 'held' });
+      await db.update(contractorJobLinks)
+        .set({ status: 'accepted', acceptedAt: now, updatedAt: now })
+        .where(eq(contractorJobLinks.id, link.id));
+      console.log(`[ContractorDispatch] 🔒 dispatch locked via bond payment: ${link.dispatchId} → ${link.contractorName} (bond ${bond.id})`);
+      return res.json({ ok: true, status: 'held', locked: true });
     }
     if (pi.status === 'requires_payment_method' || pi.status === 'canceled') {
       await db.update(dispatchBonds)

@@ -16,8 +16,9 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import {
     Hammer, Loader2, Plus, X, Trash2, Upload, Camera, Video, ShieldCheck,
     Users, AlertTriangle, CheckCircle2, ArrowRight, ChevronLeft, FileText,
-    Paperclip,
+    Paperclip, MessageSquare, Copy as CopyIcon,
 } from "lucide-react";
+import { buildDispatchWhatsAppMessage } from "@/lib/whatsapp-dispatch-message";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Types — mirror the backend draft response
@@ -922,53 +923,135 @@ export default function AdminGenerateDispatch() {
                 </div>
             )}
 
-            {/* Created — shareable link card */}
-            {createdLink && (
-                <div className="mb-6 bg-gradient-to-br from-blue-500/[0.08] to-card border-2 border-blue-500/40 rounded-xl p-5">
-                    <h3 className="font-bold text-base mb-2 flex items-center gap-2">
-                        <CheckCircle2 className="h-5 w-5 text-green-400" /> Shareable link ready
-                    </h3>
-                    <p className="text-sm text-muted-foreground mb-3">
-                        Paste this into your contractor WhatsApp group. Anyone in your pool can claim it; first to pay the bond locks the job.
-                    </p>
-                    <div className="flex items-center gap-2 mb-3">
-                        <input
-                            type="text"
-                            readOnly
-                            value={createdLink.publicUrl}
-                            onClick={(e) => (e.target as HTMLInputElement).select()}
-                            className="flex-1 bg-background border rounded-lg px-3 py-2 text-sm font-mono select-all"
-                        />
-                        <button
-                            type="button"
-                            onClick={() => {
-                                navigator.clipboard.writeText(createdLink.publicUrl);
-                                setActionResult({ kind: "ok", msg: "Link copied to clipboard." });
-                            }}
-                            className="text-sm px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold"
-                        >
-                            Copy
-                        </button>
+            {/* Created — shareable link + WhatsApp broadcast message */}
+            {createdLink && (() => {
+                // Build the WhatsApp message — use form state for contractor pay /
+                // bond / postcode / first preferred date so admins can edit and rebuild.
+                const firstPref = data?.draft?.scheduledDate ? new Date(data.draft.scheduledDate).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : null;
+                const fullMsg = buildDispatchWhatsAppMessage({
+                    publicUrl: createdLink.publicUrl,
+                    postcode: data?.quote?.postcode || null,
+                    contractorPayPence: totalContractorPayPence,
+                    bondAmountPence: bondRequired ? bondPence : null,
+                    taskCount: tasks.length,
+                    proposalSummary: data?.draft?.subtitle || null,
+                    firstPreferredDate: firstPref,
+                    flavour: 'full',
+                });
+                const shortMsg = buildDispatchWhatsAppMessage({
+                    publicUrl: createdLink.publicUrl,
+                    postcode: data?.quote?.postcode || null,
+                    contractorPayPence: totalContractorPayPence,
+                    bondAmountPence: bondRequired ? bondPence : null,
+                    taskCount: tasks.length,
+                    proposalSummary: data?.draft?.subtitle || null,
+                    firstPreferredDate: firstPref,
+                    flavour: 'short',
+                });
+                return (
+                    <div className="mb-6 bg-gradient-to-br from-blue-500/[0.08] to-card border-2 border-blue-500/40 rounded-xl p-5 space-y-4">
+                        <div>
+                            <h3 className="font-bold text-base mb-2 flex items-center gap-2">
+                                <CheckCircle2 className="h-5 w-5 text-green-400" /> Shareable link ready
+                            </h3>
+                            <p className="text-sm text-muted-foreground mb-3">
+                                Use the WhatsApp message below — it explains the system + bond so contractors don't ask. The link is embedded.
+                            </p>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="text"
+                                    readOnly
+                                    value={createdLink.publicUrl}
+                                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                                    className="flex-1 bg-background border rounded-lg px-3 py-2 text-sm font-mono select-all"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(createdLink.publicUrl);
+                                        setActionResult({ kind: "ok", msg: "Link copied to clipboard." });
+                                    }}
+                                    className="text-sm px-3 py-2 rounded bg-muted hover:bg-muted/80 inline-flex items-center gap-1.5"
+                                >
+                                    <CopyIcon className="h-3.5 w-3.5" /> Link
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Full broadcast message preview — editable to copy/tweak */}
+                        <div>
+                            <div className="flex items-baseline justify-between mb-2">
+                                <h4 className="font-semibold text-sm flex items-center gap-1.5">
+                                    <MessageSquare className="h-4 w-4 text-[#25D366]" /> WhatsApp broadcast — full explainer
+                                </h4>
+                                <span className="text-[11px] text-muted-foreground">For new groups / first sends</span>
+                            </div>
+                            <textarea
+                                readOnly
+                                value={fullMsg}
+                                rows={Math.min(16, fullMsg.split('\n').length + 1)}
+                                onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                                className="w-full bg-background border rounded-lg px-3 py-2 text-[13px] font-mono whitespace-pre-wrap select-all leading-snug"
+                            />
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(fullMsg);
+                                        setActionResult({ kind: "ok", msg: "Full message copied — paste into WhatsApp." });
+                                    }}
+                                    className="text-sm px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold inline-flex items-center gap-1.5"
+                                >
+                                    <CopyIcon className="h-3.5 w-3.5" /> Copy full message
+                                </button>
+                                <a
+                                    href={`https://wa.me/?text=${encodeURIComponent(fullMsg)}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm px-3 py-1.5 rounded bg-[#25D366]/15 text-[#25D366] hover:bg-[#25D366]/25 inline-flex items-center gap-1.5 border border-[#25D366]/30"
+                                >
+                                    <MessageSquare className="h-3.5 w-3.5" /> Send via WhatsApp
+                                </a>
+                            </div>
+                        </div>
+
+                        {/* Short version for repeat broadcasts */}
+                        <details className="group">
+                            <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 list-none">
+                                <span className="group-open:hidden">Show short version (for known contractors)</span>
+                                <span className="hidden group-open:inline">Hide short version</span>
+                            </summary>
+                            <textarea
+                                readOnly
+                                value={shortMsg}
+                                rows={Math.min(10, shortMsg.split('\n').length + 1)}
+                                onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                                className="mt-2 w-full bg-background border rounded-lg px-3 py-2 text-[13px] font-mono whitespace-pre-wrap select-all leading-snug"
+                            />
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    navigator.clipboard.writeText(shortMsg);
+                                    setActionResult({ kind: "ok", msg: "Short message copied." });
+                                }}
+                                className="mt-2 text-sm px-3 py-1.5 rounded bg-muted hover:bg-muted/80 inline-flex items-center gap-1.5"
+                            >
+                                <CopyIcon className="h-3.5 w-3.5" /> Copy short
+                            </button>
+                        </details>
+
+                        <div className="pt-3 border-t border-border/50 flex justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setLocation(`/admin/dispatch?new=${createdLink.dispatchId}`)}
+                                className="text-sm px-3 py-1.5 rounded bg-muted hover:bg-muted/80"
+                            >
+                                Done — view dispatch →
+                            </button>
+                        </div>
                     </div>
-                    <div className="flex gap-2">
-                        <a
-                            href={`https://wa.me/?text=${encodeURIComponent("New job from Handy Services — first to claim wins:\n" + createdLink.publicUrl)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm px-3 py-1.5 rounded bg-[#25D366]/15 text-[#25D366] hover:bg-[#25D366]/25 inline-flex items-center gap-1.5 border border-[#25D366]/30"
-                        >
-                            Send via WhatsApp
-                        </a>
-                        <button
-                            type="button"
-                            onClick={() => setLocation(`/admin/dispatch?new=${createdLink.dispatchId}`)}
-                            className="text-sm px-3 py-1.5 rounded bg-muted hover:bg-muted/80 ml-auto"
-                        >
-                            Done — view dispatch →
-                        </button>
-                    </div>
-                </div>
-            )}
+                );
+            })()}
 
             {/* Sticky action row */}
             <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur border-t z-40">

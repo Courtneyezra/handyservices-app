@@ -2745,6 +2745,10 @@ export const jobDispatches = pgTable('job_dispatches', {
   // Bond config — refundable security deposit required to accept this dispatch
   bondRequired: boolean('bond_required').default(false).notNull(),
   bondAmountPence: integer('bond_amount_pence'), // null when bondRequired=false
+  // Live scarcity tracking — incremented on each public link GET to power the
+  // "X views · last seen Xm ago" pill on the contractor brief.
+  viewCount: integer('view_count').notNull().default(0),
+  lastViewedAt: timestamp('last_viewed_at'),
   createdBy: varchar('created_by'), // admin user id
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

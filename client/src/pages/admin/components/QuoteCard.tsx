@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Copy, Eye, Phone, RefreshCw, X, Download, CreditCard, Pencil, FileEdit, MessageCircle, Hammer } from 'lucide-react';
+import { Copy, Eye, Phone, RefreshCw, X, Download, CreditCard, Pencil, FileEdit, MessageCircle, Hammer, ShieldCheck, UserCheck } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
 import { generateQuotePDF } from '@/lib/quote-pdf-generator';
@@ -39,6 +39,17 @@ interface PersonalizedQuote {
     timeSlotType: string | null;
     exactTimeRequested: string | null;
     dateTimePreferences: { date: string; timeSlot: 'am' | 'pm' | 'flexible' | 'full_day' }[] | null;
+    // Dispatch state — populated when this quote has been pushed to the contractor pool.
+    dispatch?: {
+        id: string;
+        status: 'pending' | 'locked' | 'completed' | 'cancelled';
+        publicToken: string | null;
+        lockedAt: string | null;
+        contractorName: string | null;
+        bondStatus: 'pending' | 'held' | 'refunded' | 'forfeited' | 'failed' | null;
+        bondAmountPence: number | null;
+        bondPaidAt: string | null;
+    } | null;
 }
 
 interface QuoteCardProps {
@@ -118,6 +129,24 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, av
                                 <Badge className="bg-blue-600 text-[10px]">
                                     <CreditCard className="h-3 w-3 mr-0.5" />
                                     Paid
+                                </Badge>
+                            )}
+                            {/* Dispatch state — locked contractor + bond status */}
+                            {quote.dispatch?.status === 'pending' && (
+                                <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50 text-[10px]" title="Dispatched, awaiting contractor lock">
+                                    <Hammer className="h-3 w-3 mr-0.5" /> Dispatched
+                                </Badge>
+                            )}
+                            {(quote.dispatch?.status === 'locked' || quote.dispatch?.status === 'completed') && quote.dispatch.contractorName && (
+                                <Badge className="bg-emerald-600 text-[10px]" title={quote.dispatch.lockedAt ? `Locked ${format(new Date(quote.dispatch.lockedAt), 'dd MMM HH:mm')}` : 'Locked'}>
+                                    <UserCheck className="h-3 w-3 mr-0.5" />
+                                    {quote.dispatch.contractorName}
+                                </Badge>
+                            )}
+                            {quote.dispatch?.bondStatus === 'held' && quote.dispatch.bondAmountPence && (
+                                <Badge variant="outline" className="text-emerald-700 border-emerald-300 bg-emerald-50 text-[10px]" title={quote.dispatch.bondPaidAt ? `Bond paid ${format(new Date(quote.dispatch.bondPaidAt), 'dd MMM HH:mm')}` : 'Bond held'}>
+                                    <ShieldCheck className="h-3 w-3 mr-0.5" />
+                                    Bond £{Math.round(quote.dispatch.bondAmountPence / 100)}
                                 </Badge>
                             )}
                             {isExpired && !isBooked && (
