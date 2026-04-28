@@ -28,7 +28,8 @@ import {
 import { eq, desc, and } from 'drizzle-orm';
 import crypto from 'crypto';
 import Stripe from 'stripe';
-import { S3Client, PutObjectCommand, ObjectCannedACL } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, ObjectCannedACL } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { calculateMultiLineRevenueShare } from './revenue-share-tiers';
 import type { JobCategory } from '../shared/contextual-pricing-types';
 
@@ -48,32 +49,78 @@ function getStripe(): Stripe | null {
 export const contractorDispatchRouter = Router();
 
 // ─── S3 helper for photo uploads ────────────────────────────────────────────
-// Mirrors server/s3-media.ts (known-working pattern for tenant-issue photos):
-// AWS_S3_BUCKET = v6-handy-services-media (ACLs ENABLED, supports public-read).
-// Do NOT mix with S3_BUCKET=handyuploaduk — that bucket has ACLs disabled and
-// rejects PutObject{ACL: 'public-read'} which is the exact error we hit.
+// Two credential schemes coexist in this codebase:
+//   - AWS_* (used by server/s3-media.ts → v6-handy-services-media bucket, ACLs ON)
+//   - S3_*  (used by server/storage.ts → handyuploaduk bucket, ACLs OFF)
+// Production has only the S3_* set, so we accept either and skip the ACL when
+// it's not supported. The bucket either has a public-read policy already or
+// objects are served via S3_PUBLIC_URL_BASE (CloudFront/etc).
 
-const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || '';
-const AWS_REGION = process.env.AWS_REGION || 'eu-west-2';
-const AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID || '';
-const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY || '';
+const S3_ENDPOINT = process.env.S3_ENDPOINT;
+const S3_BUCKET = process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || '';
+const S3_REGION = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
+const S3_ACCESS_KEY = process.env.S3_ACCESS_KEY || process.env.AWS_ACCESS_KEY_ID || '';
+const S3_SECRET_KEY = process.env.S3_SECRET_KEY || process.env.AWS_SECRET_ACCESS_KEY || '';
+const S3_PUBLIC_URL_BASE = process.env.S3_PUBLIC_URL_BASE;
+// Whether to attach ACL: public-read on PutObject. Default off (works on
+// modern buckets with ACLs disabled). Set to "true" only when the bucket
+// has Object Ownership = BucketOwnerPreferred and ACLs enabled.
+const S3_USE_PUBLIC_ACL = (process.env.S3_USE_PUBLIC_ACL || '').toLowerCase() === 'true';
 
 let s3Client: S3Client | null = null;
 function getS3() {
   if (!s3Client) {
-    if (!AWS_S3_BUCKET || !AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY) {
-      throw new Error('S3 credentials not configured (need AWS_S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)');
+    if (!S3_BUCKET || !S3_ACCESS_KEY || !S3_SECRET_KEY) {
+      throw new Error('S3 not configured (need S3_BUCKET / S3_ACCESS_KEY / S3_SECRET_KEY, or AWS_* equivalents)');
     }
     s3Client = new S3Client({
-      region: AWS_REGION,
-      credentials: { accessKeyId: AWS_ACCESS_KEY_ID, secretAccessKey: AWS_SECRET_ACCESS_KEY },
+      region: S3_REGION,
+      ...(S3_ENDPOINT ? { endpoint: S3_ENDPOINT } : {}),
+      credentials: { accessKeyId: S3_ACCESS_KEY, secretAccessKey: S3_SECRET_KEY },
     });
   }
   return s3Client;
 }
 
 function publicUrlFor(key: string): string {
-  return `https://${AWS_S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}`;
+  if (S3_PUBLIC_URL_BASE) return `${S3_PUBLIC_URL_BASE}/${key}`;
+  if (S3_ENDPOINT) return `${S3_ENDPOINT}/${S3_BUCKET}/${key}`;
+  return `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${key}`;
+}
+
+// Reverse the URL build to extract the S3 key from a stored URL.
+function keyFromStoredUrl(url: string): string | null {
+  if (!url) return null;
+  // path-style: https://endpoint/bucket/KEY  or  https://s3.region.amazonaws.com/bucket/KEY
+  const pathStyle = new RegExp(`^https?://[^/]+/${S3_BUCKET}/(.+)$`);
+  const mPath = url.match(pathStyle);
+  if (mPath) return mPath[1];
+  // virtual-host: https://bucket.s3.region.amazonaws.com/KEY
+  const vhost = new RegExp(`^https?://${S3_BUCKET}\\.s3\\.[^/]+\\.amazonaws\\.com/(.+)$`);
+  const mV = url.match(vhost);
+  if (mV) return mV[1];
+  // S3_PUBLIC_URL_BASE override (CloudFront): https://cdn.example.com/KEY
+  if (S3_PUBLIC_URL_BASE && url.startsWith(S3_PUBLIC_URL_BASE + '/')) {
+    return url.slice(S3_PUBLIC_URL_BASE.length + 1);
+  }
+  return null;
+}
+
+// Convert a stored S3 URL to a presigned URL the contractor's browser can fetch.
+// If signing fails or the URL doesn't match our bucket, returns the original.
+async function signMediaUrl(url: string): Promise<string> {
+  try {
+    const key = keyFromStoredUrl(url);
+    if (!key) return url;
+    return await getSignedUrl(getS3(), new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }), { expiresIn: 60 * 60 * 24 });
+  } catch {
+    return url;
+  }
+}
+
+async function signMediaArray(urls?: string[] | null): Promise<string[]> {
+  if (!urls || !urls.length) return [];
+  return Promise.all(urls.map((u) => signMediaUrl(u)));
 }
 
 async function uploadPhotoToS3(base64DataUrl: string, prefix: string): Promise<string> {
@@ -84,11 +131,11 @@ async function uploadPhotoToS3(base64DataUrl: string, prefix: string): Promise<s
   const buf = Buffer.from(b64, 'base64');
   const key = `${prefix}/${crypto.randomBytes(8).toString('hex')}.${ext}`;
   await getS3().send(new PutObjectCommand({
-    Bucket: AWS_S3_BUCKET,
+    Bucket: S3_BUCKET,
     Key: key,
     Body: buf,
     ContentType: mime,
-    ACL: ObjectCannedACL.public_read,
+    ...(S3_USE_PUBLIC_ACL ? { ACL: ObjectCannedACL.public_read } : {}),
   }));
   return publicUrlFor(key);
 }
@@ -115,8 +162,15 @@ function shortRef(dispatchId: string): string {
 }
 
 // Strip private fields from the dispatch payload based on link status.
-function privacyGated(dispatch: any, linkStatus: string) {
+// Also presigns all media URLs so the browser can fetch from a private S3
+// bucket without a public-read policy.
+async function privacyGated(dispatch: any, linkStatus: string) {
   const isPostAccept = linkStatus === 'accepted';
+  const tasksRaw = (dispatch.tasks as any[]) || [];
+  const [signedTopLevel, signedTasks] = await Promise.all([
+    signMediaArray(dispatch.mediaUrls),
+    Promise.all(tasksRaw.map(async (t) => ({ ...t, mediaUrls: await signMediaArray(t.mediaUrls) }))),
+  ]);
   return {
     id: dispatch.id,
     shortRef: shortRef(dispatch.id),
@@ -128,14 +182,14 @@ function privacyGated(dispatch: any, linkStatus: string) {
     customerFullName: isPostAccept ? dispatch.customerFullName : null,
     customerPhone: isPostAccept ? dispatch.customerPhone : null,
     customerAddress: isPostAccept ? dispatch.customerAddress : null,
-    tasks: dispatch.tasks,
+    tasks: signedTasks,
     totalHours: dispatch.totalHours / 10, // stored ×10
     totalContractorPayPence: dispatch.totalContractorPayPence,
     status: dispatch.status,
     scheduledDate: dispatch.scheduledDate || null,
     bondRequired: dispatch.bondRequired || false,
     bondAmountPence: dispatch.bondAmountPence || null,
-    mediaUrls: dispatch.mediaUrls || [],
+    mediaUrls: signedTopLevel,
     proposalSummary: dispatch.proposalSummary || null,
     preferredDates: dispatch.preferredDates || null,
     // Never expose customerRevenuePence / platformKeepsPence / etc.
@@ -184,7 +238,7 @@ contractorDispatchRouter.get('/api/dispatch-link/:token', async (req, res) => {
     }
 
     res.json({
-      dispatch: privacyGated(dispatch, 'pending'),
+      dispatch: await privacyGated(dispatch, 'pending'),
       isLocked,
       // Scarcity signals shown near the sticky CTA: total view count + last-view age.
       viewCount: (dispatch.viewCount || 0) + (isLocked ? 0 : 1),
@@ -356,7 +410,7 @@ contractorDispatchRouter.get('/api/contractor-job/:token', async (req, res) => {
         acceptedAt: link.acceptedAt,
         declinedAt: link.declinedAt,
       },
-      dispatch: privacyGated(dispatch, displayStatus),
+      dispatch: await privacyGated(dispatch, displayStatus),
       bond: bond ? {
         id: bond.id,
         amountPence: bond.amountPence,
@@ -894,11 +948,11 @@ contractorDispatchRouter.post('/api/admin/dispatch/:id/media',
       const buf = Buffer.from(b64, 'base64');
       const key = `${prefix}/${crypto.randomBytes(8).toString('hex')}.${ext}`;
       await getS3().send(new PutObjectCommand({
-        Bucket: AWS_S3_BUCKET,
+        Bucket: S3_BUCKET,
         Key: key,
         Body: buf,
         ContentType: mime,
-        ACL: ObjectCannedACL.public_read,
+        ...(S3_USE_PUBLIC_ACL ? { ACL: ObjectCannedACL.public_read } : {}),
       }));
       return publicUrlFor(key);
     }
