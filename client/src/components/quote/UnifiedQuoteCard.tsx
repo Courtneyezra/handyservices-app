@@ -1553,7 +1553,19 @@ export function UnifiedQuoteCard({
                 <>
                   {showExpressCheckout && (
                     <>
-                      <ExpressCheckoutElement onConfirm={handleExpressCheckoutConfirm} />
+                      <ExpressCheckoutElement
+                        onConfirm={handleExpressCheckoutConfirm}
+                        options={{
+                          paymentMethods: {
+                            applePay: 'auto',
+                            googlePay: 'auto',
+                            link: 'never',
+                            amazonPay: 'never',
+                            paypal: 'never',
+                            klarna: 'never',
+                          },
+                        }}
+                      />
                       <div className={`flex items-center gap-3 my-2`}>
                         <div className={`flex-1 h-px ${isDarkTheme ? 'bg-gray-600' : 'bg-slate-200'}`} />
                         <span className={`text-xs ${isDarkTheme ? 'text-gray-400' : 'text-slate-400'}`}>Or pay by card</span>

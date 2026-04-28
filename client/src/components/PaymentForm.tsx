@@ -447,7 +447,19 @@ export function PaymentForm({
 
       {showExpressCheckout && (
         <>
-          <ExpressCheckoutElement onConfirm={handleExpressCheckoutConfirm} />
+          <ExpressCheckoutElement
+            onConfirm={handleExpressCheckoutConfirm}
+            options={{
+              paymentMethods: {
+                applePay: 'auto',
+                googlePay: 'auto',
+                link: 'never',
+                amazonPay: 'never',
+                paypal: 'never',
+                klarna: 'never',
+              },
+            }}
+          />
           <div className="flex items-center gap-3 my-2">
             <div className="flex-1 h-px bg-gray-600" />
             <span className="text-xs text-gray-400">Or pay by card</span>
