@@ -160,12 +160,14 @@ function keyFromStoredUrl(url: string): string | null {
   return null;
 }
 
-// Convert a stored S3 URL to a presigned URL the contractor's browser can fetch.
-// If signing fails or the URL doesn't match our bucket, returns the original.
+// Convert a stored S3 URL to a contractor-fetchable URL.
+// dispatch/* keys are covered by the public-read bucket policy, so we return
+// them unsigned. Signing is only used for keys outside that prefix.
 async function signMediaUrl(url: string): Promise<string> {
   try {
     const key = keyFromStoredUrl(url);
     if (!key) return url;
+    if (key.startsWith('dispatch/')) return url;
     return await getSignedUrl(getS3(), new GetObjectCommand({ Bucket: s3cfg().bucket, Key: key }), { expiresIn: 60 * 60 * 24 });
   } catch {
     return url;
