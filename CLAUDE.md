@@ -140,22 +140,9 @@ Key tables: `users`, `leads`, `calls`, `personalized_quotes`, `productized_servi
 
 ## Apple Pay Setup
 
-### Verification file
-The domain verification file is at `public/.well-known/apple-developer-merchantid-domain-association` (no extension).
-It is served by an explicit Express route in `server/index.ts` (registered before the SPA catch-all) with `Content-Type: text/plain`.
+The Apple Pay domain verification file at `/.well-known/apple-developer-merchantid-domain-association` is served by Cloudflare (or whatever upstream proxy fronts production) — NOT by this app. Do not add an Express route for that path; it would intercept and override the upstream-served file, breaking Apple Pay verification.
 
-The file must be accessible at exactly:
-```
-/.well-known/apple-developer-merchantid-domain-association
-```
-with `Content-Type: text/plain`. It must NOT return HTML — Apple's crawler will reject it.
-
-### Production step (one-time per domain)
-1. Go to Stripe Dashboard → Settings → Payment methods → Apple Pay → Add domain.
-2. Enter your production domain and click Verify.
-3. Stripe will display a verification string.
-4. Replace the contents of `public/.well-known/apple-developer-merchantid-domain-association` with that string.
-5. Redeploy the server so the updated file is served.
+To register a new domain: Stripe Dashboard → Settings → Payment methods → Apple Pay → Add domain → take the verification string Stripe provides and place it at `/.well-known/apple-developer-merchantid-domain-association` via the upstream proxy config.
 
 ---
 
