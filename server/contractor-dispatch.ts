@@ -1098,6 +1098,116 @@ contractorDispatchRouter.use('/api/admin/dispatch/:id/media', (err: any, _req: a
   next(err);
 });
 
+/**
+ * POST /api/admin/dispatch/:id/media/presign
+ * Body: { files: Array<{ contentType: string; scope: { kind: 'overview' } | { kind: 'task'; taskNum: number } }> }
+ *
+ * Returns presigned PUT URLs so the browser can upload large files (especially
+ * video) directly to S3, bypassing our Express server. Browser then calls
+ * /media/register with the resulting public URLs to commit them to the dispatch.
+ */
+contractorDispatchRouter.post('/api/admin/dispatch/:id/media/presign', async (req, res) => {
+  try {
+    const dispatch = await findDispatch(req.params.id);
+    if (!dispatch) return res.status(404).json({ error: 'Dispatch not found' });
+
+    const { files } = req.body as {
+      files?: Array<{ contentType: string; scope: { kind: 'overview' } | { kind: 'task'; taskNum: number } }>;
+    };
+    if (!Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ error: 'files array required' });
+    }
+    if (files.length > 30) {
+      return res.status(400).json({ error: 'Max 30 files per request' });
+    }
+
+    const c = s3cfg();
+    if (!c.bucket || !c.accessKey || !c.secretKey) {
+      return res.status(500).json({ error: 'S3 not configured' });
+    }
+
+    const uploads = await Promise.all(files.map(async (f, i) => {
+      if (!f?.contentType || !/^(image|video)\/[\w.+-]+$/.test(f.contentType)) {
+        throw new Error(`files[${i}].contentType must be image/* or video/*`);
+      }
+      if (!f.scope || (f.scope.kind !== 'overview' && f.scope.kind !== 'task')) {
+        throw new Error(`files[${i}].scope invalid`);
+      }
+      const ext = f.contentType.split('/')[1].split('+')[0].replace(/[^a-z0-9]/gi, '') || 'bin';
+      const prefix = f.scope.kind === 'overview'
+        ? `dispatch/${dispatch.id}/overview`
+        : `dispatch/${dispatch.id}/task-${f.scope.taskNum}`;
+      const key = `${prefix}/${crypto.randomBytes(8).toString('hex')}.${ext}`;
+      const putUrl = await getSignedUrl(
+        getS3(),
+        new PutObjectCommand({ Bucket: c.bucket, Key: key, ContentType: f.contentType }),
+        { expiresIn: 60 * 30 }, // 30 min — enough for slow connections to finish
+      );
+      return { key, putUrl, publicUrl: publicUrlFor(key), contentType: f.contentType, scope: f.scope };
+    }));
+
+    res.json({ ok: true, uploads });
+  } catch (err: any) {
+    console.error('[ContractorDispatch] presign error:', err);
+    res.status(400).json({ error: err?.message || 'presign failed' });
+  }
+});
+
+/**
+ * POST /api/admin/dispatch/:id/media/register
+ * Body: { overviewUrls?: string[], taskMedia?: Array<{ taskNum: number; urls: string[] }> }
+ *
+ * After the browser has PUT files directly to S3 via presigned URLs, it calls
+ * this to commit those URLs onto the dispatch row. Each URL must be in our
+ * bucket under dispatch/<id>/ — we reject anything else.
+ */
+contractorDispatchRouter.post('/api/admin/dispatch/:id/media/register', expressJson({ limit: '64kb' }), async (req, res) => {
+  try {
+    const dispatch = await findDispatch(req.params.id);
+    if (!dispatch) return res.status(404).json({ error: 'Dispatch not found' });
+
+    const { overviewUrls, taskMedia } = req.body as {
+      overviewUrls?: string[];
+      taskMedia?: Array<{ taskNum: number; urls: string[] }>;
+    };
+
+    const expectedPrefix = `dispatch/${dispatch.id}/`;
+    const validate = (url: string): string | null => {
+      if (typeof url !== 'string') return null;
+      const key = keyFromStoredUrl(url);
+      if (!key || !key.startsWith(expectedPrefix)) return null;
+      return url;
+    };
+
+    const newDispatchUrls = (overviewUrls || [])
+      .map(validate)
+      .filter((u): u is string => Boolean(u));
+
+    const existingDispatchUrls = (dispatch.mediaUrls as string[]) || [];
+    const allDispatchUrls = [...existingDispatchUrls, ...newDispatchUrls];
+
+    let updatedTasks = dispatch.tasks as any[];
+    if (Array.isArray(taskMedia)) {
+      updatedTasks = updatedTasks.map((task: any) => {
+        const matching = taskMedia.find((tm) => tm.taskNum === task.num);
+        if (!matching) return task;
+        const taskNewUrls = (matching.urls || []).map(validate).filter((u): u is string => Boolean(u));
+        return { ...task, mediaUrls: [...((task.mediaUrls as string[]) || []), ...taskNewUrls] };
+      });
+    }
+
+    await db.update(jobDispatches)
+      .set({ mediaUrls: allDispatchUrls, tasks: updatedTasks, updatedAt: new Date() })
+      .where(eq(jobDispatches.id, dispatch.id));
+
+    console.log(`[ContractorDispatch] 📷 media registered for ${dispatch.id}: ${newDispatchUrls.length} dispatch + ${(taskMedia || []).reduce((s, t) => s + (t.urls?.length || 0), 0)} task uploads`);
+    res.json({ ok: true, dispatchMediaUrls: allDispatchUrls, tasks: updatedTasks });
+  } catch (err: any) {
+    console.error('[ContractorDispatch] register error:', err);
+    res.status(500).json({ error: err?.message || 'register failed' });
+  }
+});
+
 // ─── ADMIN bond endpoints ───────────────────────────────────────────────────
 
 /**

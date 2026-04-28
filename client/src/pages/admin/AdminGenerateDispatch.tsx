@@ -121,12 +121,20 @@ function fmtNiceDate(iso: string | null): string {
     }
 }
 
-async function fileToDataUrl(file: File): Promise<string> {
+// PUT a single file directly to a presigned S3 URL with progress tracking.
+function putToS3(file: File, putUrl: string, onProgress: (loaded: number) => void): Promise<void> {
     return new Promise((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => resolve(r.result as string);
-        r.onerror = reject;
-        r.readAsDataURL(file);
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', putUrl, true);
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded); };
+        xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) resolve();
+            else reject(new Error(`S3 PUT ${xhr.status}: ${xhr.responseText.slice(0, 200)}`));
+        };
+        xhr.onerror = () => reject(new Error('S3 PUT network error'));
+        xhr.ontimeout = () => reject(new Error('S3 PUT timed out'));
+        xhr.send(file);
     });
 }
 
@@ -463,20 +471,70 @@ export default function AdminGenerateDispatch() {
         },
     });
 
-    const mediaMutation = useMutation({
-        mutationFn: async (args: { dispatchId: string; body: any }) => {
-            const r = await fetch(`/api/admin/dispatch/${args.dispatchId}/media`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(args.body),
-            });
-            if (!r.ok) {
-                const payload = await r.json().catch(() => ({}));
-                throw new Error(payload.error || "Media upload failed");
-            }
-            return r.json();
-        },
-    });
+    // Direct-to-S3 upload via presigned PUT URLs. Browser sends raw file bytes
+    // straight to S3, with real progress events and no Express proxy in path.
+    async function uploadMediaDirect(
+        dispatchId: string,
+        items: PendingMedia[],
+        onPhase: (msg: string) => void,
+    ): Promise<void> {
+        const totalBytes = items.reduce((s, m) => s + m.file.size, 0);
+        const totalMB = (totalBytes / (1024 * 1024)).toFixed(1);
+
+        onPhase(`Requesting upload URLs…`);
+        const presignResp = await fetch(`/api/admin/dispatch/${dispatchId}/media/presign`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                files: items.map((m) => ({
+                    contentType: m.file.type || "application/octet-stream",
+                    scope: m.scope,
+                })),
+            }),
+        });
+        const presignJson = await presignResp.json().catch(() => ({}));
+        if (!presignResp.ok) throw new Error(presignJson.error || "Failed to get upload URLs");
+        const uploads: Array<{ key: string; putUrl: string; publicUrl: string; scope: MediaScope }> = presignJson.uploads;
+        if (!Array.isArray(uploads) || uploads.length !== items.length) {
+            throw new Error("presign response shape unexpected");
+        }
+
+        const loadedPerFile = new Array(items.length).fill(0);
+        const refreshPhase = () => {
+            const loaded = loadedPerFile.reduce((a, b) => a + b, 0);
+            const pct = totalBytes ? Math.min(99, Math.round((loaded / totalBytes) * 100)) : 0;
+            onPhase(`Uploading ${totalMB} MB to S3 · ${pct}%`);
+        };
+        refreshPhase();
+
+        // Run uploads in parallel — S3 handles each PUT independently.
+        await Promise.all(items.map((m, i) => putToS3(m.file, uploads[i].putUrl, (loaded) => {
+            loadedPerFile[i] = loaded;
+            refreshPhase();
+        })));
+
+        onPhase(`Saving media to dispatch…`);
+        const overviewUrls = uploads.filter((u) => u.scope.kind === "overview").map((u) => u.publicUrl);
+        const taskGroups: Record<number, string[]> = {};
+        for (const u of uploads) {
+            if (u.scope.kind !== "task") continue;
+            if (!taskGroups[u.scope.taskNum]) taskGroups[u.scope.taskNum] = [];
+            taskGroups[u.scope.taskNum].push(u.publicUrl);
+        }
+        const taskMedia = Object.entries(taskGroups).map(([taskNum, urls]) => ({
+            taskNum: Number(taskNum), urls,
+        }));
+
+        const regResp = await fetch(`/api/admin/dispatch/${dispatchId}/media/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ overviewUrls, taskMedia }),
+        });
+        if (!regResp.ok) {
+            const payload = await regResp.json().catch(() => ({}));
+            throw new Error(payload.error || "Failed to register uploaded media");
+        }
+    }
 
     async function handleSubmit() {
         // Hard guard against double-click — even though button is disabled, network
@@ -527,26 +585,7 @@ export default function AdminGenerateDispatch() {
             // The dispatch exists; admin can re-attach media via the dashboard.
             if (pendingMedia.length > 0) {
                 try {
-                    const totalMB = (pendingMedia.reduce((s, m) => s + m.file.size, 0) / (1024 * 1024)).toFixed(1);
-                    const overview = pendingMedia.filter((m) => m.scope.kind === "overview");
-                    const taskItems = pendingMedia.filter((m) => m.scope.kind === "task");
-
-                    setUploadPhase(`Encoding ${pendingMedia.length} file${pendingMedia.length > 1 ? "s" : ""} (${totalMB} MB)…`);
-                    const dispatchPhotos = await Promise.all(overview.map((m) => fileToDataUrl(m.file)));
-
-                    const grouped: Record<number, string[]> = {};
-                    for (const m of taskItems) {
-                        if (m.scope.kind !== "task") continue;
-                        const url = await fileToDataUrl(m.file);
-                        if (!grouped[m.scope.taskNum]) grouped[m.scope.taskNum] = [];
-                        grouped[m.scope.taskNum].push(url);
-                    }
-                    const taskMedia = Object.entries(grouped).map(([taskNum, dataUrls]) => ({
-                        taskNum: Number(taskNum), dataUrls,
-                    }));
-
-                    setUploadPhase(`Uploading ${totalMB} MB to S3 (this can take a minute for video)…`);
-                    await mediaMutation.mutateAsync({ dispatchId, body: { dispatchPhotos, taskMedia } });
+                    await uploadMediaDirect(dispatchId, pendingMedia, setUploadPhase);
                 } catch (mediaErr: any) {
                     // Dispatch is created — surface the partial-success state clearly,
                     // but STILL show the shareable link + WhatsApp message so admin can
