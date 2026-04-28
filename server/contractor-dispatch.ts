@@ -48,60 +48,114 @@ function getStripe(): Stripe | null {
 
 export const contractorDispatchRouter = Router();
 
+// Diagnostic: returns which S3-related env vars are present in the running
+// process (booleans only — no secret values exposed). Visit this on prod to
+// confirm credentials are actually injected into this module.
+contractorDispatchRouter.get('/api/admin/dispatch/_diag', (_req, res) => {
+  const has = (k: string) => Boolean((process.env[k] || '').trim());
+  res.json({
+    s3: {
+      bucket: has('S3_BUCKET') || has('AWS_S3_BUCKET') || has('AWS_S3_BUCKET_NAME'),
+      access: has('S3_ACCESS_KEY') || has('AWS_ACCESS_KEY_ID'),
+      secret: has('S3_SECRET_KEY') || has('AWS_SECRET_ACCESS_KEY'),
+      region: has('S3_REGION') || has('AWS_REGION'),
+      endpoint: has('S3_ENDPOINT'),
+      publicUrlBase: has('S3_PUBLIC_URL_BASE'),
+      useAcl: process.env.S3_USE_PUBLIC_ACL || null,
+    },
+    individualKeys: {
+      S3_BUCKET: has('S3_BUCKET'),
+      AWS_S3_BUCKET: has('AWS_S3_BUCKET'),
+      AWS_S3_BUCKET_NAME: has('AWS_S3_BUCKET_NAME'),
+      S3_ACCESS_KEY: has('S3_ACCESS_KEY'),
+      AWS_ACCESS_KEY_ID: has('AWS_ACCESS_KEY_ID'),
+      S3_SECRET_KEY: has('S3_SECRET_KEY'),
+      AWS_SECRET_ACCESS_KEY: has('AWS_SECRET_ACCESS_KEY'),
+    },
+    nodeEnv: process.env.NODE_ENV || null,
+    pid: process.pid,
+  });
+});
+
 // ─── S3 helper for photo uploads ────────────────────────────────────────────
 // Two credential schemes coexist in this codebase:
 //   - AWS_* (used by server/s3-media.ts → v6-handy-services-media bucket, ACLs ON)
 //   - S3_*  (used by server/storage.ts → handyuploaduk bucket, ACLs OFF)
 // Production has only the S3_* set, so we accept either and skip the ACL when
-// it's not supported. The bucket either has a public-read policy already or
-// objects are served via S3_PUBLIC_URL_BASE (CloudFront/etc).
+// it's not supported. All env reads happen LAZILY (not at module load) because
+// dotenv on import order can mean the env isn't populated when the module is
+// first evaluated.
 
-const S3_ENDPOINT = process.env.S3_ENDPOINT;
-const S3_BUCKET = process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || '';
-const S3_REGION = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
-const S3_ACCESS_KEY = process.env.S3_ACCESS_KEY || process.env.AWS_ACCESS_KEY_ID || '';
-const S3_SECRET_KEY = process.env.S3_SECRET_KEY || process.env.AWS_SECRET_ACCESS_KEY || '';
-const S3_PUBLIC_URL_BASE = process.env.S3_PUBLIC_URL_BASE;
-// Whether to attach ACL: public-read on PutObject. Default off (works on
-// modern buckets with ACLs disabled). Set to "true" only when the bucket
-// has Object Ownership = BucketOwnerPreferred and ACLs enabled.
-const S3_USE_PUBLIC_ACL = (process.env.S3_USE_PUBLIC_ACL || '').toLowerCase() === 'true';
+interface S3Cfg {
+  bucket: string;
+  region: string;
+  endpoint?: string;
+  accessKey: string;
+  secretKey: string;
+  publicUrlBase?: string;
+  useAcl: boolean;
+}
+let cachedCfg: S3Cfg | null = null;
+function s3cfg(): S3Cfg {
+  if (cachedCfg) return cachedCfg;
+  const strip = (v?: string) => (v || '').replace(/^["']|["']$/g, '').trim();
+  const cfg: S3Cfg = {
+    bucket: strip(process.env.S3_BUCKET) || strip(process.env.AWS_S3_BUCKET) || strip(process.env.AWS_S3_BUCKET_NAME),
+    region: strip(process.env.S3_REGION) || strip(process.env.AWS_REGION) || 'eu-west-2',
+    endpoint: strip(process.env.S3_ENDPOINT) || undefined,
+    accessKey: strip(process.env.S3_ACCESS_KEY) || strip(process.env.AWS_ACCESS_KEY_ID),
+    secretKey: strip(process.env.S3_SECRET_KEY) || strip(process.env.AWS_SECRET_ACCESS_KEY),
+    publicUrlBase: strip(process.env.S3_PUBLIC_URL_BASE) || undefined,
+    useAcl: strip(process.env.S3_USE_PUBLIC_ACL).toLowerCase() === 'true',
+  };
+  if (cfg.bucket && cfg.accessKey && cfg.secretKey) cachedCfg = cfg;
+  return cfg;
+}
 
 let s3Client: S3Client | null = null;
 function getS3() {
   if (!s3Client) {
-    if (!S3_BUCKET || !S3_ACCESS_KEY || !S3_SECRET_KEY) {
-      throw new Error('S3 not configured (need S3_BUCKET / S3_ACCESS_KEY / S3_SECRET_KEY, or AWS_* equivalents)');
+    const c = s3cfg();
+    if (!c.bucket || !c.accessKey || !c.secretKey) {
+      const missing = [
+        !c.bucket && 'bucket(S3_BUCKET|AWS_S3_BUCKET|AWS_S3_BUCKET_NAME)',
+        !c.accessKey && 'accessKey(S3_ACCESS_KEY|AWS_ACCESS_KEY_ID)',
+        !c.secretKey && 'secretKey(S3_SECRET_KEY|AWS_SECRET_ACCESS_KEY)',
+      ].filter(Boolean).join(', ');
+      throw new Error(`S3 not configured — missing: ${missing}`);
     }
     s3Client = new S3Client({
-      region: S3_REGION,
-      ...(S3_ENDPOINT ? { endpoint: S3_ENDPOINT } : {}),
-      credentials: { accessKeyId: S3_ACCESS_KEY, secretAccessKey: S3_SECRET_KEY },
+      region: c.region,
+      ...(c.endpoint ? { endpoint: c.endpoint } : {}),
+      credentials: { accessKeyId: c.accessKey, secretAccessKey: c.secretKey },
     });
   }
   return s3Client;
 }
 
 function publicUrlFor(key: string): string {
-  if (S3_PUBLIC_URL_BASE) return `${S3_PUBLIC_URL_BASE}/${key}`;
-  if (S3_ENDPOINT) return `${S3_ENDPOINT}/${S3_BUCKET}/${key}`;
-  return `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${key}`;
+  const c = s3cfg();
+  if (c.publicUrlBase) return `${c.publicUrlBase}/${key}`;
+  if (c.endpoint) return `${c.endpoint}/${c.bucket}/${key}`;
+  return `https://${c.bucket}.s3.${c.region}.amazonaws.com/${key}`;
 }
 
 // Reverse the URL build to extract the S3 key from a stored URL.
 function keyFromStoredUrl(url: string): string | null {
   if (!url) return null;
-  // path-style: https://endpoint/bucket/KEY  or  https://s3.region.amazonaws.com/bucket/KEY
-  const pathStyle = new RegExp(`^https?://[^/]+/${S3_BUCKET}/(.+)$`);
+  const c = s3cfg();
+  if (!c.bucket) return null;
+  // path-style: https://endpoint/bucket/KEY
+  const pathStyle = new RegExp(`^https?://[^/]+/${c.bucket}/(.+)$`);
   const mPath = url.match(pathStyle);
   if (mPath) return mPath[1];
   // virtual-host: https://bucket.s3.region.amazonaws.com/KEY
-  const vhost = new RegExp(`^https?://${S3_BUCKET}\\.s3\\.[^/]+\\.amazonaws\\.com/(.+)$`);
+  const vhost = new RegExp(`^https?://${c.bucket}\\.s3\\.[^/]+\\.amazonaws\\.com/(.+)$`);
   const mV = url.match(vhost);
   if (mV) return mV[1];
-  // S3_PUBLIC_URL_BASE override (CloudFront): https://cdn.example.com/KEY
-  if (S3_PUBLIC_URL_BASE && url.startsWith(S3_PUBLIC_URL_BASE + '/')) {
-    return url.slice(S3_PUBLIC_URL_BASE.length + 1);
+  // S3_PUBLIC_URL_BASE override
+  if (c.publicUrlBase && url.startsWith(c.publicUrlBase + '/')) {
+    return url.slice(c.publicUrlBase.length + 1);
   }
   return null;
 }
@@ -112,7 +166,7 @@ async function signMediaUrl(url: string): Promise<string> {
   try {
     const key = keyFromStoredUrl(url);
     if (!key) return url;
-    return await getSignedUrl(getS3(), new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }), { expiresIn: 60 * 60 * 24 });
+    return await getSignedUrl(getS3(), new GetObjectCommand({ Bucket: s3cfg().bucket, Key: key }), { expiresIn: 60 * 60 * 24 });
   } catch {
     return url;
   }
@@ -130,12 +184,13 @@ async function uploadPhotoToS3(base64DataUrl: string, prefix: string): Promise<s
   const ext = mime.split('/')[1];
   const buf = Buffer.from(b64, 'base64');
   const key = `${prefix}/${crypto.randomBytes(8).toString('hex')}.${ext}`;
+  const c = s3cfg();
   await getS3().send(new PutObjectCommand({
-    Bucket: S3_BUCKET,
+    Bucket: c.bucket,
     Key: key,
     Body: buf,
     ContentType: mime,
-    ...(S3_USE_PUBLIC_ACL ? { ACL: ObjectCannedACL.public_read } : {}),
+    ...(c.useAcl ? { ACL: ObjectCannedACL.public_read } : {}),
   }));
   return publicUrlFor(key);
 }
@@ -947,12 +1002,13 @@ contractorDispatchRouter.post('/api/admin/dispatch/:id/media',
       const ext = mime.split('/')[1];
       const buf = Buffer.from(b64, 'base64');
       const key = `${prefix}/${crypto.randomBytes(8).toString('hex')}.${ext}`;
+      const c2 = s3cfg();
       await getS3().send(new PutObjectCommand({
-        Bucket: S3_BUCKET,
+        Bucket: c2.bucket,
         Key: key,
         Body: buf,
         ContentType: mime,
-        ...(S3_USE_PUBLIC_ACL ? { ACL: ObjectCannedACL.public_read } : {}),
+        ...(c2.useAcl ? { ACL: ObjectCannedACL.public_read } : {}),
       }));
       return publicUrlFor(key);
     }
