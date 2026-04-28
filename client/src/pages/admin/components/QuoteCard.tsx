@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Copy, Eye, Phone, RefreshCw, X, Download, CreditCard, Pencil, FileEdit, MessageCircle } from 'lucide-react';
+import { Copy, Eye, Phone, RefreshCw, X, Download, CreditCard, Pencil, FileEdit, MessageCircle, Hammer } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
 import { generateQuotePDF } from '@/lib/quote-pdf-generator';
@@ -303,6 +303,25 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, av
                                 <TooltipContent>Full edit</TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
+
+                        {/* Dispatch to contractors — only on booked/paid quotes */}
+                        {isPaid && (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-8 w-8 text-amber-600 hover:text-white hover:bg-amber-500 border-amber-300"
+                                            onClick={(e) => { e.stopPropagation(); setLocation(`/admin/dispatch/new?quoteId=${quote.shortSlug}`); }}
+                                        >
+                                            <Hammer className="h-4 w-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Dispatch to contractors</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
 
                         <TooltipProvider>
                             <Tooltip>

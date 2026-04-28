@@ -27,8 +27,10 @@ import {
   User,
   PoundSterling,
   ChevronRight,
+  AlertTriangle,
 } from 'lucide-react';
-import type { LineItemResult } from '@shared/contextual-pricing-types';
+import type { LineItemResult, JobCategory } from '@shared/contextual-pricing-types';
+import { JOB_CATEGORIES } from '@shared/contextual-pricing-types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -94,6 +96,8 @@ interface EditableLineItem {
   description: string;
   pricePounds: string;     // labour price — string for controlled input
   materialsPounds: string; // materials with margin — string for controlled input
+  category: JobCategory | '';   // REQUIRED for engine to price this line for contractors
+  timeMinutes: string;     // estimated minutes — string for controlled input
 }
 
 function fromLineItems(items: LineItemResult[]): EditableLineItem[] {
@@ -102,6 +106,8 @@ function fromLineItems(items: LineItemResult[]): EditableLineItem[] {
     description: li.description,
     pricePounds: penceToGBP(li.guardedPricePence),
     materialsPounds: penceToGBP(li.materialsWithMarginPence || 0),
+    category: (li as any).category || '',
+    timeMinutes: String((li as any).timeEstimateMinutes || ''),
   }));
 }
 
@@ -164,14 +170,21 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
   const totalPence = labourPence + materialsPence;
 
   // Line item helpers
-  function updateLineItem(lineId: string, field: 'description' | 'pricePounds' | 'materialsPounds', value: string) {
+  function updateLineItem(lineId: string, field: 'description' | 'pricePounds' | 'materialsPounds' | 'category' | 'timeMinutes', value: string) {
     setLineItems(prev => prev.map(li => li.lineId === lineId ? { ...li, [field]: value } : li));
   }
 
   function addLineItem() {
     setLineItems(prev => [
       ...prev,
-      { lineId: `li_${Date.now()}`, description: '', pricePounds: '0.00', materialsPounds: '0.00' },
+      {
+        lineId: `li_${Date.now()}`,
+        description: '',
+        pricePounds: '0.00',
+        materialsPounds: '0.00',
+        category: '',          // REQUIRED — admin must pick before save (validated below)
+        timeMinutes: '60',     // sensible default — 1 hour
+      },
     ]);
   }
 
@@ -187,6 +200,21 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
 
   async function handleSave() {
     if (!quote) return;
+
+    // Validation — every line must have a category + time so the contractor
+    // engine can price it. Without this, admin-added lines flow through as
+    // 100% platform margin which inflates margins and breaks contractor pay.
+    const missing = lineItems.filter((li) => !li.category || !li.timeMinutes || Number(li.timeMinutes) <= 0);
+    if (missing.length > 0) {
+      const which = missing.map((m, i) => `#${lineItems.indexOf(m) + 1}`).join(", ");
+      toast({
+        title: "Missing category or time",
+        description: `Line ${which} need a category + time estimate before saving.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setSaving(true);
     try {
       // Build updated line items (convert back to pence)
@@ -196,6 +224,8 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
         description: li.description,
         guardedPricePence: gbpToPence(li.pricePounds),
         materialsWithMarginPence: gbpToPence(li.materialsPounds),
+        category: li.category,
+        timeEstimateMinutes: Number(li.timeMinutes) || 60,
       }));
 
       const body: Record<string, unknown> = {
@@ -398,7 +428,7 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 flex-wrap">
                               <div className="flex items-center gap-1.5">
                                 <span className="text-slate-500 text-[10px]">Labour</span>
                                 <span className="text-slate-400 text-xs">£</span>
@@ -424,6 +454,42 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
                                 />
                               </div>
                             </div>
+                            {/* Category + time — REQUIRED so the contractor engine can price this line.
+                                Without these the line creates 100% platform margin (no contractor pay). */}
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <div className="flex items-center gap-1.5 flex-1 min-w-[180px]">
+                                <span className="text-slate-500 text-[10px] shrink-0">Category</span>
+                                <select
+                                  value={li.category}
+                                  onChange={e => updateLineItem(li.lineId, 'category', e.target.value)}
+                                  className={`bg-slate-700 border text-white text-xs h-8 rounded px-2 flex-1 min-w-0 ${!li.category ? 'border-amber-500 ring-1 ring-amber-500/40' : 'border-slate-600'}`}
+                                >
+                                  <option value="">— pick —</option>
+                                  {JOB_CATEGORIES.map((c) => (
+                                    <option key={c} value={c}>
+                                      {c.replace(/_/g, ' ')}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-slate-500 text-[10px]">Time</span>
+                                <Input
+                                  value={li.timeMinutes}
+                                  onChange={e => updateLineItem(li.lineId, 'timeMinutes', e.target.value)}
+                                  type="number"
+                                  step="15"
+                                  min="15"
+                                  className={`bg-slate-700 text-white text-xs h-8 w-20 ${(!li.timeMinutes || Number(li.timeMinutes) <= 0) ? 'border-amber-500 ring-1 ring-amber-500/40' : 'border-slate-600'}`}
+                                />
+                                <span className="text-slate-400 text-[10px]">min</span>
+                              </div>
+                            </div>
+                            {(!li.category || !li.timeMinutes || Number(li.timeMinutes) <= 0) && (
+                              <p className="text-[10px] text-amber-400 flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3" /> Required so contractor pay can be calculated for this line
+                              </p>
+                            )}
                           </div>
                         ))}
                       </div>

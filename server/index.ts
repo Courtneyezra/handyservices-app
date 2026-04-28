@@ -56,6 +56,7 @@ import uploadRouter from "./upload";
 import invoiceRouter from './invoices'; // B2: Invoice management
 import jobAssignmentRouter from './job-assignment'; // B5: Job assignment/dispatch
 import jobLifecycleRouter from './job-lifecycle'; // Day-of job lifecycle (en-route, timer, completion)
+import contractorDispatchRouter from './contractor-dispatch'; // Tokenised contractor job-sheet dispatch
 import reviewsRouter from "./reviews-routes";
 import { leadTubeMapRouter } from './lead-tube-map'; // Lead Tube Map API
 import { callScriptRouter, initializeRealtimeHandler, setSimulateBroadcast } from './call-script'; // Call Script Tube Map API
@@ -95,6 +96,14 @@ const app = express();
 // IMPORTANT: Raw body middleware for Stripe webhook MUST come BEFORE express.json()
 // Stripe webhook signature verification requires the raw request body
 app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
+
+// Path-specific high-limit JSON parser for media uploads (videos can hit 100MB+
+// after base64 inflation). Must come BEFORE the global json parser so the route
+// is parsed at the higher limit; subsequent express.json() calls no-op for the
+// same request because it already has a parsed body.
+app.use('/api/admin/dispatch/:id/media', express.json({ limit: '200mb' }));
+app.use('/api/contractor-job/:token/complete', express.json({ limit: '200mb' }));
+app.use('/api/contractor-job/:token/variation', express.json({ limit: '200mb' }));
 
 app.use(express.json({ limit: '10mb' })); // Increased limit for large transcriptions
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -341,6 +350,7 @@ app.use('/api', uploadRouter);
 app.use(invoiceRouter); // B2: Invoice management
 app.use(jobAssignmentRouter); // B5: Job assignment/dispatch
 app.use(jobLifecycleRouter); // Day-of job lifecycle
+app.use(contractorDispatchRouter); // Tokenised contractor job-sheet dispatch (broadcast/accept/decline/variation/complete)
 app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
 
 // Contractor Portal Routes

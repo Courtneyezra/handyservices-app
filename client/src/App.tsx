@@ -105,6 +105,12 @@ const PaymentPage = lazy(() => import("@/pages/client/PaymentPage"));
 const ClientDashboard = lazy(() => import("@/pages/client/ClientDashboard"));
 const JobHistoryPage = lazy(() => import("@/pages/client/JobHistoryPage"));
 
+// Contractor Job Sheet (public, token-based access — broadcast dispatch)
+const ContractorJobSheet = lazy(() => import("@/pages/contractor/ContractorJobSheet"));
+const DispatchLinkPage = lazy(() => import("@/pages/contractor/DispatchLinkPage"));
+const AdminDispatchDashboard = lazy(() => import("@/pages/admin/AdminDispatchDashboard"));
+const AdminGenerateDispatch = lazy(() => import("@/pages/admin/AdminGenerateDispatch"));
+
 // Landlord Portal Pages (public, token-based access)
 const LandlordOnboardingPage = lazy(() => import("@/pages/landlord/OnboardingPage"));
 const LandlordPropertiesPage = lazy(() => import("@/pages/landlord/PropertiesPage"));
@@ -292,6 +298,12 @@ function Router() {
                 <Route path="/invoice/:token">
                     <InvoiceView />
                 </Route>
+                <Route path="/contractor-job/:token">
+                    <ContractorJobSheet />
+                </Route>
+                <Route path="/dispatch-link/:token">
+                    <DispatchLinkPage />
+                </Route>
                 <Route path="/review/:token">
                     <LeaveReview />
                 </Route>
@@ -430,6 +442,20 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <DashboardPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/dispatch/new">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <AdminGenerateDispatch />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/dispatch">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <AdminDispatchDashboard />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

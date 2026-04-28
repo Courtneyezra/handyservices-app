@@ -2677,3 +2677,189 @@ export const partnerEnquiries = pgTable('partner_enquiries', {
 
 export type PartnerEnquiry = typeof partnerEnquiries.$inferSelect;
 export type InsertPartnerEnquiry = typeof partnerEnquiries.$inferInsert;
+
+// ─── Contractor Job Dispatch ────────────────────────────────────────────────
+// Broadcast a job to multiple contractors via tokenised links.
+// First-to-accept locks the job. All accept/decline/question/variation/completion
+// events are tracked for admin visibility + liability evidence.
+
+export const dispatchStatusEnum = pgEnum('dispatch_status', [
+  'pending',
+  'locked',
+  'completed',
+  'cancelled',
+]);
+
+export const contractorLinkStatusEnum = pgEnum('contractor_link_status', [
+  'pending',
+  'viewed',
+  'accepted',
+  'declined',
+  'questioning',
+  'locked_taken',
+]);
+
+export const variationStatusEnumDispatch = pgEnum('variation_status_dispatch', [
+  'pending',
+  'approved',
+  'rejected',
+]);
+
+// A job dispatch — one row per outbound job. Tied to a quote (optional).
+export const jobDispatches = pgTable('job_dispatches', {
+  id: text('id').primaryKey().$defaultFn(() => `disp_${crypto.randomUUID()}`),
+  quoteId: varchar('quote_id'), // FK to personalized_quotes (optional)
+  invoiceId: varchar('invoice_id'), // FK to invoices (optional)
+  title: text('title').notNull(),
+  subtitle: text('subtitle'),
+  customerFirstName: text('customer_first_name').notNull(),
+  customerFullName: text('customer_full_name'), // unlocked post-accept
+  customerPhone: text('customer_phone'), // unlocked post-accept
+  customerAddress: text('customer_address'), // unlocked post-accept
+  postcode: text('postcode').notNull(),
+  // tasks: array of { num, title, tier, hours, payPence, payMethod, description, warning?, materials[] }
+  tasks: jsonb('tasks').notNull(),
+  totalHours: integer('total_hours').notNull(), // store ×10 to avoid float (e.g. 280 = 28.0)
+  totalContractorPayPence: integer('total_contractor_pay_pence').notNull(),
+  // Internal — not exposed to contractors
+  customerRevenuePence: integer('customer_revenue_pence'),
+  platformKeepsPence: integer('platform_keeps_pence'),
+  status: dispatchStatusEnum('status').default('pending').notNull(),
+  lockedToContractorId: varchar('locked_to_contractor_id'), // FK to handyman_profiles
+  lockedAt: timestamp('locked_at'),
+  completedAt: timestamp('completed_at'),
+  scheduledDate: timestamp('scheduled_date'), // when the customer expects work done — drives bond timeline UI
+  // Open shareable link — admin generates one URL per dispatch and shares it freely
+  // (WhatsApp groups, broadcast). Any contractor in the pool can claim it.
+  // Distinct from contractorJobLinks.token (per-contractor private URLs).
+  publicToken: varchar('public_token', { length: 64 }).unique().$defaultFn(() => crypto.randomBytes(20).toString('base64url')),
+  // Contractor-flavoured 1-liner shown on the brief hero (e.g. "Tap swap, splashback re-grout, cupboard hinge + 1 more")
+  // Snapshotted at dispatch creation from the linked quote so the brief is self-contained.
+  proposalSummary: text('proposal_summary'),
+  // Customer's preferred dates from the contextual quote — array of { date, timeSlot } objects.
+  // Snapshotted from personalized_quotes.date_time_preferences.
+  preferredDates: jsonb('preferred_dates'),
+  // Dispatch-level media (overview photos / walkthrough video) shown on the contractor brief.
+  // Each task can also carry its own mediaUrls inside the tasks jsonb structure.
+  mediaUrls: text('media_urls').array(),
+  // Bond config — refundable security deposit required to accept this dispatch
+  bondRequired: boolean('bond_required').default(false).notNull(),
+  bondAmountPence: integer('bond_amount_pence'), // null when bondRequired=false
+  createdBy: varchar('created_by'), // admin user id
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_job_dispatches_status').on(table.status),
+  index('idx_job_dispatches_quote').on(table.quoteId),
+]);
+
+// Per-contractor token link — one row per (dispatch × contractor) pair.
+// The unique token is what goes in the URL.
+export const contractorJobLinks = pgTable('contractor_job_links', {
+  id: text('id').primaryKey().$defaultFn(() => `cjl_${crypto.randomUUID()}`),
+  dispatchId: text('dispatch_id').notNull().references(() => jobDispatches.id, { onDelete: 'cascade' }),
+  contractorId: varchar('contractor_id').notNull(), // FK to handyman_profiles
+  contractorName: text('contractor_name'), // denormalised for display
+  contractorPhone: text('contractor_phone'),
+  token: varchar('token', { length: 64 }).notNull().unique().$defaultFn(() => crypto.randomBytes(24).toString('base64url')),
+  status: contractorLinkStatusEnum('status').default('pending').notNull(),
+  // Each warning ack: { taskNum, warningText, ackedAt }
+  warningsAcknowledged: jsonb('warnings_acknowledged').default([]).notNull(),
+  responseMessage: text('response_message'), // decline reason or question text
+  viewedAt: timestamp('viewed_at'),
+  acceptedAt: timestamp('accepted_at'),
+  declinedAt: timestamp('declined_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('idx_contractor_job_links_token').on(table.token),
+  index('idx_contractor_job_links_dispatch').on(table.dispatchId),
+  index('idx_contractor_job_links_contractor').on(table.contractorId),
+  index('idx_contractor_job_links_status').on(table.status),
+]);
+
+// On-site variations reported by the contractor — replaces the manual
+// Herbert-style admin amendment with a structured flow.
+export const dispatchVariations = pgTable('dispatch_variations', {
+  id: text('id').primaryKey().$defaultFn(() => `dv_${crypto.randomUUID()}`),
+  dispatchId: text('dispatch_id').notNull().references(() => jobDispatches.id, { onDelete: 'cascade' }),
+  contractorId: varchar('contractor_id').notNull(),
+  taskNum: integer('task_num'), // which task this relates to (optional)
+  description: text('description').notNull(),
+  reason: text('reason'), // e.g. "panel did not fit"
+  additionalPricePence: integer('additional_price_pence').default(0),
+  additionalTimeMins: integer('additional_time_mins').default(0),
+  photoUrls: text('photo_urls').array(),
+  status: variationStatusEnumDispatch('status').default('pending').notNull(),
+  adminNotes: text('admin_notes'),
+  resolvedAt: timestamp('resolved_at'),
+  resolvedBy: varchar('resolved_by'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_dispatch_variations_dispatch').on(table.dispatchId),
+  index('idx_dispatch_variations_status').on(table.status),
+]);
+
+// Job completion record — photos required.
+export const dispatchCompletions = pgTable('dispatch_completions', {
+  id: text('id').primaryKey().$defaultFn(() => `dc_${crypto.randomUUID()}`),
+  dispatchId: text('dispatch_id').notNull().references(() => jobDispatches.id, { onDelete: 'cascade' }).unique(),
+  contractorId: varchar('contractor_id').notNull(),
+  photoUrls: text('photo_urls').array().notNull(), // required, min 1 enforced in router
+  notes: text('notes'),
+  customerSignatureUrl: text('customer_signature_url'),
+  completedAt: timestamp('completed_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_dispatch_completions_dispatch').on(table.dispatchId),
+]);
+
+export type JobDispatch = typeof jobDispatches.$inferSelect;
+export type InsertJobDispatch = typeof jobDispatches.$inferInsert;
+export type ContractorJobLink = typeof contractorJobLinks.$inferSelect;
+export type InsertContractorJobLink = typeof contractorJobLinks.$inferInsert;
+export type DispatchVariation = typeof dispatchVariations.$inferSelect;
+export type InsertDispatchVariation = typeof dispatchVariations.$inferInsert;
+export type DispatchCompletion = typeof dispatchCompletions.$inferSelect;
+export type InsertDispatchCompletion = typeof dispatchCompletions.$inferInsert;
+
+// ─── Contractor Security Bonds ──────────────────────────────────────────────
+// Refundable security deposit a contractor pays to claim a confirmed booked job.
+// Auto-refunded on completion. Forfeited only on no-show / late cancellation.
+
+export const bondStatusEnum = pgEnum('bond_status', [
+  'pending',     // payment intent created, not yet captured
+  'held',        // payment captured, contractor accepted
+  'refunded',    // job completed (or admin refund) — money back to contractor
+  'forfeited',   // contractor flaked — money kept by platform
+  'failed',      // payment intent failed (card decline etc)
+]);
+
+export const dispatchBonds = pgTable('dispatch_bonds', {
+  id: text('id').primaryKey().$defaultFn(() => `bond_${crypto.randomUUID()}`),
+  linkId: text('link_id').notNull().references(() => contractorJobLinks.id, { onDelete: 'cascade' }),
+  dispatchId: text('dispatch_id').notNull().references(() => jobDispatches.id, { onDelete: 'cascade' }),
+  contractorId: varchar('contractor_id').notNull(),
+  amountPence: integer('amount_pence').notNull(),
+  stripePaymentIntentId: varchar('stripe_payment_intent_id', { length: 255 }),
+  stripeChargeId: varchar('stripe_charge_id', { length: 255 }),
+  stripeRefundId: varchar('stripe_refund_id', { length: 255 }),
+  status: bondStatusEnum('status').default('pending').notNull(),
+  paidAt: timestamp('paid_at'),
+  refundedAt: timestamp('refunded_at'),
+  refundReason: text('refund_reason'), // 'job_completed' | 'admin_refund' | 'customer_cancelled' | 'dispatch_cancelled'
+  forfeitedAt: timestamp('forfeited_at'),
+  forfeitedBy: varchar('forfeited_by'),
+  forfeitReason: text('forfeit_reason'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => [
+  index('idx_dispatch_bonds_link').on(table.linkId),
+  index('idx_dispatch_bonds_dispatch').on(table.dispatchId),
+  index('idx_dispatch_bonds_contractor').on(table.contractorId),
+  index('idx_dispatch_bonds_status').on(table.status),
+]);
+
+export type DispatchBond = typeof dispatchBonds.$inferSelect;
+export type InsertDispatchBond = typeof dispatchBonds.$inferInsert;
