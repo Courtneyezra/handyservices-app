@@ -3521,7 +3521,11 @@ export default function PersonalizedQuotePage() {
               {/* Price Card + Booking Flow */}
               {quotePrice > 0 && !hasBooked && (
                 <QuoteTimer>
-                  <Elements stripe={stripePromise}>
+                  <Elements
+                    stripe={stripePromise}
+                    key={`unified-${quotePrice}-${pricingSettings?.depositPercent ?? 30}`}
+                    options={{ mode: 'payment', amount: Math.round(quotePrice * ((pricingSettings?.depositPercent ?? 30) / 100)), currency: 'gbp', appearance: { theme: 'night', variables: { colorPrimary: '#e8b323' } } }}
+                  >
                     <UnifiedQuoteCard
                       segment={quote.segment || 'UNKNOWN'}
                       basePrice={quotePrice}
@@ -3743,6 +3747,7 @@ export default function PersonalizedQuotePage() {
                             <Elements
                               stripe={stripePromise}
                               key={`${selectedEEEPackage}-${isInstallmentsMode ? 'installments' : 'full'}-${selectedExtras.join(',')}`}
+                              options={{ mode: 'payment', amount: totalDeposit, currency: 'gbp', appearance: { theme: 'night', variables: { colorPrimary: '#e8b323' } } }}
                             >
                               <PaymentForm
                                 amount={totalDeposit}
@@ -4905,6 +4910,7 @@ export default function PersonalizedQuotePage() {
                                 <Elements
                                   stripe={stripePromise}
                                   key={`${selectedEEEPackage}-${isInstallmentsMode ? 'installments' : 'full'}-${selectedExtras.join(',')}`}
+                                  options={{ mode: 'payment', amount: totalDeposit, currency: 'gbp', appearance: { theme: 'night', variables: { colorPrimary: '#e8b323' } } }}
                                 >
                                   <PaymentForm
                                     amount={totalDeposit}

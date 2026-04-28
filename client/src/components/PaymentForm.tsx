@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { CardElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import type { StripeExpressCheckoutElementConfirmEvent } from '@stripe/stripe-js';
 import { isStripeConfigured } from '@/lib/stripe';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -208,6 +209,50 @@ export function PaymentForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerName, effectiveEmail, hasValidEmail, quoteId, selectedTier, selectedTierPrice, extrasKey, paymentType, mode]);
 
+  const handleExpressCheckoutConfirm = async (event: StripeExpressCheckoutElementConfirmEvent) => {
+    if (!stripe || !elements || !clientSecret || !paymentIntentId) return;
+
+    setIsProcessing(true);
+    setError(null);
+
+    try {
+      const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        clientSecret,
+        confirmParams: {
+          return_url: `${window.location.origin}/booking-confirmed/${quoteId}`,
+        },
+        redirect: 'if_required',
+      });
+
+      if (stripeError) {
+        throw new Error(stripeError.message);
+      }
+
+      if (paymentIntent?.status === 'succeeded') {
+        setConfirmationEmail(effectiveEmail);
+        try {
+          await onSuccess(paymentIntentId);
+        } catch (bookingError: any) {
+          console.warn('Payment succeeded but booking callback had issues:', bookingError);
+        }
+        return;
+      } else {
+        throw new Error('Payment failed');
+      }
+    } catch (err: any) {
+      const errorMessage = err.message || 'Payment failed. Please try again.';
+      setError(errorMessage);
+      if (onError) {
+        onError(errorMessage);
+      }
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const showExpressCheckout = !isLoadingIntent && paymentType !== 'installments' && isStripeConfigured;
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
 
@@ -399,6 +444,17 @@ export function PaymentForm({
         )}
         <p className="text-xs text-gray-400">We'll send your booking confirmation and receipt here</p>
       </div>
+
+      {showExpressCheckout && (
+        <>
+          <ExpressCheckoutElement onConfirm={handleExpressCheckoutConfirm} />
+          <div className="flex items-center gap-3 my-2">
+            <div className="flex-1 h-px bg-gray-600" />
+            <span className="text-xs text-gray-400">Or pay by card</span>
+            <div className="flex-1 h-px bg-gray-600" />
+          </div>
+        </>
+      )}
 
       <div className="space-y-2">
         <label className="text-sm font-medium text-white">Card Details</label>

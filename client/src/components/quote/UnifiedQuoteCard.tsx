@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { format, addDays, isWeekend } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
-import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { CardElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import type { StripeExpressCheckoutElementConfirmEvent } from '@stripe/stripe-js';
 import { isStripeConfigured } from '@/lib/stripe';
 import { getHassleComparisons } from '@shared/hassle-comparisons';
 import {
@@ -629,6 +630,64 @@ export function UnifiedQuoteCard({
       setIsProcessingPayment(false);
     }
   };
+
+  const handleExpressCheckoutConfirm = async (_event: StripeExpressCheckoutElementConfirmEvent) => {
+    if (!stripe || !elements || !clientSecret || !paymentIntentId) return;
+
+    setIsProcessingPayment(true);
+    setPaymentError(null);
+
+    try {
+      const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        clientSecret,
+        confirmParams: {
+          return_url: `${window.location.origin}/booking-confirmed/${quoteId}`,
+        },
+        redirect: 'if_required',
+      });
+
+      if (stripeError) throw new Error(stripeError.message);
+
+      if (paymentIntent?.status === 'succeeded') {
+        const chargeNow = payFull ? payFullTotal : depositAmount;
+        const balance = payFull ? 0 : balanceOnCompletion;
+        const mode = payFull ? 'full' as const : 'deposit' as const;
+        const dateTimePreferences = confirmedDates.map(cd => ({
+          date: cd.date,
+          timeSlot: cd.timePref,
+        }));
+        const primaryTimePref = confirmedDates[0]?.timePref;
+        const backcompatSlot = primaryTimePref === 'pm' ? 'afternoon' : 'morning';
+
+        onBook({
+          selectedDate: useDownsell ? null : (confirmedDates[0]?.date || selectedDate),
+          selectedDates: confirmedDates.map(cd => cd.date),
+          dateTimePreferences: dateTimePreferences.length > 0 ? dateTimePreferences : undefined,
+          timeSlot: useDownsell ? null : backcompatSlot,
+          addOns: selectedAddOns,
+          totalPrice: total,
+          chargeNowPence: chargeNow,
+          balanceOnCompletionPence: balance,
+          paymentMode: mode,
+          usedDownsell: useDownsell,
+          flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
+        });
+
+        if (onPaymentSuccess) {
+          await onPaymentSuccess(paymentIntentId);
+        }
+      } else {
+        throw new Error('Payment failed');
+      }
+    } catch (err: any) {
+      setPaymentError(err.message || 'Payment failed. Please try again.');
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
+
+  const showExpressCheckout = !isLoadingPaymentIntent && isStripeConfigured && !!clientSecret;
 
   const toggleAddOn = (id: string) => {
     setSelectedAddOns(prev =>
@@ -1491,6 +1550,17 @@ export function UnifiedQuoteCard({
                   <AlertDescription>{paymentError}</AlertDescription>
                 </Alert>
               ) : (
+                <>
+                  {showExpressCheckout && (
+                    <>
+                      <ExpressCheckoutElement onConfirm={handleExpressCheckoutConfirm} />
+                      <div className={`flex items-center gap-3 my-2`}>
+                        <div className={`flex-1 h-px ${isDarkTheme ? 'bg-gray-600' : 'bg-slate-200'}`} />
+                        <span className={`text-xs ${isDarkTheme ? 'text-gray-400' : 'text-slate-400'}`}>Or pay by card</span>
+                        <div className={`flex-1 h-px ${isDarkTheme ? 'bg-gray-600' : 'bg-slate-200'}`} />
+                      </div>
+                    </>
+                  )}
                 <form onSubmit={handlePayment}>
                   <div className={`border rounded-lg p-3 mb-4 ${isDarkTheme ? 'border-white/20 bg-slate-800' : 'border-slate-200 bg-white'}`}>
                     <CardElement
@@ -1548,6 +1618,7 @@ export function UnifiedQuoteCard({
                     )}
                   </Button>
                 </form>
+                </>
               )}
 
               <p className={`text-xs text-center mt-3 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>

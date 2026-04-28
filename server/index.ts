@@ -1625,6 +1625,13 @@ server.on('upgrade', (request, socket, head) => {
 
 
 
+// Apple Pay domain verification — must be registered before the SPA catch-all
+app.get('/.well-known/apple-developer-merchantid-domain-association', (req, res) => {
+    const filePath = path.resolve(__dirname, '../public/.well-known/apple-developer-merchantid-domain-association');
+    res.setHeader('Content-Type', 'text/plain');
+    res.sendFile(filePath);
+});
+
 async function startServer() {
     // Vite Middleware Setup
     if (process.env.NODE_ENV !== 'production') {
