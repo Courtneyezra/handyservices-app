@@ -28,7 +28,7 @@ import {
 import { eq, desc, and } from 'drizzle-orm';
 import crypto from 'crypto';
 import Stripe from 'stripe';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, ObjectCannedACL } from '@aws-sdk/client-s3';
 import { calculateMultiLineRevenueShare } from './revenue-share-tiers';
 import type { JobCategory } from '../shared/contextual-pricing-types';
 
@@ -48,36 +48,32 @@ function getStripe(): Stripe | null {
 export const contractorDispatchRouter = Router();
 
 // ─── S3 helper for photo uploads ────────────────────────────────────────────
-// Use the SAME env vars as server/storage.ts so we hit the same bucket the
-// rest of the app uploads to successfully. The previous AWS_S3_BUCKET default
-// pointed at a non-existent bucket, hence the "Amazon S3 upload error".
+// Mirrors server/s3-media.ts (known-working pattern for tenant-issue photos):
+// AWS_S3_BUCKET = v6-handy-services-media (ACLs ENABLED, supports public-read).
+// Do NOT mix with S3_BUCKET=handyuploaduk — that bucket has ACLs disabled and
+// rejects PutObject{ACL: 'public-read'} which is the exact error we hit.
 
-const S3_ENDPOINT = process.env.S3_ENDPOINT;
-const S3_BUCKET = process.env.S3_BUCKET || process.env.AWS_S3_BUCKET || '';
-const S3_REGION = process.env.S3_REGION || process.env.AWS_REGION || 'eu-west-2';
-const S3_ACCESS_KEY = process.env.S3_ACCESS_KEY || process.env.AWS_ACCESS_KEY_ID || '';
-const S3_SECRET_KEY = process.env.S3_SECRET_KEY || process.env.AWS_SECRET_ACCESS_KEY || '';
-const S3_PUBLIC_URL_BASE = process.env.S3_PUBLIC_URL_BASE;
+const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET || '';
+const AWS_REGION = process.env.AWS_REGION || 'eu-west-2';
+const AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID || '';
+const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY || '';
 
 let s3Client: S3Client | null = null;
 function getS3() {
   if (!s3Client) {
-    if (!S3_BUCKET || !S3_ACCESS_KEY || !S3_SECRET_KEY) {
-      throw new Error('S3 credentials not configured (need S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY)');
+    if (!AWS_S3_BUCKET || !AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY) {
+      throw new Error('S3 credentials not configured (need AWS_S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)');
     }
     s3Client = new S3Client({
-      region: S3_REGION,
-      ...(S3_ENDPOINT ? { endpoint: S3_ENDPOINT } : {}),
-      credentials: { accessKeyId: S3_ACCESS_KEY, secretAccessKey: S3_SECRET_KEY },
+      region: AWS_REGION,
+      credentials: { accessKeyId: AWS_ACCESS_KEY_ID, secretAccessKey: AWS_SECRET_ACCESS_KEY },
     });
   }
   return s3Client;
 }
 
 function publicUrlFor(key: string): string {
-  if (S3_PUBLIC_URL_BASE) return `${S3_PUBLIC_URL_BASE}/${key}`;
-  if (S3_ENDPOINT) return `${S3_ENDPOINT}/${S3_BUCKET}/${key}`;
-  return `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${key}`;
+  return `https://${AWS_S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}`;
 }
 
 async function uploadPhotoToS3(base64DataUrl: string, prefix: string): Promise<string> {
@@ -88,10 +84,11 @@ async function uploadPhotoToS3(base64DataUrl: string, prefix: string): Promise<s
   const buf = Buffer.from(b64, 'base64');
   const key = `${prefix}/${crypto.randomBytes(8).toString('hex')}.${ext}`;
   await getS3().send(new PutObjectCommand({
-    Bucket: S3_BUCKET,
+    Bucket: AWS_S3_BUCKET,
     Key: key,
     Body: buf,
     ContentType: mime,
+    ACL: ObjectCannedACL.public_read,
   }));
   return publicUrlFor(key);
 }
@@ -897,10 +894,11 @@ contractorDispatchRouter.post('/api/admin/dispatch/:id/media',
       const buf = Buffer.from(b64, 'base64');
       const key = `${prefix}/${crypto.randomBytes(8).toString('hex')}.${ext}`;
       await getS3().send(new PutObjectCommand({
-        Bucket: S3_BUCKET,
+        Bucket: AWS_S3_BUCKET,
         Key: key,
         Body: buf,
         ContentType: mime,
+        ACL: ObjectCannedACL.public_read,
       }));
       return publicUrlFor(key);
     }
@@ -1350,9 +1348,56 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
       timeEstimateMinutes?: number;
     }>) || [];
 
-    // Filter lines that have category + time (engine requires both)
-    const validLines = lineItems.filter((l) => l.category && l.timeEstimateMinutes);
-    const skippedLines = lineItems.length - validLines.length;
+    // Don't silently drop lines that lack category or time — admins add manual
+    // line items via the quote editor (e.g. "Replace bathroom extractor (CVT2)",
+    // "Add 2 ventilation roof tiles") which have a description + price but no
+    // category. Infer one from the description and back-calculate a time estimate
+    // from price so they make it into the dispatch.
+    function inferCategory(desc: string): JobCategory {
+      const d = desc.toLowerCase();
+      // Order matters — check more specific patterns first (e.g. roof tiles before generic "tile")
+      if (/(roof tile|ceiling tile|vent.*tile|roofing|loft|attic|chimney)/.test(d)) return 'other';
+      if (/(extractor|fan|socket|wiring|light fitting|consumer unit|circuit|electric)/.test(d)) return 'electrical_minor';
+      if (/(tap|toilet|radiator|leak|stopcock|plumb|water)/.test(d)) return 'plumbing_minor';
+      if (/(paint|repaint|emulsion|undercoat)/.test(d)) return 'painting';
+      if (/(silicone|reseal|re-seal|sealant)/.test(d)) return 'silicone_sealant';
+      if (/(grout|re-?grout|tile|tiling|splashback)/.test(d)) return 'tiling';
+      if (/(plaster|skim|patch)/.test(d)) return 'plastering';
+      if (/(gutter|downpipe|fascia|soffit)/.test(d)) return 'guttering';
+      if (/(door|skirting|hinge|architrave|carpent)/.test(d)) return 'carpentry';
+      if (/(floor|laminate|vinyl|engineered wood)/.test(d)) return 'flooring';
+      if (/(curtain|blind|track|rail)/.test(d)) return 'curtain_blinds';
+      if (/(shelf|shelving|bracket)/.test(d)) return 'shelving';
+      if (/(tv mount|tv bracket)/.test(d)) return 'tv_mounting';
+      if (/(flat ?pack|ikea|assembl)/.test(d)) return 'flat_pack';
+      if (/(lock|latch|cylinder)/.test(d)) return 'lock_change';
+      if (/(fence|panel|post)/.test(d)) return 'fencing';
+      if (/(garden|hedge|shed)/.test(d)) return 'garden_maintenance';
+      if (/(pressure wash|jet wash|driveway|patio clean)/.test(d)) return 'pressure_washing';
+      if (/(rubbish|waste|skip|clearance|dispose)/.test(d)) return 'waste_removal';
+      return 'general_fixing';
+    }
+    // £50/hr labour assumption → minutes = labourPence / 5000 * 60. Clamp 30-480.
+    // Cap at 90min for low-price items (labour ≤ £100): small fixes shouldn't
+    // get inflated time estimates — admin can extend in the form if it really
+    // needs longer.
+    function inferMinutes(labourPence: number): number {
+      const m = Math.round((Math.max(0, labourPence) / 5000) * 60);
+      const ceiling = labourPence <= 10000 ? 90 : 480;
+      return Math.max(30, Math.min(ceiling, m || 60));
+    }
+
+    const validLines = lineItems.map((l) => {
+      if (l.category && l.timeEstimateMinutes) return l;
+      const labour = l.guardedPricePence || 0;
+      return {
+        ...l,
+        category: l.category || inferCategory(l.description || ''),
+        timeEstimateMinutes: l.timeEstimateMinutes || inferMinutes(labour),
+      };
+    });
+    // Only truly empty lines (no description AND no price) are skipped.
+    const skippedLines = lineItems.filter((l) => !l.description && !l.guardedPricePence).length;
 
     // Run engine with batch-discount applied to labour (matches CLI script)
     const discountFactor = quote.batchDiscountPercent ? 1 - Number(quote.batchDiscountPercent) / 100 : 1;
