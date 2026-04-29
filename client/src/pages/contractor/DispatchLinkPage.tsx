@@ -83,6 +83,12 @@ function fmtPreferredDate(d: { date: string; timeSlot: string }) {
     return `${day} · ${slot}`;
 }
 function isVideo(url: string): boolean { return /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url); }
+
+// Convention: video at <base>.<ext> has a paired JPEG poster at <base>.poster.jpg.
+// Generated client-side at upload time — see AdminGenerateDispatch.extractVideoPoster.
+function posterFor(videoUrl: string): string {
+    return videoUrl.replace(/\.[^./?]+(?=(\?|$))/, ".poster.jpg");
+}
 function skillMix(tasks: PublicDispatch["tasks"]) {
     const order = ["specialist", "skilled", "general", "outdoor"];
     const counts: Record<string, number> = {};
@@ -344,7 +350,16 @@ export default function DispatchLinkPage() {
                                             >
                                                 {video ? (
                                                     <>
-                                                        <video src={u} className="w-full h-full object-cover" preload="metadata" muted />
+                                                        <img
+                                                            src={posterFor(u)}
+                                                            alt=""
+                                                            className="w-full h-full object-cover"
+                                                            onError={(e) => {
+                                                                // No poster available — hide the broken image and let the
+                                                                // dark card background show through behind the play badge.
+                                                                (e.currentTarget as HTMLImageElement).style.display = "none";
+                                                            }}
+                                                        />
                                                         <div className="absolute inset-0 flex items-center justify-center bg-[#0E1116]/15">
                                                             <div className="bg-[#F5A623] rounded-full p-3 shadow-lg">
                                                                 <Play className="h-5 w-5 text-[#0E1116] fill-[#0E1116]" />
@@ -483,7 +498,7 @@ export default function DispatchLinkPage() {
                         </button>
                         <div className="max-w-5xl max-h-full" onClick={(e) => e.stopPropagation()}>
                             {video
-                                ? <video src={lightboxUrl} controls autoPlay className="max-h-[90vh] max-w-full rounded-xl" />
+                                ? <video src={lightboxUrl} poster={posterFor(lightboxUrl)} controls autoPlay className="max-h-[90vh] max-w-full rounded-xl" />
                                 : <img src={lightboxUrl} alt="" className="max-h-[90vh] max-w-full rounded-xl object-contain" />}
                         </div>
                     </div>

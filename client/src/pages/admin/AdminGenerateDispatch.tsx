@@ -122,11 +122,11 @@ function fmtNiceDate(iso: string | null): string {
 }
 
 // PUT a single file directly to a presigned S3 URL with progress tracking.
-function putToS3(file: File, putUrl: string, onProgress: (loaded: number) => void): Promise<void> {
+function putToS3(body: Blob | File, contentType: string, putUrl: string, onProgress: (loaded: number) => void): Promise<void> {
     return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('PUT', putUrl, true);
-        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.setRequestHeader('Content-Type', contentType || 'application/octet-stream');
         xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded); };
         xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) resolve();
@@ -134,8 +134,47 @@ function putToS3(file: File, putUrl: string, onProgress: (loaded: number) => voi
         };
         xhr.onerror = () => reject(new Error('S3 PUT network error'));
         xhr.ontimeout = () => reject(new Error('S3 PUT timed out'));
-        xhr.send(file);
+        xhr.send(body);
     });
+}
+
+// Extract the first usable frame of a video file as a JPEG blob.
+// Used to upload a poster image so the contractor brief can show a thumbnail
+// without pulling the whole video. Returns null if extraction fails (e.g.
+// browser refuses to decode the file or the video has no frames yet).
+async function extractVideoPoster(file: File): Promise<Blob | null> {
+    const url = URL.createObjectURL(file);
+    try {
+        const video = document.createElement('video');
+        video.src = url;
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = 'auto';
+        await new Promise<void>((resolve, reject) => {
+            const t = setTimeout(() => reject(new Error('metadata timeout')), 10_000);
+            video.onloadeddata = () => { clearTimeout(t); resolve(); };
+            video.onerror = () => { clearTimeout(t); reject(new Error('video decode failed')); };
+        });
+        // Seek to ~0.5s so we don't get a black pre-roll frame.
+        const target = Math.min(0.5, Math.max(0, (video.duration || 1) * 0.05));
+        await new Promise<void>((resolve) => {
+            video.onseeked = () => resolve();
+            try { video.currentTime = target; } catch { resolve(); }
+        });
+        const w = video.videoWidth || 640;
+        const h = video.videoHeight || 360;
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        ctx.drawImage(video, 0, 0, w, h);
+        return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.82));
+    } catch {
+        return null;
+    } finally {
+        URL.revokeObjectURL(url);
+    }
 }
 
 function tierBadge(tier: string) {
@@ -481,6 +520,14 @@ export default function AdminGenerateDispatch() {
         const totalBytes = items.reduce((s, m) => s + m.file.size, 0);
         const totalMB = (totalBytes / (1024 * 1024)).toFixed(1);
 
+        // Pre-extract poster JPEGs for any videos so they upload in parallel
+        // with the video itself. If extraction fails, we just skip the poster
+        // — the video will fall back to the browser's default thumbnail.
+        onPhase(`Preparing files…`);
+        const posters: (Blob | null)[] = await Promise.all(
+            items.map((m) => (m.file.type.startsWith("video/") ? extractVideoPoster(m.file) : Promise.resolve(null))),
+        );
+
         onPhase(`Requesting upload URLs…`);
         const presignResp = await fetch(`/api/admin/dispatch/${dispatchId}/media/presign`, {
             method: "POST",
@@ -494,7 +541,10 @@ export default function AdminGenerateDispatch() {
         });
         const presignJson = await presignResp.json().catch(() => ({}));
         if (!presignResp.ok) throw new Error(presignJson.error || "Failed to get upload URLs");
-        const uploads: Array<{ key: string; putUrl: string; publicUrl: string; scope: MediaScope }> = presignJson.uploads;
+        const uploads: Array<{
+            key: string; putUrl: string; publicUrl: string; scope: MediaScope;
+            posterPutUrl?: string; posterPublicUrl?: string;
+        }> = presignJson.uploads;
         if (!Array.isArray(uploads) || uploads.length !== items.length) {
             throw new Error("presign response shape unexpected");
         }
@@ -507,11 +557,21 @@ export default function AdminGenerateDispatch() {
         };
         refreshPhase();
 
-        // Run uploads in parallel — S3 handles each PUT independently.
-        await Promise.all(items.map((m, i) => putToS3(m.file, uploads[i].putUrl, (loaded) => {
-            loadedPerFile[i] = loaded;
-            refreshPhase();
-        })));
+        // Upload main files (image/video) AND any video posters in parallel.
+        // Posters are tiny (~30 KB) and don't count toward the progress bar.
+        const tasks: Promise<unknown>[] = [];
+        items.forEach((m, i) => {
+            tasks.push(putToS3(m.file, m.file.type || "application/octet-stream", uploads[i].putUrl, (loaded) => {
+                loadedPerFile[i] = loaded;
+                refreshPhase();
+            }));
+            const posterBlob = posters[i];
+            const posterPutUrl = uploads[i].posterPutUrl;
+            if (posterBlob && posterPutUrl) {
+                tasks.push(putToS3(posterBlob, "image/jpeg", posterPutUrl, () => {}));
+            }
+        });
+        await Promise.all(tasks);
 
         onPhase(`Saving media to dispatch…`);
         const overviewUrls = uploads.filter((u) => u.scope.kind === "overview").map((u) => u.publicUrl);

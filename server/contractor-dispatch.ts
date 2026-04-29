@@ -1137,13 +1137,29 @@ contractorDispatchRouter.post('/api/admin/dispatch/:id/media/presign', async (re
       const prefix = f.scope.kind === 'overview'
         ? `dispatch/${dispatch.id}/overview`
         : `dispatch/${dispatch.id}/task-${f.scope.taskNum}`;
-      const key = `${prefix}/${crypto.randomBytes(8).toString('hex')}.${ext}`;
+      const base = crypto.randomBytes(8).toString('hex');
+      const key = `${prefix}/${base}.${ext}`;
       const putUrl = await getSignedUrl(
         getS3(),
         new PutObjectCommand({ Bucket: c.bucket, Key: key, ContentType: f.contentType }),
         { expiresIn: 60 * 30 }, // 30 min — enough for slow connections to finish
       );
-      return { key, putUrl, publicUrl: publicUrlFor(key), contentType: f.contentType, scope: f.scope };
+      const result: any = { key, putUrl, publicUrl: publicUrlFor(key), contentType: f.contentType, scope: f.scope };
+      // For videos, issue a paired poster presign at <base>.poster.jpg so the
+      // contractor brief can render a thumbnail without forcing the video to
+      // download. The dispatch page derives this URL by convention from the
+      // video URL (no DB column needed).
+      if (f.contentType.startsWith('video/')) {
+        const posterKey = `${prefix}/${base}.poster.jpg`;
+        result.posterKey = posterKey;
+        result.posterPutUrl = await getSignedUrl(
+          getS3(),
+          new PutObjectCommand({ Bucket: c.bucket, Key: posterKey, ContentType: 'image/jpeg' }),
+          { expiresIn: 60 * 30 },
+        );
+        result.posterPublicUrl = publicUrlFor(posterKey);
+      }
+      return result;
     }));
 
     res.json({ ok: true, uploads });
