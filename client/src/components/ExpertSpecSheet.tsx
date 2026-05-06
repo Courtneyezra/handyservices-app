@@ -101,7 +101,12 @@ export function ScopeOfWorks({ text, summary, proposalSummary, pricingLineItems,
                                 <div className="w-5 h-5 rounded-full bg-[#7DB00E]/10 flex items-center justify-center shrink-0 mt-0.5">
                                     <Check className="w-3 h-3 text-[#7DB00E]" strokeWidth={3} />
                                 </div>
-                                <p className="text-slate-700 text-sm md:text-base font-medium leading-relaxed">{item.description}</p>
+                                <p className="text-slate-700 text-sm md:text-base font-medium leading-relaxed flex-1">{item.description}</p>
+                                {item.propertyTag && (
+                                    <span className="shrink-0 mt-1 text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">
+                                        {item.propertyTag}
+                                    </span>
+                                )}
                             </div>
                         ))}
                         {hiddenCount > 0 && (

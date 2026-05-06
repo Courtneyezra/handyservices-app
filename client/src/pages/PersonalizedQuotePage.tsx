@@ -3309,6 +3309,28 @@ export default function PersonalizedQuotePage() {
       })
     : quote.pricingLineItems;
 
+  // One-off: split this specific 25-item landlord quote into Property 1 / Property 2
+  // tags. Three lines cover both properties and get split 50/50 across them.
+  const PROPERTY_SPLIT_SLUG = 'ozxdvd3h';
+  const PROPERTY_1_LINE_IDS = new Set<string>([
+    '5eww8egf', 'jqhn3j0e', 'vbcms5j6', 'ucfn3psj', 'h5yy2o79', 'c7zfl1r2',
+    'imtmir3o', '4jpdsvfq', 'beyjenzt', '94ubdz33', 'kxvcox3k', 'oqpkop3u',
+  ]);
+  const SPLIT_LINE_IDS = new Set<string>(['u446u437', '61ge9bde', 'u6jshq2w']);
+  const taggedPricingLineItems = (quote as any).shortSlug === PROPERTY_SPLIT_SLUG
+    ? sortedPricingLineItems?.flatMap((item: any) => {
+        if (SPLIT_LINE_IDS.has(item.lineId)) {
+          const halfGuarded = Math.round((item.guardedPricePence || 0) / 2);
+          const halfMaterials = Math.round((item.materialsWithMarginPence || 0) / 2);
+          return [
+            { ...item, lineId: `${item.lineId}_p1`, guardedPricePence: halfGuarded, materialsWithMarginPence: halfMaterials, propertyTag: 'P1' },
+            { ...item, lineId: `${item.lineId}_p2`, guardedPricePence: halfGuarded, materialsWithMarginPence: halfMaterials, propertyTag: 'P2' },
+          ];
+        }
+        return [{ ...item, propertyTag: PROPERTY_1_LINE_IDS.has(item.lineId) ? 'P1' : 'P2' }];
+      })
+    : sortedPricingLineItems;
+
   // getProductsForSegment removed — EVE single-price, UnifiedQuoteCard handles display
 
   // Calculate total for simple mode (with Bundle & Save logic for Pick & Mix)
@@ -3523,7 +3545,7 @@ export default function PersonalizedQuotePage() {
                 text={getScopeOfWorks(quote as any)}
                 summary={(quote.jobs as any)?.[0]?.summary}
                 proposalSummary={isContextualQuote ? (quote as any).proposalSummary : undefined}
-                pricingLineItems={isContextualQuote ? sortedPricingLineItems : undefined}
+                pricingLineItems={isContextualQuote ? taggedPricingLineItems : undefined}
                 estimatorPhotoUrl={mikeProfilePhoto}
               />
 
@@ -3542,7 +3564,7 @@ export default function PersonalizedQuotePage() {
                       customerEmail={quote.email || undefined}
                       bookingModes={isContextualQuote && quote.bookingModes ? quote.bookingModes : undefined}
                       batchDiscount={isContextualQuote && quote.batchDiscount ? quote.batchDiscount : undefined}
-                      pricingLineItems={sortedPricingLineItems || undefined}
+                      pricingLineItems={taggedPricingLineItems || undefined}
                       contextualBullets={isContextualQuote && quote.valueBullets ? quote.valueBullets : undefined}
                       allowedDates={(quote as any).availableDates ?? null}
                       quoteId={quote.id}

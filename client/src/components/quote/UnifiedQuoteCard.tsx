@@ -934,6 +934,13 @@ export function UnifiedQuoteCard({
                         <span className={`min-w-0 flex-1 ${isDarkTheme ? 'text-slate-300' : 'text-slate-700'}`}>
                           {item.description}
                         </span>
+                        {(item as any).propertyTag && (
+                          <span className={`shrink-0 mt-0.5 text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded ${
+                            isDarkTheme ? 'bg-white/10 text-slate-400 border border-white/10' : 'bg-slate-100 text-slate-500 border border-slate-200'
+                          }`}>
+                            {(item as any).propertyTag}
+                          </span>
+                        )}
                         <div className="shrink-0 flex flex-col items-end leading-tight">
                           <span className={`font-semibold tabular-nums ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
                             £{Math.round(lineTotal / 100)}
