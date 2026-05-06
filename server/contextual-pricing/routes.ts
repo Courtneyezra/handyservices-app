@@ -628,11 +628,6 @@ router.post('/api/pricing/multi-quote', async (req, res) => {
         .status(400)
         .json({ error: 'lines must be a non-empty array' });
     }
-    if (request.lines.length > 10) {
-      return res
-        .status(400)
-        .json({ error: 'lines must contain at most 10 items' });
-    }
 
     // Validate each line
     const validCategories = new Set<string>(JobCategoryValues);
