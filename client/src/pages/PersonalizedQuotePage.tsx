@@ -3300,6 +3300,15 @@ export default function PersonalizedQuotePage() {
   // For contextual quotes, prefer finalPricePence from the contextual pricing engine
   const quotePrice = (isContextualQuote ? quote.finalPricePence : undefined) || quote.basePrice || quote.enhancedPrice || 0;
 
+  // Sort line items by total descending — anchors the breakdown high (primacy + descending-price effect).
+  const sortedPricingLineItems = quote.pricingLineItems
+    ? [...quote.pricingLineItems].sort((a, b) => {
+        const aTotal = (a.guardedPricePence || 0) + (a.materialsWithMarginPence || 0);
+        const bTotal = (b.guardedPricePence || 0) + (b.materialsWithMarginPence || 0);
+        return bTotal - aTotal;
+      })
+    : quote.pricingLineItems;
+
   // getProductsForSegment removed — EVE single-price, UnifiedQuoteCard handles display
 
   // Calculate total for simple mode (with Bundle & Save logic for Pick & Mix)
@@ -3493,7 +3502,7 @@ export default function PersonalizedQuotePage() {
 
                 <div>
                   <h3 className="text-xl md:text-2xl font-bold text-slate-500 mb-2">We can't work with everyone,</h3>
-                  <h2 className="text-4xl md:text-6xl font-extrabold tracking-tight text-[#1D2D3D]">Secure Your Slot?</h2>
+                  <h2 className="text-4xl md:text-6xl font-extrabold tracking-tight text-[#1D2D3D]">Secure Your Slot</h2>
                 </div>
                 <p className="text-slate-600 text-lg max-w-2xl mx-auto">Based on quality materials and insured labour, here's what proper workmanship costs:</p>
 
@@ -3514,7 +3523,7 @@ export default function PersonalizedQuotePage() {
                 text={getScopeOfWorks(quote as any)}
                 summary={(quote.jobs as any)?.[0]?.summary}
                 proposalSummary={isContextualQuote ? (quote as any).proposalSummary : undefined}
-                pricingLineItems={isContextualQuote ? quote.pricingLineItems : undefined}
+                pricingLineItems={isContextualQuote ? sortedPricingLineItems : undefined}
                 estimatorPhotoUrl={mikeProfilePhoto}
               />
 
@@ -3533,7 +3542,7 @@ export default function PersonalizedQuotePage() {
                       customerEmail={quote.email || undefined}
                       bookingModes={isContextualQuote && quote.bookingModes ? quote.bookingModes : undefined}
                       batchDiscount={isContextualQuote && quote.batchDiscount ? quote.batchDiscount : undefined}
-                      pricingLineItems={quote.pricingLineItems || undefined}
+                      pricingLineItems={sortedPricingLineItems || undefined}
                       contextualBullets={isContextualQuote && quote.valueBullets ? quote.valueBullets : undefined}
                       allowedDates={(quote as any).availableDates ?? null}
                       quoteId={quote.id}
