@@ -27,6 +27,7 @@ interface JobInPack {
     num: number;
     slug: string;
     title: string;
+    addressLine?: string;     // Street / business name — optional (production gates this on bond)
     postcode: string;
     startTime: string;
     endTime: string;
@@ -47,8 +48,9 @@ interface DayPack {
     jobs: JobInPack[];
     // Day rate — the ONE number the Builder sees as their pay
     dayRatePence: number;
-    // Bonuses on top
-    completionBonusPence: number;
+    // Per-additional-stop bonus — first stop is the warm-up (no bonus),
+    // every stop after earns this. Total max = (jobs.length - 1) × this.
+    bonusPerAdditionalStopPence: number;
     fiveStarBonusPerReviewPence: number;
     maxFiveStarReviews: number;
     // Day stats
@@ -82,7 +84,9 @@ const PACK: DayPack = {
     // Hardcoded £200 for the test page — real day rate is computed by the
     // hidden engine (rev-share + floor + segment) at routing time.
     dayRatePence: 20000,
-    completionBonusPence: 2500,
+    // First stop is the warm-up (no bonus). Each subsequent stop earns this.
+    // For 4 stops, max bonus = 3 × £10 = £30.
+    bonusPerAdditionalStopPence: 1000,
     fiveStarBonusPerReviewPence: 1000,
     maxFiveStarReviews: 4,
     totalWorkHours: 8.0,
@@ -93,6 +97,7 @@ const PACK: DayPack = {
             num: 1,
             slug: "9fitx3o1",
             title: "Replace handle, lock and latch on door",
+            addressLine: "Adamo Foods, Unit 12 Castle Park",
             postcode: "NG2 1AH",
             startTime: "08:00",
             endTime: "08:30",
@@ -108,6 +113,7 @@ const PACK: DayPack = {
             num: 2,
             slug: "py8jrvxz",
             title: "Supply and fit Arden gate panel + repair",
+            // Address pending — show postcode only for now
             postcode: "NG9 4AF",
             startTime: "08:45",
             endTime: "10:15",
@@ -123,6 +129,7 @@ const PACK: DayPack = {
             num: 3,
             slug: "zw2eqimg",
             title: "Install 6x4 shed and level floor",
+            addressLine: "4 Westbury Mews",
             postcode: "NG5 1EN",
             startTime: "10:45",
             endTime: "14:45",
@@ -138,6 +145,7 @@ const PACK: DayPack = {
             num: 4,
             slug: "nkno7s07",
             title: "Install bendable PVC curtain track",
+            addressLine: "11A Glen Road",
             postcode: "NG14 5BQ",
             startTime: "15:10",
             endTime: "17:10",
@@ -180,11 +188,22 @@ const fadeInUp = {
     transition: { duration: 0.35 },
 };
 
-// Compute potential max earnings: day rate + completion + max 5★ reviews
+// Maximum bonus from per-stop completion (warm-up first stop is excluded)
+function maxStopBonusPence(p: DayPack): number {
+    return Math.max(0, (p.jobs.length - 1) * p.bonusPerAdditionalStopPence);
+}
+
+// Compute potential max earnings: day rate + all stop bonuses + max 5★ reviews
 function computeMaxPotential(p: DayPack): number {
     return p.dayRatePence
-        + p.completionBonusPence
+        + maxStopBonusPence(p)
         + (p.fiveStarBonusPerReviewPence * p.maxFiveStarReviews);
+}
+
+// Bonus earned for completing a given number of stops.
+// First stop is the warm-up (no bonus); every stop after earns the per-stop amount.
+function bonusForCompleted(p: DayPack, completedCount: number): number {
+    return Math.max(0, completedCount - 1) * p.bonusPerAdditionalStopPence;
 }
 
 // Build Google Maps Embed directions URL.
@@ -223,10 +242,31 @@ function buildMapDeepLink(p: DayPack): string {
 
 export default function DispatchPreviewPage() {
     const [decided, setDecided] = useState<'accepted' | 'declined' | null>(null);
+    // Interactive tick-to-complete — each stop number can be marked done.
+    // Persists across renders within the session; resets on page reload.
+    const [completedStops, setCompletedStops] = useState<Set<number>>(new Set());
 
     const maxPotential = computeMaxPotential(PACK);
     const mapEmbedUrl = buildMapEmbedUrl(PACK);
     const mapDeepLink = buildMapDeepLink(PACK);
+
+    const completedCount = completedStops.size;
+    const totalStops = PACK.jobs.length;
+    const earnedBonusPence = bonusForCompleted(PACK, completedCount);
+    const allComplete = completedCount === totalStops;
+    const progressPct = (completedCount / totalStops) * 100;
+
+    function toggleStop(num: number) {
+        setCompletedStops(prev => {
+            const next = new Set(prev);
+            if (next.has(num)) next.delete(num);
+            else next.add(num);
+            return next;
+        });
+    }
+    function resetCompletions() {
+        setCompletedStops(new Set());
+    }
 
     return (
         <div className="min-h-screen bg-[#F7F8FA] font-sans text-[#0E1116] selection:bg-[#3B7A3F]/20 pb-32">
@@ -274,15 +314,46 @@ export default function DispatchPreviewPage() {
                                 <Package className="h-4 w-4 sm:h-[18px] sm:w-[18px]" /> Materials supplied by Handy
                             </p>
 
-                            {/* Day-rate floor + day framing */}
-                            <div className="mt-4 pt-4 border-t border-white/10 flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-white/85">
+                            {/* Progress bar — fills as stops are ticked off */}
+                            <div className="mt-4 pt-4 border-t border-white/10">
+                                <div className="flex items-baseline justify-between mb-2">
+                                    <span className="text-[10px] uppercase tracking-[0.08em] font-semibold text-white/65">
+                                        Progress · {completedCount}/{totalStops} stops
+                                    </span>
+                                    <motion.span
+                                        key={`bonus-${earnedBonusPence}`}
+                                        initial={{ scale: 1 }}
+                                        animate={{ scale: completedCount > 0 ? [1.2, 1] : 1 }}
+                                        transition={{ duration: 0.3 }}
+                                        className={`text-[13px] font-bold tabular-nums ${earnedBonusPence > 0 ? 'text-[#7DB00E]' : 'text-white/45'}`}
+                                    >
+                                        +{fmt(earnedBonusPence)} earned
+                                    </motion.span>
+                                </div>
+                                <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                                    <motion.div
+                                        className="h-full bg-gradient-to-r from-[#7DB00E] to-[#F5A623]"
+                                        initial={{ width: 0 }}
+                                        animate={{ width: `${progressPct}%` }}
+                                        transition={{ duration: 0.5, ease: "easeOut" }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Day-rate floor */}
+                            <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-white/85">
                                 <span className="inline-flex items-center gap-2">
                                     <ShieldCheck className="h-4 w-4 text-[#7DB00E]" />
                                     {fmt(PACK.dayRatePence)} guaranteed
                                 </span>
-                                <span className="inline-flex items-center gap-2">
-                                    <Calendar className="h-4 w-4 text-[#F5A623]" /> Estimated full day
-                                </span>
+                                {completedCount > 0 && (
+                                    <button
+                                        onClick={resetCompletions}
+                                        className="inline-flex items-center gap-1.5 text-[12px] text-white/55 hover:text-white/85 underline-offset-2 hover:underline"
+                                    >
+                                        Reset
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -301,21 +372,21 @@ export default function DispatchPreviewPage() {
                     </div>
                     <div className="bg-white rounded-2xl border border-[#E6E8EC] divide-y divide-[#E6E8EC] overflow-hidden">
 
-                        {/* Multi-job completion */}
+                        {/* Per-stop completion bonus */}
                         <div className="flex items-start gap-3 p-4">
                             <div className="w-10 h-10 rounded-xl bg-[#F5A623]/10 flex items-center justify-center shrink-0">
                                 <Trophy className="h-5 w-5 text-[#F5A623]" />
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="text-[14px] font-semibold text-[#0E1116] leading-tight">
-                                    Multi-job completion
+                                    Per-stop bonus
                                 </p>
                                 <p className="text-[12px] text-[#5C6470] leading-relaxed mt-1">
-                                    Complete all {PACK.jobs.length} jobs by end of day — bonus unlocks at sign-off
+                                    +{fmt(PACK.bonusPerAdditionalStopPence)} for every stop after the first · up to +{fmt(maxStopBonusPence(PACK))} total
                                 </p>
                             </div>
                             <span className="text-[14px] font-semibold tabular-nums text-[#F5A623] shrink-0 ml-1">
-                                +{fmt(PACK.completionBonusPence)}
+                                +{fmt(PACK.bonusPerAdditionalStopPence)} ea
                             </span>
                         </div>
 
@@ -390,32 +461,50 @@ export default function DispatchPreviewPage() {
                         <ol className="relative">
                             {PACK.jobs.map((job, idx) => {
                                 const isLast = idx === PACK.jobs.length - 1;
+                                const isComplete = completedStops.has(job.num);
+                                const earnsBonus = job.num > 1; // first stop is the warm-up
                                 return (
-                                    <li key={job.num} className="relative pl-8 pb-5 last:pb-3">
-                                        {/* Vertical line behind dot */}
+                                    <li key={job.num} className="relative pl-9 pb-5 last:pb-3">
+                                        {/* Vertical line behind dot — solid green for completed segments */}
                                         {!isLast && (
                                             <span
-                                                className="absolute left-[11px] top-4 bottom-0 w-px bg-[#E6E8EC]"
+                                                className={`absolute left-[13px] top-4 bottom-0 w-px transition-colors ${isComplete ? 'bg-[#3B7A3F]' : 'bg-[#E6E8EC]'}`}
                                                 aria-hidden
                                             />
                                         )}
-                                        {/* Dot */}
-                                        <span
-                                            className={`absolute left-0 top-1 w-[22px] h-[22px] rounded-full bg-white border-2 border-[#0E1116] flex items-center justify-center text-[10px] font-bold tabular-nums`}
+                                        {/* Dot — animates to green-check when ticked */}
+                                        <button
+                                            onClick={() => toggleStop(job.num)}
+                                            aria-label={isComplete ? `Stop ${job.num} complete — tap to undo` : `Mark stop ${job.num} complete`}
+                                            className={`absolute left-0 top-0 w-[26px] h-[26px] rounded-full flex items-center justify-center text-[10px] font-bold tabular-nums transition-all active:scale-90 ${
+                                                isComplete
+                                                    ? 'bg-[#3B7A3F] border-2 border-[#3B7A3F] text-white shadow-md shadow-[#3B7A3F]/30'
+                                                    : 'bg-white border-2 border-[#0E1116] text-[#0E1116] hover:bg-[#F1F3F6]'
+                                            }`}
                                         >
-                                            {job.num}
-                                        </span>
+                                            {isComplete ? <Check className="h-3.5 w-3.5 stroke-[3]" /> : job.num}
+                                        </button>
 
                                         <div className="flex items-baseline justify-between gap-3">
                                             <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#8B92A0]">
                                                 Stop {job.num}
+                                                {earnsBonus && (
+                                                    <span className="ml-2 inline-flex items-center gap-0.5 text-[10px] font-bold tabular-nums normal-case tracking-normal text-[#F5A623]">
+                                                        +{fmt(PACK.bonusPerAdditionalStopPence)} bonus
+                                                    </span>
+                                                )}
                                             </p>
                                             <span className={`w-1.5 h-1.5 rounded-full ${tierDot(job.tier)}`} />
                                         </div>
-                                        <p className="text-[15px] font-semibold text-[#0E1116] mt-0.5 leading-tight">
+                                        <p className={`text-[15px] font-semibold mt-0.5 leading-tight transition-colors ${isComplete ? 'text-[#5C6470] line-through decoration-[#3B7A3F]/40' : 'text-[#0E1116]'}`}>
                                             {job.title}
                                         </p>
-                                        <p className="text-[12px] text-[#5C6470] mt-1">
+                                        {job.addressLine ? (
+                                            <p className="text-[13px] font-medium text-[#0E1116] mt-1.5">
+                                                {job.addressLine}
+                                            </p>
+                                        ) : null}
+                                        <p className="text-[12px] text-[#5C6470] mt-0.5">
                                             {job.postcode} · #{job.slug}
                                         </p>
                                         {job.description && (
@@ -432,34 +521,66 @@ export default function DispatchPreviewPage() {
                                                 ))}
                                             </div>
                                         )}
+
+                                        {/* Bonus reveal — animates in when stop is ticked AND it earns a bonus */}
+                                        <AnimatePresence>
+                                            {isComplete && earnsBonus && (
+                                                <motion.div
+                                                    initial={{ opacity: 0, y: -4, scale: 0.95 }}
+                                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                    exit={{ opacity: 0, y: -4, scale: 0.95 }}
+                                                    transition={{ duration: 0.25 }}
+                                                    className="mt-2.5 inline-flex items-center gap-1.5 bg-[#F5A623]/15 text-[#92591E] border border-[#F5A623]/30 rounded-full px-2.5 py-1 text-[11px] font-bold tabular-nums"
+                                                >
+                                                    <Sparkles className="h-3 w-3" />
+                                                    +{fmt(PACK.bonusPerAdditionalStopPence)} bonus earned
+                                                </motion.div>
+                                            )}
+                                        </AnimatePresence>
                                     </li>
                                 );
                             })}
 
-                            {/* ───── BONUS UNLOCK NODE — end of day ───── */}
-                            <li className="relative pl-8">
+                            {/* ───── BONUS UNLOCK NODE — activates when all stops complete ───── */}
+                            <li className="relative pl-9">
                                 <span
-                                    className="absolute left-0 top-1 w-[22px] h-[22px] rounded-full bg-gradient-to-br from-[#F5A623] to-[#F2871E] border-2 border-[#F5A623] flex items-center justify-center shadow-md shadow-[#F5A623]/30"
+                                    className={`absolute left-0 top-1 w-[26px] h-[26px] rounded-full flex items-center justify-center transition-all ${
+                                        allComplete
+                                            ? 'bg-gradient-to-br from-[#F5A623] to-[#F2871E] border-2 border-[#F5A623] shadow-md shadow-[#F5A623]/40'
+                                            : 'bg-white border-2 border-[#E6E8EC]'
+                                    }`}
                                     aria-hidden
                                 >
-                                    <Trophy className="h-3 w-3 text-white" />
+                                    <Trophy className={`h-3.5 w-3.5 ${allComplete ? 'text-white' : 'text-[#8B92A0]'}`} />
                                 </span>
-                                <div className="bg-gradient-to-r from-[#FFF8EC] to-[#FFF4E0] border border-[#F5A623]/30 rounded-xl p-3.5">
+                                <motion.div
+                                    animate={{ scale: allComplete ? [1.02, 1] : 1 }}
+                                    transition={{ duration: 0.4 }}
+                                    className={`rounded-xl p-3.5 transition-all ${
+                                        allComplete
+                                            ? 'bg-gradient-to-r from-[#FFF8EC] to-[#FFF4E0] border border-[#F5A623]/40'
+                                            : 'bg-[#FAFBFC] border border-[#E6E8EC] opacity-70'
+                                    }`}
+                                >
                                     <div className="flex items-baseline justify-between gap-2">
-                                        <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#92591E]">
-                                            End of day
+                                        <p className={`text-[10px] uppercase tracking-[0.08em] font-semibold ${allComplete ? 'text-[#92591E]' : 'text-[#8B92A0]'}`}>
+                                            {allComplete ? "Day complete" : "End of day"}
                                         </p>
-                                        <span className="text-[12px] font-bold tabular-nums text-[#92591E]">
-                                            +{fmt(PACK.completionBonusPence)} unlocked
+                                        <span className={`text-[12px] font-bold tabular-nums ${allComplete ? 'text-[#92591E]' : 'text-[#8B92A0]'}`}>
+                                            {allComplete
+                                                ? `+${fmt(maxStopBonusPence(PACK))} earned`
+                                                : `up to +${fmt(maxStopBonusPence(PACK))}`}
                                         </span>
                                     </div>
-                                    <p className="text-[14px] font-semibold text-[#0E1116] mt-0.5 leading-tight">
-                                        Day complete
+                                    <p className={`text-[14px] font-semibold mt-0.5 leading-tight ${allComplete ? 'text-[#0E1116]' : 'text-[#5C6470]'}`}>
+                                        {allComplete ? "🏆 All stops done" : "Finish the day"}
                                     </p>
-                                    <p className="text-[12px] text-[#92591E] mt-1 leading-relaxed">
-                                        All {PACK.jobs.length} stops done — completion bonus added to your day's pay.
+                                    <p className={`text-[12px] mt-1 leading-relaxed ${allComplete ? 'text-[#92591E]' : 'text-[#8B92A0]'}`}>
+                                        {allComplete
+                                            ? `All ${PACK.jobs.length} stops complete — full bonus added to your day's pay.`
+                                            : `Tick each stop above as you finish to bank +${fmt(PACK.bonusPerAdditionalStopPence)} per stop after the first.`}
                                     </p>
-                                </div>
+                                </motion.div>
                             </li>
                         </ol>
                     </div>
@@ -537,10 +658,24 @@ export default function DispatchPreviewPage() {
                     <div className="max-w-[680px] mx-auto px-4 pt-3 pb-3">
                         <div className="flex items-center gap-3">
                             <div className="flex-1 min-w-0">
-                                <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#8B92A0] leading-none">Day rate</p>
+                                <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#8B92A0] leading-none">
+                                    {completedCount > 0 ? `Earnings · ${completedCount}/${totalStops} stops` : 'Day rate'}
+                                </p>
                                 <p className="text-[20px] font-semibold tabular-nums text-[#0E1116] leading-tight mt-0.5">
-                                    {fmt(PACK.dayRatePence)}
-                                    <span className="text-[12px] text-[#3B7A3F] font-semibold ml-1">+ bonuses</span>
+                                    {fmt(PACK.dayRatePence + earnedBonusPence)}
+                                    {earnedBonusPence > 0 ? (
+                                        <motion.span
+                                            key={`tally-${earnedBonusPence}`}
+                                            initial={{ scale: 1.3 }}
+                                            animate={{ scale: 1 }}
+                                            transition={{ duration: 0.3 }}
+                                            className="text-[12px] text-[#F5A623] font-bold ml-1"
+                                        >
+                                            +{fmt(earnedBonusPence)}
+                                        </motion.span>
+                                    ) : (
+                                        <span className="text-[12px] text-[#3B7A3F] font-semibold ml-1">+ bonuses</span>
+                                    )}
                                 </p>
                             </div>
                             <button
