@@ -58,87 +58,96 @@ interface DayPack {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Seed data — the 4 quotes given to the contractor today
+// Seed data — the 4 real quotes given to the contractor today.
 //
-// NOTE: Live quote URLs (handyservices.app/quote-link/...) are 403-gated
-// against non-browser fetches; values are plausibly seeded based on the slugs.
-// Swap PACK out for a useQuery later — page renders straight from this.
+// Pulled from production API (/api/personalized-quotes/:slug):
+//   zw2eqimg → NG5 1EN  · Install 6x4 shed + level floor       · £320 customer
+//   py8jrvxz → NG9 4AF  · Supply & fit Arden gate panel/repair · £110 customer
+//   nkno7s07 → NG14 5BQ · Install bendable PVC curtain track   · £251 customer
+//   9fitx3o1 → NG2 1AH  · Replace handle/lock/latch on door    · line item only
+//                         (parent quote has 6 line items — only this one)
+//
+// Real geographic spread (NG2 / NG5 / NG9 / NG14) makes this a tough day —
+// ~28 miles, ~70 min driving, ~8h work = ~9.5h on the road. Day rate £200
+// surfaces the tension exactly: £21/hr equivalent. Honest stress test.
+//
+// Order is route-optimised (south-west loop): NG2 → NG9 → NG5 → NG14.
 // ───────────────────────────────────────────────────────────────────────────
 
 const PACK: DayPack = {
     packRef: "DP-MAR-FRI",
     date: "2026-05-08",
     contractorName: "Mark",
-    area: "Nottingham · NG7 area",
+    area: "Nottingham · NG2 / NG9 / NG5 / NG14",
     // Hardcoded £200 for the test page — real day rate is computed by the
     // hidden engine (rev-share + floor + segment) at routing time.
     dayRatePence: 20000,
     completionBonusPence: 2500,
     fiveStarBonusPerReviewPence: 1000,
     maxFiveStarReviews: 4,
-    totalWorkHours: 6.0,
-    totalTravelMinutes: 24,
-    totalDistanceMiles: 6.2,
+    totalWorkHours: 8.0,
+    totalTravelMinutes: 70,
+    totalDistanceMiles: 28,
     jobs: [
         {
             num: 1,
-            slug: "zw2eqimg",
-            title: "Replace kitchen tap",
-            postcode: "NG7 2RD",
-            startTime: "09:00",
-            endTime: "10:00",
-            durationHours: 1.0,
-            tier: "skilled",
-            category: "plumbing",
-            description: "Single mixer tap replacement, customer-supplied tap. Standard isolation valves in place.",
-            materials: ["Sealant", "Plumbing tape", "Flexi connectors"],
-            travelMinutesToNext: 7,
-            coords: { lat: 52.9510, lng: -1.1828 },
+            slug: "9fitx3o1",
+            title: "Replace handle, lock and latch on door",
+            postcode: "NG2 1AH",
+            startTime: "08:00",
+            endTime: "08:30",
+            durationHours: 0.5,
+            tier: "general",
+            category: "joinery",
+            description: "Replace handle, lock and latch on existing door — single line item from a wider building maintenance quote.",
+            materials: ["Lock set", "Strike plate"],
+            travelMinutesToNext: 15,
+            coords: { lat: 52.9333, lng: -1.1374 }, // West Bridgford / Meadows
         },
         {
             num: 2,
             slug: "py8jrvxz",
-            title: "Hang 2 internal doors",
-            postcode: "NG7 5BX",
-            startTime: "10:15",
-            endTime: "12:45",
-            durationHours: 2.5,
-            tier: "skilled",
-            category: "carpentry",
-            description: "Two pre-hung internal doors, frames already in place. Includes hinge fitting and handle install.",
-            materials: ["Hinges", "Door handles", "Latches"],
-            travelMinutesToNext: 5,
-            coords: { lat: 52.9456, lng: -1.1872 },
+            title: "Supply and fit Arden gate panel + repair",
+            postcode: "NG9 4AF",
+            startTime: "08:45",
+            endTime: "10:15",
+            durationHours: 1.5,
+            tier: "outdoor",
+            category: "fencing_gates",
+            description: "Supply and fit a new garden gate and repair the broken panel on the Arden fence — both jobs in one visit.",
+            materials: ["Replacement panel", "Hinges", "Fixings"],
+            travelMinutesToNext: 30,
+            coords: { lat: 52.9251, lng: -1.2156 }, // Beeston
         },
         {
             num: 3,
-            slug: "nkno7s07",
-            title: "Tile bathroom splash-back",
-            postcode: "NG7 9PA",
-            startTime: "13:30",
-            endTime: "15:30",
-            durationHours: 2.0,
-            tier: "skilled",
-            category: "tiling",
-            description: "Splash-back tile install over basin. Approx 1.5 sq m. Tiles supplied by customer.",
-            materials: ["Adhesive", "Grout", "Spacers"],
-            travelMinutesToNext: 12,
-            coords: { lat: 52.9387, lng: -1.1966 },
+            slug: "zw2eqimg",
+            title: "Install 6x4 shed and level floor",
+            postcode: "NG5 1EN",
+            startTime: "10:45",
+            endTime: "14:45",
+            durationHours: 4.0,
+            tier: "outdoor",
+            category: "shed_install",
+            description: "Install 6x4 shed and level the floor properly so it's stable and ready to use. Site clean-up included.",
+            materials: ["Shed kit", "Levelling sand", "Bearers"],
+            travelMinutesToNext: 25,
+            coords: { lat: 52.9784, lng: -1.1467 }, // Sherwood / Carlton
         },
         {
             num: 4,
-            slug: "9fitx3o1",
-            title: "Replace handle, lock and latch on door",
-            postcode: "NG7 1AB",
-            startTime: "15:50",
-            endTime: "16:20",
-            durationHours: 0.5,
-            tier: "general",
-            category: "joinery",
-            description: "Replace handle, lock and latch on existing door — single line item.",
-            materials: ["Lock set", "Strike plate"],
+            slug: "nkno7s07",
+            title: "Install bendable PVC curtain track",
+            postcode: "NG14 5BQ",
+            startTime: "15:10",
+            endTime: "17:10",
+            durationHours: 2.0,
+            tier: "skilled",
+            category: "joinery_fittings",
+            description: "Supply and install bendable PVC curtain track end-to-end — sourcing materials and final fitting.",
+            materials: ["Bendable PVC track", "Brackets", "End stops"],
             travelMinutesToNext: 0,
-            coords: { lat: 52.9533, lng: -1.1739 },
+            coords: { lat: 53.0094, lng: -1.0445 }, // Lowdham / Burton Joyce
         },
     ],
 };
@@ -179,25 +188,33 @@ function computeMaxPotential(p: DayPack): number {
 }
 
 // Build Google Maps Embed directions URL.
-// Falls back to plain map URL (no directions) if API key is missing.
+// Uses lat,lng coords directly — more reliable than postcode geocoding,
+// especially for short UK postcodes that can be ambiguous without city/country.
+// No zoom override → map auto-fits to the entire route.
 function buildMapEmbedUrl(p: DayPack): string {
     const key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY;
-    const points = p.jobs.map(j => encodeURIComponent(j.postcode));
-    if (key && points.length >= 2) {
-        const origin = points[0];
-        const destination = points[points.length - 1];
-        const waypoints = points.slice(1, -1).join("|");
-        return `https://www.google.com/maps/embed/v1/directions?key=${key}&origin=${origin}&destination=${destination}${waypoints ? `&waypoints=${waypoints}` : ""}&mode=driving&zoom=13`;
+    const formatPoint = (j: JobInPack) => `${j.coords.lat},${j.coords.lng}`;
+    if (key && p.jobs.length >= 2) {
+        const origin = formatPoint(p.jobs[0]);
+        const destination = formatPoint(p.jobs[p.jobs.length - 1]);
+        const waypoints = p.jobs.slice(1, -1).map(formatPoint).join("|");
+        const wpParam = waypoints ? `&waypoints=${waypoints}` : "";
+        return `https://www.google.com/maps/embed/v1/directions?key=${key}&origin=${origin}&destination=${destination}${wpParam}&mode=driving`;
     }
-    // Fallback: centered map on first job, no directions.
+    // Fallback: centered map on first job, no directions overlay.
     const c = p.jobs[0].coords;
     return `https://www.google.com/maps?q=${c.lat},${c.lng}&z=13&output=embed`;
 }
 
-// Open-in-Maps deep link — no API key needed.
+// Open-in-Maps deep link using the Maps URLs API.
+// Coords-based for unambiguous routing across Maps app versions.
 function buildMapDeepLink(p: DayPack): string {
-    const points = p.jobs.map(j => encodeURIComponent(j.postcode)).join("/");
-    return `https://www.google.com/maps/dir/${points}/`;
+    const formatPoint = (j: JobInPack) => `${j.coords.lat},${j.coords.lng}`;
+    const origin = formatPoint(p.jobs[0]);
+    const destination = formatPoint(p.jobs[p.jobs.length - 1]);
+    const waypoints = p.jobs.slice(1, -1).map(formatPoint).join("|");
+    const wpParam = waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : "";
+    return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${wpParam}&travelmode=driving`;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
