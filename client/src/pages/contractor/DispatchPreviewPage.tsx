@@ -48,9 +48,9 @@ interface DayPack {
     jobs: JobInPack[];
     // Day rate — the ONE number the Builder sees as their pay
     dayRatePence: number;
-    // Per-additional-stop bonus — first stop is the warm-up (no bonus),
-    // every stop after earns this. Total max = (jobs.length - 1) × this.
-    bonusPerAdditionalStopPence: number;
+    // Completion bonus — all-or-nothing. Only paid when EVERY stop is done.
+    // Drives "finish the day" psychology rather than partial credit.
+    completionBonusPence: number;
     fiveStarBonusPerReviewPence: number;
     maxFiveStarReviews: number;
     // Day stats
@@ -84,9 +84,8 @@ const PACK: DayPack = {
     // Hardcoded £200 for the test page — real day rate is computed by the
     // hidden engine (rev-share + floor + segment) at routing time.
     dayRatePence: 20000,
-    // First stop is the warm-up (no bonus). Each subsequent stop earns this.
-    // For 4 stops, max bonus = 3 × £10 = £30.
-    bonusPerAdditionalStopPence: 1000,
+    // All-or-nothing — earned only when ALL stops are ticked complete.
+    completionBonusPence: 3000,
     fiveStarBonusPerReviewPence: 1000,
     maxFiveStarReviews: 4,
     totalWorkHours: 8.0,
@@ -188,25 +187,23 @@ const fadeInUp = {
     transition: { duration: 0.35 },
 };
 
-// Maximum bonus from per-stop completion (warm-up first stop is excluded)
+// Total bonus available (the all-or-nothing completion bonus)
 function maxStopBonusPence(p: DayPack): number {
-    return Math.max(0, (p.jobs.length - 1) * p.bonusPerAdditionalStopPence);
+    return p.completionBonusPence;
 }
 
-// Compute potential max earnings: day rate + all stop bonuses + max 5★ reviews
+// Compute potential max earnings: day rate + completion bonus + max 5★ reviews
 function computeMaxPotential(p: DayPack): number {
     return p.dayRatePence
-        + maxStopBonusPence(p)
+        + p.completionBonusPence
         + (p.fiveStarBonusPerReviewPence * p.maxFiveStarReviews);
 }
 
-// Bonus earned for the set of completed stops.
-// Every stop with num > 1 earns the per-stop bonus when ticked.
-// (First stop is the warm-up — completing it alone earns nothing.)
+// All-or-nothing: bonus is 0 unless EVERY stop is complete.
+// Ticking 3 of 4 = still 0. Ticking 4 of 4 = full bonus unlocked.
+// This drives "finish the day" psychology — partial completion gets nothing.
 function bonusFromCompleted(p: DayPack, completed: Set<number>): number {
-    let n = 0;
-    for (const num of completed) if (num > 1) n += 1;
-    return n * p.bonusPerAdditionalStopPence;
+    return completed.size === p.jobs.length ? p.completionBonusPence : 0;
 }
 
 // Build Google Maps Static API URL — single PNG image with brand-coloured
@@ -296,10 +293,14 @@ export default function DispatchPreviewPage() {
             }
             return next;
         });
-        // Fire toast on completion (only when newly ticking, not un-ticking)
+        // Fire toast on completion. Note: completion-bonus is all-or-nothing,
+        // so per-stop ticks just confirm progress — no per-stop £ in toast.
         if (!wasComplete) {
-            const earnsBonus = num > 1;
-            showToast(earnsBonus ? `Stop ${num} done · +£10` : `Stop ${num} done!`, 'bonus');
+            const remaining = PACK.jobs.length - (completedStops.size + 1);
+            const msg = remaining === 0
+                ? `Stop ${num} done · day complete!`
+                : `Stop ${num} done · ${remaining} to go`;
+            showToast(msg, 'bonus');
         }
     }
     function toggleExpanded(num: number) {
@@ -315,11 +316,12 @@ export default function DispatchPreviewPage() {
         setExpandedStop(null);
         setConfettiOn(false);
     }
-    // Trigger confetti on transition from incomplete → all complete
+    // Trigger confetti on transition from incomplete → all complete.
+    // This is THE moment in the all-or-nothing model — bonus unlocks here.
     useEffect(() => {
         if (allComplete) {
             setConfettiOn(true);
-            showToast(`🏆 Day complete · ${fmt(maxStopBonusPence(PACK))} earned`, 'win');
+            showToast(`🏆 Day complete · +${fmt(PACK.completionBonusPence)} bonus unlocked!`, 'win');
             const t = setTimeout(() => setConfettiOn(false), 4000);
             return () => clearTimeout(t);
         }
@@ -379,7 +381,7 @@ export default function DispatchPreviewPage() {
                             <p className="text-[11px] uppercase tracking-[0.1em] text-white/60 mt-2 font-bold">
                                 {earnedBonusPence > 0
                                     ? <>+{fmt(earnedBonusPence)} earned</>
-                                    : <>{PACK.jobs.length} stops · materials supplied</>}
+                                    : <>{PACK.jobs.length} stops · finish all for +{fmt(PACK.completionBonusPence)}</>}
                             </p>
 
                             {/* Progress bar — fills as stops are ticked off */}
@@ -475,45 +477,65 @@ export default function DispatchPreviewPage() {
                                         />
 
                                         <div className="flex items-start gap-3 p-4">
-                                            {/* Tick dot — primary completion control */}
-                                            <button
-                                                onClick={() => toggleStop(job.num)}
-                                                aria-label={isComplete ? `Stop ${job.num} complete — tap to undo` : `Mark stop ${job.num} complete`}
-                                                className={`relative w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold tabular-nums transition-all active:scale-90 shrink-0 z-[1] ${
+                                            {/* Numbered dot — purely visual indicator (not interactive) */}
+                                            <span
+                                                aria-hidden
+                                                className={`relative w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold tabular-nums shrink-0 z-[1] transition-all ${
                                                     isComplete
                                                         ? 'bg-[#1B2A4A] border-2 border-[#1B2A4A] text-white'
                                                         : 'bg-white border-2 border-[#1B2A4A] text-[#1B2A4A]'
                                                 }`}
                                             >
                                                 {isComplete ? <Check className="h-4 w-4 stroke-[3]" /> : job.num}
-                                            </button>
+                                            </span>
 
-                                            {/* Compact body — tap to expand details */}
-                                            <button
-                                                onClick={() => toggleExpanded(job.num)}
-                                                className="flex-1 min-w-0 text-left -my-1 py-1 -mx-1 px-1 rounded-md active:bg-[#F7F8FC] transition-colors"
-                                            >
-                                                <div className="flex items-start gap-2">
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className={`text-[15px] font-bold leading-snug transition-colors ${isComplete ? 'text-[#6B7280] line-through decoration-[#1B2A4A]/40' : 'text-[#111827]'}`}>
-                                                            {job.title}
-                                                        </p>
-                                                        <p className="text-[12px] text-[#6B7280] mt-1 leading-snug">
-                                                            {job.addressLine ? <>{job.addressLine} · </> : null}{job.postcode}
-                                                        </p>
+                                            {/* Compact body */}
+                                            <div className="flex-1 min-w-0">
+                                                {/* Title row — tap to expand details */}
+                                                <button
+                                                    onClick={() => toggleExpanded(job.num)}
+                                                    className="w-full text-left -my-1 py-1 -mx-1 px-1 rounded-md active:bg-[#F7F8FC] transition-colors"
+                                                >
+                                                    <div className="flex items-start gap-2">
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className={`text-[15px] font-bold leading-snug transition-colors ${isComplete ? 'text-[#6B7280] line-through decoration-[#1B2A4A]/40' : 'text-[#111827]'}`}>
+                                                                {job.title}
+                                                            </p>
+                                                            <p className="text-[12px] text-[#6B7280] mt-1 leading-snug">
+                                                                {job.addressLine ? <>{job.addressLine} · </> : null}{job.postcode}
+                                                            </p>
+                                                        </div>
+                                                        {hasDetails && (
+                                                            <ChevronDown
+                                                                className={`h-4 w-4 text-[#6B7280] shrink-0 mt-1 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                                            />
+                                                        )}
                                                     </div>
-                                                    {earnsBonus && !isComplete && (
-                                                        <span className="inline-flex items-center text-[11px] font-bold tabular-nums text-[#F5A623] shrink-0 mt-0.5">
-                                                            +{fmt(PACK.bonusPerAdditionalStopPence)}
-                                                        </span>
-                                                    )}
-                                                    {hasDetails && (
-                                                        <ChevronDown
-                                                            className={`h-4 w-4 text-[#6B7280] shrink-0 mt-1 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                                                        />
+                                                </button>
+
+                                                {/* Action row — Mark complete button (or completed state) */}
+                                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                                    {!isComplete ? (
+                                                        <button
+                                                            onClick={() => toggleStop(job.num)}
+                                                            className="inline-flex items-center gap-1.5 bg-[#1B2A4A] text-white rounded-full px-3.5 py-1.5 text-[12px] font-bold active:scale-[0.97] transition-transform"
+                                                            aria-label={`Mark stop ${job.num} complete`}
+                                                        >
+                                                            <Check className="h-3.5 w-3.5 stroke-[3]" />
+                                                            Mark complete
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => toggleStop(job.num)}
+                                                            className="inline-flex items-center gap-1.5 bg-white border border-[#1B2A4A]/30 text-[#1B2A4A] rounded-full px-3 py-1 text-[11px] font-bold active:scale-[0.97] transition-transform"
+                                                            aria-label={`Stop ${job.num} complete — tap to undo`}
+                                                        >
+                                                            <Check className="h-3 w-3 stroke-[3]" />
+                                                            Done
+                                                        </button>
                                                     )}
                                                 </div>
-                                            </button>
+                                            </div>
                                         </div>
 
                                         {/* Expandable details (slug + description + materials) */}
@@ -549,7 +571,7 @@ export default function DispatchPreviewPage() {
                                             )}
                                         </AnimatePresence>
 
-                                        {/* Earned-bonus + claim-review row — only for completed stops */}
+                                        {/* Claim-review row — only when stop is complete (review unlocks per stop) */}
                                         <AnimatePresence>
                                             {isComplete && (
                                                 <motion.div
@@ -559,11 +581,6 @@ export default function DispatchPreviewPage() {
                                                     transition={{ duration: 0.25 }}
                                                     className="pl-[56px] pr-4 pb-4 -mt-1 flex flex-wrap items-center gap-1.5"
                                                 >
-                                                    {earnsBonus && (
-                                                        <span className="inline-flex items-center gap-1 bg-[#FFF8EC] text-[#92591E] border border-[#F5A623]/40 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums">
-                                                            +{fmt(PACK.bonusPerAdditionalStopPence)} earned
-                                                        </span>
-                                                    )}
                                                     {!reviewClaimed ? (
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); claimReview(job.num); }}
@@ -605,15 +622,17 @@ export default function DispatchPreviewPage() {
                                         <Trophy className={`h-4 w-4 ${allComplete ? 'text-white' : 'text-[#6B7280]'}`} />
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className={`text-[13px] font-bold leading-tight ${allComplete ? 'text-[#1B2A4A]' : 'text-[#6B7280]'}`}>
-                                            {allComplete ? "All stops done" : "Finish the day"}
+                                        <p className={`text-[13px] font-bold leading-tight ${allComplete ? 'text-[#1B2A4A]' : 'text-[#1B2A4A]'}`}>
+                                            {allComplete ? "Day complete" : "Finish ALL stops to bank bonus"}
                                         </p>
                                         <p className={`text-[11px] mt-0.5 ${allComplete ? 'text-[#92591E]' : 'text-[#6B7280]'}`}>
-                                            {allComplete ? "Full bonus banked" : "Tick stops as you finish"}
+                                            {allComplete
+                                                ? `+${fmt(PACK.completionBonusPence)} bonus added to your day`
+                                                : `${PACK.jobs.length - completedCount} stops to go · all-or-nothing`}
                                         </p>
                                     </div>
-                                    <span className={`text-[14px] font-bold tabular-nums shrink-0 ${allComplete ? 'text-[#92591E]' : 'text-[#6B7280]'}`}>
-                                        {allComplete ? `+${fmt(maxStopBonusPence(PACK))}` : `up to +${fmt(maxStopBonusPence(PACK))}`}
+                                    <span className={`text-[15px] font-bold tabular-nums shrink-0 ${allComplete ? 'text-[#92591E]' : 'text-[#F5A623]'}`}>
+                                        {allComplete ? `+${fmt(PACK.completionBonusPence)}` : `+${fmt(PACK.completionBonusPence)}`}
                                     </span>
                                 </motion.div>
                             </li>
