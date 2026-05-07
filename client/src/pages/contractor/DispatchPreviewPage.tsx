@@ -320,21 +320,31 @@ export default function DispatchPreviewPage() {
     }, [allComplete]);
 
     return (
-        <div className="min-h-screen bg-[#F7F8FA] font-sans text-[#0E1116] selection:bg-[#3B7A3F]/20 pb-32">
+        <div className="min-h-screen bg-[#F7F8FC] font-['Poppins',sans-serif] text-[#111827] selection:bg-[#1B2A4A]/20 pb-32">
 
-            {/* Header */}
-            <header className="sticky top-0 z-30 bg-[#F7F8FA]/85 backdrop-blur-md border-b border-[#E6E8EC]">
-                <div className="max-w-[680px] mx-auto px-4 py-3 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                        <img src="/logo.png" alt="Handy" className="w-8 h-8 object-contain shrink-0" />
-                        <span className="font-semibold text-[15px]">Handy</span>
+            {/* Brand nav bar — navy with logo + 5★ rating + phone */}
+            <header className="bg-[#1B2A4A] text-white">
+                <div className="max-w-[680px] mx-auto px-4 py-2.5 flex items-center gap-3">
+                    <img src="/logo.png" alt="Handy" className="w-8 h-8 object-contain shrink-0" />
+                    <div className="flex-1 min-w-0">
+                        <p className="font-bold text-[14px] leading-tight">Handy Services</p>
+                        <p className="text-[10px] leading-tight">
+                            <span className="text-[#F5A623]">★★★★★</span>
+                            <span className="text-white/80 ml-1">4.9 · 300+ reviews</span>
+                        </p>
                     </div>
-                    <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.08em] font-bold bg-[#1B2A4A]/8 text-[#1B2A4A] border border-[#1B2A4A]/15 px-2.5 py-1 rounded-full">
-                        <Calendar className="h-3 w-3" />
-                        Day-Pack · #{PACK.packRef}
-                    </span>
+                    <a href="tel:07449501762" className="text-[12px] font-bold text-white whitespace-nowrap">
+                        07449 501 762
+                    </a>
                 </div>
             </header>
+
+            {/* Yellow accent strip */}
+            <div className="bg-[#F5A623] text-[#1B2A4A]">
+                <p className="max-w-[680px] mx-auto px-4 py-1.5 text-[11px] font-bold tracking-[0.04em] text-center">
+                    DAY-PACK · {fmtDate(PACK.date).toUpperCase()}
+                </p>
+            </div>
 
             <main className="max-w-[680px] mx-auto px-4 py-6 space-y-5">
 
@@ -342,14 +352,14 @@ export default function DispatchPreviewPage() {
                 <motion.div {...fadeInUp}>
                     <div className="rounded-2xl p-6 sm:p-7 shadow-[0_12px_40px_rgba(27,42,74,0.18)] relative overflow-hidden bg-gradient-to-br from-[#1B2A4A] via-[#152340] to-[#0E1933]">
                         <div className="absolute -top-24 -right-24 w-80 h-80 bg-[#F5A623]/15 rounded-full blur-3xl pointer-events-none" />
-                        <div className="absolute -bottom-32 -left-20 w-72 h-72 bg-[#7DB00E]/10 rounded-full blur-3xl pointer-events-none" />
+                        <div className="absolute -bottom-32 -left-20 w-72 h-72 bg-[#F5A623]/10 rounded-full blur-3xl pointer-events-none" />
 
                         <div className="relative">
-                            <p className="text-[10px] uppercase tracking-[0.12em] font-semibold text-white/55 mb-3">
-                                {fmtDate(PACK.date)} · Hi {PACK.contractorName}
+                            <p className="text-[10px] uppercase tracking-[0.12em] font-semibold text-white/60 mb-2">
+                                Hi {PACK.contractorName}
                             </p>
 
-                            <p className="text-5xl sm:text-6xl font-semibold text-[#F5A623] tabular-nums tracking-tight leading-none drop-shadow-[0_2px_12px_rgba(245,166,35,0.25)]">
+                            <p className="text-6xl sm:text-7xl font-bold text-[#F5A623] tabular-nums tracking-tight leading-none drop-shadow-[0_2px_12px_rgba(245,166,35,0.25)]">
                                 <motion.span
                                     key={`hero-${PACK.dayRatePence + earnedBonusPence}`}
                                     initial={{ scale: earnedBonusPence > 0 ? 1.15 : 1 }}
@@ -360,14 +370,10 @@ export default function DispatchPreviewPage() {
                                     {fmt(PACK.dayRatePence + earnedBonusPence)}
                                 </motion.span>
                             </p>
-                            <p className="text-[12px] uppercase tracking-[0.08em] text-white/55 mt-2 font-semibold">
+                            <p className="text-[11px] uppercase tracking-[0.1em] text-white/60 mt-2 font-bold">
                                 {earnedBonusPence > 0
-                                    ? <>Earned today <span className="text-[#7DB00E]">+{fmt(earnedBonusPence)}</span></>
-                                    : <>Day rate · {PACK.jobs.length} stops</>}
-                            </p>
-
-                            <p className="mt-3 inline-flex items-center gap-2 text-[13px] font-semibold text-[#7DB00E]">
-                                <Package className="h-4 w-4" /> Materials supplied
+                                    ? <>+{fmt(earnedBonusPence)} earned</>
+                                    : <>{PACK.jobs.length} stops · materials supplied</>}
                             </p>
 
                             {/* Progress bar — fills as stops are ticked off */}
@@ -381,14 +387,14 @@ export default function DispatchPreviewPage() {
                                         initial={{ scale: 1 }}
                                         animate={{ scale: completedCount > 0 ? [1.2, 1] : 1 }}
                                         transition={{ duration: 0.3 }}
-                                        className={`text-[13px] font-bold tabular-nums ${earnedBonusPence > 0 ? 'text-[#7DB00E]' : 'text-white/45'}`}
+                                        className={`text-[13px] font-bold tabular-nums ${earnedBonusPence > 0 ? 'text-[#F5A623]' : 'text-white/45'}`}
                                     >
                                         +{fmt(earnedBonusPence)} earned
                                     </motion.span>
                                 </div>
                                 <div className="h-2 rounded-full bg-white/10 overflow-hidden">
                                     <motion.div
-                                        className="h-full bg-gradient-to-r from-[#7DB00E] to-[#F5A623]"
+                                        className="h-full bg-gradient-to-r from-[#F5A623] to-[#F5A623]"
                                         initial={{ width: 0 }}
                                         animate={{ width: `${progressPct}%` }}
                                         transition={{ duration: 0.5, ease: "easeOut" }}
@@ -399,7 +405,7 @@ export default function DispatchPreviewPage() {
                             {/* Day-rate floor */}
                             <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-white/85">
                                 <span className="inline-flex items-center gap-2">
-                                    <ShieldCheck className="h-4 w-4 text-[#7DB00E]" />
+                                    <ShieldCheck className="h-4 w-4 text-[#F5A623]" />
                                     {fmt(PACK.dayRatePence)} guaranteed
                                 </span>
                                 {completedCount > 0 && (
@@ -418,7 +424,7 @@ export default function DispatchPreviewPage() {
 
                 {/* ───── MAP — today's route ───── */}
                 <motion.div {...fadeInUp}>
-                    <div className="bg-white rounded-2xl border border-[#E6E8EC] overflow-hidden">
+                    <div className="bg-white rounded-2xl border border-[#D0D5E3] overflow-hidden">
                         <iframe
                             src={mapEmbedUrl}
                             width="100%"
@@ -433,7 +439,7 @@ export default function DispatchPreviewPage() {
                             href={mapDeepLink}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-1.5 p-3 text-[13px] font-semibold text-[#3B7A3F] hover:bg-[#FAFBFC] active:scale-[0.99] transition-all border-t border-[#E6E8EC]"
+                            className="flex items-center justify-center gap-1.5 p-3 text-[13px] font-semibold text-[#1B2A4A] hover:bg-[#F7F8FC] active:scale-[0.99] transition-all border-t border-[#D0D5E3]"
                         >
                             Open in Google Maps
                             <ExternalLink className="h-3.5 w-3.5" />
@@ -444,7 +450,7 @@ export default function DispatchPreviewPage() {
                 {/* ───── TIMELINE — your day ───── */}
                 <motion.div {...fadeInUp}>
 
-                    <div className="bg-white rounded-2xl border border-[#E6E8EC] p-4 sm:p-5">
+                    <div className="bg-white rounded-2xl border border-[#D0D5E3] p-4 sm:p-5">
                         <ol className="relative">
                             {PACK.jobs.map((job, idx) => {
                                 const isLast = idx === PACK.jobs.length - 1;
@@ -458,7 +464,7 @@ export default function DispatchPreviewPage() {
                                         {/* Vertical line behind dot — solid green for completed segments */}
                                         {!isLast && (
                                             <span
-                                                className={`absolute left-[13px] top-7 bottom-0 w-px transition-colors ${isComplete ? 'bg-[#3B7A3F]' : 'bg-[#E6E8EC]'}`}
+                                                className={`absolute left-[13px] top-7 bottom-0 w-px transition-colors ${isComplete ? 'bg-[#1B2A4A]' : 'bg-[#D0D5E3]'}`}
                                                 aria-hidden
                                             />
                                         )}
@@ -468,8 +474,8 @@ export default function DispatchPreviewPage() {
                                             aria-label={isComplete ? `Stop ${job.num} complete — tap to undo` : `Mark stop ${job.num} complete`}
                                             className={`absolute left-0 top-1 w-[26px] h-[26px] rounded-full flex items-center justify-center text-[10px] font-bold tabular-nums transition-all active:scale-90 z-[1] ${
                                                 isComplete
-                                                    ? 'bg-[#3B7A3F] border-2 border-[#3B7A3F] text-white shadow-md shadow-[#3B7A3F]/30'
-                                                    : 'bg-white border-2 border-[#0E1116] text-[#0E1116] hover:bg-[#F1F3F6]'
+                                                    ? 'bg-[#1B2A4A] border-2 border-[#1B2A4A] text-white shadow-md shadow-[#1B2A4A]/30'
+                                                    : 'bg-white border-2 border-[#111827] text-[#111827] hover:bg-[#F7F8FC]'
                                             }`}
                                         >
                                             {isComplete ? <Check className="h-3.5 w-3.5 stroke-[3]" /> : job.num}
@@ -478,12 +484,12 @@ export default function DispatchPreviewPage() {
                                         {/* Compact card — tap to expand details */}
                                         <button
                                             onClick={() => toggleExpanded(job.num)}
-                                            className="w-full text-left rounded-lg -mx-1 px-1 py-1 hover:bg-[#FAFBFC] active:bg-[#F1F3F6] transition-colors"
+                                            className="w-full text-left rounded-lg -mx-1 px-1 py-1 hover:bg-[#F7F8FC] active:bg-[#F7F8FC] transition-colors"
                                         >
                                             <div className="flex items-start gap-2">
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2">
-                                                        <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#8B92A0]">
+                                                        <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#6B7280]">
                                                             Stop {job.num}
                                                         </p>
                                                         {earnsBonus && !isComplete && (
@@ -493,21 +499,21 @@ export default function DispatchPreviewPage() {
                                                         )}
                                                         <span className={`w-1.5 h-1.5 rounded-full ${tierDot(job.tier)} ml-auto`} />
                                                     </div>
-                                                    <p className={`text-[15px] font-semibold mt-0.5 leading-tight transition-colors ${isComplete ? 'text-[#5C6470] line-through decoration-[#3B7A3F]/40' : 'text-[#0E1116]'}`}>
+                                                    <p className={`text-[15px] font-semibold mt-0.5 leading-tight transition-colors ${isComplete ? 'text-[#6B7280] line-through decoration-[#1B2A4A]/40' : 'text-[#111827]'}`}>
                                                         {job.title}
                                                     </p>
                                                     {job.addressLine ? (
-                                                        <p className="text-[13px] font-medium text-[#0E1116] mt-1">
+                                                        <p className="text-[13px] font-medium text-[#111827] mt-1">
                                                             {job.addressLine}
                                                         </p>
                                                     ) : null}
-                                                    <p className="text-[11px] text-[#5C6470] mt-0.5">
+                                                    <p className="text-[11px] text-[#6B7280] mt-0.5">
                                                         {job.postcode} · #{job.slug}
                                                     </p>
                                                 </div>
                                                 {hasDetails && (
                                                     <ChevronDown
-                                                        className={`h-4 w-4 text-[#8B92A0] shrink-0 mt-0.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                                        className={`h-4 w-4 text-[#6B7280] shrink-0 mt-0.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                                                     />
                                                 )}
                                             </div>
@@ -525,16 +531,16 @@ export default function DispatchPreviewPage() {
                                                 >
                                                     <div className="mt-2 pl-1 space-y-2 text-left">
                                                         {job.description && (
-                                                            <p className="text-[12px] text-[#5C6470] leading-relaxed">
+                                                            <p className="text-[12px] text-[#6B7280] leading-relaxed">
                                                                 {job.description}
                                                             </p>
                                                         )}
                                                         {job.materials && job.materials.length > 0 && (
                                                             <div>
-                                                                <p className="text-[10px] uppercase tracking-[0.06em] font-semibold text-[#8B92A0] mb-1">Materials supplied</p>
+                                                                <p className="text-[10px] uppercase tracking-[0.06em] font-semibold text-[#6B7280] mb-1">Materials supplied</p>
                                                                 <div className="flex flex-wrap gap-1.5">
                                                                     {job.materials.map((m, i) => (
-                                                                        <span key={i} className="text-[11px] bg-[#F1F3F6] text-[#5C6470] px-2 py-0.5 rounded-md">
+                                                                        <span key={i} className="text-[11px] bg-[#F7F8FC] text-[#6B7280] px-2 py-0.5 rounded-md">
                                                                             {m}
                                                                         </span>
                                                                     ))}
@@ -565,14 +571,14 @@ export default function DispatchPreviewPage() {
                                                     {!reviewClaimed ? (
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); claimReview(job.num); }}
-                                                            className="inline-flex items-center gap-1 bg-white border border-[#3B7A3F] text-[#3B7A3F] rounded-full px-2 py-0.5 text-[11px] font-bold hover:bg-[#3B7A3F] hover:text-white transition-colors active:scale-[0.96]"
+                                                            className="inline-flex items-center gap-1 bg-white border border-[#1B2A4A] text-[#1B2A4A] rounded-full px-2 py-0.5 text-[11px] font-bold hover:bg-[#1B2A4A] hover:text-white transition-colors active:scale-[0.96]"
                                                         >
                                                             <Star className="h-3 w-3" />
                                                             Claim 5★ +£10
                                                         </button>
                                                     ) : (
-                                                        <span className="inline-flex items-center gap-1 bg-[#3B7A3F]/15 text-[#3B7A3F] border border-[#3B7A3F]/30 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums">
-                                                            <Star className="h-3 w-3 fill-[#3B7A3F]" />
+                                                        <span className="inline-flex items-center gap-1 bg-[#1B2A4A]/15 text-[#1B2A4A] border border-[#1B2A4A]/30 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums">
+                                                            <Star className="h-3 w-3 fill-[#1B2A4A]" />
                                                             +{fmt(PACK.fiveStarBonusPerReviewPence)} review claimed
                                                         </span>
                                                     )}
@@ -588,12 +594,12 @@ export default function DispatchPreviewPage() {
                                 <span
                                     className={`absolute left-0 top-1 w-[26px] h-[26px] rounded-full flex items-center justify-center transition-all ${
                                         allComplete
-                                            ? 'bg-gradient-to-br from-[#F5A623] to-[#F2871E] border-2 border-[#F5A623] shadow-md shadow-[#F5A623]/40'
-                                            : 'bg-white border-2 border-[#E6E8EC]'
+                                            ? 'bg-gradient-to-br from-[#F5A623] to-[#F5A623] border-2 border-[#F5A623] shadow-md shadow-[#F5A623]/40'
+                                            : 'bg-white border-2 border-[#D0D5E3]'
                                     }`}
                                     aria-hidden
                                 >
-                                    <Trophy className={`h-3.5 w-3.5 ${allComplete ? 'text-white' : 'text-[#8B92A0]'}`} />
+                                    <Trophy className={`h-3.5 w-3.5 ${allComplete ? 'text-white' : 'text-[#6B7280]'}`} />
                                 </span>
                                 <motion.div
                                     animate={{ scale: allComplete ? [1.02, 1] : 1 }}
@@ -601,23 +607,23 @@ export default function DispatchPreviewPage() {
                                     className={`rounded-xl p-3.5 transition-all ${
                                         allComplete
                                             ? 'bg-gradient-to-r from-[#FFF8EC] to-[#FFF4E0] border border-[#F5A623]/40'
-                                            : 'bg-[#FAFBFC] border border-[#E6E8EC] opacity-70'
+                                            : 'bg-[#F7F8FC] border border-[#D0D5E3] opacity-70'
                                     }`}
                                 >
                                     <div className="flex items-baseline justify-between gap-2">
-                                        <p className={`text-[10px] uppercase tracking-[0.08em] font-semibold ${allComplete ? 'text-[#92591E]' : 'text-[#8B92A0]'}`}>
+                                        <p className={`text-[10px] uppercase tracking-[0.08em] font-semibold ${allComplete ? 'text-[#92591E]' : 'text-[#6B7280]'}`}>
                                             {allComplete ? "Day complete" : "End of day"}
                                         </p>
-                                        <span className={`text-[12px] font-bold tabular-nums ${allComplete ? 'text-[#92591E]' : 'text-[#8B92A0]'}`}>
+                                        <span className={`text-[12px] font-bold tabular-nums ${allComplete ? 'text-[#92591E]' : 'text-[#6B7280]'}`}>
                                             {allComplete
                                                 ? `+${fmt(maxStopBonusPence(PACK))} earned`
                                                 : `up to +${fmt(maxStopBonusPence(PACK))}`}
                                         </span>
                                     </div>
-                                    <p className={`text-[14px] font-semibold mt-0.5 leading-tight ${allComplete ? 'text-[#0E1116]' : 'text-[#5C6470]'}`}>
+                                    <p className={`text-[14px] font-semibold mt-0.5 leading-tight ${allComplete ? 'text-[#111827]' : 'text-[#6B7280]'}`}>
                                         {allComplete ? "🏆 All stops done" : "Finish the day"}
                                     </p>
-                                    <p className={`text-[12px] mt-1 leading-relaxed ${allComplete ? 'text-[#92591E]' : 'text-[#8B92A0]'}`}>
+                                    <p className={`text-[12px] mt-1 leading-relaxed ${allComplete ? 'text-[#92591E]' : 'text-[#6B7280]'}`}>
                                         {allComplete
                                             ? `All ${PACK.jobs.length} stops complete — full bonus added to your day's pay.`
                                             : `Tick each stop above as you finish to bank +${fmt(PACK.bonusPerAdditionalStopPence)} per stop after the first.`}
@@ -630,22 +636,22 @@ export default function DispatchPreviewPage() {
 
                 {/* ───── PAY PROTECTION (collapsed by default for existing contractors) ───── */}
                 <motion.div {...fadeInUp}>
-                    <details className="group bg-white rounded-2xl border border-[#E6E8EC] overflow-hidden">
-                        <summary className="flex items-center gap-3 p-4 cursor-pointer hover:bg-[#FAFBFC] transition-colors list-none [&::-webkit-details-marker]:hidden">
-                            <div className="w-8 h-8 rounded-lg bg-[#3B7A3F]/10 flex items-center justify-center shrink-0">
-                                <ShieldCheck className="h-4 w-4 text-[#3B7A3F]" />
+                    <details className="group bg-white rounded-2xl border border-[#D0D5E3] overflow-hidden">
+                        <summary className="flex items-center gap-3 p-4 cursor-pointer hover:bg-[#F7F8FC] transition-colors list-none [&::-webkit-details-marker]:hidden">
+                            <div className="w-8 h-8 rounded-lg bg-[#1B2A4A]/10 flex items-center justify-center shrink-0">
+                                <ShieldCheck className="h-4 w-4 text-[#1B2A4A]" />
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-[13px] font-semibold text-[#0E1116] leading-tight">
+                                <p className="text-[13px] font-semibold text-[#111827] leading-tight">
                                     Pay protection · 6 guarantees
                                 </p>
-                                <p className="text-[11px] text-[#8B92A0] mt-0.5">
+                                <p className="text-[11px] text-[#6B7280] mt-0.5">
                                     Day-rate floor · uplifts · call-outs · cancellations · materials · 48h pay
                                 </p>
                             </div>
-                            <ChevronDown className="h-4 w-4 text-[#8B92A0] shrink-0 transition-transform group-open:rotate-180" />
+                            <ChevronDown className="h-4 w-4 text-[#6B7280] shrink-0 transition-transform group-open:rotate-180" />
                         </summary>
-                        <div className="px-4 pb-4 pt-0 space-y-2 border-t border-[#E6E8EC]">
+                        <div className="px-4 pb-4 pt-0 space-y-2 border-t border-[#D0D5E3]">
                             {[
                                 { label: "Day-rate guarantee", detail: `${fmt(PACK.dayRatePence)} guaranteed even if jobs cancel` },
                                 { label: "Mis-scope auto-uplift", detail: "If a job runs over our estimate, we pay extra" },
@@ -655,10 +661,10 @@ export default function DispatchPreviewPage() {
                                 { label: "48h pay", detail: "Money in your account 2 days after completion" },
                             ].map((g, i) => (
                                 <div key={i} className="flex items-start gap-2 pt-2">
-                                    <Check className="h-3.5 w-3.5 text-[#3B7A3F] stroke-[3] shrink-0 mt-1" />
+                                    <Check className="h-3.5 w-3.5 text-[#1B2A4A] stroke-[3] shrink-0 mt-1" />
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-[12px] font-semibold text-[#0E1116] leading-tight">{g.label}</p>
-                                        <p className="text-[11px] text-[#5C6470] leading-relaxed mt-0.5">{g.detail}</p>
+                                        <p className="text-[12px] font-semibold text-[#111827] leading-tight">{g.label}</p>
+                                        <p className="text-[11px] text-[#6B7280] leading-relaxed mt-0.5">{g.detail}</p>
                                     </div>
                                 </div>
                             ))}
@@ -666,13 +672,24 @@ export default function DispatchPreviewPage() {
                     </details>
                 </motion.div>
 
-                {/* ───── FOOTER ───── */}
-                <motion.div {...fadeInUp} className="text-center pt-1">
-                    <p className="text-[10px] text-[#8B92A0] uppercase tracking-[0.12em]">
-                        Handy Services · Day-Pack Preview
-                    </p>
-                </motion.div>
             </main>
+
+            {/* ───── BRAND FOOTER (navy) ───── */}
+            <footer className="bg-[#1B2A4A] text-white">
+                <div className="max-w-[680px] mx-auto px-4 py-5 flex items-center gap-3">
+                    <img src="/logo.png" alt="Handy" className="w-8 h-8 object-contain shrink-0" />
+                    <div className="flex-1 min-w-0">
+                        <p className="font-bold text-[13px] leading-tight">Handy Services</p>
+                        <p className="text-[10px] text-[#F5A623] leading-tight mt-0.5">
+                            Next-day · Fast · Fully insured
+                        </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                        <p className="text-[10px] uppercase tracking-[0.06em] text-white/60 font-bold">Get in touch</p>
+                        <a href="tel:07449501762" className="text-[12px] font-bold text-white block">07449 501 762</a>
+                    </div>
+                </div>
+            </footer>
 
             {/* ───── TOAST (Uber-style transient feedback) ───── */}
             <AnimatePresence>
@@ -687,8 +704,8 @@ export default function DispatchPreviewPage() {
                     >
                         <div className={`px-4 py-2.5 rounded-full shadow-2xl font-bold text-[14px] tabular-nums ${
                             toast.tone === 'win'
-                                ? 'bg-gradient-to-r from-[#F5A623] to-[#F2871E] text-white shadow-[#F5A623]/40'
-                                : 'bg-[#3B7A3F] text-white shadow-[#3B7A3F]/30'
+                                ? 'bg-gradient-to-r from-[#F5A623] to-[#F5A623] text-white shadow-[#F5A623]/40'
+                                : 'bg-[#1B2A4A] text-white shadow-[#1B2A4A]/30'
                         }`}>
                             {toast.msg}
                         </div>
@@ -705,7 +722,7 @@ export default function DispatchPreviewPage() {
                             const delay = Math.random() * 0.4;
                             const duration = 1.8 + Math.random() * 1.6;
                             const size = 8 + Math.random() * 6;
-                            const colors = ['#F5A623', '#7DB00E', '#3B7A3F', '#F2871E', '#FFFFFF'];
+                            const colors = ['#F5A623', '#F5A623', '#1B2A4A', '#F5A623', '#FFFFFF'];
                             const color = colors[i % colors.length];
                             const xDrift = (Math.random() - 0.5) * 200;
                             const rot = Math.random() * 720;
@@ -739,16 +756,16 @@ export default function DispatchPreviewPage() {
             {/* ───── STICKY CTA ───── */}
             {!decided && (
                 <div
-                    className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#E6E8EC] bg-white/95 backdrop-blur-md"
+                    className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#D0D5E3] bg-white/95 backdrop-blur-md"
                     style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
                 >
                     <div className="max-w-[680px] mx-auto px-4 pt-3 pb-3">
                         <div className="flex items-center gap-3">
                             <div className="flex-1 min-w-0">
-                                <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#8B92A0] leading-none">
+                                <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#6B7280] leading-none">
                                     {completedCount > 0 ? `Earnings · ${completedCount}/${totalStops} stops` : 'Day rate'}
                                 </p>
-                                <p className="text-[20px] font-semibold tabular-nums text-[#0E1116] leading-tight mt-0.5">
+                                <p className="text-[20px] font-semibold tabular-nums text-[#111827] leading-tight mt-0.5">
                                     {fmt(PACK.dayRatePence + earnedBonusPence)}
                                     {earnedBonusPence > 0 ? (
                                         <motion.span
@@ -761,19 +778,19 @@ export default function DispatchPreviewPage() {
                                             +{fmt(earnedBonusPence)}
                                         </motion.span>
                                     ) : (
-                                        <span className="text-[12px] text-[#3B7A3F] font-semibold ml-1">+ bonuses</span>
+                                        <span className="text-[12px] text-[#1B2A4A] font-semibold ml-1">+ bonuses</span>
                                     )}
                                 </p>
                             </div>
                             <button
                                 onClick={() => setDecided('declined')}
-                                className="px-4 py-3 min-h-[44px] rounded-xl font-semibold text-[14px] text-[#5C6470] hover:text-[#0E1116] hover:bg-[#F1F3F6] transition-colors"
+                                className="px-4 py-3 min-h-[44px] rounded-xl font-semibold text-[14px] text-[#6B7280] hover:text-[#111827] hover:bg-[#F7F8FC] transition-colors"
                             >
                                 Pass
                             </button>
                             <button
                                 onClick={() => setDecided('accepted')}
-                                className="px-5 py-3 min-h-[44px] rounded-xl font-semibold text-[14px] bg-[#3B7A3F] hover:bg-[#2F6133] text-white transition-all active:scale-[0.97] shadow-md shadow-[#3B7A3F]/20 inline-flex items-center gap-2"
+                                className="px-5 py-3 min-h-[44px] rounded-xl font-semibold text-[14px] bg-[#1B2A4A] hover:bg-[#152340] text-white transition-all active:scale-[0.97] shadow-md shadow-[#1B2A4A]/20 inline-flex items-center gap-2"
                             >
                                 <Hammer className="h-4 w-4" />
                                 Accept day
@@ -790,7 +807,7 @@ export default function DispatchPreviewPage() {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[60] bg-[#0E1116]/40 backdrop-blur-sm flex items-center justify-center p-4"
+                        className="fixed inset-0 z-[60] bg-[#111827]/40 backdrop-blur-sm flex items-center justify-center p-4"
                         onClick={() => setDecided(null)}
                     >
                         <motion.div
@@ -801,28 +818,28 @@ export default function DispatchPreviewPage() {
                             onClick={(e) => e.stopPropagation()}
                         >
                             <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-5 ${
-                                decided === 'accepted' ? 'bg-[#3B7A3F]/10' : 'bg-amber-50'
+                                decided === 'accepted' ? 'bg-[#1B2A4A]/10' : 'bg-amber-50'
                             }`}>
                                 {decided === 'accepted' ? (
-                                    <Check className="h-7 w-7 text-[#3B7A3F] stroke-[3]" />
+                                    <Check className="h-7 w-7 text-[#1B2A4A] stroke-[3]" />
                                 ) : (
                                     <X className="h-7 w-7 text-amber-600" />
                                 )}
                             </div>
-                            <h2 className="text-xl font-semibold mb-2 text-[#0E1116]">
+                            <h2 className="text-xl font-semibold mb-2 text-[#111827]">
                                 {decided === 'accepted' ? "Day-pack accepted" : "Day-pack declined"}
                             </h2>
-                            <div className="bg-[#F7F8FA] border border-[#E6E8EC] rounded-lg p-3 mb-5 flex items-start gap-2.5 text-left">
-                                <ShieldCheck className="h-4 w-4 text-[#3B7A3F] shrink-0 mt-0.5" />
-                                <p className="text-[12px] text-[#5C6470] leading-relaxed">
-                                    <span className="font-semibold text-[#0E1116]">Preview only.</span> No real dispatch fired. {decided === 'accepted'
+                            <div className="bg-[#F7F8FC] border border-[#D0D5E3] rounded-lg p-3 mb-5 flex items-start gap-2.5 text-left">
+                                <ShieldCheck className="h-4 w-4 text-[#1B2A4A] shrink-0 mt-0.5" />
+                                <p className="text-[12px] text-[#6B7280] leading-relaxed">
+                                    <span className="font-semibold text-[#111827]">Preview only.</span> No real dispatch fired. {decided === 'accepted'
                                         ? `In production, all ${PACK.jobs.length} jobs would lock to you and customers would be notified.`
                                         : "In production, the day-pack would dissolve and jobs return to single-offer routing."}
                                 </p>
                             </div>
                             <button
                                 onClick={() => setDecided(null)}
-                                className="text-[13px] text-[#5C6470] hover:text-[#0E1116] underline min-h-[44px]"
+                                className="text-[13px] text-[#6B7280] hover:text-[#111827] underline min-h-[44px]"
                             >
                                 Reset preview
                             </button>
