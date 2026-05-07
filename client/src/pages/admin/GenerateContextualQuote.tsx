@@ -43,6 +43,7 @@ import { FaWhatsapp } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 import { buildContextualQuoteWhatsAppMessage } from '@/lib/whatsapp-quote-message';
 import { AddressInput, type AddressDetails } from '@/components/live-call/AddressInput';
+import { JobTagPanel } from '@/components/admin/JobTagPanel';
 import type {
   JobCategory,
   ParsedJobResult,
@@ -721,6 +722,20 @@ function formatPhoneForWhatsApp(phone: string): string {
 
 export default function GenerateContextualQuote() {
   const { toast } = useToast();
+
+  // ── Feature flags (Module 02 — Job tagging) ──
+  // Inline fetch so Module 02 stays self-contained; refactor to a shared
+  // useFeatureFlags hook when Module 03 lands.
+  const flagsQuery = useQuery<{ data: Record<string, boolean> }>({
+    queryKey: ['feature-flags'],
+    queryFn: async () => {
+      const r = await fetch('/api/feature-flags');
+      if (!r.ok) throw new Error('feature-flags fetch failed');
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+  const jobTaggingEnabled = !!flagsQuery.data?.data?.job_tagging;
 
   // ── Customer fields ──
   const [customerName, setCustomerName] = useState('');
@@ -2636,6 +2651,34 @@ export default function GenerateContextualQuote() {
             {quoteResult.marginPreview && (
               <MarginPreviewPanel data={quoteResult.marginPreview} />
             )}
+
+            {/* Module 02 — Job Tagging Panel (gated by FF_JOB_TAGGING) */}
+            {jobTaggingEnabled && quoteResult.quoteId && (() => {
+              const totalMinutes = quoteResult.pricing.lineItems.reduce(
+                (sum, li) => sum + (li.timeEstimateMinutes ?? 0),
+                0,
+              ) || 60;
+              const skills = Array.from(
+                new Set(
+                  quoteResult.pricing.lineItems
+                    .map((li) => li.category)
+                    .filter((c): c is string => typeof c === 'string'),
+                ),
+              );
+              return (
+                <JobTagPanel
+                  quoteId={quoteResult.quoteId}
+                  suggestedSkills={skills}
+                  initial={{
+                    duration_estimate_minutes: Math.max(30, totalMinutes),
+                    // Default real_work_minutes to ~50% of pricing time per
+                    // ADR-005 de-pad table (carpentry/tiling factor). Quoter
+                    // overrides on save.
+                    real_work_minutes: Math.max(15, Math.round(totalMinutes * 0.5)),
+                  }}
+                />
+              );
+            })()}
 
             {/* WhatsApp Send Section */}
             <Card>

@@ -11,6 +11,13 @@ import { ArrowLeft, Loader2, AlertTriangle, CreditCard, Calendar, CheckCircle2 }
 import { QuoteBuilder } from '@/components/quote/QuoteBuilder';
 import type { TaskItem, Segment, AnalyzedJobData, ExistingQuoteData } from '@/types/quote-builder';
 import { poundsToPence, penceToPounds, mapApiTasksToTaskItems } from '@/lib/quote-price-calculator';
+import { JobTagPanel } from '@/components/admin/JobTagPanel';
+import type {
+  CertSlug,
+  ComplexityFlag,
+  CustomerFlexibility,
+  JobTagValues,
+} from '@/components/admin/JobTagPanel';
 
 export default function EditQuotePage() {
   const { slug } = useParams<{ slug: string }>();
@@ -20,6 +27,19 @@ export default function EditQuotePage() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
+
+  // Feature flags (Module 02 — Job tagging) — inline so this commit is
+  // self-contained; refactor to shared hook when Module 03 lands.
+  const flagsQuery = useQuery<{ data: Record<string, boolean> }>({
+    queryKey: ['feature-flags'],
+    queryFn: async () => {
+      const r = await fetch('/api/feature-flags');
+      if (!r.ok) throw new Error('feature-flags fetch failed');
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+  const jobTaggingEnabled = !!flagsQuery.data?.data?.job_tagging;
 
   // Fetch the existing quote
   const { data: quote, isLoading, error } = useQuery<ExistingQuoteData>({
@@ -305,6 +325,15 @@ export default function EditQuotePage() {
           />
         )}
 
+        {/* Module 02 — Job Tagging Panel (gated by FF_JOB_TAGGING) */}
+        {!isBlocked && jobTaggingEnabled && quote?.id && (
+          <JobTagPanel
+            quoteId={quote.id}
+            initial={extractTagInitialFromQuote(quote)}
+            suggestedSkills={[]}
+          />
+        )}
+
         {/* Preview Link */}
         <Card className="bg-slate-100">
           <CardContent className="py-4">
@@ -323,4 +352,71 @@ export default function EditQuotePage() {
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const VALID_CERTS = new Set(['gas_safe', 'part_p', 'structural', 'asbestos']);
+const VALID_COMPLEXITY = new Set([
+  'heavy_lifting',
+  'awkward_access',
+  'parking_difficult',
+  'older_property',
+  'unknowns',
+  'hazardous',
+]);
+const VALID_FLEXIBILITY = new Set(['rigid', 'flexible', 'very_flexible']);
+
+/**
+ * Pull pre-existing job tag values off the fetched quote row, if any.
+ * Returns a Partial that JobTagPanel can merge with its defaults.
+ *
+ * The /api/personalized-quotes/:slug response returns Drizzle camelCase
+ * columns. We use a loose `any` cast here because ExistingQuoteData hasn't
+ * been extended yet — the new tag columns are additive (Module 02 §11) and
+ * may legitimately be NULL on legacy rows.
+ */
+function extractTagInitialFromQuote(quote: ExistingQuoteData): Partial<JobTagValues> {
+  const q = quote as unknown as Record<string, unknown>;
+  const out: Partial<JobTagValues> = {};
+
+  if (
+    typeof q.crewSizeRequired === 'number' &&
+    [1, 2, 3, 4].includes(q.crewSizeRequired)
+  ) {
+    out.crew_size_required = q.crewSizeRequired as 1 | 2 | 3 | 4;
+  }
+  if (Array.isArray(q.skillsRequired)) {
+    out.skills_required = (q.skillsRequired as unknown[]).filter(
+      (s): s is string => typeof s === 'string',
+    );
+  }
+  if (Array.isArray(q.certRequired)) {
+    out.cert_required = (q.certRequired as unknown[])
+      .filter((s): s is string => typeof s === 'string')
+      .filter((s): s is CertSlug => VALID_CERTS.has(s));
+  }
+  if (typeof q.durationEstimateMinutes === 'number' && q.durationEstimateMinutes > 0) {
+    out.duration_estimate_minutes = q.durationEstimateMinutes;
+  }
+  if (typeof q.realWorkMinutes === 'number' && q.realWorkMinutes > 0) {
+    out.real_work_minutes = q.realWorkMinutes;
+  }
+  if (Array.isArray(q.complexityFlags)) {
+    const tokens = (q.complexityFlags as unknown[]).filter(
+      (s): s is string => typeof s === 'string',
+    );
+    out.complexity_flags = tokens.filter(
+      (s): s is ComplexityFlag => VALID_COMPLEXITY.has(s),
+    );
+    const flexToken = tokens.find((t) => VALID_FLEXIBILITY.has(t));
+    if (flexToken) out.customer_flexibility = flexToken as CustomerFlexibility;
+  }
+  if (typeof q.heavyLifting === 'boolean') {
+    out.heavy_lifting = q.heavyLifting;
+  }
+
+  return out;
 }

@@ -77,6 +77,7 @@ import landlordPortalRouter from './landlord-portal'; // Property Maintenance AI
 import tenantIssuesRouter from './tenant-issues'; // Admin Tenant Issues Hub
 import deflectionMetricsRouter from './routes/deflection-metrics'; // Troubleshooting Deflection Metrics
 import flexTierRouter from './routes/flex-tier-routes'; // Module 01: Flex tier booking (FF_FLEX_TIER)
+import { adminTaggingRouter } from './routes/admin-tagging-routes'; // Module 02: Job tagging at quote creation (FF_JOB_TAGGING)
 import { careersRouter } from './careers-routes'; // Recruitment pipeline
 import { partnerRouter } from './partner-routes'; // Partner/area licensee enquiries
 import businessModelRouter from './business-model-routes'; // Business Model Forecast Dashboard
@@ -335,6 +336,7 @@ app.use(extractCallDataRouter);
 // app.use(express.static(path.join(__dirname, '../client/dist'))); // REMOVED: Conflicts with Vite Dev Server
 app.use(quotesRouter);
 app.use(flexTierRouter); // Module 01: Flex tier booking (gated by FF_FLEX_TIER)
+app.use(adminTaggingRouter); // Module 02: Admin job tagging (gated by FF_JOB_TAGGING; auth inline)
 app.use(contextualPricingRouter);
 app.use(quoteExtrasCatalogRouter);
 app.use(quoteAnalyticsRouter);
