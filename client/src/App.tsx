@@ -112,6 +112,7 @@ const JobHistoryPage = lazy(() => import("@/pages/client/JobHistoryPage"));
 const ContractorJobSheet = lazy(() => import("@/pages/contractor/ContractorJobSheet"));
 const DispatchLinkPage = lazy(() => import("@/pages/contractor/DispatchLinkPage"));
 const DispatchPreviewPage = lazy(() => import("@/pages/contractor/DispatchPreviewPage"));
+const DayPackOfferPage = lazy(() => import("@/pages/contractor/DayPackOfferPage"));
 const AdminDispatchDashboard = lazy(() => import("@/pages/admin/AdminDispatchDashboard"));
 const AdminGenerateDispatch = lazy(() => import("@/pages/admin/AdminGenerateDispatch"));
 
@@ -140,6 +141,11 @@ const JobDetailsPage = lazy(() => import("./pages/contractor/dashboard/JobDetail
 const EarningsPage = lazy(() => import("./pages/contractor/dashboard/EarningsPage"));
 const PayProtectionView = lazy(() => import("./pages/contractor/dashboard/PayProtectionView")); // Module 07 — Pay Protection (FF_PAY_PROTECTION)
 const PayAdjustmentsAdminPage = lazy(() => import("@/pages/admin/PayAdjustmentsAdminPage")); // Module 07 — Pay Protection admin queue
+// Module 09 — Contractor App v2 (FF_CONTRACTOR_APP_V2)
+const DayPacksView = lazy(() => import('./pages/contractor/dashboard/DayPacksView'));
+const SpecialistQueueView = lazy(() => import('./pages/contractor/dashboard/SpecialistQueueView'));
+const EarningsView = lazy(() => import('./pages/contractor/dashboard/EarningsView'));
+const SegmentDashboardRouter = lazy(() => import('./components/contractor/SegmentDashboardRouter'));
 
 // Admin follow-up inbox (shares component with contractor inbox)
 const FollowUpInboxPage = lazy(() => import("./pages/contractor/dashboard/InboxPage"));
@@ -211,6 +217,24 @@ function ControlTowerRouteGate() {
         return <Redirect to="/admin/dispatch" />;
     }
     return <ControlTower />;
+}
+
+/**
+ * Gate /contractor/dashboard/earnings on FF_CONTRACTOR_APP_V2 (Module 09 §4).
+ * When ON we render the new branded EarningsView inside the contractor
+ * shell; when OFF we fall through to the legacy stand-alone EarningsPage
+ * with its own ContractorAppShell layout.
+ */
+function EarningsRouteGate() {
+    const flags = useFeatureFlags();
+    if (flags.contractor_app_v2) {
+        return (
+            <ContractorPortalLayout>
+                <EarningsView />
+            </ContractorPortalLayout>
+        );
+    }
+    return <EarningsPage />;
 }
 
 /** Redirect VA users to /admin/live-call instead of showing PipelineHome */
@@ -353,6 +377,13 @@ function Router() {
                 <Route path="/dispatch-preview">
                     <DispatchPreviewPage />
                 </Route>
+                {/* Day-pack OFFER (production) — Module 15. Token in query string.
+                  * Page itself reads FF_DAY_PACK_PAGE_PROD via useFeatureFlags
+                  * and renders a "Coming soon" placeholder when off, so the
+                  * route stays mounted but the feature is gated. */}
+                <Route path="/dispatch/:packId">
+                    <DayPackOfferPage />
+                </Route>
                 <Route path="/review/:token">
                     <LeaveReview />
                 </Route>
@@ -428,13 +459,34 @@ function Router() {
                 <Route path="/contractor">
                     <Redirect to="/contractor/dashboard" />
                 </Route>
-                {/* Contractor Portal — 3-tab layout. Calendar tab is swapped
-                    to the v2 AvailabilityScheduler when FF_AVAILABILITY_ENGINE
-                    is on; legacy CalendarTab is the fallback. */}
+                {/* Contractor Portal — 3-tab layout. When
+                    FF_CONTRACTOR_APP_V2 is ON the index route runs
+                    SegmentDashboardRouter (Module 09 §2) which redirects
+                    Builders / Specialists to their segment-specific tab and
+                    leaves Gap-Fillers / legacy on the calendar inline. When
+                    OFF the router short-circuits to CalendarTabSwitch
+                    (legacy CalendarTab unless FF_AVAILABILITY_ENGINE on,
+                    in which case the v2 AvailabilityScheduler renders). */}
                 <Route path="/contractor/dashboard">
                     <ProtectedRoute role="contractor">
                         <ContractorPortalLayout>
-                            <CalendarTabSwitch />
+                            <SegmentDashboardRouter />
+                        </ContractorPortalLayout>
+                    </ProtectedRoute>
+                </Route>
+                {/* Module 09 — Builder default landing (FF_CONTRACTOR_APP_V2). */}
+                <Route path="/contractor/dashboard/day-packs">
+                    <ProtectedRoute role="contractor">
+                        <ContractorPortalLayout>
+                            <DayPacksView />
+                        </ContractorPortalLayout>
+                    </ProtectedRoute>
+                </Route>
+                {/* Module 09 — Specialist default landing (FF_CONTRACTOR_APP_V2). */}
+                <Route path="/contractor/dashboard/specialist-queue">
+                    <ProtectedRoute role="contractor">
+                        <ContractorPortalLayout>
+                            <SpecialistQueueView />
                         </ContractorPortalLayout>
                     </ProtectedRoute>
                 </Route>
@@ -459,9 +511,12 @@ function Router() {
                         </ContractorPortalLayout>
                     </ProtectedRoute>
                 </Route>
+                {/* Module 09 — Earnings tab (FF_CONTRACTOR_APP_V2 swaps to
+                    the new branded EarningsView; legacy EarningsPage stays
+                    behind for the v1 dashboard). */}
                 <Route path="/contractor/dashboard/earnings">
                     <ProtectedRoute role="contractor">
-                        <EarningsPage />
+                        <EarningsRouteGate />
                     </ProtectedRoute>
                 </Route>
                 {/* Module 07 — Pay Protection (FF_PAY_PROTECTION). Route registers

@@ -2,6 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Loader2, Briefcase, Clock, Wrench, CheckCircle2, Calendar, MapPin, PoundSterling, ChevronRight, CreditCard, Banknote, TrendingUp } from "lucide-react";
 import { format, startOfWeek, startOfMonth, subWeeks } from "date-fns";
+import { useFeatureFlags } from "@/hooks/useFeatureFlags";
+
+// Module 13 brand tokens — used as a top accent strip when
+// FF_CONTRACTOR_APP_V2 is on so Gap-Fillers see the same brand language as
+// Builders / Specialists. Existing dark surface preserved below.
+const BRAND_NAVY = "#1B2A4A";
+const BRAND_YELLOW = "#F5A623";
 
 interface Booking {
   id: string;
@@ -143,6 +150,7 @@ function JobCard({ job, displayStatus }: { job: Booking; displayStatus: JobDispl
 }
 
 export default function MyJobsTab() {
+  const flags = useFeatureFlags();
   const token = localStorage.getItem("contractorToken")?.trim().replace(/[^a-zA-Z0-9._-]/g, "");
 
   const { data: bookings, isLoading } = useQuery<Booking[]>({
@@ -206,7 +214,19 @@ export default function MyJobsTab() {
   }
 
   return (
-    <div className="px-4 pt-6 pb-24">
+    <div className="pb-24">
+      {/* Module 13 brand accent strip — only shows when v2 is on so the
+          Gap-Filler dashboard has the same hero language as Builder /
+          Specialist surfaces. Existing dark UI below is unchanged. */}
+      {flags.contractor_app_v2 && (
+        <div style={{ backgroundColor: BRAND_YELLOW, color: BRAND_NAVY }}>
+          <p className="max-w-lg mx-auto px-4 py-1.5 text-[11px] font-bold tracking-[0.04em] text-center uppercase">
+            Gap-Filler · Single-job offers
+          </p>
+        </div>
+      )}
+
+      <div className="px-4 pt-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-2xl font-bold text-white">My Jobs</h1>
@@ -333,6 +353,7 @@ export default function MyJobsTab() {
           </p>
         </div>
       )}
+      </div>
     </div>
   );
 }
