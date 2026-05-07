@@ -70,6 +70,7 @@ import payProtectionRouter, { adminPayProtectionRouter } from './routes/pay-prot
 import { startPayProtectionTick } from './jobs/pay-protection-tick'; // Module 07 — 48h pay SLA + stale-review escalation
 import { contractorDayPackRouter, adminDayPackRouter } from './routes/day-pack-routes'; // Module 06 — Day-Pack Solver (FF_DAY_PACK)
 import { startDayPackTick } from './jobs/day-pack-tick'; // Module 06 — assembly + pack expiry sweeper
+import dayPackPublicRouter from './routes/day-pack-public-routes'; // Module 15 — Production day-pack page (FF_DAY_PACK_PAGE_PROD)
 import notificationsRouter from './routes/notifications-routes'; // Module 10 — Notifications (FF_NOTIFICATIONS_V2)
 import { startNotificationsTick } from './jobs/notifications-tick'; // Module 10 — outbox flusher + retry sweep
 
@@ -448,6 +449,10 @@ app.use('/api/admin/pay-adjustments', requireAdmin, adminPayProtectionRouter);
 // Both return 503 when FF_DAY_PACK is OFF.
 app.use('/api/contractor', contractorDayPackRouter);
 app.use('/api/admin', requireAdmin, adminDayPackRouter);
+
+// Module 15 — Production day-pack page. Token-gated public envelope used by
+// /dispatch/:packId (DayPackOfferPage.tsx). 503 when FF_DAY_PACK_PAGE_PROD off.
+app.use('/api/day-packs', dayPackPublicRouter);
 
 // Module 10 — Notifications. Admin observability + test-fire endpoints under
 // /api/admin/notifications/*. Gate is inside `sendNotification` itself
