@@ -1,8 +1,25 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Calendar, Zap, Clock, TrendingDown } from 'lucide-react';
 import { format, addDays, differenceInDays, startOfDay } from 'date-fns';
 import { useAvailability, formatDateStr } from '@/hooks/useAvailability';
+import { useFeatureFlags } from '@/hooks/useFeatureFlags';
+
+// Module 04 — Availability Engine. When FF_AVAILABILITY_ENGINE is ON the
+// customer date picker calls /api/availability/eligible-dates and:
+//   - hard-disables `full` dates (no supply)
+//   - shows a "Limited" indicator on `constrained` dates (single unit left)
+//   - allows selection only of `eligible` + `constrained` dates
+// When OFF, behaviour is unchanged (legacy availability path).
+interface EligibleDatesResp {
+    data: {
+        eligible: string[];
+        constrained: Record<string, { units_left: number; tier_capacity: 'low' | 'med' | 'high' }>;
+        full: string[];
+    };
+    meta: { from: string; to: string; max_lead_days: number };
+}
 
 export type SchedulingTier = 'express' | 'priority' | 'standard' | 'flexible';
 
@@ -63,6 +80,7 @@ export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
     timeEstimateMinutes,
 }) => {
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+    const flags = useFeatureFlags();
 
     // Fetch system-wide availability
     const { data: availabilityData, isLoading: isLoadingAvailability } = useAvailability({
@@ -73,7 +91,62 @@ export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
         days: maxWeeks * 7 + 1,
     });
 
-    // Build a set of unavailable dates for quick lookup
+    // Module 04: when FF_AVAILABILITY_ENGINE is on, also pull /eligible-dates
+    // to gate the calendar by real per-unit supply.
+    const fromStr = useMemo(
+        () => formatDateStr(addDays(startOfDay(minDate), 1)),
+        [minDate],
+    );
+    const toStr = useMemo(
+        () => formatDateStr(addDays(startOfDay(minDate), maxWeeks * 7)),
+        [minDate, maxWeeks],
+    );
+    const skillsParam = (categories ?? []).join(',');
+    const { data: eligibleResp } = useQuery<EligibleDatesResp>({
+        queryKey: ['eligible-dates', postcode, skillsParam, timeEstimateMinutes, fromStr, toStr],
+        enabled: flags.availability_engine,
+        queryFn: async () => {
+            const params = new URLSearchParams();
+            if (postcode) params.set('postcode', postcode);
+            if (skillsParam) params.set('skills', skillsParam);
+            params.set('duration', String(timeEstimateMinutes ?? 60));
+            params.set('from', fromStr);
+            params.set('to', toStr);
+            const res = await fetch(`/api/availability/eligible-dates?${params.toString()}`);
+            if (!res.ok) {
+                // 503 → engine offline. Return empty buckets so legacy logic
+                // takes over (every date selectable subject to legacy filter).
+                return {
+                    data: { eligible: [], constrained: {}, full: [] },
+                    meta: { from: fromStr, to: toStr, max_lead_days: 60 },
+                };
+            }
+            return res.json();
+        },
+        staleTime: 60_000,
+    });
+
+    // Module 04: dates with zero supply
+    const fullDates = useMemo(() => {
+        const set = new Set<string>();
+        if (flags.availability_engine && eligibleResp?.data?.full) {
+            for (const d of eligibleResp.data.full) set.add(d);
+        }
+        return set;
+    }, [flags.availability_engine, eligibleResp]);
+
+    // Module 04: dates with single-unit supply (kept selectable but flagged)
+    const constrainedDates = useMemo(() => {
+        const set = new Set<string>();
+        if (flags.availability_engine && eligibleResp?.data?.constrained) {
+            for (const d of Object.keys(eligibleResp.data.constrained)) set.add(d);
+        }
+        return set;
+    }, [flags.availability_engine, eligibleResp]);
+
+    // Build a set of unavailable dates for quick lookup. When the v2
+    // availability engine is on, we ALSO mark `full` dates as unavailable;
+    // this gates the picker to supply-locked dates per Module 04 §7.
     const unavailableDates = useMemo(() => {
         const set = new Set<string>();
         if (availabilityData?.dates) {
@@ -83,8 +156,11 @@ export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
                 }
             }
         }
+        if (flags.availability_engine) {
+            for (const d of fullDates) set.add(d);
+        }
         return set;
-    }, [availabilityData]);
+    }, [availabilityData, flags.availability_engine, fullDates]);
 
     // Generate date options for 2 weeks (14 days) - memoized to prevent regeneration
     const dates = useMemo((): DateOption[] => {
@@ -181,6 +257,9 @@ export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
         const isRecommended = recommendedDate &&
             format(recommendedDate.date, 'yyyy-MM-dd') === format(dateOption.date, 'yyyy-MM-dd') &&
             (!selectedDate || isSelected);
+        const dateKey = format(dateOption.date, 'yyyy-MM-dd');
+        const isConstrained =
+            flags.availability_engine && constrainedDates.has(dateKey) && !dateOption.isBooked;
 
         return (
             <motion.button
@@ -197,10 +276,20 @@ export const DatePricingCalendar: React.FC<DatePricingCalendarProps> = ({
                             ? 'bg-[#7DB00E]/10 border-[#7DB00E] shadow-lg scale-105'
                             : isRecommended
                                 ? 'bg-green-50 border-green-300 hover:border-green-400 shadow-md ring-2 ring-green-200'
-                                : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
+                                : isConstrained
+                                    ? 'bg-amber-50/60 border-amber-200 hover:border-amber-300'
+                                    : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
                     }
         `}
             >
+                {/* Limited supply badge — Module 04 §7 */}
+                {isConstrained && !isSelected && (
+                    <div className="absolute -top-2 right-1">
+                        <div className="bg-amber-400 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wide">
+                            Limited
+                        </div>
+                    </div>
+                )}
                 {/* Recommended Badge */}
                 {isRecommended && !isSelected && (
                     <div className="absolute -top-2 left-1/2 transform -translate-x-1/2">

@@ -6,6 +6,7 @@ import { queryClient } from "@/lib/queryClient";
 import { LiveCallProvider } from "@/contexts/LiveCallContext";
 import { Toaster } from "@/components/ui/toaster";
 import SidebarLayout from "@/components/layout/SidebarLayout";
+import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 
 // Landing pages - Keep eager for instant load (public-facing, need fast LCP)
 import HandymanLanding from "@/pages/HandymanLanding";
@@ -70,6 +71,7 @@ const BookingVisitsPage = lazy(() => import("@/pages/admin/BookingVisitsPage"));
 const MasterAvailabilityPage = lazy(() => import("@/pages/admin/MasterAvailabilityPage"));
 const ContractorsPage = lazy(() => import("@/pages/admin/ContractorsPage"));
 const ContractorDetailPage = lazy(() => import("@/pages/admin/ContractorDetailPage"));
+const UnitsPage = lazy(() => import("@/pages/admin/UnitsPage")); // Module 03 — Unit Bench (FF_UNITS_BENCH)
 const PaymentsDashboardPage = lazy(() => import("@/pages/admin/PaymentsDashboardPage"));
 const DashboardPage = lazy(() => import("@/pages/admin/DashboardPage"));
 const OnboardingSlideDeck = lazy(() => import("@/pages/admin/OnboardingSlideDeck"));
@@ -128,6 +130,9 @@ const ContractorAppLanding = lazy(() => import('./pages/ContractorAppLanding'));
 // Contractor Portal — 3-tab layout
 const ContractorPortalLayout = lazy(() => import('./pages/contractor/ContractorPortalLayout'));
 const CalendarTab = lazy(() => import('./pages/contractor/dashboard/CalendarTab'));
+const AvailabilityScheduler = lazy(
+    () => import('./pages/contractor/dashboard/AvailabilityScheduler'),
+);
 const MyJobsTab = lazy(() => import('./pages/contractor/dashboard/MyJobsTab'));
 const ProfileTab = lazy(() => import('./pages/contractor/dashboard/ProfileTab'));
 const JobDetailsPage = lazy(() => import("./pages/contractor/dashboard/JobDetailsPage"));
@@ -155,6 +160,14 @@ const ROICalculator = lazy(() => import("@/pages/pitch/ROICalculator"));
 const Roadmap = lazy(() => import("@/pages/pitch/Roadmap"));
 const CompetitorAnalysis = lazy(() => import("@/pages/pitch/CompetitorAnalysis"));
 
+// Module 04 — Availability Engine. Swap CalendarTab → AvailabilityScheduler
+// when FF_AVAILABILITY_ENGINE is on. Wrapped here (rather than in CalendarTab
+// itself) so the legacy bundle isn't even loaded when the v2 path is active.
+function CalendarTabSwitch() {
+    const { availability_engine } = useFeatureFlags();
+    return availability_engine ? <AvailabilityScheduler /> : <CalendarTab />;
+}
+
 // Loading fallback for lazy-loaded components
 // Loading fallback for lazy-loaded components
 function LoadingFallback() {
@@ -169,6 +182,19 @@ function LoadingFallback() {
             <p className="sr-only">Loading...</p>
         </div>
     );
+}
+
+/**
+ * Gate /admin/units on FF_UNITS_BENCH (Module 03).
+ * When the flag is OFF the route redirects to /admin/contractors so admins
+ * fall back to the legacy contractor list (per Module 03 §11 Rollback).
+ */
+function UnitsRouteGate() {
+    const flags = useFeatureFlags();
+    if (!flags.units_bench) {
+        return <Redirect to="/admin/contractors" />;
+    }
+    return <UnitsPage />;
 }
 
 /** Redirect VA users to /admin/live-call instead of showing PipelineHome */
@@ -386,11 +412,13 @@ function Router() {
                 <Route path="/contractor">
                     <Redirect to="/contractor/dashboard" />
                 </Route>
-                {/* Contractor Portal — 3-tab layout */}
+                {/* Contractor Portal — 3-tab layout. Calendar tab is swapped
+                    to the v2 AvailabilityScheduler when FF_AVAILABILITY_ENGINE
+                    is on; legacy CalendarTab is the fallback. */}
                 <Route path="/contractor/dashboard">
                     <ProtectedRoute role="contractor">
                         <ContractorPortalLayout>
-                            <CalendarTab />
+                            <CalendarTabSwitch />
                         </ContractorPortalLayout>
                     </ProtectedRoute>
                 </Route>
@@ -620,6 +648,15 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <ContractorsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                {/* Module 03 — Unit Bench (FF_UNITS_BENCH). Falls back to legacy
+                    contractor list when the flag is OFF (Module 03 §11). */}
+                <Route path="/admin/units">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <UnitsRouteGate />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

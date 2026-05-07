@@ -62,9 +62,12 @@ import { leadTubeMapRouter } from './lead-tube-map'; // Lead Tube Map API
 import { callScriptRouter, initializeRealtimeHandler, setSimulateBroadcast } from './call-script'; // Call Script Tube Map API
 import liveCallActionsRouter from './live-call-actions'; // Live Call HUD Actions
 import availabilityRouter from './availability'; // Availability Slots for Live Call HUD
+import availabilityV2Router from './routes/availability-v2-routes'; // Module 04 — Availability Engine (FF_AVAILABILITY_ENGINE)
+import { startAvailabilityTick } from './jobs/availability-tick'; // Module 04 — hold-expiry sweeper
 
 import publicRoutes from './public-routes';
 import adminContractorsRouter from './admin-contractors-routes';
+import unitsRouter from './routes/units-routes'; // Module 03 — Unit Bench (FF_UNITS_BENCH)
 import adminDashboardRouter from './admin-dashboard-routes';
 import { vaStatsRouter } from './va-stats';
 import mediaRouter from './media-upload';
@@ -185,6 +188,10 @@ app.get('/api/health', (req, res) => {
 
 // Start Cron Jobs
 setupCronJobs();
+
+// Module 04 — Availability Engine: 5-min sweep that reverts expired holds
+// back to `available`. No-op when FF_AVAILABILITY_ENGINE is OFF.
+startAvailabilityTick();
 
 // Payout processing cron — runs every hour
 setInterval(async () => {
@@ -376,11 +383,19 @@ app.use('/api/contractor/availability', contractorAvailabilityRouter);
 app.use('/api/contractor/jobs', contractorJobsRouter);
 app.use('/api/admin/availability', requireAdmin, adminAvailabilityRouter); // Master availability admin routes
 app.use('/api/admin/contractors', requireAdmin, adminContractorsRouter); // Admin contractors management
+app.use('/api/admin/units', requireAdmin, unitsRouter); // Module 03 — Unit Bench (gated by FF_UNITS_BENCH inside the router)
 app.use('/api/admin/dashboard', requireAdmin, adminDashboardRouter); // Admin dashboard analytics
 app.use(leadTubeMapRouter); // Lead Tube Map API (includes its own /api/admin prefix)
 app.use(callScriptRouter); // Call Script Tube Map API (VA call coaching)
 app.use(liveCallActionsRouter); // Live Call HUD Actions (send quote, video request, book visit)
 app.use('/api/availability', availabilityRouter); // Availability Slots for Live Call HUD
+
+// Module 04 — Availability Engine (v2). Mounted at /api so its internal paths
+// (/units/:id/availability, /availability/{hold,release,eligible-dates},
+// /contractor/me/unit) resolve cleanly. All endpoints return 503 when
+// FF_AVAILABILITY_ENGINE is OFF.
+app.use('/api', availabilityV2Router);
+
 app.use('/api/public', publicRoutes); // Public API Routes
 app.use('/api/auth', authRouter); // Auth Routes
 app.use(pushRouter); // Web Push subscription routes
