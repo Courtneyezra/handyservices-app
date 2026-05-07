@@ -64,10 +64,13 @@ import liveCallActionsRouter from './live-call-actions'; // Live Call HUD Action
 import availabilityRouter from './availability'; // Availability Slots for Live Call HUD
 import availabilityV2Router from './routes/availability-v2-routes'; // Module 04 — Availability Engine (FF_AVAILABILITY_ENGINE)
 import { startAvailabilityTick } from './jobs/availability-tick'; // Module 04 — hold-expiry sweeper
+import routingRouter, { adminRoutingRouter } from './routes/routing-routes'; // Module 05 — Routing Engine (FF_ROUTING_ENGINE)
+import { startRoutingTick } from './jobs/routing-tick'; // Module 05 — offer-round timeout sweeper
 
 import publicRoutes from './public-routes';
 import adminContractorsRouter from './admin-contractors-routes';
 import unitsRouter from './routes/units-routes'; // Module 03 — Unit Bench (FF_UNITS_BENCH)
+import controlTowerRouter from './routes/control-tower-routes'; // Module 08 — Control Tower (FF_CONTROL_TOWER)
 import adminDashboardRouter from './admin-dashboard-routes';
 import { vaStatsRouter } from './va-stats';
 import mediaRouter from './media-upload';
@@ -192,6 +195,11 @@ setupCronJobs();
 // Module 04 — Availability Engine: 5-min sweep that reverts expired holds
 // back to `available`. No-op when FF_AVAILABILITY_ENGINE is OFF.
 startAvailabilityTick();
+
+// Module 05 — Routing Engine: 5-min sweep that promotes expired offer rounds
+// (1 → 2 → 3 → cross-lane → reschedule_required). No-op when
+// FF_ROUTING_ENGINE is OFF.
+startRoutingTick();
 
 // Payout processing cron — runs every hour
 setInterval(async () => {
@@ -372,6 +380,11 @@ app.use('/api', uploadRouter);
 app.use(invoiceRouter); // B2: Invoice management
 app.use(jobAssignmentRouter); // B5: Job assignment/dispatch
 app.use(jobLifecycleRouter); // Day-of job lifecycle
+// Module 08 — Control Tower. Mounted ahead of contractorDispatchRouter so its
+// specific subpaths (inbound, builder-week, exceptions, demand-health,
+// manual-route) take precedence over the legacy `/api/admin/dispatch/:id`
+// patterns. Gated by FF_CONTROL_TOWER inside the router (returns 503 when off).
+app.use('/api/admin/dispatch', requireAdmin, controlTowerRouter);
 app.use(contractorDispatchRouter); // Tokenised contractor job-sheet dispatch (broadcast/accept/decline/variation/complete)
 app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
 
@@ -395,6 +408,12 @@ app.use('/api/availability', availabilityRouter); // Availability Slots for Live
 // /contractor/me/unit) resolve cleanly. All endpoints return 503 when
 // FF_AVAILABILITY_ENGINE is OFF.
 app.use('/api', availabilityV2Router);
+
+// Module 05 — Routing Engine. Contractor-facing offer endpoints under
+// /api/routing/* (auth via X-Contractor-Token); admin audit under
+// /api/admin/routing/*. Both return 503 when FF_ROUTING_ENGINE is OFF.
+app.use('/api/routing', routingRouter);
+app.use('/api/admin/routing', requireAdmin, adminRoutingRouter);
 
 app.use('/api/public', publicRoutes); // Public API Routes
 app.use('/api/auth', authRouter); // Auth Routes

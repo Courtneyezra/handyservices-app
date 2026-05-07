@@ -72,6 +72,7 @@ const MasterAvailabilityPage = lazy(() => import("@/pages/admin/MasterAvailabili
 const ContractorsPage = lazy(() => import("@/pages/admin/ContractorsPage"));
 const ContractorDetailPage = lazy(() => import("@/pages/admin/ContractorDetailPage"));
 const UnitsPage = lazy(() => import("@/pages/admin/UnitsPage")); // Module 03 — Unit Bench (FF_UNITS_BENCH)
+const ControlTower = lazy(() => import("@/pages/admin/ControlTower")); // Module 08 — Control Tower (FF_CONTROL_TOWER)
 const PaymentsDashboardPage = lazy(() => import("@/pages/admin/PaymentsDashboardPage"));
 const DashboardPage = lazy(() => import("@/pages/admin/DashboardPage"));
 const OnboardingSlideDeck = lazy(() => import("@/pages/admin/OnboardingSlideDeck"));
@@ -195,6 +196,19 @@ function UnitsRouteGate() {
         return <Redirect to="/admin/contractors" />;
     }
     return <UnitsPage />;
+}
+
+/**
+ * Gate /admin/control-tower on FF_CONTROL_TOWER (Module 08).
+ * When the flag is OFF the route redirects to the legacy /admin/dispatch
+ * dashboard (per Module 08 §9 Rollback).
+ */
+function ControlTowerRouteGate() {
+    const flags = useFeatureFlags();
+    if (!flags.control_tower) {
+        return <Redirect to="/admin/dispatch" />;
+    }
+    return <ControlTower />;
 }
 
 /** Redirect VA users to /admin/live-call instead of showing PipelineHome */
@@ -657,6 +671,17 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <UnitsRouteGate />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                {/* Module 08 — Control Tower (FF_CONTROL_TOWER). Tabbed dispatcher
+                    console. Sub-tab in URL (/admin/control-tower/inbound, etc.).
+                    Falls back to legacy /admin/dispatch when the flag is OFF
+                    (Module 08 §9 Rollback). */}
+                <Route path="/admin/control-tower/:tab?">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <ControlTowerRouteGate />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
