@@ -42,6 +42,7 @@ import { SingleProductQuote } from '@/components/quote/SingleProductQuote';
 import { HassleComparisonCard } from '@/components/quote/HassleComparisonCard';
 import { BudgetQuoteInline } from '@/components/quote/BudgetQuoteInline';
 import { UnifiedQuoteCard } from '@/components/quote/UnifiedQuoteCard';
+import { FlexTierSelector, type FlexTier } from '@/components/quote/FlexTierSelector';
 import { BookingConfirmation } from '@/components/quote/BookingConfirmation';
 import { ScarcityBanner } from '@/components/quote/ScarcityBanner';
 import { QuoteTimer } from '@/components/quote/QuoteTimer';
@@ -2553,6 +2554,19 @@ export default function PersonalizedQuotePage() {
   const [isBooking, setIsBooking] = useState(false);
   const [hasReserved, setHasReserved] = useState(false); // Track if user clicked "Book Now"
 
+  // [Module 01] Flex-tier state — gated by FF_FLEX_TIER (server-exposed via /api/feature-flags)
+  const flexFlagsQuery = useQuery<{ data: Record<string, boolean> }>({
+    queryKey: ['feature-flags'],
+    queryFn: async () => {
+      const r = await fetch('/api/feature-flags');
+      if (!r.ok) throw new Error('feature-flags fetch failed');
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+  const flexTierEnabled = !!flexFlagsQuery.data?.data?.flex_tier;
+  const [flexTier, setFlexTier] = useState<FlexTier>('flexible'); // Default per ADR-004
+
   // [RAMANUJAM] Productization choices for BUSY_PRO segment
   const [timingChoice, setTimingChoice] = useState<'this_week' | 'next_week'>('this_week'); // Default to this week (premium option)
   const [whileImThereBundle, setWhileImThereBundle] = useState<'none' | 'quick' | 'small' | 'half_hour'>('none'); // "While I'm There" task bundle
@@ -3298,7 +3312,14 @@ export default function PersonalizedQuotePage() {
 
   // EVE single price — used directly by UnifiedQuoteCard
   // For contextual quotes, prefer finalPricePence from the contextual pricing engine
-  const quotePrice = (isContextualQuote ? quote.finalPricePence : undefined) || quote.basePrice || quote.enhancedPrice || 0;
+  const baseQuotePrice = (isContextualQuote ? quote.finalPricePence : undefined) || quote.basePrice || quote.enhancedPrice || 0;
+
+  // [Module 01] When FF_FLEX_TIER is on, apply the flex discount to the displayed
+  // price. Off → quotePrice === baseQuotePrice (legacy behaviour).
+  const flexMultiplier = flexTierEnabled
+    ? (flexTier === 'fast' ? 1.0 : flexTier === 'flexible' ? 0.9 : 0.85)
+    : 1.0;
+  const quotePrice = Math.round(baseQuotePrice * flexMultiplier);
 
   // Sort line items by total descending — anchors the breakdown high (primacy + descending-price effect).
   const sortedPricingLineItems = quote.pricingLineItems
@@ -3548,6 +3569,25 @@ export default function PersonalizedQuotePage() {
                 pricingLineItems={isContextualQuote ? taggedPricingLineItems : undefined}
                 estimatorPhotoUrl={mikeProfilePhoto}
               />
+
+              {/* [Module 01] Flex Tier Selector — gated by FF_FLEX_TIER */}
+              {flexTierEnabled && baseQuotePrice > 0 && !hasBooked && (
+                <div className="max-w-3xl mx-auto px-2">
+                  <FlexTierSelector
+                    baseValuePence={baseQuotePrice}
+                    selected={flexTier}
+                    onChange={(tier) => {
+                      setFlexTier(tier);
+                      // Persist to server (fire-and-forget; UI updates optimistically).
+                      fetch(`/api/quotes/${quote.id}/flex-tier`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tier }),
+                      }).catch((err) => console.warn('[flex-tier] PUT failed:', err));
+                    }}
+                  />
+                </div>
+              )}
 
               {/* Price Card + Booking Flow */}
               {quotePrice > 0 && !hasBooked && (

@@ -30,10 +30,56 @@ export type {
 
 /** Result of EVE pricing — single price per quote */
 export interface EVEPricingResult {
-  price: number;               // Final price in pence
+  price: number;               // Final price in pence (after any flex discount)
   valueMultiplier: number;     // Ratio vs reference rate (for analytics)
   adjustedJobPrice: number;    // Same as price (backward compat)
   segment: string;
+  /** Pre-flex base price in pence (before flex discount applied). Equal to `price` when no flex tier set. */
+  basePencePostEve?: number;
+  flexTier?: FlexTier;
+  flexDiscountPence?: number;
+}
+
+// ============================================================================
+// FLEX TIER PRICING (Module 01 — adr-004-flex-tier.md)
+// ============================================================================
+// Customer-facing date-flexibility tiers. Discount applied as a post-EVE
+// multiplier — after segment_rate * (duration/60), before pretty-pence rounding.
+
+export const FLEX_DISCOUNTS = {
+  fast:     0,
+  flexible: 0.10,
+  relaxed:  0.15,
+} as const;
+
+export type FlexTier = keyof typeof FLEX_DISCOUNTS;
+
+export const FLEX_WINDOW_DAYS: Record<FlexTier, number> = {
+  fast:     1,
+  flexible: 7,
+  relaxed:  14,
+};
+
+/**
+ * Apply the flex-tier discount to a post-EVE base price.
+ * Returns the final pence, the discount in pence, and the discount %.
+ *
+ * Uses Math.round half-up for sub-penny precision (per adr-004).
+ */
+export function applyFlexTierDiscount(
+  basePencePostEve: number,
+  tier: FlexTier
+): { finalPence: number; discountPence: number; discountPct: number } {
+  if (!(tier in FLEX_DISCOUNTS)) {
+    throw new Error(`Unknown flex tier: ${tier}`);
+  }
+  const pct = FLEX_DISCOUNTS[tier];
+  const finalPence = Math.round(basePencePostEve * (1 - pct));
+  return {
+    finalPence,
+    discountPence: basePencePostEve - finalPence,
+    discountPct: pct,
+  };
 }
 
 // ============================================================================
@@ -66,6 +112,12 @@ export const REFERENCE_RATE_PENCE = 3500; // £35/hr
 export interface EVEPricingInputs extends ValuePricingInputs {
   /** Time estimate for the job in minutes — the primary pricing input */
   timeEstimateMinutes?: number;
+  /**
+   * Optional flex tier (Module 01 — adr-004). When provided, a post-EVE discount
+   * is applied: fast=0%, flexible=-10%, relaxed=-15%. When absent (or null),
+   * pricing is unchanged from the legacy single-price path.
+   */
+  flexTier?: FlexTier | null;
 }
 
 // ============================================================================
@@ -95,7 +147,17 @@ export function generateEVEPricingQuote(inputs: EVEPricingInputs): EVEPricingRes
   const floor = Math.round(REFERENCE_RATE_PENCE * (minutes / 60));
   price = Math.max(price, floor);
 
-  // 5. Round to whole pounds
+  // 5. Apply flex-tier discount (Module 01) — post-EVE, pre-pretty-rounding.
+  //    Skipped entirely when `flexTier` is unset/null (legacy behaviour).
+  const basePencePostEve = price;
+  let flexDiscountPence = 0;
+  if (inputs.flexTier && inputs.flexTier in FLEX_DISCOUNTS) {
+    const flexed = applyFlexTierDiscount(price, inputs.flexTier);
+    price = flexed.finalPence;
+    flexDiscountPence = flexed.discountPence;
+  }
+
+  // 6. Round to whole pounds
   price = roundToWholePounds(price);
 
   return {
@@ -103,6 +165,9 @@ export function generateEVEPricingQuote(inputs: EVEPricingInputs): EVEPricingRes
     valueMultiplier: Math.round((rate / REFERENCE_RATE_PENCE) * 100) / 100,
     adjustedJobPrice: price,
     segment,
+    basePencePostEve,
+    flexTier: inputs.flexTier ?? undefined,
+    flexDiscountPence,
   };
 }
 
