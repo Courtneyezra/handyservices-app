@@ -40,6 +40,16 @@ interface JobInPack {
     coords: { lat: number; lng: number };
 }
 
+interface MaterialsPickup {
+    required: boolean;            // false = all materials Handy-supplied, no contractor action
+    supplier: string;             // "Screwfix" / "Wickes" / "Toolstation"
+    branchName?: string;          // "Castle Boulevard"
+    postcode: string;
+    openFrom?: string;             // "07:00" — when supplier opens
+    estimatedMinutes: number;     // budget for the pickup trip
+    items: string[];              // aggregated list across all stops
+}
+
 interface DayPack {
     packRef: string;
     date: string;
@@ -53,6 +63,9 @@ interface DayPack {
     completionBonusPence: number;
     fiveStarBonusPerReviewPence: number;
     maxFiveStarReviews: number;
+    // Optional materials pickup — if required, contractor must collect from
+    // a merchant before stops. Counts as a step toward all-or-nothing bonus.
+    materialsPickup?: MaterialsPickup;
     // Day stats
     totalWorkHours: number;
     totalTravelMinutes: number;
@@ -91,6 +104,23 @@ const PACK: DayPack = {
     totalWorkHours: 8.0,
     totalTravelMinutes: 70,
     totalDistanceMiles: 28,
+    // Pickup before the day — central Notts merchant for fixings + small kit.
+    // Larger items (shed, panel) come on a separate Handy delivery run.
+    materialsPickup: {
+        required: true,
+        supplier: "Screwfix",
+        branchName: "Castle Boulevard",
+        postcode: "NG7 1FR",
+        openFrom: "07:00",
+        estimatedMinutes: 30,
+        items: [
+            "Lock set + strike plate",
+            "Door hinges + handles",
+            "Replacement gate panel + fixings",
+            "PVC curtain track + brackets",
+            "Levelling sand + bearers",
+        ],
+    },
     jobs: [
         {
             num: 1,
@@ -251,6 +281,9 @@ export default function DispatchPreviewPage() {
     // Interactive tick-to-complete — each stop number can be marked done.
     // Persists across renders within the session; resets on page reload.
     const [completedStops, setCompletedStops] = useState<Set<number>>(new Set());
+    // Materials pickup completion — separate state since pickup isn't a numbered
+    // stop. Required for the all-or-nothing bonus when materialsPickup.required.
+    const [materialsCollected, setMaterialsCollected] = useState(false);
     // Single-expanded-row pattern: only one stop expanded at a time keeps the
     // page compact. null = all collapsed.
     const [expandedStop, setExpandedStop] = useState<number | null>(null);
@@ -275,11 +308,18 @@ export default function DispatchPreviewPage() {
 
     const completedCount = completedStops.size;
     const totalStops = PACK.jobs.length;
-    const earnedStopBonusPence = bonusFromCompleted(PACK, completedStops);
+    const pickupRequired = !!PACK.materialsPickup?.required;
+    const pickupDone = !pickupRequired || materialsCollected;
+    const stopsAllDone = completedCount === totalStops;
+    // All-or-nothing requires both: every stop ticked AND (if pickup needed) materials collected
+    const allComplete = stopsAllDone && pickupDone;
+    const earnedStopBonusPence = allComplete ? PACK.completionBonusPence : 0;
     const earnedReviewBonusPence = claimedReviews.size * PACK.fiveStarBonusPerReviewPence;
     const earnedBonusPence = earnedStopBonusPence + earnedReviewBonusPence;
-    const allComplete = completedCount === totalStops;
-    const progressPct = (completedCount / totalStops) * 100;
+    // Progress includes pickup as a step when required (so 5 total: 1 pickup + 4 stops)
+    const totalSteps = totalStops + (pickupRequired ? 1 : 0);
+    const completedSteps = completedCount + (pickupRequired && materialsCollected ? 1 : 0);
+    const progressPct = (completedSteps / totalSteps) * 100;
 
     function toggleStop(num: number) {
         const wasComplete = completedStops.has(num);
@@ -310,10 +350,18 @@ export default function DispatchPreviewPage() {
         setClaimedReviews(prev => { const next = new Set(prev); next.add(num); return next; });
         showToast(`5★ claimed · +£10`, 'bonus');
     }
+    function toggleMaterials() {
+        setMaterialsCollected(prev => {
+            const next = !prev;
+            if (next) showToast(`Materials collected · ${PACK.materialsPickup?.supplier}`, 'bonus');
+            return next;
+        });
+    }
     function resetCompletions() {
         setCompletedStops(new Set());
         setClaimedReviews(new Set());
         setExpandedStop(null);
+        setMaterialsCollected(false);
         setConfettiOn(false);
     }
     // Trigger confetti on transition from incomplete → all complete.
@@ -384,11 +432,11 @@ export default function DispatchPreviewPage() {
                                     : <>{PACK.jobs.length} stops · finish all for +{fmt(PACK.completionBonusPence)}</>}
                             </p>
 
-                            {/* Progress bar — fills as stops are ticked off */}
+                            {/* Progress bar — fills as steps (pickup + stops) are ticked off */}
                             <div className="mt-4 pt-4 border-t border-white/10">
                                 <div className="flex items-baseline justify-between mb-2">
                                     <span className="text-[10px] uppercase tracking-[0.08em] font-semibold text-white/65">
-                                        Progress · {completedCount}/{totalStops} stops
+                                        Progress · {completedSteps}/{totalSteps} {pickupRequired ? 'steps' : 'stops'}
                                     </span>
                                     <motion.span
                                         key={`bonus-${earnedBonusPence}`}
@@ -456,6 +504,77 @@ export default function DispatchPreviewPage() {
 
                     <div className="bg-white rounded-2xl border border-[#D0D5E3] overflow-hidden">
                         <ol className="relative">
+                            {/* Materials pickup row — only shown if PACK.materialsPickup.required */}
+                            {pickupRequired && PACK.materialsPickup && (
+                                <li className="relative">
+                                    {/* Connector line down to first stop's dot */}
+                                    <span
+                                        className={`absolute left-[29px] top-[44px] -bottom-4 w-[2px] transition-colors pointer-events-none z-0 ${materialsCollected ? 'bg-[#1B2A4A]' : 'bg-[#D0D5E3]'}`}
+                                        aria-hidden
+                                    />
+                                    <div className="flex items-start gap-3 p-4">
+                                        {/* Package icon dot */}
+                                        <span
+                                            aria-hidden
+                                            className={`relative w-7 h-7 rounded-full flex items-center justify-center shrink-0 z-[1] transition-all ${
+                                                materialsCollected
+                                                    ? 'bg-[#1B2A4A] border-2 border-[#1B2A4A]'
+                                                    : 'bg-white border-2 border-[#1B2A4A]'
+                                            }`}
+                                        >
+                                            {materialsCollected
+                                                ? <Check className="h-4 w-4 text-white stroke-[3]" />
+                                                : <Package className="h-3.5 w-3.5 text-[#1B2A4A]" />}
+                                        </span>
+
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 mb-0.5">
+                                                <span className="text-[10px] uppercase tracking-[0.08em] font-bold text-[#F5A623]">
+                                                    Pickup before {PACK.materialsPickup.openFrom ? PACK.jobs[0].startTime : 'start'}
+                                                </span>
+                                            </div>
+                                            <p className={`text-[15px] font-bold leading-snug transition-colors ${materialsCollected ? 'text-[#6B7280] line-through decoration-[#1B2A4A]/40' : 'text-[#111827]'}`}>
+                                                {PACK.materialsPickup.supplier}
+                                                {PACK.materialsPickup.branchName ? <> · {PACK.materialsPickup.branchName}</> : null}
+                                            </p>
+                                            <p className="text-[12px] text-[#6B7280] mt-1 leading-snug">
+                                                {PACK.materialsPickup.postcode} · ~{PACK.materialsPickup.estimatedMinutes} min · {PACK.materialsPickup.items.length} items
+                                            </p>
+
+                                            {/* Aggregated items list — always shown so contractor can scan */}
+                                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                                {PACK.materialsPickup.items.map((m, i) => (
+                                                    <span key={i} className="text-[11px] bg-[#F7F8FC] text-[#6B7280] px-2 py-0.5 rounded-md">
+                                                        {m}
+                                                    </span>
+                                                ))}
+                                            </div>
+
+                                            {/* Mark collected button */}
+                                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                                                {!materialsCollected ? (
+                                                    <button
+                                                        onClick={toggleMaterials}
+                                                        className="inline-flex items-center gap-1.5 bg-[#1B2A4A] text-white rounded-full px-3.5 py-1.5 text-[12px] font-bold active:scale-[0.97] transition-transform"
+                                                    >
+                                                        <Check className="h-3.5 w-3.5 stroke-[3]" />
+                                                        Mark collected
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        onClick={toggleMaterials}
+                                                        className="inline-flex items-center gap-1.5 bg-white border border-[#1B2A4A]/30 text-[#1B2A4A] rounded-full px-3 py-1 text-[11px] font-bold active:scale-[0.97] transition-transform"
+                                                    >
+                                                        <Check className="h-3 w-3 stroke-[3]" />
+                                                        Collected
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </li>
+                            )}
+
                             {PACK.jobs.map((job, idx) => {
                                 const isLast = idx === PACK.jobs.length - 1;
                                 const isComplete = completedStops.has(job.num);
@@ -621,18 +740,11 @@ export default function DispatchPreviewPage() {
                                     >
                                         <Trophy className={`h-4 w-4 ${allComplete ? 'text-white' : 'text-[#6B7280]'}`} />
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className={`text-[13px] font-bold leading-tight ${allComplete ? 'text-[#1B2A4A]' : 'text-[#1B2A4A]'}`}>
-                                            {allComplete ? "Day complete" : "Finish ALL stops to bank bonus"}
-                                        </p>
-                                        <p className={`text-[11px] mt-0.5 ${allComplete ? 'text-[#92591E]' : 'text-[#6B7280]'}`}>
-                                            {allComplete
-                                                ? `+${fmt(PACK.completionBonusPence)} bonus added to your day`
-                                                : `${PACK.jobs.length - completedCount} stops to go · all-or-nothing`}
-                                        </p>
-                                    </div>
-                                    <span className={`text-[15px] font-bold tabular-nums shrink-0 ${allComplete ? 'text-[#92591E]' : 'text-[#F5A623]'}`}>
-                                        {allComplete ? `+${fmt(PACK.completionBonusPence)}` : `+${fmt(PACK.completionBonusPence)}`}
+                                    <p className={`flex-1 min-w-0 text-[13px] font-bold leading-tight text-[#1B2A4A] truncate`}>
+                                        {allComplete ? "Day complete" : "Finish all · bonus"}
+                                    </p>
+                                    <span className={`text-[16px] font-bold tabular-nums shrink-0 ${allComplete ? 'text-[#92591E]' : 'text-[#F5A623]'}`}>
+                                        +{fmt(PACK.completionBonusPence)}
                                     </span>
                                 </motion.div>
                             </li>
