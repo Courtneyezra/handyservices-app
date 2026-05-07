@@ -143,7 +143,7 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
 
   // Scheduling fields — selected dates from a pool of upcoming days
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
-  const upcomingDates = nextNDays(21); // next 21 days (excl. Sundays)
+  const upcomingDates = nextNDays(60); // next 60 days (excl. Sundays)
 
   // Open drawer and initialise fields from quote
   const openEdit = useCallback(() => {
