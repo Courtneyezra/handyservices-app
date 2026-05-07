@@ -68,6 +68,8 @@ import routingRouter, { adminRoutingRouter } from './routes/routing-routes'; // 
 import { startRoutingTick } from './jobs/routing-tick'; // Module 05 — offer-round timeout sweeper
 import payProtectionRouter, { adminPayProtectionRouter } from './routes/pay-protection-routes'; // Module 07 — Pay Protection (FF_PAY_PROTECTION)
 import { startPayProtectionTick } from './jobs/pay-protection-tick'; // Module 07 — 48h pay SLA + stale-review escalation
+import { contractorDayPackRouter, adminDayPackRouter } from './routes/day-pack-routes'; // Module 06 — Day-Pack Solver (FF_DAY_PACK)
+import { startDayPackTick } from './jobs/day-pack-tick'; // Module 06 — assembly + pack expiry sweeper
 
 import publicRoutes from './public-routes';
 import adminContractorsRouter from './admin-contractors-routes';
@@ -207,6 +209,11 @@ startRoutingTick();
 // stale pending_review escalation. Runs even with FF_PAY_PROTECTION OFF
 // — observability is cheap and useful on the legacy pay path.
 startPayProtectionTick();
+
+// Module 06 — Day-Pack Solver: 15-min sweep that assembles open
+// commitments + expires offered packs whose TTL has lapsed. No-op when
+// FF_DAY_PACK is OFF.
+startDayPackTick();
 
 // Payout processing cron — runs every hour
 setInterval(async () => {
@@ -428,6 +435,13 @@ app.use('/api/admin/routing', requireAdmin, adminRoutingRouter);
 // return 503 when FF_PAY_PROTECTION is OFF.
 app.use('/api/contractor/pay-adjustments', payProtectionRouter);
 app.use('/api/admin/pay-adjustments', requireAdmin, adminPayProtectionRouter);
+
+// Module 06 — Day-Pack Solver. Contractor day-commitments + day-pack
+// accept/decline under /api/contractor/* (auth via X-Contractor-Token);
+// admin dispatcher view + manual assemble trigger under /api/admin/*.
+// Both return 503 when FF_DAY_PACK is OFF.
+app.use('/api/contractor', contractorDayPackRouter);
+app.use('/api/admin', requireAdmin, adminDayPackRouter);
 
 app.use('/api/public', publicRoutes); // Public API Routes
 app.use('/api/auth', authRouter); // Auth Routes
