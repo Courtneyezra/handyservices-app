@@ -16,7 +16,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     Check, X, AlertCircle, MapPin, Hammer, Package, Calendar, ChevronDown,
-    Star, Trophy, Truck, ShieldCheck, Clock, ExternalLink, Sparkles,
+    Trophy, Truck, ShieldCheck, Clock, ExternalLink, Sparkles,
 } from "lucide-react";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -61,8 +61,6 @@ interface DayPack {
     // Completion bonus — all-or-nothing. Only paid when EVERY stop is done.
     // Drives "finish the day" psychology rather than partial credit.
     completionBonusPence: number;
-    fiveStarBonusPerReviewPence: number;
-    maxFiveStarReviews: number;
     // Optional materials pickup — if required, contractor must collect from
     // a merchant before stops. Counts as a step toward all-or-nothing bonus.
     materialsPickup?: MaterialsPickup;
@@ -99,8 +97,6 @@ const PACK: DayPack = {
     dayRatePence: 20000,
     // All-or-nothing — earned only when ALL stops are ticked complete.
     completionBonusPence: 3000,
-    fiveStarBonusPerReviewPence: 1000,
-    maxFiveStarReviews: 4,
     totalWorkHours: 8.0,
     totalTravelMinutes: 70,
     totalDistanceMiles: 28,
@@ -222,11 +218,9 @@ function maxStopBonusPence(p: DayPack): number {
     return p.completionBonusPence;
 }
 
-// Compute potential max earnings: day rate + completion bonus + max 5★ reviews
+// Compute potential max earnings: day rate + completion bonus
 function computeMaxPotential(p: DayPack): number {
-    return p.dayRatePence
-        + p.completionBonusPence
-        + (p.fiveStarBonusPerReviewPence * p.maxFiveStarReviews);
+    return p.dayRatePence + p.completionBonusPence;
 }
 
 // All-or-nothing: bonus is 0 unless EVERY stop is complete.
@@ -287,9 +281,6 @@ export default function DispatchPreviewPage() {
     // Single-expanded-row pattern: only one stop expanded at a time keeps the
     // page compact. null = all collapsed.
     const [expandedStop, setExpandedStop] = useState<number | null>(null);
-    // 5★ review bonus claims — once a stop is complete, its review can be
-    // requested. Tracks which stops have had their review claimed for animation.
-    const [claimedReviews, setClaimedReviews] = useState<Set<number>>(new Set());
     // Toast notification stack — Uber-style transient feedback on key events.
     const [toast, setToast] = useState<{ id: number; msg: string; tone: 'bonus' | 'win' } | null>(null);
     const toastIdRef = useRef(0);
@@ -313,9 +304,7 @@ export default function DispatchPreviewPage() {
     const stopsAllDone = completedCount === totalStops;
     // All-or-nothing requires both: every stop ticked AND (if pickup needed) materials collected
     const allComplete = stopsAllDone && pickupDone;
-    const earnedStopBonusPence = allComplete ? PACK.completionBonusPence : 0;
-    const earnedReviewBonusPence = claimedReviews.size * PACK.fiveStarBonusPerReviewPence;
-    const earnedBonusPence = earnedStopBonusPence + earnedReviewBonusPence;
+    const earnedBonusPence = allComplete ? PACK.completionBonusPence : 0;
     // Progress includes pickup as a step when required (so 5 total: 1 pickup + 4 stops)
     const totalSteps = totalStops + (pickupRequired ? 1 : 0);
     const completedSteps = completedCount + (pickupRequired && materialsCollected ? 1 : 0);
@@ -325,12 +314,8 @@ export default function DispatchPreviewPage() {
         const wasComplete = completedStops.has(num);
         setCompletedStops(prev => {
             const next = new Set(prev);
-            if (next.has(num)) {
-                next.delete(num);
-                setClaimedReviews(rev => { const n = new Set(rev); n.delete(num); return n; });
-            } else {
-                next.add(num);
-            }
+            if (next.has(num)) next.delete(num);
+            else next.add(num);
             return next;
         });
         // Fire toast on completion. Note: completion-bonus is all-or-nothing,
@@ -346,10 +331,6 @@ export default function DispatchPreviewPage() {
     function toggleExpanded(num: number) {
         setExpandedStop(prev => (prev === num ? null : num));
     }
-    function claimReview(num: number) {
-        setClaimedReviews(prev => { const next = new Set(prev); next.add(num); return next; });
-        showToast(`5★ claimed · +£10`, 'bonus');
-    }
     function toggleMaterials() {
         setMaterialsCollected(prev => {
             const next = !prev;
@@ -359,7 +340,6 @@ export default function DispatchPreviewPage() {
     }
     function resetCompletions() {
         setCompletedStops(new Set());
-        setClaimedReviews(new Set());
         setExpandedStop(null);
         setMaterialsCollected(false);
         setConfettiOn(false);
@@ -579,8 +559,6 @@ export default function DispatchPreviewPage() {
                                 const isLast = idx === PACK.jobs.length - 1;
                                 const isComplete = completedStops.has(job.num);
                                 const isExpanded = expandedStop === job.num;
-                                const earnsBonus = job.num > 1; // first stop is the warm-up
-                                const reviewClaimed = claimedReviews.has(job.num);
                                 const hasDetails = job.description || (job.materials && job.materials.length > 0);
                                 return (
                                     <li key={job.num} className="relative">
@@ -690,33 +668,6 @@ export default function DispatchPreviewPage() {
                                             )}
                                         </AnimatePresence>
 
-                                        {/* Claim-review row — only when stop is complete (review unlocks per stop) */}
-                                        <AnimatePresence>
-                                            {isComplete && (
-                                                <motion.div
-                                                    initial={{ opacity: 0, y: -4 }}
-                                                    animate={{ opacity: 1, y: 0 }}
-                                                    exit={{ opacity: 0, y: -4 }}
-                                                    transition={{ duration: 0.25 }}
-                                                    className="pl-[56px] pr-4 pb-4 -mt-1 flex flex-wrap items-center gap-1.5"
-                                                >
-                                                    {!reviewClaimed ? (
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); claimReview(job.num); }}
-                                                            className="inline-flex items-center gap-1 bg-[#1B2A4A] text-white rounded-full px-2.5 py-1 text-[11px] font-bold active:scale-[0.96] transition-transform"
-                                                        >
-                                                            <Star className="h-3 w-3 fill-[#F5A623] stroke-[#F5A623]" />
-                                                            Claim 5★ · +£10
-                                                        </button>
-                                                    ) : (
-                                                        <span className="inline-flex items-center gap-1 bg-[#FFF8EC] text-[#92591E] border border-[#F5A623]/40 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums">
-                                                            <Star className="h-3 w-3 fill-[#F5A623]" />
-                                                            +{fmt(PACK.fiveStarBonusPerReviewPence)} review
-                                                        </span>
-                                                    )}
-                                                </motion.div>
-                                            )}
-                                        </AnimatePresence>
                                     </li>
                                 );
                             })}
