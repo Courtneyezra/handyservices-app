@@ -19,6 +19,7 @@ export interface FeatureFlags {
     control_tower: boolean;
     contractor_app_v2: boolean;
     day_pack_page_prod: boolean;
+    pay_protection: boolean;
 }
 
 const DEFAULT_FLAGS: FeatureFlags = {
@@ -29,6 +30,7 @@ const DEFAULT_FLAGS: FeatureFlags = {
     control_tower: false,
     contractor_app_v2: false,
     day_pack_page_prod: false,
+    pay_protection: false,
 };
 
 export function useFeatureFlags(): FeatureFlags {

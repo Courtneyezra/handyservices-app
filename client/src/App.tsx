@@ -138,6 +138,8 @@ const MyJobsTab = lazy(() => import('./pages/contractor/dashboard/MyJobsTab'));
 const ProfileTab = lazy(() => import('./pages/contractor/dashboard/ProfileTab'));
 const JobDetailsPage = lazy(() => import("./pages/contractor/dashboard/JobDetailsPage"));
 const EarningsPage = lazy(() => import("./pages/contractor/dashboard/EarningsPage"));
+const PayProtectionView = lazy(() => import("./pages/contractor/dashboard/PayProtectionView")); // Module 07 — Pay Protection (FF_PAY_PROTECTION)
+const PayAdjustmentsAdminPage = lazy(() => import("@/pages/admin/PayAdjustmentsAdminPage")); // Module 07 — Pay Protection admin queue
 
 // Admin follow-up inbox (shares component with contractor inbox)
 const FollowUpInboxPage = lazy(() => import("./pages/contractor/dashboard/InboxPage"));
@@ -462,6 +464,16 @@ function Router() {
                         <EarningsPage />
                     </ProtectedRoute>
                 </Route>
+                {/* Module 07 — Pay Protection (FF_PAY_PROTECTION). Route registers
+                    regardless of flag; the view internally checks the flag and
+                    renders a "Coming soon" placeholder when off. */}
+                <Route path="/contractor/dashboard/pay-protection">
+                    <ProtectedRoute role="contractor">
+                        <ContractorPortalLayout>
+                            <PayProtectionView />
+                        </ContractorPortalLayout>
+                    </ProtectedRoute>
+                </Route>
                 <Route path="/contractor/onboarding">
                     <ProtectedRoute role="contractor">
                         <ContractorOnboarding />
@@ -682,6 +694,16 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <ControlTowerRouteGate />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                {/* Module 07 — Pay Protection admin review queue (FF_PAY_PROTECTION).
+                    Stays accessible regardless of flag per Module 07 §11 Rollback —
+                    legacy/manual adjustments still need a queue to land in. */}
+                <Route path="/admin/pay-adjustments">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <PayAdjustmentsAdminPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
