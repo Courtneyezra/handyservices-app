@@ -1153,7 +1153,6 @@ export default function GenerateContextualQuote() {
   };
 
   const handleAddLineItem = () => {
-    if (lineItems.length >= 10) return;
     setLineItems((prev) => [
       ...prev,
       { id: generateId(), description: '', category: 'general_fixing' as JobCategory, estimatedMinutes: 30, materialsCostPounds: 0 },
@@ -1820,7 +1819,7 @@ export default function GenerateContextualQuote() {
                 )}
 
                 {/* Add another job */}
-                {lineItems.length > 0 && lineItems.length < 10 && (
+                {lineItems.length > 0 && (
                   <button
                     type="button"
                     onClick={handleAddLineItem}

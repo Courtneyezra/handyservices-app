@@ -66,8 +66,20 @@ interface ScopeOfWorksProps {
 }
 
 export function ScopeOfWorks({ text, summary, proposalSummary, pricingLineItems, estimatorPhotoUrl, className = '' }: ScopeOfWorksProps) {
-    const hasProposal = proposalSummary && proposalSummary.length > 0;
-    const hasLineItems = pricingLineItems && pricingLineItems.length > 0;
+    const hasProposal = !!proposalSummary && proposalSummary.length > 0;
+    const hasLineItems = !!pricingLineItems && pricingLineItems.length > 0;
+    // Large jobs render as a scannable bulleted list rather than a wall of prose.
+    const isLargeJob = (pricingLineItems?.length ?? 0) > 6 || (proposalSummary?.length ?? 0) > 400;
+    const useLineItems = hasLineItems && (isLargeJob || !hasProposal);
+    const useProposal = hasProposal && !useLineItems;
+
+    const PREVIEW_COUNT = 8;
+    const [showAll, setShowAll] = React.useState(false);
+    const totalItems = pricingLineItems?.length ?? 0;
+    const visibleItems = useLineItems && !showAll && totalItems > PREVIEW_COUNT
+        ? pricingLineItems!.slice(0, PREVIEW_COUNT)
+        : (pricingLineItems ?? []);
+    const hiddenCount = totalItems - visibleItems.length;
 
     return (
         <motion.div
@@ -77,21 +89,44 @@ export function ScopeOfWorks({ text, summary, proposalSummary, pricingLineItems,
         >
             <div className="bg-white rounded-xl p-5 md:p-6 border border-slate-200 shadow-sm relative">
                 <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500 mb-4 text-center">Job summary</h3>
-                {hasProposal ? (
+                {useProposal ? (
                     <div>
                         <span className="text-3xl text-[#7DB00E] font-serif leading-none absolute left-4">{"\u201C"}</span>
                         <p className="text-slate-800 text-base md:text-lg font-semibold leading-relaxed pl-4">{proposalSummary}{"\u201D"}</p>
                     </div>
-                ) : hasLineItems ? (
+                ) : useLineItems ? (
                     <div className="space-y-2.5">
-                        {pricingLineItems.map((item) => (
+                        {visibleItems.map((item) => (
                             <div key={item.lineId} className="flex items-start gap-3">
                                 <div className="w-5 h-5 rounded-full bg-[#7DB00E]/10 flex items-center justify-center shrink-0 mt-0.5">
                                     <Check className="w-3 h-3 text-[#7DB00E]" strokeWidth={3} />
                                 </div>
-                                <p className="text-slate-700 text-sm md:text-base font-medium leading-relaxed">{item.description}</p>
+                                <p className="text-slate-700 text-sm md:text-base font-medium leading-relaxed flex-1">{item.description}</p>
+                                {item.propertyTag && (
+                                    <span className="shrink-0 mt-1 text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">
+                                        {item.propertyTag}
+                                    </span>
+                                )}
                             </div>
                         ))}
+                        {hiddenCount > 0 && (
+                            <button
+                                type="button"
+                                onClick={() => setShowAll(true)}
+                                className="text-[#7DB00E] text-sm font-semibold hover:underline mt-1 ml-8"
+                            >
+                                Show {hiddenCount} more item{hiddenCount === 1 ? '' : 's'}
+                            </button>
+                        )}
+                        {showAll && totalItems > PREVIEW_COUNT && (
+                            <button
+                                type="button"
+                                onClick={() => setShowAll(false)}
+                                className="text-slate-500 text-sm font-semibold hover:underline mt-1 ml-8"
+                            >
+                                Show less
+                            </button>
+                        )}
                     </div>
                 ) : (
                     <div className="text-sm md:text-base">

@@ -378,7 +378,7 @@ export function UnifiedQuoteCard({
     allowedDates && allowedDates.length > 0 ? new Set(allowedDates) : null,
   [allowedDates]);
 
-  const filteredDates = availableDates.filter(d => {
+  const baseFilteredDates = availableDates.filter(d => {
     if (!showUrgentPremium && d.isNextDay) return false;
     if (allowedDateSet) {
       const dateStr = formatDateStr(d.date);
@@ -386,6 +386,29 @@ export function UnifiedQuoteCard({
     }
     return true;
   });
+
+  // Deterministic scarcity: mark ~30% of dates as Fully Booked (consistent per quote
+  // across viewers and reloads). Skips the first available date so a soonest slot
+  // always remains. Disabled when no quoteId (admin previews) or when the result
+  // would leave fewer than 3 available dates.
+  const filteredDates = useMemo(() => {
+    if (!quoteId) return baseFilteredDates;
+    const hash = (str: string) => {
+      let h = 0;
+      for (let i = 0; i < str.length; i++) h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+      return Math.abs(h);
+    };
+    const candidate = baseFilteredDates.map((d, idx) => {
+      if (d.isBlocked || idx === 0) return d;
+      const dateStr = formatDateStr(d.date);
+      const isArtificiallyBooked = hash(`${quoteId}|${dateStr}`) % 10 < 3;
+      return isArtificiallyBooked ? { ...d, isBlocked: true } : d;
+    });
+    const remainingAvailable = candidate.filter(d => !d.isBlocked).length;
+    return remainingAvailable >= 3 ? candidate : baseFilteredDates;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseFilteredDates, quoteId]);
+
   const visibleDates = showAllDates ? filteredDates : filteredDates.slice(0, 8);
 
   // Combine config add-ons with any quote-specific extras
@@ -911,14 +934,23 @@ export function UnifiedQuoteCard({
                         <span className={`min-w-0 flex-1 ${isDarkTheme ? 'text-slate-300' : 'text-slate-700'}`}>
                           {item.description}
                         </span>
-                        {hasMaterials && (
-                          <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-full ${
-                            isDarkTheme ? 'bg-white/5 text-slate-500' : 'bg-slate-100 text-slate-400'
-                          }`}>+parts</span>
+                        {(item as any).propertyTag && (
+                          <span className={`shrink-0 mt-0.5 text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded ${
+                            isDarkTheme ? 'bg-white/10 text-slate-400 border border-white/10' : 'bg-slate-100 text-slate-500 border border-slate-200'
+                          }`}>
+                            {(item as any).propertyTag}
+                          </span>
                         )}
-                        <span className={`shrink-0 font-semibold tabular-nums ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                          £{Math.round(lineTotal / 100)}
-                        </span>
+                        <div className="shrink-0 flex flex-col items-end leading-tight">
+                          <span className={`font-semibold tabular-nums ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                            £{Math.round(lineTotal / 100)}
+                          </span>
+                          {hasMaterials && (
+                            <span className={`text-[10px] mt-0.5 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
+                              inc. materials
+                            </span>
+                          )}
+                        </div>
                       </div>
                       {item.details && (
                         <p className={`text-[11px] leading-relaxed mt-0.5 ml-4 ${isDarkTheme ? 'text-slate-500' : 'text-slate-500'}`}>
