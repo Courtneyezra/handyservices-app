@@ -70,6 +70,8 @@ import payProtectionRouter, { adminPayProtectionRouter } from './routes/pay-prot
 import { startPayProtectionTick } from './jobs/pay-protection-tick'; // Module 07 — 48h pay SLA + stale-review escalation
 import { contractorDayPackRouter, adminDayPackRouter } from './routes/day-pack-routes'; // Module 06 — Day-Pack Solver (FF_DAY_PACK)
 import { startDayPackTick } from './jobs/day-pack-tick'; // Module 06 — assembly + pack expiry sweeper
+import notificationsRouter from './routes/notifications-routes'; // Module 10 — Notifications (FF_NOTIFICATIONS_V2)
+import { startNotificationsTick } from './jobs/notifications-tick'; // Module 10 — outbox flusher + retry sweep
 
 import publicRoutes from './public-routes';
 import adminContractorsRouter from './admin-contractors-routes';
@@ -214,6 +216,10 @@ startPayProtectionTick();
 // commitments + expires offered packs whose TTL has lapsed. No-op when
 // FF_DAY_PACK is OFF.
 startDayPackTick();
+
+// Module 10 — Notifications: 60s outbox flusher + retry sweep. No-op when
+// FF_NOTIFICATIONS_V2 is OFF.
+startNotificationsTick();
 
 // Payout processing cron — runs every hour
 setInterval(async () => {
@@ -442,6 +448,12 @@ app.use('/api/admin/pay-adjustments', requireAdmin, adminPayProtectionRouter);
 // Both return 503 when FF_DAY_PACK is OFF.
 app.use('/api/contractor', contractorDayPackRouter);
 app.use('/api/admin', requireAdmin, adminDayPackRouter);
+
+// Module 10 — Notifications. Admin observability + test-fire endpoints under
+// /api/admin/notifications/*. Gate is inside `sendNotification` itself
+// (FF_NOTIFICATIONS_V2 OFF → status='skipped'); the read-only audit
+// endpoints work regardless so ops can debug a flag-OFF environment.
+app.use('/api/admin/notifications', requireAdmin, notificationsRouter);
 
 app.use('/api/public', publicRoutes); // Public API Routes
 app.use('/api/auth', authRouter); // Auth Routes
