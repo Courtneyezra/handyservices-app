@@ -1,4 +1,4 @@
-import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, uniqueIndex, serial, vector, date, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, index, uniqueIndex, serial, vector, date, pgEnum, decimal, time } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -84,6 +84,28 @@ export const payoutStatusEnum = pgEnum('payout_status', ['pending', 'processing'
 export const incidentTypeEnum = pgEnum('incident_type', ['damage', 'safety_issue', 'weather_delay', 'access_issue', 'other']);
 export const completionTypeEnum = pgEnum('completion_type', ['full', 'partial', 'weather_hold', 'access_failed']);
 
+// ==========================================
+// BOOKING & DISPATCH V2 ENUMS
+// (data-model.md §2-3; flag-gated, scaffolding for Phases 1-9)
+// ==========================================
+
+export const flexTierEnum = pgEnum('flex_tier', ['fast', 'flexible', 'relaxed']);
+export const contractorSegmentEnum = pgEnum('contractor_segment', ['builder', 'gap_filler', 'specialist']);
+export const unitTypeEnum = pgEnum('unit_type', ['single', 'team']);
+export const slotEnum = pgEnum('slot', ['am', 'pm', 'full']);
+export const availabilityStatusEnum = pgEnum('availability_status', ['available', 'held', 'booked', 'unavailable']);
+export const dayCommitmentStatusEnum = pgEnum('day_commitment_status', ['open', 'assembling', 'offered', 'accepted', 'released', 'expired']);
+export const dayPackStatusEnum = pgEnum('day_pack_status', ['proposed', 'offered', 'accepted', 'declined', 'cancelled', 'completed']);
+export const materialsPickupStatusEnum = pgEnum('materials_pickup_status', ['pending', 'collected', 'skipped']);
+export const routingOfferStatusEnum = pgEnum('routing_offer_status', ['pending', 'accepted', 'declined', 'expired', 'cancelled']);
+export const payAdjustmentTypeEnum = pgEnum('pay_adjustment_type', [
+    'misscope_uplift', 'callout_fee', 'cancellation_comp',
+    'materials_reimbursement', 'day_rate_topup', 'completion_bonus'
+]);
+export const payAdjustmentStatusEnum = pgEnum('pay_adjustment_status', [
+    'auto_approved', 'pending_review', 'admin_approved', 'rejected'
+]);
+
 // Session storage table for authentication
 export const sessions = pgTable(
     "sessions",
@@ -161,6 +183,17 @@ export const productizedServices = pgTable("productized_services", {
     // Categorization
     category: varchar("category", { length: 50 }),
     isActive: boolean("is_active").default(true),
+
+    // Booking & Dispatch v2 — SKU time decomposition (data-model.md §2 / ADR-005, ADR-008).
+    // Additive, NULL-default unless noted; flag-gated, no consumer yet.
+    pricingTimeMinutes: integer("pricing_time_minutes"),
+    realWorkMinutes: integer("real_work_minutes"),
+    materialsCollectionMinutes: integer("materials_collection_minutes"),
+    setupMinutes: integer("setup_minutes").default(12),
+    cleanupMinutes: integer("cleanup_minutes").default(15),
+    customerSuppliedMaterials: boolean("customer_supplied_materials").default(false),
+    requiresSpecialistCert: boolean("requires_specialist_cert").default(false),
+    parkingDifficulty: varchar("parking_difficulty", { length: 20 }),
 });
 
 export type ProductizedService = typeof productizedServices.$inferSelect;
@@ -414,9 +447,27 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     // Round-robin fairness — updated when contractor is assigned a job
     lastAssignedAt: timestamp("last_assigned_at"),
 
+    // Booking & Dispatch v2 — Unit segmentation, geography, capacity (data-model.md §2 / ADR-003).
+    // Additive, NULL-default (or safe default); flag-gated, no consumer yet.
+    contractorSegment: contractorSegmentEnum("contractor_segment"),
+    unitType: unitTypeEnum("unit_type").default('single'),
+    crewMax: integer("crew_max").default(1),
+    homePostcode: varchar("home_postcode", { length: 10 }),
+    areaCatchment: jsonb("area_catchment").default([]),
+    skills: jsonb("skills").default([]),
+    acceptsSkus: jsonb("accepts_skus"),
+    certs: jsonb("certs").default([]),
+    minJobValuePence: integer("min_job_value_pence"),
+    dayRateTargetPence: integer("day_rate_target_pence"),
+    reliabilityScore: decimal("reliability_score", { precision: 3, scale: 2 }).default('1.00'),
+    priorityRoutingScore: decimal("priority_routing_score", { precision: 5, scale: 2 }),
+
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+    index("idx_hp_segment").on(table.contractorSegment),
+    index("idx_hp_home_postcode").on(table.homePostcode),
+]);
 
 export const handymanProfileRelations = relations(handymanProfiles, ({ one, many }) => ({
     user: one(users, {
@@ -860,10 +911,27 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     // Revocation
     revokedAt: timestamp("revoked_at"),
 
+    // Booking & Dispatch v2 — Quote-as-booking-record extensions (data-model.md §2).
+    // Additive, NULL-default (or safe default); flag-gated, no consumer yet.
+    flexTier: flexTierEnum("flex_tier"),
+    flexWindowDays: integer("flex_window_days"),
+    crewSizeRequired: integer("crew_size_required").default(1),
+    skillsRequired: jsonb("skills_required").default([]),
+    certRequired: jsonb("cert_required").default([]),
+    durationEstimateMinutes: integer("duration_estimate_minutes"),
+    realWorkMinutes: integer("real_work_minutes"),
+    complexityFlags: jsonb("complexity_flags").default([]),
+    heavyLifting: boolean("heavy_lifting").default(false),
+    bookingState: varchar("booking_state", { length: 40 }).default('draft'),
+
     // Creation timestamp
     createdAt: timestamp("created_at").defaultNow(),
 
-});
+}, (table) => [
+    // Booking & Dispatch v2 indexes (data-model.md §4).
+    index("idx_pq_booking_state").on(table.bookingState),
+    index("idx_pq_flex_tier").on(table.flexTier, table.completionDate),
+]);
 
 export type UrgencyReasonType = z.infer<typeof urgencyReasonEnum>;
 export type OwnershipContextType = z.infer<typeof ownershipContextEnum>;
@@ -2867,3 +2935,218 @@ export const dispatchBonds = pgTable('dispatch_bonds', {
 
 export type DispatchBond = typeof dispatchBonds.$inferSelect;
 export type InsertDispatchBond = typeof dispatchBonds.$inferInsert;
+
+// ============================================================================
+// BOOKING & DISPATCH V2 — NEW TABLES
+//
+// Source of truth: docs/architecture/data-model.md §3.
+// All tables additive, FKs are RESTRICT-only (never CASCADE) per §5.
+// `booking_id` columns on log tables are deliberately NOT FKs — log rows must
+// outlive any future quote-archival flow.
+// All flag-gated; no production code path consumes these yet (Phase 0 scaffolding).
+// ============================================================================
+
+// `unit_availability` — daily slot per unit × date × slot.
+// Owned by Module 04 — Availability Engine.
+export const unitAvailability = pgTable('unit_availability', {
+    id: text('id').primaryKey().$defaultFn(() => `ua_${crypto.randomUUID()}`),
+    unitId: varchar('unit_id').notNull().references(() => handymanProfiles.id, { onDelete: 'restrict' }),
+    date: date('date').notNull(),
+    slot: slotEnum('slot').notNull(),
+    status: availabilityStatusEnum('status').notNull().default('available'),
+    crewAvailableCount: integer('crew_available_count').notNull().default(1),
+    holdExpiresAt: timestamp('hold_expires_at', { withTimezone: true }),
+    holdForBookingId: varchar('hold_for_booking_id'),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    uniqueIndex('idx_ua_unit_date_slot').on(table.unitId, table.date, table.slot),
+    index('idx_ua_date_status').on(table.date, table.status),
+]);
+
+// `day_commitments` — Builder pre-commits a day to be filled (one row per unit × date).
+// Owned by Module 06 — Day-Pack Solver.
+export const dayCommitments = pgTable('day_commitments', {
+    id: text('id').primaryKey().$defaultFn(() => `dcm_${crypto.randomUUID()}`),
+    unitId: varchar('unit_id').notNull().references(() => handymanProfiles.id, { onDelete: 'restrict' }),
+    date: date('date').notNull(),
+    startTime: time('start_time').notNull().default('08:00'),
+    endTime: time('end_time').notNull().default('17:00'),
+    areaFilter: jsonb('area_filter').default([]),
+    targetPence: integer('target_pence').notNull(),
+    status: dayCommitmentStatusEnum('status').notNull().default('open'),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    releasedAt: timestamp('released_at', { withTimezone: true }),
+    releasedReason: text('released_reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    uniqueIndex('idx_dc_unit_date').on(table.unitId, table.date),
+    index('idx_dc_date_status').on(table.date, table.status),
+]);
+
+// `day_packs` — the bin-packed bundle offered to a Builder.
+// Owned by Module 06 — Day-Pack Solver.
+export const dayPacks = pgTable('day_packs', {
+    id: text('id').primaryKey().$defaultFn(() => `dp_${crypto.randomUUID()}`),
+    commitmentId: text('commitment_id').notNull().references(() => dayCommitments.id, { onDelete: 'restrict' }),
+    unitId: varchar('unit_id').notNull().references(() => handymanProfiles.id, { onDelete: 'restrict' }),
+    date: date('date').notNull(),
+    status: dayPackStatusEnum('status').notNull().default('proposed'),
+    jobIds: jsonb('job_ids').notNull().default([]),                // ordered array of personalized_quotes.id
+    totalContractorPayPence: integer('total_contractor_pay_pence').notNull(),
+    totalCustomerPayPence: integer('total_customer_pay_pence').notNull(),
+    estimatedHours: decimal('estimated_hours', { precision: 4, scale: 2 }).notNull(),
+    travelMinutes: integer('travel_minutes').notNull().default(0),
+    routeSummary: jsonb('route_summary'),                          // { polyline, mapStaticUrl, deepLink }
+    topUpPence: integer('top_up_pence').default(0),
+    offeredAt: timestamp('offered_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    declinedReason: text('declined_reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index('idx_dp_status').on(table.status),
+    index('idx_dp_unit_date').on(table.unitId, table.date),
+]);
+
+// `materials_pickups` — per pack/day. ADR-008.
+// Owned by Module 12 — Materials Collection.
+export const materialsPickups = pgTable('materials_pickups', {
+    id: text('id').primaryKey().$defaultFn(() => `mp_${crypto.randomUUID()}`),
+    dayPackId: text('day_pack_id').notNull().references(() => dayPacks.id, { onDelete: 'restrict' }),
+    supplier: varchar('supplier', { length: 60 }).notNull(),
+    branchName: varchar('branch_name', { length: 120 }),
+    postcode: varchar('postcode', { length: 10 }).notNull(),
+    openFrom: time('open_from'),
+    estimatedMinutes: integer('estimated_minutes').notNull().default(30),
+    items: jsonb('items').notNull().default([]),
+    status: materialsPickupStatusEnum('status').notNull().default('pending'),
+    collectedAt: timestamp('collected_at', { withTimezone: true }),
+    collectedByUnitId: varchar('collected_by_unit_id').references(() => handymanProfiles.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index('idx_mp_day_pack').on(table.dayPackId),
+]);
+
+// `routing_offers` — per-round offer envelope (distinct from contractor_job_links).
+// Owned by Module 05 — Routing Engine.
+export const routingOffers = pgTable('routing_offers', {
+    id: text('id').primaryKey().$defaultFn(() => `ro_${crypto.randomUUID()}`),
+    bookingId: varchar('booking_id').notNull(),                    // personalized_quotes.id (deliberately NOT an FK — see §5)
+    jobDispatchId: text('job_dispatch_id').references(() => jobDispatches.id, { onDelete: 'set null' }),
+    dayPackId: text('day_pack_id').references(() => dayPacks.id, { onDelete: 'set null' }),
+    unitId: varchar('unit_id').notNull().references(() => handymanProfiles.id, { onDelete: 'restrict' }),
+    round: integer('round').notNull().default(1),
+    status: routingOfferStatusEnum('status').notNull().default('pending'),
+    offeredAt: timestamp('offered_at', { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    respondedAt: timestamp('responded_at', { withTimezone: true }),
+    declineReason: text('decline_reason'),
+    metadata: jsonb('metadata').default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index('idx_ro_status').on(table.status),
+    index('idx_ro_expires').on(table.expiresAt),
+    index('idx_ro_booking').on(table.bookingId, table.round),
+]);
+
+// `routing_decisions` — append-only audit log (assigned, skipped, escalated).
+// Owned by Module 05 — Routing Engine.
+export const routingDecisions = pgTable('routing_decisions', {
+    id: text('id').primaryKey().$defaultFn(() => `rd_${crypto.randomUUID()}`),
+    bookingId: varchar('booking_id').notNull(),                    // not an FK — log outlives quote archival
+    decisionType: varchar('decision_type', { length: 40 }).notNull(),  // 'segment_select','candidate_filter','offer_dispatch','escalate_admin'
+    inputs: jsonb('inputs').notNull(),
+    outputs: jsonb('outputs').notNull(),
+    decidedAt: timestamp('decided_at', { withTimezone: true }).defaultNow().notNull(),
+    decidedBy: varchar('decided_by', { length: 40 }).notNull().default('system'),
+}, (table) => [
+    index('idx_routing_decisions_booking').on(table.bookingId, table.decidedAt),
+]);
+
+// `routing_weights` — hot-tunable engine config (no code deploy to retune).
+// Owned by Module 05 — Routing Engine.
+export const routingWeights = pgTable('routing_weights', {
+    id: text('id').primaryKey().$defaultFn(() => `rw_${crypto.randomUUID()}`),
+    weightKey: varchar('weight_key', { length: 60 }).notNull(),
+    weightValue: decimal('weight_value', { precision: 8, scale: 4 }).notNull(),
+    effectiveFrom: timestamp('effective_from', { withTimezone: true }).defaultNow().notNull(),
+    effectiveTo: timestamp('effective_to', { withTimezone: true }),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// `pay_adjustments` — the seven pay-protection guarantees materialise as rows here.
+// Owned by Module 07 — Pay Protection.
+export const payAdjustments = pgTable('pay_adjustments', {
+    id: text('id').primaryKey().$defaultFn(() => `pa_${crypto.randomUUID()}`),
+    dispatchId: text('dispatch_id').notNull().references(() => jobDispatches.id, { onDelete: 'restrict' }),
+    unitId: varchar('unit_id').notNull().references(() => handymanProfiles.id, { onDelete: 'restrict' }),
+    type: payAdjustmentTypeEnum('type').notNull(),
+    amountPence: integer('amount_pence').notNull(),
+    reason: text('reason').notNull(),
+    evidencePhotos: jsonb('evidence_photos').default([]),
+    variancePct: decimal('variance_pct', { precision: 5, scale: 2 }),
+    status: payAdjustmentStatusEnum('status').notNull().default('pending_review'),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolvedBy: varchar('resolved_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index('idx_pa_dispatch').on(table.dispatchId),
+    index('idx_pa_status').on(table.status),
+]);
+
+// `booking_state_log` — append-only history for personalized_quotes.booking_state.
+// Powers state-machine audit + timeout sweepers. Owned by state-machine.md.
+export const bookingStateLog = pgTable('booking_state_log', {
+    id: text('id').primaryKey().$defaultFn(() => `bsl_${crypto.randomUUID()}`),
+    bookingId: varchar('booking_id').notNull(),                    // not an FK — log outlives quote archival
+    fromState: varchar('from_state', { length: 40 }),
+    toState: varchar('to_state', { length: 40 }).notNull(),
+    triggeredBy: varchar('triggered_by', { length: 40 }).notNull(),  // 'customer','admin','system','contractor'
+    triggerMetadata: jsonb('trigger_metadata').default({}),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index('idx_bsl_booking').on(table.bookingId, table.occurredAt),
+]);
+
+// `route_distance_cache` — Static Maps + Distance Matrix cache. ADR-006.
+// Drives the routing engine's travel-time calcs; respected as cache, never as truth.
+export const routeDistanceCache = pgTable('route_distance_cache', {
+    id: text('id').primaryKey().$defaultFn(() => `rdc_${crypto.randomUUID()}`),
+    originPostcode: varchar('origin_postcode', { length: 10 }).notNull(),
+    destPostcode: varchar('dest_postcode', { length: 10 }).notNull(),
+    timeBucket: varchar('time_bucket', { length: 20 }).notNull(),  // e.g. 'rush_am','midday','rush_pm','off_peak'
+    driveMinutes: integer('drive_minutes').notNull(),
+    driveMiles: decimal('drive_miles', { precision: 6, scale: 2 }).notNull(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+}, (table) => [
+    uniqueIndex('idx_rdc_route_bucket').on(table.originPostcode, table.destPostcode, table.timeBucket),
+    index('idx_rdc_expires').on(table.expiresAt),
+]);
+
+export type UnitAvailability = typeof unitAvailability.$inferSelect;
+export type InsertUnitAvailability = typeof unitAvailability.$inferInsert;
+export type DayCommitment = typeof dayCommitments.$inferSelect;
+export type InsertDayCommitment = typeof dayCommitments.$inferInsert;
+export type DayPack = typeof dayPacks.$inferSelect;
+export type InsertDayPack = typeof dayPacks.$inferInsert;
+export type MaterialsPickup = typeof materialsPickups.$inferSelect;
+export type InsertMaterialsPickup = typeof materialsPickups.$inferInsert;
+export type RoutingOffer = typeof routingOffers.$inferSelect;
+export type InsertRoutingOffer = typeof routingOffers.$inferInsert;
+export type RoutingDecision = typeof routingDecisions.$inferSelect;
+export type InsertRoutingDecision = typeof routingDecisions.$inferInsert;
+export type RoutingWeight = typeof routingWeights.$inferSelect;
+export type InsertRoutingWeight = typeof routingWeights.$inferInsert;
+export type PayAdjustment = typeof payAdjustments.$inferSelect;
+export type InsertPayAdjustment = typeof payAdjustments.$inferInsert;
+export type BookingStateLog = typeof bookingStateLog.$inferSelect;
+export type InsertBookingStateLog = typeof bookingStateLog.$inferInsert;
+export type RouteDistanceCache = typeof routeDistanceCache.$inferSelect;
+export type InsertRouteDistanceCache = typeof routeDistanceCache.$inferInsert;

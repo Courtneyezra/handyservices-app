@@ -87,6 +87,7 @@ import { processPayouts, retryFailedPayouts } from './payout-engine'; // Payout 
 import session from "express-session";
 import passport from "passport";
 import authRouter, { requireAdmin } from "./auth";
+import { publicFlags, logFlagDependencyWarnings } from "./feature-flags";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -123,6 +124,16 @@ app.use(passport.initialize());
 
 app.get('/health', (req, res) => res.status(200).send('OK'));
 app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() }));
+
+// Feature flags (Booking & Dispatch v2). Returns only flags safe to expose
+// to the client. Cached 60s per feature-flags.md §6.
+app.get('/api/feature-flags', (req, res) => {
+    res.set('Cache-Control', 'private, max-age=60');
+    res.json({ data: publicFlags() });
+});
+
+// Boot-time flag dependency sanity check.
+logFlagDependencyWarnings();
 
 // Serve static files from attached_assets directory if needed
 // app.use('/attached_assets', express.static('attached_assets'));
