@@ -450,8 +450,8 @@ export default function DispatchPreviewPage() {
                 {/* ───── TIMELINE — your day ───── */}
                 <motion.div {...fadeInUp}>
 
-                    <div className="bg-white rounded-2xl border border-[#D0D5E3] p-4 sm:p-5">
-                        <ol className="relative">
+                    <div className="bg-white rounded-2xl border border-[#D0D5E3] overflow-hidden">
+                        <ol className="relative divide-y divide-[#D0D5E3]">
                             {PACK.jobs.map((job, idx) => {
                                 const isLast = idx === PACK.jobs.length - 1;
                                 const isComplete = completedStops.has(job.num);
@@ -460,66 +460,58 @@ export default function DispatchPreviewPage() {
                                 const reviewClaimed = claimedReviews.has(job.num);
                                 const hasDetails = job.description || (job.materials && job.materials.length > 0);
                                 return (
-                                    <li key={job.num} className="relative pl-9 pb-3 last:pb-1">
-                                        {/* Vertical line behind dot — solid green for completed segments */}
+                                    <li key={job.num} className="relative">
+                                        {/* Vertical connector line between stops — sits behind the dot */}
                                         {!isLast && (
                                             <span
-                                                className={`absolute left-[13px] top-7 bottom-0 w-px transition-colors ${isComplete ? 'bg-[#1B2A4A]' : 'bg-[#D0D5E3]'}`}
+                                                className={`absolute left-[26px] top-12 bottom-0 w-px transition-colors ${isComplete ? 'bg-[#1B2A4A]' : 'bg-[#D0D5E3]'}`}
                                                 aria-hidden
                                             />
                                         )}
-                                        {/* Tick dot — primary completion control */}
-                                        <button
-                                            onClick={() => toggleStop(job.num)}
-                                            aria-label={isComplete ? `Stop ${job.num} complete — tap to undo` : `Mark stop ${job.num} complete`}
-                                            className={`absolute left-0 top-1 w-[26px] h-[26px] rounded-full flex items-center justify-center text-[10px] font-bold tabular-nums transition-all active:scale-90 z-[1] ${
-                                                isComplete
-                                                    ? 'bg-[#1B2A4A] border-2 border-[#1B2A4A] text-white shadow-md shadow-[#1B2A4A]/30'
-                                                    : 'bg-white border-2 border-[#111827] text-[#111827] hover:bg-[#F7F8FC]'
-                                            }`}
-                                        >
-                                            {isComplete ? <Check className="h-3.5 w-3.5 stroke-[3]" /> : job.num}
-                                        </button>
 
-                                        {/* Compact card — tap to expand details */}
-                                        <button
-                                            onClick={() => toggleExpanded(job.num)}
-                                            className="w-full text-left rounded-lg -mx-1 px-1 py-1 hover:bg-[#F7F8FC] active:bg-[#F7F8FC] transition-colors"
-                                        >
-                                            <div className="flex items-start gap-2">
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center gap-2">
-                                                        <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#6B7280]">
-                                                            Stop {job.num}
+                                        <div className="flex items-start gap-3 p-4">
+                                            {/* Tick dot — primary completion control */}
+                                            <button
+                                                onClick={() => toggleStop(job.num)}
+                                                aria-label={isComplete ? `Stop ${job.num} complete — tap to undo` : `Mark stop ${job.num} complete`}
+                                                className={`relative w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold tabular-nums transition-all active:scale-90 shrink-0 z-[1] ${
+                                                    isComplete
+                                                        ? 'bg-[#1B2A4A] border-2 border-[#1B2A4A] text-white'
+                                                        : 'bg-white border-2 border-[#1B2A4A] text-[#1B2A4A]'
+                                                }`}
+                                            >
+                                                {isComplete ? <Check className="h-4 w-4 stroke-[3]" /> : job.num}
+                                            </button>
+
+                                            {/* Compact body — tap to expand details */}
+                                            <button
+                                                onClick={() => toggleExpanded(job.num)}
+                                                className="flex-1 min-w-0 text-left -my-1 py-1 -mx-1 px-1 rounded-md active:bg-[#F7F8FC] transition-colors"
+                                            >
+                                                <div className="flex items-start gap-2">
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className={`text-[15px] font-bold leading-snug transition-colors ${isComplete ? 'text-[#6B7280] line-through decoration-[#1B2A4A]/40' : 'text-[#111827]'}`}>
+                                                            {job.title}
                                                         </p>
-                                                        {earnsBonus && !isComplete && (
-                                                            <span className="inline-flex items-center text-[10px] font-bold tabular-nums text-[#F5A623]">
-                                                                +{fmt(PACK.bonusPerAdditionalStopPence)}
-                                                            </span>
-                                                        )}
-                                                        <span className={`w-1.5 h-1.5 rounded-full ${tierDot(job.tier)} ml-auto`} />
+                                                        <p className="text-[12px] text-[#6B7280] mt-1 leading-snug">
+                                                            {job.addressLine ? <>{job.addressLine} · </> : null}{job.postcode}
+                                                        </p>
                                                     </div>
-                                                    <p className={`text-[15px] font-semibold mt-0.5 leading-tight transition-colors ${isComplete ? 'text-[#6B7280] line-through decoration-[#1B2A4A]/40' : 'text-[#111827]'}`}>
-                                                        {job.title}
-                                                    </p>
-                                                    {job.addressLine ? (
-                                                        <p className="text-[13px] font-medium text-[#111827] mt-1">
-                                                            {job.addressLine}
-                                                        </p>
-                                                    ) : null}
-                                                    <p className="text-[11px] text-[#6B7280] mt-0.5">
-                                                        {job.postcode} · #{job.slug}
-                                                    </p>
+                                                    {earnsBonus && !isComplete && (
+                                                        <span className="inline-flex items-center text-[11px] font-bold tabular-nums text-[#F5A623] shrink-0 mt-0.5">
+                                                            +{fmt(PACK.bonusPerAdditionalStopPence)}
+                                                        </span>
+                                                    )}
+                                                    {hasDetails && (
+                                                        <ChevronDown
+                                                            className={`h-4 w-4 text-[#6B7280] shrink-0 mt-1 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                                        />
+                                                    )}
                                                 </div>
-                                                {hasDetails && (
-                                                    <ChevronDown
-                                                        className={`h-4 w-4 text-[#6B7280] shrink-0 mt-0.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                                                    />
-                                                )}
-                                            </div>
-                                        </button>
+                                            </button>
+                                        </div>
 
-                                        {/* Expandable details */}
+                                        {/* Expandable details (slug + description + materials) */}
                                         <AnimatePresence initial={false}>
                                             {isExpanded && hasDetails && (
                                                 <motion.div
@@ -529,24 +521,24 @@ export default function DispatchPreviewPage() {
                                                     transition={{ duration: 0.2, ease: "easeOut" }}
                                                     className="overflow-hidden"
                                                 >
-                                                    <div className="mt-2 pl-1 space-y-2 text-left">
+                                                    <div className="pl-[56px] pr-4 pb-4 space-y-2.5 text-left">
                                                         {job.description && (
                                                             <p className="text-[12px] text-[#6B7280] leading-relaxed">
                                                                 {job.description}
                                                             </p>
                                                         )}
                                                         {job.materials && job.materials.length > 0 && (
-                                                            <div>
-                                                                <p className="text-[10px] uppercase tracking-[0.06em] font-semibold text-[#6B7280] mb-1">Materials supplied</p>
-                                                                <div className="flex flex-wrap gap-1.5">
-                                                                    {job.materials.map((m, i) => (
-                                                                        <span key={i} className="text-[11px] bg-[#F7F8FC] text-[#6B7280] px-2 py-0.5 rounded-md">
-                                                                            {m}
-                                                                        </span>
-                                                                    ))}
-                                                                </div>
+                                                            <div className="flex flex-wrap gap-1.5">
+                                                                {job.materials.map((m, i) => (
+                                                                    <span key={i} className="text-[11px] bg-[#F7F8FC] text-[#6B7280] px-2 py-0.5 rounded-md">
+                                                                        {m}
+                                                                    </span>
+                                                                ))}
                                                             </div>
                                                         )}
+                                                        <p className="text-[10px] text-[#6B7280] font-mono pt-1">
+                                                            #{job.slug}
+                                                        </p>
                                                     </div>
                                                 </motion.div>
                                             )}
@@ -554,32 +546,31 @@ export default function DispatchPreviewPage() {
 
                                         {/* Earned-bonus + claim-review row — only for completed stops */}
                                         <AnimatePresence>
-                                            {isComplete && (earnsBonus || true) && (
+                                            {isComplete && (
                                                 <motion.div
                                                     initial={{ opacity: 0, y: -4 }}
                                                     animate={{ opacity: 1, y: 0 }}
                                                     exit={{ opacity: 0, y: -4 }}
                                                     transition={{ duration: 0.25 }}
-                                                    className="mt-2 flex flex-wrap items-center gap-1.5"
+                                                    className="pl-[56px] pr-4 pb-4 -mt-1 flex flex-wrap items-center gap-1.5"
                                                 >
                                                     {earnsBonus && (
-                                                        <span className="inline-flex items-center gap-1 bg-[#F5A623]/15 text-[#92591E] border border-[#F5A623]/30 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums">
-                                                            <Sparkles className="h-3 w-3" />
+                                                        <span className="inline-flex items-center gap-1 bg-[#FFF8EC] text-[#92591E] border border-[#F5A623]/40 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums">
                                                             +{fmt(PACK.bonusPerAdditionalStopPence)} earned
                                                         </span>
                                                     )}
                                                     {!reviewClaimed ? (
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); claimReview(job.num); }}
-                                                            className="inline-flex items-center gap-1 bg-white border border-[#1B2A4A] text-[#1B2A4A] rounded-full px-2 py-0.5 text-[11px] font-bold hover:bg-[#1B2A4A] hover:text-white transition-colors active:scale-[0.96]"
+                                                            className="inline-flex items-center gap-1 bg-[#1B2A4A] text-white rounded-full px-2.5 py-1 text-[11px] font-bold active:scale-[0.96] transition-transform"
                                                         >
-                                                            <Star className="h-3 w-3" />
-                                                            Claim 5★ +£10
+                                                            <Star className="h-3 w-3 fill-[#F5A623] stroke-[#F5A623]" />
+                                                            Claim 5★ · +£10
                                                         </button>
                                                     ) : (
-                                                        <span className="inline-flex items-center gap-1 bg-[#1B2A4A]/15 text-[#1B2A4A] border border-[#1B2A4A]/30 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums">
-                                                            <Star className="h-3 w-3 fill-[#1B2A4A]" />
-                                                            +{fmt(PACK.fiveStarBonusPerReviewPence)} review claimed
+                                                        <span className="inline-flex items-center gap-1 bg-[#FFF8EC] text-[#92591E] border border-[#F5A623]/40 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums">
+                                                            <Star className="h-3 w-3 fill-[#F5A623]" />
+                                                            +{fmt(PACK.fiveStarBonusPerReviewPence)} review
                                                         </span>
                                                     )}
                                                 </motion.div>
@@ -590,44 +581,35 @@ export default function DispatchPreviewPage() {
                             })}
 
                             {/* ───── BONUS UNLOCK NODE — activates when all stops complete ───── */}
-                            <li className="relative pl-9">
-                                <span
-                                    className={`absolute left-0 top-1 w-[26px] h-[26px] rounded-full flex items-center justify-center transition-all ${
-                                        allComplete
-                                            ? 'bg-gradient-to-br from-[#F5A623] to-[#F5A623] border-2 border-[#F5A623] shadow-md shadow-[#F5A623]/40'
-                                            : 'bg-white border-2 border-[#D0D5E3]'
-                                    }`}
-                                    aria-hidden
-                                >
-                                    <Trophy className={`h-3.5 w-3.5 ${allComplete ? 'text-white' : 'text-[#6B7280]'}`} />
-                                </span>
+                            <li>
                                 <motion.div
                                     animate={{ scale: allComplete ? [1.02, 1] : 1 }}
                                     transition={{ duration: 0.4 }}
-                                    className={`rounded-xl p-3.5 transition-all ${
-                                        allComplete
-                                            ? 'bg-gradient-to-r from-[#FFF8EC] to-[#FFF4E0] border border-[#F5A623]/40'
-                                            : 'bg-[#F7F8FC] border border-[#D0D5E3] opacity-70'
+                                    className={`flex items-center gap-3 p-4 transition-all ${
+                                        allComplete ? 'bg-[#FFF8EC] border-l-4 border-l-[#F5A623]' : ''
                                     }`}
                                 >
-                                    <div className="flex items-baseline justify-between gap-2">
-                                        <p className={`text-[10px] uppercase tracking-[0.08em] font-semibold ${allComplete ? 'text-[#92591E]' : 'text-[#6B7280]'}`}>
-                                            {allComplete ? "Day complete" : "End of day"}
-                                        </p>
-                                        <span className={`text-[12px] font-bold tabular-nums ${allComplete ? 'text-[#92591E]' : 'text-[#6B7280]'}`}>
-                                            {allComplete
-                                                ? `+${fmt(maxStopBonusPence(PACK))} earned`
-                                                : `up to +${fmt(maxStopBonusPence(PACK))}`}
-                                        </span>
+                                    <div
+                                        className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                                            allComplete
+                                                ? 'bg-[#F5A623] border-2 border-[#F5A623]'
+                                                : 'bg-white border-2 border-[#D0D5E3]'
+                                        }`}
+                                        aria-hidden
+                                    >
+                                        <Trophy className={`h-4 w-4 ${allComplete ? 'text-white' : 'text-[#6B7280]'}`} />
                                     </div>
-                                    <p className={`text-[14px] font-semibold mt-0.5 leading-tight ${allComplete ? 'text-[#111827]' : 'text-[#6B7280]'}`}>
-                                        {allComplete ? "🏆 All stops done" : "Finish the day"}
-                                    </p>
-                                    <p className={`text-[12px] mt-1 leading-relaxed ${allComplete ? 'text-[#92591E]' : 'text-[#6B7280]'}`}>
-                                        {allComplete
-                                            ? `All ${PACK.jobs.length} stops complete — full bonus added to your day's pay.`
-                                            : `Tick each stop above as you finish to bank +${fmt(PACK.bonusPerAdditionalStopPence)} per stop after the first.`}
-                                    </p>
+                                    <div className="flex-1 min-w-0">
+                                        <p className={`text-[13px] font-bold leading-tight ${allComplete ? 'text-[#1B2A4A]' : 'text-[#6B7280]'}`}>
+                                            {allComplete ? "All stops done" : "Finish the day"}
+                                        </p>
+                                        <p className={`text-[11px] mt-0.5 ${allComplete ? 'text-[#92591E]' : 'text-[#6B7280]'}`}>
+                                            {allComplete ? "Full bonus banked" : "Tick stops as you finish"}
+                                        </p>
+                                    </div>
+                                    <span className={`text-[14px] font-bold tabular-nums shrink-0 ${allComplete ? 'text-[#92591E]' : 'text-[#6B7280]'}`}>
+                                        {allComplete ? `+${fmt(maxStopBonusPence(PACK))}` : `up to +${fmt(maxStopBonusPence(PACK))}`}
+                                    </span>
                                 </motion.div>
                             </li>
                         </ol>
