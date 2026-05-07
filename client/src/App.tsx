@@ -108,6 +108,7 @@ const JobHistoryPage = lazy(() => import("@/pages/client/JobHistoryPage"));
 // Contractor Job Sheet (public, token-based access — broadcast dispatch)
 const ContractorJobSheet = lazy(() => import("@/pages/contractor/ContractorJobSheet"));
 const DispatchLinkPage = lazy(() => import("@/pages/contractor/DispatchLinkPage"));
+const DispatchPreviewPage = lazy(() => import("@/pages/contractor/DispatchPreviewPage"));
 const AdminDispatchDashboard = lazy(() => import("@/pages/admin/AdminDispatchDashboard"));
 const AdminGenerateDispatch = lazy(() => import("@/pages/admin/AdminGenerateDispatch"));
 
@@ -303,6 +304,12 @@ function Router() {
                 </Route>
                 <Route path="/dispatch-link/:token">
                     <DispatchLinkPage />
+                </Route>
+                {/* Day-pack preview — frontend-only test page, no backend.
+                  * Shareable URL to validate the day-pack offer UX with a real
+                  * contractor. See DispatchPreviewPage.tsx for seed data. */}
+                <Route path="/dispatch-preview">
+                    <DispatchPreviewPage />
                 </Route>
                 <Route path="/review/:token">
                     <LeaveReview />
