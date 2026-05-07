@@ -209,23 +209,29 @@ function bonusFromCompleted(p: DayPack, completed: Set<number>): number {
     return n * p.bonusPerAdditionalStopPence;
 }
 
-// Build Google Maps Embed directions URL.
-// Uses lat,lng coords directly — more reliable than postcode geocoding,
-// especially for short UK postcodes that can be ambiguous without city/country.
-// No zoom override → map auto-fits to the entire route.
-function buildMapEmbedUrl(p: DayPack): string {
+// Build Google Maps Static API URL — single PNG image with brand-coloured
+// numbered markers + path line. Replaces the Embed API iframe so we don't
+// inherit Google's UI chrome (directions panel, street-view preview, keyboard
+// shortcuts pill, etc.) which can't be hidden via Embed params.
+//
+// Requires "Maps Static API" enabled in Google Cloud Console (separate
+// product from Maps Embed API).
+function buildMapStaticUrl(p: DayPack, widthPx = 680, heightPx = 320): string {
     const key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY;
-    const formatPoint = (j: JobInPack) => `${j.coords.lat},${j.coords.lng}`;
-    if (key && p.jobs.length >= 2) {
-        const origin = formatPoint(p.jobs[0]);
-        const destination = formatPoint(p.jobs[p.jobs.length - 1]);
-        const waypoints = p.jobs.slice(1, -1).map(formatPoint).join("|");
-        const wpParam = waypoints ? `&waypoints=${waypoints}` : "";
-        return `https://www.google.com/maps/embed/v1/directions?key=${key}&origin=${origin}&destination=${destination}${wpParam}&mode=driving`;
-    }
-    // Fallback: centered map on first job, no directions overlay.
-    const c = p.jobs[0].coords;
-    return `https://www.google.com/maps?q=${c.lat},${c.lng}&z=13&output=embed`;
+    const points = p.jobs.map(j => `${j.coords.lat},${j.coords.lng}`);
+    // Brand navy markers, numbered 1..N
+    const markers = p.jobs.map((j, i) =>
+        `markers=color:0x1B2A4A%7Clabel:${i + 1}%7C${points[i]}`
+    ).join("&");
+    // Brand navy path connecting all stops in order
+    const pathParam = `path=color:0x1B2A4Acc%7Cweight:4%7C${points.join("%7C")}`;
+    // Light styling — hide POI/transit clutter so the path is the focus
+    const style = [
+        "feature:poi|visibility:off",
+        "feature:transit|visibility:off",
+        "feature:road|element:labels.icon|visibility:off",
+    ].map(s => `style=${encodeURIComponent(s)}`).join("&");
+    return `https://maps.googleapis.com/maps/api/staticmap?size=${widthPx}x${heightPx}&scale=2&maptype=roadmap&${markers}&${pathParam}&${style}&key=${key || ""}`;
 }
 
 // Open-in-Maps deep link using the Maps URLs API.
@@ -267,7 +273,7 @@ export default function DispatchPreviewPage() {
     const [confettiOn, setConfettiOn] = useState(false);
 
     const maxPotential = computeMaxPotential(PACK);
-    const mapEmbedUrl = buildMapEmbedUrl(PACK);
+    const mapStaticUrl = buildMapStaticUrl(PACK);
     const mapDeepLink = buildMapDeepLink(PACK);
 
     const completedCount = completedStops.size;
@@ -424,27 +430,23 @@ export default function DispatchPreviewPage() {
 
                 {/* ───── MAP — today's route ───── */}
                 <motion.div {...fadeInUp}>
-                    <div className="bg-white rounded-2xl border border-[#D0D5E3] overflow-hidden">
-                        <iframe
-                            src={mapEmbedUrl}
-                            width="100%"
-                            height="280"
-                            style={{ border: 0, display: "block" }}
+                    <a
+                        href={mapDeepLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block bg-white rounded-2xl border border-[#D0D5E3] overflow-hidden active:scale-[0.99] transition-transform"
+                    >
+                        <img
+                            src={mapStaticUrl}
+                            alt="Day-pack route map across NG2 / NG9 / NG5 / NG14"
+                            className="w-full h-auto block"
                             loading="lazy"
-                            allowFullScreen
-                            referrerPolicy="no-referrer-when-downgrade"
-                            title="Day-pack route map"
                         />
-                        <a
-                            href={mapDeepLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-1.5 p-3 text-[13px] font-semibold text-[#1B2A4A] hover:bg-[#F7F8FC] active:scale-[0.99] transition-all border-t border-[#D0D5E3]"
-                        >
+                        <div className="flex items-center justify-center gap-1.5 p-3 text-[13px] font-semibold text-[#1B2A4A] border-t border-[#D0D5E3]">
                             Open in Google Maps
                             <ExternalLink className="h-3.5 w-3.5" />
-                        </a>
-                    </div>
+                        </div>
+                    </a>
                 </motion.div>
 
                 {/* ───── TIMELINE — your day ───── */}
