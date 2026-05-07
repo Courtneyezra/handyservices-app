@@ -227,8 +227,6 @@ export default function DispatchPreviewPage() {
     const maxPotential = computeMaxPotential(PACK);
     const mapEmbedUrl = buildMapEmbedUrl(PACK);
     const mapDeepLink = buildMapDeepLink(PACK);
-    const lastJob = PACK.jobs[PACK.jobs.length - 1];
-    const dayEndTime = lastJob.endTime;
 
     return (
         <div className="min-h-screen bg-[#F7F8FA] font-sans text-[#0E1116] selection:bg-[#3B7A3F]/20 pb-32">
@@ -268,7 +266,7 @@ export default function DispatchPreviewPage() {
                                 {fmt(PACK.dayRatePence)}
                             </p>
                             <p className="text-[12px] uppercase tracking-[0.08em] text-white/65 mt-2 font-medium">
-                                {PACK.jobs.length} jobs · ~{PACK.totalWorkHours}h · {PACK.area.split('·')[1]?.trim() || PACK.area}
+                                {PACK.jobs.length} stops · {PACK.area.split('·')[1]?.trim() || PACK.area}
                             </p>
 
                             {/* Materials supplied */}
@@ -276,17 +274,14 @@ export default function DispatchPreviewPage() {
                                 <Package className="h-4 w-4 sm:h-[18px] sm:w-[18px]" /> Materials supplied by Handy
                             </p>
 
-                            {/* Day-rate floor + meta row */}
+                            {/* Day-rate floor + day framing */}
                             <div className="mt-4 pt-4 border-t border-white/10 flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-white/85">
                                 <span className="inline-flex items-center gap-2">
                                     <ShieldCheck className="h-4 w-4 text-[#7DB00E]" />
                                     {fmt(PACK.dayRatePence)} guaranteed
                                 </span>
                                 <span className="inline-flex items-center gap-2">
-                                    <Truck className="h-4 w-4 text-[#F5A623]" /> ~{PACK.totalTravelMinutes} min travel
-                                </span>
-                                <span className="inline-flex items-center gap-2">
-                                    <Clock className="h-4 w-4 text-[#F5A623]" /> {PACK.jobs[0].startTime}–{dayEndTime}
+                                    <Calendar className="h-4 w-4 text-[#F5A623]" /> Estimated full day
                                 </span>
                             </div>
                         </div>
@@ -362,9 +357,9 @@ export default function DispatchPreviewPage() {
                         />
                         <div className="p-3 sm:p-4 flex items-center justify-between gap-3 border-t border-[#E6E8EC]">
                             <div className="flex items-center gap-2 text-[12px] text-[#5C6470] min-w-0">
-                                <Truck className="h-4 w-4 text-[#8B92A0] shrink-0" />
-                                <span className="truncate tabular-nums">
-                                    ~{PACK.totalDistanceMiles} mi · ~{PACK.totalTravelMinutes} min driving
+                                <MapPin className="h-4 w-4 text-[#8B92A0] shrink-0" />
+                                <span className="truncate">
+                                    {PACK.jobs.length} stops · {PACK.area.split('·')[1]?.trim() || PACK.area}
                                 </span>
                             </div>
                             <a
@@ -384,10 +379,10 @@ export default function DispatchPreviewPage() {
                 <motion.div {...fadeInUp}>
                     <div className="flex items-baseline justify-between mb-2.5">
                         <h2 className="text-[11px] uppercase tracking-[0.1em] font-semibold text-[#5C6470]">
-                            Your day · timeline
+                            Your day · in order
                         </h2>
                         <span className="text-[11px] text-[#8B92A0] tabular-nums">
-                            {PACK.jobs.length} stops · ~{PACK.totalWorkHours}h work
+                            {PACK.jobs.length} stops
                         </span>
                     </div>
 
@@ -412,8 +407,8 @@ export default function DispatchPreviewPage() {
                                         </span>
 
                                         <div className="flex items-baseline justify-between gap-3">
-                                            <p className="text-[12px] font-mono text-[#5C6470] tabular-nums font-semibold">
-                                                {job.startTime}
+                                            <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#8B92A0]">
+                                                Stop {job.num}
                                             </p>
                                             <span className={`w-1.5 h-1.5 rounded-full ${tierDot(job.tier)}`} />
                                         </div>
@@ -421,7 +416,7 @@ export default function DispatchPreviewPage() {
                                             {job.title}
                                         </p>
                                         <p className="text-[12px] text-[#5C6470] mt-1">
-                                            {job.postcode} · {job.durationHours}h · #{job.slug}
+                                            {job.postcode} · #{job.slug}
                                         </p>
                                         {job.description && (
                                             <p className="text-[12px] text-[#8B92A0] mt-1.5 leading-relaxed">
@@ -437,14 +432,6 @@ export default function DispatchPreviewPage() {
                                                 ))}
                                             </div>
                                         )}
-
-                                        {/* Travel marker */}
-                                        {!isLast && job.travelMinutesToNext ? (
-                                            <div className="mt-3 flex items-center gap-1.5 text-[11px] text-[#8B92A0] uppercase tracking-[0.06em] font-semibold">
-                                                <Truck className="h-3 w-3" />
-                                                ~{job.travelMinutesToNext} min drive
-                                            </div>
-                                        ) : null}
                                     </li>
                                 );
                             })}
@@ -459,8 +446,8 @@ export default function DispatchPreviewPage() {
                                 </span>
                                 <div className="bg-gradient-to-r from-[#FFF8EC] to-[#FFF4E0] border border-[#F5A623]/30 rounded-xl p-3.5">
                                     <div className="flex items-baseline justify-between gap-2">
-                                        <p className="text-[12px] font-mono text-[#92591E] tabular-nums font-semibold">
-                                            ~{dayEndTime}
+                                        <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#92591E]">
+                                            End of day
                                         </p>
                                         <span className="text-[12px] font-bold tabular-nums text-[#92591E]">
                                             +{fmt(PACK.completionBonusPence)} unlocked
@@ -470,7 +457,7 @@ export default function DispatchPreviewPage() {
                                         Day complete
                                     </p>
                                     <p className="text-[12px] text-[#92591E] mt-1 leading-relaxed">
-                                        All {PACK.jobs.length} jobs done — completion bonus added to your day's pay.
+                                        All {PACK.jobs.length} stops done — completion bonus added to your day's pay.
                                     </p>
                                 </div>
                             </li>
