@@ -15,7 +15,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-    Check, X, AlertCircle, MapPin, Hammer, Package, Calendar,
+    Check, X, AlertCircle, MapPin, Hammer, Package, Calendar, ChevronDown,
     Star, Trophy, Truck, ShieldCheck, Clock, ExternalLink, Sparkles,
 } from "lucide-react";
 
@@ -245,6 +245,12 @@ export default function DispatchPreviewPage() {
     // Interactive tick-to-complete — each stop number can be marked done.
     // Persists across renders within the session; resets on page reload.
     const [completedStops, setCompletedStops] = useState<Set<number>>(new Set());
+    // Single-expanded-row pattern: only one stop expanded at a time keeps the
+    // page compact. null = all collapsed.
+    const [expandedStop, setExpandedStop] = useState<number | null>(null);
+    // 5★ review bonus claims — once a stop is complete, its review can be
+    // requested. Tracks which stops have had their review claimed for animation.
+    const [claimedReviews, setClaimedReviews] = useState<Set<number>>(new Set());
 
     const maxPotential = computeMaxPotential(PACK);
     const mapEmbedUrl = buildMapEmbedUrl(PACK);
@@ -252,20 +258,39 @@ export default function DispatchPreviewPage() {
 
     const completedCount = completedStops.size;
     const totalStops = PACK.jobs.length;
-    const earnedBonusPence = bonusForCompleted(PACK, completedCount);
+    const earnedStopBonusPence = bonusForCompleted(PACK, completedCount);
+    const earnedReviewBonusPence = claimedReviews.size * PACK.fiveStarBonusPerReviewPence;
+    const earnedBonusPence = earnedStopBonusPence + earnedReviewBonusPence;
     const allComplete = completedCount === totalStops;
     const progressPct = (completedCount / totalStops) * 100;
 
     function toggleStop(num: number) {
         setCompletedStops(prev => {
             const next = new Set(prev);
-            if (next.has(num)) next.delete(num);
-            else next.add(num);
+            if (next.has(num)) {
+                next.delete(num);
+                // If we un-tick a stop, its review claim should also be revoked
+                setClaimedReviews(rev => { const n = new Set(rev); n.delete(num); return n; });
+            } else {
+                next.add(num);
+            }
+            return next;
+        });
+    }
+    function toggleExpanded(num: number) {
+        setExpandedStop(prev => (prev === num ? null : num));
+    }
+    function claimReview(num: number) {
+        setClaimedReviews(prev => {
+            const next = new Set(prev);
+            next.add(num);
             return next;
         });
     }
     function resetCompletions() {
         setCompletedStops(new Set());
+        setClaimedReviews(new Set());
+        setExpandedStop(null);
     }
 
     return (
@@ -359,54 +384,78 @@ export default function DispatchPreviewPage() {
                     </div>
                 </motion.div>
 
-                {/* ───── BONUSES — what you can earn on top ───── */}
+                {/* ───── MISSIONS — Grab-style earned/pending stack ───── */}
                 <motion.div {...fadeInUp}>
                     <div className="flex items-baseline justify-between mb-2.5">
                         <h2 className="text-[11px] uppercase tracking-[0.1em] font-semibold text-[#5C6470]">
-                            Bonuses available
+                            Today's missions
                         </h2>
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#3B7A3F] tabular-nums">
-                            <Sparkles className="h-3 w-3" />
-                            up to {fmt(maxPotential)}
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold tabular-nums">
+                            <span className="text-[#3B7A3F]">{fmt(earnedBonusPence)} earned</span>
+                            <span className="text-[#8B92A0]">·</span>
+                            <span className="text-[#8B92A0]">up to {fmt(maxStopBonusPence(PACK) + (PACK.fiveStarBonusPerReviewPence * PACK.maxFiveStarReviews))}</span>
                         </span>
                     </div>
-                    <div className="bg-white rounded-2xl border border-[#E6E8EC] divide-y divide-[#E6E8EC] overflow-hidden">
+                    <div className="bg-white rounded-2xl border border-[#E6E8EC] overflow-hidden divide-y divide-[#E6E8EC]">
+                        {/* Per-stop bonus rows — one per stop after the first */}
+                        {PACK.jobs.slice(1).map((job) => {
+                            const isEarned = completedStops.has(job.num);
+                            return (
+                                <motion.div
+                                    key={`stop-mission-${job.num}`}
+                                    animate={{ backgroundColor: isEarned ? '#F0FAEC' : '#FFFFFF' }}
+                                    transition={{ duration: 0.3 }}
+                                    className="flex items-center gap-3 p-3"
+                                >
+                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${isEarned ? 'bg-[#3B7A3F]' : 'bg-[#F5A623]/10'}`}>
+                                        {isEarned ? <Check className="h-4 w-4 text-white stroke-[3]" /> : <Trophy className="h-4 w-4 text-[#F5A623]" />}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className={`text-[13px] font-semibold leading-tight ${isEarned ? 'text-[#3B7A3F]' : 'text-[#0E1116]'}`}>
+                                            Complete Stop {job.num}
+                                        </p>
+                                        <p className="text-[11px] text-[#8B92A0] truncate mt-0.5">
+                                            {job.title}
+                                        </p>
+                                    </div>
+                                    <span className={`text-[13px] font-bold tabular-nums shrink-0 transition-colors ${isEarned ? 'text-[#3B7A3F]' : 'text-[#F5A623]'}`}>
+                                        +{fmt(PACK.bonusPerAdditionalStopPence)}
+                                    </span>
+                                </motion.div>
+                            );
+                        })}
 
-                        {/* Per-stop completion bonus */}
-                        <div className="flex items-start gap-3 p-4">
-                            <div className="w-10 h-10 rounded-xl bg-[#F5A623]/10 flex items-center justify-center shrink-0">
-                                <Trophy className="h-5 w-5 text-[#F5A623]" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-[14px] font-semibold text-[#0E1116] leading-tight">
-                                    Per-stop bonus
-                                </p>
-                                <p className="text-[12px] text-[#5C6470] leading-relaxed mt-1">
-                                    +{fmt(PACK.bonusPerAdditionalStopPence)} for every stop after the first · up to +{fmt(maxStopBonusPence(PACK))} total
-                                </p>
-                            </div>
-                            <span className="text-[14px] font-semibold tabular-nums text-[#F5A623] shrink-0 ml-1">
-                                +{fmt(PACK.bonusPerAdditionalStopPence)} ea
-                            </span>
-                        </div>
-
-                        {/* 5★ review */}
-                        <div className="flex items-start gap-3 p-4">
-                            <div className="w-10 h-10 rounded-xl bg-[#3B7A3F]/10 flex items-center justify-center shrink-0">
-                                <Star className="h-5 w-5 text-[#3B7A3F] fill-[#3B7A3F]" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-[14px] font-semibold text-[#0E1116] leading-tight">
-                                    5★ review bonus
-                                </p>
-                                <p className="text-[12px] text-[#5C6470] leading-relaxed mt-1">
-                                    +{fmt(PACK.fiveStarBonusPerReviewPence)} per Google review · up to {PACK.maxFiveStarReviews} = +{fmt(PACK.fiveStarBonusPerReviewPence * PACK.maxFiveStarReviews)}
-                                </p>
-                            </div>
-                            <span className="text-[14px] font-semibold tabular-nums text-[#3B7A3F] shrink-0 ml-1">
-                                +{fmt(PACK.fiveStarBonusPerReviewPence)} ea
-                            </span>
-                        </div>
+                        {/* 5★ review claims — one row per stop */}
+                        {PACK.jobs.map((job) => {
+                            const isEarned = claimedReviews.has(job.num);
+                            const isUnlocked = completedStops.has(job.num);
+                            return (
+                                <motion.div
+                                    key={`review-mission-${job.num}`}
+                                    animate={{
+                                        backgroundColor: isEarned ? '#F0FAEC' : isUnlocked ? '#FFFFFF' : '#FAFBFC',
+                                        opacity: isUnlocked || isEarned ? 1 : 0.5,
+                                    }}
+                                    transition={{ duration: 0.3 }}
+                                    className="flex items-center gap-3 p-3"
+                                >
+                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${isEarned ? 'bg-[#3B7A3F]' : 'bg-[#3B7A3F]/10'}`}>
+                                        {isEarned ? <Check className="h-4 w-4 text-white stroke-[3]" /> : <Star className={`h-4 w-4 ${isEarned ? 'text-white' : 'text-[#3B7A3F]'}`} />}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className={`text-[13px] font-semibold leading-tight ${isEarned ? 'text-[#3B7A3F]' : 'text-[#0E1116]'}`}>
+                                            5★ review · Stop {job.num}
+                                        </p>
+                                        <p className="text-[11px] text-[#8B92A0] mt-0.5">
+                                            {isEarned ? 'Claimed' : isUnlocked ? 'Tap "Claim 5★" on Stop ' + job.num : 'Complete the stop first'}
+                                        </p>
+                                    </div>
+                                    <span className={`text-[13px] font-bold tabular-nums shrink-0 transition-colors ${isEarned ? 'text-[#3B7A3F]' : isUnlocked ? 'text-[#3B7A3F]' : 'text-[#8B92A0]'}`}>
+                                        +{fmt(PACK.fiveStarBonusPerReviewPence)}
+                                    </span>
+                                </motion.div>
+                            );
+                        })}
                     </div>
                 </motion.div>
 
@@ -462,21 +511,24 @@ export default function DispatchPreviewPage() {
                             {PACK.jobs.map((job, idx) => {
                                 const isLast = idx === PACK.jobs.length - 1;
                                 const isComplete = completedStops.has(job.num);
+                                const isExpanded = expandedStop === job.num;
                                 const earnsBonus = job.num > 1; // first stop is the warm-up
+                                const reviewClaimed = claimedReviews.has(job.num);
+                                const hasDetails = job.description || (job.materials && job.materials.length > 0);
                                 return (
-                                    <li key={job.num} className="relative pl-9 pb-5 last:pb-3">
+                                    <li key={job.num} className="relative pl-9 pb-3 last:pb-1">
                                         {/* Vertical line behind dot — solid green for completed segments */}
                                         {!isLast && (
                                             <span
-                                                className={`absolute left-[13px] top-4 bottom-0 w-px transition-colors ${isComplete ? 'bg-[#3B7A3F]' : 'bg-[#E6E8EC]'}`}
+                                                className={`absolute left-[13px] top-7 bottom-0 w-px transition-colors ${isComplete ? 'bg-[#3B7A3F]' : 'bg-[#E6E8EC]'}`}
                                                 aria-hidden
                                             />
                                         )}
-                                        {/* Dot — animates to green-check when ticked */}
+                                        {/* Tick dot — primary completion control */}
                                         <button
                                             onClick={() => toggleStop(job.num)}
                                             aria-label={isComplete ? `Stop ${job.num} complete — tap to undo` : `Mark stop ${job.num} complete`}
-                                            className={`absolute left-0 top-0 w-[26px] h-[26px] rounded-full flex items-center justify-center text-[10px] font-bold tabular-nums transition-all active:scale-90 ${
+                                            className={`absolute left-0 top-1 w-[26px] h-[26px] rounded-full flex items-center justify-center text-[10px] font-bold tabular-nums transition-all active:scale-90 z-[1] ${
                                                 isComplete
                                                     ? 'bg-[#3B7A3F] border-2 border-[#3B7A3F] text-white shadow-md shadow-[#3B7A3F]/30'
                                                     : 'bg-white border-2 border-[#0E1116] text-[#0E1116] hover:bg-[#F1F3F6]'
@@ -485,55 +537,107 @@ export default function DispatchPreviewPage() {
                                             {isComplete ? <Check className="h-3.5 w-3.5 stroke-[3]" /> : job.num}
                                         </button>
 
-                                        <div className="flex items-baseline justify-between gap-3">
-                                            <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#8B92A0]">
-                                                Stop {job.num}
-                                                {earnsBonus && (
-                                                    <span className="ml-2 inline-flex items-center gap-0.5 text-[10px] font-bold tabular-nums normal-case tracking-normal text-[#F5A623]">
-                                                        +{fmt(PACK.bonusPerAdditionalStopPence)} bonus
-                                                    </span>
+                                        {/* Compact card — tap to expand details */}
+                                        <button
+                                            onClick={() => toggleExpanded(job.num)}
+                                            className="w-full text-left rounded-lg -mx-1 px-1 py-1 hover:bg-[#FAFBFC] active:bg-[#F1F3F6] transition-colors"
+                                        >
+                                            <div className="flex items-start gap-2">
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2">
+                                                        <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#8B92A0]">
+                                                            Stop {job.num}
+                                                        </p>
+                                                        {earnsBonus && !isComplete && (
+                                                            <span className="inline-flex items-center text-[10px] font-bold tabular-nums text-[#F5A623]">
+                                                                +{fmt(PACK.bonusPerAdditionalStopPence)}
+                                                            </span>
+                                                        )}
+                                                        <span className={`w-1.5 h-1.5 rounded-full ${tierDot(job.tier)} ml-auto`} />
+                                                    </div>
+                                                    <p className={`text-[15px] font-semibold mt-0.5 leading-tight transition-colors ${isComplete ? 'text-[#5C6470] line-through decoration-[#3B7A3F]/40' : 'text-[#0E1116]'}`}>
+                                                        {job.title}
+                                                    </p>
+                                                    {job.addressLine ? (
+                                                        <p className="text-[13px] font-medium text-[#0E1116] mt-1">
+                                                            {job.addressLine}
+                                                        </p>
+                                                    ) : null}
+                                                    <p className="text-[11px] text-[#5C6470] mt-0.5">
+                                                        {job.postcode} · #{job.slug}
+                                                    </p>
+                                                </div>
+                                                {hasDetails && (
+                                                    <ChevronDown
+                                                        className={`h-4 w-4 text-[#8B92A0] shrink-0 mt-0.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                                    />
                                                 )}
-                                            </p>
-                                            <span className={`w-1.5 h-1.5 rounded-full ${tierDot(job.tier)}`} />
-                                        </div>
-                                        <p className={`text-[15px] font-semibold mt-0.5 leading-tight transition-colors ${isComplete ? 'text-[#5C6470] line-through decoration-[#3B7A3F]/40' : 'text-[#0E1116]'}`}>
-                                            {job.title}
-                                        </p>
-                                        {job.addressLine ? (
-                                            <p className="text-[13px] font-medium text-[#0E1116] mt-1.5">
-                                                {job.addressLine}
-                                            </p>
-                                        ) : null}
-                                        <p className="text-[12px] text-[#5C6470] mt-0.5">
-                                            {job.postcode} · #{job.slug}
-                                        </p>
-                                        {job.description && (
-                                            <p className="text-[12px] text-[#8B92A0] mt-1.5 leading-relaxed">
-                                                {job.description}
-                                            </p>
-                                        )}
-                                        {job.materials && job.materials.length > 0 && (
-                                            <div className="flex flex-wrap gap-1.5 mt-2">
-                                                {job.materials.map((m, i) => (
-                                                    <span key={i} className="text-[11px] bg-[#F1F3F6] text-[#5C6470] px-2 py-0.5 rounded-md">
-                                                        {m}
-                                                    </span>
-                                                ))}
                                             </div>
-                                        )}
+                                        </button>
 
-                                        {/* Bonus reveal — animates in when stop is ticked AND it earns a bonus */}
-                                        <AnimatePresence>
-                                            {isComplete && earnsBonus && (
+                                        {/* Expandable details */}
+                                        <AnimatePresence initial={false}>
+                                            {isExpanded && hasDetails && (
                                                 <motion.div
-                                                    initial={{ opacity: 0, y: -4, scale: 0.95 }}
-                                                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                                                    exit={{ opacity: 0, y: -4, scale: 0.95 }}
-                                                    transition={{ duration: 0.25 }}
-                                                    className="mt-2.5 inline-flex items-center gap-1.5 bg-[#F5A623]/15 text-[#92591E] border border-[#F5A623]/30 rounded-full px-2.5 py-1 text-[11px] font-bold tabular-nums"
+                                                    initial={{ height: 0, opacity: 0 }}
+                                                    animate={{ height: "auto", opacity: 1 }}
+                                                    exit={{ height: 0, opacity: 0 }}
+                                                    transition={{ duration: 0.2, ease: "easeOut" }}
+                                                    className="overflow-hidden"
                                                 >
-                                                    <Sparkles className="h-3 w-3" />
-                                                    +{fmt(PACK.bonusPerAdditionalStopPence)} bonus earned
+                                                    <div className="mt-2 pl-1 space-y-2 text-left">
+                                                        {job.description && (
+                                                            <p className="text-[12px] text-[#5C6470] leading-relaxed">
+                                                                {job.description}
+                                                            </p>
+                                                        )}
+                                                        {job.materials && job.materials.length > 0 && (
+                                                            <div>
+                                                                <p className="text-[10px] uppercase tracking-[0.06em] font-semibold text-[#8B92A0] mb-1">Materials supplied</p>
+                                                                <div className="flex flex-wrap gap-1.5">
+                                                                    {job.materials.map((m, i) => (
+                                                                        <span key={i} className="text-[11px] bg-[#F1F3F6] text-[#5C6470] px-2 py-0.5 rounded-md">
+                                                                            {m}
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </motion.div>
+                                            )}
+                                        </AnimatePresence>
+
+                                        {/* Earned-bonus + claim-review row — only for completed stops */}
+                                        <AnimatePresence>
+                                            {isComplete && (earnsBonus || true) && (
+                                                <motion.div
+                                                    initial={{ opacity: 0, y: -4 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    exit={{ opacity: 0, y: -4 }}
+                                                    transition={{ duration: 0.25 }}
+                                                    className="mt-2 flex flex-wrap items-center gap-1.5"
+                                                >
+                                                    {earnsBonus && (
+                                                        <span className="inline-flex items-center gap-1 bg-[#F5A623]/15 text-[#92591E] border border-[#F5A623]/30 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums">
+                                                            <Sparkles className="h-3 w-3" />
+                                                            +{fmt(PACK.bonusPerAdditionalStopPence)} earned
+                                                        </span>
+                                                    )}
+                                                    {!reviewClaimed ? (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); claimReview(job.num); }}
+                                                            className="inline-flex items-center gap-1 bg-white border border-[#3B7A3F] text-[#3B7A3F] rounded-full px-2 py-0.5 text-[11px] font-bold hover:bg-[#3B7A3F] hover:text-white transition-colors active:scale-[0.96]"
+                                                        >
+                                                            <Star className="h-3 w-3" />
+                                                            Claim 5★ +£10
+                                                        </button>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1 bg-[#3B7A3F]/15 text-[#3B7A3F] border border-[#3B7A3F]/30 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums">
+                                                            <Star className="h-3 w-3 fill-[#3B7A3F]" />
+                                                            +{fmt(PACK.fiveStarBonusPerReviewPence)} review claimed
+                                                        </span>
+                                                    )}
                                                 </motion.div>
                                             )}
                                         </AnimatePresence>
@@ -586,59 +690,42 @@ export default function DispatchPreviewPage() {
                     </div>
                 </motion.div>
 
-                {/* ───── PAY PROTECTION ───── */}
+                {/* ───── PAY PROTECTION (collapsed by default for existing contractors) ───── */}
                 <motion.div {...fadeInUp}>
-                    <h2 className="text-[11px] uppercase tracking-[0.1em] font-semibold text-[#5C6470] mb-2.5">
-                        Pay protection · we cover you
-                    </h2>
-                    <div className="bg-white rounded-2xl border border-[#E6E8EC] p-4 sm:p-5 space-y-3">
-                        {[
-                            { label: "Day-rate guarantee", detail: `${fmt(PACK.dayRatePence)} for the day, even if jobs cancel` },
-                            { label: "Mis-scope auto-uplift", detail: "If a job runs over our estimate, we pay the extra time" },
-                            { label: "Call-out fee", detail: "£45 if a customer's not home or you can't start" },
-                            { label: "Cancellation comp", detail: "Comp if customer cancels last-minute" },
-                            { label: "Materials reimbursement", detail: "Receipt + 10% handling for anything we missed" },
-                            { label: "48h pay", detail: "Money in your account 2 days after completion" },
-                        ].map((g, i) => (
-                            <div key={i} className="flex items-start gap-3">
-                                <div className="w-5 h-5 rounded-full bg-[#3B7A3F]/10 flex items-center justify-center shrink-0 mt-0.5">
-                                    <Check className="h-3 w-3 text-[#3B7A3F] stroke-[3]" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-[13px] font-semibold text-[#0E1116] leading-tight">{g.label}</p>
-                                    <p className="text-[12px] text-[#5C6470] leading-relaxed mt-0.5">{g.detail}</p>
-                                </div>
+                    <details className="group bg-white rounded-2xl border border-[#E6E8EC] overflow-hidden">
+                        <summary className="flex items-center gap-3 p-4 cursor-pointer hover:bg-[#FAFBFC] transition-colors list-none [&::-webkit-details-marker]:hidden">
+                            <div className="w-8 h-8 rounded-lg bg-[#3B7A3F]/10 flex items-center justify-center shrink-0">
+                                <ShieldCheck className="h-4 w-4 text-[#3B7A3F]" />
                             </div>
-                        ))}
-                    </div>
-                </motion.div>
-
-                {/* ───── HOW IT WORKS ───── */}
-                <motion.div {...fadeInUp}>
-                    <h2 className="text-[11px] uppercase tracking-[0.1em] font-semibold text-[#5C6470] mb-2.5">How this works</h2>
-                    <div className="bg-white rounded-2xl border border-[#E6E8EC] p-4 sm:p-5">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                            <div className="flex-1 min-w-0">
+                                <p className="text-[13px] font-semibold text-[#0E1116] leading-tight">
+                                    Pay protection · 6 guarantees
+                                </p>
+                                <p className="text-[11px] text-[#8B92A0] mt-0.5">
+                                    Day-rate floor · uplifts · call-outs · cancellations · materials · 48h pay
+                                </p>
+                            </div>
+                            <ChevronDown className="h-4 w-4 text-[#8B92A0] shrink-0 transition-transform group-open:rotate-180" />
+                        </summary>
+                        <div className="px-4 pb-4 pt-0 space-y-2 border-t border-[#E6E8EC]">
                             {[
-                                { icon: Calendar, label: "Accept the day", num: 1 },
-                                { icon: Hammer, label: "Work through the timeline", num: 2 },
-                                { icon: Trophy, label: "Complete + photos = bonus", num: 3 },
-                                { icon: Star, label: "Pay in 48h", num: 4 },
-                            ].map(({ icon: Icon, label, num }) => (
-                                <div key={num} className="text-center">
-                                    <div className="relative mx-auto w-12 h-12 rounded-xl bg-[#3B7A3F]/[0.08] flex items-center justify-center mb-2">
-                                        <Icon className="h-5 w-5 text-[#3B7A3F]" />
-                                        <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-[#3B7A3F] text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
-                                            {num}
-                                        </span>
+                                { label: "Day-rate guarantee", detail: `${fmt(PACK.dayRatePence)} guaranteed even if jobs cancel` },
+                                { label: "Mis-scope auto-uplift", detail: "If a job runs over our estimate, we pay extra" },
+                                { label: "Call-out fee", detail: "£45 if customer's not home or you can't start" },
+                                { label: "Cancellation comp", detail: "Comp if customer cancels last-minute" },
+                                { label: "Materials reimbursement", detail: "Receipt + 10% handling" },
+                                { label: "48h pay", detail: "Money in your account 2 days after completion" },
+                            ].map((g, i) => (
+                                <div key={i} className="flex items-start gap-2 pt-2">
+                                    <Check className="h-3.5 w-3.5 text-[#3B7A3F] stroke-[3] shrink-0 mt-1" />
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-[12px] font-semibold text-[#0E1116] leading-tight">{g.label}</p>
+                                        <p className="text-[11px] text-[#5C6470] leading-relaxed mt-0.5">{g.detail}</p>
                                     </div>
-                                    <p className="text-[12px] font-medium text-[#0E1116] leading-tight">{label}</p>
                                 </div>
                             ))}
                         </div>
-                        <p className="text-[11px] text-[#8B92A0] text-center mt-4 italic">
-                            One offer · {PACK.jobs.length} jobs · one good day's work.
-                        </p>
-                    </div>
+                    </details>
                 </motion.div>
 
                 {/* ───── FOOTER ───── */}
