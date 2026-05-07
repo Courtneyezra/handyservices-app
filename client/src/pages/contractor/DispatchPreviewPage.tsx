@@ -451,7 +451,7 @@ export default function DispatchPreviewPage() {
                 <motion.div {...fadeInUp}>
 
                     <div className="bg-white rounded-2xl border border-[#D0D5E3] overflow-hidden">
-                        <ol className="relative divide-y divide-[#D0D5E3]">
+                        <ol className="relative">
                             {PACK.jobs.map((job, idx) => {
                                 const isLast = idx === PACK.jobs.length - 1;
                                 const isComplete = completedStops.has(job.num);
@@ -461,13 +461,16 @@ export default function DispatchPreviewPage() {
                                 const hasDetails = job.description || (job.materials && job.materials.length > 0);
                                 return (
                                     <li key={job.num} className="relative">
-                                        {/* Vertical connector line between stops — sits behind the dot */}
-                                        {!isLast && (
-                                            <span
-                                                className={`absolute left-[26px] top-12 bottom-0 w-px transition-colors ${isComplete ? 'bg-[#1B2A4A]' : 'bg-[#D0D5E3]'}`}
-                                                aria-hidden
-                                            />
-                                        )}
+                                        {/* Vertical connector — runs from THIS dot's bottom (top:44px,
+                                            which is p-4 + dot height) to the NEXT dot's top (extending
+                                            -16px past the li's bottom, which is exactly the next li's
+                                            top padding, landing on the next dot's top). Always rendered
+                                            — the trophy is the final <li> so this links every numbered
+                                            stop down to it. */}
+                                        <span
+                                            className={`absolute left-[29px] top-[44px] -bottom-4 w-[2px] transition-colors pointer-events-none z-0 ${isComplete ? 'bg-[#1B2A4A]' : 'bg-[#D0D5E3]'}`}
+                                            aria-hidden
+                                        />
 
                                         <div className="flex items-start gap-3 p-4">
                                             {/* Tick dot — primary completion control */}
