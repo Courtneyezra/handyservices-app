@@ -12,7 +12,7 @@
  * The day rate is the offer — the engine that derives it stays hidden.
  */
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     Check, X, AlertCircle, MapPin, Hammer, Package, Calendar, ChevronDown,
@@ -200,10 +200,13 @@ function computeMaxPotential(p: DayPack): number {
         + (p.fiveStarBonusPerReviewPence * p.maxFiveStarReviews);
 }
 
-// Bonus earned for completing a given number of stops.
-// First stop is the warm-up (no bonus); every stop after earns the per-stop amount.
-function bonusForCompleted(p: DayPack, completedCount: number): number {
-    return Math.max(0, completedCount - 1) * p.bonusPerAdditionalStopPence;
+// Bonus earned for the set of completed stops.
+// Every stop with num > 1 earns the per-stop bonus when ticked.
+// (First stop is the warm-up — completing it alone earns nothing.)
+function bonusFromCompleted(p: DayPack, completed: Set<number>): number {
+    let n = 0;
+    for (const num of completed) if (num > 1) n += 1;
+    return n * p.bonusPerAdditionalStopPence;
 }
 
 // Build Google Maps Embed directions URL.
@@ -251,6 +254,17 @@ export default function DispatchPreviewPage() {
     // 5★ review bonus claims — once a stop is complete, its review can be
     // requested. Tracks which stops have had their review claimed for animation.
     const [claimedReviews, setClaimedReviews] = useState<Set<number>>(new Set());
+    // Toast notification stack — Uber-style transient feedback on key events.
+    const [toast, setToast] = useState<{ id: number; msg: string; tone: 'bonus' | 'win' } | null>(null);
+    const toastIdRef = useRef(0);
+    function showToast(msg: string, tone: 'bonus' | 'win' = 'bonus') {
+        toastIdRef.current += 1;
+        setToast({ id: toastIdRef.current, msg, tone });
+        const myId = toastIdRef.current;
+        setTimeout(() => setToast(t => (t?.id === myId ? null : t)), 2400);
+    }
+    // Confetti burst — fires once when all stops complete, then resets.
+    const [confettiOn, setConfettiOn] = useState(false);
 
     const maxPotential = computeMaxPotential(PACK);
     const mapEmbedUrl = buildMapEmbedUrl(PACK);
@@ -258,40 +272,52 @@ export default function DispatchPreviewPage() {
 
     const completedCount = completedStops.size;
     const totalStops = PACK.jobs.length;
-    const earnedStopBonusPence = bonusForCompleted(PACK, completedCount);
+    const earnedStopBonusPence = bonusFromCompleted(PACK, completedStops);
     const earnedReviewBonusPence = claimedReviews.size * PACK.fiveStarBonusPerReviewPence;
     const earnedBonusPence = earnedStopBonusPence + earnedReviewBonusPence;
     const allComplete = completedCount === totalStops;
     const progressPct = (completedCount / totalStops) * 100;
 
     function toggleStop(num: number) {
+        const wasComplete = completedStops.has(num);
         setCompletedStops(prev => {
             const next = new Set(prev);
             if (next.has(num)) {
                 next.delete(num);
-                // If we un-tick a stop, its review claim should also be revoked
                 setClaimedReviews(rev => { const n = new Set(rev); n.delete(num); return n; });
             } else {
                 next.add(num);
             }
             return next;
         });
+        // Fire toast on completion (only when newly ticking, not un-ticking)
+        if (!wasComplete) {
+            const earnsBonus = num > 1;
+            showToast(earnsBonus ? `Stop ${num} done · +£10` : `Stop ${num} done!`, 'bonus');
+        }
     }
     function toggleExpanded(num: number) {
         setExpandedStop(prev => (prev === num ? null : num));
     }
     function claimReview(num: number) {
-        setClaimedReviews(prev => {
-            const next = new Set(prev);
-            next.add(num);
-            return next;
-        });
+        setClaimedReviews(prev => { const next = new Set(prev); next.add(num); return next; });
+        showToast(`5★ claimed · +£10`, 'bonus');
     }
     function resetCompletions() {
         setCompletedStops(new Set());
         setClaimedReviews(new Set());
         setExpandedStop(null);
+        setConfettiOn(false);
     }
+    // Trigger confetti on transition from incomplete → all complete
+    useEffect(() => {
+        if (allComplete) {
+            setConfettiOn(true);
+            showToast(`🏆 Day complete · ${fmt(maxStopBonusPence(PACK))} earned`, 'win');
+            const t = setTimeout(() => setConfettiOn(false), 4000);
+            return () => clearTimeout(t);
+        }
+    }, [allComplete]);
 
     return (
         <div className="min-h-screen bg-[#F7F8FA] font-sans text-[#0E1116] selection:bg-[#3B7A3F]/20 pb-32">
@@ -319,24 +345,29 @@ export default function DispatchPreviewPage() {
                         <div className="absolute -bottom-32 -left-20 w-72 h-72 bg-[#7DB00E]/10 rounded-full blur-3xl pointer-events-none" />
 
                         <div className="relative">
-                            <p className="text-[10px] uppercase tracking-[0.12em] font-semibold text-white/55 mb-1.5">
-                                {fmtDate(PACK.date)} · {PACK.area}
-                            </p>
-                            <p className="text-[14px] sm:text-[15px] font-semibold text-white/85 mb-4">
-                                Hi {PACK.contractorName} — your day-pack offer
+                            <p className="text-[10px] uppercase tracking-[0.12em] font-semibold text-white/55 mb-3">
+                                {fmtDate(PACK.date)} · Hi {PACK.contractorName}
                             </p>
 
-                            <p className="text-[10px] uppercase tracking-[0.08em] text-white/55 font-semibold">Your day rate</p>
-                            <p className="text-5xl sm:text-6xl font-semibold text-[#F5A623] tabular-nums tracking-tight leading-none drop-shadow-[0_2px_12px_rgba(245,166,35,0.25)] mt-1">
-                                {fmt(PACK.dayRatePence)}
+                            <p className="text-5xl sm:text-6xl font-semibold text-[#F5A623] tabular-nums tracking-tight leading-none drop-shadow-[0_2px_12px_rgba(245,166,35,0.25)]">
+                                <motion.span
+                                    key={`hero-${PACK.dayRatePence + earnedBonusPence}`}
+                                    initial={{ scale: earnedBonusPence > 0 ? 1.15 : 1 }}
+                                    animate={{ scale: 1 }}
+                                    transition={{ type: "spring", stiffness: 300, damping: 18 }}
+                                    className="inline-block"
+                                >
+                                    {fmt(PACK.dayRatePence + earnedBonusPence)}
+                                </motion.span>
                             </p>
-                            <p className="text-[12px] uppercase tracking-[0.08em] text-white/65 mt-2 font-medium">
-                                {PACK.jobs.length} stops · {PACK.area.split('·')[1]?.trim() || PACK.area}
+                            <p className="text-[12px] uppercase tracking-[0.08em] text-white/55 mt-2 font-semibold">
+                                {earnedBonusPence > 0
+                                    ? <>Earned today <span className="text-[#7DB00E]">+{fmt(earnedBonusPence)}</span></>
+                                    : <>Day rate · {PACK.jobs.length} stops</>}
                             </p>
 
-                            {/* Materials supplied */}
-                            <p className="mt-4 inline-flex items-center gap-2 text-[14px] sm:text-[15px] font-semibold text-[#7DB00E]">
-                                <Package className="h-4 w-4 sm:h-[18px] sm:w-[18px]" /> Materials supplied by Handy
+                            <p className="mt-3 inline-flex items-center gap-2 text-[13px] font-semibold text-[#7DB00E]">
+                                <Package className="h-4 w-4" /> Materials supplied
                             </p>
 
                             {/* Progress bar — fills as stops are ticked off */}
@@ -384,86 +415,9 @@ export default function DispatchPreviewPage() {
                     </div>
                 </motion.div>
 
-                {/* ───── MISSIONS — Grab-style earned/pending stack ───── */}
-                <motion.div {...fadeInUp}>
-                    <div className="flex items-baseline justify-between mb-2.5">
-                        <h2 className="text-[11px] uppercase tracking-[0.1em] font-semibold text-[#5C6470]">
-                            Today's missions
-                        </h2>
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold tabular-nums">
-                            <span className="text-[#3B7A3F]">{fmt(earnedBonusPence)} earned</span>
-                            <span className="text-[#8B92A0]">·</span>
-                            <span className="text-[#8B92A0]">up to {fmt(maxStopBonusPence(PACK) + (PACK.fiveStarBonusPerReviewPence * PACK.maxFiveStarReviews))}</span>
-                        </span>
-                    </div>
-                    <div className="bg-white rounded-2xl border border-[#E6E8EC] overflow-hidden divide-y divide-[#E6E8EC]">
-                        {/* Per-stop bonus rows — one per stop after the first */}
-                        {PACK.jobs.slice(1).map((job) => {
-                            const isEarned = completedStops.has(job.num);
-                            return (
-                                <motion.div
-                                    key={`stop-mission-${job.num}`}
-                                    animate={{ backgroundColor: isEarned ? '#F0FAEC' : '#FFFFFF' }}
-                                    transition={{ duration: 0.3 }}
-                                    className="flex items-center gap-3 p-3"
-                                >
-                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${isEarned ? 'bg-[#3B7A3F]' : 'bg-[#F5A623]/10'}`}>
-                                        {isEarned ? <Check className="h-4 w-4 text-white stroke-[3]" /> : <Trophy className="h-4 w-4 text-[#F5A623]" />}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className={`text-[13px] font-semibold leading-tight ${isEarned ? 'text-[#3B7A3F]' : 'text-[#0E1116]'}`}>
-                                            Complete Stop {job.num}
-                                        </p>
-                                        <p className="text-[11px] text-[#8B92A0] truncate mt-0.5">
-                                            {job.title}
-                                        </p>
-                                    </div>
-                                    <span className={`text-[13px] font-bold tabular-nums shrink-0 transition-colors ${isEarned ? 'text-[#3B7A3F]' : 'text-[#F5A623]'}`}>
-                                        +{fmt(PACK.bonusPerAdditionalStopPence)}
-                                    </span>
-                                </motion.div>
-                            );
-                        })}
-
-                        {/* 5★ review claims — one row per stop */}
-                        {PACK.jobs.map((job) => {
-                            const isEarned = claimedReviews.has(job.num);
-                            const isUnlocked = completedStops.has(job.num);
-                            return (
-                                <motion.div
-                                    key={`review-mission-${job.num}`}
-                                    animate={{
-                                        backgroundColor: isEarned ? '#F0FAEC' : isUnlocked ? '#FFFFFF' : '#FAFBFC',
-                                        opacity: isUnlocked || isEarned ? 1 : 0.5,
-                                    }}
-                                    transition={{ duration: 0.3 }}
-                                    className="flex items-center gap-3 p-3"
-                                >
-                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${isEarned ? 'bg-[#3B7A3F]' : 'bg-[#3B7A3F]/10'}`}>
-                                        {isEarned ? <Check className="h-4 w-4 text-white stroke-[3]" /> : <Star className={`h-4 w-4 ${isEarned ? 'text-white' : 'text-[#3B7A3F]'}`} />}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className={`text-[13px] font-semibold leading-tight ${isEarned ? 'text-[#3B7A3F]' : 'text-[#0E1116]'}`}>
-                                            5★ review · Stop {job.num}
-                                        </p>
-                                        <p className="text-[11px] text-[#8B92A0] mt-0.5">
-                                            {isEarned ? 'Claimed' : isUnlocked ? 'Tap "Claim 5★" on Stop ' + job.num : 'Complete the stop first'}
-                                        </p>
-                                    </div>
-                                    <span className={`text-[13px] font-bold tabular-nums shrink-0 transition-colors ${isEarned ? 'text-[#3B7A3F]' : isUnlocked ? 'text-[#3B7A3F]' : 'text-[#8B92A0]'}`}>
-                                        +{fmt(PACK.fiveStarBonusPerReviewPence)}
-                                    </span>
-                                </motion.div>
-                            );
-                        })}
-                    </div>
-                </motion.div>
 
                 {/* ───── MAP — today's route ───── */}
                 <motion.div {...fadeInUp}>
-                    <h2 className="text-[11px] uppercase tracking-[0.1em] font-semibold text-[#5C6470] mb-2.5">
-                        Today's route
-                    </h2>
                     <div className="bg-white rounded-2xl border border-[#E6E8EC] overflow-hidden">
                         <iframe
                             src={mapEmbedUrl}
@@ -475,36 +429,20 @@ export default function DispatchPreviewPage() {
                             referrerPolicy="no-referrer-when-downgrade"
                             title="Day-pack route map"
                         />
-                        <div className="p-3 sm:p-4 flex items-center justify-between gap-3 border-t border-[#E6E8EC]">
-                            <div className="flex items-center gap-2 text-[12px] text-[#5C6470] min-w-0">
-                                <MapPin className="h-4 w-4 text-[#8B92A0] shrink-0" />
-                                <span className="truncate">
-                                    {PACK.jobs.length} stops · {PACK.area.split('·')[1]?.trim() || PACK.area}
-                                </span>
-                            </div>
-                            <a
-                                href={mapDeepLink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="shrink-0 inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#3B7A3F] hover:text-[#2F6133] active:scale-[0.97] transition-transform"
-                            >
-                                Open in Google Maps
-                                <ExternalLink className="h-3.5 w-3.5" />
-                            </a>
-                        </div>
+                        <a
+                            href={mapDeepLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-1.5 p-3 text-[13px] font-semibold text-[#3B7A3F] hover:bg-[#FAFBFC] active:scale-[0.99] transition-all border-t border-[#E6E8EC]"
+                        >
+                            Open in Google Maps
+                            <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
                     </div>
                 </motion.div>
 
-                {/* ───── TIMELINE — your day, no per-job prices ───── */}
+                {/* ───── TIMELINE — your day ───── */}
                 <motion.div {...fadeInUp}>
-                    <div className="flex items-baseline justify-between mb-2.5">
-                        <h2 className="text-[11px] uppercase tracking-[0.1em] font-semibold text-[#5C6470]">
-                            Your day · in order
-                        </h2>
-                        <span className="text-[11px] text-[#8B92A0] tabular-nums">
-                            {PACK.jobs.length} stops
-                        </span>
-                    </div>
 
                     <div className="bg-white rounded-2xl border border-[#E6E8EC] p-4 sm:p-5">
                         <ol className="relative">
@@ -735,6 +673,68 @@ export default function DispatchPreviewPage() {
                     </p>
                 </motion.div>
             </main>
+
+            {/* ───── TOAST (Uber-style transient feedback) ───── */}
+            <AnimatePresence>
+                {toast && (
+                    <motion.div
+                        key={toast.id}
+                        initial={{ y: -60, opacity: 0, scale: 0.95 }}
+                        animate={{ y: 0, opacity: 1, scale: 1 }}
+                        exit={{ y: -60, opacity: 0, scale: 0.95 }}
+                        transition={{ type: "spring", stiffness: 280, damping: 20 }}
+                        className="fixed top-3 left-1/2 -translate-x-1/2 z-[55] pointer-events-none"
+                    >
+                        <div className={`px-4 py-2.5 rounded-full shadow-2xl font-bold text-[14px] tabular-nums ${
+                            toast.tone === 'win'
+                                ? 'bg-gradient-to-r from-[#F5A623] to-[#F2871E] text-white shadow-[#F5A623]/40'
+                                : 'bg-[#3B7A3F] text-white shadow-[#3B7A3F]/30'
+                        }`}>
+                            {toast.msg}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* ───── CONFETTI (fires once on full completion) ───── */}
+            <AnimatePresence>
+                {confettiOn && (
+                    <div className="fixed inset-0 pointer-events-none z-[54] overflow-hidden">
+                        {Array.from({ length: 36 }).map((_, i) => {
+                            const left = Math.random() * 100;
+                            const delay = Math.random() * 0.4;
+                            const duration = 1.8 + Math.random() * 1.6;
+                            const size = 8 + Math.random() * 6;
+                            const colors = ['#F5A623', '#7DB00E', '#3B7A3F', '#F2871E', '#FFFFFF'];
+                            const color = colors[i % colors.length];
+                            const xDrift = (Math.random() - 0.5) * 200;
+                            const rot = Math.random() * 720;
+                            return (
+                                <motion.div
+                                    key={i}
+                                    initial={{ y: -40, x: 0, opacity: 1, rotate: 0 }}
+                                    animate={{
+                                        y: typeof window !== 'undefined' ? window.innerHeight + 40 : 900,
+                                        x: xDrift,
+                                        opacity: [1, 1, 0],
+                                        rotate: rot,
+                                    }}
+                                    transition={{ duration, delay, ease: "easeIn" }}
+                                    className="absolute"
+                                    style={{
+                                        left: `${left}%`,
+                                        top: 0,
+                                        width: size,
+                                        height: size * 1.4,
+                                        backgroundColor: color,
+                                        borderRadius: 2,
+                                    }}
+                                />
+                            );
+                        })}
+                    </div>
+                )}
+            </AnimatePresence>
 
             {/* ───── STICKY CTA ───── */}
             {!decided && (
