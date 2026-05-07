@@ -66,6 +66,8 @@ import availabilityV2Router from './routes/availability-v2-routes'; // Module 04
 import { startAvailabilityTick } from './jobs/availability-tick'; // Module 04 — hold-expiry sweeper
 import routingRouter, { adminRoutingRouter } from './routes/routing-routes'; // Module 05 — Routing Engine (FF_ROUTING_ENGINE)
 import { startRoutingTick } from './jobs/routing-tick'; // Module 05 — offer-round timeout sweeper
+import payProtectionRouter, { adminPayProtectionRouter } from './routes/pay-protection-routes'; // Module 07 — Pay Protection (FF_PAY_PROTECTION)
+import { startPayProtectionTick } from './jobs/pay-protection-tick'; // Module 07 — 48h pay SLA + stale-review escalation
 
 import publicRoutes from './public-routes';
 import adminContractorsRouter from './admin-contractors-routes';
@@ -200,6 +202,11 @@ startAvailabilityTick();
 // (1 → 2 → 3 → cross-lane → reschedule_required). No-op when
 // FF_ROUTING_ENGINE is OFF.
 startRoutingTick();
+
+// Module 07 — Pay Protection. Hourly sweeper: 48h pay SLA monitor +
+// stale pending_review escalation. Runs even with FF_PAY_PROTECTION OFF
+// — observability is cheap and useful on the legacy pay path.
+startPayProtectionTick();
 
 // Payout processing cron — runs every hour
 setInterval(async () => {
@@ -414,6 +421,13 @@ app.use('/api', availabilityV2Router);
 // /api/admin/routing/*. Both return 503 when FF_ROUTING_ENGINE is OFF.
 app.use('/api/routing', routingRouter);
 app.use('/api/admin/routing', requireAdmin, adminRoutingRouter);
+
+// Module 07 — Pay Protection. Contractor-facing adjustment endpoints
+// under /api/contractor/pay-adjustments/* (auth via X-Contractor-Token);
+// admin queue + approve/reject under /api/admin/pay-adjustments/*. Both
+// return 503 when FF_PAY_PROTECTION is OFF.
+app.use('/api/contractor/pay-adjustments', payProtectionRouter);
+app.use('/api/admin/pay-adjustments', requireAdmin, adminPayProtectionRouter);
 
 app.use('/api/public', publicRoutes); // Public API Routes
 app.use('/api/auth', authRouter); // Auth Routes
