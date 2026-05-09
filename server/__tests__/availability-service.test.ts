@@ -337,6 +337,13 @@ vi.mock('drizzle-orm', () => {
         ],
     });
     sql.empty = () => ({ queryChunks: [{ value: '' }] });
+    // sql.join is used in availability-service.ts to build ARRAY[...]::text[]
+    // literals for the JSONB `?|` skills filter. The mock just needs to return
+    // a placeholder shape — the in-memory candidate filter below ignores the
+    // SQL chunks anyway and reads opts.skills directly via filter logic.
+    sql.join = (chunks: any[], _separator: any) => ({
+        queryChunks: chunks.flatMap((c) => (c?.queryChunks ?? [{ value: c }])),
+    });
     return { eq, and, gte, lte, inArray, sql };
 });
 
