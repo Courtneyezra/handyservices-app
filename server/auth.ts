@@ -20,26 +20,34 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
         return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const sessionResult = await db.select().from(contractorSessions).where(eq(contractorSessions.sessionToken, sessionToken)).limit(1);
-    const session = sessionResult[0];
+    try {
+        const sessionResult = await db.select().from(contractorSessions).where(eq(contractorSessions.sessionToken, sessionToken)).limit(1);
+        const session = sessionResult[0];
 
-    if (!session || session.expiresAt < new Date()) {
-        if (session) {
-            await db.delete(contractorSessions).where(eq(contractorSessions.sessionToken, sessionToken));
+        if (!session || session.expiresAt < new Date()) {
+            if (session) {
+                await db.delete(contractorSessions).where(eq(contractorSessions.sessionToken, sessionToken)).catch(() => {});
+            }
+            return res.status(401).json({ error: 'Session expired' });
         }
-        return res.status(401).json({ error: 'Session expired' });
+
+        const user = await db.query.users.findFirst({
+            where: eq(users.id, session.userId),
+        });
+
+        if (!user || (user.role !== 'admin' && user.role !== 'va')) {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
+        (req as any).user = user;
+        next();
+    } catch (err) {
+        // Transient DB errors (Neon connection timeouts, etc.) must not kill
+        // the server — return 503 so the client can retry without dropping
+        // the entire process.
+        console.error('[Auth] requireAdmin DB error:', err);
+        return res.status(503).json({ error: 'Auth service unavailable, retry shortly' });
     }
-
-    const user = await db.query.users.findFirst({
-        where: eq(users.id, session.userId),
-    });
-
-    if (!user || (user.role !== 'admin' && user.role !== 'va')) {
-        return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    (req as any).user = user;
-    next();
 }
 
 /**
