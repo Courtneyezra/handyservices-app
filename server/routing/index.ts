@@ -34,6 +34,8 @@ import {
     type BookingState,
 } from './offer-state-machine';
 import type { LaneSelection, RoutingContext, RoutingLane } from './types';
+import { dispatchEvent } from '../notifications';
+import { recipientsForQuote } from '../notifications/recipients';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -231,6 +233,24 @@ export async function dispatchRouting(
         }, {
             reason: 'no_eligible_units',
         });
+
+        // Emit reschedule_required (Module 10) — customer chooses a new
+        // slot. Not in eventForTransition map (origin is booked_pending_*
+        // not offer_round_3) so we fan out via dispatchEvent directly.
+        try {
+            const { customer } = await recipientsForQuote(ctx.bookingId);
+            if (customer) {
+                const baseUrl = process.env.APP_BASE_URL ?? 'https://handy.services';
+                await dispatchEvent('reschedule_required', [customer], {
+                    customerName: customer.id,
+                    rescheduleUrl: `${baseUrl}/quotes/${ctx.bookingId}/reschedule`,
+                    date: 'your slot',
+                }, { urgent: true, correlationId: ctx.bookingId });
+            }
+        } catch (err) {
+            console.error('[notifications] reschedule_required emit failed:', err);
+        }
+
         return { status: 'reschedule_required', bookingId, lane: lane.lane };
     }
 

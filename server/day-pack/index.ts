@@ -42,6 +42,13 @@ import type {
     PackedJob,
 } from './types';
 import type { EligibleUnit } from '../routing/types';
+import { dispatchEvent } from '../notifications';
+import {
+    recipientsForPack,
+    recipientForUnit,
+    adminRecipient,
+    isRecipient,
+} from '../notifications/recipients';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -149,6 +156,34 @@ export async function runDayPackAssembly(commitmentId: string): Promise<Assembly
             topUpPence,
             completionBonusPence: completionBonus,
         });
+
+        // Emit pack_offered (Module 10) — Builder gets a WhatsApp/SMS with the
+        // pack offer URL. Failures here MUST NOT break the assembly outcome.
+        try {
+            const contractor = await recipientForUnit(commitment.unitId);
+            if (contractor) {
+                const unitRow = await db
+                    .select({ businessName: handymanProfiles.businessName })
+                    .from(handymanProfiles)
+                    .where(eq(handymanProfiles.id, commitment.unitId))
+                    .limit(1);
+                const firstName = (unitRow[0]?.businessName ?? 'Builder')
+                    .toString()
+                    .split(/\s+/)[0] || 'Builder';
+                await dispatchEvent('pack_offered', [contractor], {
+                    contractorFirstName: firstName,
+                    date: offered.date,
+                    stopCount: offered.jobs.length,
+                    area: (commitment.areaFilter ?? []).join(', ') || 'your area',
+                    dayRate: offered.totalContractorPayPence,
+                    offerUrl: `${process.env.APP_BASE_URL ?? 'https://handy.services'}/dispatch/${offered.id}?token=${commitment.unitId}`,
+                    packId: offered.id,
+                    commitmentId: commitment.id,
+                }, { correlationId: offered.id });
+            }
+        } catch (err) {
+            console.error('[notifications] pack_offered emit failed:', err);
+        }
 
         return {
             status: topUpPence > 0 ? 'top_up_applied' : 'pack_offered',
@@ -512,6 +547,30 @@ export async function acceptDayPack(packId: string, unitId: string): Promise<Acc
         dispatchIds,
     });
 
+    // Emit pack_accepted (Module 10) — admin in-app/email + customer SMS for
+    // each stop, plus a contractor confirm. Failures must not break accept.
+    try {
+        const { contractor, customers } = await recipientsForPack(packId);
+        const recipients = [adminRecipient(), contractor, ...customers].filter(isRecipient);
+        if (recipients.length > 0) {
+            const unitRow = await db
+                .select({ businessName: handymanProfiles.businessName })
+                .from(handymanProfiles)
+                .where(eq(handymanProfiles.id, unitId))
+                .limit(1);
+            const contractorName = unitRow[0]?.businessName ?? 'Builder';
+            await dispatchEvent('pack_accepted', recipients, {
+                packId,
+                contractorName,
+                date: pack.date,
+                stopCount: jobIds.length,
+                dayRate: pack.totalContractorPayPence ?? 0,
+            }, { correlationId: packId });
+        }
+    } catch (err) {
+        console.error('[notifications] pack_accepted emit failed:', err);
+    }
+
     return { packId, dispatchIds };
 }
 
@@ -583,6 +642,20 @@ async function dissolvePackBackToOfferRound1(packId: string, commitmentId: strin
                 triggerMetadata: { reason, packId, commitmentId },
             });
         } catch { /* tolerate idempotent re-runs */ }
+    }
+
+    // Emit pack_released (Module 10) — admin alert that the pack spilled back
+    // to single-offer round 1. Failures must not break the dissolve.
+    try {
+        await dispatchEvent('pack_released', [adminRecipient()], {
+            packId,
+            commitmentId,
+            stopCount: jobIds.length,
+            date: pack.date,
+            reason,
+        }, { correlationId: packId });
+    } catch (err) {
+        console.error('[notifications] pack_released emit failed:', err);
     }
 }
 

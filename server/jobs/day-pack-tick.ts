@@ -29,6 +29,8 @@ import {
 import { and, eq, gte, inArray, lte, lt } from 'drizzle-orm';
 import { FLAGS } from '../feature-flags';
 import { runDayPackAssembly } from '../day-pack';
+import { dispatchEvent } from '../notifications';
+import { adminRecipient } from '../notifications/recipients';
 
 const TICK_INTERVAL_MS = 15 * 60 * 1000;     // 15 minutes
 let timer: NodeJS.Timeout | null = null;
@@ -163,6 +165,22 @@ async function expirePack(pack: any, now: Date): Promise<void> {
         });
     } catch (err) {
         console.warn('[day-pack-tick] decision log failed:', err);
+    }
+
+    // Emit pack_released (Module 10) — admin alert on expiry. Failures must
+    // not break the cron sweep.
+    if (jobIds.length > 0) {
+        try {
+            await dispatchEvent('pack_released', [adminRecipient()], {
+                packId: pack.id,
+                commitmentId: pack.commitmentId,
+                stopCount: jobIds.length,
+                date: typeof pack.date === 'string' ? pack.date : new Date(pack.date).toISOString().slice(0, 10),
+                reason: 'pack_expired',
+            }, { correlationId: pack.id });
+        } catch (err) {
+            console.error('[notifications] pack_released emit failed:', err);
+        }
     }
 }
 

@@ -25,6 +25,12 @@ import { and, eq, inArray } from 'drizzle-orm';
 import * as availabilityService from '../availability-service';
 import type { RoutingContext, RoutingLane } from './types';
 import type { ScoredUnit } from './scoring-service';
+import { dispatchEvent, notifyOnTransition } from '../notifications';
+import {
+    recipientForUnit,
+    recipientsForQuote,
+    isRecipient,
+} from '../notifications/recipients';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -210,6 +216,54 @@ async function fanOutRound(
             'system',
             { round, fannedTo: inserted.length },
         );
+
+        // Emit routing_offer_round_{1,2,3} per spec §10. Per-recipient (one
+        // contractor per offer row this round) — failures must not break the
+        // round transition.
+        try {
+            const event = round === 1 ? 'routing_offer_round_1'
+                : round === 2 ? 'routing_offer_round_2'
+                : 'routing_offer_broadcast';
+
+            const [quote] = await db
+                .select({
+                    id: personalizedQuotes.id,
+                    jobDescription: personalizedQuotes.jobDescription,
+                    postcode: personalizedQuotes.postcode,
+                })
+                .from(personalizedQuotes)
+                .where(eq(personalizedQuotes.id, ctx.bookingId))
+                .limit(1);
+
+            const baseUrl = process.env.APP_BASE_URL ?? 'https://handy.services';
+            const title = (quote?.jobDescription ?? 'New job').toString().slice(0, 80);
+            const postcode = quote?.postcode ?? 'N/A';
+
+            for (const offerRow of inserted) {
+                try {
+                    const contractor = await recipientForUnit(offerRow.unitId);
+                    if (!contractor) continue;
+                    const firstName = (contractor.id || 'Contractor')
+                        .toString()
+                        .split(/\s+/)[0]
+                        .slice(0, 24) || 'Contractor';
+                    await dispatchEvent(event, [contractor], {
+                        contractorFirstName: firstName,
+                        title,
+                        postcode,
+                        payAmount: 0,                             // unknown at routing time
+                        offerUrl: `${baseUrl}/contractor/offers/${offerRow.id}`,
+                        offerId: offerRow.id,
+                        bookingId: ctx.bookingId,
+                        round,
+                    }, { correlationId: ctx.bookingId });
+                } catch (err) {
+                    console.error(`[notifications] ${event} per-offer emit failed:`, err);
+                }
+            }
+        } catch (err) {
+            console.error('[notifications] routing_offer round emit failed:', err);
+        }
     }
 
     return inserted;
@@ -295,6 +349,32 @@ export async function tryCrossLaneFallback(
             'system',
             { reason: 'cross_lane_exhausted', fromLane },
         );
+
+        // Emit reschedule_required (Module 10) — customer chooses a new
+        // slot. Failures must not break the cross-lane wrap-up.
+        try {
+            const { customer } = await recipientsForQuote(ctx.bookingId);
+            if (customer) {
+                const baseUrl = process.env.APP_BASE_URL ?? 'https://handy.services';
+                await notifyOnTransition(
+                    ctx.bookingId,
+                    'offer_round_3',
+                    'reschedule_required',
+                    {
+                        recipients: [customer],
+                        payload: {
+                            customerName: customer.id,
+                            rescheduleUrl: `${baseUrl}/quotes/${ctx.bookingId}/reschedule`,
+                            date: 'your slot',
+                        },
+                        urgent: true,
+                    },
+                );
+            }
+        } catch (err) {
+            console.error('[notifications] reschedule_required emit failed:', err);
+        }
+
         return { newLane: null };
     }
 
@@ -421,6 +501,31 @@ export async function acceptOffer(
     }, {
         dispatchId: dispatch.id,
     });
+
+    // Emit offer_accepted (Module 10) — customer + contractor confirm.
+    // Failures must not break the booking lock.
+    try {
+        const { customer } = await recipientsForQuote(offer.bookingId);
+        const contractor = await recipientForUnit(unitId);
+        const recipients = [customer, contractor].filter(isRecipient);
+        if (recipients.length > 0) {
+            const title = (quote?.jobDescription ?? 'Your job').toString().slice(0, 80);
+            const startTime = slot
+                ? `${slot.date} ${slot.slot.toUpperCase()}`
+                : 'TBC';
+            const address = [quote?.address, quote?.postcode].filter(Boolean).join(', ') || 'TBC';
+            await dispatchEvent('offer_accepted', recipients, {
+                title,
+                startTime,
+                address,
+                bookingId: offer.bookingId,
+                dispatchId: dispatch.id,
+                offerId: offer.id,
+            }, { correlationId: offer.bookingId });
+        }
+    } catch (err) {
+        console.error('[notifications] offer_accepted emit failed:', err);
+    }
 
     return { dispatchId: dispatch.id, bookingState: 'dispatched' };
 }

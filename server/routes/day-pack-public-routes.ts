@@ -34,6 +34,8 @@ import {
 } from '../../shared/schema';
 import { and, eq, inArray } from 'drizzle-orm';
 import { FLAGS } from '../feature-flags';
+import { notifyOnTransition } from '../notifications';
+import { recipientsForQuote } from '../notifications/recipients';
 
 export const dayPackPublicRouter = Router();
 
@@ -441,6 +443,7 @@ dayPackPublicRouter.post('/:packId/stops/:stopNum/complete', async (req: Request
 
             // Bridge: transition booking_state for the underlying quote so the
             // state-machine projection reads correctly on the next refetch.
+            let bridged = false;
             try {
                 await db
                     .update(personalizedQuotes)
@@ -453,8 +456,40 @@ dayPackPublicRouter.post('/:packId/stops/:stopNum/complete', async (req: Request
                     triggeredBy: 'contractor',
                     triggerMetadata: { dayPackId: pack.id, stopNum, dispatchId: dispatch.id },
                 });
+                bridged = true;
             } catch (err) {
                 console.warn('[day-pack-public] booking_state bridge failed:', err);
+            }
+
+            // Emit job_completed (Module 10) — customer review prompt. Spec
+            // maps `in_progress→completed_pending_review` to the event; we
+            // fire on the equivalent dispatched→completed_pending_review
+            // path used by the day-pack stop-complete flow. Failures must
+            // not break the response.
+            if (bridged) {
+                try {
+                    const { customer } = await recipientsForQuote(quoteId);
+                    if (customer) {
+                        const baseUrl = process.env.APP_BASE_URL ?? 'https://handy.services';
+                        await notifyOnTransition(
+                            quoteId,
+                            'in_progress',
+                            'completed_pending_review',
+                            {
+                                recipients: [customer],
+                                payload: {
+                                    customerName: customer.id,
+                                    contractorName: 'your contractor',
+                                    reviewUrl: `${baseUrl}/review/${quoteId}`,
+                                    quoteId,
+                                    dispatchId: dispatch.id,
+                                },
+                            },
+                        );
+                    }
+                } catch (err) {
+                    console.error('[notifications] job_completed emit failed:', err);
+                }
             }
         }
 
