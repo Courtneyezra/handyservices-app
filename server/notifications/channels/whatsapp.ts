@@ -18,10 +18,17 @@ interface WhatsAppRecipient {
 }
 
 const HAS_CREDS = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
+const DRY_RUN = process.env.NOTIFICATIONS_DRY_RUN === '1';
 
 export async function send(recipient: WhatsAppRecipient, message: RenderedMessage): Promise<ChannelSendResult> {
     if (!recipient.phone) {
         return { status: 'failed', error: 'no_phone_for_whatsapp' };
+    }
+    // Dry-run takes precedence over creds — prevents accidental live messages
+    // during preview/staging testing even when Twilio credentials are present.
+    if (DRY_RUN) {
+        console.log(`[notifications:whatsapp] (DRY_RUN) → ${recipient.phone}: ${message.body.slice(0, 80)}…`);
+        return { status: 'sent', messageId: `dryrun_${Date.now()}` };
     }
     if (!HAS_CREDS) {
         // Dev / test env — log + treat as sent so orchestrator tests pass.

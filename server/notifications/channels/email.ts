@@ -20,6 +20,7 @@ interface EmailRecipient {
 
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'Handy Services <noreply@handy-services.co.uk>';
 const ADMIN_FALLBACK_EMAIL = process.env.ADMIN_EMAIL || 'admin@handy-services.co.uk';
+const DRY_RUN = process.env.NOTIFICATIONS_DRY_RUN === '1';
 
 export async function send(recipient: EmailRecipient, message: RenderedMessage): Promise<ChannelSendResult> {
     // Admin recipients without an email use the configured admin inbox.
@@ -28,6 +29,13 @@ export async function send(recipient: EmailRecipient, message: RenderedMessage):
 
     if (!to) {
         return { status: 'failed', error: 'no_email_for_recipient' };
+    }
+
+    // Dry-run takes precedence — prevents accidental live emails during
+    // preview/staging testing even when Resend credentials are present.
+    if (DRY_RUN) {
+        console.log(`[notifications:email] (DRY_RUN) → ${to}: ${message.subject ?? '(no subject)'} | ${message.body.slice(0, 80)}…`);
+        return { status: 'sent', messageId: `dryrun_${Date.now()}` };
     }
 
     const apiKey = process.env.RESEND_API_KEY;
