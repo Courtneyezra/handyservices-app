@@ -31,6 +31,8 @@ import {
     recipientsForQuote,
     isRecipient,
 } from '../notifications/recipients';
+import { FLAGS } from '../feature-flags';
+import { dualWriteOnDispatchCreate } from '../migration/legacy-bridge';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -486,6 +488,16 @@ export async function acceptOffer(
         .update(routingOffers)
         .set({ jobDispatchId: dispatch.id })
         .where(eq(routingOffers.id, offer.id));
+
+    // Module 11 — mirror to legacy contractor_booking_requests for daily planner.
+    // Bridge no-ops when FF_LEGACY_BRIDGE is OFF; failures must not break the accept.
+    if (FLAGS.LEGACY_BRIDGE) {
+        try {
+            await dualWriteOnDispatchCreate(dispatch);
+        } catch (err) {
+            console.error('[legacy-bridge] dualWriteOnDispatchCreate failed (offer-accept)', { dispatchId: dispatch.id, err });
+        }
+    }
 
     await transitionBookingState(
         offer.bookingId,

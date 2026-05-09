@@ -38,6 +38,7 @@ import { FLAGS } from '../feature-flags';
 import { dispatchEvent, notifyOnTransition } from '../notifications';
 import { adminRecipient, recipientsForQuote } from '../notifications/recipients';
 import { fileCompletionBonus } from '../pay-protection';
+import { dualWriteOnDispatchUpdate } from '../migration/legacy-bridge';
 
 export const dayPackPublicRouter = Router();
 
@@ -577,6 +578,25 @@ dayPackPublicRouter.post('/:packId/stops/:stopNum/complete', async (req: Request
                 photoUrls: photos,
                 notes,
             });
+
+            // Flip the canonical dispatch status so v2 + Module 11 legacy mirror
+            // both reflect the stop as completed. Idempotent — only flips rows
+            // not already in 'completed' state.
+            const completedAt = new Date();
+            const [completedDispatch] = await db
+                .update(jobDispatches)
+                .set({ status: 'completed', completedAt, updatedAt: completedAt })
+                .where(eq(jobDispatches.id, dispatch.id))
+                .returning();
+
+            // Module 11 — mirror completion to legacy contractor_booking_requests.
+            if (FLAGS.LEGACY_BRIDGE && completedDispatch) {
+                try {
+                    await dualWriteOnDispatchUpdate(completedDispatch);
+                } catch (err) {
+                    console.error('[legacy-bridge] dualWriteOnDispatchUpdate failed (day-pack stop complete)', { dispatchId: dispatch.id, err });
+                }
+            }
 
             // Bridge: transition booking_state for the underlying quote so the
             // state-machine projection reads correctly on the next refetch.

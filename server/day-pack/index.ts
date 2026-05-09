@@ -43,6 +43,11 @@ import type {
 } from './types';
 import type { EligibleUnit } from '../routing/types';
 import { dispatchEvent } from '../notifications';
+import { FLAGS } from '../feature-flags';
+import {
+    dualWriteOnDispatchCreate,
+    dualWriteOnDayPackAssigned,
+} from '../migration/legacy-bridge';
 import {
     recipientsForPack,
     recipientForUnit,
@@ -532,8 +537,29 @@ export async function acceptDayPack(packId: string, unitId: string): Promise<Acc
                 })
                 .returning();
             dispatchIds.push(dispatch.id);
+
+            // Module 11 — mirror this pack stop to legacy contractor_booking_requests.
+            // One legacy row per stop (pack identity is lost on legacy side per Module 11 §6).
+            // Idempotent (ON CONFLICT DO NOTHING); failure must not break the accept loop.
+            if (FLAGS.LEGACY_BRIDGE) {
+                try {
+                    await dualWriteOnDispatchCreate(dispatch);
+                } catch (err) {
+                    console.error('[legacy-bridge] dualWriteOnDispatchCreate failed (day-pack stop)', { dispatchId: dispatch.id, packId, err });
+                }
+            }
         } catch (err) {
             console.warn(`[day-pack] failed to dispatch booking ${bookingId}:`, err);
+        }
+    }
+
+    // Module 11 — pack-level intent marker (no extra DB writes; per-stop bridges
+    // already filed mirror rows above). Kept as a clear callsite for the spec.
+    if (FLAGS.LEGACY_BRIDGE && dispatchIds.length > 0) {
+        try {
+            await dualWriteOnDayPackAssigned(dispatchIds);
+        } catch (err) {
+            console.error('[legacy-bridge] dualWriteOnDayPackAssigned failed', { packId, dispatchIds, err });
         }
     }
 

@@ -130,10 +130,12 @@ async function checkNoActiveLegacyDisputes(): Promise<CutoverCheck> {
  */
 async function checkInFlightParity(): Promise<CutoverCheck> {
     try {
+        // dispatch_status enum is ('pending', 'locked', 'completed', 'cancelled');
+        // in-flight = anything not yet terminal AND with a contractor locked.
         const result: any = await db.execute(sql`
             SELECT COUNT(*)::int AS count
             FROM job_dispatches jd
-            WHERE jd.status IN ('pending', 'accepted', 'in_progress')
+            WHERE jd.status IN ('pending', 'locked')
               AND jd.locked_to_contractor_id IS NOT NULL
               AND NOT EXISTS (
                 SELECT 1 FROM contractor_booking_requests cbr WHERE cbr.id = jd.id

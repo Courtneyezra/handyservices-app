@@ -32,6 +32,11 @@ import { S3Client, PutObjectCommand, GetObjectCommand, ObjectCannedACL } from '@
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { calculateMultiLineRevenueShare } from './revenue-share-tiers';
 import type { JobCategory } from '../shared/contextual-pricing-types';
+import { FLAGS } from './feature-flags';
+import {
+  dualWriteOnDispatchCreate,
+  dualWriteOnDispatchUpdate,
+} from './migration/legacy-bridge';
 
 // ─── Stripe lazy init ───────────────────────────────────────────────────────
 // In dev, prefer the test secret so it matches the test publishable key the
@@ -634,6 +639,15 @@ contractorDispatchRouter.post('/api/contractor-job/:token/bond/confirm', async (
         .set({ status: 'accepted', acceptedAt: now, updatedAt: now })
         .where(eq(contractorJobLinks.id, link.id));
       console.log(`[ContractorDispatch] 🔒 dispatch locked via bond payment: ${link.dispatchId} → ${link.contractorName} (bond ${bond.id})`);
+
+      // Module 11 — mirror lock to legacy contractor_booking_requests.
+      if (FLAGS.LEGACY_BRIDGE) {
+        try {
+          await dualWriteOnDispatchUpdate(lockUpdate[0]);
+        } catch (err) {
+          console.error('[legacy-bridge] dualWriteOnDispatchUpdate failed (bond lock)', { dispatchId: link.dispatchId, err });
+        }
+      }
       return res.json({ ok: true, status: 'held', locked: true });
     }
     if (pi.status === 'requires_payment_method' || pi.status === 'canceled') {
@@ -755,6 +769,15 @@ contractorDispatchRouter.post('/api/contractor-job/:token/accept', async (req, r
     }
 
     console.log(`[ContractorDispatch] ✅ ${link.contractorName} accepted dispatch ${dispatch.id}`);
+
+    // Module 11 — mirror lock to legacy contractor_booking_requests.
+    if (FLAGS.LEGACY_BRIDGE) {
+      try {
+        await dualWriteOnDispatchUpdate(lockUpdate[0]);
+      } catch (err) {
+        console.error('[legacy-bridge] dualWriteOnDispatchUpdate failed (direct accept)', { dispatchId: dispatch.id, err });
+      }
+    }
 
     res.json({
       ok: true,
@@ -920,11 +943,21 @@ contractorDispatchRouter.post('/api/contractor-job/:token/complete', async (req,
       completedAt: now,
     }).returning();
 
-    await db.update(jobDispatches)
+    const [updatedDispatch] = await db.update(jobDispatches)
       .set({ status: 'completed', completedAt: now, updatedAt: now })
-      .where(eq(jobDispatches.id, link.dispatchId));
+      .where(eq(jobDispatches.id, link.dispatchId))
+      .returning();
 
     console.log(`[ContractorDispatch] ✅ ${link.contractorName} completed ${link.dispatchId}`);
+
+    // Module 11 — mirror completion to legacy contractor_booking_requests.
+    if (FLAGS.LEGACY_BRIDGE && updatedDispatch) {
+      try {
+        await dualWriteOnDispatchUpdate(updatedDispatch);
+      } catch (err) {
+        console.error('[legacy-bridge] dualWriteOnDispatchUpdate failed (completion)', { dispatchId: link.dispatchId, err });
+      }
+    }
 
     // Auto-refund the bond if held — runs in background, don't block response
     const bond = await findActiveBondForLink(link.id);
@@ -1388,6 +1421,17 @@ contractorDispatchRouter.post('/api/admin/dispatch', async (req, res) => {
       preferredDates,
       createdBy: createdBy || null,
     }).returning();
+
+    // Module 11 — mirror to legacy contractor_booking_requests for daily planner.
+    // Bridge no-ops when no contractor is locked yet (admin pre-broadcast mode);
+    // it fires on first accept via dualWriteOnDispatchUpdate below.
+    if (FLAGS.LEGACY_BRIDGE) {
+      try {
+        await dualWriteOnDispatchCreate(dispatch);
+      } catch (err) {
+        console.error('[legacy-bridge] dualWriteOnDispatchCreate failed (admin create)', { dispatchId: dispatch.id, err });
+      }
+    }
 
     // Fetch contractor names + phones via handyman_profiles → users join
     const profileRows = await db.select({
