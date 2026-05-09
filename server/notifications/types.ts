@@ -41,6 +41,14 @@ export type RecipientType = 'contractor' | 'customer' | 'admin';
 export interface Recipient {
     type: RecipientType;
     id: string;          // user / contractor / customer id (admin = 'admin')
+    /**
+     * Display name for the recipient — used in template salutations.
+     * Without this, callers shoved `id` (UUIDs / `pq_...` slugs) into "Hi {name}"
+     * templates and customer messages came out as "Hi pq_stress_t_q11_moypqo2t".
+     * Populate from `handyman_profiles.business_name` (contractor) or
+     * `personalized_quotes.customer_name` (customer); admin can stay undefined.
+     */
+    name?: string;
     phone?: string;
     email?: string;
     timezone?: string;   // defaults Europe/London

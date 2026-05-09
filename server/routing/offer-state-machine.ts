@@ -245,7 +245,10 @@ async function fanOutRound(
                 try {
                     const contractor = await recipientForUnit(offerRow.unitId);
                     if (!contractor) continue;
-                    const firstName = (contractor.id || 'Contractor')
+                    // Use the resolved name (first name, falling back to business name)
+                    // — was previously substituting `contractor.id` (UUID) which
+                    // produced WhatsApp messages like "Hi 0165e47a-a0e5-46d0-,".
+                    const firstName = (contractor.name ?? '')
                         .toString()
                         .split(/\s+/)[0]
                         .slice(0, 24) || 'Contractor';

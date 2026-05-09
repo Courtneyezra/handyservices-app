@@ -70,6 +70,7 @@ export async function recipientsForQuote(quoteId: string): Promise<QuoteRecipien
     const customer: Recipient = {
         type: 'customer',
         id: quote.id,
+        name: quote.customerName ?? undefined,
         phone: quote.phone ?? undefined,
         email: quote.email ?? undefined,
     };
@@ -125,6 +126,7 @@ export async function recipientsForPack(packId: string): Promise<PackRecipients>
     const customers: Recipient[] = quoteRows.map((q) => ({
         type: 'customer',
         id: q.id,
+        name: q.customerName ?? undefined,
         phone: q.phone ?? undefined,
         email: q.email ?? undefined,
     }));
@@ -147,7 +149,9 @@ export async function recipientForUnit(unitId: string): Promise<Recipient | null
         .select({
             unitId: handymanProfiles.id,
             userId: handymanProfiles.userId,
+            businessName: handymanProfiles.businessName,
             whatsappNumber: handymanProfiles.whatsappNumber,
+            userFirstName: users.firstName,
             userPhone: users.phone,
             userEmail: users.email,
         })
@@ -159,9 +163,12 @@ export async function recipientForUnit(unitId: string): Promise<Recipient | null
     if (!row) return null;
 
     const phone = row.whatsappNumber ?? row.userPhone ?? undefined;
+    // Prefer first name (warmer "Hi Mark," salutation); fall back to business name.
+    const name = row.userFirstName ?? row.businessName ?? undefined;
     return {
         type: 'contractor',
         id: row.unitId,
+        name: name ?? undefined,
         phone: phone ?? undefined,
         email: row.userEmail ?? undefined,
     };

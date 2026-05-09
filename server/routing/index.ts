@@ -242,7 +242,9 @@ export async function dispatchRouting(
             if (customer) {
                 const baseUrl = process.env.APP_BASE_URL ?? 'https://handy.services';
                 await dispatchEvent('reschedule_required', [customer], {
-                    customerName: customer.id,
+                    // Was sending the booking_id ("pq_stress_t_q11_moypqo2t") into
+                    // the "Hi {customerName}," slot — now uses the resolved name.
+                    customerName: customer.name ?? 'there',
                     rescheduleUrl: `${baseUrl}/quotes/${ctx.bookingId}/reschedule`,
                     date: 'your slot',
                 }, { urgent: true, correlationId: ctx.bookingId });
