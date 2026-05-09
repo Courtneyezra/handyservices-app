@@ -462,8 +462,11 @@ async function resolveCandidateUnits(opts: {
 }): Promise<string[]> {
     // We rely on raw SQL for JSONB containment because Drizzle's JSONB
     // operators are limited. Empty inputs → match all active contractors.
+    // Use explicit ARRAY[...]::text[] literal — drizzle binds JS arrays as JSON,
+    // but the JSONB `?|` operator requires a text[] right-operand. Without the
+    // cast, Postgres throws `22P02 malformed array literal`.
     const skillsClause = opts.skills && opts.skills.length > 0
-        ? sql` AND (skills ?| ${opts.skills as any})`
+        ? sql` AND (skills ?| ARRAY[${sql.join(opts.skills.map(s => sql`${s}`), sql`, `)}]::text[])`
         : sql``;
 
     const postcodeClause = opts.postcode
