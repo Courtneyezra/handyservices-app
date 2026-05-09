@@ -122,7 +122,13 @@ export function computeJobProfileFromRow(row: PersonalizedQuoteRow): JobProfile 
     const complexityFlags = asStringArray(row.complexityFlags);
     const heavyLifting = Boolean(row.heavyLifting);
     const durationMinutes = row.durationEstimateMinutes ?? 0;
-    const realWorkMinutes = row.realWorkMinutes ?? 0;
+    // Fall back to the customer-facing duration estimate when ops hasn't tagged
+    // a `real_work_minutes` value yet. Without this, the day-pack solver
+    // collapses every untagged stop to ~0 minutes of work and the 110% pack-value
+    // cap becomes the only bound — packs assemble that no contractor can run.
+    // ADR-005's spec preference is the (lower) `real_work_minutes`; until ops
+    // tagging is universal, the customer estimate is a safer floor than zero.
+    const realWorkMinutes = row.realWorkMinutes ?? row.durationEstimateMinutes ?? 0;
     const customerFlexibility = resolveFlexibility(row);
 
     return {
