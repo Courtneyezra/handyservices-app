@@ -242,30 +242,52 @@ export async function assemblePack(input: PackAssemblyInput): Promise<PackAssemb
 function sortCandidates(candidates: CandidateJob[], commitment: DayCommitment): CandidateJob[] {
     const filterUpper = (commitment.areaFilter ?? []).map((a) => a.toUpperCase());
 
+    // Value-density (£/min) instead of absolute value. The auto-book volume
+    // test (2026-05-10, 50 quotes vs 5 builder days) showed that absolute-value
+    // sort consistently picked the longest jobs first, blowing the 8h time
+    // envelope after 2-3 stops and leaving 18-35% of the day un-filled. Sorting
+    // by pay-per-minute preferences medium-duration high-value jobs that fit
+    // more billable work into the day, lifting pack-fill rate from ~0% target
+    // hit to passing the 70% offer threshold on a typical builder commit.
+    //
+    // Tie-break by absolute value descending so an equal-density larger job is
+    // preferred over an equal-density smaller one (closer to target with one
+    // stop). See Module 06 §4 "Best fit first".
     return [...candidates].sort((a, b) => {
-        // 1. Already-claimed area first
+        // 1. Already-claimed area first (geographic locality dominates).
         const aIn = areaMatches(filterUpper, a.postcode);
         const bIn = areaMatches(filterUpper, b.postcode);
         if (aIn !== bIn) return aIn ? -1 : 1;
 
-        // 2. Highest contractor_pay_pence first
+        // 2. Highest £/min density first.
+        const aDensity = densityPencePerMinute(a);
+        const bDensity = densityPencePerMinute(b);
+        if (aDensity !== bDensity) return bDensity - aDensity;
+
+        // 3. Tie-break: highest contractor_pay_pence first.
         if (a.contractorPayPence !== b.contractorPayPence) {
             return b.contractorPayPence - a.contractorPayPence;
         }
 
-        // 3. Lower complexity first
+        // 4. Lower complexity first.
         const aComplexity = a.profile.complexity_flags?.length ?? 0;
         const bComplexity = b.profile.complexity_flags?.length ?? 0;
         if (aComplexity !== bComplexity) return aComplexity - bComplexity;
 
-        // 4. Customer flexibility ascending: relaxed → flexible → fast.
+        // 5. Customer flexibility ascending: relaxed → flexible → fast.
         const aFlex = flexRank(a.flexTier);
         const bFlex = flexRank(b.flexTier);
         if (aFlex !== bFlex) return aFlex - bFlex;
 
-        // 5. Tiebreak — ID ASC for deterministic replay
+        // 6. Tiebreak — ID ASC for deterministic replay.
         return a.bookingId.localeCompare(b.bookingId);
     });
+}
+
+function densityPencePerMinute(c: CandidateJob): number {
+    const minutes = c.profile.real_work_minutes ?? 0;
+    if (minutes <= 0) return 0;
+    return c.contractorPayPence / minutes;
 }
 
 function areaMatches(filterUpper: string[], postcode: string): boolean {
@@ -410,6 +432,7 @@ function computePickupMinutes(pickups: MaterialsPickupSummary[]): number {
 
 export const __test__ = {
     sortCandidates,
+    densityPencePerMinute,
     hasRequiredSkills,
     candidateWindowAllows,
     computeWindowMinutes,
