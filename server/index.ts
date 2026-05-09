@@ -2,7 +2,10 @@ import dns from "node:dns";
 dns.setDefaultResultOrder('ipv4first');
 
 import dotenv from 'dotenv';
-dotenv.config({ override: true });
+// Load .env first, then .env.local overrides — lets per-worktree flag overrides
+// (e.g. FF_FLEX_TIER=1 for cutover preview testing) live in .env.local without
+// touching the shared .env. dotenv v16.4+ accepts a path array.
+dotenv.config({ path: ['.env', '.env.local'], override: true });
 import express from "express";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";

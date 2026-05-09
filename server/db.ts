@@ -4,7 +4,8 @@ import * as schema from "../shared/schema";
 import dotenv from "dotenv";
 import dns from "dns";
 
-dotenv.config();
+// Load .env first, then .env.local overrides (matches server/index.ts pattern).
+dotenv.config({ path: ['.env', '.env.local'], override: true });
 
 if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL must be set. Did you forget to copy .env?");
