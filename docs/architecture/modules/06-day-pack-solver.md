@@ -7,6 +7,8 @@
 **Owns:** `day_commitments`, `day_packs` lifecycle; the
 `reserved_for_pack ↔ offer_round_1` transitions in `state-machine.md` §3.
 
+> Updated 2026-05-09 to align with built code (FlexTierSelector.tsx). Original spec said 0/3/7; corrected to 1/7/14.
+
 ---
 
 ## 1. Purpose
@@ -137,10 +139,10 @@ accept with `stretch=true`; offer page renders a "long drive" warning.
 
 Customer window from `flex_tier` and `dateTimePreferences`:
 
-- **Fast** (`flex_window_days=0`) — pack date must equal the chosen date.
-- **Flexible** (`flex_window_days=3`) — pack date must be one of the three
-  customer-selected dates.
-- **Relaxed** (`flex_window_days=7`) — any date in the 14-day relaxed window.
+- **Fast** (`flex_window_days=1`) — single chosen date.
+- **Flexible** (`flex_window_days=7`) — pack date must be one of the seven
+  days in the chosen window.
+- **Relaxed** (`flex_window_days=14`) — any date in the 14-day relaxed window.
 
 If `commitment.date` is outside the job's window → reject.
 
@@ -162,7 +164,7 @@ Three options; first to succeed wins.
 
 Inspect the unit's commitments on `date − 1` and `date + 1`. If either has
 surplus candidates AND the customer's `flex_tier` allows shifting (relaxed
-always; flexible if the alternate is in their 3-day pick set), swap a
+always; flexible if the alternate is within their 7-day pick window), swap a
 candidate into THIS pack and re-validate.
 
 ### Option B — Pull from neighbouring areas
