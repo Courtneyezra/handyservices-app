@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/tooltip';
 import { Activity, TrendingUp, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { adminFetch } from '@/lib/adminFetch';
 
 export interface DemandHealth {
     window_days: number;
@@ -47,7 +48,7 @@ const STATUS_STYLES: Record<DemandHealth['status'], { chip: string; iconBg: stri
 };
 
 async function fetchDemandHealth(): Promise<DemandHealth> {
-    const res = await fetch('/api/admin/dispatch/demand-health', { credentials: 'include' });
+    const res = await adminFetch('/api/admin/dispatch/demand-health');
     if (res.status === 503) {
         throw new Error('Control Tower disabled (FF_CONTROL_TOWER=0)');
     }

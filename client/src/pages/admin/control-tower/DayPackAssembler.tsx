@@ -22,6 +22,7 @@ import { Loader2, Plus, X, Send, Package } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 import { cn } from '@/lib/utils';
+import { adminFetch } from '@/lib/adminFetch';
 import type { InboundRow } from './InboundQueue';
 
 interface Unit {
@@ -34,13 +35,13 @@ interface Unit {
 }
 
 async function fetchInbound(): Promise<InboundRow[]> {
-    const res = await fetch('/api/admin/dispatch/inbound', { credentials: 'include' });
+    const res = await adminFetch('/api/admin/dispatch/inbound');
     if (!res.ok) return [];
     return (await res.json()).data ?? [];
 }
 
 async function fetchUnits(): Promise<Unit[]> {
-    const res = await fetch('/api/admin/units?segment=builder', { credentials: 'include' });
+    const res = await adminFetch('/api/admin/units?segment=builder');
     if (!res.ok) return [];
     return (await res.json()).data ?? [];
 }
@@ -95,10 +96,8 @@ export default function DayPackAssembler() {
             if (pack.length === 0) throw new Error('Pack is empty');
             const results: any[] = [];
             for (const job of pack) {
-                const res = await fetch('/api/admin/dispatch/manual-route', {
+                const res = await adminFetch('/api/admin/dispatch/manual-route', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
                     body: JSON.stringify({
                         booking_id: job.id,
                         unit_id: selectedUnitId,

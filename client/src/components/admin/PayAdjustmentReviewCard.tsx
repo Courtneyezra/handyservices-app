@@ -15,6 +15,7 @@ import {
     typeMeta,
     type PayAdjustment,
 } from '@/components/contractor/PayAdjustmentCard';
+import { adminFetch } from '@/lib/adminFetch';
 
 const NAVY = '#1B2A4A';
 const NAVY_DEEP = '#152340';
@@ -53,10 +54,8 @@ export default function PayAdjustmentReviewCard({ adjustment }: Props) {
                 approved_pence: Math.round(Number(approveAmount) * 100),
                 note: approveNote.trim() || undefined,
             };
-            const res = await fetch(`/api/admin/pay-adjustments/${adjustment.id}/approve`, {
+            const res = await adminFetch(`/api/admin/pay-adjustments/${adjustment.id}/approve`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
                 body: JSON.stringify(body),
             });
             if (!res.ok) {
@@ -79,10 +78,8 @@ export default function PayAdjustmentReviewCard({ adjustment }: Props) {
             if (!rejectReason.trim()) {
                 throw new Error('Reason required to reject');
             }
-            const res = await fetch(`/api/admin/pay-adjustments/${adjustment.id}/reject`, {
+            const res = await adminFetch(`/api/admin/pay-adjustments/${adjustment.id}/reject`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
                 body: JSON.stringify({ reason: rejectReason.trim() }),
             });
             if (!res.ok) {

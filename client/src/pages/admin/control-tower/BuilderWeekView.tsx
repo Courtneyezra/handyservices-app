@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { adminFetch } from '@/lib/adminFetch';
 
 interface BuilderDay {
     date: string;
@@ -39,7 +40,7 @@ interface BuilderRow {
 }
 
 async function fetchWeek(): Promise<{ data: BuilderRow[]; meta: any }> {
-    const res = await fetch('/api/admin/dispatch/builder-week', { credentials: 'include' });
+    const res = await adminFetch('/api/admin/dispatch/builder-week');
     if (res.status === 503) throw new Error('Control Tower disabled (FF_CONTROL_TOWER=0)');
     if (!res.ok) throw new Error(`Failed to load builder week: ${res.status}`);
     return res.json();

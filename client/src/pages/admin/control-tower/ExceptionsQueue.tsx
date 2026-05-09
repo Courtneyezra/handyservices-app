@@ -11,6 +11,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, AlertTriangle, AlertCircle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { adminFetch } from '@/lib/adminFetch';
 
 interface ExceptionRow {
     id: string;
@@ -47,7 +48,7 @@ const SEVERITY_STYLES: Record<ExceptionRow['severity'], { card: string; icon: an
 async function fetchExceptions(severity: string): Promise<ExceptionRow[]> {
     const params = new URLSearchParams();
     if (severity !== 'all') params.set('severity', severity);
-    const res = await fetch(`/api/admin/dispatch/exceptions?${params}`, { credentials: 'include' });
+    const res = await adminFetch(`/api/admin/dispatch/exceptions?${params}`);
     if (!res.ok) throw new Error(`Failed to load exceptions: ${res.status}`);
     return (await res.json()).data ?? [];
 }

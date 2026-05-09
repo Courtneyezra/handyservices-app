@@ -14,6 +14,7 @@ import { Loader2, ShieldCheck, Filter, RefreshCw } from 'lucide-react';
 import PayAdjustmentReviewCard, {
     type AdminPayAdjustment,
 } from '@/components/admin/PayAdjustmentReviewCard';
+import { adminFetch } from '@/lib/adminFetch';
 
 const NAVY = '#1B2A4A';
 const YELLOW = '#F5A623';
@@ -45,7 +46,10 @@ const TYPE_OPTIONS: { id: TypeFilter; label: string }[] = [
 ];
 
 interface ListResponse {
-    data: AdminPayAdjustment[];
+    /** Server returns `adjustments` (Module 07 admin route). Old shape used `data` — accept both. */
+    adjustments?: AdminPayAdjustment[];
+    data?: AdminPayAdjustment[];
+    count?: number;
     meta?: { total: number; limit: number; offset: number };
 }
 
@@ -60,9 +64,7 @@ async function fetchList(
     if (contractor.trim()) params.set('contractor', contractor.trim());
     params.set('limit', '100');
 
-    const res = await fetch(`/api/admin/pay-adjustments?${params.toString()}`, {
-        credentials: 'include',
-    });
+    const res = await adminFetch(`/api/admin/pay-adjustments?${params.toString()}`);
     if (res.status === 503) {
         throw new Error('Pay-protection module not enabled.');
     }
@@ -70,7 +72,8 @@ async function fetchList(
         throw new Error(`Failed to load (${res.status})`);
     }
     const body: ListResponse | AdminPayAdjustment[] = await res.json();
-    return Array.isArray(body) ? body : body.data ?? [];
+    if (Array.isArray(body)) return body;
+    return body.adjustments ?? body.data ?? [];
 }
 
 export default function PayAdjustmentsAdminPage() {

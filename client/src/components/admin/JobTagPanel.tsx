@@ -173,7 +173,6 @@ export function JobTagPanel({ quoteId, initial, onSaved, suggestedSkills }: Prop
             const token = localStorage.getItem('adminToken');
             const res = await fetch(`/api/admin/quotes/${quoteId}/tags`, {
                 method: 'PUT',
-                credentials: 'include',
                 headers: {
                     'Content-Type': 'application/json',
                     ...(token ? { Authorization: `Bearer ${token}` } : {}),

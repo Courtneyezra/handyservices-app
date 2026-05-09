@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Plus, Search, Loader2, Users, Trash2 } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
+import { adminFetch } from '@/lib/adminFetch';
 import { useToast } from '@/hooks/use-toast';
 import UnitCard, { type Unit } from '@/components/admin/UnitCard';
 import UnitForm from '@/components/admin/UnitForm';
@@ -41,7 +42,7 @@ async function fetchUnits(filter: SegmentFilter, search: string): Promise<Unit[]
         params.set('segment', filter);
     }
     if (search.trim()) params.set('search', search.trim());
-    const res = await fetch(`/api/admin/units?${params.toString()}`, { credentials: 'include' });
+    const res = await adminFetch(`/api/admin/units?${params.toString()}`);
     if (res.status === 503) {
         throw new Error('FF_UNITS_BENCH is OFF — bench endpoints disabled.');
     }

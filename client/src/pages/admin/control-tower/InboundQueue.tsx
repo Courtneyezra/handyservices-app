@@ -21,6 +21,7 @@ import {
 import { Loader2, ExternalLink, Clock, MapPin, Wrench, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { adminFetch } from '@/lib/adminFetch';
 
 interface InboundProfile {
     crew_size: number;
@@ -58,7 +59,7 @@ const STATE_BADGE: Record<string, string> = {
 async function fetchInbound(filters: { ageThresholdMin?: number }): Promise<InboundRow[]> {
     const params = new URLSearchParams();
     if (filters.ageThresholdMin) params.set('age_threshold_min', String(filters.ageThresholdMin));
-    const res = await fetch(`/api/admin/dispatch/inbound?${params}`, { credentials: 'include' });
+    const res = await adminFetch(`/api/admin/dispatch/inbound?${params}`);
     if (res.status === 503) {
         throw new Error('Control Tower disabled (FF_CONTROL_TOWER=0)');
     }
@@ -102,10 +103,8 @@ export default function InboundQueue() {
 
     const manualRoute = useMutation({
         mutationFn: async (payload: { booking_id: string; unit_id: string; reason: string }) => {
-            const res = await fetch('/api/admin/dispatch/manual-route', {
+            const res = await adminFetch('/api/admin/dispatch/manual-route', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
                 body: JSON.stringify({
                     booking_id: payload.booking_id,
                     unit_id: payload.unit_id,
