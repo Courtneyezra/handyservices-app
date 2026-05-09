@@ -33,8 +33,8 @@ const DEFAULT_FLAGS: FeatureFlags = {
     pay_protection: false,
 };
 
-export function useFeatureFlags(): FeatureFlags {
-    const { data } = useQuery<{ data: FeatureFlags }>({
+export function useFeatureFlags(): FeatureFlags & { isReady: boolean } {
+    const { data, isLoading, isFetched } = useQuery<{ data: FeatureFlags }>({
         queryKey: ['feature-flags'],
         queryFn: async () => {
             const res = await fetch('/api/feature-flags');
@@ -43,5 +43,13 @@ export function useFeatureFlags(): FeatureFlags {
         },
         staleTime: 60_000, // 60s per spec
     });
-    return { ...DEFAULT_FLAGS, ...(data?.data ?? {}) };
+    // `isReady` lets route gates avoid the first-render race where data is
+    // undefined and DEFAULT_FLAGS (all false) would trigger an immediate
+    // redirect away from a flag-gated page. Gates should render a loading
+    // skeleton (or null) until isReady=true; only THEN consult the booleans.
+    return {
+        ...DEFAULT_FLAGS,
+        ...(data?.data ?? {}),
+        isReady: isFetched && !isLoading,
+    };
 }

@@ -200,6 +200,11 @@ function LoadingFallback() {
  */
 function UnitsRouteGate() {
     const flags = useFeatureFlags();
+    // Wait for the API to resolve before deciding — otherwise DEFAULT_FLAGS
+    // (all false) on first render races the fetch and bounces to the legacy
+    // view even when the flag is ON. `isReady` is true once React Query has
+    // returned a result (or definitively errored).
+    if (!flags.isReady) return null;
     if (!flags.units_bench) {
         return <Redirect to="/admin/contractors" />;
     }
@@ -213,6 +218,7 @@ function UnitsRouteGate() {
  */
 function ControlTowerRouteGate() {
     const flags = useFeatureFlags();
+    if (!flags.isReady) return null;
     if (!flags.control_tower) {
         return <Redirect to="/admin/dispatch" />;
     }
