@@ -239,10 +239,30 @@ async function loadCandidates(commitment: DayCommitment, unit: EligibleUnit): Pr
         .from(personalizedQuotes)
         .where(eq(personalizedQuotes.bookingState, 'reserved_for_pack'));
 
+    // Auto-book volume test (2026-05-10) found that loadCandidates was returning
+    // quotes ALREADY locked into another offered/proposed pack. Result: the same
+    // 1-2 quotes ended up in 5-6 simultaneous offered packs across different
+    // Builder commits. When one Builder accepts, the other 4-5 packs silently
+    // corrupt. Fix: exclude quotes whose IDs appear in any active pack's
+    // job_ids array. We allow packs in `released` / `cancelled` status to be
+    // re-considered (their quotes return to the candidate pool).
+    const activePacks = await db
+        .select({ jobIds: dayPacks.jobIds })
+        .from(dayPacks)
+        .where(inArray(dayPacks.status, ['proposed', 'offered', 'accepted']));
+    const lockedQuoteIds = new Set<string>();
+    for (const p of activePacks) {
+        if (Array.isArray(p.jobIds)) {
+            for (const id of p.jobIds as string[]) lockedQuoteIds.add(id);
+        }
+    }
+
     const filterUpper = (commitment.areaFilter ?? []).map((a) => a.toUpperCase());
 
     const candidates: CandidateJob[] = [];
     for (const row of rows) {
+        // Skip quotes already in another active pack (see comment above).
+        if (lockedQuoteIds.has(row.id)) continue;
         const profile = computeJobProfileFromRow({
             id: row.id,
             crewSizeRequired: row.crewSizeRequired ?? null,
