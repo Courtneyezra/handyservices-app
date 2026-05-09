@@ -31,11 +31,13 @@ import {
     jobDispatches,
     dispatchCompletions,
     bookingStateLog,
+    payAdjustments,
 } from '../../shared/schema';
 import { and, eq, inArray } from 'drizzle-orm';
 import { FLAGS } from '../feature-flags';
-import { notifyOnTransition } from '../notifications';
-import { recipientsForQuote } from '../notifications/recipients';
+import { dispatchEvent, notifyOnTransition } from '../notifications';
+import { adminRecipient, recipientsForQuote } from '../notifications/recipients';
+import { fileCompletionBonus } from '../pay-protection';
 
 export const dayPackPublicRouter = Router();
 
@@ -342,6 +344,141 @@ async function loadCompletedStops(jobIds: string[]): Promise<number[]> {
 }
 
 // ---------------------------------------------------------------------------
+// maybeFileCompletionBonus — fire fileCompletionBonus exactly once per pack
+// when the last stop completes (ADR-007 all-or-nothing semantics).
+//
+// Idempotency:
+//   1. We re-read dispatchCompletions for the pack's dispatches (fresh count).
+//   2. We re-check materials pickup state (must be collected/skipped or absent).
+//   3. We query pay_adjustments for any existing completion_bonus row tied
+//      to this pack — bail if one already exists.
+//   4. We transition day_packs.status from 'accepted' → 'completed' here too
+//      (Wave 5A gap — booking side moves but pack row never did).
+//
+// Returns the inserted adjustment id (or null when not yet eligible / already
+// filed). Caller is responsible for the try/catch wrapper.
+// ---------------------------------------------------------------------------
+
+async function maybeFileCompletionBonus(input: {
+    pack: typeof dayPacks.$inferSelect;
+    jobIds: string[];
+    completedStopNum: number;
+}): Promise<string | null> {
+    const { pack, jobIds } = input;
+
+    // Re-read live state. Don't trust the loaded snapshot — the just-inserted
+    // dispatch_completions row needs to be visible here.
+    const dispatches = await db
+        .select({ id: jobDispatches.id, quoteId: jobDispatches.quoteId })
+        .from(jobDispatches)
+        .where(inArray(jobDispatches.quoteId, jobIds));
+
+    if (dispatches.length === 0) return null;
+
+    const dispatchIds = dispatches.map((d) => d.id);
+
+    const completed = await db
+        .select({ dispatchId: dispatchCompletions.dispatchId })
+        .from(dispatchCompletions)
+        .where(inArray(dispatchCompletions.dispatchId, dispatchIds));
+
+    const completedDispatchIds = new Set(completed.map((c) => c.dispatchId));
+    const allStopsDone = jobIds.length > 0 && completedDispatchIds.size >= jobIds.length;
+    if (!allStopsDone) return null;
+
+    // Materials pickup gate.
+    const [pickup] = await db
+        .select()
+        .from(materialsPickups)
+        .where(eq(materialsPickups.dayPackId, pack.id))
+        .limit(1);
+    const pickupRequired = !!pickup;
+    const pickupOk = !pickupRequired
+        || pickup.status === 'collected'
+        || pickup.status === 'skipped';
+    if (!pickupOk) return null;
+
+    // Idempotency: skip when a completion_bonus row already exists for any
+    // dispatch in this pack. The bonus is per-pack, not per-dispatch — one
+    // row covers all stops.
+    const existingBonus = await db
+        .select({ id: payAdjustments.id })
+        .from(payAdjustments)
+        .where(and(
+            inArray(payAdjustments.dispatchId, dispatchIds),
+            eq(payAdjustments.type, 'completion_bonus'),
+        ))
+        .limit(1);
+    if (existingBonus.length > 0) return null;
+
+    // Bonus amount = 15% of commitment target (mirrors `bonusEarned` /
+    // server/day-pack/index.ts:COMPLETION_BONUS_RATIO).
+    const [commitment] = await db
+        .select()
+        .from(dayCommitments)
+        .where(eq(dayCommitments.id, pack.commitmentId))
+        .limit(1);
+    if (!commitment) return null;
+    const bonusAmountPence = Math.round(commitment.targetPence * 0.15);
+    if (bonusAmountPence <= 0) return null;
+
+    // Pick the first stop's dispatch id as the audit anchor. ADR-007 calls
+    // this out: one row per pack covers all stops.
+    const orderedDispatchByQuoteId = new Map(dispatches.map((d) => [d.quoteId, d.id]));
+    const anchorDispatchId = orderedDispatchByQuoteId.get(jobIds[0]) ?? dispatches[0].id;
+
+    const result = await fileCompletionBonus({
+        dispatchId: anchorDispatchId,
+        contractorId: pack.unitId,
+        totalStops: jobIds.length,
+        completedStopIds: dispatchIds,           // pass dispatchIds — stop ids in ADR semantics
+        carveoutStopIds: [],
+        pickupRequired,
+        pickupDone: pickupOk,
+        bonusAmountPence,
+    });
+
+    if ('skipped' in result) {
+        console.warn(`[pay-protection] completion bonus skipped: ${result.reason}`);
+        return null;
+    }
+
+    // Transition day_packs.status accepted → completed (Wave 5A gap fix).
+    try {
+        await db
+            .update(dayPacks)
+            .set({ status: 'completed', updatedAt: new Date() })
+            .where(and(eq(dayPacks.id, pack.id), eq(dayPacks.status, 'accepted')));
+    } catch (err) {
+        console.warn('[day-pack-public] pack status accepted→completed transition failed:', err);
+    }
+
+    // Module 10 emit: pay_adjustment_filed → admin (review queue). Wave 6
+    // wired the catalogue but no caller fired this event because the
+    // emitter wasn't being called. Now that fileCompletionBonus runs, we
+    // also notify ops. DRY_RUN gate (NOTIFICATIONS_DRY_RUN=1) prevents real
+    // sends in dev.
+    try {
+        await dispatchEvent(
+            'pay_adjustment_filed',
+            [adminRecipient()],
+            {
+                contractorName: pack.unitId,
+                type: 'completion_bonus',
+                jobId: pack.id,
+                amount: bonusAmountPence,
+                dispatchId: anchorDispatchId,
+            },
+            { correlationId: pack.id },
+        );
+    } catch (err) {
+        console.error('[notifications] pay_adjustment_filed emit failed:', err);
+    }
+
+    return result.adjustment.id;
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/day-packs/:packId/public — read envelope.
 // ---------------------------------------------------------------------------
 
@@ -490,6 +627,20 @@ dayPackPublicRouter.post('/:packId/stops/:stopNum/complete', async (req: Request
                 } catch (err) {
                     console.error('[notifications] job_completed emit failed:', err);
                 }
+            }
+
+            // Pay-protection: file the all-or-nothing completion bonus once
+            // the LAST stop in the pack lands. ADR-007 — one bonus per pack,
+            // not per stop. Wrapped in try/catch — bonus persistence must
+            // never block the API response.
+            try {
+                await maybeFileCompletionBonus({
+                    pack,
+                    jobIds,
+                    completedStopNum: stopNum,
+                });
+            } catch (err) {
+                console.error('[pay-protection] completion bonus filing failed:', err);
             }
         }
 
