@@ -174,8 +174,10 @@ describe('assemblePack', () => {
 
     it('rejects candidates that bust the day-window time envelope', async () => {
         // Window 9hrs (540 min) minus 30min margin and travel/setup/cleanup.
-        // First job consumes ~390+27+12+30 = ~459 — fits.
-        // Second pushes total well over the 540-minute envelope.
+        // After the volume-test fix (commit 88b2d81) sortCandidates orders by
+        // £/min density. Both candidates here have the same £120 pay so
+        // density picks the SHORTER one first (240min @ 50p/min beats
+        // 360min @ 33p/min). big2 packs first; big1 then busts the envelope.
         const out = await assemblePack({
             commitment: commitment({ startTime: '08:00', endTime: '17:00' }),
             unit: unit(),
@@ -184,9 +186,9 @@ describe('assemblePack', () => {
                 candidate({ id: 'big2', pay: 12_000, realMinutes: 240 }),
             ],
         });
-        // First fits, second exceeds the envelope.
-        expect(out.pack.jobs.map((j) => j.bookingId)).toEqual(['big1']);
-        const rej = out.rejected.find((r) => r.candidate.bookingId === 'big2');
+        // big2 (higher £/min) packs first; big1 then exceeds the envelope.
+        expect(out.pack.jobs.map((j) => j.bookingId)).toEqual(['big2']);
+        const rej = out.rejected.find((r) => r.candidate.bookingId === 'big1');
         expect(rej?.reason).toBe('time_envelope_exceeded');
     });
 
