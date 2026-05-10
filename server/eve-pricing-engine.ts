@@ -52,6 +52,36 @@ export const FLEX_DISCOUNTS = {
   relaxed:  0.15,
 } as const;
 
+/**
+ * Margin-protection multiplier applied to the EVE base BEFORE the FlexTier
+ * discount.
+ *
+ * Background: under the prior model, every Flex (-10%) or Relax (-15%)
+ * booking made the operator absorb the discount as a margin hit. The fix
+ * inflates the engine's base so Pick-day customers fund the Flex/Relax
+ * discount via a higher anchor price — when a customer picks Flex, the
+ * post-discount price equals what Pick day would have cost yesterday.
+ * Net effect: zero margin hit on Flex (which is the highest-volume tier
+ * per ADR-004 §4 forecast — 50% of bookings); Relax retains a small real
+ * saving (~5%) so it's still a genuine customer incentive.
+ *
+ * Default = 1/0.90 = 1.111… (exact Flex parity).
+ *
+ * Math:
+ *   - Pick day customer pays:  base × 1.111              (~11% more than pre-fix)
+ *   - Flex customer pays:      base × 1.111 × 0.90 = base × 1.00  (== old Pick day)
+ *   - Relax customer pays:     base × 1.111 × 0.85 = base × 0.944 (~5-6% real saving)
+ *
+ * Tunable via env so this can be rolled back (=1.00) or pushed to exact
+ * Relax parity (=1.176) without a code change. Set in `.env.local` /
+ * Railway dashboard.
+ */
+const RAW_MARGIN_MULTIPLIER = Number(process.env.FLEX_TIER_MARGIN_MULTIPLIER);
+export const FLEX_TIER_MARGIN_MULTIPLIER =
+  Number.isFinite(RAW_MARGIN_MULTIPLIER) && RAW_MARGIN_MULTIPLIER >= 1.0
+    ? RAW_MARGIN_MULTIPLIER
+    : 1 / 0.90; // 1.111… — exact Flex parity
+
 export type FlexTier = keyof typeof FLEX_DISCOUNTS;
 
 export const FLEX_WINDOW_DAYS: Record<FlexTier, number> = {
@@ -146,6 +176,12 @@ export function generateEVEPricingQuote(inputs: EVEPricingInputs): EVEPricingRes
   // 4. Floor guardrail: never below reference rate
   const floor = Math.round(REFERENCE_RATE_PENCE * (minutes / 60));
   price = Math.max(price, floor);
+
+  // 4.5 Margin-protection inflation — see FLEX_TIER_MARGIN_MULTIPLIER comment.
+  //     Pick-day customers fund the Flex/Relax discount via a higher anchor
+  //     price. Default 1.10. Inflation happens BEFORE the flex-tier discount
+  //     so Flex customers end up at ~the old Pick-day price.
+  price = Math.round(price * FLEX_TIER_MARGIN_MULTIPLIER);
 
   // 5. Apply flex-tier discount (Module 01) — post-EVE, pre-pretty-rounding.
   //    Skipped entirely when `flexTier` is unset/null (legacy behaviour).
