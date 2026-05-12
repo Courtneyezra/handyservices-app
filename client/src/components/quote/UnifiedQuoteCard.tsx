@@ -394,11 +394,14 @@ export function UnifiedQuoteCard({
   [allowedDates]);
 
   const baseFilteredDates = availableDates.filter(d => {
-    if (!showUrgentPremium && d.isNextDay) return false;
+    // Admin-whitelisted dates win unconditionally — including next-day picks
+    // even when urgent_premium mode is off. They deliberately chose the date,
+    // so we don't gate it behind the auto-calendar's urgent-booking rules.
     if (allowedDateSet) {
       const dateStr = formatDateStr(d.date);
       return allowedDateSet.has(dateStr);
     }
+    if (!showUrgentPremium && d.isNextDay) return false;
     return true;
   });
 
