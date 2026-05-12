@@ -9,6 +9,13 @@ import SidebarLayout from "@/components/layout/SidebarLayout";
 
 // Landing pages - Keep eager for instant load (public-facing, need fast LCP)
 import HandymanLanding from "@/pages/HandymanLanding";
+import HandymanV2 from "@/pages/HandymanV2";
+import BasketV2 from "@/pages/BasketV2";
+import {
+    BookingDateV2,
+    BookingAddressV2,
+    BookingReviewV2,
+} from "@/pages/BookingFlowV2";
 import PropertyManagerLanding from "@/pages/PropertyManagerLanding";
 import BusinessLanding from "@/pages/BusinessLanding";
 import DerbyLanding from "@/pages/DerbyLanding";
@@ -241,6 +248,11 @@ function Router() {
                 <Route path="/landing">
                     <HandymanLanding />
                 </Route>
+                <Route path="/v2" component={HandymanV2} />
+                <Route path="/basket" component={BasketV2} />
+                <Route path="/booking/date" component={BookingDateV2} />
+                <Route path="/booking/address" component={BookingAddressV2} />
+                <Route path="/booking/review" component={BookingReviewV2} />
                 <Route path="/property-managers" component={PropertyManagerLanding} />
                 <Route path="/businesses" component={BusinessLanding} />
                 <Route path="/app" component={ContractorAppLanding} />
