@@ -340,8 +340,23 @@ export function UnifiedQuoteCard({
   // and next-day / weekend fees are correct regardless of viewer timezone.
   const availableDates = useMemo(() => {
     const ukNow = toZonedTime(new Date(), 'Europe/London');
+
+    // Default window is config.maxDaysOut (typically 28 days). The admin's
+    // "Dates tab" pool was expanded to 180 days, so a manually picked date may
+    // fall outside that window — extend the loop so baseFilteredDates doesn't
+    // silently drop it.
+    let maxDaysOut = config.maxDaysOut;
+    if (allowedDates && allowedDates.length > 0) {
+      const furthestAllowed = allowedDates.reduce((max, d) => (d > max ? d : max), '');
+      let probe = maxDaysOut;
+      while (probe < 365 && formatDateStr(addDays(ukNow, probe)) < furthestAllowed) {
+        probe++;
+      }
+      maxDaysOut = probe;
+    }
+
     const dates: { date: Date; label: string; isWeekend: boolean; isNextDay: boolean; fee: number; isBlocked: boolean }[] = [];
-    for (let i = BASE_SCHEDULING_RULES.minDaysOut; i <= config.maxDaysOut; i++) {
+    for (let i = BASE_SCHEDULING_RULES.minDaysOut; i <= maxDaysOut; i++) {
       const date = addDays(ukNow, i);
       if (BASE_SCHEDULING_RULES.sundaysClosed && date.getDay() === 0) continue; // Skip Sundays
 
@@ -370,7 +385,7 @@ export function UnifiedQuoteCard({
       });
     }
     return dates;
-  }, [config, unavailableDates, quoteAvailableDateSet]);
+  }, [config, unavailableDates, quoteAvailableDateSet, allowedDates]);
 
   // When urgent_premium mode is disabled, filter out next-day priority dates
   // When allowedDates is set, restrict calendar to only those VA-specified dates
