@@ -882,7 +882,23 @@ function HeroCarousel() {
                     </div>
 
                     <div className="flex items-end justify-between gap-4 pt-6">
-                        <button className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm transition hover:bg-slate-100">
+                        {/* "Book now" scrolls the user down to the start of
+                          * the service grid (#cat-quick-fix). Same behaviour
+                          * on every slide — the slide is the hook, the grid
+                          * is the conversion surface. CategoryBlock has
+                          * `scroll-mt-24` so the sticky header is respected. */}
+                        <button
+                            type="button"
+                            onClick={() =>
+                                document
+                                    .getElementById("cat-quick-fix")
+                                    ?.scrollIntoView({
+                                        behavior: "smooth",
+                                        block: "start",
+                                    })
+                            }
+                            className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm transition hover:bg-slate-100 active:scale-[0.97]"
+                        >
                             Book now →
                         </button>
 
