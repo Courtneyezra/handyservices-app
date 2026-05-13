@@ -319,6 +319,30 @@ const CATEGORIES: Category[] = [
                 // EVE+10% (£49/hr × 45/60) — 45-min minimum booking.
                 priceCurrent: 37,
                 startsAt: true,
+                longDescription:
+                    "Standard fixings included for plasterboard or masonry walls. Pick the option that matches the number of pieces you need mounted; we'll bring the right wall plugs and a spirit level.",
+                tiers: [
+                    {
+                        id: "mirror-shelf-single",
+                        name: "Single mirror or shelf",
+                        rating: 4.86,
+                        reviewCount: "540 reviews",
+                        // EVE+10% (£49/hr × 45/60) with BUSY_PRO anchor.
+                        priceCurrent: 37,
+                        priceOriginal: 56,
+                        durationMinutes: 45,
+                    },
+                    {
+                        id: "mirror-shelf-pair",
+                        name: "Pair of mirrors or shelves",
+                        rating: 4.81,
+                        reviewCount: "157 reviews",
+                        // EVE+10% (£49/hr × 75/60) with BUSY_PRO anchor.
+                        priceCurrent: 61,
+                        priceOriginal: 93,
+                        durationMinutes: 75,
+                    },
+                ],
                 bullets: [
                     "Wall plugs, screws and brackets included where standard.",
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
@@ -383,6 +407,37 @@ const CATEGORIES: Category[] = [
                 // EVE+10% (£49/hr × 60/60) — 1-hour minimum booking.
                 priceCurrent: 49,
                 startsAt: true,
+                longDescription:
+                    "Roller, Venetian, Roman or vertical — we'll measure, fit and level each window. Pick by window count; brackets and standard fixings included.",
+                tiers: [
+                    {
+                        id: "blinds-1",
+                        name: "1 window",
+                        rating: 4.61,
+                        reviewCount: "68 reviews",
+                        priceCurrent: 49,
+                        priceOriginal: 74,
+                        durationMinutes: 60,
+                    },
+                    {
+                        id: "blinds-2",
+                        name: "2 windows",
+                        rating: 4.58,
+                        reviewCount: "29 reviews",
+                        priceCurrent: 74,
+                        priceOriginal: 111,
+                        durationMinutes: 90,
+                    },
+                    {
+                        id: "blinds-3plus",
+                        name: "3+ windows",
+                        rating: 4.55,
+                        reviewCount: "12 reviews",
+                        priceCurrent: 123,
+                        priceOriginal: 185,
+                        durationMinutes: 150,
+                    },
+                ],
                 bullets: [
                     "Standard brackets and fixings included.",
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
@@ -450,9 +505,68 @@ const CATEGORIES: Category[] = [
                 name: "Bed assembly / installation",
                 rating: 4.71,
                 reviewCount: "262 reviews",
-                // EVE+10% (£49/hr × 60/60) — 1-hour minimum booking.
+                // EVE+10% (£49/hr × 60/60) — Double bed is the most common
+                // pick; tier pricing scales by frame size + complexity.
                 priceCurrent: 49,
                 startsAt: true,
+                longDescription:
+                    "Flat-pack or branded — we'll assemble the frame, slats and headboard, and clear the packaging on the way out. Mattress positioning included where reachable.",
+                tiers: [
+                    {
+                        id: "bed-single",
+                        name: "Single bed",
+                        rating: 4.74,
+                        reviewCount: "92 reviews",
+                        priceCurrent: 37,
+                        priceOriginal: 56,
+                        durationMinutes: 45,
+                    },
+                    {
+                        id: "bed-double",
+                        name: "Double bed",
+                        rating: 4.72,
+                        reviewCount: "110 reviews",
+                        priceCurrent: 49,
+                        priceOriginal: 74,
+                        durationMinutes: 60,
+                    },
+                    {
+                        id: "bed-king",
+                        name: "King-size bed",
+                        rating: 4.69,
+                        reviewCount: "31 reviews",
+                        priceCurrent: 61,
+                        priceOriginal: 93,
+                        durationMinutes: 75,
+                    },
+                    {
+                        id: "bed-superking",
+                        name: "Super-king bed",
+                        rating: 4.66,
+                        reviewCount: "17 reviews",
+                        priceCurrent: 74,
+                        priceOriginal: 111,
+                        durationMinutes: 90,
+                    },
+                    {
+                        id: "bed-ottoman",
+                        name: "Ottoman / storage bed",
+                        rating: 4.62,
+                        reviewCount: "14 reviews",
+                        priceCurrent: 74,
+                        priceOriginal: 111,
+                        durationMinutes: 90,
+                    },
+                    {
+                        id: "bed-bunk",
+                        name: "Bunk bed",
+                        rating: 4.58,
+                        reviewCount: "8 reviews",
+                        priceCurrent: 98,
+                        priceOriginal: 148,
+                        durationMinutes: 120,
+                    },
+                ],
                 bullets: [
                     "Flat-pack or branded — single, double, king or super-king.",
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
@@ -467,12 +581,53 @@ const CATEGORIES: Category[] = [
                 name: "Dining table / chair assembly",
                 rating: 4.8,
                 reviewCount: "93 reviews",
-                // Special: per-item pricing pro-rated from EVE+10% (£49/hr).
-                // Chair ≈ 11 min → £9, table ≈ 23 min → £19. "From" floor = single chair price.
+                // Per-item pricing pro-rated from EVE+10% (£49/hr).
+                // Chair ≈ 12 min → £9, table ≈ 30 min → £25. Tier minimum
+                // anchors the "Starts at" headline price on the card.
                 priceCurrent: 9,
                 startsAt: true,
+                longDescription:
+                    "Flat-pack chairs and tables — we'll assemble, level and tighten everything to spec. Pick the combination that matches what you've got; mix and match by adding multiple tiers if needed.",
+                tiers: [
+                    {
+                        id: "dining-chair-1",
+                        name: "1 chair",
+                        rating: 4.82,
+                        reviewCount: "37 reviews",
+                        priceCurrent: 9,
+                        priceOriginal: 14,
+                        durationMinutes: 12,
+                    },
+                    {
+                        id: "dining-chair-2",
+                        name: "Pair of chairs",
+                        rating: 4.79,
+                        reviewCount: "21 reviews",
+                        priceCurrent: 19,
+                        priceOriginal: 28,
+                        durationMinutes: 24,
+                    },
+                    {
+                        id: "dining-chair-4",
+                        name: "Set of 4 chairs",
+                        rating: 4.77,
+                        reviewCount: "19 reviews",
+                        priceCurrent: 37,
+                        priceOriginal: 56,
+                        durationMinutes: 48,
+                    },
+                    {
+                        id: "dining-table",
+                        name: "Dining table",
+                        rating: 4.81,
+                        reviewCount: "16 reviews",
+                        priceCurrent: 25,
+                        priceOriginal: 37,
+                        durationMinutes: 30,
+                    },
+                ],
                 bullets: [
-                    "Per item — chairs from £9, tables from £19 (pro-rated from our £49/hr base rate).",
+                    "Flat-pack chairs and tables — single items or full sets.",
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
                 ],
                 thumbEmoji: "🪑",
