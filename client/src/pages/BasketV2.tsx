@@ -25,9 +25,12 @@ import {
 import { LandingHeader } from "@/components/LandingHeader";
 import { ALL_SERVICES, CART_STORAGE_KEY } from "./HandymanV2";
 
-/** Pence threshold below which a small-order fee applies. */
-const FREE_THRESHOLD = 58;
-const SMALL_ORDER_FEE = 8;
+/** Subtotal threshold at or above which the visit fee is waived. Below this
+ *  the customer pays a flat callout charge to cover the cost of sending a
+ *  tradesperson; above it the work itself covers the visit. Kept in sync
+ *  with the same constants in BookingFlowV2. */
+const VISIT_FEE_WAIVED_THRESHOLD = 58;
+const VISIT_FEE = 15;
 
 function readCart(): Record<string, number> {
     if (typeof window === "undefined") return {};
@@ -84,9 +87,11 @@ export default function BasketV2() {
             sum + (item.priceOriginal || item.priceCurrent) * item.qty,
         0,
     );
-    const smallOrderFee =
-        subtotal > 0 && subtotal < FREE_THRESHOLD ? SMALL_ORDER_FEE : 0;
-    const total = subtotal + smallOrderFee;
+    const visitFee =
+        subtotal > 0 && subtotal < VISIT_FEE_WAIVED_THRESHOLD
+            ? VISIT_FEE
+            : 0;
+    const total = subtotal + visitFee;
     const itemCount = items.reduce((sum, item) => sum + item.qty, 0);
 
     // Empty state
@@ -228,16 +233,16 @@ export default function BasketV2() {
                             <span className="text-slate-600">Subtotal</span>
                             <span className="font-medium">£{subtotal}</span>
                         </div>
-                        {smallOrderFee > 0 && (
+                        {visitFee > 0 && (
                             <div className="flex justify-between text-amber-700">
                                 <span className="flex items-center gap-1.5">
-                                    Small-order fee
+                                    Visit fee
                                     <span className="text-xs font-normal text-slate-500">
-                                        (orders under £{FREE_THRESHOLD})
+                                        (waived above £{VISIT_FEE_WAIVED_THRESHOLD})
                                     </span>
                                 </span>
                                 <span className="font-medium">
-                                    £{smallOrderFee}
+                                    £{visitFee}
                                 </span>
                             </div>
                         )}

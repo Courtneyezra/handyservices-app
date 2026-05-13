@@ -860,9 +860,9 @@ function Field({
 // Step 4 of 4 — REAL review, payment picker, confirm
 // ---------------------------------------------------------------------------
 
-/** Same thresholds as BasketV2 — keep in sync if the small-order fee moves. */
-const REVIEW_FREE_THRESHOLD = 58;
-const REVIEW_SMALL_ORDER_FEE = 8;
+/** Same thresholds as BasketV2 — keep in sync if the visit fee moves. */
+const REVIEW_VISIT_FEE_WAIVED_THRESHOLD = 58;
+const REVIEW_VISIT_FEE = 15;
 
 type PaymentMethod = "pay-on-completion" | "card" | "klarna";
 
@@ -943,9 +943,9 @@ export function BookingReviewV2() {
         (sum, item) => sum + item.priceCurrent * item.qty,
         0,
     );
-    const smallOrderFee =
-        subtotal > 0 && subtotal < REVIEW_FREE_THRESHOLD
-            ? REVIEW_SMALL_ORDER_FEE
+    const visitFee =
+        subtotal > 0 && subtotal < REVIEW_VISIT_FEE_WAIVED_THRESHOLD
+            ? REVIEW_VISIT_FEE
             : 0;
 
     const isWeekend = booking.date
@@ -957,7 +957,7 @@ export function BookingReviewV2() {
     const eveningSurcharge = slot?.surcharge ?? 0;
 
     const total =
-        subtotal + smallOrderFee + weekendSurcharge + eveningSurcharge;
+        subtotal + visitFee + weekendSurcharge + eveningSurcharge;
 
     // Klarna minimum is typically £30 in the UK; show it only when applicable.
     const klarnaAvailable = total >= 30;
@@ -1166,11 +1166,11 @@ export function BookingReviewV2() {
                             <span className="text-slate-600">Subtotal</span>
                             <span className="font-medium">£{subtotal}</span>
                         </div>
-                        {smallOrderFee > 0 && (
+                        {visitFee > 0 && (
                             <div className="flex justify-between text-amber-700">
-                                <span>Small-order fee</span>
+                                <span>Visit fee</span>
                                 <span className="font-medium">
-                                    £{smallOrderFee}
+                                    £{visitFee}
                                 </span>
                             </div>
                         )}

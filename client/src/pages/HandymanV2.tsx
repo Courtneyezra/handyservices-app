@@ -1506,9 +1506,9 @@ const MOBILE_PROMOS: {
     subtitle: string;
 }[] = [
     {
-        id: "small-order",
+        id: "visit-fee",
         Icon: Percent,
-        title: "Small-order fee waived",
+        title: "Visit fee waived",
         subtitle: "On bookings above £58",
     },
     {
