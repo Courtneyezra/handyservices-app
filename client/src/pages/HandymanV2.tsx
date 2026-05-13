@@ -382,13 +382,43 @@ const CATEGORIES: Category[] = [
         services: [
             {
                 id: "curtain-rod",
-                name: "Curtain rod installation (2 brackets)",
+                name: "Curtain rod installation",
                 rating: 4.75,
                 reviewCount: "1K reviews",
-                // EVE+10% (£49/hr × 45/60) with BUSY_PRO anchor (£74/hr × 45/60).
+                // EVE+10% (£49/hr × 45/60) — floor price = single-rod tier.
                 priceCurrent: 37,
-                priceOriginal: 56,
-                durationMinutes: 45,
+                startsAt: true,
+                longDescription:
+                    "Single window, multiple windows or a bay setup — we level the bracket positions, fix to plasterboard or masonry, and hang the rod. Brackets and standard fixings supplied; specialist parts billed at trade rates.",
+                tiers: [
+                    {
+                        id: "curtain-rod-1",
+                        name: "1 curtain rod (2 brackets)",
+                        rating: 4.77,
+                        reviewCount: "640 reviews",
+                        priceCurrent: 37,
+                        priceOriginal: 56,
+                        durationMinutes: 45,
+                    },
+                    {
+                        id: "curtain-rod-2",
+                        name: "2 curtain rods (4 brackets)",
+                        rating: 4.73,
+                        reviewCount: "290 reviews",
+                        priceCurrent: 61,
+                        priceOriginal: 93,
+                        durationMinutes: 75,
+                    },
+                    {
+                        id: "curtain-rod-bay",
+                        name: "Bay window setup",
+                        rating: 4.68,
+                        reviewCount: "82 reviews",
+                        priceCurrent: 74,
+                        priceOriginal: 111,
+                        durationMinutes: 90,
+                    },
+                ],
                 bullets: [
                     "Brackets and standard fixings supplied; specialist parts billed at trade rates.",
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
@@ -398,6 +428,7 @@ const CATEGORIES: Category[] = [
                 thumbBg: "from-teal-100 to-teal-200",
                 // No curtain-rod brand photo in /assets yet — emoji tile is
                 // preferred over a misleading stand-in.
+                optionsCount: 3,
             },
             {
                 id: "blinds-fitting",
