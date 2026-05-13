@@ -264,10 +264,11 @@ const CATEGORIES: Category[] = [
                 name: "Drill & hang",
                 rating: 4.84,
                 reviewCount: "3K reviews",
-                // EVE+10% (£49/hr × 45/60) with BUSY_PRO anchor (£74/hr × 45/60).
-                priceCurrent: 37,
-                priceOriginal: 56,
-                durationMinutes: 45,
+                // Floor tier (up to 5 holes) anchors the "Starts at" headline.
+                // Price + duration are per-tier, so they live on each tier
+                // entry below instead of the parent.
+                priceCurrent: 20,
+                startsAt: true,
                 // No drilling-specific brand photo in /assets yet — the
                 // shelf-install shot (c2f4951d) is reserved for mirror-shelf so
                 // we don't duplicate it on this neighbouring card.
@@ -309,7 +310,7 @@ const CATEGORIES: Category[] = [
                 thumbEmoji: "🔩",
                 thumbIcon: Drill,
                 thumbBg: "from-slate-100 to-slate-200",
-                optionsCount: 2,
+                optionsCount: 3,
             },
             {
                 id: "mirror-shelf",
@@ -360,9 +361,33 @@ const CATEGORIES: Category[] = [
                 name: "Fairy lights installation",
                 rating: 4.61,
                 reviewCount: "65 reviews",
-                // EVE+10% (£49/hr × 50/60) — 50-min job.
-                priceCurrent: 41,
+                // Floor tier (indoor run) anchors the "Starts at £25" headline.
+                priceCurrent: 25,
                 startsAt: true,
+                longDescription:
+                    "Window frames, mantelpieces, banisters, eaves, garden trees — we route the run, fix it neatly and hide cables where we can. Bring your own lights or we'll supply at trade rates.",
+                tiers: [
+                    {
+                        id: "fairy-lights-indoor",
+                        name: "Indoor run (up to 25 m)",
+                        rating: 4.65,
+                        reviewCount: "44 reviews",
+                        // EVE+10% (£49/hr × 30/60) with BUSY_PRO anchor.
+                        priceCurrent: 25,
+                        priceOriginal: 37,
+                        durationMinutes: 30,
+                    },
+                    {
+                        id: "fairy-lights-outdoor",
+                        name: "Outdoor run (up to 50 m)",
+                        rating: 4.57,
+                        reviewCount: "21 reviews",
+                        // EVE+10% (£49/hr × 50/60) — longer run, weather-safe fixings.
+                        priceCurrent: 41,
+                        priceOriginal: 62,
+                        durationMinutes: 50,
+                    },
+                ],
                 bullets: [
                     "Up to 50 metres of lights covered — bring your own or we can supply.",
                     "Outdoor-safe fixings used on exterior runs.",
