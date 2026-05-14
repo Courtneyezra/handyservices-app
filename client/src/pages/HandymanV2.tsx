@@ -831,14 +831,24 @@ export default function HandymanV2() {
     const [openServiceId, setOpenServiceId] = useState<string | null>(null);
 
     // Increments each time addToCart fires — used as a `key` on the cart
-    // total span so it remounts and replays the `animate-cart-bump`
-    // keyframe (defined in tailwind.config.ts), giving the user a clear
-    // visual confirmation that the item landed in the basket.
+    // total span and the bar wrapper so each one remounts and replays its
+    // one-shot animation (cart-bump on the total, cart-add-pulse on the
+    // bar). Provides clear feedback that the item landed in the basket.
     const [bumpTick, setBumpTick] = useState(0);
+    // Tracks the most recently added service id so its ADD button can
+    // render the rotating success ring overlay. Cleared after the 900ms
+    // ring animation finishes so the ring doesn't linger.
+    const [justAddedId, setJustAddedId] = useState<string | null>(null);
 
     const addToCart = (id: string) => {
         setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
         setBumpTick((t) => t + 1);
+        setJustAddedId(id);
+        // Match the success-ring animation duration (900ms) + a small buffer
+        // so the ring fully fades before we unmount the overlay.
+        window.setTimeout(() => {
+            setJustAddedId((prev) => (prev === id ? null : prev));
+        }, 950);
     };
 
     const decrementFromCart = (id: string) =>
@@ -919,6 +929,7 @@ export default function HandymanV2() {
                                 onAdd={addToCart}
                                 onDecrement={decrementFromCart}
                                 onOpenDetails={setOpenServiceId}
+                                justAddedId={justAddedId}
                             />
                         ))}
                     </section>
@@ -953,9 +964,12 @@ export default function HandymanV2() {
                 cartHasItems={cartItems.length > 0}
             />
 
-            {/* Mobile sticky cart bar — always mounted, slides up/down via
-              * `translate-y` so the first add animates in (was an abrupt pop
-              * before) and emptying the cart slides it out smoothly. */}
+            {/* Mobile sticky cart bar — always mounted; the outer wrapper
+              * slides up/down on `cartItems.length > 0` (first-item entrance
+              * + last-item exit), and an inner div remounts on every add via
+              * `key={bumpTick}` to replay the `cart-add-pulse` animation so
+              * subsequent adds get the same clear "added!" feedback even
+              * though the bar is already visible. */}
             <div
                 aria-hidden={cartItems.length === 0}
                 className={`fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white px-4 py-3 shadow-lg transition-transform duration-300 ease-out lg:hidden ${
@@ -964,15 +978,17 @@ export default function HandymanV2() {
                         : "pointer-events-none translate-y-full"
                 }`}
             >
-                <div className="flex items-center justify-between">
+                <div
+                    key={bumpTick}
+                    className="flex items-center justify-between animate-cart-add-pulse origin-bottom"
+                >
                     <div>
                         <div className="text-xs text-slate-500">
                             {cartItems.length} item{cartItems.length === 1 ? "" : "s"}
                         </div>
-                        {/* Total wrapped in a key-remounted span so each add
-                          * replays the `cart-bump` keyframe (380ms scale + back
-                          * with a slight overshoot). Provides clear feedback
-                          * that the tap actually did something. */}
+                        {/* Cart total also gets its own bump (slightly bigger
+                          * scale) on top of the bar-wide pulse — emphasises
+                          * the value that just changed. */}
                         <div className="font-semibold">
                             <span
                                 key={bumpTick}
@@ -1612,6 +1628,7 @@ function CategoryBlock({
     onAdd,
     onDecrement,
     onOpenDetails,
+    justAddedId,
 }: {
     category: Category;
     index: number;
@@ -1619,6 +1636,9 @@ function CategoryBlock({
     onAdd: (id: string) => void;
     onDecrement: (id: string) => void;
     onOpenDetails: (id: string) => void;
+    /** Service id that was most recently added — surfaces the success-ring
+     *  overlay on the matching card's ADD button. */
+    justAddedId: string | null;
 }) {
     const isFirst = index === 0;
     return (
@@ -1653,6 +1673,7 @@ function CategoryBlock({
                         onAdd={() => onAdd(svc.id)}
                         onDecrement={() => onDecrement(svc.id)}
                         onOpenDetails={() => onOpenDetails(svc.id)}
+                        showSuccessRing={justAddedId === svc.id}
                     />
                 ))}
             </div>
@@ -2179,12 +2200,16 @@ function ServiceCard({
     onAdd,
     onDecrement,
     onOpenDetails,
+    showSuccessRing,
 }: {
     service: Service;
     qty: number;
     onAdd: () => void;
     onDecrement: () => void;
     onOpenDetails: () => void;
+    /** When true, render the emerald success-ring SVG overlay over the
+     *  ADD button. Parent unmounts after the 900ms ring animation. */
+    showSuccessRing?: boolean;
 }) {
     return (
         <article className="flex gap-4 border-b border-slate-100 pb-6">
@@ -2292,40 +2317,82 @@ function ServiceCard({
                     </div>
                 )}
 
-                {qty === 0 ? (
-                    <button
-                        type="button"
-                        onClick={
-                            service.tiers && service.tiers.length > 0
-                                ? onOpenDetails
-                                : onAdd
-                        }
-                        className="group inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-400 px-3 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-900 shadow-md ring-1 ring-amber-500/30 transition hover:bg-amber-500 hover:shadow-lg active:scale-[0.97]"
-                    >
-                        <Plus className="h-4 w-4 transition-transform group-hover:rotate-90" />
-                        Add
-                    </button>
-                ) : (
-                    <div className="flex w-full items-center justify-between rounded-lg bg-amber-400 px-2 py-1.5 shadow-md ring-1 ring-amber-500/30">
+                {/* ADD button / qty stepper, with a slow rotating success-ring
+                  * overlay that fires for ~900ms when this card's item is
+                  * added to the basket. Wrapped in `relative` so the SVG can
+                  * absolute-position itself centred over whichever control is
+                  * currently rendered. */}
+                <div className="relative w-full">
+                    {qty === 0 ? (
                         <button
-                            onClick={onDecrement}
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-slate-900 transition hover:bg-amber-500"
-                            aria-label="Decrease quantity"
+                            type="button"
+                            onClick={
+                                service.tiers && service.tiers.length > 0
+                                    ? onOpenDetails
+                                    : onAdd
+                            }
+                            className="group inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-400 px-3 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-900 shadow-md ring-1 ring-amber-500/30 transition hover:bg-amber-500 hover:shadow-lg active:scale-[0.97]"
                         >
-                            <Minus className="h-3.5 w-3.5" />
+                            <Plus className="h-4 w-4 transition-transform group-hover:rotate-90" />
+                            Add
                         </button>
-                        <span className="text-sm font-bold text-slate-900">
-                            {qty}
-                        </span>
-                        <button
-                            onClick={onAdd}
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-slate-900 transition hover:bg-amber-500"
-                            aria-label="Increase quantity"
+                    ) : (
+                        <div className="flex w-full items-center justify-between rounded-lg bg-amber-400 px-2 py-1.5 shadow-md ring-1 ring-amber-500/30">
+                            <button
+                                onClick={onDecrement}
+                                className="flex h-6 w-6 items-center justify-center rounded-md text-slate-900 transition hover:bg-amber-500"
+                                aria-label="Decrease quantity"
+                            >
+                                <Minus className="h-3.5 w-3.5" />
+                            </button>
+                            <span className="text-sm font-bold text-slate-900">
+                                {qty}
+                            </span>
+                            <button
+                                onClick={onAdd}
+                                className="flex h-6 w-6 items-center justify-center rounded-md text-slate-900 transition hover:bg-amber-500"
+                                aria-label="Increase quantity"
+                            >
+                                <Plus className="h-3.5 w-3.5" />
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Rotating success ring — emerald-600 stroke that draws
+                      * itself around a circle centred over the button. The
+                      * circle uses `pathLength="100"` so the dasharray /
+                      * dashoffset values don't depend on the actual radius,
+                      * and the `animate-success-ring` keyframe handles the
+                      * 900ms draw + final fade-out. `rotate(-90 32 32)` starts
+                      * the stroke from 12 o'clock instead of 3 o'clock. */}
+                    {showSuccessRing && (
+                        <div
+                            aria-hidden
+                            className="pointer-events-none absolute inset-0 flex items-center justify-center"
                         >
-                            <Plus className="h-3.5 w-3.5" />
-                        </button>
-                    </div>
-                )}
+                            <svg
+                                width="64"
+                                height="64"
+                                viewBox="0 0 64 64"
+                            >
+                                <circle
+                                    cx="32"
+                                    cy="32"
+                                    r="26"
+                                    fill="none"
+                                    stroke="rgb(5 150 105)"
+                                    strokeWidth="4"
+                                    strokeLinecap="round"
+                                    pathLength="100"
+                                    strokeDasharray="100"
+                                    strokeDashoffset="100"
+                                    transform="rotate(-90 32 32)"
+                                    className="animate-success-ring"
+                                />
+                            </svg>
+                        </div>
+                    )}
+                </div>
 
                 {service.optionsCount && (
                     <span className="text-xs text-slate-500">

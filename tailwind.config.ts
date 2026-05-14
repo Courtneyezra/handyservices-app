@@ -77,19 +77,36 @@ export default {
                 sans: ["Poppins", "sans-serif"],
                 jakarta: ["Plus Jakarta Sans", "Poppins", "sans-serif"],
             },
-            // One-shot animations used by the V2 booking flow:
-            //   `cart-bump` — scale-up + back, triggered each time an item is
-            //     added to the basket (used on the cart-total in the sticky
-            //     bottom bar via a key-based remount).
+            // One-shot animations used by the V2 booking flow. Each is
+            // applied as a Tailwind utility (animate-*) and trigger-replayed
+            // via a key-based remount on the target element.
+            //   `cart-bump`       — cart-total scale on every add (450ms)
+            //   `cart-add-pulse`  — whole bar scales slightly on every add (320ms)
+            //   `success-ring`    — SVG stroke draws around the ADD button
+            //                       perimeter as success feedback (900ms slow)
             keyframes: {
                 "cart-bump": {
                     "0%": { transform: "scale(1)" },
-                    "30%": { transform: "scale(1.18)" },
+                    "30%": { transform: "scale(1.20)" },
                     "100%": { transform: "scale(1)" },
+                },
+                "cart-add-pulse": {
+                    "0%": { transform: "scale(1)" },
+                    "22%": { transform: "scale(1.025)" },
+                    "100%": { transform: "scale(1)" },
+                },
+                "success-ring": {
+                    // Paired with `pathLength="100"` on the SVG circle so the
+                    // animation works at any radius without hand-tuning.
+                    "0%":   { strokeDashoffset: "100", opacity: "1" },
+                    "70%":  { strokeDashoffset: "0",   opacity: "1" },
+                    "100%": { strokeDashoffset: "0",   opacity: "0" },
                 },
             },
             animation: {
-                "cart-bump": "cart-bump 380ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+                "cart-bump": "cart-bump 450ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+                "cart-add-pulse": "cart-add-pulse 320ms ease-out",
+                "success-ring": "success-ring 900ms ease-out forwards",
             },
         },
     },
