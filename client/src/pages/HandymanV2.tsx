@@ -1711,19 +1711,13 @@ function VariantPicker({
 }
 
 function HandyPromiseSection() {
+    // Compact two-up "promise" pills. Subtitles were dropped — the titles
+    // themselves carry the full meaning ("30-day workmanship guarantee" /
+    // "Free 7-day callback"), and the modal already has a lot of content
+    // below (Overview, What's included, What's not included).
     const items = [
-        {
-            Icon: ShieldCheck,
-            title: "30-day workmanship guarantee",
-            subtitle:
-                "Not happy with the work? We come back free, no quibbles, within 30 days.",
-        },
-        {
-            Icon: Sparkles,
-            title: "Free callback",
-            subtitle:
-                "Spot something we missed? We return within 7 days at no extra cost.",
-        },
+        { Icon: ShieldCheck, title: "30-day workmanship guarantee" },
+        { Icon: Sparkles, title: "Free 7-day callback" },
     ];
     return (
         <section className="mb-8">
@@ -1734,16 +1728,13 @@ function HandyPromiseSection() {
                 {items.map((i) => (
                     <div
                         key={i.title}
-                        className="rounded-xl border border-slate-100 bg-slate-50 p-4"
+                        className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3"
                     >
-                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-amber-500 shadow-sm">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-amber-500 shadow-sm">
                             <i.Icon className="h-5 w-5" />
                         </div>
-                        <p className="mt-3 text-sm font-semibold text-slate-900">
+                        <p className="text-sm font-semibold leading-tight text-slate-900">
                             {i.title}
-                        </p>
-                        <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                            {i.subtitle}
                         </p>
                     </div>
                 ))}
