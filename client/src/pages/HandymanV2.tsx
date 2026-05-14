@@ -56,6 +56,7 @@ import { HandLogo } from "@/components/LandingShared";
 
 // Brand asset images (real Handy Services photography from existing landing)
 import slideShelf from "@assets/c2f4951d-baa5-4a9f-8b4e-233fa5fcb49c_1764687156908.webp";
+import skuWallInstall from "@assets/528c52d4-f8ff-4e5b-9853-b68263a62c2f_1764694548068.webp";
 import slideAfter from "@assets/cb5e8951-9d46-4023-9909-510a89d3da60_1764693845208.webp";
 import slideHero from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
 import slidePayIn3 from "@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.webp";
@@ -181,6 +182,7 @@ const CATEGORIES: Category[] = [
                 // the SKU thumbnail visually echoes its category pill.
                 thumbText: { primary: "30", secondary: "MINS" },
                 thumbBg: "from-emerald-100 to-emerald-200",
+                modalImage: promoHandyman,
             },
         ],
     },
@@ -255,6 +257,7 @@ const CATEGORIES: Category[] = [
                 // the SKU thumbnail visually echoes its category pill.
                 thumbText: { primary: "60", secondary: "MINS" },
                 thumbBg: "from-amber-100 to-orange-200",
+                modalImage: promoHandyman,
                 optionsCount: 5,
             },
         ],
@@ -315,6 +318,9 @@ const CATEGORIES: Category[] = [
                 thumbEmoji: "🔩",
                 thumbIcon: Drill,
                 thumbBg: "from-slate-100 to-slate-200",
+                // Drilling-action brand photo (also the mirror-shelf banner).
+                // Reuse is fine — different modals are never seen side-by-side.
+                modalImage: slideShelf,
                 optionsCount: 3,
             },
             {
@@ -403,6 +409,7 @@ const CATEGORIES: Category[] = [
                 thumbEmoji: "✨",
                 thumbIcon: Sparkles,
                 thumbBg: "from-pink-100 to-rose-200",
+                modalImage: promoHandyman,
                 optionsCount: 2,
                 promoLabel: "SEASONAL SPECIAL",
             },
@@ -459,8 +466,9 @@ const CATEGORIES: Category[] = [
                 thumbEmoji: "🪟",
                 thumbIcon: Blinds,
                 thumbBg: "from-teal-100 to-teal-200",
-                // No curtain-rod brand photo in /assets yet — emoji tile is
-                // preferred over a misleading stand-in.
+                // The drilling-at-window brand photo (skuWallInstall) fits
+                // both curtain-rod and blinds-fitting — same action shot.
+                modalImage: skuWallInstall,
                 optionsCount: 3,
             },
             {
@@ -511,6 +519,9 @@ const CATEGORIES: Category[] = [
                 // consistency with the other service cards.
                 thumbIcon: Blinds,
                 thumbBg: "from-sky-100 to-sky-200",
+                // skuWallInstall (528c52d4) literally depicts a tradesperson
+                // drilling into a window frame for blinds — perfect match.
+                modalImage: skuWallInstall,
                 optionsCount: 3,
             },
         ],
@@ -537,8 +548,9 @@ const CATEGORIES: Category[] = [
                 thumbEmoji: "📺",
                 thumbIcon: Tv,
                 thumbBg: "from-indigo-100 to-violet-200",
-                // No TV-specific brand photo in /assets yet — emoji tile is
-                // preferred over a misleading stand-in.
+                // Generic Handy Services brand photo until a TV-specific
+                // asset lands in /assets.
+                modalImage: promoHandyman,
             },
             {
                 id: "tv-uninstall",
@@ -554,8 +566,9 @@ const CATEGORIES: Category[] = [
                 thumbEmoji: "📺",
                 thumbIcon: Tv,
                 thumbBg: "from-violet-100 to-purple-200",
-                // No TV-specific brand photo in /assets yet — emoji tile is
-                // preferred over a misleading stand-in.
+                // Generic Handy Services brand photo until a TV-specific
+                // asset lands in /assets.
+                modalImage: promoHandyman,
             },
         ],
     },
@@ -638,6 +651,7 @@ const CATEGORIES: Category[] = [
                 thumbEmoji: "🛏️",
                 thumbIcon: Bed,
                 thumbBg: "from-amber-100 to-yellow-200",
+                modalImage: promoHandyman,
                 optionsCount: 6,
             },
             {
@@ -697,6 +711,7 @@ const CATEGORIES: Category[] = [
                 thumbEmoji: "🪑",
                 thumbIcon: Armchair,
                 thumbBg: "from-stone-100 to-stone-200",
+                modalImage: promoHandyman,
                 optionsCount: 4,
             },
             {
@@ -715,6 +730,7 @@ const CATEGORIES: Category[] = [
                 thumbEmoji: "🚪",
                 thumbIcon: DoorOpen,
                 thumbBg: "from-orange-100 to-amber-200",
+                modalImage: promoHandyman,
             },
         ],
     },
@@ -738,6 +754,7 @@ const CATEGORIES: Category[] = [
                 thumbEmoji: "🔐",
                 thumbIcon: KeyRound,
                 thumbBg: "from-zinc-100 to-zinc-200",
+                modalImage: promoHandyman,
             },
         ],
     },
@@ -1630,11 +1647,20 @@ function VariantPicker({
     cart,
     onAdd,
     onDecrement,
+    parentIcon,
+    parentText,
+    parentBg,
 }: {
     tiers: ServiceTier[];
     cart: Record<string, number>;
     onAdd: (id: string) => void;
     onDecrement: (id: string) => void;
+    /** Icon/text/gradient passed down from the parent service so each tier
+     *  card carries the same visual cue as the card on the grid. Both icon
+     *  and text are optional; either renders, fallback is a plain tile. */
+    parentIcon?: LucideIcon;
+    parentText?: { primary: string; secondary: string };
+    parentBg?: string;
 }) {
     return (
         <section className="mb-8">
@@ -1645,11 +1671,43 @@ function VariantPicker({
                 <div className="flex snap-x snap-mandatory gap-3">
                     {tiers.map((tier) => {
                         const qty = cart[tier.id] || 0;
+                        // JSX requires component variables to start with an
+                        // uppercase letter — otherwise `<parentIcon>` is
+                        // parsed as an HTML tag, not a React component.
+                        const ParentIcon = parentIcon;
                         return (
                             <div
                                 key={tier.id}
                                 className="flex w-44 shrink-0 snap-start flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
                             >
+                                {/* Icon / typographic tile mirrors the parent
+                                  * service's card thumbnail so each tier card
+                                  * inherits its visual identity. */}
+                                {(ParentIcon || parentText) && (
+                                    <div
+                                        className={`flex h-14 w-14 items-center justify-center rounded-lg bg-gradient-to-br ${
+                                            parentBg ??
+                                            "from-slate-100 to-slate-200"
+                                        }`}
+                                    >
+                                        {parentText ? (
+                                            <div className="flex flex-col items-center leading-none text-slate-900">
+                                                <span className="text-lg font-extrabold tracking-tight">
+                                                    {parentText.primary}
+                                                </span>
+                                                <span className="mt-0.5 text-[8px] font-bold tracking-wider">
+                                                    {parentText.secondary}
+                                                </span>
+                                            </div>
+                                        ) : ParentIcon ? (
+                                            <ParentIcon
+                                                className="h-6 w-6 text-slate-900"
+                                                strokeWidth={1.75}
+                                                aria-hidden
+                                            />
+                                        ) : null}
+                                    </div>
+                                )}
                                 <div>
                                     <h4 className="text-sm font-semibold leading-tight text-slate-900">
                                         {tier.name}
@@ -2038,6 +2096,9 @@ function ServiceDetailModal({
                             cart={cart}
                             onAdd={onAdd}
                             onDecrement={onDecrement}
+                            parentIcon={service.thumbIcon}
+                            parentText={service.thumbText}
+                            parentBg={service.thumbBg}
                         />
                     )}
 
