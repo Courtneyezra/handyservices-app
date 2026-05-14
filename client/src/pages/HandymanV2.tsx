@@ -830,8 +830,16 @@ export default function HandymanV2() {
     // to cart (more info, more upsell, fewer mis-clicks).
     const [openServiceId, setOpenServiceId] = useState<string | null>(null);
 
-    const addToCart = (id: string) =>
+    // Increments each time addToCart fires — used as a `key` on the cart
+    // total span so it remounts and replays the `animate-cart-bump`
+    // keyframe (defined in tailwind.config.ts), giving the user a clear
+    // visual confirmation that the item landed in the basket.
+    const [bumpTick, setBumpTick] = useState(0);
+
+    const addToCart = (id: string) => {
         setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
+        setBumpTick((t) => t + 1);
+    };
 
     const decrementFromCart = (id: string) =>
         setCart((c) => {
@@ -945,33 +953,49 @@ export default function HandymanV2() {
                 cartHasItems={cartItems.length > 0}
             />
 
-            {/* Mobile sticky cart bar */}
-            {cartItems.length > 0 && (
-                <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white px-4 py-3 shadow-lg lg:hidden">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <div className="text-xs text-slate-500">
-                                {cartItems.length} item{cartItems.length === 1 ? "" : "s"}
-                            </div>
-                            <div className="font-semibold">
-                                £{cartTotal}
-                                {cartOriginalTotal > cartTotal && (
-                                    <span className="ml-2 text-sm font-normal text-slate-400 line-through">
-                                        £{cartOriginalTotal}
-                                    </span>
-                                )}
-                            </div>
+            {/* Mobile sticky cart bar — always mounted, slides up/down via
+              * `translate-y` so the first add animates in (was an abrupt pop
+              * before) and emptying the cart slides it out smoothly. */}
+            <div
+                aria-hidden={cartItems.length === 0}
+                className={`fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white px-4 py-3 shadow-lg transition-transform duration-300 ease-out lg:hidden ${
+                    cartItems.length > 0
+                        ? "translate-y-0"
+                        : "pointer-events-none translate-y-full"
+                }`}
+            >
+                <div className="flex items-center justify-between">
+                    <div>
+                        <div className="text-xs text-slate-500">
+                            {cartItems.length} item{cartItems.length === 1 ? "" : "s"}
                         </div>
-                        <button
-                            type="button"
-                            onClick={() => setLocation("/basket")}
-                            className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
-                        >
-                            View basket
-                        </button>
+                        {/* Total wrapped in a key-remounted span so each add
+                          * replays the `cart-bump` keyframe (380ms scale + back
+                          * with a slight overshoot). Provides clear feedback
+                          * that the tap actually did something. */}
+                        <div className="font-semibold">
+                            <span
+                                key={bumpTick}
+                                className="inline-block animate-cart-bump origin-left"
+                            >
+                                £{cartTotal}
+                            </span>
+                            {cartOriginalTotal > cartTotal && (
+                                <span className="ml-2 text-sm font-normal text-slate-400 line-through">
+                                    £{cartOriginalTotal}
+                                </span>
+                            )}
+                        </div>
                     </div>
+                    <button
+                        type="button"
+                        onClick={() => setLocation("/basket")}
+                        className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+                    >
+                        View basket
+                    </button>
                 </div>
-            )}
+            </div>
 
             {/* Service detail modal — opens when a card's Add or View details
               * is tapped. Same modal shell handles both single-option and

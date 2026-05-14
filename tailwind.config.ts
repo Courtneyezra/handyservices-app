@@ -77,6 +77,20 @@ export default {
                 sans: ["Poppins", "sans-serif"],
                 jakarta: ["Plus Jakarta Sans", "Poppins", "sans-serif"],
             },
+            // One-shot animations used by the V2 booking flow:
+            //   `cart-bump` — scale-up + back, triggered each time an item is
+            //     added to the basket (used on the cart-total in the sticky
+            //     bottom bar via a key-based remount).
+            keyframes: {
+                "cart-bump": {
+                    "0%": { transform: "scale(1)" },
+                    "30%": { transform: "scale(1.18)" },
+                    "100%": { transform: "scale(1)" },
+                },
+            },
+            animation: {
+                "cart-bump": "cart-bump 380ms cubic-bezier(0.34, 1.56, 0.64, 1)",
+            },
         },
     },
     plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
