@@ -109,6 +109,11 @@ export type Service = {
      *  Used on the hourly/30-min SKUs so the thumbnail mirrors its category
      *  pill. */
     thumbText?: { primary: string; secondary: string };
+    /** Hero banner photo shown at the top of the service detail modal,
+     *  above the title. Kept separate from `thumbImage` so the card grid can
+     *  stay icon-only while the modal still gets a rich brand photo where
+     *  one fits. */
+    modalImage?: string;
     optionsCount?: number;
     promoLabel?: string;
     /** When present, "Add" opens the detail modal with a tier-picker as the first
@@ -354,6 +359,9 @@ const CATEGORIES: Category[] = [
                 // — all SKU thumbnails are now icons or typographic tiles.
                 thumbIcon: Frame,
                 thumbBg: "from-blue-100 to-cyan-200",
+                // Brand shelf-install photo (also used as a HeroCarousel slide)
+                // — appears as a banner at the top of the detail modal only.
+                modalImage: slideShelf,
                 optionsCount: 2,
             },
             {
@@ -1910,6 +1918,26 @@ function ServiceDetailModal({
             >
                 {/* Mobile drag handle */}
                 <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-200 lg:hidden" />
+
+                {/* Optional hero banner — only services with a relevant
+                  * brand photo get this. Sits between the drag-handle and the
+                  * title header, so the user sees the visual context before
+                  * reading the service name. `shrink-0` keeps it from being
+                  * compressed when the body content is tall. */}
+                {service.modalImage && (
+                    <div className="relative h-36 w-full shrink-0 overflow-hidden bg-slate-100 lg:h-44">
+                        <img
+                            src={service.modalImage}
+                            alt=""
+                            loading="lazy"
+                            decoding="async"
+                            className="h-full w-full object-cover"
+                        />
+                        {/* Subtle bottom gradient so the white header divider
+                          * feels intentional instead of abrupt. */}
+                        <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-b from-transparent to-white/40" />
+                    </div>
+                )}
 
                 {/* Sticky header */}
                 <header className="shrink-0 border-b border-slate-100 bg-white px-5 py-4 lg:px-7 lg:py-5">
