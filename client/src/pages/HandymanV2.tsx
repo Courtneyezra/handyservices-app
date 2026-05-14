@@ -2359,38 +2359,38 @@ function ServiceCard({
                     )}
 
                     {/* Rotating success ring — emerald-600 stroke that draws
-                      * itself around a circle centred over the button. The
-                      * circle uses `pathLength="100"` so the dasharray /
-                      * dashoffset values don't depend on the actual radius,
-                      * and the `animate-success-ring` keyframe handles the
-                      * 900ms draw + final fade-out. `rotate(-90 32 32)` starts
-                      * the stroke from 12 o'clock instead of 3 o'clock. */}
+                      * itself around the button's rounded-rect perimeter
+                      * (rather than a circle in the middle). Uses a
+                      * normalised 100x40 viewBox with `preserveAspectRatio
+                      * ="none"` so the path stretches to the actual button
+                      * size, and `vector-effect="non-scaling-stroke"` keeps
+                      * the stroke width a uniform 3 CSS px. `pathLength=
+                      * "100"` makes dasharray/dashoffset values constant. */}
                     {showSuccessRing && (
-                        <div
+                        <svg
                             aria-hidden
-                            className="pointer-events-none absolute inset-0 flex items-center justify-center"
+                            className="pointer-events-none absolute inset-0 h-full w-full"
+                            viewBox="0 0 100 40"
+                            preserveAspectRatio="none"
                         >
-                            <svg
-                                width="64"
-                                height="64"
-                                viewBox="0 0 64 64"
-                            >
-                                <circle
-                                    cx="32"
-                                    cy="32"
-                                    r="26"
-                                    fill="none"
-                                    stroke="rgb(5 150 105)"
-                                    strokeWidth="4"
-                                    strokeLinecap="round"
-                                    pathLength="100"
-                                    strokeDasharray="100"
-                                    strokeDashoffset="100"
-                                    transform="rotate(-90 32 32)"
-                                    className="animate-success-ring"
-                                />
-                            </svg>
-                        </div>
+                            <rect
+                                x="1.5"
+                                y="1.5"
+                                width="97"
+                                height="37"
+                                rx="5"
+                                ry="5"
+                                fill="none"
+                                stroke="rgb(5 150 105)"
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                                vectorEffect="non-scaling-stroke"
+                                pathLength="100"
+                                strokeDasharray="100"
+                                strokeDashoffset="100"
+                                className="animate-success-ring"
+                            />
+                        </svg>
                     )}
                 </div>
 
