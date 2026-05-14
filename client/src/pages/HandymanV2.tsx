@@ -1744,22 +1744,13 @@ function HandyPromiseSection() {
 }
 
 function OverviewSection() {
+    // Same compaction pattern as HandyPromiseSection — labels carry the
+    // meaning; descriptive subs were buying more height than they earned
+    // in the already-crowded service detail modal.
     const items = [
-        {
-            Icon: ShieldCheck,
-            label: "DBS-checked team",
-            sub: "Every tradesperson background-checked, rated 4.6★+",
-        },
-        {
-            Icon: Sparkles,
-            label: "£2M public liability",
-            sub: "Cover you can actually call on if something goes wrong",
-        },
-        {
-            Icon: Calendar,
-            label: "Same-week service",
-            sub: "95% of bookings done within 3 working days",
-        },
+        { Icon: ShieldCheck, label: "DBS-checked team" },
+        { Icon: Sparkles, label: "£2M public liability" },
+        { Icon: Calendar, label: "Same-week service" },
     ];
     return (
         <section className="mb-8">
@@ -1768,16 +1759,13 @@ function OverviewSection() {
                 {items.map((i) => (
                     <div
                         key={i.label}
-                        className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-center"
+                        className="flex flex-col items-center justify-center gap-2 rounded-xl border border-slate-100 bg-slate-50 p-3 text-center"
                     >
-                        <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-amber-400/20">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-400/20">
                             <i.Icon className="h-4 w-4 text-slate-900" />
                         </div>
-                        <p className="mt-2 text-xs font-semibold leading-tight text-slate-900">
+                        <p className="text-xs font-semibold leading-tight text-slate-900">
                             {i.label}
-                        </p>
-                        <p className="mt-1 text-[10px] leading-tight text-slate-500">
-                            {i.sub}
                         </p>
                     </div>
                 ))}
