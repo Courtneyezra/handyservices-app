@@ -33,6 +33,10 @@ import beforeImage from "@assets/74cb4082-17d2-48b1-bd98-bf51f85bc7a5_(1)_176469
 import afterImage from "@assets/cb5e8951-9d46-4023-9909-510a89d3da60_1764693845208.webp";
 import payIn3Image from "@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.webp";
 import { useLandingPage } from "@/hooks/useLandingPage";
+import {
+    registerSuperProperties as posthogRegister,
+    trackEvent as posthogTrack,
+} from "@/lib/posthog";
 
 const WHATSAPP_NUMBER = "+447508744402";
 const WHATSAPP_MESSAGE = encodeURIComponent("I'm interested in Handy Services");
@@ -654,6 +658,31 @@ export default function HandymanLanding({
     const [activeSegment, setActiveSegment] = useState<'residential' | 'property-manager' | 'business'>('residential');
     const contentRef = useRef<HTMLDivElement>(null);
 
+    // PostHog split-test instrumentation. `variant` / `city` are registered
+    // as super-properties so every subsequent capture on this page is
+    // tagged for funnel comparison against /v2.
+    const LANDING_VARIANT = "landing" as const;
+    const LANDING_CITY = "nottingham" as const;
+    useEffect(() => {
+        posthogRegister({ variant: LANDING_VARIANT, city: LANDING_CITY });
+        posthogTrack("landing_view", {
+            variant: LANDING_VARIANT,
+            city: LANDING_CITY,
+        });
+    }, []);
+
+    // Wrap the existing `trackConversion` so every CTA click that fires
+    // a conversion also fires the comparable `landing_cta_click` event
+    // PostHog dashboards expect.
+    const trackConversionWithEvent = (source?: string) => {
+        posthogTrack("landing_cta_click", {
+            variant: LANDING_VARIANT,
+            city: LANDING_CITY,
+            source: source || "unknown",
+        });
+        trackConversion(source);
+    };
+
     const handleSegmentChange = (segment: 'residential' | 'property-manager' | 'business') => {
         setActiveSegment(segment);
         // Small timeout to allow state update and render to start, then scroll
@@ -682,7 +711,7 @@ export default function HandymanLanding({
 
     return (
         <div className="min-h-screen bg-slate-50 font-poppins text-slate-900 font-medium">
-            <LandingHeader onConversion={trackConversion} />
+            <LandingHeader onConversion={trackConversionWithEvent} />
 
             {/* Shared Background Container for Hero + Map */}
             <div className="relative bg-slate-900">
@@ -709,7 +738,7 @@ export default function HandymanLanding({
                         mobileCtaText={variant?.content?.mobileCtaText || "Call Now"}
                         desktopCtaText={variant?.content?.desktopCtaText || "Get a Price"}
                         bannerText="⚡️ Fastest growing property services team in {{location}}"
-                        onConversion={trackConversion}
+                        onConversion={trackConversionWithEvent}
                         transparentBg={true}
                     />
 
@@ -749,7 +778,7 @@ export default function HandymanLanding({
                 {activeSegment === 'business' && <BusinessView />}
             </div>
 
-            <StickyCTA isVisible={showSticky} onConversion={trackConversion} />
+            <StickyCTA isVisible={showSticky} onConversion={trackConversionWithEvent} />
         </div>
     );
 }

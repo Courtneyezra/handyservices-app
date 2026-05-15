@@ -24,6 +24,27 @@ import {
 } from "lucide-react";
 import { LandingHeader } from "@/components/LandingHeader";
 import { ALL_SERVICES, CART_STORAGE_KEY } from "./HandymanV2";
+import { trackEvent as posthogTrack } from "@/lib/posthog";
+
+/**
+ * Reads the variant + city the user originally landed on (written into
+ * `handy-v2-booking` by the /v2 page mount). Used to tag every funnel
+ * event in the basket → review steps with the same variant / city so
+ * PostHog can compare conversion rates across split-test variants.
+ */
+function readVariantContext(): { variant: string; city: string } {
+    if (typeof window === "undefined") return { variant: "v2-nottingham", city: "nottingham" };
+    try {
+        const raw = window.localStorage.getItem("handy-v2-booking");
+        const parsed = raw ? JSON.parse(raw) : {};
+        return {
+            variant: parsed.variant || "v2-nottingham",
+            city: parsed.city || "nottingham",
+        };
+    } catch {
+        return { variant: "v2-nottingham", city: "nottingham" };
+    }
+}
 
 /** Subtotal threshold at or above which the visit fee is waived. Below this
  *  the customer pays a flat callout charge to cover the cost of sending a
@@ -45,6 +66,14 @@ function readCart(): Record<string, number> {
 export default function BasketV2() {
     const [, setLocation] = useLocation();
     const [cart, setCart] = useState<Record<string, number>>(readCart);
+    // Persisted variant context so basket → review events stay tagged.
+    const [variantCtx] = useState(readVariantContext);
+
+    // Fire `v2_view_basket` on mount so dashboards can chart the
+    // drop-off rate between cart adds and basket views.
+    useEffect(() => {
+        posthogTrack("v2_view_basket", variantCtx);
+    }, []);
 
     // Mirror updates back to localStorage so /v2 and any future page stay in sync.
     useEffect(() => {
@@ -57,6 +86,11 @@ export default function BasketV2() {
             // Quota or private mode — ignore, the UI still works for this session.
         }
     }, [cart]);
+
+    const continueToDate = () => {
+        posthogTrack("v2_continue_to_date", variantCtx);
+        setLocation("/booking/date");
+    };
 
     const increment = (id: string) =>
         setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
@@ -264,7 +298,7 @@ export default function BasketV2() {
                 {/* Desktop CTA */}
                 <button
                     type="button"
-                    onClick={() => setLocation("/booking/date")}
+                    onClick={continueToDate}
                     className="mt-6 hidden w-full items-center justify-center gap-2 rounded-lg bg-amber-400 px-5 py-3.5 text-sm font-bold uppercase tracking-wide text-slate-900 shadow-md ring-1 ring-amber-500/30 transition hover:bg-amber-500 active:scale-[0.98] lg:flex"
                 >
                     Continue to date &amp; time
@@ -286,7 +320,7 @@ export default function BasketV2() {
                     </div>
                     <button
                         type="button"
-                        onClick={() => setLocation("/booking/date")}
+                        onClick={continueToDate}
                         className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-amber-400 px-4 py-3 text-sm font-bold uppercase tracking-wide text-slate-900 shadow-md ring-1 ring-amber-500/30 transition hover:bg-amber-500"
                     >
                         Continue

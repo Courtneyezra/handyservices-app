@@ -55,6 +55,21 @@ export const trackEvent = (eventName: string, properties?: Record<string, any>) 
     }
 };
 
+/**
+ * Register sticky properties (variant, city, etc.) so every subsequent
+ * `capture` on this page automatically carries them. Used by the /landing,
+ * /derby, /v2 and /v2/derby pages so dashboards can compare funnels apples-
+ * to-apples without each event having to repeat the same tags.
+ */
+export const registerSuperProperties = (properties: Record<string, any>) => {
+    if (import.meta.env.VITE_POSTHOG_API_KEY) {
+        posthog.register(properties);
+    }
+    if (import.meta.env.DEV) {
+        console.log(`[PostHog] register`, properties);
+    }
+};
+
 export const getFeatureFlag = (key: string) => {
     if (import.meta.env.VITE_POSTHOG_API_KEY) {
         return posthog.getFeatureFlag(key);

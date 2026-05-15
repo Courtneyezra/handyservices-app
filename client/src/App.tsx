@@ -248,7 +248,12 @@ function Router() {
                 <Route path="/landing">
                     <HandymanLanding />
                 </Route>
-                <Route path="/v2" component={HandymanV2} />
+                <Route path="/v2">
+                    <HandymanV2 city="nottingham" />
+                </Route>
+                <Route path="/v2/derby">
+                    <HandymanV2 city="derby" />
+                </Route>
                 <Route path="/basket" component={BasketV2} />
                 <Route path="/booking/date" component={BookingDateV2} />
                 <Route path="/booking/address" component={BookingAddressV2} />

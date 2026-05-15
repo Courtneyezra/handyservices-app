@@ -45,6 +45,27 @@ import {
 import { LandingHeader } from "@/components/LandingHeader";
 import { StepIndicator } from "./BasketV2";
 import { ALL_SERVICES, CART_STORAGE_KEY } from "./HandymanV2";
+import { trackEvent as posthogTrack } from "@/lib/posthog";
+
+/**
+ * Read variant + city the customer landed on from the in-progress booking
+ * record. Lets booking-flow events stay tagged with the same variant the
+ * /v2 mount captured so PostHog conversion funnels stay apples-to-apples.
+ */
+function readVariantContext(): { variant: string; city: string } {
+    if (typeof window === "undefined")
+        return { variant: "v2-nottingham", city: "nottingham" };
+    try {
+        const raw = window.localStorage.getItem(BOOKING_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return {
+            variant: parsed.variant || "v2-nottingham",
+            city: parsed.city || "nottingham",
+        };
+    } catch {
+        return { variant: "v2-nottingham", city: "nottingham" };
+    }
+}
 
 /** Where the in-progress booking is persisted across step navigations. */
 export const BOOKING_STORAGE_KEY = "handy-v2-booking";
@@ -210,7 +231,10 @@ export function BookingDateV2() {
             primaryLabel="Continue to address"
             primaryDisabled={!canContinue}
             primaryDisabledHint="Pick a date and a slot to continue"
-            onContinue={() => setLocation("/booking/address")}
+            onContinue={() => {
+                posthogTrack("v2_continue_to_address", readVariantContext());
+                setLocation("/booking/address");
+            }}
         >
             {/* Date strip */}
             <section className="mt-8">
@@ -639,7 +663,10 @@ export function BookingAddressV2() {
             primaryLabel="Continue to review"
             primaryDisabled={!canContinue}
             primaryDisabledHint="Fill in the required fields to continue"
-            onContinue={() => setLocation("/booking/review")}
+            onContinue={() => {
+                posthogTrack("v2_continue_to_review", readVariantContext());
+                setLocation("/booking/review");
+            }}
         >
             <div className="mt-8 space-y-7">
                 {/* Address section */}
@@ -975,6 +1002,11 @@ export function BookingReviewV2() {
             .filter(Boolean)
             .join(", ");
 
+        // Fire `v2_confirm_booking` BEFORE any API write so we can compute
+        // confirm→confirmed funnel drop-off (eg. API failures).
+        const variantCtx = readVariantContext();
+        posthogTrack("v2_confirm_booking", variantCtx);
+
         // Stash a snapshot of the confirmed booking for support reference
         try {
             window.localStorage.setItem(
@@ -1004,6 +1036,15 @@ export function BookingReviewV2() {
         } catch {
             // Storage unavailable — confirmation still shows in-memory.
         }
+
+        // After the storage write succeeds we treat the booking as confirmed
+        // (no real API yet — booking creation lives behind a flag and is
+        // currently localStorage-only). Include the booking_reference so we
+        // can correlate booking events with the eventual server record.
+        posthogTrack("v2_booking_confirmed", {
+            ...variantCtx,
+            booking_reference: reference,
+        });
 
         setConfirmation({ reference, when, address });
         window.scrollTo({ top: 0, behavior: "smooth" });

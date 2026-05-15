@@ -60,8 +60,14 @@ import skuWallInstall from "@assets/528c52d4-f8ff-4e5b-9853-b68263a62c2f_1764694
 import slideAfter from "@assets/cb5e8951-9d46-4023-9909-510a89d3da60_1764693845208.webp";
 import slideHero from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
 import slidePayIn3 from "@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.webp";
-import seoLocalImage from "@assets/4cc2f0fa-125e-412b-9929-4e03a055b760_1764687156909.webp";
 import promoHandyman from "@assets/123d3462-a11d-42b8-9fad-fdb2d6f29b11_1764600237774.webp";
+// City-specific local maps (used in the SEO intro block on /v2 vs /v2/derby)
+import nottinghamMap from "@/assets/nottingham_map.png";
+import derbyMap from "@/assets/derby_map.png";
+import {
+    registerSuperProperties as posthogRegister,
+    trackEvent as posthogTrack,
+} from "@/lib/posthog";
 // Wall-install brand photo, used as a stopgap thumbnail for TV-mount services
 // until a TV-specific brand photo is saved (see TODO at the service entries).
 
@@ -799,8 +805,147 @@ export const ALL_SERVICES: Service[] = CATEGORIES.flatMap((c) => c.services).fla
 /** Where the cart is persisted across navigations to /basket. */
 export const CART_STORAGE_KEY = "handy-v2-cart";
 
-export default function HandymanV2() {
+// ---------------------------------------------------------------------------
+// City content (split-test variants)
+// ---------------------------------------------------------------------------
+//
+// The /v2 (Nottingham) and /v2/derby (Derby) routes share the same booking
+// flow, services, and visual layout — only city-specific copy + map swap.
+// This config keeps the swap one-line-per-string so adding a third city
+// later (e.g. /v2/leicester) is a single block edit.
+//
+// `variant` is also written into the `handy-v2-booking` localStorage object
+// when the basket Continue is pressed, so the variant lands alongside the
+// booking POST and PostHog can attribute conversions correctly.
+
+export type V2City = "nottingham" | "derby";
+export type V2Variant = "v2-nottingham" | "v2-derby";
+
+export type CityContent = {
+    /** Amber span at the end of the hero <h1>: "Handyman <span>{heroSpan}</span>". */
+    heroSpan: string;
+    /** Imported map asset for the SEO intro block. */
+    mapImage: string;
+    /** Alt text describing the map (mentions the city for a11y + SEO). */
+    mapAlt: string;
+    /** Used in the SEO intro paragraph: "Our {seoIntroCity} team is vetted…". */
+    seoIntroCity: string;
+    /** H2 above the SEO intro paragraph. */
+    seoIntroHeadline: string;
+    /** Pill copy overlaid on the local map. */
+    seoMapPill: string;
+    /** Areas listed in the footer "Serving in" accordion. */
+    seoLocations: string[];
+    /** Variant key persisted alongside the booking + sent as a PostHog property. */
+    variant: V2Variant;
+    /** PostHog `city` property. Used as a register() super-property. */
+    city: V2City;
+};
+
+export const CITY_CONTENT: Record<V2City, CityContent> = {
+    nottingham: {
+        heroSpan: "near you",
+        mapImage: nottinghamMap,
+        mapAlt: "Map of Nottingham showing the Handy Services coverage area",
+        seoIntroCity: "Nottingham",
+        seoIntroHeadline: "Handyman near you, Nottingham",
+        seoMapPill: "Serving Nottingham & surrounding areas",
+        // Mirrors the "Serving in" group on /landing.
+        seoLocations: [
+            "Nottingham",
+            "West Bridgford",
+            "Beeston",
+            "Mapperley",
+            "Wollaton",
+            "Long Eaton",
+            "Carlton",
+            "Arnold",
+            "Derby",
+        ],
+        variant: "v2-nottingham",
+        city: "nottingham",
+    },
+    derby: {
+        heroSpan: "in Derby",
+        mapImage: derbyMap,
+        mapAlt: "Map of Derby showing the Handy Services coverage area",
+        seoIntroCity: "Derby",
+        seoIntroHeadline: "Handyman in Derby",
+        seoMapPill: "Serving Derby & surrounding areas",
+        // Common DE-postcode suburbs around Derby + Nottingham kept as a
+        // cross-link so SEO juice flows between the two city pages.
+        seoLocations: [
+            "Derby",
+            "Spondon",
+            "Mickleover",
+            "Littleover",
+            "Allestree",
+            "Chaddesden",
+            "Mackworth",
+            "Oakwood",
+            "Nottingham",
+        ],
+        variant: "v2-derby",
+        city: "derby",
+    },
+};
+
+interface HandymanV2Props {
+    /** Selects the CITY_CONTENT block driving copy + map. Default Nottingham
+     *  for backwards compat with the original /v2 route. A `?city=derby` query
+     *  param on the URL always overrides the prop (so /v2?city=derby works
+     *  for ad-spend split tests without needing a fresh route push). */
+    city?: V2City;
+}
+
+export default function HandymanV2({ city: cityProp = "nottingham" }: HandymanV2Props = {}) {
     const [, setLocation] = useLocation();
+    // Resolve the active city: ?city=derby URL param wins over the prop, so
+    // /v2?city=derby flips to the Derby variant without a route push. Anything
+    // else falls back to the prop.
+    const city: V2City = useMemo(() => {
+        if (typeof window !== "undefined") {
+            const param = new URLSearchParams(window.location.search).get("city");
+            if (param === "derby" || param === "nottingham") return param;
+        }
+        return cityProp;
+    }, [cityProp]);
+    const content = CITY_CONTENT[city];
+
+    // Register variant + city as PostHog super-properties so every subsequent
+    // capture on this page automatically carries them. Also fires the
+    // `landing_view` event once on mount. Re-runs when the city changes so a
+    // ?city= flip stays in sync.
+    useEffect(() => {
+        posthogRegister({ variant: content.variant, city: content.city });
+        posthogTrack("landing_view", {
+            variant: content.variant,
+            city: content.city,
+        });
+    }, [content.variant, content.city]);
+
+    // Stamp the variant onto the in-progress booking record as soon as the
+    // user lands on /v2 (or /v2/derby). Stored alongside the other booking
+    // fields under `handy-v2-booking` so the variant rides along with the
+    // booking POST and downstream analytics can attribute conversions.
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        try {
+            const raw = window.localStorage.getItem("handy-v2-booking");
+            const prev = raw ? JSON.parse(raw) : {};
+            window.localStorage.setItem(
+                "handy-v2-booking",
+                JSON.stringify({
+                    ...prev,
+                    variant: content.variant,
+                    city: content.city,
+                }),
+            );
+        } catch {
+            // Storage unavailable — non-fatal, just skip the stamp.
+        }
+    }, [content.variant, content.city]);
+
     const [cart, setCart] = useState<Record<string, number>>(() => {
         if (typeof window === "undefined") return {};
         try {
@@ -849,6 +994,21 @@ export default function HandymanV2() {
         window.setTimeout(() => {
             setJustAddedId((prev) => (prev === id ? null : prev));
         }, 950);
+
+        // Analytics — fire `v2_add_to_cart` with the looked-up service. The
+        // variant + city are already registered as super-properties at the
+        // page level, but we pass them explicitly too so the event is
+        // self-describing in PostHog's inspector.
+        const svc = ALL_SERVICES.find((s) => s.id === id);
+        if (svc) {
+            posthogTrack("v2_add_to_cart", {
+                variant: content.variant,
+                city: content.city,
+                service_id: svc.id,
+                service_name: svc.name,
+                price: svc.priceCurrent,
+            });
+        }
     };
 
     const decrementFromCart = (id: string) =>
@@ -901,7 +1061,7 @@ export default function HandymanV2() {
                     {/* Mobile DOM order #2 → Hero (title + rating + warranty).
                       * Desktop: col 1 row 1, top-aligned. */}
                     <div className="lg:col-start-1 lg:row-start-1 lg:self-start">
-                        <Hero />
+                        <Hero heroSpan={content.heroSpan} />
                     </div>
 
                     {/* Mobile DOM order #3 → Promo chips + Category nav (sticky on desktop).
@@ -950,10 +1110,10 @@ export default function HandymanV2() {
                     </aside>
                 </div>
 
-                <SeoIntroBlock />
+                <SeoIntroBlock content={content} />
                 <ReviewsGrid />
                 <LongFormSeoSection />
-                <QuickLinksAccordion />
+                <QuickLinksAccordion seoLocations={content.seoLocations} />
             </main>
 
             <PageFooter />
@@ -1208,11 +1368,11 @@ function HeroCarousel() {
 // Hero
 // ---------------------------------------------------------------------------
 
-function Hero() {
+function Hero({ heroSpan }: { heroSpan: string }) {
     return (
         <section className="flex flex-col gap-4">
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">
-                Handyman <span className="whitespace-nowrap text-amber-500">near you</span>
+                Handyman <span className="whitespace-nowrap text-amber-500">{heroSpan}</span>
             </h1>
             <div className="flex items-center gap-2 self-start rounded-full border border-amber-400/40 bg-white px-3 py-1.5 text-slate-900 shadow-sm">
                 <SiGoogle className="h-4 w-4" />
@@ -2581,13 +2741,13 @@ function PromiseCard() {
 // SEO + content blocks
 // ---------------------------------------------------------------------------
 
-function SeoIntroBlock() {
+function SeoIntroBlock({ content }: { content: CityContent }) {
     return (
         <section className="mt-12 grid grid-cols-1 items-center gap-8 border-t border-slate-100 pt-12 md:grid-cols-2 md:gap-12">
-            <div className="relative aspect-square overflow-hidden rounded-2xl md:aspect-[5/4]">
+            <div className="relative aspect-square overflow-hidden rounded-2xl bg-slate-100 md:aspect-[5/4]">
                 <img
-                    src={seoLocalImage}
-                    alt="A Handy Services tradesperson at a customer's home in Nottingham"
+                    src={content.mapImage}
+                    alt={content.mapAlt}
                     loading="lazy"
                     decoding="async"
                     className="h-full w-full object-cover"
@@ -2597,18 +2757,18 @@ function SeoIntroBlock() {
                 {/* Small location pill on the photo */}
                 <div className="absolute bottom-4 left-4 inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-xs font-semibold text-slate-900 shadow-sm">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                    Serving Nottingham &amp; surrounding areas
+                    {content.seoMapPill}
                 </div>
             </div>
             <div>
                 <h2 className="text-3xl font-bold tracking-tight">
-                    Handyman near you, Nottingham
+                    {content.seoIntroHeadline}
                 </h2>
                 <p className="mt-4 text-sm leading-relaxed text-slate-600">
                     Need a local handyman you can trust? Handy is a single
                     platform for small repairs and installations around the home
                     — from drilling and curtain hanging to flat-pack assembly,
-                    smart locks and TV mounting. Our Nottingham team is vetted,
+                    smart locks and TV mounting. Our {content.seoIntroCity} team is vetted,
                     DBS-checked and insured. Every job is fixed-price up front,
                     booked online in under a minute, and backed by our 30-day
                     workmanship warranty.
@@ -2922,12 +3082,18 @@ const QUICK_LINK_GROUPS = [
     },
 ];
 
-function QuickLinksAccordion() {
+function QuickLinksAccordion({ seoLocations }: { seoLocations: string[] }) {
+    // Swap the "Serving in" group's links with the per-city list so the
+    // footer matches the variant the user landed on. Other groups are
+    // city-agnostic and rendered unchanged.
+    const groups = QUICK_LINK_GROUPS.map((g) =>
+        g.id === "serving" ? { ...g, links: seoLocations } : g,
+    );
     return (
         <section className="mt-16 border-t border-slate-100 pt-10">
             <h2 className="mb-4 text-2xl font-bold tracking-tight">Quick Links</h2>
             <Accordion type="multiple" className="max-w-3xl">
-                {QUICK_LINK_GROUPS.map((g) => (
+                {groups.map((g) => (
                     <AccordionItem key={g.id} value={g.id} className="border-b">
                         <AccordionTrigger className="text-base font-semibold">
                             {g.title}
