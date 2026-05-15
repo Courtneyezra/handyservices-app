@@ -2867,3 +2867,37 @@ export const dispatchBonds = pgTable('dispatch_bonds', {
 
 export type DispatchBond = typeof dispatchBonds.$inferSelect;
 export type InsertDispatchBond = typeof dispatchBonds.$inferInsert;
+
+// ─── V2 Bookings ────────────────────────────────────────────────────────────
+// Bookings created from the /v2 BookingFlowV2 funnel (basket → date → address → review).
+// Captures the full snapshot needed to confirm + invoice the job.
+
+export const v2Bookings = pgTable("v2_bookings", {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    reference: text("reference").notNull().unique(),
+    customerFirstName: text("customer_first_name").notNull(),
+    customerLastName: text("customer_last_name").notNull(),
+    customerEmail: text("customer_email").notNull(),
+    customerPhone: text("customer_phone").notNull(),
+    addressLine1: text("address_line_1").notNull(),
+    addressLine2: text("address_line_2"),
+    town: text("town").notNull(),
+    postcode: text("postcode").notNull(),
+    services: jsonb("services").notNull(),
+    slotDate: text("slot_date").notNull(),
+    slotLabel: text("slot_label").notNull(),
+    slotSurcharge: integer("slot_surcharge").notNull().default(0),
+    subtotal: integer("subtotal").notNull(),
+    visitFee: integer("visit_fee").notNull().default(0),
+    weekendSurcharge: integer("weekend_surcharge").notNull().default(0),
+    eveningSurcharge: integer("evening_surcharge").notNull().default(0),
+    total: integer("total").notNull(),
+    variant: text("variant"),
+    status: text("status").notNull().default("pending_payment"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type V2Booking = typeof v2Bookings.$inferSelect;
+export type InsertV2Booking = typeof v2Bookings.$inferInsert;

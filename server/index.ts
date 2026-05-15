@@ -21,6 +21,7 @@ import { createCall, findCallByTwilioSid, updateCall, finalizeCall } from './cal
 import { determineCallRouting, CallRoutingSettings, AgentMode, FallbackAction } from "./call-routing-engine";
 import { shutdownPostHog } from "./posthog";
 import { quotesRouter } from "./quotes";
+import v2BookingsRouter from "./v2-bookings";
 import routeAnalysisRouter from "./route-analysis";
 import extractCallDataRouter from "./extract-call-data";
 import { leadsRouter } from "./leads";
@@ -322,6 +323,7 @@ app.use(extractCallDataRouter);
 // Register Quotes Router (Migrated from V5)
 // app.use(express.static(path.join(__dirname, '../client/dist'))); // REMOVED: Conflicts with Vite Dev Server
 app.use(quotesRouter);
+app.use(v2BookingsRouter);
 app.use(contextualPricingRouter);
 app.use(quoteExtrasCatalogRouter);
 app.use(quoteAnalyticsRouter);

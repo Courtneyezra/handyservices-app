@@ -935,6 +935,8 @@ export function BookingReviewV2() {
         when: string;
         address: string;
     } | null>(null);
+    const [confirming, setConfirming] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     // Guard: bounce back to whichever step is missing
     useEffect(() => {
@@ -989,9 +991,11 @@ export function BookingReviewV2() {
     // Klarna minimum is typically £30 in the UK; show it only when applicable.
     const klarnaAvailable = total >= 30;
 
-    const handleConfirm = () => {
+    const handleConfirm = async () => {
         if (!booking.date || !slot) return;
-        const reference = generateBookingRef();
+        setConfirming(true);
+        setError(null);
+
         const when = `${formatHumanDate(booking.date)} · ${slot.label}`;
         const address = [
             booking.addressLine1,
@@ -1006,6 +1010,56 @@ export function BookingReviewV2() {
         // confirm→confirmed funnel drop-off (eg. API failures).
         const variantCtx = readVariantContext();
         posthogTrack("v2_confirm_booking", variantCtx);
+
+        // Split the single contactName into first/last for the API
+        const nameParts = (booking.contactName ?? "").trim().split(/\s+/);
+        const firstName = nameParts[0] ?? "";
+        const lastName = nameParts.slice(1).join(" ") || firstName;
+
+        let reference: string;
+        try {
+            const res = await fetch("/api/v2/bookings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contact: {
+                        firstName,
+                        lastName,
+                        email: booking.contactEmail ?? "",
+                        phone: booking.contactPhone ?? "",
+                    },
+                    address: {
+                        line1: booking.addressLine1 ?? "",
+                        line2: booking.addressLine2 ?? null,
+                        town: booking.town ?? "",
+                        postcode: booking.postcode ?? "",
+                    },
+                    services: items.map((i) => ({
+                        id: i.id,
+                        name: i.name,
+                        qty: i.qty,
+                        priceCurrent: i.priceCurrent,
+                    })),
+                    slotDate: booking.date,
+                    slotLabel: slot.label,
+                    slotSurcharge: eveningSurcharge,
+                    subtotal,
+                    visitFee,
+                    weekendSurcharge,
+                    eveningSurcharge,
+                    total,
+                    variant: variantCtx.variant ?? null,
+                    notes: booking.accessNotes ?? null,
+                }),
+            });
+            if (!res.ok) throw new Error("api failed");
+            const data = await res.json();
+            reference = data.reference;
+        } catch (e) {
+            setError("Sorry, we couldn't confirm your booking. Please try again.");
+            setConfirming(false);
+            return;
+        }
 
         // Stash a snapshot of the confirmed booking for support reference
         try {
@@ -1047,6 +1101,7 @@ export function BookingReviewV2() {
         });
 
         setConfirmation({ reference, when, address });
+        setConfirming(false);
         window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
@@ -1072,10 +1127,15 @@ export function BookingReviewV2() {
             stepNumber={4}
             title="Review & confirm"
             subtitle="One last look before we lock in your slot."
-            primaryLabel="Confirm booking"
+            primaryLabel={confirming ? "Confirming…" : "Confirm booking"}
             onContinue={handleConfirm}
         >
             <div className="mt-8 space-y-5">
+                {error && (
+                    <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
+                        {error}
+                    </div>
+                )}
                 {/* Date & time card */}
                 <SummaryCard
                     Icon={Calendar}

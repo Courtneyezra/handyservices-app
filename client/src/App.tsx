@@ -74,6 +74,7 @@ const QuotesPage = lazy(() => import("@/pages/admin/QuotesPage"));
 const ExtrasCatalogPage = lazy(() => import("@/pages/admin/ExtrasCatalogPage"));
 const EditQuotePage = lazy(() => import("@/pages/admin/EditQuotePage"));
 const BookingVisitsPage = lazy(() => import("@/pages/admin/BookingVisitsPage"));
+const V2BookingsPage = lazy(() => import("@/pages/admin/V2BookingsPage"));
 const MasterAvailabilityPage = lazy(() => import("@/pages/admin/MasterAvailabilityPage"));
 const ContractorsPage = lazy(() => import("@/pages/admin/ContractorsPage"));
 const ContractorDetailPage = lazy(() => import("@/pages/admin/ContractorDetailPage"));
@@ -816,6 +817,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <LeadsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/v2-bookings">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <V2BookingsPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
