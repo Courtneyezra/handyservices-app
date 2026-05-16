@@ -46,6 +46,13 @@ import { LandingHeader } from "@/components/LandingHeader";
 import { StepIndicator } from "./BasketV2";
 import { ALL_SERVICES, CART_STORAGE_KEY } from "./HandymanV2";
 import { trackEvent as posthogTrack } from "@/lib/posthog";
+import { stripePromise } from "@/lib/stripe";
+import {
+    Elements,
+    PaymentElement,
+    useElements,
+    useStripe,
+} from "@stripe/react-stripe-js";
 
 /**
  * Read variant + city the customer landed on from the in-progress booking
@@ -935,8 +942,28 @@ export function BookingReviewV2() {
         when: string;
         address: string;
     } | null>(null);
-    const [confirming, setConfirming] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    // Payment state machine — drives both the Confirm CTA label and whether
+    // the Stripe Elements payment step is rendered.
+    //   idle              → review screen, Confirm CTA visible
+    //   creating_booking  → POSTing booking + payment-intent
+    //   awaiting_payment  → Stripe Elements rendered, user fills card
+    //   confirming_payment → stripe.confirmPayment in-flight
+    //   confirmed         → payment succeeded, render BookingConfirmation
+    //   error             → transient — surfaced as inline message
+    type PayStep =
+        | "idle"
+        | "creating_booking"
+        | "awaiting_payment"
+        | "confirming_payment"
+        | "confirmed";
+    const [payStep, setPayStep] = useState<PayStep>("idle");
+    const [paymentSession, setPaymentSession] = useState<{
+        clientSecret: string;
+        bookingId: string;
+        reference: string;
+    } | null>(null);
 
     // Guard: bounce back to whichever step is missing
     useEffect(() => {
@@ -991,20 +1018,26 @@ export function BookingReviewV2() {
     // Klarna minimum is typically £30 in the UK; show it only when applicable.
     const klarnaAvailable = total >= 30;
 
+    const when =
+        booking.date && slot
+            ? `${formatHumanDate(booking.date)} · ${slot.label}`
+            : "";
+    const address = [
+        booking.addressLine1,
+        booking.addressLine2,
+        booking.town,
+        booking.postcode,
+    ]
+        .filter(Boolean)
+        .join(", ");
+
+    // Step 1 of the Confirm flow: create the booking row, then create a
+    // Stripe PaymentIntent and switch into the in-page payment step.
     const handleConfirm = async () => {
         if (!booking.date || !slot) return;
-        setConfirming(true);
+        if (payStep === "creating_booking" || payStep === "confirming_payment") return;
         setError(null);
-
-        const when = `${formatHumanDate(booking.date)} · ${slot.label}`;
-        const address = [
-            booking.addressLine1,
-            booking.addressLine2,
-            booking.town,
-            booking.postcode,
-        ]
-            .filter(Boolean)
-            .join(", ");
+        setPayStep("creating_booking");
 
         // Fire `v2_confirm_booking` BEFORE any API write so we can compute
         // confirm→confirmed funnel drop-off (eg. API failures).
@@ -1016,9 +1049,9 @@ export function BookingReviewV2() {
         const firstName = nameParts[0] ?? "";
         const lastName = nameParts.slice(1).join(" ") || firstName;
 
-        let reference: string;
         try {
-            const res = await fetch("/api/v2/bookings", {
+            // 1. Create the booking row (status = pending_payment)
+            const bookingRes = await fetch("/api/v2/bookings", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -1052,24 +1085,58 @@ export function BookingReviewV2() {
                     notes: booking.accessNotes ?? null,
                 }),
             });
-            if (!res.ok) throw new Error("api failed");
-            const data = await res.json();
-            reference = data.reference;
-        } catch (e) {
-            setError("Sorry, we couldn't confirm your booking. Please try again.");
-            setConfirming(false);
-            return;
-        }
+            if (!bookingRes.ok) throw new Error("booking_failed");
+            const bookingData = await bookingRes.json();
 
-        // Stash a snapshot of the confirmed booking for support reference
+            // 2. Create the PaymentIntent for the same booking
+            const intentRes = await fetch(
+                `/api/v2/bookings/${encodeURIComponent(bookingData.id)}/payment-intent`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                },
+            );
+            if (!intentRes.ok) throw new Error("payment_intent_failed");
+            const intentData = await intentRes.json();
+            if (!intentData.clientSecret) throw new Error("missing_client_secret");
+
+            setPaymentSession({
+                clientSecret: intentData.clientSecret,
+                bookingId: bookingData.id,
+                reference: bookingData.reference,
+            });
+            setPayStep("awaiting_payment");
+            // Scroll the payment step into view on mobile
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        } catch (e) {
+            console.error("[v2 payment] confirm failed", e);
+            setError("Sorry, we couldn't start your payment. Please try again.");
+            setPayStep("idle");
+        }
+    };
+
+    // Step 2 of the Confirm flow: Stripe Elements has confirmed the payment.
+    // Fire success analytics, persist the local snapshot, switch to the
+    // confirmation screen. Server webhook handles the booking status update.
+    const handlePaymentSuccess = (paymentIntentId: string) => {
+        if (!paymentSession) return;
+        const variantCtx = readVariantContext();
+
+        posthogTrack("v2_payment_succeeded", {
+            ...variantCtx,
+            booking_reference: paymentSession.reference,
+            total,
+            payment_intent_id: paymentIntentId,
+        });
+
         try {
             window.localStorage.setItem(
                 "handy-v2-confirmed",
                 JSON.stringify({
-                    reference,
+                    reference: paymentSession.reference,
                     when,
                     address,
-                    paymentMethod,
+                    paymentMethod: "card",
                     total,
                     items: items.map((i) => ({
                         id: i.id,
@@ -1083,26 +1150,36 @@ export function BookingReviewV2() {
                     confirmedAt: new Date().toISOString(),
                 }),
             );
-            // Clear the in-progress cart + booking so a refresh doesn't
-            // re-book the same order.
             window.localStorage.removeItem(CART_STORAGE_KEY);
             window.localStorage.removeItem(BOOKING_STORAGE_KEY);
         } catch {
             // Storage unavailable — confirmation still shows in-memory.
         }
 
-        // After the storage write succeeds we treat the booking as confirmed
-        // (no real API yet — booking creation lives behind a flag and is
-        // currently localStorage-only). Include the booking_reference so we
-        // can correlate booking events with the eventual server record.
         posthogTrack("v2_booking_confirmed", {
             ...variantCtx,
-            booking_reference: reference,
+            booking_reference: paymentSession.reference,
         });
 
-        setConfirmation({ reference, when, address });
-        setConfirming(false);
+        setConfirmation({
+            reference: paymentSession.reference,
+            when,
+            address,
+        });
+        setPayStep("confirmed");
         window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    // Hook from inside the inner Stripe payment component back up to this
+    // outer state. We pass it in via props rather than React Context because
+    // the payment step is tightly scoped to this page.
+    const handlePaymentError = (msg: string) => {
+        setError(msg);
+        setPayStep("awaiting_payment");
+    };
+    const handlePaymentStart = () => {
+        setError(null);
+        setPayStep("confirming_payment");
     };
 
     // ─── Success state ──────────────────────────────────────────────────────
@@ -1120,6 +1197,14 @@ export function BookingReviewV2() {
         return null;
     }
 
+    // When the user has clicked Confirm and the PaymentIntent is ready, the
+    // BookingShell CTA is suppressed (the Pay button lives inside the Stripe
+    // payment card). Otherwise the CTA fires `handleConfirm`.
+    const isInPaymentStep =
+        payStep === "awaiting_payment" || payStep === "confirming_payment";
+    const ctaLabel =
+        payStep === "creating_booking" ? "Confirming…" : "Confirm booking";
+
     return (
         <BookingShell
             backTo="/booking/address"
@@ -1127,14 +1212,34 @@ export function BookingReviewV2() {
             stepNumber={4}
             title="Review & confirm"
             subtitle="One last look before we lock in your slot."
-            primaryLabel={confirming ? "Confirming…" : "Confirm booking"}
+            primaryLabel={ctaLabel}
+            primaryDisabled={payStep === "creating_booking" || isInPaymentStep}
             onContinue={handleConfirm}
+            hidePrimary={isInPaymentStep}
         >
             <div className="mt-8 space-y-5">
                 {error && (
                     <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
                         {error}
                     </div>
+                )}
+                {isInPaymentStep && paymentSession && stripePromise && (
+                    <Elements
+                        stripe={stripePromise}
+                        options={{
+                            clientSecret: paymentSession.clientSecret,
+                            appearance: { theme: "stripe" },
+                        }}
+                    >
+                        <StripePaymentStep
+                            total={total}
+                            paymentIntentId={paymentSession.clientSecret.split("_secret_")[0]}
+                            isSubmitting={payStep === "confirming_payment"}
+                            onStart={handlePaymentStart}
+                            onSuccess={handlePaymentSuccess}
+                            onError={handlePaymentError}
+                        />
+                    </Elements>
                 )}
                 {/* Date & time card */}
                 <SummaryCard
@@ -1518,6 +1623,7 @@ function BookingShell({
     primaryDisabledHint,
     onContinue,
     children,
+    hidePrimary,
 }: {
     backTo: string;
     backLabel: string;
@@ -1529,6 +1635,7 @@ function BookingShell({
     primaryDisabledHint?: string;
     onContinue: () => void;
     children: ReactNode;
+    hidePrimary?: boolean;
 }) {
     return (
         <div className="min-h-screen bg-white pb-32 font-sans text-slate-900 lg:pb-16">
@@ -1550,16 +1657,18 @@ function BookingShell({
                 {children}
 
                 {/* Desktop CTA */}
-                <button
-                    type="button"
-                    onClick={onContinue}
-                    disabled={primaryDisabled}
-                    className="mt-8 hidden w-full items-center justify-center gap-2 rounded-lg bg-amber-400 px-5 py-3.5 text-sm font-bold uppercase tracking-wide text-slate-900 shadow-md ring-1 ring-amber-500/30 transition hover:bg-amber-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none disabled:ring-0 lg:flex"
-                >
-                    {primaryLabel}
-                    <ChevronRight className="h-4 w-4" />
-                </button>
-                {primaryDisabled && primaryDisabledHint && (
+                {!hidePrimary && (
+                    <button
+                        type="button"
+                        onClick={onContinue}
+                        disabled={primaryDisabled}
+                        className="mt-8 hidden w-full items-center justify-center gap-2 rounded-lg bg-amber-400 px-5 py-3.5 text-sm font-bold uppercase tracking-wide text-slate-900 shadow-md ring-1 ring-amber-500/30 transition hover:bg-amber-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none disabled:ring-0 lg:flex"
+                    >
+                        {primaryLabel}
+                        <ChevronRight className="h-4 w-4" />
+                    </button>
+                )}
+                {!hidePrimary && primaryDisabled && primaryDisabledHint && (
                     <p className="mt-2 hidden text-center text-xs text-slate-400 lg:block">
                         {primaryDisabledHint}
                     </p>
@@ -1567,22 +1676,24 @@ function BookingShell({
             </main>
 
             {/* Mobile sticky CTA */}
-            <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white px-4 py-3 shadow-lg lg:hidden">
-                <button
-                    type="button"
-                    onClick={onContinue}
-                    disabled={primaryDisabled}
-                    className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-400 px-4 py-3 text-sm font-bold uppercase tracking-wide text-slate-900 shadow-md ring-1 ring-amber-500/30 transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none disabled:ring-0"
-                >
-                    {primaryLabel}
-                    <ChevronRight className="h-4 w-4" />
-                </button>
-                {primaryDisabled && primaryDisabledHint && (
-                    <p className="mt-1.5 text-center text-[11px] text-slate-400">
-                        {primaryDisabledHint}
-                    </p>
-                )}
-            </div>
+            {!hidePrimary && (
+                <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white px-4 py-3 shadow-lg lg:hidden">
+                    <button
+                        type="button"
+                        onClick={onContinue}
+                        disabled={primaryDisabled}
+                        className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-400 px-4 py-3 text-sm font-bold uppercase tracking-wide text-slate-900 shadow-md ring-1 ring-amber-500/30 transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none disabled:ring-0"
+                    >
+                        {primaryLabel}
+                        <ChevronRight className="h-4 w-4" />
+                    </button>
+                    {primaryDisabled && primaryDisabledHint && (
+                        <p className="mt-1.5 text-center text-[11px] text-slate-400">
+                            {primaryDisabledHint}
+                        </p>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -1617,6 +1728,87 @@ function StubPanel({
                     placeholder so we can validate the navigation end-to-end.
                 </p>
             </div>
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Stripe payment step — inner component that lives inside <Elements>.
+// Renders the PaymentElement (cards, Apple Pay, Google Pay) plus a single
+// "Pay £{total} now" button. On success we bubble back up to the parent so
+// it can fire PostHog and switch to the confirmation screen.
+// ---------------------------------------------------------------------------
+
+function StripePaymentStep({
+    total,
+    paymentIntentId,
+    isSubmitting,
+    onStart,
+    onSuccess,
+    onError,
+}: {
+    total: number;
+    paymentIntentId: string;
+    isSubmitting: boolean;
+    onStart: () => void;
+    onSuccess: (paymentIntentId: string) => void;
+    onError: (msg: string) => void;
+}) {
+    const stripe = useStripe();
+    const elements = useElements();
+
+    const handlePay = async () => {
+        if (!stripe || !elements) return;
+        onStart();
+
+        const result = await stripe.confirmPayment({
+            elements,
+            redirect: "if_required",
+        });
+
+        if (result.error) {
+            onError(
+                result.error.message ??
+                    "Payment didn't go through — please check your card and try again.",
+            );
+            return;
+        }
+
+        // No error means either the intent succeeded synchronously, or 3DS
+        // redirected and we're now back. Read the intent id off the result
+        // when available, otherwise fall back to the one we parsed from the
+        // client secret upstream.
+        const piId = result.paymentIntent?.id ?? paymentIntentId;
+        onSuccess(piId);
+    };
+
+    return (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-3 flex items-center gap-1.5 text-sm font-bold uppercase tracking-wider text-slate-500">
+                <CreditCard className="h-3.5 w-3.5" />
+                Pay to lock in your slot
+            </div>
+            <p className="mb-4 text-sm text-slate-600">
+                Full payment of{" "}
+                <span className="font-semibold text-slate-900">£{total}</span>{" "}
+                is taken now. Cards, Apple Pay and Google Pay are all accepted.
+            </p>
+            <PaymentElement options={{ layout: "tabs" }} />
+            <button
+                type="button"
+                onClick={handlePay}
+                disabled={!stripe || isSubmitting}
+                className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-amber-400 px-5 py-3.5 text-sm font-bold uppercase tracking-wide text-slate-900 shadow-md ring-1 ring-amber-500/30 transition hover:bg-amber-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none disabled:ring-0"
+            >
+                {isSubmitting ? (
+                    <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Processing…
+                    </>
+                ) : (
+                    <>Pay £{total} now</>
+                )}
+            </button>
         </div>
     );
 }

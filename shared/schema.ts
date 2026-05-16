@@ -2895,6 +2895,8 @@ export const v2Bookings = pgTable("v2_bookings", {
     variant: text("variant"),
     status: text("status").notNull().default("pending_payment"),
     notes: text("notes"),
+    stripePaymentIntentId: text("stripe_payment_intent_id"),
+    paidAt: timestamp("paid_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

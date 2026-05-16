@@ -266,6 +266,32 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                 const paymentIntent = event.data.object;
                 console.log('[Stripe Webhook] Payment succeeded:', paymentIntent.id);
 
+                // ─── /v2 booking branch ────────────────────────────────────
+                // PaymentIntents originating from the /v2 BookingFlowV2 funnel
+                // carry `metadata.source = "v2"` and a `metadata.bookingId`.
+                // Mark the booking row as paid and short-circuit — these
+                // bookings do NOT have a quoteId/invoiceId so the legacy
+                // branches below would no-op anyway.
+                if (paymentIntent.metadata?.source === 'v2' && paymentIntent.metadata?.bookingId) {
+                    try {
+                        const { v2Bookings } = await import('../shared/schema');
+                        const now = new Date();
+                        await db
+                            .update(v2Bookings)
+                            .set({
+                                status: 'paid',
+                                paidAt: now,
+                                stripePaymentIntentId: paymentIntent.id,
+                                updatedAt: now,
+                            })
+                            .where(eq(v2Bookings.id, paymentIntent.metadata.bookingId));
+                        console.log(`[Stripe Webhook] v2 booking ${paymentIntent.metadata.bookingId} (${paymentIntent.metadata.reference}) marked paid`);
+                    } catch (v2Err) {
+                        console.error('[Stripe Webhook] Failed to mark v2 booking paid:', v2Err);
+                    }
+                    break;
+                }
+
                 const quoteId = paymentIntent.metadata?.quoteId;
                 const depositAmount = parseInt(paymentIntent.metadata?.depositAmount || '0', 10) || paymentIntent.amount;
                 const selectedExtras = paymentIntent.metadata?.selectedExtras?.split(',').filter(Boolean) || [];

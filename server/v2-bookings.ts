@@ -1,9 +1,22 @@
 import { Router, type Request, type Response } from "express";
+import Stripe from "stripe";
 import { db } from "./db";
 import { v2Bookings } from "@shared/schema";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 
 const router = Router();
+
+// Stripe instance — lazy singleton, matches the pattern in stripe-routes.ts so
+// /v2 payments inherit the same secret-key validation logic.
+function getStripe(): Stripe | null {
+    const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || "")
+        .replace(/^["']|["']$/g, "")
+        .trim();
+    if (!stripeSecretKey || !stripeSecretKey.startsWith("sk_")) {
+        return null;
+    }
+    return new Stripe(stripeSecretKey);
+}
 
 function makeRef(): string {
     const year = new Date().getFullYear();
@@ -43,6 +56,62 @@ router.post("/api/v2/bookings", async (req: Request, res: Response) => {
     } catch (e) {
         console.error("v2 booking failed", e);
         res.status(500).json({ error: "booking_failed" });
+    }
+});
+
+// Create a Stripe PaymentIntent for an existing pending_payment booking.
+// Full-amount upfront — no deposit logic. Returns the clientSecret which the
+// client-side Stripe Elements use to confirm the payment.
+router.post("/api/v2/bookings/:id/payment-intent", async (req: Request, res: Response) => {
+    try {
+        const stripe = getStripe();
+        if (!stripe) {
+            console.error("[v2 payment-intent] Stripe not initialised — STRIPE_SECRET_KEY missing or malformed");
+            return res.status(500).json({ error: "stripe_not_configured" });
+        }
+
+        const { id } = req.params;
+        const [row] = await db
+            .select()
+            .from(v2Bookings)
+            .where(eq(v2Bookings.id, id))
+            .limit(1);
+
+        if (!row) {
+            return res.status(404).json({ error: "booking_not_found" });
+        }
+        if (row.status !== "pending_payment") {
+            return res.status(400).json({ error: "booking_not_payable", status: row.status });
+        }
+
+        const amountPence = Math.round(Number(row.total) * 100);
+        if (!Number.isFinite(amountPence) || amountPence <= 0) {
+            return res.status(400).json({ error: "invalid_amount" });
+        }
+
+        const paymentIntent = await stripe.paymentIntents.create({
+            amount: amountPence,
+            currency: "gbp",
+            automatic_payment_methods: { enabled: true },
+            metadata: {
+                bookingId: row.id,
+                reference: row.reference,
+                source: "v2",
+            },
+        });
+
+        await db
+            .update(v2Bookings)
+            .set({ stripePaymentIntentId: paymentIntent.id, updatedAt: new Date() })
+            .where(eq(v2Bookings.id, row.id));
+
+        res.json({
+            clientSecret: paymentIntent.client_secret,
+            paymentIntentId: paymentIntent.id,
+        });
+    } catch (e) {
+        console.error("v2 payment-intent failed", e);
+        res.status(500).json({ error: "payment_intent_failed" });
     }
 });
 
