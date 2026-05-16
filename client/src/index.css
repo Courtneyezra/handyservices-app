@@ -234,3 +234,27 @@
   background-size: contain;
   background-repeat: no-repeat;
 }
+
+/* Respect the user's OS-level prefers-reduced-motion setting. Kills the
+ * V2 feedback animations (success ring, cart bump, slide-ups) and the
+ * generic Tailwind transitions so users with vestibular disorders or
+ * a reduced-motion preference get a static, calm experience. */
+@media (prefers-reduced-motion: reduce) {
+
+  .animate-cart-bump,
+  .animate-cart-add-pulse,
+  .animate-success-ring,
+  .animate-gradient-x,
+  .animate-wiggle,
+  .date-card-shimmer {
+    animation: none !important;
+  }
+
+  .transition-transform,
+  .transition-all,
+  .transition-opacity,
+  .transition-colors,
+  .transition {
+    transition: none !important;
+  }
+}

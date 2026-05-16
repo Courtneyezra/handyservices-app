@@ -9,7 +9,7 @@
  * Route: /v2  (registered in App.tsx)
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import {
     Star,
@@ -974,6 +974,9 @@ export default function HandymanV2({ city: cityProp = "nottingham" }: HandymanV2
     // source's pattern of forcing users through a details view before adding
     // to cart (more info, more upsell, fewer mis-clicks).
     const [openServiceId, setOpenServiceId] = useState<string | null>(null);
+    // Element ref of the ADD button that triggered the currently-open modal,
+    // so focus can be returned to it on close (WCAG focus-return pattern).
+    const serviceTriggerRef = useRef<HTMLElement | null>(null);
 
     // Increments each time addToCart fires — used as a `key` on the cart
     // total span and the bar wrapper so each one remounts and replays its
@@ -1088,7 +1091,10 @@ export default function HandymanV2({ city: cityProp = "nottingham" }: HandymanV2
                                 cart={cart}
                                 onAdd={addToCart}
                                 onDecrement={decrementFromCart}
-                                onOpenDetails={setOpenServiceId}
+                                onOpenDetails={(id, trigger) => {
+                                    serviceTriggerRef.current = trigger ?? null;
+                                    setOpenServiceId(id);
+                                }}
                                 justAddedId={justAddedId}
                             />
                         ))}
@@ -1187,7 +1193,16 @@ export default function HandymanV2({ city: cityProp = "nottingham" }: HandymanV2
                             service={svc}
                             qty={cart[svc.id] || 0}
                             cart={cart}
-                            onClose={() => setOpenServiceId(null)}
+                            onClose={() => {
+                                setOpenServiceId(null);
+                                // Return focus to the originating ADD/View
+                                // details button (WCAG 2.4.3 focus order).
+                                const t = serviceTriggerRef.current;
+                                if (t) {
+                                    window.setTimeout(() => t.focus(), 0);
+                                }
+                                serviceTriggerRef.current = null;
+                            }}
                             onAdd={addToCart}
                             onDecrement={decrementFromCart}
                         />
@@ -1559,6 +1574,11 @@ function MobileQuickMenu({
     // plays, and one tick before unmount so the exit animation plays.
     const [open, setOpen] = useState(false);
     const [visible, setVisible] = useState(false);
+    // Ref to the trigger pill — focus is returned here on close so keyboard
+    // users don't lose their place. Ref to the popup card scopes the
+    // Tab/Shift+Tab focus trap.
+    const triggerRef = useRef<HTMLButtonElement | null>(null);
+    const popupRef = useRef<HTMLDivElement | null>(null);
     // Tracks whether the floating Menu trigger pill has played its entrance
     // animation yet. Starts false on mount, flips true ~one frame later so the
     // button softly fades + lifts + scales into place rather than just popping
@@ -1593,8 +1613,66 @@ function MobileQuickMenu({
         setVisible(false);
         // Wait for the slide-down transition to finish before unmounting,
         // otherwise it would just disappear instantly.
-        window.setTimeout(() => setOpen(false), 280);
+        window.setTimeout(() => {
+            setOpen(false);
+            // Return focus to the trigger pill so keyboard users land back
+            // where they invoked the menu (WCAG 2.4.3).
+            triggerRef.current?.focus();
+        }, 280);
     };
+
+    // Keyboard a11y while open: Escape closes the popup; Tab/Shift+Tab cycle
+    // only between the focusable buttons inside the popup card.
+    useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                e.preventDefault();
+                close();
+                return;
+            }
+            if (e.key !== "Tab") return;
+            const root = popupRef.current;
+            if (!root) return;
+            const focusables = Array.from(
+                root.querySelectorAll<HTMLElement>(
+                    'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+                ),
+            ).filter((el) => el.offsetParent !== null);
+            if (focusables.length === 0) return;
+            const first = focusables[0];
+            const last = focusables[focusables.length - 1];
+            const active = document.activeElement as HTMLElement | null;
+            if (e.shiftKey) {
+                if (active === first || !root.contains(active)) {
+                    e.preventDefault();
+                    last.focus();
+                }
+            } else {
+                if (active === last) {
+                    e.preventDefault();
+                    first.focus();
+                }
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+        // `close` is stable enough — it only reads state setters and refs,
+        // both of which are referentially stable in React.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open]);
+
+    // When the popup becomes visible, move focus to the close X so keyboard
+    // users have a clear starting point inside the trap.
+    useEffect(() => {
+        if (!visible || !open) return;
+        const root = popupRef.current;
+        if (!root) return;
+        const closeBtn = root.querySelector<HTMLButtonElement>(
+            'button[aria-label="Close menu"]',
+        );
+        closeBtn?.focus();
+    }, [visible, open]);
 
     const pick = (id: string) => {
         onSelect(id);
@@ -1615,6 +1693,7 @@ function MobileQuickMenu({
               * horizontal centring (Tailwind transforms merge into one CSS
               * value, so the entrance translate stacks correctly). */}
             <button
+                ref={triggerRef}
                 type="button"
                 onClick={() => setOpen(true)}
                 aria-label="Open category menu"
@@ -1655,6 +1734,7 @@ function MobileQuickMenu({
                     <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4">
                         {/* Popup card — scales + fades in from 95% */}
                         <div
+                            ref={popupRef}
                             className={`pointer-events-auto w-full max-w-sm overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl transition-all duration-300 ease-out max-h-[85vh] ${
                                 visible
                                     ? "scale-100 opacity-100"
@@ -1795,7 +1875,7 @@ function CategoryBlock({
     cart: Record<string, number>;
     onAdd: (id: string) => void;
     onDecrement: (id: string) => void;
-    onOpenDetails: (id: string) => void;
+    onOpenDetails: (id: string, trigger?: HTMLElement | null) => void;
     /** Service id that was most recently added — surfaces the success-ring
      *  overlay on the matching card's ADD button. */
     justAddedId: string | null;
@@ -1832,7 +1912,9 @@ function CategoryBlock({
                         qty={cart[svc.id] || 0}
                         onAdd={() => onAdd(svc.id)}
                         onDecrement={() => onDecrement(svc.id)}
-                        onOpenDetails={() => onOpenDetails(svc.id)}
+                        onOpenDetails={(trigger) =>
+                            onOpenDetails(svc.id, trigger)
+                        }
                         showSuccessRing={justAddedId === svc.id}
                     />
                 ))}
@@ -2112,10 +2194,51 @@ function ServiceDetailModal({
     onAdd: (id: string) => void;
     onDecrement: (id: string) => void;
 }) {
-    // ESC key closes the modal
+    // Wrapper that hosts the dialog content — used to scope the focus trap
+    // and find focusable elements on Tab cycling.
+    const dialogRef = useRef<HTMLDivElement | null>(null);
+    const titleId = useMemo(
+        () => `svc-detail-title-${service.id}`,
+        [service.id],
+    );
+
+    // ESC key closes; Tab/Shift+Tab cycles focus within the dialog. The
+    // single keydown handler keeps the trap predictable (no MutationObserver
+    // churn) and is fine for our content size.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") onClose();
+            if (e.key === "Escape") {
+                e.preventDefault();
+                onClose();
+                return;
+            }
+            if (e.key !== "Tab") return;
+            const root = dialogRef.current;
+            if (!root) return;
+            const focusables = Array.from(
+                root.querySelectorAll<HTMLElement>(
+                    'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+                ),
+            ).filter(
+                (el) =>
+                    !el.hasAttribute("aria-hidden") &&
+                    el.offsetParent !== null,
+            );
+            if (focusables.length === 0) return;
+            const first = focusables[0];
+            const last = focusables[focusables.length - 1];
+            const active = document.activeElement as HTMLElement | null;
+            if (e.shiftKey) {
+                if (active === first || !root.contains(active)) {
+                    e.preventDefault();
+                    last.focus();
+                }
+            } else {
+                if (active === last) {
+                    e.preventDefault();
+                    first.focus();
+                }
+            }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
@@ -2138,13 +2261,26 @@ function ServiceDetailModal({
         return () => cancelAnimationFrame(id);
     }, []);
 
+    // Move initial focus to the close button once the dialog has mounted so
+    // keyboard users land somewhere meaningful inside the trap.
+    useEffect(() => {
+        if (!visible) return;
+        const root = dialogRef.current;
+        if (!root) return;
+        const closeBtn = root.querySelector<HTMLButtonElement>(
+            'button[aria-label="Close"]',
+        );
+        closeBtn?.focus();
+    }, [visible]);
+
     const isTiered = !!service.tiers?.length;
 
     return (
         <div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
-            aria-label={`${service.name} details`}
+            aria-labelledby={titleId}
         >
             {/* Backdrop — fades in */}
             <div
@@ -2192,6 +2328,7 @@ function ServiceDetailModal({
                         <img
                             src={service.modalImage}
                             alt=""
+                            aria-hidden="true"
                             loading="lazy"
                             decoding="async"
                             className="h-full w-full object-cover"
@@ -2206,7 +2343,10 @@ function ServiceDetailModal({
                 <header className="shrink-0 border-b border-slate-100 bg-white px-5 py-4 lg:px-7 lg:py-5">
                     <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0 flex-1">
-                            <h2 className="text-xl font-bold leading-tight text-slate-900 lg:text-2xl">
+                            <h2
+                                id={titleId}
+                                className="text-xl font-bold leading-tight text-slate-900 lg:text-2xl"
+                            >
                                 {service.name}
                             </h2>
                             <div className="mt-1.5 flex items-center gap-1.5 text-sm">
@@ -2366,7 +2506,9 @@ function ServiceCard({
     qty: number;
     onAdd: () => void;
     onDecrement: () => void;
-    onOpenDetails: () => void;
+    /** Receives the originating element (button) so the parent can return
+     *  focus to it when the detail modal closes — keyboard a11y. */
+    onOpenDetails: (trigger?: HTMLElement | null) => void;
     /** When true, render the emerald success-ring SVG overlay over the
      *  ADD button. Parent unmounts after the 900ms ring animation. */
     showSuccessRing?: boolean;
@@ -2430,7 +2572,7 @@ function ServiceCard({
 
                 <button
                     type="button"
-                    onClick={onOpenDetails}
+                    onClick={(e) => onOpenDetails(e.currentTarget)}
                     className="mt-3 text-sm font-medium text-amber-600 hover:underline"
                 >
                     View details
@@ -2442,6 +2584,7 @@ function ServiceCard({
                     <img
                         src={service.thumbImage}
                         alt=""
+                        aria-hidden="true"
                         loading="lazy"
                         decoding="async"
                         className="h-24 w-24 rounded-xl object-cover shadow-sm sm:h-28 sm:w-28 lg:h-32 lg:w-32"
@@ -2486,11 +2629,13 @@ function ServiceCard({
                     {qty === 0 ? (
                         <button
                             type="button"
-                            onClick={
-                                service.tiers && service.tiers.length > 0
-                                    ? onOpenDetails
-                                    : onAdd
-                            }
+                            onClick={(e) => {
+                                if (service.tiers && service.tiers.length > 0) {
+                                    onOpenDetails(e.currentTarget);
+                                } else {
+                                    onAdd();
+                                }
+                            }}
                             className="group inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-400 px-3 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-900 shadow-md ring-1 ring-amber-500/30 transition hover:bg-amber-500 hover:shadow-lg active:scale-[0.97]"
                         >
                             <Plus className="h-4 w-4 transition-transform group-hover:rotate-90" />

@@ -1324,6 +1324,7 @@ export function BookingReviewV2() {
                                         <img
                                             src={item.thumbImage}
                                             alt=""
+                                            aria-hidden="true"
                                             loading="lazy"
                                             decoding="async"
                                             className="h-9 w-9 shrink-0 rounded-md object-cover"
@@ -1541,15 +1542,31 @@ function BookingConfirmation({
     when: string;
     address: string;
 }) {
+    // After the screen takes over, push keyboard focus onto the primary CTA
+    // so screen-reader / keyboard users land somewhere meaningful instead of
+    // at the top of the document.
+    const primaryCtaRef = useRef<HTMLAnchorElement | null>(null);
+    useEffect(() => {
+        primaryCtaRef.current?.focus();
+    }, []);
+
     return (
-        <div className="min-h-screen bg-white font-sans text-slate-900">
+        <div
+            className="min-h-screen bg-white font-sans text-slate-900"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="v2-booking-confirmation-title"
+        >
             <LandingHeader />
             <main className="mx-auto max-w-2xl px-4 pb-16 pt-8 lg:px-8">
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 lg:p-8">
                     <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-white">
-                        <PartyPopper className="h-7 w-7" />
+                        <PartyPopper className="h-7 w-7" aria-hidden="true" />
                     </div>
-                    <h1 className="mt-4 text-2xl font-bold text-slate-900 lg:text-3xl">
+                    <h1
+                        id="v2-booking-confirmation-title"
+                        className="mt-4 text-2xl font-bold text-slate-900 lg:text-3xl"
+                    >
                         Booking confirmed
                     </h1>
                     <p className="mt-1 text-sm text-slate-600">
@@ -1583,6 +1600,7 @@ function BookingConfirmation({
 
                 <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                     <Link
+                        ref={primaryCtaRef}
                         href="/v2"
                         className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
                     >
