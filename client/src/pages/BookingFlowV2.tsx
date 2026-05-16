@@ -898,8 +898,6 @@ function Field({
 const REVIEW_VISIT_FEE_WAIVED_THRESHOLD = 58;
 const REVIEW_VISIT_FEE = 15;
 
-type PaymentMethod = "pay-on-completion" | "card" | "klarna";
-
 /** Generate a short booking reference shown on the confirmation page. */
 function generateBookingRef(): string {
     const year = new Date().getFullYear();
@@ -934,9 +932,6 @@ export function BookingReviewV2() {
     const [, setLocation] = useLocation();
     const [cart] = useState(readCart);
     const [booking] = useState(readBooking);
-    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
-        "pay-on-completion",
-    );
     const [confirmation, setConfirmation] = useState<{
         reference: string;
         when: string;
@@ -1016,8 +1011,6 @@ export function BookingReviewV2() {
         subtotal + visitFee + weekendSurcharge + eveningSurcharge;
 
     // Klarna minimum is typically £30 in the UK; show it only when applicable.
-    const klarnaAvailable = total >= 30;
-
     const when =
         booking.date && slot
             ? `${formatHumanDate(booking.date)} · ${slot.label}`
@@ -1404,40 +1397,23 @@ export function BookingReviewV2() {
                     </div>
                 </div>
 
-                {/* Payment method picker */}
-                <section>
-                    <h3 className="mb-3 flex items-center gap-1.5 text-sm font-bold uppercase tracking-wider text-slate-500">
+                {/* Upfront payment notice — shown before Confirm. Mirrors
+                  * the post-Confirm Stripe block so the customer's
+                  * expectation matches what they see when payStep flips to
+                  * `awaiting_payment`. The Stripe Elements card form opens
+                  * after they click the CTA. */}
+                <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                    <h3 className="mb-2 flex items-center gap-1.5 text-sm font-bold uppercase tracking-wider text-slate-500">
                         <CreditCard className="h-3.5 w-3.5" />
-                        How would you like to pay?
+                        Pay to lock in your slot
                     </h3>
-                    <div className="space-y-2">
-                        <PaymentOption
-                            id="pay-on-completion"
-                            checked={paymentMethod === "pay-on-completion"}
-                            onChange={() =>
-                                setPaymentMethod("pay-on-completion")
-                            }
-                            label="Pay on completion"
-                            subtitle="Pay your tradesperson by card or bank transfer when the job's done — most popular."
-                            recommended
-                        />
-                        <PaymentOption
-                            id="card"
-                            checked={paymentMethod === "card"}
-                            onChange={() => setPaymentMethod("card")}
-                            label="Pay now by card"
-                            subtitle="Secure card payment via Stripe — we'll send a receipt straight away."
-                        />
-                        {klarnaAvailable && (
-                            <PaymentOption
-                                id="klarna"
-                                checked={paymentMethod === "klarna"}
-                                onChange={() => setPaymentMethod("klarna")}
-                                label="Pay in 3 with Klarna"
-                                subtitle={`Three interest-free payments of £${Math.ceil(total / 3)} — no fees, no fuss.`}
-                            />
-                        )}
-                    </div>
+                    <p className="text-sm leading-relaxed text-slate-700">
+                        Full payment of <strong>£{total}</strong> is taken now
+                        to confirm your booking. Cards, Apple Pay and Google
+                        Pay are all accepted via Stripe — receipt sent to{" "}
+                        {booking.contactEmail || "your phone"} as soon as
+                        payment clears.
+                    </p>
                 </section>
 
                 <p className="text-xs text-slate-400">
@@ -1479,57 +1455,6 @@ function SummaryCard({
             </div>
             {children}
         </div>
-    );
-}
-
-function PaymentOption({
-    id,
-    checked,
-    onChange,
-    label,
-    subtitle,
-    recommended,
-}: {
-    id: string;
-    checked: boolean;
-    onChange: () => void;
-    label: string;
-    subtitle: string;
-    recommended?: boolean;
-}) {
-    return (
-        <label
-            htmlFor={`pay-${id}`}
-            className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition ${
-                checked
-                    ? "border-amber-400 bg-amber-400/10 ring-1 ring-amber-400/40"
-                    : "border-slate-200 bg-white hover:border-slate-300"
-            }`}
-        >
-            <input
-                id={`pay-${id}`}
-                type="radio"
-                name="payment-method"
-                checked={checked}
-                onChange={onChange}
-                className="mt-0.5 h-4 w-4 shrink-0 accent-amber-500"
-            />
-            <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-slate-900">
-                        {label}
-                    </span>
-                    {recommended && (
-                        <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
-                            Recommended
-                        </span>
-                    )}
-                </div>
-                <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
-                    {subtitle}
-                </p>
-            </div>
-        </label>
     );
 }
 
