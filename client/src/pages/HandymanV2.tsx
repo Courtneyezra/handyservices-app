@@ -9,7 +9,14 @@
  * Route: /v2  (registered in App.tsx)
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ComponentType,
+    type ReactNode,
+} from "react";
 import { Link, useLocation } from "wouter";
 import {
     Star,
@@ -27,9 +34,6 @@ import {
     Armchair,
     KeyRound,
     Blinds,
-    Bed,
-    DoorOpen,
-    Frame,
     ChevronDown,
     Twitter,
     Facebook,
@@ -51,6 +55,21 @@ import {
     AccordionTrigger,
 } from "@/components/ui/accordion";
 import { SiGoogle } from "react-icons/si";
+// Service-card thumbnail icons — Phosphor's Duotone weight gives a two-tone
+// shaded look (full-strength outline + 20%-opacity fill) that reads as much
+// more detailed / designed than Lucide's flat line icons. We mix in two
+// Lucide icons (Blinds, Hammer) where Phosphor doesn't have a direct match.
+import {
+    PiFrameCornersDuotone,
+    PiSparkleDuotone,
+    PiTelevisionDuotone,
+    PiTelevisionSimpleDuotone,
+    PiBedDuotone,
+    PiArmchairDuotone,
+    PiDoorOpenDuotone,
+    PiKeyDuotone,
+    PiWrenchDuotone,
+} from "react-icons/pi";
 import { LandingHeader } from "@/components/LandingHeader";
 import {
     RescueToast,
@@ -112,10 +131,11 @@ export type Service = {
      *  icon-on-gradient placeholder. Preferred for hero services that have
      *  proper photography. */
     thumbImage?: string;
-    /** When set (and no `thumbImage`), renders a Lucide icon centred on the
-     *  gradient tile. Used in place of emoji for a cleaner, brand-consistent
-     *  look. */
-    thumbIcon?: LucideIcon;
+    /** When set (and no `thumbImage`), renders an icon centred on the
+     *  gradient tile. Accepts any React component that takes a `className`
+     *  (covers both Lucide line icons and Phosphor / Tabler / Material
+     *  duotone-style icons). */
+    thumbIcon?: ComponentType<{ className?: string }>;
     /** When set (highest priority after image), renders a typographic
      *  two-line tile — e.g. "30 / MINS" — matching the Select-a-service nav.
      *  Used on the hourly/30-min SKUs so the thumbnail mirrors its category
@@ -327,7 +347,7 @@ const CATEGORIES: Category[] = [
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
                 ],
                 thumbEmoji: "🔩",
-                thumbIcon: Drill,
+                thumbIcon: PiWrenchDuotone,
                 thumbBg: "from-slate-100 to-slate-200",
                 // Drilling-action brand photo (also the mirror-shelf banner).
                 // Reuse is fine — different modals are never seen side-by-side.
@@ -374,7 +394,7 @@ const CATEGORIES: Category[] = [
                 // Frame icon represents the mirror/picture-frame outcome of
                 // the job. Photo thumbnail was removed for visual consistency
                 // — all SKU thumbnails are now icons or typographic tiles.
-                thumbIcon: Frame,
+                thumbIcon: PiFrameCornersDuotone,
                 thumbBg: "from-blue-100 to-cyan-200",
                 // Brand shelf-install photo (also used as a HeroCarousel slide)
                 // — appears as a banner at the top of the detail modal only.
@@ -418,7 +438,7 @@ const CATEGORIES: Category[] = [
                     "Outdoor-safe fixings used on exterior runs.",
                 ],
                 thumbEmoji: "✨",
-                thumbIcon: Sparkles,
+                thumbIcon: PiSparkleDuotone,
                 thumbBg: "from-pink-100 to-rose-200",
                 modalImage: promoHandyman,
                 optionsCount: 2,
@@ -557,7 +577,7 @@ const CATEGORIES: Category[] = [
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
                 ],
                 thumbEmoji: "📺",
-                thumbIcon: Tv,
+                thumbIcon: PiTelevisionDuotone,
                 thumbBg: "from-indigo-100 to-violet-200",
                 // Generic Handy Services brand photo until a TV-specific
                 // asset lands in /assets.
@@ -575,7 +595,7 @@ const CATEGORIES: Category[] = [
                     "Safe removal and patch-up of small holes left in the wall.",
                 ],
                 thumbEmoji: "📺",
-                thumbIcon: Tv,
+                thumbIcon: PiTelevisionSimpleDuotone,
                 thumbBg: "from-violet-100 to-purple-200",
                 // Generic Handy Services brand photo until a TV-specific
                 // asset lands in /assets.
@@ -660,7 +680,7 @@ const CATEGORIES: Category[] = [
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
                 ],
                 thumbEmoji: "🛏️",
-                thumbIcon: Bed,
+                thumbIcon: PiBedDuotone,
                 thumbBg: "from-amber-100 to-yellow-200",
                 modalImage: promoHandyman,
                 optionsCount: 6,
@@ -720,7 +740,7 @@ const CATEGORIES: Category[] = [
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
                 ],
                 thumbEmoji: "🪑",
-                thumbIcon: Armchair,
+                thumbIcon: PiArmchairDuotone,
                 thumbBg: "from-stone-100 to-stone-200",
                 modalImage: promoHandyman,
                 optionsCount: 4,
@@ -739,7 +759,7 @@ const CATEGORIES: Category[] = [
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
                 ],
                 thumbEmoji: "🚪",
-                thumbIcon: DoorOpen,
+                thumbIcon: PiDoorOpenDuotone,
                 thumbBg: "from-orange-100 to-amber-200",
                 modalImage: promoHandyman,
             },
@@ -763,7 +783,7 @@ const CATEGORIES: Category[] = [
                     "Please check for any approvals that may be required from the owner or landlord.",
                 ],
                 thumbEmoji: "🔐",
-                thumbIcon: KeyRound,
+                thumbIcon: PiKeyDuotone,
                 thumbBg: "from-zinc-100 to-zinc-200",
                 modalImage: promoHandyman,
             },
@@ -2142,7 +2162,7 @@ function VariantPicker({
     /** Icon/text/gradient passed down from the parent service so each tier
      *  card carries the same visual cue as the card on the grid. Both icon
      *  and text are optional; either renders, fallback is a plain tile. */
-    parentIcon?: LucideIcon;
+    parentIcon?: ComponentType<{ className?: string }>;
     parentText?: { primary: string; secondary: string };
     parentBg?: string;
 }) {
@@ -2185,9 +2205,7 @@ function VariantPicker({
                                             </div>
                                         ) : ParentIcon ? (
                                             <ParentIcon
-                                                className="h-6 w-6 text-slate-900"
-                                                strokeWidth={1.75}
-                                                aria-hidden
+                                                className="h-8 w-8 text-slate-900"
                                             />
                                         ) : null}
                                     </div>
@@ -2801,12 +2819,10 @@ function ServiceCard({
                     </div>
                 ) : service.thumbIcon ? (
                     <div
-                        className={`flex h-24 w-24 items-center justify-center rounded-xl bg-gradient-to-br text-slate-800 sm:h-28 sm:w-28 lg:h-32 lg:w-32 ${service.thumbBg}`}
+                        className={`flex h-24 w-24 items-center justify-center rounded-xl bg-gradient-to-br text-slate-900 sm:h-28 sm:w-28 lg:h-32 lg:w-32 ${service.thumbBg}`}
                     >
                         <service.thumbIcon
-                            className="h-10 w-10 sm:h-12 sm:w-12 lg:h-14 lg:w-14"
-                            strokeWidth={1.75}
-                            aria-hidden
+                            className="h-14 w-14 sm:h-16 sm:w-16 lg:h-20 lg:w-20"
                         />
                     </div>
                 ) : (
