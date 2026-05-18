@@ -56,6 +56,7 @@ import {
     RescueToast,
     WhatsAppEscapeFooter,
 } from "@/components/WhatsAppEscape";
+import { AnimatedMap } from "@/components/AnimatedMap";
 import { HandLogo } from "@/components/LandingShared";
 
 // Brand asset images (real Handy Services photography from existing landing)
@@ -3085,18 +3086,17 @@ function PromiseCard() {
 function SeoIntroBlock({ content }: { content: CityContent }) {
     return (
         <section className="mt-12 grid grid-cols-1 items-center gap-8 border-t border-slate-100 pt-12 md:grid-cols-2 md:gap-12">
-            <div className="relative aspect-square overflow-hidden rounded-2xl bg-slate-100 md:aspect-[5/4]">
-                <img
-                    src={content.mapImage}
-                    alt={content.mapAlt}
-                    loading="lazy"
-                    decoding="async"
-                    className="h-full w-full object-cover"
-                />
-                {/* Subtle bottom gradient for image-as-card polish */}
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-slate-900/30 to-transparent" />
-                {/* Small location pill on the photo */}
-                <div className="absolute bottom-4 left-4 inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-xs font-semibold text-slate-900 shadow-sm">
+            {/* Animated coverage map — same component used on /landing and
+              * /derby. Auto-cycles through real-feeling pin popups (service,
+              * location, star rating) every 5s so the "active right now"
+              * proof feels alive rather than a static graphic. Auto-switches
+              * between Derby + Nottingham pin sets via the `city` prop. */}
+            <div className="relative">
+                <AnimatedMap location={content.city} />
+                {/* Coverage caption sits below the map, since AnimatedMap
+                  * uses a 3D-perspective blob that won't accept a pinned
+                  * overlay cleanly. */}
+                <div className="mt-3 flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-700">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
                     {content.seoMapPill}
                 </div>
