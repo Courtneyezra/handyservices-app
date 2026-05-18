@@ -42,6 +42,7 @@ import {
     Sunrise,
 } from "lucide-react";
 import { LandingHeader } from "@/components/LandingHeader";
+import { WhatsAppEscapeLink } from "@/components/WhatsAppEscape";
 import { StepIndicator } from "./BasketV2";
 import { ALL_SERVICES, CART_STORAGE_KEY } from "./HandymanV2";
 import { trackEvent as posthogTrack } from "@/lib/posthog";
@@ -354,6 +355,8 @@ export function BookingDateV2() {
                     Pick a date above and we'll show you the available slots.
                 </section>
             )}
+
+            <WhatsAppEscapeLink step="date" />
         </BookingShell>
     );
 }
@@ -835,6 +838,8 @@ export function BookingAddressV2() {
                         Optional but helpful — saves a phone call on the day.
                     </p>
                 </section>
+
+                <WhatsAppEscapeLink step="address" />
             </div>
         </BookingShell>
     );
@@ -1396,6 +1401,7 @@ export function BookingReviewV2() {
                     </div>
                 </div>
 
+                <WhatsAppEscapeLink step="review" />
             </div>
         </BookingShell>
     );

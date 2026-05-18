@@ -23,6 +23,7 @@ import {
     Trash2,
 } from "lucide-react";
 import { LandingHeader } from "@/components/LandingHeader";
+import { WhatsAppEscapeLink } from "@/components/WhatsAppEscape";
 import { ALL_SERVICES, CART_STORAGE_KEY } from "./HandymanV2";
 import { trackEvent as posthogTrack } from "@/lib/posthog";
 
@@ -304,6 +305,8 @@ export default function BasketV2() {
                     Continue to date &amp; time
                     <ChevronRight className="h-4 w-4" />
                 </button>
+
+                <WhatsAppEscapeLink step="basket" />
             </main>
 
             {/* Mobile sticky Continue */}
