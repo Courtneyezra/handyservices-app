@@ -47,7 +47,11 @@ function readVariantContext(): { variant: string; city: string } {
 const STEP_MESSAGES: Record<string, string> = {
     landing:
         "Hi, I'm not sure exactly what I need — can you help me work it out?",
+    "below-catalog":
+        "Hi, I scrolled through the services but couldn't find what I need — can you help?",
     basket: "Hi, I've got a few things in my basket but I'd like to chat first.",
+    "big-job":
+        "Hi, my basket is bigger than usual — can you help me scope and lock in the booking?",
     date: "Hi, I'm picking a date for a booking and could use some advice.",
     address: "Hi, I'm at the address step of a booking and have a question.",
     review:
@@ -132,6 +136,80 @@ export function WhatsAppEscapeLink({ step }: { step: Step }) {
                 Stuck? Chat with us on WhatsApp
             </a>
         </div>
+    );
+}
+
+/**
+ * Quiet footer link — placed BELOW the full service catalog on /v2. Decisive
+ * users scroll past it on their way to ADD; users who reached the bottom of
+ * the catalog without finding their fit see a discreet escape hatch.
+ *
+ * Deliberately under-styled vs. the slate-900 block — by the time the user
+ * has seen everything we offer, they don't need to be sold on WhatsApp, just
+ * told it exists.
+ */
+export function WhatsAppEscapeFooter() {
+    return (
+        <div className="mt-8 flex flex-col items-center gap-2 border-t border-slate-100 py-8 text-center">
+            <p className="text-sm font-medium text-slate-600">
+                Didn&apos;t find what you need?
+            </p>
+            <a
+                href={whatsappHref("below-catalog")}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => handleClick("below-catalog")}
+                className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-900 underline-offset-4 transition hover:text-emerald-700 hover:underline"
+                data-testid="v2-whatsapp-escape-footer"
+            >
+                <WhatsAppIcon className="h-4 w-4 text-[#25D366]" />
+                Tell us what you need on WhatsApp
+                <span aria-hidden>→</span>
+            </a>
+        </div>
+    );
+}
+
+/**
+ * Threshold-triggered "Big job?" banner — only renders when the basket
+ * subtotal crosses £150. High-value baskets are where the cost of letting
+ * the customer self-serve a wrong configuration outweighs the cost of a
+ * human conversation: bigger jobs need more scoping, more material lead
+ * time, and the customer hesitation is real.
+ *
+ * Below the threshold, returns null and disappears from the DOM entirely —
+ * we don't want every £25 30-min booking to see "talk to us instead?".
+ */
+const BIG_JOB_THRESHOLD = 150;
+
+export function WhatsAppEscapeBigJob({ subtotal }: { subtotal: number }) {
+    if (subtotal < BIG_JOB_THRESHOLD) return null;
+    return (
+        <a
+            href={whatsappHref("big-job")}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => handleClick("big-job")}
+            className="group mt-4 flex items-start gap-3 rounded-2xl border-2 border-amber-400/40 bg-amber-50 p-4 transition hover:border-amber-400/70 hover:bg-amber-100/60 active:scale-[0.99] lg:p-5"
+            data-testid="v2-whatsapp-escape-big-job"
+        >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#25D366] text-white shadow-sm">
+                <WhatsAppIcon className="h-5 w-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold leading-tight text-slate-900">
+                    Bigger job?
+                </p>
+                <p className="mt-1 text-xs leading-snug text-slate-700 lg:text-sm">
+                    Orders this size are often easier to scope over a quick
+                    chat — we&apos;ll confirm scheduling, materials, and a
+                    fixed price before you commit.{" "}
+                    <span className="font-semibold text-emerald-700 underline-offset-2 group-hover:underline">
+                        Chat on WhatsApp →
+                    </span>
+                </p>
+            </div>
+        </a>
     );
 }
 

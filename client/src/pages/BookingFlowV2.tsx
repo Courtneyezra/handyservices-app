@@ -42,7 +42,10 @@ import {
     Sunrise,
 } from "lucide-react";
 import { LandingHeader } from "@/components/LandingHeader";
-import { WhatsAppEscapeLink } from "@/components/WhatsAppEscape";
+import {
+    WhatsAppEscapeBigJob,
+    WhatsAppEscapeLink,
+} from "@/components/WhatsAppEscape";
 import { StepIndicator } from "./BasketV2";
 import { ALL_SERVICES, CART_STORAGE_KEY } from "./HandymanV2";
 import { trackEvent as posthogTrack } from "@/lib/posthog";
@@ -1400,6 +1403,11 @@ export function BookingReviewV2() {
                         <span className="text-2xl font-bold">£{total}</span>
                     </div>
                 </div>
+
+                {/* High-value basket nudge — same threshold as /basket so
+                  * customers who skipped it on the basket page get one more
+                  * shot before they commit to payment. */}
+                <WhatsAppEscapeBigJob subtotal={subtotal} />
 
                 <WhatsAppEscapeLink step="review" />
             </div>

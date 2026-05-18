@@ -23,7 +23,10 @@ import {
     Trash2,
 } from "lucide-react";
 import { LandingHeader } from "@/components/LandingHeader";
-import { WhatsAppEscapeLink } from "@/components/WhatsAppEscape";
+import {
+    WhatsAppEscapeBigJob,
+    WhatsAppEscapeLink,
+} from "@/components/WhatsAppEscape";
 import { ALL_SERVICES, CART_STORAGE_KEY } from "./HandymanV2";
 import { trackEvent as posthogTrack } from "@/lib/posthog";
 
@@ -295,6 +298,11 @@ export default function BasketV2() {
                         <span className="text-xl font-bold">£{total}</span>
                     </div>
                 </div>
+
+                {/* High-value basket → offer a WhatsApp chat for scoping.
+                  * Disappears entirely under £150 so simple bookings aren't
+                  * nagged. */}
+                <WhatsAppEscapeBigJob subtotal={subtotal} />
 
                 {/* Desktop CTA */}
                 <button

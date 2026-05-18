@@ -52,7 +52,7 @@ import {
 } from "@/components/ui/accordion";
 import { SiGoogle } from "react-icons/si";
 import { LandingHeader } from "@/components/LandingHeader";
-import { WhatsAppEscapeBlock } from "@/components/WhatsAppEscape";
+import { WhatsAppEscapeFooter } from "@/components/WhatsAppEscape";
 import { HandLogo } from "@/components/LandingShared";
 
 // Brand asset images (real Handy Services photography from existing landing)
@@ -1084,13 +1084,6 @@ export default function HandymanV2({ city: cityProp = "nottingham" }: HandymanV2
 
                     {/* Row 2, col 2 — Service grid */}
                     <section className="min-w-0 lg:col-start-2 lg:row-start-2">
-                        {/* Empathetic escape hatch — sits ABOVE the SKU grid
-                          * so undecided users see it before they have to
-                          * commit to a category. Decisive users skim past;
-                          * uncertain users land here and route to the
-                          * existing human-staffed WhatsApp flow. */}
-                        <WhatsAppEscapeBlock />
-
                         {CATEGORIES.map((cat, idx) => (
                             <CategoryBlock
                                 key={cat.id}
@@ -1106,6 +1099,13 @@ export default function HandymanV2({ city: cityProp = "nottingham" }: HandymanV2
                                 justAddedId={justAddedId}
                             />
                         ))}
+
+                        {/* Below-catalog escape hatch — quiet footer link
+                          * placed after every category. Users who reached
+                          * the bottom without adding anything are the right
+                          * audience for WhatsApp; decisive users have
+                          * already clicked ADD by now. */}
+                        <WhatsAppEscapeFooter />
                     </section>
 
                     {/* Row 2, col 3 — Sticky cart + offers + promise (desktop only) */}
