@@ -1,5 +1,5 @@
 import { Card, CardContent } from '@/components/ui/card';
-import { Check, FileText, Phone, Mail, Calendar, MapPin, Clock } from 'lucide-react';
+import { Check, FileText, Phone, Mail, Calendar, MapPin, Clock, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 
 export interface BookingConfirmationProps {
@@ -13,6 +13,10 @@ export interface BookingConfirmationProps {
   email?: string | null;
   selectedPackage?: string;
   selectedExtras?: string[];
+  revisedFromPence?: number;
+  currentTotalPence?: number;
+  balanceDuePence?: number;
+  paymentLinkUrl?: string;
 }
 
 export function BookingConfirmation({
@@ -26,7 +30,15 @@ export function BookingConfirmation({
   email,
   selectedPackage,
   selectedExtras = [],
+  revisedFromPence,
+  currentTotalPence,
+  balanceDuePence,
+  paymentLinkUrl,
 }: BookingConfirmationProps) {
+  const isRevised =
+    typeof revisedFromPence === 'number' &&
+    typeof currentTotalPence === 'number' &&
+    currentTotalPence > revisedFromPence;
   // Format the date if provided
   const formattedDate = selectedDate
     ? format(new Date(selectedDate), 'EEEE, d MMMM yyyy')
@@ -57,6 +69,59 @@ export function BookingConfirmation({
             <span className="text-green-400 font-bold text-lg">£{depositFormatted}</span>
           </div>
         </div>
+
+        {isRevised && (
+          <div
+            className="mb-6 bg-amber-900/30 border-2 border-amber-500/50 rounded-xl p-5"
+            data-testid="quote-revised-banner"
+          >
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h4 className="text-amber-300 font-bold text-base mb-2">Quote Updated</h4>
+                <p className="text-sm text-gray-200 mb-3">
+                  Job scope has been revised since your deposit. Your deposit of
+                  {' '}
+                  <span className="font-semibold text-green-400">£{depositFormatted}</span>
+                  {' '}
+                  has been credited against the new total.
+                </p>
+                <div className="bg-gray-900/60 rounded-lg p-3 space-y-1.5 text-sm">
+                  {typeof revisedFromPence === 'number' && (
+                    <div className="flex justify-between text-gray-400">
+                      <span>Previous total:</span>
+                      <span className="line-through">£{(revisedFromPence / 100).toFixed(2)}</span>
+                    </div>
+                  )}
+                  {typeof currentTotalPence === 'number' && (
+                    <div className="flex justify-between text-white">
+                      <span>New total:</span>
+                      <span className="font-semibold">£{(currentTotalPence / 100).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-gray-300 border-t border-gray-700 pt-1.5">
+                    <span>Deposit paid:</span>
+                    <span>−£{depositFormatted}</span>
+                  </div>
+                  {typeof balanceDuePence === 'number' && balanceDuePence > 0 && (
+                    <div className="flex justify-between text-amber-300 font-bold border-t border-gray-700 pt-1.5">
+                      <span>Balance due on completion:</span>
+                      <span>£{(balanceDuePence / 100).toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
+                {paymentLinkUrl && (
+                  <a
+                    href={paymentLinkUrl}
+                    className="mt-3 inline-block bg-amber-500 hover:bg-amber-400 text-gray-900 font-bold text-sm px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Pay balance now
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Booking Details */}
         <div className="bg-gray-800/80 rounded-xl p-6 mb-6 border border-gray-700">
