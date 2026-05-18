@@ -52,7 +52,10 @@ import {
 } from "@/components/ui/accordion";
 import { SiGoogle } from "react-icons/si";
 import { LandingHeader } from "@/components/LandingHeader";
-import { WhatsAppEscapeFooter } from "@/components/WhatsAppEscape";
+import {
+    RescueToast,
+    WhatsAppEscapeFooter,
+} from "@/components/WhatsAppEscape";
 import { HandLogo } from "@/components/LandingShared";
 
 // Brand asset images (real Handy Services photography from existing landing)
@@ -989,6 +992,93 @@ export default function HandymanV2({ city: cityProp = "nottingham" }: HandymanV2
     // ring animation finishes so the ring doesn't linger.
     const [justAddedId, setJustAddedId] = useState<string | null>(null);
 
+    // ---- Bounce-signal rescue toast ----
+    // Surfaces a small WhatsApp escape pill above the Menu trigger when the
+    // user shows uncertainty (28s dwell with no ADD, OR 2+ service modals
+    // closed without an ADD). Decisive buyers never see it — they ADD long
+    // before either threshold trips. Dismissible per-session via the X.
+    const [showRescue, setShowRescue] = useState(false);
+    const cartSizeAtModalOpenRef = useRef<number>(0);
+    const modalCloseWithoutAddRef = useRef<number>(0);
+    const totalCartCount = Object.values(cart).reduce((a, b) => a + b, 0);
+
+    // Read the per-session dismiss flag once. If the user already dismissed
+    // the toast earlier in this session, don't show it again.
+    const rescueDismissed = useRef<boolean>(
+        typeof window !== "undefined" &&
+            window.sessionStorage.getItem("handy-v2-rescue-dismissed") === "1",
+    );
+
+    const dismissRescue = () => {
+        setShowRescue(false);
+        rescueDismissed.current = true;
+        try {
+            window.sessionStorage.setItem("handy-v2-rescue-dismissed", "1");
+        } catch {
+            // private mode quota — ignore, dismiss still works for this view
+        }
+    };
+
+    // Trigger #1 — 28-second dwell on /v2 with zero ADDs yet. The decisive-
+    // buyer ADD time we want to protect is well under 30s; bouncers cross
+    // this threshold without committing.
+    useEffect(() => {
+        if (rescueDismissed.current) return;
+        const t = window.setTimeout(() => {
+            if (totalCartCount === 0 && !rescueDismissed.current) {
+                setShowRescue(true);
+            }
+        }, 28_000);
+        return () => window.clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // As soon as something lands in the basket, the rescue is moot — hide.
+    useEffect(() => {
+        if (totalCartCount > 0) setShowRescue(false);
+    }, [totalCartCount]);
+
+    // Trigger #2 — service detail modal closed twice without adding. Each
+    // openServiceId transition is observed below; we snapshot the cart size
+    // when the modal opens and compare it on close. A `prev` ref distinguishes
+    // a real close (string → null) from the initial mount (null → null) so
+    // we don't count the first render as a fake close.
+    const prevOpenServiceIdRef = useRef<string | null>(null);
+    useEffect(() => {
+        const prev = prevOpenServiceIdRef.current;
+        prevOpenServiceIdRef.current = openServiceId;
+
+        if (openServiceId !== null) {
+            // Modal just opened — snapshot the basket size at this moment.
+            cartSizeAtModalOpenRef.current = totalCartCount;
+            return;
+        }
+
+        // openServiceId is null. Only treat this as a "close" if the previous
+        // value was a service id (i.e. we transitioned from open → closed).
+        // Otherwise this is just the initial render or an already-closed
+        // state — neither counts.
+        if (prev === null) return;
+
+        // Cart didn't grow during the modal's lifetime → no-add close.
+        if (
+            cartSizeAtModalOpenRef.current === totalCartCount &&
+            !rescueDismissed.current
+        ) {
+            modalCloseWithoutAddRef.current += 1;
+            if (modalCloseWithoutAddRef.current >= 2) {
+                setShowRescue(true);
+            }
+        } else {
+            // Cart grew during the modal — successful add, reset the streak.
+            modalCloseWithoutAddRef.current = 0;
+        }
+        // We deliberately don't add totalCartCount as a dep — we read its
+        // latest value via the ref-snapshot pattern above and the openServiceId
+        // transition is the trigger.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [openServiceId]);
+
     const addToCart = (id: string) => {
         setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
         setBumpTick((t) => t + 1);
@@ -1136,6 +1226,16 @@ export default function HandymanV2({ city: cityProp = "nottingham" }: HandymanV2
             <MobileQuickMenu
                 onSelect={setActiveCategory}
                 cartHasItems={cartItems.length > 0}
+            />
+
+            {/* Dynamic WhatsApp rescue — triggered by bounce signals
+              * (28s dwell w/ no ADD, OR 2 modal closes w/o ADD). Sits above
+              * the Menu pill so both rescue paths (jump-to-category vs
+              * talk-to-human) co-exist; decisive buyers never see it. */}
+            <RescueToast
+                visible={showRescue}
+                cartHasItems={cartItems.length > 0}
+                onDismiss={dismissRescue}
             />
 
             {/* Mobile sticky cart bar — always mounted; the outer wrapper

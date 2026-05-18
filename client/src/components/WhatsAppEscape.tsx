@@ -52,6 +52,8 @@ const STEP_MESSAGES: Record<string, string> = {
     basket: "Hi, I've got a few things in my basket but I'd like to chat first.",
     "big-job":
         "Hi, my basket is bigger than usual — can you help me scope and lock in the booking?",
+    "rescue-toast":
+        "Hi, I was browsing the services and could use a hand picking the right one for my situation.",
     date: "Hi, I'm picking a date for a booking and could use some advice.",
     address: "Hi, I'm at the address step of a booking and have a question.",
     review:
@@ -210,6 +212,78 @@ export function WhatsAppEscapeBigJob({ subtotal }: { subtotal: number }) {
                 </p>
             </div>
         </a>
+    );
+}
+
+/**
+ * Bounce-signal rescue toast — appears dynamically when the user has shown
+ * uncertainty / browse-without-commit behaviour on /v2. Triggers are computed
+ * in the parent (HandymanV2), this component just renders.
+ *
+ * Sits above the floating Menu pill on mobile (so both rescue paths — Menu
+ * for "let me jump to a category" and WhatsApp for "I'm a bit lost" — are
+ * available simultaneously). Bottom offset adapts to whether the cart bar
+ * is currently up (cartHasItems shifts it higher).
+ *
+ * Fades in + slides up softly on appearance so it doesn't startle, and is
+ * dismissible via the X (sessionStorage flag prevents re-show this session).
+ */
+export function RescueToast({
+    visible,
+    cartHasItems,
+    onDismiss,
+}: {
+    visible: boolean;
+    cartHasItems: boolean;
+    onDismiss: () => void;
+}) {
+    if (!visible) return null;
+    // Stacked above the Menu pill. Menu pill bottoms: bottom-6 (~24px) without
+    // cart, bottom-24 (~96px) with cart bar visible. Add ~56px to land just
+    // above it with breathing room: bottom-20 (80px) / bottom-40 (160px).
+    const bottom = cartHasItems ? "bottom-40" : "bottom-20";
+    return (
+        <div
+            className={`fixed ${bottom} left-1/2 z-30 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-full bg-slate-900 py-2 pl-2 pr-1 text-sm font-medium text-white shadow-xl ring-1 ring-white/10 animate-rescue-fade-in lg:hidden`}
+            data-testid="v2-whatsapp-rescue-toast"
+        >
+            <a
+                href={whatsappHref("rescue-toast")}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => handleClick("rescue-toast")}
+                className="flex min-w-0 items-center gap-2 rounded-full px-2.5 py-1 transition hover:bg-white/5"
+            >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#25D366]">
+                    <WhatsAppIcon className="h-4 w-4 text-white" />
+                </span>
+                <span className="truncate">Need help choosing?</span>
+                <span aria-hidden className="shrink-0 text-slate-300">
+                    →
+                </span>
+            </a>
+            <button
+                type="button"
+                onClick={onDismiss}
+                aria-label="Dismiss"
+                className="ml-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/10 hover:text-white"
+                data-testid="v2-whatsapp-rescue-dismiss"
+            >
+                <svg
+                    className="h-4 w-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+            </button>
+        </div>
     );
 }
 

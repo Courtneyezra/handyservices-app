@@ -102,11 +102,18 @@ export default {
                     "70%":  { strokeDashoffset: "0",   opacity: "1" },
                     "100%": { strokeDashoffset: "0",   opacity: "0" },
                 },
+                "rescue-fade-in": {
+                    // Soft fade + slide-up for the bounce-signal rescue toast
+                    // — appears next to the Menu pill without startling.
+                    "0%":   { opacity: "0", transform: "translate(-50%, 8px)" },
+                    "100%": { opacity: "1", transform: "translate(-50%, 0)" },
+                },
             },
             animation: {
                 "cart-bump": "cart-bump 450ms cubic-bezier(0.34, 1.56, 0.64, 1)",
                 "cart-add-pulse": "cart-add-pulse 320ms ease-out",
                 "success-ring": "success-ring 900ms ease-out forwards",
+                "rescue-fade-in": "rescue-fade-in 320ms ease-out",
             },
         },
     },
