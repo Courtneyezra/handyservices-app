@@ -3484,6 +3484,8 @@ export default function PersonalizedQuotePage() {
             return null;
           }
           const balance = Math.max(0, currentTotal - deposit);
+          const lineItems = (quote.pricingLineItems as any[]) || [];
+          const materialsPence = quote.materialsCostWithMarkupPence ?? 0;
           return (
             <div className="bg-amber-50 border-y-2 border-amber-400 px-4 py-4" data-testid="quote-revised-banner">
               <div className="max-w-2xl mx-auto">
@@ -3495,6 +3497,26 @@ export default function PersonalizedQuotePage() {
                       Hi {quote.customerName?.split(' ')[0] || 'there'} — we've visited and inspected the doors. The original quote assumed the frames were already rebated for intumescent strips, but they aren't, so the doors need planing and routering. Your{' '}
                       <span className="font-semibold">£{(deposit / 100).toFixed(2)}</span> deposit is credited in full against the new total.
                     </p>
+                    {lineItems.length > 0 && (
+                      <div className="bg-white rounded-lg border border-amber-200 p-3 mb-3">
+                        <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Updated Scope</h5>
+                        <div className="space-y-2">
+                          {lineItems.map((item: any) => (
+                            <div key={item.lineId} className="flex justify-between items-start gap-3 text-sm">
+                              <span className="text-slate-700 flex-1">{item.description}</span>
+                              <span className="text-slate-900 font-semibold whitespace-nowrap">
+                                £{(((item.guardedPricePence ?? 0) + (item.materialsWithMarginPence ?? 0)) / 100).toFixed(2)}
+                              </span>
+                            </div>
+                          ))}
+                          {materialsPence > 0 && (
+                            <div className="text-xs text-slate-500 pt-1 border-t border-slate-100">
+                              Includes materials with margin: £{(materialsPence / 100).toFixed(2)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     <div className="bg-white rounded-lg border border-amber-200 p-3 space-y-1.5 text-sm">
                       <div className="flex justify-between text-slate-500">
                         <span>Previous total:</span>
