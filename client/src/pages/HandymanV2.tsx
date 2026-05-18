@@ -1290,98 +1290,186 @@ const SLIDES: Slide[] = [
     },
 ];
 
+/**
+ * Native CSS scroll-snap carousel — mobile users get real momentum-based
+ * swipe for free (no touch event handlers needed). All 4 slides render side
+ * by side in a horizontally-scrolling flex container; the browser snaps to
+ * the nearest slide when the user releases.
+ *
+ * Auto-advance via `scrollTo` every 6 seconds. Pauses while the user is
+ * interacting (touchstart / pointerdown), resumes 4 seconds after they
+ * release so we don't fight the user's intent.
+ */
 function HeroCarousel() {
+    const trackRef = useRef<HTMLDivElement>(null);
     const [index, setIndex] = useState(0);
+    // Set to true while the user is actively scrolling/touching the carousel.
+    // Auto-advance pauses while this is true.
+    const userActiveRef = useRef(false);
+    const resumeTimerRef = useRef<number | null>(null);
 
+    // Track which slide is in view via the native `scroll` event. Throttled
+    // with a 150 ms debounce so we only update React state once the user's
+    // swipe / programmatic scroll has come to rest — avoids state churn on
+    // every scroll pixel and the unmount-race that an rAF poll causes.
     useEffect(() => {
-        const id = window.setInterval(
-            () => setIndex((i) => (i + 1) % SLIDES.length),
-            6000,
-        );
+        const track = trackRef.current;
+        if (!track) return;
+        let timer: number | null = null;
+        const onScroll = () => {
+            if (timer) window.clearTimeout(timer);
+            timer = window.setTimeout(() => {
+                const w = track.clientWidth;
+                if (w === 0) return;
+                const next = Math.round(track.scrollLeft / w);
+                setIndex((prev) => (prev === next ? prev : next));
+            }, 150);
+        };
+        track.addEventListener("scroll", onScroll, { passive: true });
+        return () => {
+            track.removeEventListener("scroll", onScroll);
+            if (timer) window.clearTimeout(timer);
+        };
+    }, []);
+
+    // Mark "user is interacting" on touch/pointer start so auto-advance
+    // doesn't yank the slide out from under their finger. Resume 4s after
+    // they stop interacting.
+    useEffect(() => {
+        const track = trackRef.current;
+        if (!track) return;
+        const begin = () => {
+            userActiveRef.current = true;
+            if (resumeTimerRef.current) {
+                window.clearTimeout(resumeTimerRef.current);
+                resumeTimerRef.current = null;
+            }
+        };
+        const end = () => {
+            if (resumeTimerRef.current)
+                window.clearTimeout(resumeTimerRef.current);
+            resumeTimerRef.current = window.setTimeout(() => {
+                userActiveRef.current = false;
+            }, 4000);
+        };
+        track.addEventListener("touchstart", begin, { passive: true });
+        track.addEventListener("touchend", end, { passive: true });
+        track.addEventListener("touchcancel", end, { passive: true });
+        track.addEventListener("pointerdown", begin, { passive: true });
+        track.addEventListener("pointerup", end, { passive: true });
+        return () => {
+            track.removeEventListener("touchstart", begin);
+            track.removeEventListener("touchend", end);
+            track.removeEventListener("touchcancel", end);
+            track.removeEventListener("pointerdown", begin);
+            track.removeEventListener("pointerup", end);
+            if (resumeTimerRef.current)
+                window.clearTimeout(resumeTimerRef.current);
+        };
+    }, []);
+
+    // Auto-advance every 6 seconds — only when the user isn't actively
+    // touching the carousel. scrollTo with `behavior: "smooth"` triggers
+    // the same snap animation the user gets when they swipe.
+    useEffect(() => {
+        const id = window.setInterval(() => {
+            const track = trackRef.current;
+            if (!track || userActiveRef.current) return;
+            const w = track.clientWidth;
+            const current = Math.round(track.scrollLeft / w);
+            const next = (current + 1) % SLIDES.length;
+            track.scrollTo({ left: next * w, behavior: "smooth" });
+        }, 6000);
         return () => window.clearInterval(id);
     }, []);
 
-    const slide = SLIDES[index];
+    // Dot pagination — scrollTo the target slide.
+    const goTo = (i: number) => {
+        const track = trackRef.current;
+        if (!track) return;
+        track.scrollTo({ left: i * track.clientWidth, behavior: "smooth" });
+    };
 
     return (
         <section className="h-full">
             <div
-                className={`relative h-full min-h-[280px] overflow-hidden rounded-2xl ${slide.bgClass} ${slide.textColor} transition-all duration-500 lg:min-h-[420px]`}
+                ref={trackRef}
+                className="scrollbar-hide relative flex h-full min-h-[280px] snap-x snap-mandatory overflow-x-auto overflow-y-hidden rounded-2xl lg:min-h-[420px]"
+                aria-roledescription="carousel"
+                aria-label="Service highlights"
             >
-                {/* Real brand photo filling the right side, behind the gradient overlay.
-                  * Narrower on mobile (45%) so headlines/subheads have room to breathe;
-                  * wider (60%) on desktop. */}
-                <img
-                    src={slide.image}
-                    alt=""
-                    aria-hidden="true"
-                    className="absolute inset-y-0 right-0 h-full w-[45%] object-cover lg:w-3/5"
-                />
-                {/* Gradient overlay fades the slide bg color into transparency on the right.
-                  * On mobile we keep the overlay opaque longer so text stays readable. */}
-                <div
-                    className={`absolute inset-0 bg-gradient-to-r ${slide.overlay}`}
-                />
-
-                {/* Slide content sits over the overlay */}
-                <div className="relative flex h-full flex-col justify-between p-6 lg:p-8">
-                    <div className="max-w-md">
+                {SLIDES.map((slide, i) => (
+                    <div
+                        key={i}
+                        aria-roledescription="slide"
+                        aria-label={`Slide ${i + 1} of ${SLIDES.length}`}
+                        className={`relative h-full w-full shrink-0 snap-start overflow-hidden ${slide.bgClass} ${slide.textColor}`}
+                    >
+                        {/* Brand photo — right side, behind the gradient overlay. */}
+                        <img
+                            src={slide.image}
+                            alt=""
+                            aria-hidden="true"
+                            className="absolute inset-y-0 right-0 h-full w-[45%] object-cover lg:w-3/5"
+                        />
+                        {/* Gradient overlay fades the slide bg into transparent. */}
                         <div
-                            className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wider ${slide.eyebrowChip}`}
-                        >
-                            <slide.Icon className="h-3.5 w-3.5" />
-                            {slide.eyebrow}
-                        </div>
-                        <h2 className="mt-4 max-w-[55%] text-xl font-bold leading-tight sm:max-w-none sm:text-2xl md:text-3xl lg:text-4xl">
-                            {slide.headline}
-                        </h2>
-                        <p className="mt-3 max-w-[55%] text-xs leading-relaxed opacity-90 sm:max-w-sm sm:text-sm md:text-base">
-                            {slide.subhead}
-                        </p>
-                    </div>
+                            className={`absolute inset-0 bg-gradient-to-r ${slide.overlay}`}
+                        />
 
-                    <div className="flex items-end justify-between gap-4 pt-6">
-                        {/* "Book now" scrolls the user down to the start of
-                          * the service grid (#cat-quick-fix). Same behaviour
-                          * on every slide — the slide is the hook, the grid
-                          * is the conversion surface. CategoryBlock has
-                          * `scroll-mt-24` so the sticky header is respected. */}
-                        <button
-                            type="button"
-                            onClick={() =>
-                                document
-                                    .getElementById("cat-quick-fix")
-                                    ?.scrollIntoView({
-                                        behavior: "smooth",
-                                        block: "start",
-                                    })
-                            }
-                            className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm transition hover:bg-slate-100 active:scale-[0.97]"
-                        >
-                            Book now →
-                        </button>
+                        {/* Slide content */}
+                        <div className="relative flex h-full flex-col justify-between p-6 lg:p-8">
+                            <div className="max-w-md">
+                                <div
+                                    className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wider ${slide.eyebrowChip}`}
+                                >
+                                    <slide.Icon className="h-3.5 w-3.5" />
+                                    {slide.eyebrow}
+                                </div>
+                                <h2 className="mt-4 max-w-[55%] text-xl font-bold leading-tight sm:max-w-none sm:text-2xl md:text-3xl lg:text-4xl">
+                                    {slide.headline}
+                                </h2>
+                                <p className="mt-3 max-w-[55%] text-xs leading-relaxed opacity-90 sm:max-w-sm sm:text-sm md:text-base">
+                                    {slide.subhead}
+                                </p>
+                            </div>
 
-                        {/* Dot pagination */}
-                        <div className="flex items-center gap-1.5">
-                            {SLIDES.map((_, i) => (
+                            <div className="flex items-end justify-between gap-4 pt-6">
                                 <button
-                                    key={i}
-                                    aria-label={`Go to slide ${i + 1}`}
-                                    onClick={() => setIndex(i)}
-                                    className={`h-1.5 rounded-full transition-all ${
-                                        i === index
-                                            ? "w-6 bg-amber-400"
-                                            : "w-1.5 bg-current opacity-30 hover:opacity-50"
-                                    }`}
-                                />
-                            ))}
+                                    type="button"
+                                    onClick={() =>
+                                        document
+                                            .getElementById("cat-quick-fix")
+                                            ?.scrollIntoView({
+                                                behavior: "smooth",
+                                                block: "start",
+                                            })
+                                    }
+                                    className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-sm transition hover:bg-slate-100 active:scale-[0.97]"
+                                >
+                                    Book now →
+                                </button>
+
+                                {/* Dot pagination — clickable, drives the
+                                  * scroll-snap container via scrollTo. */}
+                                <div className="flex items-center gap-1.5">
+                                    {SLIDES.map((_, j) => (
+                                        <button
+                                            key={j}
+                                            aria-label={`Go to slide ${j + 1}`}
+                                            onClick={() => goTo(j)}
+                                            className={`h-1.5 rounded-full transition-all ${
+                                                j === index
+                                                    ? "w-6 bg-amber-400"
+                                                    : "w-1.5 bg-current opacity-30 hover:opacity-50"
+                                            }`}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
-
-                {/* Slide controls removed — carousel auto-advances; dot indicators
-                  * (rendered above) are the only manual control. Keeps the slide
-                  * artwork unobstructed on mobile. */}
+                ))}
             </div>
         </section>
     );

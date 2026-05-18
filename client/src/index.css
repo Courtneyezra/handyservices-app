@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Hide the native scrollbar but keep the element scrollable. Used by the
+ * /v2 hero carousel + any horizontally-scrolling SKU/category strip where
+ * the scrollbar would be visual clutter. */
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+
 @layer base {
   :root {
     /* Jobber Color Palette */
