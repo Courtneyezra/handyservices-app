@@ -30,7 +30,6 @@ import {
     ChevronLeft,
     ChevronRight,
     Clock,
-    CreditCard,
     KeyRound,
     Loader2,
     MapPin,
@@ -234,7 +233,7 @@ export function BookingDateV2() {
             backLabel="Back to basket"
             stepNumber={2}
             title="Pick a date & time"
-            subtitle="When works for you? We usually fit jobs within 3 working days."
+            subtitle=""
             primaryLabel="Continue to address"
             primaryDisabled={!canContinue}
             primaryDisabledHint="Pick a date and a slot to continue"
@@ -666,7 +665,7 @@ export function BookingAddressV2() {
             backLabel="Back to date"
             stepNumber={3}
             title="Where are we coming?"
-            subtitle="We cover Nottingham + surrounding suburbs — NG1–NG18 and Derby DE postcodes."
+            subtitle=""
             primaryLabel="Continue to review"
             primaryDisabled={!canContinue}
             primaryDisabledHint="Fill in the required fields to continue"
@@ -1204,7 +1203,7 @@ export function BookingReviewV2() {
             backLabel="Back to address"
             stepNumber={4}
             title="Review & confirm"
-            subtitle="One last look before we lock in your slot."
+            subtitle=""
             primaryLabel={ctaLabel}
             primaryDisabled={payStep === "creating_booking" || isInPaymentStep}
             onContinue={handleConfirm}
@@ -1397,31 +1396,6 @@ export function BookingReviewV2() {
                     </div>
                 </div>
 
-                {/* Upfront payment notice — shown before Confirm. Mirrors
-                  * the post-Confirm Stripe block so the customer's
-                  * expectation matches what they see when payStep flips to
-                  * `awaiting_payment`. The Stripe Elements card form opens
-                  * after they click the CTA. */}
-                <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                    <h3 className="mb-2 flex items-center gap-1.5 text-sm font-bold uppercase tracking-wider text-slate-500">
-                        <CreditCard className="h-3.5 w-3.5" />
-                        Pay to lock in your slot
-                    </h3>
-                    <p className="text-sm leading-relaxed text-slate-700">
-                        Full payment of <strong>£{total}</strong> is taken now
-                        to confirm your booking. Cards, Apple Pay and Google
-                        Pay are all accepted via Stripe — receipt sent to{" "}
-                        {booking.contactEmail || "your phone"} as soon as
-                        payment clears.
-                    </p>
-                </section>
-
-                <p className="text-xs text-slate-400">
-                    By confirming you agree to our 30-day workmanship
-                    guarantee. We'll send a confirmation to{" "}
-                    {booking.contactEmail || "your phone"} within a few
-                    minutes.
-                </p>
             </div>
         </BookingShell>
     );
@@ -1727,15 +1701,6 @@ function StripePaymentStep({
 
     return (
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center gap-1.5 text-sm font-bold uppercase tracking-wider text-slate-500">
-                <CreditCard className="h-3.5 w-3.5" />
-                Pay to lock in your slot
-            </div>
-            <p className="mb-4 text-sm text-slate-600">
-                Full payment of{" "}
-                <span className="font-semibold text-slate-900">£{total}</span>{" "}
-                is taken now. Cards, Apple Pay and Google Pay are all accepted.
-            </p>
             <PaymentElement options={{ layout: "tabs" }} />
             <button
                 type="button"

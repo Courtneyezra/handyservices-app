@@ -304,11 +304,6 @@ export default function BasketV2() {
                     Continue to date &amp; time
                     <ChevronRight className="h-4 w-4" />
                 </button>
-
-                <p className="mt-4 text-center text-xs text-slate-400">
-                    Backed by our 30-day workmanship guarantee — DBS-checked
-                    tradespeople, £2M insured.
-                </p>
             </main>
 
             {/* Mobile sticky Continue */}
