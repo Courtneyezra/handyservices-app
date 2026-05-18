@@ -2530,15 +2530,13 @@ function ServiceDetailModal({
                         : "translate-y-full opacity-0 lg:translate-y-[-50%] lg:scale-95"
                 }`}
             >
-                {/* Mobile drag handle */}
-                <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-200 lg:hidden" />
-
                 {/* Optional hero banner — only services with a relevant
-                  * brand photo get this. Sits between the drag-handle and the
-                  * title header, so the user sees the visual context before
-                  * reading the service name. `shrink-0` keeps it from being
-                  * compressed when the body content is tall. */}
-                {service.modalImage && (
+                  * brand photo get this. Flush to the top of the modal sheet
+                  * (no margin) so the image is the very first thing the user
+                  * sees. The drag-handle pill floats over it as an absolute
+                  * overlay rather than taking its own row above. `shrink-0`
+                  * keeps the image from compressing when the body is tall. */}
+                {service.modalImage ? (
                     <div className="relative h-36 w-full shrink-0 overflow-hidden bg-slate-100 lg:h-44">
                         <img
                             src={service.modalImage}
@@ -2548,10 +2546,18 @@ function ServiceDetailModal({
                             decoding="async"
                             className="h-full w-full object-cover"
                         />
+                        {/* Drag handle — absolute-positioned over the image,
+                          * white/80 background so it stays visible against
+                          * darker / lighter photos alike. Mobile-only. */}
+                        <div className="absolute left-1/2 top-2 h-1 w-10 -translate-x-1/2 rounded-full bg-white/80 shadow-sm lg:hidden" />
                         {/* Subtle bottom gradient so the white header divider
                           * feels intentional instead of abrupt. */}
                         <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-b from-transparent to-white/40" />
                     </div>
+                ) : (
+                    /* Mobile drag handle — only rendered when there's no
+                     * banner image to host the handle as an overlay. */
+                    <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-200 lg:hidden" />
                 )}
 
                 {/* Sticky header */}
