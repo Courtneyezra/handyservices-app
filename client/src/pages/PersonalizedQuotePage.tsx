@@ -42,6 +42,7 @@ import { SingleProductQuote } from '@/components/quote/SingleProductQuote';
 import { HassleComparisonCard } from '@/components/quote/HassleComparisonCard';
 import { BudgetQuoteInline } from '@/components/quote/BudgetQuoteInline';
 import { UnifiedQuoteCard } from '@/components/quote/UnifiedQuoteCard';
+import { AmendedQuoteCard } from '@/components/quote/AmendedQuoteCard';
 import { BookingConfirmation } from '@/components/quote/BookingConfirmation';
 import { ScarcityBanner } from '@/components/quote/ScarcityBanner';
 import { QuoteTimer } from '@/components/quote/QuoteTimer';
@@ -525,6 +526,11 @@ export interface PersonalizedQuote {
   depositPaidAt?: Date | string;
   depositAmountPence?: number;
   selectedTierPricePence?: number;
+  feedbackJson?: ({
+    revisionAcceptedAt?: string;
+    revisionAcceptedFromPricePence?: number;
+    revisionAcceptedToPricePence?: number;
+  } & Record<string, unknown>) | null;
   selectedDate?: Date | string | null;
   leadId?: string;
   expiresAt?: Date | string;
@@ -2553,6 +2559,8 @@ export default function PersonalizedQuotePage() {
   const [hasBooked, setHasBooked] = useState(false);
   const [isBooking, setIsBooking] = useState(false);
   const [hasReserved, setHasReserved] = useState(false); // Track if user clicked "Book Now"
+  const [isAcceptingRevision, setIsAcceptingRevision] = useState(false);
+  const [revisionAcceptedLocally, setRevisionAcceptedLocally] = useState(false);
 
   // [RAMANUJAM] Productization choices for BUSY_PRO segment
   const [timingChoice, setTimingChoice] = useState<'this_week' | 'next_week'>('this_week'); // Default to this week (premium option)
@@ -3476,72 +3484,6 @@ export default function PersonalizedQuotePage() {
         {/* Scarcity Banner - Top of page, data-driven per segment */}
         <ScarcityBanner segment={quote.segment || 'UNKNOWN'} postcode={quote.postcode} />
 
-        {(() => {
-          const bookedTotal = quote.selectedTierPricePence ?? 0;
-          const currentTotal = quote.basePrice ?? 0;
-          const deposit = quote.depositAmountPence ?? 0;
-          if (!quote.depositPaidAt || !bookedTotal || !currentTotal || currentTotal <= bookedTotal) {
-            return null;
-          }
-          const balance = Math.max(0, currentTotal - deposit);
-          const lineItems = (quote.pricingLineItems as any[]) || [];
-          const materialsPence = quote.materialsCostWithMarkupPence ?? 0;
-          return (
-            <div className="bg-amber-50 border-y-2 border-amber-400 px-4 py-4" data-testid="quote-revised-banner">
-              <div className="max-w-2xl mx-auto">
-                <div className="flex items-start gap-3">
-                  <div className="flex-shrink-0 w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center text-white font-bold">!</div>
-                  <div className="flex-1">
-                    <h4 className="text-amber-900 font-bold text-base mb-1">Amended Quote — After Site Visit</h4>
-                    <p className="text-sm text-slate-700 mb-3">
-                      Hi {quote.customerName?.split(' ')[0] || 'there'} — we've visited and inspected the doors. The original quote assumed the frames were already rebated for intumescent strips, but they aren't, so the doors need planing and routering. Your{' '}
-                      <span className="font-semibold">£{(deposit / 100).toFixed(2)}</span> deposit is credited in full against the new total.
-                    </p>
-                    {lineItems.length > 0 && (
-                      <div className="bg-white rounded-lg border border-amber-200 p-3 mb-3">
-                        <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Updated Scope</h5>
-                        <div className="space-y-2">
-                          {lineItems.map((item: any) => (
-                            <div key={item.lineId} className="flex justify-between items-start gap-3 text-sm">
-                              <span className="text-slate-700 flex-1">{item.description}</span>
-                              <span className="text-slate-900 font-semibold whitespace-nowrap">
-                                £{(((item.guardedPricePence ?? 0) + (item.materialsWithMarginPence ?? 0)) / 100).toFixed(2)}
-                              </span>
-                            </div>
-                          ))}
-                          {materialsPence > 0 && (
-                            <div className="text-xs text-slate-500 pt-1 border-t border-slate-100">
-                              Includes materials with margin: £{(materialsPence / 100).toFixed(2)}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    <div className="bg-white rounded-lg border border-amber-200 p-3 space-y-1.5 text-sm">
-                      <div className="flex justify-between text-slate-500">
-                        <span>Previous total:</span>
-                        <span className="line-through">£{(bookedTotal / 100).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-slate-900">
-                        <span>New total:</span>
-                        <span className="font-semibold">£{(currentTotal / 100).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-slate-600 border-t border-slate-200 pt-1.5">
-                        <span>Deposit paid:</span>
-                        <span>−£{(deposit / 100).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-amber-900 font-bold border-t border-slate-200 pt-1.5">
-                        <span>Balance due on completion:</span>
-                        <span>£{(balance / 100).toFixed(2)}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
         {/* Value Sections Flow */}
         <ValueHero quote={quote} config={config} />
 
@@ -3615,6 +3557,58 @@ export default function PersonalizedQuotePage() {
                 pricingLineItems={isContextualQuote ? taggedPricingLineItems : undefined}
                 estimatorPhotoUrl={mikeProfilePhoto}
               />
+
+              {(() => {
+                const tierPrice = quote.selectedTierPricePence ?? 0;
+                const currentTotal = quote.basePrice ?? 0;
+                const deposit = quote.depositAmountPence ?? 0;
+                const serverAcceptedAt = quote.feedbackJson?.revisionAcceptedAt;
+                const acceptedFromPrice = quote.feedbackJson?.revisionAcceptedFromPricePence ?? 0;
+                const isAccepted = !!serverAcceptedAt || revisionAcceptedLocally;
+                // After acceptance the server syncs selectedTierPricePence to basePrice, so
+                // the pre-rescope total has to come from feedbackJson.
+                const previousTotal = isAccepted && acceptedFromPrice > 0
+                  ? acceptedFromPrice
+                  : tierPrice;
+                const isRescoped =
+                  !!quote.depositPaidAt &&
+                  currentTotal > 0 &&
+                  ((previousTotal > 0 && currentTotal > previousTotal) || isAccepted);
+                if (!isRescoped) return null;
+                const balance = Math.max(0, currentTotal - deposit);
+                return (
+                  <div className="max-w-xl mx-auto" data-testid="amended-card-wrapper">
+                    <AmendedQuoteCard
+                      customerName={quote.customerName}
+                      previousTotalPence={previousTotal}
+                      currentTotalPence={currentTotal}
+                      depositPaidPence={deposit}
+                      balanceDuePence={balance}
+                      pricingLineItems={taggedPricingLineItems as any}
+                      explanation={`Hi ${quote.customerName?.split(' ')[0] || 'there'} — we visited and inspected the doors. The original quote assumed the frames were already rebated for intumescent strips, but they aren't, so the doors need planing and routering. Your deposit is credited in full against the new total.`}
+                      isAccepted={isAccepted}
+                      isAccepting={isAcceptingRevision}
+                      onAccept={async () => {
+                        setIsAcceptingRevision(true);
+                        try {
+                          const resp = await fetch(`/api/personalized-quotes/${quote.id}/accept-revision`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                          });
+                          if (!resp.ok) throw new Error('Failed to accept revision');
+                          setRevisionAcceptedLocally(true);
+                          queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes', params?.slug] });
+                        } catch (err) {
+                          console.error('[accept-revision]', err);
+                          alert('Failed to accept revision. Please try again or contact us.');
+                        } finally {
+                          setIsAcceptingRevision(false);
+                        }
+                      }}
+                    />
+                  </div>
+                );
+              })()}
 
               {/* Price Card + Booking Flow */}
               {quotePrice > 0 && !hasBooked && (

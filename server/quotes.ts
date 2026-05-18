@@ -2252,6 +2252,44 @@ quotesRouter.post('/api/site-visits/request', async (req, res) => {
     }
 });
 
+quotesRouter.post('/api/personalized-quotes/:id/accept-revision', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const [existing] = await db.select().from(personalizedQuotes)
+            .where(eq(personalizedQuotes.id, id))
+            .limit(1);
+
+        if (!existing) {
+            return res.status(404).json({ error: 'Quote not found' });
+        }
+
+        const existingFeedback = (existing.feedbackJson as Record<string, unknown> | null) || {};
+        const acceptedAt = new Date().toISOString();
+        const updatedFeedback = {
+            ...existingFeedback,
+            revisionAcceptedAt: acceptedAt,
+            revisionAcceptedFromPricePence: existing.selectedTierPricePence,
+            revisionAcceptedToPricePence: existing.basePrice,
+        };
+
+        const [updated] = await db.update(personalizedQuotes)
+            .set({
+                feedbackJson: updatedFeedback,
+                selectedTierPricePence: existing.basePrice,
+            })
+            .where(eq(personalizedQuotes.id, id))
+            .returning();
+
+        console.log(`[Quotes] Revision accepted on ${id} at ${acceptedAt}`);
+
+        res.json({ success: true, quote: updated });
+    } catch (error: any) {
+        console.error('[Quotes] Error accepting revision:', error);
+        res.status(500).json({ error: error.message || 'Failed to accept revision' });
+    }
+});
+
 // PATCH /api/personalized-quotes/:id/update-email
 // Update just the email field on a quote (for payment flow)
 quotesRouter.patch('/api/personalized-quotes/:id/update-email', async (req, res) => {
