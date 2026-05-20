@@ -9,8 +9,27 @@
  * Route: /v2  (registered in App.tsx)
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
+import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
+// Phosphor icons — selected per-SKU for task-specific recognisability.
+// Lucide doesn't have icons for taps, toilets, faucets etc. — Phosphor's
+// line-style set covers these gaps and matches Lucide's visual weight
+// closely enough to mix cleanly within the same set.
+import {
+    Drop as PhDrop,
+    Toilet,
+    Shower as PhShower,
+    Plug as PhPlug,
+    Fan as PhFan,
+    LampPendant,
+    Lock as PhLock,
+    Gear,
+    // Wave 2 — carpentry + tile/grout
+    Hammer as PhHammer,
+    PencilRuler,
+} from "@phosphor-icons/react";
+
 import {
     Star,
     Check,
@@ -30,6 +49,26 @@ import {
     Bed,
     DoorOpen,
     Frame,
+    // Room-filter icons (added for the new "Browse by room" strip).
+    // Bath = bathroom, Sofa = living room, ChefHat = kitchen,
+    // Footprints = hallway, Trees = garden, Home = outside / exterior,
+    // LayoutGrid = "All rooms".
+    Bath,
+    Sofa,
+    ChefHat,
+    Footprints,
+    Trees,
+    Home,
+    LayoutGrid,
+    // Wave 1 SKU category icons.
+    //   Droplet     = silicone reseal (water-tightness)
+    //   Wrench      = plumbing fixes
+    //   Lightbulb   = sockets & lights (electrical minor)
+    //   DoorClosed  = door fixes (distinct from DoorOpen used for Locks)
+    Droplet,
+    Wrench,
+    Lightbulb,
+    DoorClosed,
     ChevronDown,
     Twitter,
     Facebook,
@@ -101,10 +140,12 @@ export type Service = {
      *  icon-on-gradient placeholder. Preferred for hero services that have
      *  proper photography. */
     thumbImage?: string;
-    /** When set (and no `thumbImage`), renders a Lucide icon centred on the
-     *  gradient tile. Used in place of emoji for a cleaner, brand-consistent
-     *  look. */
-    thumbIcon?: LucideIcon;
+    /** When set (and no `thumbImage`), renders an icon centred on the
+     *  gradient tile. Accepts either a Lucide icon or a Phosphor icon —
+     *  Phosphor is used for SKU-specific domain icons (taps, toilets, etc.)
+     *  that Lucide doesn't have. Both render at the same stroke weight
+     *  visually so they mix cleanly in the same catalog. */
+    thumbIcon?: LucideIcon | PhosphorIcon;
     /** When set (highest priority after image), renders a typographic
      *  two-line tile — e.g. "30 / MINS" — matching the Select-a-service nav.
      *  Used on the hourly/30-min SKUs so the thumbnail mirrors its category
@@ -122,6 +163,12 @@ export type Service = {
     tiers?: ServiceTier[];
     /** Optional short description shown in the detail modal under the header. */
     longDescription?: string;
+    /** Optional list of `RoomId`s where this service typically applies.
+     *  Used by the "Browse by room" filter strip — services with `rooms`
+     *  undefined are treated as room-agnostic (always visible). Services
+     *  with `rooms` set only render when no room is selected OR the selected
+     *  room id is in this list. */
+    rooms?: RoomId[];
 };
 
 type PromoBanner = {
@@ -147,6 +194,42 @@ type Category = {
     blurb?: string;
     services: Service[];
 };
+
+// ---------------------------------------------------------------------------
+// Rooms — secondary discovery axis ("Browse by room" strip).
+//
+// Service-type categories remain the primary nav (matches single-task
+// customer language and competitor patterns). The room filter is a
+// secondary axis: clicking a room narrows the visible services to those
+// tagged with that room. Services without a `rooms` tag are treated as
+// room-agnostic (e.g. "30-min handyman", "Drill & hang") and always stay
+// visible. Categories with zero visible services hide themselves.
+// ---------------------------------------------------------------------------
+
+export type RoomId =
+    | "kitchen"
+    | "bathroom"
+    | "living-room"
+    | "bedroom"
+    | "hallway"
+    | "garden"
+    | "outside";
+
+type Room = {
+    id: RoomId;
+    label: string;
+    Icon: typeof Hammer;
+};
+
+const ROOMS: Room[] = [
+    { id: "kitchen", label: "Kitchen", Icon: ChefHat },
+    { id: "bathroom", label: "Bathroom", Icon: Bath },
+    { id: "living-room", label: "Living room", Icon: Sofa },
+    { id: "bedroom", label: "Bedroom", Icon: Bed },
+    { id: "hallway", label: "Hallway", Icon: Footprints },
+    { id: "garden", label: "Garden", Icon: Trees },
+    { id: "outside", label: "Outside", Icon: Home },
+];
 
 const CATEGORIES: Category[] = [
     {
@@ -262,6 +345,623 @@ const CATEGORIES: Category[] = [
             },
         ],
     },
+    // -----------------------------------------------------------------------
+    // Wave 1 SKU categories — added based on CONTEXTUAL acceptance analysis:
+    //   • Silicone reseal     — 50% historic accept (top converter)
+    //   • Plumbing fixes      — 21% accept but biggest sub-£200 bail volume
+    //   • Sockets & lights    — 25% accept, ~50 historic line items
+    //   • Door fixes          — 41% accept, recurring single-task demand
+    // All SKUs priced on the existing EVE+10% scale (£49/hr base, £74/hr
+    // anchor). Materials assume customer-supplied unless noted; we bring
+    // fittings and consumables. SKU codes here are /v2-internal — when the
+    // backend is wired, map each to a productized_services.sku_code:
+    //   silicone-bath → BATH-SILICONE-SEAL · tap-repair → PLUMB-TAP-REPAIR
+    //   toilet-seat → PLUMB-TOILET-SEAT   · toilet-mechanism → PLUMB-TOILET-REPAIR
+    //   shower-head → PLUMB-SHOWER-HEAD   · light-fitting-* → ELEC-LIGHT-REPLACE/MULTI
+    //   socket-replace-* → ELEC-SOCKET-REPLACE · extractor-fan → ELEC-EXTRACTOR-FAN
+    //   door-handle → DOOR-HANDLE-INT     · door-adjust → DOOR-ADJUST
+    //   door-lock-standard → DOOR-LOCK-REPLACE
+    // -----------------------------------------------------------------------
+    {
+        id: "silicone-reseal",
+        name: "Silicone reseal",
+        Icon: Droplet,
+        services: [
+            {
+                id: "silicone-reseal-svc",
+                rooms: ["bathroom", "kitchen"],
+                name: "Bath / shower / sink silicone reseal",
+                rating: 4.81,
+                reviewCount: "880 reviews",
+                priceCurrent: 37,
+                startsAt: true,
+                longDescription:
+                    "Old silicone removed, area cleaned and prepped, fresh anti-mould silicone laid for a tight finish. Pick the area you need — bath, shower or kitchen sink — and add multiples if you want them all done in one visit.",
+                tiers: [
+                    {
+                        id: "silicone-sink",
+                        name: "Kitchen sink",
+                        rating: 4.83,
+                        reviewCount: "210 reviews",
+                        // EVE+10% (£49/hr × 45/60) with BUSY_PRO anchor.
+                        priceCurrent: 37,
+                        priceOriginal: 56,
+                        durationMinutes: 45,
+                    },
+                    {
+                        id: "silicone-bath",
+                        name: "Bath",
+                        rating: 4.84,
+                        reviewCount: "390 reviews",
+                        // EVE+10% (£49/hr × 60/60).
+                        priceCurrent: 49,
+                        priceOriginal: 74,
+                        durationMinutes: 60,
+                    },
+                    {
+                        id: "silicone-shower",
+                        name: "Shower enclosure",
+                        rating: 4.79,
+                        reviewCount: "280 reviews",
+                        // EVE+10% (£49/hr × 75/60).
+                        priceCurrent: 61,
+                        priceOriginal: 93,
+                        durationMinutes: 75,
+                    },
+                ],
+                bullets: [
+                    "Anti-mould silicone included — bring your own if you prefer a specific brand.",
+                    "Existing sealant fully removed and surface cleaned before reapplication.",
+                ],
+                thumbEmoji: "💧",
+                thumbIcon: Droplet,
+                thumbBg: "from-sky-100 to-cyan-200",
+                modalImage: promoHandyman,
+                optionsCount: 3,
+            },
+        ],
+    },
+    {
+        id: "plumbing-fixes",
+        name: "Plumbing fixes",
+        Icon: Wrench,
+        services: [
+            {
+                id: "tap-repair",
+                rooms: ["bathroom", "kitchen"],
+                name: "Leaky tap repair",
+                rating: 4.78,
+                reviewCount: "1.1K reviews",
+                // EVE+10% (£49/hr × 45/60) with BUSY_PRO anchor.
+                priceCurrent: 37,
+                priceOriginal: 56,
+                durationMinutes: 45,
+                bullets: [
+                    "Washer / O-ring / cartridge replacement, full tap re-seat.",
+                    "Like-for-like parts; branded replacements at trade rates with your nod first.",
+                    "If no work is carried out after inspection, a visit charge of £25 applies.",
+                ],
+                thumbEmoji: "🚰",
+                thumbIcon: PhDrop,
+                thumbBg: "from-blue-100 to-sky-200",
+                modalImage: promoHandyman,
+            },
+            {
+                id: "tap-replace",
+                rooms: ["bathroom", "kitchen"],
+                name: "Tap replacement",
+                rating: 4.76,
+                reviewCount: "780 reviews",
+                priceCurrent: 49,
+                startsAt: true,
+                longDescription:
+                    "Like-for-like swap of a customer-supplied tap, or a fuller mixer-tap upgrade. We isolate the supply, fit the unit, and test for leaks before we leave.",
+                tiers: [
+                    {
+                        id: "tap-replace-likeforlike",
+                        name: "Like-for-like (you supply)",
+                        rating: 4.78,
+                        reviewCount: "510 reviews",
+                        priceCurrent: 49,
+                        priceOriginal: 74,
+                        durationMinutes: 60,
+                    },
+                    {
+                        id: "tap-replace-mixer",
+                        name: "Mixer-tap upgrade",
+                        rating: 4.74,
+                        reviewCount: "270 reviews",
+                        priceCurrent: 74,
+                        priceOriginal: 111,
+                        durationMinutes: 90,
+                    },
+                ],
+                bullets: [
+                    "Customer supplies the new tap; we bring fittings and PTFE tape.",
+                    "If no work is carried out after inspection, a visit charge of £25 applies.",
+                ],
+                thumbEmoji: "🚰",
+                thumbIcon: Wrench,
+                thumbBg: "from-blue-100 to-cyan-200",
+                modalImage: promoHandyman,
+                optionsCount: 2,
+            },
+            {
+                id: "toilet-seat",
+                rooms: ["bathroom"],
+                name: "Toilet seat replacement",
+                rating: 4.82,
+                reviewCount: "640 reviews",
+                // EVE+10% (£49/hr × 30/60) — 30-min minimum booking.
+                priceCurrent: 25,
+                priceOriginal: 37,
+                durationMinutes: 30,
+                bullets: [
+                    "Customer-supplied seat; we'll fit and align.",
+                    "Old seat removed and disposed of on request.",
+                ],
+                thumbEmoji: "🚽",
+                thumbIcon: Toilet,
+                thumbBg: "from-slate-100 to-slate-200",
+                modalImage: promoHandyman,
+            },
+            {
+                id: "toilet-mechanism",
+                rooms: ["bathroom"],
+                name: "Toilet flush mechanism repair",
+                rating: 4.75,
+                reviewCount: "440 reviews",
+                // EVE+10% (£49/hr × 60/60).
+                priceCurrent: 49,
+                priceOriginal: 74,
+                durationMinutes: 60,
+                bullets: [
+                    "Fill valve, flush valve or push-button mechanism — diagnosed and replaced.",
+                    "Customer-supplied parts; we bring sealing washers and tools.",
+                    "If no work is carried out after inspection, a visit charge of £25 applies.",
+                ],
+                thumbEmoji: "🚽",
+                thumbIcon: Gear,
+                thumbBg: "from-cyan-100 to-blue-200",
+                modalImage: promoHandyman,
+            },
+            {
+                id: "shower-head",
+                rooms: ["bathroom"],
+                name: "Shower head & hose replacement",
+                rating: 4.79,
+                reviewCount: "310 reviews",
+                // EVE+10% (£49/hr × 30/60).
+                priceCurrent: 25,
+                priceOriginal: 37,
+                durationMinutes: 30,
+                bullets: [
+                    "Customer-supplied head and hose; we swap and check the seal.",
+                    "Limescale build-up cleared from the connector while we're there.",
+                ],
+                thumbEmoji: "🚿",
+                thumbIcon: PhShower,
+                thumbBg: "from-sky-100 to-cyan-200",
+                modalImage: promoHandyman,
+            },
+        ],
+    },
+    {
+        id: "sockets-lights",
+        name: "Sockets & lights",
+        Icon: Lightbulb,
+        services: [
+            {
+                id: "light-fitting",
+                // No `rooms` — applies anywhere in the home.
+                name: "Light fitting replacement",
+                rating: 4.77,
+                reviewCount: "920 reviews",
+                priceCurrent: 37,
+                startsAt: true,
+                longDescription:
+                    "Like-for-like swap of an existing ceiling or wall light fitting. We isolate the circuit, fit the new unit, and test before we leave. New circuits or consumer-unit work need a qualified electrician — we'll route those to a specialist quote.",
+                tiers: [
+                    {
+                        id: "light-fitting-single",
+                        name: "1 fitting",
+                        rating: 4.79,
+                        reviewCount: "560 reviews",
+                        priceCurrent: 37,
+                        priceOriginal: 56,
+                        durationMinutes: 45,
+                    },
+                    {
+                        id: "light-fitting-multi",
+                        name: "2–4 fittings",
+                        rating: 4.74,
+                        reviewCount: "240 reviews",
+                        priceCurrent: 74,
+                        priceOriginal: 111,
+                        durationMinutes: 90,
+                    },
+                ],
+                bullets: [
+                    "Customer supplies the new fitting; we bring connectors and tools.",
+                    "Like-for-like swap only — no new circuits or consumer-unit work.",
+                    "If no work is carried out after inspection, a visit charge of £25 applies.",
+                ],
+                thumbEmoji: "💡",
+                thumbIcon: Lightbulb,
+                thumbBg: "from-amber-100 to-yellow-200",
+                modalImage: promoHandyman,
+                optionsCount: 2,
+            },
+            {
+                id: "pendant-light",
+                name: "Pendant light hang",
+                rating: 4.71,
+                reviewCount: "180 reviews",
+                // EVE+10% (£49/hr × 45/60).
+                priceCurrent: 37,
+                priceOriginal: 56,
+                durationMinutes: 45,
+                bullets: [
+                    "Customer-supplied pendant; we route the cable, fit the rose plate, and level.",
+                    "Like-for-like swap or hang from existing ceiling rose.",
+                ],
+                thumbEmoji: "💡",
+                thumbIcon: LampPendant,
+                thumbBg: "from-yellow-100 to-amber-200",
+                modalImage: promoHandyman,
+            },
+            {
+                id: "socket-replace",
+                name: "Socket / switch faceplate replacement",
+                rating: 4.81,
+                reviewCount: "650 reviews",
+                priceCurrent: 25,
+                startsAt: true,
+                longDescription:
+                    "Damaged or outdated socket / switch face? We isolate the circuit, swap the plate, and test. Like-for-like replacements only — adding sockets or moving them needs a qualified electrician.",
+                tiers: [
+                    {
+                        id: "socket-replace-single",
+                        name: "1 socket / switch",
+                        rating: 4.83,
+                        reviewCount: "390 reviews",
+                        priceCurrent: 25,
+                        priceOriginal: 37,
+                        durationMinutes: 30,
+                    },
+                    {
+                        id: "socket-replace-multi",
+                        name: "2–4 sockets / switches",
+                        rating: 4.78,
+                        reviewCount: "190 reviews",
+                        priceCurrent: 49,
+                        priceOriginal: 74,
+                        durationMinutes: 60,
+                    },
+                ],
+                bullets: [
+                    "Like-for-like faceplate replacement only.",
+                    "Customer supplies the new socket / switch; we bring backbox connectors.",
+                ],
+                thumbEmoji: "🔌",
+                thumbIcon: PhPlug,
+                thumbBg: "from-amber-100 to-orange-200",
+                modalImage: promoHandyman,
+                optionsCount: 2,
+            },
+            {
+                id: "extractor-fan",
+                rooms: ["bathroom", "kitchen"],
+                name: "Extractor fan replacement",
+                rating: 4.69,
+                reviewCount: "210 reviews",
+                // EVE+10% (£49/hr × 45/60).
+                priceCurrent: 37,
+                priceOriginal: 56,
+                durationMinutes: 45,
+                bullets: [
+                    "Customer-supplied like-for-like extractor; we swap the unit and test.",
+                    "If no work is carried out after inspection, a visit charge of £25 applies.",
+                ],
+                thumbEmoji: "🌬️",
+                thumbIcon: PhFan,
+                thumbBg: "from-cyan-100 to-sky-200",
+                modalImage: promoHandyman,
+            },
+        ],
+    },
+    {
+        id: "door-fixes",
+        name: "Door fixes",
+        Icon: DoorClosed,
+        services: [
+            {
+                id: "door-handle",
+                // No `rooms` — applies to any internal door.
+                name: "Internal door handle replacement",
+                rating: 4.76,
+                reviewCount: "490 reviews",
+                // EVE+10% (£49/hr × 30/60).
+                priceCurrent: 25,
+                priceOriginal: 37,
+                durationMinutes: 30,
+                bullets: [
+                    "Customer-supplied handle; we'll swap and align.",
+                    "Loose or stripped screw fixings re-set where possible.",
+                ],
+                thumbEmoji: "🚪",
+                thumbIcon: DoorClosed,
+                thumbBg: "from-stone-100 to-stone-200",
+                modalImage: promoHandyman,
+            },
+            {
+                id: "door-adjust",
+                name: "Door easing / adjustment",
+                rating: 4.72,
+                reviewCount: "330 reviews",
+                // EVE+10% (£49/hr × 45/60).
+                priceCurrent: 37,
+                priceOriginal: 56,
+                durationMinutes: 45,
+                bullets: [
+                    "Sticking, dragging or rubbing internal doors — planed or shaved to clear; hinges re-set if needed.",
+                    "If no work is carried out after inspection, a visit charge of £25 applies.",
+                ],
+                thumbEmoji: "🚪",
+                thumbIcon: DoorOpen,
+                thumbBg: "from-amber-100 to-yellow-100",
+                modalImage: promoHandyman,
+            },
+            {
+                id: "door-lock-standard",
+                rooms: ["hallway", "outside"],
+                name: "Standard door lock replacement",
+                rating: 4.74,
+                reviewCount: "260 reviews",
+                // EVE+10% (£49/hr × 75/60).
+                priceCurrent: 61,
+                priceOriginal: 93,
+                durationMinutes: 75,
+                bullets: [
+                    "Like-for-like cylinder or mortice lock replacement; customer-supplied lock.",
+                    "For smart locks, see our dedicated Smart lock install service.",
+                ],
+                thumbEmoji: "🔑",
+                thumbIcon: PhLock,
+                thumbBg: "from-zinc-100 to-slate-200",
+                modalImage: promoHandyman,
+            },
+        ],
+    },
+    // -----------------------------------------------------------------------
+    // Wave 2 SKU categories — Carpentry repairs (35% historic accept) and
+    // Tile & grout. Same EVE+10% pricing model and customer-supplied
+    // materials default as Wave 1. Slots between Wave 1 (highest-converting
+    // categories) and the existing service-type categories.
+    //   SKU-code mapping (for future backend wiring):
+    //     skirting-repair       → CARP-SKIRTING-REPAIR
+    //     architrave-repair     → CARP-ARCHITRAVE-REPAIR
+    //     drawer-repair         → CARP-DRAWER-REPAIR
+    //     floorboard-repair     → CARP-FLOORBOARD-REPAIR
+    //     gate-adjustment       → CARP-GATE-ADJUST
+    //     fence-panel-repair    → CARP-FENCE-REPAIR
+    //     grout-refresh-*       → TILE-GROUT-REFRESH (tiered by sqm)
+    //     tile-replace-cracked  → TILE-REPLACE-FEW
+    //     splashback-tile       → TILE-SPLASHBACK-SMALL
+    // -----------------------------------------------------------------------
+    {
+        id: "carpentry-repairs",
+        name: "Carpentry repairs",
+        Icon: Hammer,
+        services: [
+            {
+                id: "skirting-repair",
+                // No `rooms` — skirting exists in every room.
+                name: "Skirting board repair",
+                rating: 4.79,
+                reviewCount: "520 reviews",
+                priceCurrent: 37,
+                priceOriginal: 56,
+                durationMinutes: 45,
+                bullets: [
+                    "Damaged or split skirting — section cut out, replacement piece fitted and primed flush.",
+                    "Customer-supplied skirting; we bring fixings, filler and PPA glue.",
+                    "If no work is carried out after inspection, a visit charge of £25 applies.",
+                ],
+                thumbEmoji: "🪵",
+                thumbIcon: PhHammer,
+                thumbBg: "from-amber-100 to-orange-200",
+                modalImage: promoHandyman,
+            },
+            {
+                id: "architrave-repair",
+                name: "Door frame / architrave repair",
+                rating: 4.74,
+                reviewCount: "190 reviews",
+                priceCurrent: 37,
+                priceOriginal: 56,
+                durationMinutes: 45,
+                bullets: [
+                    "Cracked, split or knocked-out section repaired; piece spliced in if needed.",
+                    "Customer-supplied replacement architrave; we bring fixings, filler and primer.",
+                    "If no work is carried out after inspection, a visit charge of £25 applies.",
+                ],
+                thumbEmoji: "🪟",
+                thumbIcon: Frame,
+                thumbBg: "from-stone-100 to-stone-200",
+                modalImage: promoHandyman,
+            },
+            {
+                id: "drawer-repair",
+                rooms: ["kitchen", "bedroom"],
+                name: "Drawer / cabinet runner repair",
+                rating: 4.77,
+                reviewCount: "340 reviews",
+                // EVE+10% (£49/hr × 35/60) rounded down.
+                priceCurrent: 25,
+                priceOriginal: 37,
+                durationMinutes: 35,
+                bullets: [
+                    "Sticking or fallen-off drawer — runners realigned or replaced like-for-like.",
+                    "Customer-supplied runners if a like-for-like replacement is needed.",
+                ],
+                thumbEmoji: "🧰",
+                thumbIcon: PencilRuler,
+                thumbBg: "from-amber-100 to-yellow-200",
+                modalImage: promoHandyman,
+            },
+            {
+                id: "floorboard-repair",
+                name: "Floorboard repair (up to 5 boards)",
+                rating: 4.72,
+                reviewCount: "150 reviews",
+                priceCurrent: 49,
+                priceOriginal: 74,
+                durationMinutes: 60,
+                bullets: [
+                    "Loose, squeaky or split boards — re-fixed, re-nailed or sections cut and replaced.",
+                    "Customer-supplied replacement boards if any need full replacement.",
+                    "If no work is carried out after inspection, a visit charge of £25 applies.",
+                ],
+                thumbEmoji: "🪵",
+                thumbIcon: Hammer,
+                thumbBg: "from-amber-100 to-orange-200",
+                modalImage: promoHandyman,
+            },
+            {
+                id: "gate-adjustment",
+                rooms: ["garden", "outside"],
+                name: "Garden gate adjustment / repair",
+                rating: 4.76,
+                reviewCount: "220 reviews",
+                priceCurrent: 37,
+                priceOriginal: 56,
+                durationMinutes: 45,
+                bullets: [
+                    "Dragging, sticking or sagging gate — hinge re-set, frame planed or post re-secured.",
+                    "Customer-supplied replacement hardware where needed.",
+                ],
+                thumbEmoji: "🚪",
+                thumbIcon: PhHammer,
+                thumbBg: "from-green-100 to-emerald-200",
+                modalImage: promoHandyman,
+            },
+            {
+                id: "fence-panel-repair",
+                rooms: ["garden", "outside"],
+                name: "Fence panel repair (single panel)",
+                rating: 4.71,
+                reviewCount: "180 reviews",
+                priceCurrent: 49,
+                priceOriginal: 74,
+                durationMinutes: 60,
+                bullets: [
+                    "Damaged or detached fence panel — re-secured to existing posts or like-for-like replacement.",
+                    "Customer-supplied replacement panel where needed; we bring brackets and fixings.",
+                    "If no work is carried out after inspection, a visit charge of £25 applies.",
+                ],
+                thumbEmoji: "🪵",
+                thumbIcon: PhHammer,
+                thumbBg: "from-emerald-100 to-green-200",
+                modalImage: promoHandyman,
+            },
+        ],
+    },
+    {
+        id: "tile-grout",
+        name: "Tile & grout",
+        Icon: LayoutGrid,
+        services: [
+            {
+                id: "grout-refresh",
+                rooms: ["bathroom", "kitchen"],
+                name: "Grout refresh / re-grouting",
+                rating: 4.78,
+                reviewCount: "410 reviews",
+                priceCurrent: 49,
+                startsAt: true,
+                longDescription:
+                    "Old grout removed and a fresh layer laid for a clean, water-tight finish. Pick the area by square metre — we bring anti-mould grout and sealing tools as standard.",
+                tiers: [
+                    {
+                        id: "grout-refresh-1sqm",
+                        name: "Up to 1 sqm",
+                        rating: 4.80,
+                        reviewCount: "230 reviews",
+                        // EVE+10% (£49/hr × 60/60).
+                        priceCurrent: 49,
+                        priceOriginal: 74,
+                        durationMinutes: 60,
+                    },
+                    {
+                        id: "grout-refresh-2sqm",
+                        name: "Up to 2 sqm",
+                        rating: 4.77,
+                        reviewCount: "130 reviews",
+                        priceCurrent: 74,
+                        priceOriginal: 111,
+                        durationMinutes: 90,
+                    },
+                    {
+                        id: "grout-refresh-3sqm",
+                        name: "Up to 3 sqm",
+                        rating: 4.74,
+                        reviewCount: "50 reviews",
+                        priceCurrent: 98,
+                        priceOriginal: 148,
+                        durationMinutes: 120,
+                    },
+                ],
+                bullets: [
+                    "Anti-mould grout included — bring your own if you prefer a specific brand.",
+                    "Old grout fully removed and area cleaned before re-grouting.",
+                ],
+                thumbEmoji: "🧱",
+                thumbIcon: LayoutGrid,
+                thumbBg: "from-stone-100 to-slate-200",
+                modalImage: promoHandyman,
+                optionsCount: 3,
+            },
+            {
+                id: "tile-replace-cracked",
+                rooms: ["bathroom", "kitchen"],
+                name: "Cracked tile replacement (1-3 tiles)",
+                rating: 4.72,
+                reviewCount: "180 reviews",
+                priceCurrent: 61,
+                priceOriginal: 93,
+                durationMinutes: 75,
+                bullets: [
+                    "Up to 3 cracked tiles removed and replaced with customer-supplied matching tiles.",
+                    "Surrounding grout cleaned and refreshed where needed.",
+                    "If no work is carried out after inspection, a visit charge of £25 applies.",
+                ],
+                thumbEmoji: "🧱",
+                thumbIcon: LayoutGrid,
+                thumbBg: "from-stone-100 to-slate-200",
+                modalImage: promoHandyman,
+            },
+            {
+                id: "splashback-tile",
+                rooms: ["kitchen"],
+                name: "Kitchen splashback tile (up to 1 sqm)",
+                rating: 4.68,
+                reviewCount: "90 reviews",
+                priceCurrent: 98,
+                priceOriginal: 148,
+                durationMinutes: 120,
+                bullets: [
+                    "Customer-supplied tiles fitted to existing wall surface, sealed and grouted.",
+                    "Area up to 1 sqm — bigger jobs need a site visit for an accurate quote.",
+                    "If no work is carried out after inspection, a visit charge of £25 applies.",
+                ],
+                thumbEmoji: "🧱",
+                thumbIcon: LayoutGrid,
+                thumbBg: "from-stone-100 to-amber-100",
+                modalImage: promoHandyman,
+            },
+        ],
+    },
     {
         id: "drill-hang",
         name: "Drill & hang",
@@ -325,6 +1025,7 @@ const CATEGORIES: Category[] = [
             },
             {
                 id: "mirror-shelf",
+                rooms: ["living-room", "bedroom", "hallway"],
                 name: "Mirror or shelf installation",
                 rating: 4.84,
                 reviewCount: "697 reviews",
@@ -372,6 +1073,7 @@ const CATEGORIES: Category[] = [
             },
             {
                 id: "fairy-lights",
+                rooms: ["living-room", "garden", "outside"],
                 name: "Fairy lights installation",
                 rating: 4.61,
                 reviewCount: "65 reviews",
@@ -422,6 +1124,7 @@ const CATEGORIES: Category[] = [
         services: [
             {
                 id: "curtain-rod",
+                rooms: ["living-room", "bedroom", "kitchen"],
                 name: "Curtain rod installation",
                 rating: 4.75,
                 reviewCount: "1K reviews",
@@ -473,6 +1176,7 @@ const CATEGORIES: Category[] = [
             },
             {
                 id: "blinds-fitting",
+                rooms: ["living-room", "bedroom", "kitchen", "bathroom"],
                 name: "Blinds measurement & fitting",
                 rating: 4.59,
                 reviewCount: "109 reviews",
@@ -533,6 +1237,7 @@ const CATEGORIES: Category[] = [
         services: [
             {
                 id: "tv-home-theatre",
+                rooms: ["living-room", "bedroom"],
                 name: "TV / home-theatre wall mounting",
                 rating: 4.84,
                 reviewCount: "1K reviews",
@@ -554,6 +1259,7 @@ const CATEGORIES: Category[] = [
             },
             {
                 id: "tv-uninstall",
+                rooms: ["living-room", "bedroom"],
                 name: "TV uninstallation",
                 rating: 4.7,
                 reviewCount: "412 reviews",
@@ -579,6 +1285,7 @@ const CATEGORIES: Category[] = [
         services: [
             {
                 id: "bed-assembly",
+                rooms: ["bedroom"],
                 name: "Bed assembly / installation",
                 rating: 4.71,
                 reviewCount: "262 reviews",
@@ -656,6 +1363,7 @@ const CATEGORIES: Category[] = [
             },
             {
                 id: "dining-chair",
+                rooms: ["kitchen", "living-room"],
                 name: "Dining table / chair assembly",
                 rating: 4.8,
                 reviewCount: "93 reviews",
@@ -716,6 +1424,7 @@ const CATEGORIES: Category[] = [
             },
             {
                 id: "wardrobe-assembly",
+                rooms: ["bedroom"],
                 name: "Wardrobe assembly",
                 rating: 4.72,
                 reviewCount: "239 reviews",
@@ -741,6 +1450,7 @@ const CATEGORIES: Category[] = [
         services: [
             {
                 id: "smart-lock",
+                rooms: ["hallway", "outside"],
                 name: "Smart lock installation",
                 rating: 4.65,
                 reviewCount: "78 reviews",
@@ -825,6 +1535,10 @@ export default function HandymanV2() {
     // or scrolls to a category section. Was defaulting to "quick-fix" which made it look
     // pre-selected.
     const [activeCategory, setActiveCategory] = useState<string>("");
+    // Optional room filter ("" = All rooms). When set, hides any service whose
+    // `rooms` list does NOT include this id; services without `rooms` (room-
+    // agnostic, like 30-min handyman / hourly) always remain visible.
+    const [selectedRoom, setSelectedRoom] = useState<RoomId | "">("");
     // Which service's detail modal (if any) is open. The modal mirrors the
     // source's pattern of forcing users through a details view before adding
     // to cart (more info, more upsell, fewer mis-clicks).
@@ -867,6 +1581,22 @@ export default function HandymanV2() {
         [cart],
     );
 
+    // Apply the room filter. A service is visible if either:
+    //   (a) no room is selected, OR
+    //   (b) the service has no `rooms` tag (room-agnostic), OR
+    //   (c) the selected room is included in the service's `rooms`.
+    // Categories that end up with zero matching services are hidden so the
+    // page doesn't render empty headers.
+    const filteredCategories = useMemo(() => {
+        if (!selectedRoom) return CATEGORIES;
+        return CATEGORIES.map((c) => ({
+            ...c,
+            services: c.services.filter(
+                (s) => !s.rooms || s.rooms.includes(selectedRoom),
+            ),
+        })).filter((c) => c.services.length > 0);
+    }, [selectedRoom]);
+
     const cartTotal = cartItems.reduce(
         (sum, item) => sum + item.priceCurrent * item.qty,
         0,
@@ -877,14 +1607,21 @@ export default function HandymanV2() {
     );
 
     return (
-        <div className="min-h-screen bg-white font-sans text-slate-900">
+        <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
             <LandingHeader />
 
             <main className="mx-auto max-w-7xl px-4 pb-12 pt-8 lg:px-8">
                 {/*
                   * Unified grid:
                   *   row 1: hero/title (left col) | carousel banner (spans col 2-3)
-                  *   row 2: categories nav (left col, sticky) | services (col 2) | cart (col 3, sticky)
+                  *   row 2: Browse-by-room filter strip (spans col 1-3)
+                  *   row 3: categories nav (left col, sticky) | services (col 2) | cart (col 3, sticky)
+                  *
+                  * The room filter strip lives inside the grid as a full-width
+                  * row between the hero/carousel marketing area and the
+                  * shopping-grid area. Sits below the H1 so the brand
+                  * messaging reads first; remains the secondary discovery
+                  * axis to the primary service-type category nav.
                   *
                   * Left column visually contains hero stacked above categories nav; both share
                   * the same 260px column but live in different grid rows. Carousel is strictly
@@ -904,39 +1641,116 @@ export default function HandymanV2() {
                         <Hero />
                     </div>
 
-                    {/* Mobile DOM order #3 → Promo chips + Category nav (sticky on desktop).
-                      * Desktop: col 1 row 2 (left column below Hero). */}
-                    <aside className="space-y-4 lg:col-start-1 lg:row-start-2">
+                    {/* Mobile DOM order #3 → Room filter strip (sits between hero
+                      * and services on both viewports). Desktop: full-width row 2
+                      * spanning all 3 columns — visually separates the marketing
+                      * row 1 from the shopping rows below.
+                      *
+                      * Negative `-my-6` (24px each side) fully absorbs the
+                      * surrounding grid `gap-6` (24px) so the strip sits
+                      * flush against the hero/carousel above and the
+                      * services below — no visible "margin" framing the
+                      * card in the natural flow. The strip's stuck position
+                      * (top-[64px] mobile / lg:top-[72px] desktop) is
+                      * unaffected because sticky positioning measures from
+                      * the viewport, not the grid track.
+                      *
+                      * Sticky on every viewport: pins flush against the bottom
+                      * edge of the LandingHeader. The header is 64px on
+                      * mobile and 72px on desktop. `z-20` keeps the strip
+                      * above scrolling service cards but below modals (z-65),
+                      * the mobile cart bar (z-30) and the LandingHeader (z-50). */}
+                    <div className="sticky top-[64px] z-20 -my-6 lg:top-[72px] lg:col-span-3 lg:col-start-1 lg:row-start-2">
+                        {/* Full-bleed inner wrapper — escapes main's
+                          * `max-w-7xl px-4 lg:px-8` constraint so the
+                          * strip spans the entire viewport width on every
+                          * size. `left-1/2 -translate-x-1/2 w-screen` is
+                          * the canonical "full-bleed within constrained
+                          * container" pattern: position the centre at the
+                          * parent's centre, then translate so the element's
+                          * own centre matches viewport centre, then take
+                          * 100vw. Works for any viewport, including >1280px
+                          * where main is auto-centred. */}
+                        <div className="relative left-1/2 w-screen -translate-x-1/2">
+                            <RoomFilterStrip
+                                selected={selectedRoom}
+                                onSelect={setSelectedRoom}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Mobile DOM order #4 → Promo chips + Category nav (sticky on desktop).
+                      * Desktop: col 1 row 3 (left column below the room filter). */}
+                    <aside className="space-y-4 lg:col-start-1 lg:row-start-3">
                         {/* Mobile-only: horizontally-scrolling promo offer chips */}
                         <MobilePromoChips />
-                        {/* Visual category grid — shown on both mobile and desktop (sticky on desktop) */}
-                        <div className="lg:sticky lg:top-24">
+                        {/* Visual category grid — shown on both mobile and desktop.
+                          * Sticky on desktop at top-44 (176px) so it pins just
+                          * below the room filter strip (which sits flush
+                          * against the 72px header + ~100px strip height =
+                          * 172px). 4px breathing gap. */}
+                        <div className="lg:sticky lg:top-44">
                             <CategoryNav
                                 active={activeCategory}
                                 onSelect={setActiveCategory}
+                                categories={filteredCategories}
                             />
                         </div>
                     </aside>
 
-                    {/* Row 2, col 2 — Service grid */}
-                    <section className="min-w-0 lg:col-start-2 lg:row-start-2">
-                        {CATEGORIES.map((cat, idx) => (
-                            <CategoryBlock
-                                key={cat.id}
-                                category={cat}
-                                index={idx}
-                                cart={cart}
-                                onAdd={addToCart}
-                                onDecrement={decrementFromCart}
-                                onOpenDetails={setOpenServiceId}
-                                justAddedId={justAddedId}
-                            />
-                        ))}
+                    {/* Row 3, col 2 — Service grid */}
+                    {/* `space-y-6` provides the only inter-category gap — each
+                      * CategoryBlock is now a discrete white card, so the
+                      * heavy `border-t-[6px]` dividers that lived inside
+                      * each block are no longer needed. */}
+                    <section className="min-w-0 space-y-6 lg:col-start-2 lg:row-start-3">
+                        {filteredCategories.map((cat, idx) => {
+                            const isTimeBased =
+                                cat.id === "quick-fix" || cat.id === "hourly";
+                            const prevCat = filteredCategories[idx - 1];
+                            const prevIsTimeBased =
+                                prevCat?.id === "quick-fix" ||
+                                prevCat?.id === "hourly";
+                            // Show "Flexible booking" eyebrow above the first
+                            // time-based category in the visible (filtered)
+                            // set. Show "Browse by service" eyebrow on the
+                            // first non-time-based category that follows.
+                            const showFlexibleHeading =
+                                isTimeBased && (idx === 0 || !prevIsTimeBased);
+                            const showServiceHeading =
+                                !isTimeBased && idx > 0 && prevIsTimeBased;
+                            return (
+                                <Fragment key={cat.id}>
+                                    {showFlexibleHeading && (
+                                        <GroupHeading
+                                            label="Flexible booking"
+                                            tint="amber"
+                                        />
+                                    )}
+                                    {showServiceHeading && (
+                                        <GroupHeading
+                                            label="Browse by service"
+                                            tint="slate"
+                                        />
+                                    )}
+                                    <CategoryBlock
+                                        category={cat}
+                                        index={idx}
+                                        cart={cart}
+                                        onAdd={addToCart}
+                                        onDecrement={decrementFromCart}
+                                        onOpenDetails={setOpenServiceId}
+                                        justAddedId={justAddedId}
+                                    />
+                                </Fragment>
+                            );
+                        })}
                     </section>
 
-                    {/* Row 2, col 3 — Sticky cart + offers + promise (desktop only) */}
-                    <aside className="hidden lg:col-start-3 lg:row-start-2 lg:block">
-                        <div className="sticky top-24 space-y-4">
+                    {/* Row 3, col 3 — Sticky cart + offers + promise (desktop only).
+                      * Pins at top-44 to clear the room filter strip above. */}
+                    <aside className="hidden lg:col-start-3 lg:row-start-3 lg:block">
+                        <div className="sticky top-44 space-y-4">
                             <CartCard
                                 items={cartItems}
                                 total={cartTotal}
@@ -962,6 +1776,7 @@ export default function HandymanV2() {
             <MobileQuickMenu
                 onSelect={setActiveCategory}
                 cartHasItems={cartItems.length > 0}
+                categories={filteredCategories}
             />
 
             {/* Mobile sticky cart bar — always mounted; the outer wrapper
@@ -1122,8 +1937,16 @@ function HeroCarousel() {
 
     return (
         <section className="h-full">
+            {/* Fixed heights instead of `h-full min-h-[...]` — the old approach
+              * let the slide grow to fill its grid cell which made it ~600px
+              * on mobile (eating the entire above-the-fold viewport).
+              * 300px mobile / 380px desktop accommodates the tallest slide
+              * ("Workmanship guarantee on every job" wraps to 4 lines on
+              * narrow screens) while still keeping the carousel compact
+              * enough that Hero, room filter and first service category
+              * remain above the fold. */}
             <div
-                className={`relative h-full min-h-[280px] overflow-hidden rounded-2xl ${slide.bgClass} ${slide.textColor} transition-all duration-500 lg:min-h-[420px]`}
+                className={`relative h-[300px] overflow-hidden rounded-2xl ${slide.bgClass} ${slide.textColor} transition-all duration-500 lg:h-[380px]`}
             >
                 {/* Real brand photo filling the right side, behind the gradient overlay.
                   * Narrower on mobile (45%) so headlines/subheads have room to breathe;
@@ -1209,6 +2032,12 @@ function HeroCarousel() {
 // ---------------------------------------------------------------------------
 
 function Hero() {
+    // Warranty accordion — was a `<Link href="/warranty">` that navigated
+    // away. Customers shouldn't have to leave the booking flow to read
+    // a 4-bullet trust signal. Inline disclosure keeps them on /v2 with
+    // the cart and category nav still visible.
+    const [warrantyOpen, setWarrantyOpen] = useState(false);
+    const panelId = "hero-warranty-panel";
     return (
         <section className="flex flex-col gap-4">
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">
@@ -1230,19 +2059,177 @@ function Hero() {
                 </span>
             </div>
 
-            <Link
-                href="/warranty"
-                className="mt-2 flex max-w-md items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 transition hover:bg-slate-100"
-            >
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-400">
-                    <Check className="h-4 w-4 text-slate-900" />
-                </span>
-                <span className="flex-1 text-sm font-medium">
-                    How our 30-day workmanship guarantee works
-                </span>
-                <ChevronRight className="h-4 w-4 text-slate-400" />
-            </Link>
+            <div className="mt-2 max-w-md overflow-hidden rounded-xl bg-slate-50">
+                <button
+                    type="button"
+                    onClick={() => setWarrantyOpen((v) => !v)}
+                    aria-expanded={warrantyOpen}
+                    aria-controls={panelId}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-100"
+                >
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-400">
+                        <Check className="h-4 w-4 text-slate-900" />
+                    </span>
+                    <span className="flex-1 text-sm font-medium">
+                        How our 30-day workmanship guarantee works
+                    </span>
+                    <ChevronRight
+                        className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
+                            warrantyOpen ? "rotate-90" : ""
+                        }`}
+                    />
+                </button>
+
+                {warrantyOpen && (
+                    <div
+                        id={panelId}
+                        className="border-t border-slate-200 px-4 pb-4 pt-3 text-sm leading-relaxed text-slate-700"
+                    >
+                        <p>
+                            Within 30 days of any visit, if anything we did isn't
+                            right, we'll come back and fix it — free, no quibbles.
+                        </p>
+                        <dl className="mt-3 space-y-2.5">
+                            <div>
+                                <dt className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+                                    Covered
+                                </dt>
+                                <dd className="mt-1 text-slate-700">
+                                    Defective workmanship on anything we
+                                    installed, repaired or fitted. If it fails
+                                    because of how we did the job, it's on us.
+                                </dd>
+                            </div>
+                            <div>
+                                <dt className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                                    Not covered
+                                </dt>
+                                <dd className="mt-1 text-slate-700">
+                                    Faulty parts you supplied, accidental
+                                    damage, weather, or wear over time. Work
+                                    outside the original scope.
+                                </dd>
+                            </div>
+                            <div>
+                                <dt className="text-xs font-bold uppercase tracking-wider text-amber-700">
+                                    How to claim
+                                </dt>
+                                <dd className="mt-1 text-slate-700">
+                                    WhatsApp us within 30 days with a quick
+                                    photo and your booking reference. We'll
+                                    arrange a free re-visit — usually within
+                                    48 hours.
+                                </dd>
+                            </div>
+                        </dl>
+                    </div>
+                )}
+            </div>
         </section>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// "Browse by room" filter strip — secondary discovery axis above the grid.
+//
+// Single horizontal pill row, full-width. Pills scroll horizontally on
+// narrow viewports. Selecting a pill toggles the room filter; the "All"
+// pill clears it. Selected pill picks up the brand amber treatment used
+// elsewhere on the page (CategoryNav, CategoryChips, promo pills) so the
+// strip feels native rather than bolted on.
+// ---------------------------------------------------------------------------
+
+function RoomFilterStrip({
+    selected,
+    onSelect,
+}: {
+    selected: RoomId | "";
+    onSelect: (id: RoomId | "") => void;
+}) {
+    return (
+        <section
+            aria-label="Browse by room"
+            // Full-bleed (viewport-width) strip — no rounded corners or side
+            // borders since the strip touches the viewport edges. `border-y`
+            // gives a thin top/bottom separator; `shadow-sm` keeps a hint of
+            // elevation that distinguishes it from the page bg when stuck.
+            className="border-y border-slate-200 bg-white p-3 shadow-sm lg:p-4"
+        >
+            <div className="mb-2 flex items-center justify-between px-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Browse by room
+                </span>
+                {selected && (
+                    <button
+                        type="button"
+                        onClick={() => onSelect("")}
+                        className="text-xs font-medium text-slate-500 hover:text-slate-900"
+                    >
+                        Clear
+                    </button>
+                )}
+            </div>
+            {/* Relative wrapper so the right-edge fade gradient can sit
+              * absolutely over the pill row. The fade is a visual cue that
+              * the row is scrollable horizontally — combined with the
+              * partial-pill peek (no horizontal padding on the inner
+              * scroll container, so the next pill is cut wherever the
+              * viewport ends), customers see immediately that more rooms
+              * exist beyond the visible ones. */}
+            <div className="relative">
+                <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 pr-12">
+                    {/* "All rooms" pill — clears the filter */}
+                    <RoomPill
+                        Icon={LayoutGrid}
+                        label="All rooms"
+                        active={selected === ""}
+                        onClick={() => onSelect("")}
+                    />
+                    {ROOMS.map((room) => (
+                        <RoomPill
+                            key={room.id}
+                            Icon={room.Icon}
+                            label={room.label}
+                            active={selected === room.id}
+                            onClick={() => onSelect(room.id)}
+                        />
+                    ))}
+                </div>
+                {/* Right-edge fade-out gradient — `pointer-events-none` so
+                  * it doesn't block clicks on the pill underneath. Width
+                  * 12 (48px) gives a clear "fade to white" signal without
+                  * obscuring too much of the partially-visible pill. */}
+                <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-white to-transparent" />
+            </div>
+        </section>
+    );
+}
+
+function RoomPill({
+    Icon,
+    label,
+    active,
+    onClick,
+}: {
+    Icon: typeof Hammer;
+    label: string;
+    active: boolean;
+    onClick: () => void;
+}) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            aria-pressed={active}
+            className={`flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition ${
+                active
+                    ? "border-amber-400 bg-amber-400/15 text-slate-900 shadow-sm"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+            }`}
+        >
+            <Icon className={`h-4 w-4 ${active ? "text-amber-700" : "text-slate-500"}`} />
+            <span>{label}</span>
+        </button>
     );
 }
 
@@ -1253,10 +2240,25 @@ function Hero() {
 function CategoryNav({
     active,
     onSelect,
+    categories,
 }: {
     active: string;
     onSelect: (id: string) => void;
+    /** Categories to render — passed in (rather than reading the global
+     *  `CATEGORIES`) so the nav can mirror the active room filter and never
+     *  list a category that has been hidden from the service grid. */
+    categories: Category[];
 }) {
+    // Collapse to first 9 tiles (3-col × 3-row grid) by default so the nav
+    // doesn't tower over the sticky strip. "See more" reveals the rest;
+    // hidden when the current room filter already produces ≤ 9 categories.
+    const MAX_COLLAPSED = 9;
+    const [expanded, setExpanded] = useState(false);
+    const showToggle = categories.length > MAX_COLLAPSED;
+    const visible = expanded || !showToggle
+        ? categories
+        : categories.slice(0, MAX_COLLAPSED);
+
     return (
         <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="mb-3 flex items-center gap-2">
@@ -1267,7 +2269,7 @@ function CategoryNav({
                 <div className="h-px flex-1 bg-slate-200" />
             </div>
             <div className="grid grid-cols-3 gap-2">
-                {CATEGORIES.map((cat) => {
+                {visible.map((cat) => {
                     const isActive = active === cat.id;
                     return (
                         <button
@@ -1330,6 +2332,31 @@ function CategoryNav({
                     );
                 })}
             </div>
+
+            {/* "See more" / "Show less" toggle — only rendered when the
+              * (possibly room-filtered) list exceeds the 9-tile cap. Keeps
+              * the nav compact by default while letting power users open
+              * the full set in one tap. */}
+            {showToggle && (
+                <button
+                    type="button"
+                    onClick={() => setExpanded((v) => !v)}
+                    className="mt-2 flex w-full items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                    aria-expanded={expanded}
+                >
+                    {expanded ? (
+                        <>
+                            <ChevronDown className="h-3.5 w-3.5 rotate-180" />
+                            Show less
+                        </>
+                    ) : (
+                        <>
+                            <ChevronDown className="h-3.5 w-3.5" />
+                            See more
+                        </>
+                    )}
+                </button>
+            )}
         </div>
     );
 }
@@ -1337,14 +2364,18 @@ function CategoryNav({
 function CategoryChips({
     active,
     onSelect,
+    categories,
 }: {
     active: string;
     onSelect: (id: string) => void;
+    /** Mirror of the same prop on CategoryNav — keeps chips in sync with
+     *  the room-filtered service grid. */
+    categories: Category[];
 }) {
     return (
         <div className="-mx-4 overflow-x-auto px-4 pb-2">
             <div className="flex gap-2">
-                {CATEGORIES.map((cat) => {
+                {categories.map((cat) => {
                     const isActive = active === cat.id;
                     return (
                         <button
@@ -1390,9 +2421,14 @@ function CategoryChips({
 function MobileQuickMenu({
     onSelect,
     cartHasItems,
+    categories,
 }: {
     onSelect: (id: string) => void;
     cartHasItems: boolean;
+    /** The currently-visible category list (post room-filter). Without this
+     *  the floating menu would still show every category — clicking a
+     *  filtered-out tile would jump to a section that isn't in the DOM. */
+    categories: Category[];
 }) {
     // `open` controls mount/unmount. `visible` drives the slide-up + fade
     // transitions: we toggle it one frame after mount so the entrance animation
@@ -1520,7 +2556,7 @@ function MobileQuickMenu({
                               * with either a typographic "30/MINS" stack or a
                               * Lucide icon, with the category name beneath. */}
                             <div className="grid grid-cols-3 gap-3">
-                                {CATEGORIES.map((cat) => (
+                                {categories.map((cat) => (
                                     <button
                                         key={cat.id}
                                         type="button"
@@ -1621,6 +2657,30 @@ function MobilePromoChips() {
 // Service grid (middle column)
 // ---------------------------------------------------------------------------
 
+// Small group eyebrow rendered above the first card of each group in the
+// service grid (e.g. "FLEXIBLE BOOKING" before the time-based time-block
+// cards, "BROWSE BY SERVICE" before the task-specific category cards).
+// Tint matches the underlying card colour so the eyebrow visually belongs
+// to its group rather than floating between groups.
+function GroupHeading({
+    label,
+    tint,
+}: {
+    label: string;
+    tint: "amber" | "slate";
+}) {
+    const tintClasses =
+        tint === "amber" ? "text-amber-700" : "text-slate-500";
+    return (
+        <div
+            className={`flex items-center gap-2 px-1 pt-2 text-xs font-semibold uppercase tracking-wider ${tintClasses}`}
+        >
+            <span>{label}</span>
+            <div className="h-px flex-1 bg-current opacity-20" />
+        </div>
+    );
+}
+
 function CategoryBlock({
     category,
     index,
@@ -1640,25 +2700,37 @@ function CategoryBlock({
      *  overlay on the matching card's ADD button. */
     justAddedId: string | null;
 }) {
-    const isFirst = index === 0;
+    // `index` is no longer needed for separator styling — each category is
+    // its own white surface against the slate-50 page background, so the
+    // section's `space-y-6` provides the only inter-block spacing.
+    void index;
+    // Time-based categories (30-min handyman, Hourly handyman) get a warm
+    // amber tint to distinguish them from task-specific categories. Their
+    // mental model is "I have multiple things / don't know exactly what"
+    // vs the task-based "I have a specific problem". Same visual hierarchy,
+    // different surface colour — preserves prominence without fragmenting
+    // the page architecture.
+    const isTimeBased = category.id === "quick-fix" || category.id === "hourly";
     return (
         <div
             id={`cat-${category.id}`}
-            className={`scroll-mt-24 ${
-                isFirst
-                    ? "pb-10"
-                    : "border-t-[6px] border-slate-100 pb-10 pt-10"
+            // Each category renders as a discrete card on the slate-50 page
+            // bg. Time-based categories get amber-50 + amber-200 border;
+            // task-based categories stay white + slate-200. Rounded corners
+            // + subtle shadow on both keeps the visual structure consistent
+            // even with the colour difference. `scroll-mt-48` (192px)
+            // clears the sticky chrome (header + room filter strip).
+            className={`scroll-mt-48 rounded-2xl border p-5 shadow-sm lg:p-6 ${
+                isTimeBased
+                    ? "border-amber-200 bg-amber-50"
+                    : "border-slate-200 bg-white"
             }`}
         >
-            {/* Section heading row with count badge — icon chip removed for a
-              * cleaner, more text-forward look in the service grid. */}
-            <div className="mb-5 flex items-center gap-3">
-                <h2 className="text-2xl font-bold">{category.name}</h2>
-                <span className="ml-auto rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
-                    {category.services.length} option
-                    {category.services.length === 1 ? "" : "s"}
-                </span>
-            </div>
+            {/* Section heading — the "N options" count badge was removed at
+              * the user's request; it added visual noise without giving the
+              * customer information they can't see from the list of cards
+              * below. Heading is now plain text, no wrapper needed. */}
+            <h2 className="mb-5 text-2xl font-bold">{category.name}</h2>
 
             {category.promoBanner && (
                 <PromoBannerCard banner={category.promoBanner} />
@@ -1703,7 +2775,7 @@ function VariantPicker({
     /** Icon/text/gradient passed down from the parent service so each tier
      *  card carries the same visual cue as the card on the grid. Both icon
      *  and text are optional; either renders, fallback is a plain tile. */
-    parentIcon?: LucideIcon;
+    parentIcon?: LucideIcon | PhosphorIcon;
     parentText?: { primary: string; secondary: string };
     parentBg?: string;
 }) {
@@ -1817,6 +2889,32 @@ function VariantPicker({
                     })}
                 </div>
             </div>
+        </section>
+    );
+}
+
+// Service-specific bullets. These used to render on the service card itself,
+// but they were too long for the card layout (customer-supplied disclaimers,
+// visit-charge fine print, etc.). The card now shows only the FIRST bullet
+// as a one-liner; this section in the modal surfaces the full list so the
+// customer can read it on demand via "View details".
+function BulletsSection({ bullets }: { bullets: string[] }) {
+    if (!bullets.length) return null;
+    return (
+        <section className="mb-8">
+            <h3 className="mb-3 text-lg font-bold text-slate-900">
+                Service details
+            </h3>
+            <ul className="space-y-2.5">
+                {bullets.map((b, i) => (
+                    <li key={i} className="flex items-start gap-2.5">
+                        <span className="mt-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
+                        <span className="text-sm leading-relaxed text-slate-700">
+                            {b}
+                        </span>
+                    </li>
+                ))}
+            </ul>
         </section>
     );
 }
@@ -2019,15 +3117,15 @@ function ServiceDetailModal({
                         : "translate-y-full opacity-0 lg:translate-y-[-50%] lg:scale-95"
                 }`}
             >
-                {/* Mobile drag handle */}
-                <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-200 lg:hidden" />
-
                 {/* Optional hero banner — only services with a relevant
-                  * brand photo get this. Sits between the drag-handle and the
-                  * title header, so the user sees the visual context before
-                  * reading the service name. `shrink-0` keeps it from being
+                  * brand photo get this. Sits flush with the top of the
+                  * modal (no top padding) so the image visually anchors
+                  * the rounded-top edge. When present, the mobile drag
+                  * handle overlays the image rather than pushing it down;
+                  * when absent, the drag handle falls back to its standard
+                  * position below. `shrink-0` keeps the banner from being
                   * compressed when the body content is tall. */}
-                {service.modalImage && (
+                {service.modalImage ? (
                     <div className="relative h-36 w-full shrink-0 overflow-hidden bg-slate-100 lg:h-44">
                         <img
                             src={service.modalImage}
@@ -2036,10 +3134,18 @@ function ServiceDetailModal({
                             decoding="async"
                             className="h-full w-full object-cover"
                         />
+                        {/* Mobile drag handle overlaid on the image so the
+                          * image extends edge-to-edge at the top of the
+                          * modal. Translucent white pill stays visible on
+                          * either light or dark imagery. */}
+                        <div className="absolute left-1/2 top-2 h-1 w-10 -translate-x-1/2 rounded-full bg-white/70 lg:hidden" />
                         {/* Subtle bottom gradient so the white header divider
                           * feels intentional instead of abrupt. */}
                         <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-b from-transparent to-white/40" />
                     </div>
+                ) : (
+                    /* No banner image — keep the standard drag-handle bar */
+                    <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-200 lg:hidden" />
                 )}
 
                 {/* Sticky header */}
@@ -2147,6 +3253,10 @@ function ServiceDetailModal({
                         />
                     )}
 
+                    {/* Full per-service bullets — moved here from the card so
+                      * the card layout stays scannable. */}
+                    <BulletsSection bullets={service.bullets} />
+
                     <HandyPromiseSection />
                     <OverviewSection />
                     <IncludedSection />
@@ -2219,7 +3329,7 @@ function ServiceCard({
                         {service.promoLabel}
                     </div>
                 )}
-                <h3 className="truncate text-base font-semibold">
+                <h3 className="text-base font-semibold leading-snug">
                     {service.name}
                 </h3>
 
@@ -2250,23 +3360,24 @@ function ServiceCard({
                                     £{service.priceOriginal}
                                 </span>
                             )}
-                            {service.durationMinutes && (
-                                <span className="text-slate-500">
-                                    • {service.durationMinutes} mins
-                                </span>
-                            )}
+                            {/* Duration removed from card — was creating
+                              * pricing-clutter; customers don't compare
+                              * services by minute count at the card level.
+                              * Still rendered in the detail modal where the
+                              * tier picker surfaces it per tier. */}
                         </>
                     )}
                 </div>
 
-                <ul className="mt-3 space-y-1 text-xs leading-snug text-slate-600">
-                    {service.bullets.map((b, i) => (
-                        <li key={i} className="flex gap-2">
-                            <span className="mt-1.5 inline-block h-1 w-1 shrink-0 rounded-full bg-slate-400" />
-                            <span>{b}</span>
-                        </li>
-                    ))}
-                </ul>
+                {/* Card shows the FIRST bullet only — usually the value /
+                  * scope summary. The rest (customer-supplied disclaimers,
+                  * visit-charge fine print) live in the detail modal so the
+                  * card stays scannable. */}
+                {service.bullets[0] && (
+                    <p className="mt-3 line-clamp-2 text-xs leading-snug text-slate-600">
+                        {service.bullets[0]}
+                    </p>
+                )}
 
                 <button
                     type="button"

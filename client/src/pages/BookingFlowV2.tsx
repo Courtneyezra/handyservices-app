@@ -908,6 +908,12 @@ export function BookingReviewV2() {
         when: string;
         address: string;
     } | null>(null);
+    // Submit state for the API call. While submitting, the "Confirm
+    // booking" button is disabled and shows a spinner label. On failure
+    // the error message is rendered above the button so the user can retry
+    // without losing their cart / address data.
+    const [submitting, setSubmitting] = useState(false);
+    const [submitError, setSubmitError] = useState<string | null>(null);
 
     // Guard: bounce back to whichever step is missing
     useEffect(() => {
@@ -962,9 +968,10 @@ export function BookingReviewV2() {
     // Klarna minimum is typically £30 in the UK; show it only when applicable.
     const klarnaAvailable = total >= 30;
 
-    const handleConfirm = () => {
+    const handleConfirm = async () => {
         if (!booking.date || !slot) return;
-        const reference = generateBookingRef();
+        if (submitting) return; // ignore double-clicks
+
         const when = `${formatHumanDate(booking.date)} · ${slot.label}`;
         const address = [
             booking.addressLine1,
@@ -975,38 +982,108 @@ export function BookingReviewV2() {
             .filter(Boolean)
             .join(", ");
 
-        // Stash a snapshot of the confirmed booking for support reference
-        try {
-            window.localStorage.setItem(
-                "handy-v2-confirmed",
-                JSON.stringify({
-                    reference,
-                    when,
-                    address,
-                    paymentMethod,
-                    total,
-                    items: items.map((i) => ({
-                        id: i.id,
-                        name: i.name,
-                        qty: i.qty,
-                        priceCurrent: i.priceCurrent,
-                    })),
-                    contactName: booking.contactName,
-                    contactPhone: booking.contactPhone,
-                    contactEmail: booking.contactEmail,
-                    confirmedAt: new Date().toISOString(),
-                }),
-            );
-            // Clear the in-progress cart + booking so a refresh doesn't
-            // re-book the same order.
-            window.localStorage.removeItem(CART_STORAGE_KEY);
-            window.localStorage.removeItem(BOOKING_STORAGE_KEY);
-        } catch {
-            // Storage unavailable — confirmation still shows in-memory.
-        }
+        // Build the payload for /api/quotes/instant. Each cart line expands
+        // by qty so multi-quantity SKUs land as distinct entries (the API's
+        // skus[] doesn't carry a qty field). Prices are in pence (UK
+        // convention used across the rest of the codebase).
+        const skuEntries = items.flatMap((item) =>
+            Array.from({ length: item.qty }, () => ({
+                id: item.id,
+                name: item.name,
+                pricePence: Math.round(item.priceCurrent * 100),
+                source: "v2_self_serve" as const,
+            })),
+        );
 
-        setConfirmation({ reference, when, address });
-        window.scrollTo({ top: 0, behavior: "smooth" });
+        const totalPricePence = Math.round(total * 100);
+
+        setSubmitting(true);
+        setSubmitError(null);
+        try {
+            const res = await fetch("/api/quotes/instant", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    customerName: booking.contactName,
+                    phone: booking.contactPhone,
+                    email: booking.contactEmail || "",
+                    address,
+                    skus: skuEntries,
+                    totalPricePence,
+                    selectedDate: booking.date,
+                    // bookingSource drives lead.source on the server so
+                    // analytics can isolate /v2 traffic from live-call
+                    // instant quotes.
+                    bookingSource: "v2_sku" as const,
+                    // Segment defaults to CONTEXTUAL — these customers
+                    // self-selected SKUs, which is the highest-converting
+                    // intake structure historically. Better than UNKNOWN.
+                    segment: "CONTEXTUAL",
+                    // sendVia omitted — customer is on the page and the
+                    // confirmation is rendered in-flow. Sending them a
+                    // quote link back would be redundant.
+                }),
+            });
+
+            if (!res.ok) {
+                const errorBody = await res.text().catch(() => "");
+                throw new Error(
+                    `Booking failed (${res.status}): ${errorBody.slice(0, 200) || res.statusText}`,
+                );
+            }
+
+            const json = (await res.json()) as {
+                success?: boolean;
+                shortSlug?: string;
+                quoteId?: string;
+                leadId?: string;
+            };
+            // Use the server-assigned shortSlug as the customer-facing
+            // reference. Falls back to a client-generated one only if the
+            // server response shape is unexpected.
+            const reference = json.shortSlug || generateBookingRef();
+
+            // Stash a local snapshot for support / "view past booking" UX
+            try {
+                window.localStorage.setItem(
+                    "handy-v2-confirmed",
+                    JSON.stringify({
+                        reference,
+                        quoteId: json.quoteId,
+                        leadId: json.leadId,
+                        when,
+                        address,
+                        paymentMethod,
+                        total,
+                        items: items.map((i) => ({
+                            id: i.id,
+                            name: i.name,
+                            qty: i.qty,
+                            priceCurrent: i.priceCurrent,
+                        })),
+                        contactName: booking.contactName,
+                        contactPhone: booking.contactPhone,
+                        contactEmail: booking.contactEmail,
+                        confirmedAt: new Date().toISOString(),
+                    }),
+                );
+                window.localStorage.removeItem(CART_STORAGE_KEY);
+                window.localStorage.removeItem(BOOKING_STORAGE_KEY);
+            } catch {
+                // localStorage unavailable — booking is still confirmed
+                // server-side; we just can't render the local snapshot.
+            }
+
+            setConfirmation({ reference, when, address });
+            window.scrollTo({ top: 0, behavior: "smooth" });
+        } catch (err) {
+            const message =
+                err instanceof Error ? err.message : "Booking failed. Please try again.";
+            setSubmitError(message);
+            // Don't clear cart or booking — let the customer retry.
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     // ─── Success state ──────────────────────────────────────────────────────
@@ -1031,7 +1108,11 @@ export function BookingReviewV2() {
             stepNumber={4}
             title="Review & confirm"
             subtitle="One last look before we lock in your slot."
-            primaryLabel="Confirm booking"
+            primaryLabel={submitting ? "Confirming…" : "Confirm booking"}
+            primaryDisabled={submitting}
+            primaryDisabledHint={
+                submitting ? "Reserving your slot…" : undefined
+            }
             onContinue={handleConfirm}
         >
             <div className="mt-8 space-y-5">
@@ -1239,6 +1320,24 @@ export function BookingReviewV2() {
                     {booking.contactEmail || "your phone"} within a few
                     minutes.
                 </p>
+
+                {/* Submit-error banner — rendered above the sticky CTA so
+                  * the customer sees it without having to scroll. Cleared
+                  * automatically when they retry (handleConfirm sets it
+                  * back to null on the next call). */}
+                {submitError && (
+                    <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                        <p className="font-medium">Couldn't confirm your booking</p>
+                        <p className="mt-1 text-rose-600/90">{submitError}</p>
+                        <button
+                            type="button"
+                            onClick={() => setSubmitError(null)}
+                            className="mt-2 text-xs font-semibold uppercase tracking-wide text-rose-700 underline underline-offset-2 hover:no-underline"
+                        >
+                            Dismiss and retry
+                        </button>
+                    </div>
+                )}
             </div>
         </BookingShell>
     );
@@ -1335,8 +1434,25 @@ function BookingConfirmation({
     when: string;
     address: string;
 }) {
+    // Pull contact info out of the local snapshot so we can show the
+    // customer what we'll text them on if they need to make a change.
+    // The data was stashed by handleConfirm just before this screen
+    // mounted — read it defensively in case localStorage is unavailable.
+    let contactPhone = "";
+    let contactEmail = "";
+    try {
+        const raw = window.localStorage.getItem("handy-v2-confirmed");
+        if (raw) {
+            const snap = JSON.parse(raw);
+            contactPhone = snap.contactPhone || "";
+            contactEmail = snap.contactEmail || "";
+        }
+    } catch {
+        /* localStorage unavailable — fall back to generic copy */
+    }
+
     return (
-        <div className="min-h-screen bg-white font-sans text-slate-900">
+        <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
             <LandingHeader />
             <main className="mx-auto max-w-2xl px-4 pb-16 pt-8 lg:px-8">
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 lg:p-8">
@@ -1347,9 +1463,14 @@ function BookingConfirmation({
                         Booking confirmed
                     </h1>
                     <p className="mt-1 text-sm text-slate-600">
-                        We've sent a confirmation your way. Your tradesperson
-                        will be in touch the day before with a 1-hour arrival
-                        window.
+                        Your tradesperson will be in touch the day before with
+                        a 1-hour arrival window
+                        {contactPhone ? (
+                            <>
+                                {" "}on <span className="font-medium text-slate-900">{contactPhone}</span>
+                            </>
+                        ) : null}
+                        .
                     </p>
                     <dl className="mt-5 space-y-3 rounded-lg border border-emerald-200 bg-white p-4 text-sm">
                         <div>
@@ -1375,6 +1496,59 @@ function BookingConfirmation({
                     </dl>
                 </div>
 
+                {/* "What happens next" timeline — builds confidence by
+                  * setting the customer's expectation for the next 24-48h
+                  * before the visit. Three steps map to the operational
+                  * reality: dispatcher confirms → contractor texts the day
+                  * before → arrives in the booked window. */}
+                <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 lg:p-7">
+                    <h2 className="text-base font-bold text-slate-900">
+                        What happens next
+                    </h2>
+                    <ol className="mt-4 space-y-4">
+                        <li className="flex gap-3">
+                            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
+                                1
+                            </span>
+                            <div>
+                                <p className="text-sm font-semibold text-slate-900">
+                                    We'll match you to a vetted tradesperson
+                                </p>
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                    Usually within a few hours of booking.
+                                </p>
+                            </div>
+                        </li>
+                        <li className="flex gap-3">
+                            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
+                                2
+                            </span>
+                            <div>
+                                <p className="text-sm font-semibold text-slate-900">
+                                    They'll text you the day before
+                                </p>
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                    With a 1-hour arrival window and a contact number.
+                                </p>
+                            </div>
+                        </li>
+                        <li className="flex gap-3">
+                            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
+                                3
+                            </span>
+                            <div>
+                                <p className="text-sm font-semibold text-slate-900">
+                                    They arrive and get the job done
+                                </p>
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                    Pay only when the work's complete. 30-day
+                                    workmanship guarantee on every visit.
+                                </p>
+                            </div>
+                        </li>
+                    </ol>
+                </section>
+
                 <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                     <Link
                         href="/v2"
@@ -1393,9 +1567,15 @@ function BookingConfirmation({
                 </div>
 
                 <p className="mt-8 text-center text-xs text-slate-400">
-                    Need to make a change? Reply to the confirmation message
-                    or WhatsApp us with reference{" "}
-                    <span className="font-mono">{reference}</span>.
+                    Need to make a change? WhatsApp us with reference{" "}
+                    <span className="font-mono">{reference}</span>
+                    {contactEmail ? (
+                        <>
+                            {" "}— we'll also email you on{" "}
+                            <span className="font-medium text-slate-500">{contactEmail}</span>
+                        </>
+                    ) : null}
+                    .
                 </p>
             </main>
         </div>
@@ -1430,7 +1610,7 @@ function BookingShell({
     children: ReactNode;
 }) {
     return (
-        <div className="min-h-screen bg-white pb-32 font-sans text-slate-900 lg:pb-16">
+        <div className="min-h-screen bg-slate-50 pb-32 font-sans text-slate-900 lg:pb-16">
             <LandingHeader />
             <main className="mx-auto max-w-2xl px-4 pt-8 lg:px-8">
                 <Link
