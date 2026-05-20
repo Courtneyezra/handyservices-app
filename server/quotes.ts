@@ -2008,13 +2008,25 @@ const instantQuoteSchema = z.object({
         name: z.string(),
         pricePence: z.number(),
         confidence: z.number().optional(),
-        source: z.enum(['detected', 'manual']),
+        // 'v2_self_serve' added for bookings originating from the /v2 SKU
+        // landing page — the customer chose the SKU themselves (not detected
+        // from a live call) and confirmed via the in-page booking flow.
+        source: z.enum(['detected', 'manual', 'v2_self_serve']),
     })),
     totalPricePence: z.number(),
     selectedDate: z.string().optional(),
-    sendVia: z.enum(['sms', 'whatsapp']),
+    // Optional: only required when the customer needs a link sent to them
+    // (live-call agent flow). For /v2 self-serve bookings the customer is
+    // already on the page and the confirmation is rendered in-flow, so
+    // no SMS/WhatsApp is needed — caller omits this field.
+    sendVia: z.enum(['sms', 'whatsapp']).optional(),
     callId: z.string().optional(),
     segment: z.string().optional(),
+    // Where the booking originated. Drives lead.source so analytics can
+    // separate /v2 self-serve bookings from live-call instant quotes.
+    //   'instant_quote' (default) — live-call agent created the quote
+    //   'v2_sku'                  — customer self-served via /v2
+    bookingSource: z.enum(['instant_quote', 'v2_sku']).optional(),
 });
 
 // POST /api/quotes/instant
@@ -2045,17 +2057,29 @@ quotesRouter.post('/api/quotes/instant', optionalAuth, async (req, res) => {
             linkedLeadId = duplicateCheck.existingLead.id;
             console.log(`[InstantQuote] Linked to existing lead ${linkedLeadId}`);
         } else {
-            linkedLeadId = `lead_instant_${Date.now()}`;
+            // Use the bookingSource (if provided) to differentiate /v2
+            // self-serve leads from live-call instant quotes in downstream
+            // analytics. lead.id prefix also encodes the source so it's
+            // searchable directly from the DB.
+            const leadSource = input.bookingSource === 'v2_sku'
+                ? 'v2_sku'
+                : 'instant_quote';
+            const idPrefix = input.bookingSource === 'v2_sku' ? 'lead_v2' : 'lead_instant';
+            linkedLeadId = `${idPrefix}_${Date.now()}`;
             await db.insert(leads).values({
                 id: linkedLeadId,
                 customerName: input.customerName,
                 phone: normalizedPhone,
                 email: input.email || null,
-                source: 'instant_quote',
+                source: leadSource,
                 jobDescription,
-                status: 'quote_sent',
+                // /v2 customers self-confirmed via the in-page flow, so the
+                // lead is already at 'quote_accepted'. Live-call quotes
+                // need the customer to click the link first, so they
+                // stay at 'quote_sent'.
+                status: input.bookingSource === 'v2_sku' ? 'quote_accepted' : 'quote_sent',
             });
-            console.log(`[InstantQuote] Created new lead ${linkedLeadId}`);
+            console.log(`[InstantQuote] Created new lead ${linkedLeadId} (source=${leadSource})`);
         }
 
         // Create simple quote
@@ -2078,6 +2102,13 @@ quotesRouter.post('/api/quotes/instant', optionalAuth, async (req, res) => {
             })),
             selectedDate: input.selectedDate ? new Date(input.selectedDate) : null,
             segment: input.segment || 'UNKNOWN',
+            // /v2 self-serve customers have already committed by the time
+            // we hit this endpoint — the cart was selected, address +
+            // contact entered, and the in-page "Confirm booking" button
+            // tapped. Stamp `bookedAt` immediately so ops dashboards
+            // surface these as ready-to-dispatch, not pending quotes.
+            bookedAt: input.bookingSource === 'v2_sku' ? new Date() : null,
+            selectedAt: input.bookingSource === 'v2_sku' ? new Date() : null,
             createdBy: (req as any).user?.id || null,
             createdByName: (req as any).user
                 ? `${(req as any).user.firstName || ''} ${(req as any).user.lastName || ''}`.trim() || null
@@ -2086,29 +2117,36 @@ quotesRouter.post('/api/quotes/instant', optionalAuth, async (req, res) => {
         };
 
         await db.insert(personalizedQuotes).values(quoteData);
-        console.log(`[InstantQuote] Created quote ${shortSlug}`);
+        console.log(`[InstantQuote] Created quote ${shortSlug} (bookingSource=${input.bookingSource || 'instant_quote'})`);
 
-        // Generate quote URL from request
+        // Generate quote URL from request — still useful as an internal
+        // reference link even when no message is sent (admin can deep-link
+        // into the quote from the lead row).
         const quoteUrl = getShortQuoteUrl(req, shortSlug);
 
-        // Send booking link with segment-specific value lines
-        const seg = input.segment || 'UNKNOWN';
-        const valueLines = getWhatsAppValueLines(seg, 2);
-        const valuePart = valueLines.length > 0 ? '\n' + valueLines.join('\n') + '\n' : '';
-        const message = `Hi ${input.customerName.split(' ')[0] || 'there'}! Here's your quote for £${(input.totalPricePence / 100).toFixed(2)}.${valuePart}\nClick to view and book: ${quoteUrl}`;
+        // Only send a booking link if `sendVia` was provided. /v2 self-
+        // serve bookings omit it because the customer is on the page and
+        // sees the confirmation in-flow — sending them a quote link back
+        // would be redundant and confusing.
+        if (input.sendVia) {
+            const seg = input.segment || 'UNKNOWN';
+            const valueLines = getWhatsAppValueLines(seg, 2);
+            const valuePart = valueLines.length > 0 ? '\n' + valueLines.join('\n') + '\n' : '';
+            const message = `Hi ${input.customerName.split(' ')[0] || 'there'}! Here's your quote for £${(input.totalPricePence / 100).toFixed(2)}.${valuePart}\nClick to view and book: ${quoteUrl}`;
 
-        if (input.sendVia === 'sms') {
-            // Send via Twilio SMS
-            await twilioClient.messages.create({
-                to: normalizedPhone,
-                from: process.env.TWILIO_PHONE_NUMBER,
-                body: message,
-            });
-            console.log(`[InstantQuote] SMS sent to ${normalizedPhone}`);
+            if (input.sendVia === 'sms') {
+                await twilioClient.messages.create({
+                    to: normalizedPhone,
+                    from: process.env.TWILIO_PHONE_NUMBER,
+                    body: message,
+                });
+                console.log(`[InstantQuote] SMS sent to ${normalizedPhone}`);
+            } else {
+                await sendWhatsAppMessage(normalizedPhone, message);
+                console.log(`[InstantQuote] WhatsApp sent to ${normalizedPhone}`);
+            }
         } else {
-            // Send via WhatsApp
-            await sendWhatsAppMessage(normalizedPhone, message);
-            console.log(`[InstantQuote] WhatsApp sent to ${normalizedPhone}`);
+            console.log(`[InstantQuote] sendVia omitted — no message sent (likely v2 self-serve booking)`);
         }
 
         // Update call record if provided
