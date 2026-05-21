@@ -9,7 +9,14 @@
  * Route: /v2  (registered in App.tsx)
  */
 
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+    Fragment,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ReactNode,
+} from "react";
 import { Link, useLocation } from "wouter";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 // Phosphor icons — selected per-SKU for task-specific recognisability.
@@ -90,7 +97,28 @@ import {
     AccordionTrigger,
 } from "@/components/ui/accordion";
 import { SiGoogle } from "react-icons/si";
+// Service-card thumbnail icons — Phosphor's Duotone weight gives a two-tone
+// shaded look (full-strength outline + 20%-opacity fill) that reads as much
+// more detailed / designed than Lucide's flat line icons. Used on the 11
+// original /v2 services. Wave 1+2 SKUs continue to use Phosphor line + Lucide
+// because Duotone doesn't cover those taps/sockets/door icons yet.
+import {
+    PiFrameCornersDuotone,
+    PiSparkleDuotone,
+    PiTelevisionDuotone,
+    PiTelevisionSimpleDuotone,
+    PiBedDuotone,
+    PiArmchairDuotone,
+    PiDoorOpenDuotone,
+    PiKeyDuotone,
+    PiWrenchDuotone,
+} from "react-icons/pi";
 import { LandingHeader } from "@/components/LandingHeader";
+import {
+    RescueToast,
+    WhatsAppEscapeFooter,
+} from "@/components/WhatsAppEscape";
+import { AnimatedMap } from "@/components/AnimatedMap";
 import { HandLogo } from "@/components/LandingShared";
 
 // Brand asset images (real Handy Services photography from existing landing)
@@ -99,8 +127,15 @@ import skuWallInstall from "@assets/528c52d4-f8ff-4e5b-9853-b68263a62c2f_1764694
 import slideAfter from "@assets/cb5e8951-9d46-4023-9909-510a89d3da60_1764693845208.webp";
 import slideHero from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
 import slidePayIn3 from "@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.webp";
-import seoLocalImage from "@assets/4cc2f0fa-125e-412b-9929-4e03a055b760_1764687156909.webp";
 import promoHandyman from "@assets/123d3462-a11d-42b8-9fad-fdb2d6f29b11_1764600237774.webp";
+// City-specific local maps (used in the SEO intro block on /v2 vs /v2/derby).
+// Kept as legacy fallback imports; AnimatedMap now drives the SEO block.
+import nottinghamMap from "@/assets/nottingham_map.png";
+import derbyMap from "@/assets/derby_map.png";
+import {
+    registerSuperProperties as posthogRegister,
+    trackEvent as posthogTrack,
+} from "@/lib/posthog";
 // Wall-install brand photo, used as a stopgap thumbnail for TV-mount services
 // until a TV-specific brand photo is saved (see TODO at the service entries).
 
@@ -1016,7 +1051,7 @@ const CATEGORIES: Category[] = [
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
                 ],
                 thumbEmoji: "🔩",
-                thumbIcon: Drill,
+                thumbIcon: PiWrenchDuotone,
                 thumbBg: "from-slate-100 to-slate-200",
                 // Drilling-action brand photo (also the mirror-shelf banner).
                 // Reuse is fine — different modals are never seen side-by-side.
@@ -1064,7 +1099,7 @@ const CATEGORIES: Category[] = [
                 // Frame icon represents the mirror/picture-frame outcome of
                 // the job. Photo thumbnail was removed for visual consistency
                 // — all SKU thumbnails are now icons or typographic tiles.
-                thumbIcon: Frame,
+                thumbIcon: PiFrameCornersDuotone,
                 thumbBg: "from-blue-100 to-cyan-200",
                 // Brand shelf-install photo (also used as a HeroCarousel slide)
                 // — appears as a banner at the top of the detail modal only.
@@ -1109,7 +1144,7 @@ const CATEGORIES: Category[] = [
                     "Outdoor-safe fixings used on exterior runs.",
                 ],
                 thumbEmoji: "✨",
-                thumbIcon: Sparkles,
+                thumbIcon: PiSparkleDuotone,
                 thumbBg: "from-pink-100 to-rose-200",
                 modalImage: promoHandyman,
                 optionsCount: 2,
@@ -1251,7 +1286,7 @@ const CATEGORIES: Category[] = [
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
                 ],
                 thumbEmoji: "📺",
-                thumbIcon: Tv,
+                thumbIcon: PiTelevisionDuotone,
                 thumbBg: "from-indigo-100 to-violet-200",
                 // Generic Handy Services brand photo until a TV-specific
                 // asset lands in /assets.
@@ -1270,7 +1305,7 @@ const CATEGORIES: Category[] = [
                     "Safe removal and patch-up of small holes left in the wall.",
                 ],
                 thumbEmoji: "📺",
-                thumbIcon: Tv,
+                thumbIcon: PiTelevisionSimpleDuotone,
                 thumbBg: "from-violet-100 to-purple-200",
                 // Generic Handy Services brand photo until a TV-specific
                 // asset lands in /assets.
@@ -1356,7 +1391,7 @@ const CATEGORIES: Category[] = [
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
                 ],
                 thumbEmoji: "🛏️",
-                thumbIcon: Bed,
+                thumbIcon: PiBedDuotone,
                 thumbBg: "from-amber-100 to-yellow-200",
                 modalImage: promoHandyman,
                 optionsCount: 6,
@@ -1417,7 +1452,7 @@ const CATEGORIES: Category[] = [
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
                 ],
                 thumbEmoji: "🪑",
-                thumbIcon: Armchair,
+                thumbIcon: PiArmchairDuotone,
                 thumbBg: "from-stone-100 to-stone-200",
                 modalImage: promoHandyman,
                 optionsCount: 4,
@@ -1437,7 +1472,7 @@ const CATEGORIES: Category[] = [
                     "If no work is carried out after inspection, a visit charge of £25 applies.",
                 ],
                 thumbEmoji: "🚪",
-                thumbIcon: DoorOpen,
+                thumbIcon: PiDoorOpenDuotone,
                 thumbBg: "from-orange-100 to-amber-200",
                 modalImage: promoHandyman,
             },
@@ -1462,7 +1497,7 @@ const CATEGORIES: Category[] = [
                     "Please check for any approvals that may be required from the owner or landlord.",
                 ],
                 thumbEmoji: "🔐",
-                thumbIcon: KeyRound,
+                thumbIcon: PiKeyDuotone,
                 thumbBg: "from-zinc-100 to-zinc-200",
                 modalImage: promoHandyman,
             },
@@ -1503,14 +1538,151 @@ export const ALL_SERVICES: Service[] = CATEGORIES.flatMap((c) => c.services).fla
 );
 
 // ---------------------------------------------------------------------------
+// City variants — /v2 (Nottingham, default) vs /v2/derby
+//
+// Drives the swappable hero span, the SEO intro headline + city name + map,
+// the footer "Serving in" list, and the PostHog `variant`/`city` super-props
+// so funnels can compare Nottingham and Derby treatments apples-to-apples.
+// ---------------------------------------------------------------------------
+
+/** Allowed cities (also the keys of CITY_CONTENT). */
+export type V2City = "nottingham" | "derby";
+
+/** Funnel-variant key sent to PostHog as a super-property. */
+export type V2Variant = "v2-nottingham" | "v2-derby";
+
+export type CityContent = {
+    /** Amber span at the end of the hero <h1>: "Handyman <span>{heroSpan}</span>". */
+    heroSpan: string;
+    /** Imported map asset (legacy static fallback — AnimatedMap drives live). */
+    mapImage: string;
+    /** Alt text describing the map (mentions the city for a11y + SEO). */
+    mapAlt: string;
+    /** Used in the SEO intro paragraph: "Our {seoIntroCity} team is vetted…". */
+    seoIntroCity: string;
+    /** H2 above the SEO intro paragraph. */
+    seoIntroHeadline: string;
+    /** Pill copy overlaid on the local map. */
+    seoMapPill: string;
+    /** Areas listed in the footer "Serving in" accordion. */
+    seoLocations: string[];
+    /** Variant key persisted alongside the booking + sent as a PostHog property. */
+    variant: V2Variant;
+    /** PostHog `city` property. Used as a register() super-property. */
+    city: V2City;
+};
+
+export const CITY_CONTENT: Record<V2City, CityContent> = {
+    nottingham: {
+        heroSpan: "near you",
+        mapImage: nottinghamMap,
+        mapAlt: "Map of Nottingham showing the Handy Services coverage area",
+        seoIntroCity: "Nottingham",
+        seoIntroHeadline: "Handyman near you, Nottingham",
+        seoMapPill: "Serving Nottingham & surrounding areas",
+        // Mirrors the "Serving in" group on /landing.
+        seoLocations: [
+            "Nottingham",
+            "West Bridgford",
+            "Beeston",
+            "Mapperley",
+            "Wollaton",
+            "Long Eaton",
+            "Carlton",
+            "Arnold",
+            "Derby",
+        ],
+        variant: "v2-nottingham",
+        city: "nottingham",
+    },
+    derby: {
+        heroSpan: "in Derby",
+        mapImage: derbyMap,
+        mapAlt: "Map of Derby showing the Handy Services coverage area",
+        seoIntroCity: "Derby",
+        seoIntroHeadline: "Handyman in Derby",
+        seoMapPill: "Serving Derby & surrounding areas",
+        // Common DE-postcode suburbs around Derby + Nottingham kept as a
+        // cross-link so SEO juice flows between the two city pages.
+        seoLocations: [
+            "Derby",
+            "Spondon",
+            "Mickleover",
+            "Littleover",
+            "Allestree",
+            "Chaddesden",
+            "Mackworth",
+            "Oakwood",
+            "Nottingham",
+        ],
+        variant: "v2-derby",
+        city: "derby",
+    },
+};
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 /** Where the cart is persisted across navigations to /basket. */
 export const CART_STORAGE_KEY = "handy-v2-cart";
 
-export default function HandymanV2() {
+interface HandymanV2Props {
+    /** Selects the CITY_CONTENT block driving copy + map. Default Nottingham
+     *  for backwards compat with the original /v2 route. A `?city=derby` query
+     *  param on the URL always overrides the prop (so /v2?city=derby works
+     *  for ad-spend split tests without needing a fresh route push). */
+    city?: V2City;
+}
+
+export default function HandymanV2({ city: cityProp = "nottingham" }: HandymanV2Props = {}) {
     const [, setLocation] = useLocation();
+    // Resolve the active city: ?city=derby URL param wins over the prop, so
+    // /v2?city=derby flips to the Derby variant without a route push. Anything
+    // else falls back to the prop.
+    const city: V2City = useMemo(() => {
+        if (typeof window !== "undefined") {
+            const param = new URLSearchParams(window.location.search).get("city");
+            if (param === "derby" || param === "nottingham") return param;
+        }
+        return cityProp;
+    }, [cityProp]);
+    const content = CITY_CONTENT[city];
+
+    // Register variant + city as PostHog super-properties so every subsequent
+    // capture on this page automatically carries them. Also fires the
+    // `landing_view` event once on mount. Re-runs when the city changes so a
+    // ?city= flip stays in sync.
+    useEffect(() => {
+        posthogRegister({ variant: content.variant, city: content.city });
+        posthogTrack("landing_view", {
+            variant: content.variant,
+            city: content.city,
+        });
+    }, [content.variant, content.city]);
+
+    // Stamp the variant onto the in-progress booking record as soon as the
+    // user lands on /v2 (or /v2/derby). Stored alongside the other booking
+    // fields under `handy-v2-booking` so the variant rides along with the
+    // booking POST and downstream analytics can attribute conversions.
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        try {
+            const raw = window.localStorage.getItem("handy-v2-booking");
+            const prev = raw ? JSON.parse(raw) : {};
+            window.localStorage.setItem(
+                "handy-v2-booking",
+                JSON.stringify({
+                    ...prev,
+                    variant: content.variant,
+                    city: content.city,
+                }),
+            );
+        } catch {
+            // Storage unavailable — non-fatal, just skip the stamp.
+        }
+    }, [content.variant, content.city]);
+
     const [cart, setCart] = useState<Record<string, number>>(() => {
         if (typeof window === "undefined") return {};
         try {
@@ -1554,6 +1726,93 @@ export default function HandymanV2() {
     // ring animation finishes so the ring doesn't linger.
     const [justAddedId, setJustAddedId] = useState<string | null>(null);
 
+    // ---- Bounce-signal rescue toast ----
+    // Surfaces a small WhatsApp escape pill above the Menu trigger when the
+    // user shows uncertainty (28s dwell with no ADD, OR 2+ service modals
+    // closed without an ADD). Decisive buyers never see it — they ADD long
+    // before either threshold trips. Dismissible per-session via the X.
+    const [showRescue, setShowRescue] = useState(false);
+    const cartSizeAtModalOpenRef = useRef<number>(0);
+    const modalCloseWithoutAddRef = useRef<number>(0);
+    const totalCartCount = Object.values(cart).reduce((a, b) => a + b, 0);
+
+    // Read the per-session dismiss flag once. If the user already dismissed
+    // the toast earlier in this session, don't show it again.
+    const rescueDismissed = useRef<boolean>(
+        typeof window !== "undefined" &&
+            window.sessionStorage.getItem("handy-v2-rescue-dismissed") === "1",
+    );
+
+    const dismissRescue = () => {
+        setShowRescue(false);
+        rescueDismissed.current = true;
+        try {
+            window.sessionStorage.setItem("handy-v2-rescue-dismissed", "1");
+        } catch {
+            // private mode quota — ignore, dismiss still works for this view
+        }
+    };
+
+    // Trigger #1 — 28-second dwell on /v2 with zero ADDs yet. The decisive-
+    // buyer ADD time we want to protect is well under 30s; bouncers cross
+    // this threshold without committing.
+    useEffect(() => {
+        if (rescueDismissed.current) return;
+        const t = window.setTimeout(() => {
+            if (totalCartCount === 0 && !rescueDismissed.current) {
+                setShowRescue(true);
+            }
+        }, 28_000);
+        return () => window.clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // As soon as something lands in the basket, the rescue is moot — hide.
+    useEffect(() => {
+        if (totalCartCount > 0) setShowRescue(false);
+    }, [totalCartCount]);
+
+    // Trigger #2 — service detail modal closed twice without adding. Each
+    // openServiceId transition is observed below; we snapshot the cart size
+    // when the modal opens and compare it on close. A `prev` ref distinguishes
+    // a real close (string → null) from the initial mount (null → null) so
+    // we don't count the first render as a fake close.
+    const prevOpenServiceIdRef = useRef<string | null>(null);
+    useEffect(() => {
+        const prev = prevOpenServiceIdRef.current;
+        prevOpenServiceIdRef.current = openServiceId;
+
+        if (openServiceId !== null) {
+            // Modal just opened — snapshot the basket size at this moment.
+            cartSizeAtModalOpenRef.current = totalCartCount;
+            return;
+        }
+
+        // openServiceId is null. Only treat this as a "close" if the previous
+        // value was a service id (i.e. we transitioned from open → closed).
+        // Otherwise this is just the initial render or an already-closed
+        // state — neither counts.
+        if (prev === null) return;
+
+        // Cart didn't grow during the modal's lifetime → no-add close.
+        if (
+            cartSizeAtModalOpenRef.current === totalCartCount &&
+            !rescueDismissed.current
+        ) {
+            modalCloseWithoutAddRef.current += 1;
+            if (modalCloseWithoutAddRef.current >= 2) {
+                setShowRescue(true);
+            }
+        } else {
+            // Cart grew during the modal — successful add, reset the streak.
+            modalCloseWithoutAddRef.current = 0;
+        }
+        // We deliberately don't add totalCartCount as a dep — we read its
+        // latest value via the ref-snapshot pattern above and the openServiceId
+        // transition is the trigger.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [openServiceId]);
+
     const addToCart = (id: string) => {
         setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
         setBumpTick((t) => t + 1);
@@ -1563,6 +1822,21 @@ export default function HandymanV2() {
         window.setTimeout(() => {
             setJustAddedId((prev) => (prev === id ? null : prev));
         }, 950);
+
+        // Analytics — fire `v2_add_to_cart` with the looked-up service. The
+        // variant + city are already registered as super-properties at the
+        // page level, but we pass them explicitly too so the event is
+        // self-describing in PostHog's inspector.
+        const svc = ALL_SERVICES.find((s) => s.id === id);
+        if (svc) {
+            posthogTrack("v2_add_to_cart", {
+                variant: content.variant,
+                city: content.city,
+                service_id: svc.id,
+                service_name: svc.name,
+                price: svc.priceCurrent,
+            });
+        }
     };
 
     const decrementFromCart = (id: string) =>
@@ -1638,7 +1912,7 @@ export default function HandymanV2() {
                     {/* Mobile DOM order #2 → Hero (title + rating + warranty).
                       * Desktop: col 1 row 1, top-aligned. */}
                     <div className="lg:col-start-1 lg:row-start-1 lg:self-start">
-                        <Hero />
+                        <Hero heroSpan={content.heroSpan} />
                     </div>
 
                     {/* Mobile DOM order #3 → Room filter strip (sits between hero
@@ -1745,6 +2019,13 @@ export default function HandymanV2() {
                                 </Fragment>
                             );
                         })}
+
+                        {/* Below-catalog escape hatch — quiet footer link
+                          * placed after every category. Users who reached
+                          * the bottom without adding anything are the right
+                          * audience for WhatsApp; decisive users have
+                          * already clicked ADD by now. */}
+                        <WhatsAppEscapeFooter />
                     </section>
 
                     {/* Row 3, col 3 — Sticky cart + offers + promise (desktop only).
@@ -1764,10 +2045,10 @@ export default function HandymanV2() {
                     </aside>
                 </div>
 
-                <SeoIntroBlock />
+                <SeoIntroBlock content={content} />
                 <ReviewsGrid />
                 <LongFormSeoSection />
-                <QuickLinksAccordion />
+                <QuickLinksAccordion seoLocations={content.seoLocations} />
             </main>
 
             <PageFooter />
@@ -1777,6 +2058,16 @@ export default function HandymanV2() {
                 onSelect={setActiveCategory}
                 cartHasItems={cartItems.length > 0}
                 categories={filteredCategories}
+            />
+
+            {/* Dynamic WhatsApp rescue — triggered by bounce signals
+              * (28s dwell w/ no ADD, OR 2 modal closes w/o ADD). Sits above
+              * the Menu pill so both rescue paths (jump-to-category vs
+              * talk-to-human) co-exist; decisive buyers never see it. */}
+            <RescueToast
+                visible={showRescue}
+                cartHasItems={cartItems.length > 0}
+                onDismiss={dismissRescue}
             />
 
             {/* Mobile sticky cart bar — always mounted; the outer wrapper
@@ -2031,7 +2322,7 @@ function HeroCarousel() {
 // Hero
 // ---------------------------------------------------------------------------
 
-function Hero() {
+function Hero({ heroSpan }: { heroSpan: string }) {
     // Warranty accordion — was a `<Link href="/warranty">` that navigated
     // away. Customers shouldn't have to leave the booking flow to read
     // a 4-bullet trust signal. Inline disclosure keeps them on /v2 with
@@ -2041,7 +2332,7 @@ function Hero() {
     return (
         <section className="flex flex-col gap-4">
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 md:text-5xl">
-                Handyman <span className="whitespace-nowrap text-amber-500">near you</span>
+                Handyman <span className="whitespace-nowrap text-amber-500">{heroSpan}</span>
             </h1>
             <div className="flex items-center gap-2 self-start rounded-full border border-amber-400/40 bg-white px-3 py-1.5 text-slate-900 shadow-sm">
                 <SiGoogle className="h-4 w-4" />
@@ -3692,34 +3983,33 @@ function PromiseCard() {
 // SEO + content blocks
 // ---------------------------------------------------------------------------
 
-function SeoIntroBlock() {
+function SeoIntroBlock({ content }: { content: CityContent }) {
     return (
         <section className="mt-12 grid grid-cols-1 items-center gap-8 border-t border-slate-100 pt-12 md:grid-cols-2 md:gap-12">
-            <div className="relative aspect-square overflow-hidden rounded-2xl md:aspect-[5/4]">
-                <img
-                    src={seoLocalImage}
-                    alt="A Handy Services tradesperson at a customer's home in Nottingham"
-                    loading="lazy"
-                    decoding="async"
-                    className="h-full w-full object-cover"
-                />
-                {/* Subtle bottom gradient for image-as-card polish */}
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-slate-900/30 to-transparent" />
-                {/* Small location pill on the photo */}
-                <div className="absolute bottom-4 left-4 inline-flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-xs font-semibold text-slate-900 shadow-sm">
+            {/* Animated coverage map — same component used on /landing and
+              * /derby. Auto-cycles through real-feeling pin popups (service,
+              * location, star rating) every 5s so the "active right now"
+              * proof feels alive rather than a static graphic. Auto-switches
+              * between Derby + Nottingham pin sets via the `city` prop. */}
+            <div className="relative">
+                <AnimatedMap location={content.city} />
+                {/* Coverage caption sits below the map, since AnimatedMap
+                  * uses a 3D-perspective blob that won't accept a pinned
+                  * overlay cleanly. */}
+                <div className="mt-3 flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-700">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                    Serving Nottingham &amp; surrounding areas
+                    {content.seoMapPill}
                 </div>
             </div>
             <div>
                 <h2 className="text-3xl font-bold tracking-tight">
-                    Handyman near you, Nottingham
+                    {content.seoIntroHeadline}
                 </h2>
                 <p className="mt-4 text-sm leading-relaxed text-slate-600">
                     Need a local handyman you can trust? Handy is a single
                     platform for small repairs and installations around the home
                     — from drilling and curtain hanging to flat-pack assembly,
-                    smart locks and TV mounting. Our Nottingham team is vetted,
+                    smart locks and TV mounting. Our {content.seoIntroCity} team is vetted,
                     DBS-checked and insured. Every job is fixed-price up front,
                     booked online in under a minute, and backed by our 30-day
                     workmanship warranty.
@@ -4033,12 +4323,18 @@ const QUICK_LINK_GROUPS = [
     },
 ];
 
-function QuickLinksAccordion() {
+function QuickLinksAccordion({ seoLocations }: { seoLocations: string[] }) {
+    // Swap the "Serving in" group's links with the per-city list so the
+    // footer matches the variant the user landed on. Other groups are
+    // city-agnostic and rendered unchanged.
+    const groups = QUICK_LINK_GROUPS.map((g) =>
+        g.id === "serving" ? { ...g, links: seoLocations } : g,
+    );
     return (
         <section className="mt-16 border-t border-slate-100 pt-10">
             <h2 className="mb-4 text-2xl font-bold tracking-tight">Quick Links</h2>
             <Accordion type="multiple" className="max-w-3xl">
-                {QUICK_LINK_GROUPS.map((g) => (
+                {groups.map((g) => (
                     <AccordionItem key={g.id} value={g.id} className="border-b">
                         <AccordionTrigger className="text-base font-semibold">
                             {g.title}
