@@ -957,6 +957,8 @@ const contextualQuoteInputSchema = z.object({
         estimatedMinutes: z.number().positive(),
         materialsCostPence: z.number().min(0).optional().default(0),
         details: z.string().optional().nullable(),
+        /** Phase 4d — tier id for fixed-fee tiered categories (e.g. waste_removal 'small' | 'medium' | 'full'). */
+        fixedTier: z.string().optional().nullable(),
       }),
     )
     .min(1, 'At least one line item is required'),
@@ -1062,6 +1064,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         category: l.category as JobCategory,
         timeEstimateMinutes: l.estimatedMinutes,
         materialsCostPence: l.materialsCostPence || 0,
+        fixedTier: l.fixedTier ?? null,
       })),
       signals,
       vaContext: input.vaContext,

@@ -32,6 +32,7 @@ import type {
   ContextualSignals,
 } from '@shared/contextual-pricing-types';
 import { getPricingSettings } from '../pricing-settings';
+import { getPricingConfig } from '@shared/pricing-models';
 
 // ---------------------------------------------------------------------------
 // Constants (fallback defaults — overridden by DB-backed pricing settings)
@@ -255,6 +256,33 @@ export async function generateMultiLinePrice(
     const ref = lineReferences.find((r) => r.lineId === line.id)!;
     const llmLine = llmResult.lineItems.find((li) => li.lineId === line.id);
 
+    const cfg = getPricingConfig(line.category);
+    const lineTierId = (line as any).fixedTier as string | null | undefined;
+
+    // ─── Fixed-tier path ────────────────────────────────────────────────
+    if (cfg.model === 'fixed' && cfg.fixedTiers && lineTierId) {
+      const tier = cfg.fixedTiers.find((t) => t.id === lineTierId);
+      if (tier) {
+        const materialsCostPence = line.materialsCostPence || 0;
+        const materialsWithMarginPence = materialsCostPence > 0
+          ? roundToWholePounds(materialsCostPence * (1 + materialsMargin))
+          : 0;
+        return {
+          lineId: line.id,
+          description: polishedDescriptions.get(line.id) || line.description,
+          category: line.category,
+          timeEstimateMinutes: tier.scheduleMinutes,
+          referencePricePence: tier.pricePence,
+          llmSuggestedPricePence: tier.pricePence,
+          guardedPricePence: tier.pricePence,
+          adjustmentFactors: llmLine ? llmLine.adjustmentFactors : [],
+          materialsCostPence,
+          materialsWithMarginPence,
+        };
+      }
+    }
+
+    // ─── Standard time-based path ───────────────────────────────────────
     // Use LLM price or fallback to reference × 1.3
     const llmSuggestedPricePence = llmLine
       ? llmLine.suggestedPricePence

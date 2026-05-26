@@ -111,10 +111,21 @@ function buildSystemPrompt(
       const highPounds = (ref.marketRange.highPence / 100).toFixed(2);
       const cfg = getPricingConfig(ref.category);
       let modelHint = '';
+      const lineFixedTier = (line as any).fixedTier as string | null | undefined;
       if (cfg.model === 'fixed') {
         if (cfg.fixedTiers && cfg.fixedTiers.length > 0) {
-          const tiers = cfg.fixedTiers.map(t => `${t.label} £${(t.pricePence/100).toFixed(0)} (${t.scheduleMinutes}min)`).join(' / ');
-          modelHint = ` ⟶ FIXED-FEE category (${cfg.unitLabel || 'unit'}). Tiers: ${tiers}. Price by tier, NOT by time × rate. Use minutes only as a scheduling honest estimate.`;
+          if (lineFixedTier) {
+            const chosen = cfg.fixedTiers.find((t) => t.id === lineFixedTier);
+            if (chosen) {
+              modelHint = ` ⟶ FIXED-FEE tier "${chosen.label}" pre-selected. Use exactly £${(chosen.pricePence/100).toFixed(0)} (${chosen.pricePence}p) as the price. Schedule = ${chosen.scheduleMinutes}min. Do NOT compute from time × rate.`;
+            } else {
+              const tiers = cfg.fixedTiers.map(t => `${t.label} £${(t.pricePence/100).toFixed(0)} (${t.scheduleMinutes}min)`).join(' / ');
+              modelHint = ` ⟶ FIXED-FEE category (${cfg.unitLabel || 'unit'}). Tiers: ${tiers}. Price by tier, NOT by time × rate.`;
+            }
+          } else {
+            const tiers = cfg.fixedTiers.map(t => `${t.label} £${(t.pricePence/100).toFixed(0)} (${t.scheduleMinutes}min)`).join(' / ');
+            modelHint = ` ⟶ FIXED-FEE category (${cfg.unitLabel || 'unit'}). Tiers: ${tiers}. Pick the right tier from the description; price by tier, NOT by time × rate.`;
+          }
         } else if (cfg.referenceUnitPricePence) {
           modelHint = ` ⟶ FIXED-FEE category (per ${cfg.unitLabel || 'visit'}). Base £${(cfg.referenceUnitPricePence/100).toFixed(0)}, base time ${cfg.minutesPerUnit || 60}min. Price as a fixed fee, NOT time × rate.`;
         }

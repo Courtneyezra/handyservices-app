@@ -54,6 +54,7 @@ import type {
   MarginPreview,
 } from '@shared/contextual-pricing-types';
 import { getCategoryLabel } from '@shared/categories';
+import { getPricingConfig } from '@shared/pricing-models';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -86,6 +87,8 @@ interface LineItem {
   estimatedMinutes: number;
   materialsCostPounds: number; // in pounds for easier input, converted to pence on submit
   details?: string;
+  /** Phase 4d — for fixed-fee categories with tiers (e.g. waste_removal: small/medium/full van load) */
+  fixedTier?: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1235,6 +1238,7 @@ export default function GenerateContextualQuote() {
             estimatedMinutes: li.estimatedMinutes,
             materialsCostPence: Math.round(li.materialsCostPounds * 100) || 0,
             details: li.details ?? null,
+            fixedTier: li.fixedTier ?? null,
           })),
           signals: {
             urgency: signals.urgency,
@@ -1930,11 +1934,48 @@ export default function GenerateContextualQuote() {
                               </SelectContent>
                             </Select>
                             <div className="w-full sm:w-auto sm:shrink-0">
-                              <TimeInput
-                                minutes={item.estimatedMinutes}
-                                onChange={(val) => handleUpdateLineItem(item.id, 'estimatedMinutes', val)}
-                                compact
-                              />
+                              {(() => {
+                                // Phase 4d — fixed-tier categories show a tier picker
+                                // instead of free-form minutes (e.g. waste_removal: van load size).
+                                const cfg = getPricingConfig(item.category);
+                                if (cfg.model === 'fixed' && cfg.fixedTiers && cfg.fixedTiers.length > 0) {
+                                  const currentTier = (item as any).fixedTier || '';
+                                  return (
+                                    <Select
+                                      value={currentTier}
+                                      onValueChange={(tierId) => {
+                                        const t = cfg.fixedTiers!.find((tt) => tt.id === tierId);
+                                        if (!t) return;
+                                        setLineItems((prev) =>
+                                          prev.map((li) =>
+                                            li.id === item.id
+                                              ? { ...li, fixedTier: tierId, estimatedMinutes: t.scheduleMinutes }
+                                              : li
+                                          )
+                                        );
+                                      }}
+                                    >
+                                      <SelectTrigger className="h-10 sm:h-9 text-sm sm:text-xs bg-transparent border-white/10 w-full sm:w-44">
+                                        <SelectValue placeholder={`Pick ${cfg.unitLabel}…`} />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {cfg.fixedTiers.map((t) => (
+                                          <SelectItem key={t.id} value={t.id} className="text-xs">
+                                            {t.label} · £{(t.pricePence / 100).toFixed(0)} · {t.scheduleMinutes}min
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  );
+                                }
+                                return (
+                                  <TimeInput
+                                    minutes={item.estimatedMinutes}
+                                    onChange={(val) => handleUpdateLineItem(item.id, 'estimatedMinutes', val)}
+                                    compact
+                                  />
+                                );
+                              })()}
                             </div>
                           </div>
 

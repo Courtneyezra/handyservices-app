@@ -298,6 +298,8 @@ export interface JobLine {
   timeEstimateMinutes: number;
   /** Optional material cost for this line in pence (trade/cost price, before margin) */
   materialsCostPence?: number;
+  /** Phase 4d — tier id when category is a fixed-fee tiered model (e.g. waste_removal: 'small' | 'medium' | 'full'). When set, the LLM uses the tier's fixed price directly instead of time × rate. */
+  fixedTier?: string | null;
 }
 
 /**
