@@ -246,11 +246,11 @@ export async function reserveSlot(params: {
                     continue; // Try next contractor
                 }
 
-                // Travel-aware capacity check: skip if (job duration + one-way
-                // travel from contractor home to customer) wouldn't fit the
-                // slot. Only enforced when we have BOTH coords AND a non-zero
-                // job duration — otherwise fall through (better to book and
-                // surface to dispatch than to silently reject).
+                // Travel-aware capacity checks. Two layers:
+                //   (a) Slot fit — work + one-way travel ≤ slot cap (4h/4h/8h)
+                //   (b) Day fit  — across ALL bookings that day (existing +
+                //       this candidate), work + buffers + intra-day travel ≤
+                //       8h daily cap. Home commutes excluded.
                 if (jobDurationMinutes > 0 && customerCoords) {
                     const [profile] = await tx.select({
                         lat: handymanProfiles.latitude,
@@ -265,11 +265,34 @@ export async function reserveSlot(params: {
                         if (!isNaN(cLat) && !isNaN(cLng)) {
                             const travel = await getTravelTimeMinutes(cLat, cLng, customerCoords.lat, customerCoords.lng);
                             const required = jobDurationMinutes + travel.minutes;
+                            // (a) slot fit
                             if (required > slotCapacity) {
-                                console.log(`[BookingEngine] Skipping contractor ${contractorIdStr}: ${jobDurationMinutes}min job + ${travel.minutes}min travel = ${required}min > ${slotCapacity}min ${scheduledSlot} cap (source=${travel.source})`);
-                                continue; // Try next contractor
+                                console.log(`[BookingEngine] Skip ${contractorIdStr} (slot fit): ${jobDurationMinutes}min + ${travel.minutes}min travel = ${required} > ${slotCapacity} ${scheduledSlot} cap`);
+                                continue;
                             }
                         }
+                    }
+
+                    // (b) full-day fit — sequence with other bookings that day
+                    try {
+                        const { computeDayItinerary } = await import('./lib/day-itinerary');
+                        const itinerary = await computeDayItinerary({
+                            contractorId: contractorIdStr,
+                            date: scheduledDate,
+                            candidate: {
+                                quoteId,
+                                customerName: 'candidate',
+                                scheduledSlot,
+                                customerCoords,
+                                durationMinutes: jobDurationMinutes,
+                            },
+                        });
+                        if (!itinerary.fitsCapacity) {
+                            console.log(`[BookingEngine] Skip ${contractorIdStr} (day fit): ${itinerary.totals.countedMinutes}min counted > ${itinerary.capCapacityMinutes}min cap (work ${itinerary.totals.workAndBufferMinutes} + intra-day travel ${itinerary.totals.intraDayTravelMinutes})`);
+                            continue;
+                        }
+                    } catch (e) {
+                        console.warn('[BookingEngine] day itinerary check threw — proceeding anyway:', e instanceof Error ? e.message : e);
                     }
                 }
 
