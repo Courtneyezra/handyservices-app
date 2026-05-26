@@ -13,10 +13,11 @@ import {
     productizedServices,
     personalizedQuotes
 } from '../shared/schema';
-import { eq, desc, count, and, gte, inArray, sql } from 'drizzle-orm';
+import { eq, desc, count, and, gte, lt, inArray, sql } from 'drizzle-orm';
 import { startOfWeek, startOfMonth } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
+import { geocodeAddress } from './lib/geocoding';
 
 // Multer config for admin contractor profile image uploads
 const profileImageStorage = multer.diskStorage({
@@ -320,6 +321,16 @@ router.post('/', async (req: Request, res: Response) => {
             isActive: true,
         });
 
+        // Geocode postcode so admin-onboarded contractors can be location-matched
+        let latitude: string | null = null;
+        let longitude: string | null = null;
+        if (postcode) {
+            try {
+                const geo = await geocodeAddress(postcode);
+                if (geo) { latitude = geo.lat.toString(); longitude = geo.lng.toString(); }
+            } catch (e) { console.warn('[AdminContractors] geocode failed (create):', e); }
+        }
+
         // 2. Create handyman profile
         await db.insert(handymanProfiles).values({
             id: profileId,
@@ -328,6 +339,8 @@ router.post('/', async (req: Request, res: Response) => {
             businessName: businessName || null,
             postcode: postcode || null,
             city: city || null,
+            latitude,
+            longitude,
             radiusMiles,
             hourlyRate: hourlyRate || null,
             slug,
@@ -431,6 +444,16 @@ router.put('/:id', async (req: Request, res: Response) => {
         if (businessName !== undefined) profileUpdates.businessName = businessName;
         if (postcode !== undefined) profileUpdates.postcode = postcode;
         if (city !== undefined) profileUpdates.city = city;
+        // Re-geocode when postcode changes so location matching stays accurate
+        if (postcode) {
+            try {
+                const geo = await geocodeAddress(postcode);
+                if (geo) {
+                    profileUpdates.latitude = geo.lat.toString();
+                    profileUpdates.longitude = geo.lng.toString();
+                }
+            } catch (e) { console.warn('[AdminContractors] geocode failed (update):', e); }
+        }
         if (radiusMiles !== undefined) profileUpdates.radiusMiles = radiusMiles;
         if (profileImageUrl !== undefined) profileUpdates.profileImageUrl = profileImageUrl;
         if (heroImageUrl !== undefined) profileUpdates.heroImageUrl = heroImageUrl;
@@ -441,10 +464,19 @@ router.put('/:id', async (req: Request, res: Response) => {
             await db.update(handymanProfiles).set(profileUpdates).where(eq(handymanProfiles.id, id));
         }
 
-        // Replace skills if provided
+        // Replace skills if provided. Accept either an array of skill objects OR
+        // a Record { slug: { enabled, hourlyRate, dayRate } } from the edit form.
         if (skills !== undefined) {
+            const skillsList: Array<{ categorySlug: string; hourlyRate?: any; dayRate?: any; proficiency?: string }> = [];
+            if (Array.isArray(skills)) {
+                skillsList.push(...skills);
+            } else if (skills && typeof skills === 'object') {
+                for (const [slug, val] of Object.entries(skills as Record<string, any>)) {
+                    if (val?.enabled) skillsList.push({ categorySlug: slug, hourlyRate: val.hourlyRate, dayRate: val.dayRate });
+                }
+            }
             await db.delete(handymanSkills).where(eq(handymanSkills.handymanId, id));
-            for (const skill of skills) {
+            for (const skill of skillsList) {
                 await db.insert(handymanSkills).values({
                     id: uuidv4(),
                     handymanId: id,
@@ -503,18 +535,25 @@ router.put('/:id/availability', async (req: Request, res: Response) => {
 
         const created = [];
         for (const entry of dates) {
-            const { date, slot, isAvailable } = entry;
+            const { date, slot, isAvailable, notes } = entry;
             const times = slotTimeMap[slot] || slotTimeMap.full_day;
             const dateObj = new Date(date);
 
-            // Upsert: delete any existing entry for this contractor+date+slot, then insert
-            // For simplicity, delete all entries for that date first
+            // Delete any existing entry for this contractor on this calendar DAY
+            // (match the whole day, not an exact timestamp, so re-saves REPLACE the
+            // day rather than create duplicates regardless of stored time-of-day).
+            const dayStart = new Date(dateObj); dayStart.setUTCHours(0, 0, 0, 0);
+            const dayEnd = new Date(dayStart); dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
             await db.delete(contractorAvailabilityDates).where(
                 and(
                     eq(contractorAvailabilityDates.contractorId, id),
-                    eq(contractorAvailabilityDates.date, dateObj),
+                    gte(contractorAvailabilityDates.date, dayStart),
+                    lt(contractorAvailabilityDates.date, dayEnd),
                 )
             );
+
+            // 'off' = remove the day's override (revert to none); don't insert a row
+            if (slot === 'off') continue;
 
             const record = {
                 id: uuidv4(),
@@ -523,6 +562,7 @@ router.put('/:id/availability', async (req: Request, res: Response) => {
                 isAvailable: isAvailable ?? true,
                 startTime: times.startTime,
                 endTime: times.endTime,
+                notes: notes ?? null,
             };
 
             await db.insert(contractorAvailabilityDates).values(record);

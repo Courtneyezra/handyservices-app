@@ -182,7 +182,7 @@ function getAdminToken(): string {
 // Contractor Form Panel (used for both Create and Edit)
 // --------------------------------------------------------------------------
 
-function ContractorFormPanel({
+export function ContractorFormPanel({
     open,
     onOpenChange,
     editingContractor,
@@ -232,8 +232,8 @@ function ContractorFormPanel({
                 const dateStr = ov.date.split('T')[0];
                 let slot: AvailabilityOverride['slot'] = 'off';
                 if (ov.isAvailable) {
-                    if (ov.startTime === '08:00' && ov.endTime === '12:00') slot = 'am';
-                    else if (ov.startTime === '12:00' && ov.endTime === '18:00') slot = 'pm';
+                    if (ov.startTime === '08:00' && ov.endTime === '13:00') slot = 'am';
+                    else if (ov.startTime === '13:00' && ov.endTime === '18:00') slot = 'pm';
                     else slot = 'full_day';
                 }
                 overrides.push({ date: dateStr, slot });
@@ -352,7 +352,7 @@ function ContractorFormPanel({
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${getAdminToken()}`,
                 },
-                body: JSON.stringify({ overrides }),
+                body: JSON.stringify({ dates: overrides.map((o) => ({ date: o.date, slot: o.slot, isAvailable: o.slot !== 'off' })) }),
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ message: 'Failed to update availability' }));
@@ -385,8 +385,22 @@ function ContractorFormPanel({
         }
     };
 
-    const handleSaveAvailability = () => {
-        availabilityMutation.mutate(availabilityOverrides);
+    // Auto-save a single day's availability the moment a slot is selected.
+    const saveDaySlot = async (dateStr: string, slot: AvailabilityOverride['slot']) => {
+        setOverrideSlot(dateStr, slot); // optimistic local update
+        if (!editingContractor) return; // create mode: no contractor id yet
+        try {
+            const res = await fetch(`/api/admin/contractors/${editingContractor.id}/availability`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAdminToken()}` },
+                body: JSON.stringify({ dates: [{ date: dateStr, slot, isAvailable: slot !== 'off' }] }),
+            });
+            if (!res.ok) throw new Error('Failed to save availability');
+            queryClient.invalidateQueries({ queryKey: ['admin-contractors'] });
+            queryClient.invalidateQueries({ queryKey: ['availability-matrix'] });
+        } catch (err: any) {
+            toast({ title: 'Error', description: err.message || 'Failed to save', variant: 'destructive' });
+        }
     };
 
     const isSaving = createMutation.isPending || updateMutation.isPending;
@@ -644,7 +658,7 @@ function ContractorFormPanel({
                                                                 : 'bg-green-500 text-white'
                                                             : 'bg-muted text-muted-foreground hover:bg-muted/80'
                                                     }`}
-                                                    onClick={() => setOverrideSlot(dateStr, slot)}
+                                                    onClick={() => saveDaySlot(dateStr, slot)}
                                                 >
                                                     {slot === 'am' ? 'AM' : slot === 'pm' ? 'PM' : slot === 'full_day' ? 'Full' : 'Off'}
                                                 </button>
@@ -654,14 +668,7 @@ function ContractorFormPanel({
                                 );
                             })}
                         </div>
-                        <Button
-                            onClick={handleSaveAvailability}
-                            disabled={availabilityMutation.isPending}
-                            variant="outline"
-                        >
-                            {availabilityMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            Save Availability Overrides
-                        </Button>
+                        <p className="text-xs text-muted-foreground">Changes save automatically as you select.</p>
                     </div>
                 )}
 

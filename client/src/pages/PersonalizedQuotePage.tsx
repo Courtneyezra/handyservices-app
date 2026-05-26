@@ -978,10 +978,10 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
         { icon: 'Camera', title: 'Photo Report', text: 'Photo documentation on completion so you can see the results.' },
       ],
       badges: [
-        { label: 'Insured', value: '£2M', icon: 'Shield' },
-        { label: 'Vetted', value: 'DBS Checked', icon: 'UserCheck' },
-        { label: 'Price', value: 'Fixed', icon: 'Lock' },
-        { label: 'Quality', value: 'Guaranteed', icon: 'Star' },
+        { label: 'Insured', value: '£2M', text: '£2M public-liability insurance', icon: 'Shield' },
+        { label: 'Vetted', value: 'DBS Checked', text: 'Every handyman DBS-checked & vetted', icon: 'UserCheck' },
+        { label: 'Price', value: 'Fixed', text: 'Fixed price — no surprises', icon: 'Lock' },
+        { label: 'Quality', value: 'Guaranteed', text: '12-month workmanship guarantee', icon: 'ShieldCheck' },
       ],
     },
   },
@@ -1363,10 +1363,6 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
       >
         {/* Header to fill whitespace */}
         <div className="text-center mb-12">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#7DB00E]/10 text-[#7DB00E] text-xs font-bold uppercase tracking-wider mb-4">
-            <Star className="w-3 h-3 fill-current" />
-            Proven Reliability
-          </div>
           <h2 className="text-3xl md:text-4xl font-bold text-[#1D2D3D] mb-4">
             {socialProofTitle}
           </h2>
@@ -1786,27 +1782,28 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
           </div>
         )}
 
-        {/* Specific Guarantee Statement */}
-        <div className="bg-[#7DB00E]/10 border border-[#7DB00E]/30 rounded-xl p-4 mb-10 text-center">
-          <p className="text-[#7DB00E] font-medium text-sm">
-            {content.boxText}
+        {/* Signed founder promise — a personal guarantee, not a generic callout box */}
+        <div className="relative overflow-hidden bg-gradient-to-br from-white/[0.08] to-white/[0.02] border border-white/10 rounded-2xl p-6 md:p-7 mb-8 text-center">
+          <ShieldCheck className="absolute -right-6 -top-6 w-32 h-32 text-[#7DB00E]/10 rotate-12 pointer-events-none" aria-hidden="true" />
+          <p className="relative text-lg md:text-2xl font-medium leading-snug text-white mb-6">
+            <span className="text-[#7DB00E] text-2xl leading-none align-top mr-0.5">&ldquo;</span>
+            If it&rsquo;s not right, we make it right &mdash; no questions, no extra cost.
+            <span className="text-[#7DB00E] text-2xl leading-none align-top ml-0.5">&rdquo;</span>
           </p>
+          <div className="relative flex items-center justify-center gap-3">
+            <img
+              src="/assets/quote-images/ben-estimator.webp"
+              alt="Ben from HandyServices"
+              className="w-12 h-12 rounded-full object-cover ring-2 ring-[#7DB00E]/50 shadow-md"
+              loading="lazy"
+            />
+            <div className="text-left leading-tight">
+              <div className="text-white text-base font-bold">Ben</div>
+              <div className="text-[11px] text-slate-400 uppercase tracking-wider">The HandyServices Team</div>
+            </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 max-w-xl mx-auto">
-          {content.badges.map((item: any, i: number) => {
-            const IconComponent = iconMap[item.icon] || Shield;
-            return (
-              <div key={i} className="bg-white/5 p-4 rounded-xl border border-white/10 shadow-sm text-center hover:bg-white/10 transition-all">
-                <div className={`flex justify-center mb-2 text-[#7DB00E]`}>
-                  <IconComponent className="w-4 h-4" />
-                </div>
-                <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">{item.label}</div>
-                <div className="text-sm font-bold text-white">{item.value}</div>
-              </div>
-            );
-          })}
-        </div>
 
 
 
@@ -3183,8 +3180,14 @@ export default function PersonalizedQuotePage() {
             selectedPackage: 'standard', // Single price model
             selectedExtras: selectedExtras.length > 0 ? selectedExtras : undefined,
             paymentType: effectivePaymentType,
-            // Scheduling fields
-            selectedDate: selectedDate || selectedCalendarDateRef.current || selectedCalendarDate || undefined,
+            // Scheduling fields — send the calendar date as a timezone-safe YYYY-MM-DD
+            // string (en-CA = ISO order). A bare Date → JSON → toISOString() is UTC, which
+            // lands on the previous day for far-from-UTC viewers (e.g. Asia), so the booking
+            // would record the wrong day even after a correct reservation.
+            selectedDate: (() => {
+              const d = selectedDate || selectedCalendarDateRef.current || selectedCalendarDate;
+              return d ? d.toLocaleDateString('en-CA') : undefined;
+            })(),
             selectedDates: selectedDatesBuffer.length > 0
               ? selectedDatesBuffer.map(d => d.toISOString())
               : undefined,
@@ -3482,7 +3485,7 @@ export default function PersonalizedQuotePage() {
       <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
 
         {/* Scarcity Banner - Top of page, data-driven per segment */}
-        <ScarcityBanner segment={quote.segment || 'UNKNOWN'} postcode={quote.postcode} />
+        <ScarcityBanner segment={quote.segment || 'UNKNOWN'} postcode={quote.postcode} quoteId={quote.id} />
 
         {/* Value Sections Flow */}
         <ValueHero quote={quote} config={config} />
@@ -3507,7 +3510,7 @@ export default function PersonalizedQuotePage() {
               return (
                 <>
                   {hassleTitle && <h3 className="text-2xl font-bold text-slate-800 mb-4">{hassleTitle}</h3>}
-                  <HassleComparisonCard segment={quote.segment || 'UNKNOWN'} hideTitle={!!hassleTitle} />
+                  <HassleComparisonCard segment={quote.segment || 'UNKNOWN'} hideTitle={!!hassleTitle} maxItems={6} />
                 </>
               );
             })()}
@@ -3526,24 +3529,29 @@ export default function PersonalizedQuotePage() {
             >
               <div className="text-center space-y-4">
 
-                {/* Pay in 3 Banner - Top Placement */}
-                <div className="rounded-xl overflow-hidden shadow-sm border border-slate-200 mb-8 max-w-lg mx-auto transform -rotate-1 hover:rotate-0 transition-transform duration-300">
-                  <img src={payIn3PromoImage} className="w-full h-auto object-cover" alt="Pay in 3 Interest Free" loading="lazy" />
-                </div>
-
-                <div>
-                  <h3 className="text-xl md:text-2xl font-bold text-slate-500 mb-2">We can't work with everyone,</h3>
-                  <h2 className="text-4xl md:text-6xl font-extrabold tracking-tight text-[#1D2D3D]">Secure Your Slot</h2>
-                </div>
-                <p className="text-slate-600 text-lg max-w-2xl mx-auto">Based on quality materials and insured labour, here's what proper workmanship costs:</p>
-
-                {/* Price Confidence Statement */}
-                <div className="max-w-lg mx-auto mt-6 bg-white border border-slate-200 p-5 rounded-xl shadow-sm">
-                  <p className="text-slate-700 text-xs md:text-sm italic font-light leading-relaxed">
-                    "We won't be the cheapest quote you get.
-                    <br />
-                    <span className="text-[#1D2D3D] font-medium">We will be the last one you need.</span>"
-                  </p>
+                {/* What to expect — Book → Do → Guaranteed timeline */}
+                <div className="max-w-lg mx-auto rounded-2xl bg-[#1D2D3D] text-white text-left p-6 sm:p-8 shadow-lg">
+                  <div className="rounded-xl overflow-hidden mb-6 ring-1 ring-white/10 h-44">
+                    <img src={payIn3PromoImage} alt="HandyServices at your door" className="w-full h-full object-cover object-[15%_100%] scale-[1.8]" loading="lazy" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-center text-white mb-1">What to expect</h3>
+                  <p className="text-slate-400 text-sm text-center mb-8">From quote to done — three simple steps</p>
+                  <ol className="relative space-y-7">
+                    <span className="absolute left-[17px] top-3 bottom-3 w-0.5 bg-white/15" aria-hidden="true" />
+                    {[
+                      { title: 'Pick your date', sub: 'Reserve with a deposit — pay the rest after' },
+                      { title: 'We arrive & do it right', sub: 'Vetted pro · fixed price · full cleanup' },
+                      { title: 'Done & guaranteed', sub: 'Photo report + 30-day guarantee' },
+                    ].map((s, i) => (
+                      <li key={i} className="relative flex gap-4">
+                        <span className="relative z-10 w-9 h-9 shrink-0 rounded-full bg-[#7DB00E] text-[#1D2D3D] text-sm font-extrabold flex items-center justify-center ring-4 ring-[#1D2D3D]">{i + 1}</span>
+                        <div className="pt-1">
+                          <div className="font-bold text-white leading-tight">{s.title}</div>
+                          <div className="text-slate-300 text-sm mt-1">{s.sub}</div>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
                 </div>
 
 
@@ -3707,7 +3715,7 @@ export default function PersonalizedQuotePage() {
                         createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
                       });
                     }}
-                    className="w-full flex items-center justify-center gap-2 text-sm text-white hover:text-[#7DB00E] transition-colors py-2 mt-2"
+                    className="w-full flex items-center justify-center gap-2 text-sm text-white transition-colors py-2.5 mt-2 rounded-xl bg-white/10 backdrop-blur-md border border-white/20 hover:bg-white/20"
                   >
                     <FileText className="w-4 h-4" />
                     <span>Download quote for your records</span>

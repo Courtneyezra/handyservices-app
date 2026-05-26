@@ -78,6 +78,7 @@ const V2BookingsPage = lazy(() => import("@/pages/admin/V2BookingsPage"));
 const MasterAvailabilityPage = lazy(() => import("@/pages/admin/MasterAvailabilityPage"));
 const ContractorsPage = lazy(() => import("@/pages/admin/ContractorsPage"));
 const ContractorDetailPage = lazy(() => import("@/pages/admin/ContractorDetailPage"));
+const ContractorAvailabilityMatrixPage = lazy(() => import("@/pages/admin/ContractorAvailabilityMatrixPage"));
 const PaymentsDashboardPage = lazy(() => import("@/pages/admin/PaymentsDashboardPage"));
 const DashboardPage = lazy(() => import("@/pages/admin/DashboardPage"));
 const OnboardingSlideDeck = lazy(() => import("@/pages/admin/OnboardingSlideDeck"));
@@ -624,6 +625,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <MasterAvailabilityPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/contractor-availability">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <ContractorAvailabilityMatrixPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

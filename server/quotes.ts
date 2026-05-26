@@ -1110,10 +1110,19 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
         // Single price model — use basePrice (fall back to legacy tier columns)
         const selectedTierPricePence = quote.basePrice || quote.essentialPrice || 0;
 
-        // Calculate deposit: 100% materials + 30% labor
-        const materialsCost = quote.materialsCostWithMarkupPence || 0;
-        const laborCost = Math.max(0, selectedTierPricePence - materialsCost);
-        const depositAmountPence = materialsCost + Math.round(laborCost * 0.30);
+        // Calculate deposit ONLY when paymentType === 'deposit'.
+        // For 'full' (and 'installments'), the Stripe webhook is the sole writer of
+        // depositAmountPence — it stores the actual amount_received from Stripe.
+        // If we wrote the 30% calc here unconditionally, the browser firing this
+        // endpoint AFTER the webhook would overwrite the real charge amount with
+        // the 30% estimate, making the DB/CRM understate revenue for pay-in-full
+        // customers (see Stripe reconciliation, May 2026).
+        const depositAmountUpdate: { depositAmountPence?: number } = {};
+        if (paymentType === 'deposit') {
+            const materialsCost = quote.materialsCostWithMarkupPence || 0;
+            const laborCost = Math.max(0, selectedTierPricePence - materialsCost);
+            depositAmountUpdate.depositAmountPence = materialsCost + Math.round(laborCost * 0.30);
+        }
 
         // NOTE: depositPaidAt is NOT set here - it will be set by the Stripe webhook
         // when the payment is confirmed. This prevents race conditions and false positives.
@@ -1125,7 +1134,7 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
                 selectedAt: new Date(), // Track when package was selected
                 paymentType,
                 selectedTierPricePence,
-                depositAmountPence,
+                ...depositAmountUpdate,
                 // Scheduling fields
                 selectedDate: selectedDate ? new Date(selectedDate) : undefined,
                 // Store all preferred dates for the 3-date buffer model

@@ -1,10 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { Zap, Calendar, Home, Clock, Timer, Coins, AlertTriangle } from 'lucide-react';
+import { useQuoteAvailability, countAvailableDatesThisWeek } from '@/hooks/useAvailability';
 
 interface ScarcityBannerProps {
   segment: string;
   postcode?: string | null;
   urgency?: 'standard' | 'priority' | 'emergency';
+  /** When set, the banner ties its "N slots left this week" to THIS quote's real
+   *  availability (same source as the date picker) instead of segment-level numbers. */
+  quoteId?: string | null;
 }
 
 interface ScarcityData {
@@ -93,7 +97,7 @@ const URGENCY_BANNER_CONFIG: Record<
   },
 };
 
-export function ScarcityBanner({ segment, postcode, urgency }: ScarcityBannerProps) {
+export function ScarcityBanner({ segment, postcode, urgency, quoteId }: ScarcityBannerProps) {
   // Contextual mode: urgency-based messaging (no API call needed)
   if (urgency) {
     const config = URGENCY_BANNER_CONFIG[urgency];
@@ -110,10 +114,22 @@ export function ScarcityBanner({ segment, postcode, urgency }: ScarcityBannerPro
   }
 
   // Segment-based mode: fetch scarcity data from API
-  return <SegmentScarcityBanner segment={segment} postcode={postcode} />;
+  return <SegmentScarcityBanner segment={segment} postcode={postcode} quoteId={quoteId} />;
 }
 
-function SegmentScarcityBanner({ segment, postcode }: { segment: string; postcode?: string | null }) {
+function SegmentScarcityBanner({ segment, postcode, quoteId }: { segment: string; postcode?: string | null; quoteId?: string | null }) {
+  // Tie the banner to THIS quote's real availability when we have a quote id and the
+  // segment has no bespoke metric (CONTEXTUAL / unknown). Reuses the same query key as
+  // the date picker (slot 'am'), so it shares the cache and shows the SAME number — the
+  // banner and the picker can never disagree.
+  const useQuoteData = !!quoteId && (segment === 'CONTEXTUAL' || !SEGMENT_BANNER_CONFIG[segment]);
+
+  const { data: quoteAvail } = useQuoteAvailability({
+    quoteId: quoteId || undefined,
+    slot: 'am',
+    enabled: useQuoteData,
+  });
+
   const { data, isLoading } = useQuery<ScarcityData>({
     queryKey: ['scarcity', segment],
     queryFn: async () => {
@@ -123,15 +139,35 @@ function SegmentScarcityBanner({ segment, postcode }: { segment: string; postcod
     },
     staleTime: 5 * 60 * 1000, // Cache 5 min
     retry: 1,
+    enabled: !useQuoteData,
   });
+
+  const area = postcode?.split(' ')[0] || 'your area';
+
+  // Quote-availability-driven banner — honest, tied to the real dates shown in the picker.
+  if (useQuoteData) {
+    const count = countAvailableDatesThisWeek(quoteAvail);
+    if (count == null) return null; // still loading
+    const label = count <= 0
+      ? `Limited availability this week in ${area}`
+      : `${count} slot${count === 1 ? '' : 's'} left this week in ${area}`;
+    return (
+      <div className={`w-full py-2 px-4 flex items-center justify-center gap-2 text-xs font-semibold tracking-wide ${getUrgencyClasses(count <= 0 ? 1 : count)}`}>
+        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+        <span>{label}</span>
+        {count <= 3 && (
+          <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse flex-shrink-0" />
+        )}
+      </div>
+    );
+  }
 
   if (isLoading || !data) return null;
 
   const config = SEGMENT_BANNER_CONFIG[segment];
   if (!config) {
-    // Fallback for unknown segments
+    // Fallback for unknown segments (no quoteId tie available)
     const count = data.totalSlotsThisWeek;
-    const area = postcode?.split(' ')[0] || 'your area';
     const Icon = AlertTriangle;
     return (
       <div className={`w-full py-2 px-4 flex items-center justify-center gap-2 text-xs font-medium ${getUrgencyClasses(count)}`}>
@@ -141,7 +177,6 @@ function SegmentScarcityBanner({ segment, postcode }: { segment: string; postcod
     );
   }
 
-  const area = postcode?.split(' ')[0] || 'your area';
   const count = config.getCount(data);
   const text = config.getText(data, area);
   const Icon = config.icon;

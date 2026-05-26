@@ -719,7 +719,9 @@ invoiceRouter.post('/api/invoices/generate-manual', async (req, res) => {
             customerAddress,
             lineItems,
             notes,
+            customerNotes,
             dueDate,
+            depositPaid = 0,
         } = req.body;
 
         if (!customerName || !lineItems || lineItems.length === 0) {
@@ -753,14 +755,14 @@ invoiceRouter.post('/api/invoices/generate-manual', async (req, res) => {
             customerPhone: customerPhone || null,
             customerAddress: customerAddress || null,
             totalAmount,
-            depositPaid: 0,
-            balanceDue: totalAmount,
+            depositPaid,
+            balanceDue: totalAmount - depositPaid,
             lineItems: processedLineItems as any,
             status: 'draft' as const,
             dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
             notes: notes || null,
             paymentMethod: null,
-            customerNotes: null,
+            customerNotes: customerNotes || null,
         }));
 
         const baseUrl = process.env.BASE_URL || 'https://handyservices.uk';

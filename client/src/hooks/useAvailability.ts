@@ -166,6 +166,27 @@ export interface QuoteDateAvailability {
   slot: string;
 }
 
+/**
+ * Count distinct bookable dates in the next 7 days from quote availability data.
+ * Sunday-aware (business is closed Sundays) so the number matches the date grid.
+ * Returns null while data is still loading. Shared by the date picker AND the top
+ * scarcity banner so the "N dates/slots left this week" figure can never drift.
+ */
+export function countAvailableDatesThisWeek(data?: QuoteDateAvailability[] | null): number | null {
+  if (!data) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const weekEnd = new Date(today);
+  weekEnd.setDate(today.getDate() + 7);
+  const dates = new Set<string>();
+  for (const d of data) {
+    const dt = new Date(`${d.date}T12:00:00`);
+    if (dt.getDay() === 0) continue; // Sundays closed
+    if (dt >= today && dt <= weekEnd) dates.add(d.date);
+  }
+  return dates.size;
+}
+
 interface UseQuoteAvailabilityOptions {
   quoteId?: string;
   slot: 'am' | 'pm' | 'full_day';

@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Check, Calendar, CalendarCheck, Clock, Tag, Shield, Zap,
-  ChevronRight, Percent, Sparkles, Star, Plus,
+  ChevronRight, ChevronDown, Percent, Sparkles, Star, Plus,
   Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle, User
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -25,6 +26,7 @@ import {
 import {
   useAvailability,
   useQuoteAvailability,
+  countAvailableDatesThisWeek,
   formatDateStr,
   reserveSlot,
   releaseSlotLock,
@@ -164,6 +166,7 @@ export function UnifiedQuoteCard({
   const [selectedAddOns, setSelectedAddOns] = useState<string[]>([]);
   const [useDownsell, setUseDownsell] = useState(false);
   const [showAllDates, setShowAllDates] = useState(false);
+  const queryClient = useQueryClient();
   const [payFull, setPayFull] = useState(false);
 
   // Smart slot selection state (AM/PM/FULL_DAY for quote-specific availability)
@@ -247,11 +250,33 @@ export function UnifiedQuoteCard({
 
   // Quote-specific availability: uses candidate contractor pool from quote
   // Falls back to generic availability if quoteId is not provided
-  const { data: quoteAvailabilityData, isLoading: isLoadingQuoteAvailability } = useQuoteAvailability({
+  const { data: quoteAvailabilityData, isLoading: isLoadingQuoteAvailability, dataUpdatedAt: quoteAvailabilityUpdatedAt } = useQuoteAvailability({
     quoteId,
     slot: selectedSlotChoice,
     enabled: !!quoteId,
   });
+
+  // Minimal-premium freshness label (Airbnb/Google pattern): "updated just now / N min ago".
+  // Recomputed each render so it stays honest; refetchOnWindowFocus refreshes the
+  // underlying timestamp whenever the customer returns to the tab.
+  const availabilityUpdatedLabel = (() => {
+    if (!quoteAvailabilityUpdatedAt) return 'just now';
+    const mins = Math.floor((Date.now() - quoteAvailabilityUpdatedAt) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins} min ago`;
+    const hrs = Math.floor(mins / 60);
+    return `${hrs} hr${hrs > 1 ? 's' : ''} ago`;
+  })();
+
+  // Honest scarcity: count genuinely-bookable dates in the next 7 days from the live
+  // availability data (shared helper — the top scarcity banner uses the exact same one
+  // so the figures can't disagree). Drives the "Only N dates left this week" cue.
+  const datesLeftThisWeek = countAvailableDatesThisWeek(quoteAvailabilityData);
+  const scarcityLabel = datesLeftThisWeek == null
+    ? null
+    : datesLeftThisWeek <= 0
+      ? 'Limited availability — filling up fast'
+      : `Only ${datesLeftThisWeek} date${datesLeftThisWeek === 1 ? '' : 's'} left this week`;
 
   // Fallback: generic availability for quotes without an ID
   const { data: fallbackAvailabilityData } = useAvailability({
@@ -394,9 +419,17 @@ export function UnifiedQuoteCard({
   [allowedDates]);
 
   const baseFilteredDates = availableDates.filter(d => {
-    // Admin-whitelisted dates win unconditionally — including next-day picks
-    // even when urgent_premium mode is off. They deliberately chose the date,
-    // so we don't gate it behind the auto-calendar's urgent-booking rules.
+    // LIVE POOL: once live quote availability has loaded, it is the single source of
+    // truth for bookability (applied via d.isBlocked above). Show the full upcoming
+    // window and let the live set decide — do NOT additionally constrain the grid to
+    // the admin's pre-picked dates, so any genuinely-available date appears even if it
+    // wasn't in the original pick list.
+    if (quoteAvailableDateSet) {
+      return true;
+    }
+    // Fallback (no live data — e.g. admin preview without a quoteId): admin-whitelisted
+    // dates win unconditionally, including next-day picks even when urgent_premium is
+    // off. They deliberately chose the date, so we don't gate it behind urgent rules.
     if (allowedDateSet) {
       const dateStr = formatDateStr(d.date);
       return allowedDateSet.has(dateStr);
@@ -411,6 +444,10 @@ export function UnifiedQuoteCard({
   // would leave fewer than 3 available dates.
   const filteredDates = useMemo(() => {
     if (!quoteId) return baseFilteredDates;
+    // LIVE POOL: with real availability loaded, never fake "Fully Booked" — the grid
+    // must reflect reality. Deterministic scarcity only applies to the legacy non-live
+    // path (quotes without quote-specific availability data).
+    if (quoteAvailableDateSet) return baseFilteredDates;
     const hash = (str: string) => {
       let h = 0;
       for (let i = 0; i < str.length; i++) h = ((h << 5) - h + str.charCodeAt(i)) | 0;
@@ -425,7 +462,7 @@ export function UnifiedQuoteCard({
     const remainingAvailable = candidate.filter(d => !d.isBlocked).length;
     return remainingAvailable >= 3 ? candidate : baseFilteredDates;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseFilteredDates, quoteId]);
+  }, [baseFilteredDates, quoteId, quoteAvailableDateSet]);
 
   const visibleDates = showAllDates ? filteredDates : filteredDates.slice(0, 8);
 
@@ -760,17 +797,28 @@ export function UnifiedQuoteCard({
 
       const result = await reserveSlot({
         quoteId,
-        scheduledDate: selectedDate.toISOString(),
+        // Send the CALENDAR date shown on screen (UK-local, via formatDateStr), not
+        // selectedDate.toISOString() — the latter is UTC and lands on the previous day
+        // for far-from-UTC viewers (e.g. Asia in UK morning), so the engine checked the
+        // wrong day and returned "no contractors". A YYYY-MM-DD string is timezone-safe
+        // (server parses it as UTC midnight, matching how availability is keyed).
+        scheduledDate: formatDateStr(selectedDate),
         scheduledSlot: slotForServer,
       });
 
       setReservation(result);
     } catch (err: any) {
       const msg = err.message || 'Failed to reserve slot';
-      if (msg.includes('slot_taken') || msg.includes('just taken')) {
-        setReserveError('This slot was just taken. Please select another date or time.');
+      // A 409 / "no contractors" almost always means the slot was taken between the
+      // (cached) availability view and this reserve. Treat it as "just taken": clear the
+      // selection, refresh availability so the now-gone date drops off the grid, and show
+      // a friendly message instead of a dead-end error.
+      if (msg.includes('slot_taken') || msg.includes('just taken') || /no contractors/i.test(msg)) {
+        setReserveError('That time was just taken — please pick another date or time.');
         setSelectedDate(null);
         setSelectedTimeSlot(null);
+        setPendingDate(null);
+        if (quoteId) queryClient.invalidateQueries({ queryKey: ['quoteAvailability', quoteId] });
       } else {
         setReserveError(msg);
       }
@@ -904,7 +952,7 @@ export function UnifiedQuoteCard({
 
           {/* Payment mode toggle: Deposit (default) / Pay in full */}
           <div className="mt-3 mb-2 flex justify-center">
-            <div className={`inline-flex rounded-full p-0.5 text-xs font-semibold ${isDarkTheme ? 'bg-white/10' : 'bg-slate-200/80'}`}>
+            <div className={`inline-flex rounded-full p-0.5 text-xs font-semibold ${isDarkTheme ? 'bg-white/10 backdrop-blur-md border border-white/15' : 'bg-slate-200/80'}`}>
               <button
                 type="button"
                 onClick={() => setPayFull(false)}
@@ -1065,8 +1113,8 @@ export function UnifiedQuoteCard({
               href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I have a question about my quote${shortSlug ? ` (${shortSlug})` : ''}`)}`}
               target="_blank"
               rel="noopener noreferrer"
-              className={`inline-flex items-center gap-1.5 text-xs transition-colors ${
-                isDarkTheme ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'
+              className={`inline-flex items-center gap-1.5 text-xs transition-colors px-3 py-1.5 rounded-full ${
+                isDarkTheme ? 'bg-white/5 backdrop-blur-md border border-white/10 text-slate-300 hover:bg-white/10' : 'bg-slate-100 border border-slate-200 text-slate-600 hover:bg-slate-200'
               }`}
             >
               <MessageCircle className="w-3.5 h-3.5" />
@@ -1140,36 +1188,47 @@ export function UnifiedQuoteCard({
         {/* Step 1: 3-Date Buffer — split-button flow: tap date → button splits into AM/PM → tap half to confirm */}
         {!useDownsell && showStandardDate && (
         <div ref={dateSectionRef}>
-          <h4 className={`text-sm font-bold tracking-wide mb-1 flex items-center gap-2 ${isDarkTheme ? 'text-white' : 'text-slate-700'}`}>
-            <Calendar className="w-4 h-4 text-[#7DB00E]" />
-            Pick your preferred dates
+          <h4 className={`text-3xl font-extrabold tracking-tight mb-3 flex items-center justify-center gap-2.5 text-center ${isDarkTheme ? 'text-white' : 'text-slate-800'}`}>
+            <Calendar className="w-7 h-7 text-[#7DB00E]" />
+            Secure your slot
             {isLoadingQuoteAvailability && (
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
+              <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
             )}
           </h4>
-          <p className={`text-xs mb-3 ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
-            We'll confirm the best one within 24 hours
-          </p>
+          {/* Minimal-premium, scarcity-forward cue (Airbnb/Google pattern): a live dot +
+              an HONEST "Only N dates left this week" (counted from real availability), with
+              a freshness fallback; plus a gentle "tap a date" nudge that disappears once
+              the customer engages. Centered + enlarged for prominence. */}
+          {quoteId && quoteAvailabilityData && (
+            <div className="mb-4 space-y-2 text-center">
+              <div className={`flex items-center justify-center gap-2 text-base font-bold ${isDarkTheme ? 'text-gray-100' : 'text-slate-800'}`}>
+                <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7DB00E] opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#7DB00E]" />
+                </span>
+                {scarcityLabel
+                  ? <span>{scarcityLabel}</span>
+                  : <span className="font-medium">Real-time availability · updated {availabilityUpdatedLabel}</span>}
+              </div>
+              {confirmedDates.length === 0 && !pendingDate && (
+                <div className={`flex items-center justify-center gap-1 text-sm ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+                  <ChevronDown className="w-5 h-5 text-[#7DB00E]" />
+                  Tap a date below
+                </div>
+              )}
+            </div>
+          )}
           <div className="grid grid-cols-4 gap-2">
             {visibleDates.map((d) => {
-              const confirmedIdx = confirmedDates.findIndex(cd => cd.date.toDateString() === d.date.toDateString());
-              const isConfirmed = confirmedIdx >= 0;
+              const isSelected = !!selectedDate && selectedDate.toDateString() === d.date.toDateString();
               const isPending = pendingDate?.toDateString() === d.date.toDateString();
-              const confirmedEntry = isConfirmed ? confirmedDates[confirmedIdx] : null;
 
-              // Helper to confirm a pending date with a time pref
+              // Single-date commit: set the chosen date + slot (confirmedDates stays empty),
+              // which activates the reserve → countdown → pay path below.
               const confirmDate = (timePref: TimePref) => {
-                const newEntry: ConfirmedDate = { date: d.date, timePref };
-                setConfirmedDates(prev => {
-                  const next = prev.length >= MAX_BUFFER_DATES
-                    ? [...prev.slice(1), newEntry]
-                    : [...prev, newEntry];
-                  setSelectedDate(next[0].date);
-                  return next;
-                });
+                setSelectedDate(d.date);
                 setPendingDate(null);
-                const autoSlot = timePref === 'pm' ? 'afternoon' : 'morning';
-                setSelectedTimeSlot(autoSlot);
+                setSelectedTimeSlot(timePref === 'pm' ? 'afternoon' : 'morning');
                 setSelectedSlotChoice(timePref === 'pm' ? 'pm' : timePref === 'full_day' ? 'full_day' : 'am');
               };
 
@@ -1221,28 +1280,21 @@ export function UnifiedQuoteCard({
                     setReservation(null);
                   }
 
-                  if (isConfirmed) {
-                    // Tap confirmed date → deselect
-                    const next = confirmedDates.filter(cd => cd.date.toDateString() !== d.date.toDateString());
-                    setConfirmedDates(next);
-                    setSelectedDate(next[0]?.date || null);
+                  if (isSelected) {
+                    // Tap the selected date → deselect
+                    setSelectedDate(null);
+                    setSelectedTimeSlot(null);
+                    setPendingDate(null);
                     return;
                   }
 
                   if (isLargeJob) {
-                    // Large jobs: auto-confirm as full_day
-                    const newEntry: ConfirmedDate = { date: d.date, timePref: 'full_day' };
-                    setConfirmedDates(prev => {
-                      const next = prev.length >= MAX_BUFFER_DATES
-                        ? [...prev.slice(1), newEntry]
-                        : [...prev, newEntry];
-                      setSelectedDate(next[0].date);
-                      setSelectedSlotChoice('full_day');
-                      setSelectedTimeSlot('morning');
-                      return next;
-                    });
+                    // Large jobs: single full-day commit
+                    setSelectedDate(d.date);
+                    setSelectedSlotChoice('full_day');
+                    setSelectedTimeSlot('morning');
                   } else {
-                    // Small jobs: set as pending → button splits into AM/PM
+                    // Small jobs: tap → split into AM/PM
                     setPendingDate(d.date);
                   }
                 }}
@@ -1250,24 +1302,18 @@ export function UnifiedQuoteCard({
                 className={`p-3 rounded-xl text-center transition-all relative min-h-[97px] flex flex-col items-center justify-center ${
                   d.isBlocked
                     ? 'opacity-50 cursor-not-allowed' + (isDarkTheme ? ' bg-white/5 text-slate-500' : ' bg-slate-100 text-slate-400 border border-slate-200')
-                    : isConfirmed
+                    : isSelected
                     ? 'bg-[#7DB00E] text-slate-900 ring-2 ring-[#7DB00E] ring-offset-2' + (isDarkTheme ? ' ring-offset-slate-900' : '')
                     : d.isNextDay
                       ? 'date-card-shimmer ' + (isDarkTheme
                         ? 'bg-amber-500/20 text-white hover:bg-amber-500/30 border border-amber-500/50'
                         : 'bg-amber-50 text-slate-700 hover:bg-amber-100 border border-amber-300')
                       : 'date-card-shimmer ' + (isDarkTheme
-                        ? 'bg-white/10 text-white hover:bg-white/20'
+                        ? 'bg-white/10 backdrop-blur-md border border-white/10 text-white hover:bg-white/20'
                         : 'bg-slate-100 text-slate-700 hover:bg-slate-200')
                 }`}
               >
-                {/* Priority badge with ordinal for confirmed dates */}
-                {isConfirmed && confirmedEntry && (
-                  <div className={`absolute -top-2 -right-2 h-5 min-w-5 rounded-full border-2 border-[#7DB00E] flex items-center justify-center px-1.5 ${isDarkTheme ? 'bg-slate-900' : 'bg-white'}`}>
-                    <span className="text-[9px] font-bold text-[#7DB00E]">{confirmedIdx === 0 ? '1st' : confirmedIdx === 1 ? '2nd' : '3rd'}</span>
-                  </div>
-                )}
-                {d.isNextDay && !d.isBlocked && !isConfirmed && (
+                {d.isNextDay && !d.isBlocked && !isSelected && (
                   <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 text-[8px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded">
                     PRIORITY
                   </div>
@@ -1276,9 +1322,9 @@ export function UnifiedQuoteCard({
                 <div className="text-lg font-bold">{format(d.date, 'd')}</div>
                 {d.isBlocked ? (
                   <div className="text-[9px] font-semibold text-red-500 mt-0.5">Fully Booked</div>
-                ) : isConfirmed && confirmedEntry && !isLargeJob ? (
-                  <div className="text-[9px] font-bold mt-0.5 text-slate-700">
-                    {confirmedEntry.timePref === 'am' ? 'Morning' : 'Afternoon'}
+                ) : isSelected && !isLargeJob ? (
+                  <div className="text-[9px] font-bold mt-0.5 text-slate-900">
+                    {selectedSlotChoice === 'pm' ? 'Afternoon' : 'Morning'}
                   </div>
                 ) : d.fee > 0 ? (
                   <div className="text-[10px] text-amber-400 mt-0.5">+£{d.fee / 100}</div>
@@ -1288,49 +1334,10 @@ export function UnifiedQuoteCard({
             })}
           </div>
 
-          {/* Confirmed dates summary */}
-          {confirmedDates.length > 0 && !pendingDate && (
-            <div className="mt-3 space-y-1.5">
-              {confirmedDates.map((cd, idx) => (
-                <div key={cd.date.toDateString()} className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg ${isDarkTheme ? 'bg-white/5' : 'bg-slate-50 border border-slate-100'}`}>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[9px] font-bold bg-[#7DB00E] text-slate-900 px-1.5">
-                      {idx === 0 ? '1st' : idx === 1 ? '2nd' : '3rd'}
-                    </div>
-                    <span className={`text-xs font-medium ${isDarkTheme ? 'text-white' : 'text-slate-700'}`}>
-                      {format(cd.date, 'EEE d MMM')}
-                    </span>
-                  </div>
-                  {!isLargeJob && (
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      cd.timePref === 'am'
-                        ? 'bg-blue-500/20 text-blue-400'
-                        : 'bg-orange-500/20 text-orange-400'
-                    }`}>
-                      {cd.timePref === 'am' ? 'Morning' : 'Afternoon'}
-                    </span>
-                  )}
-                </div>
-              ))}
-              {/* Nudge for more dates — payment unlocks at 3 */}
-              {confirmedDates.length < MAX_BUFFER_DATES && (
-                <div className={`flex items-center gap-2 text-xs mt-1 ${isDarkTheme ? 'text-amber-400/80' : 'text-amber-600'}`}>
-                  <CalendarCheck className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span className="font-medium">
-                    {confirmedDates.length === 1
-                      ? `Pick ${MAX_BUFFER_DATES - 1} more dates to continue`
-                      : '1 more date to unlock payment'
-                    }
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-
           {!showAllDates && filteredDates.length > 8 && (
             <button
               onClick={() => setShowAllDates(true)}
-              className="w-full mt-2 text-sm text-[#7DB00E] font-medium hover:underline"
+              className={`w-full mt-2 text-sm text-[#7DB00E] font-medium rounded-xl py-2.5 transition-colors ${isDarkTheme ? 'bg-white/5 backdrop-blur-md border border-white/10 hover:bg-white/10' : 'bg-slate-50 border border-slate-200 hover:bg-slate-100'}`}
             >
               Show more dates...
             </button>
@@ -1375,28 +1382,19 @@ export function UnifiedQuoteCard({
                     </div>
                     <div>
                       <div className={`text-sm font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                        Slot reserved
+                        Slot reserved for you
                       </div>
                       <div className={`text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                        {confirmedDates.length > 1
-                          ? confirmedDates.map(cd => `${format(cd.date, 'EEE d')}${isLargeJob ? '' : ` ${cd.timePref.toUpperCase()}`}`).join(', ')
-                          : confirmedDates.length === 1
-                            ? `${format(confirmedDates[0].date, 'EEE d MMM')}${isLargeJob ? '' : ` · ${confirmedDates[0].timePref === 'am' ? 'Morning' : 'Afternoon'}`}`
-                            : ''
-                        }
+                        {selectedDate ? `${format(selectedDate, 'EEE d MMM')}${isLargeJob ? '' : ` · ${selectedSlotChoice === 'pm' ? 'Afternoon' : 'Morning'}`}` : ''}
                       </div>
                     </div>
                   </div>
 
-                  {/* Countdown timer */}
-                  {countdownSeconds > 0 && (
-                    <div className="flex items-center gap-2">
-                      <Timer className="w-4 h-4 text-amber-500" />
-                      <span className={`text-xs font-medium ${countdownSeconds < 60 ? 'text-red-500' : 'text-amber-600'}`}>
-                        Your slot is held for {Math.floor(countdownSeconds / 60)}:{String(countdownSeconds % 60).padStart(2, '0')}
-                      </span>
-                    </div>
-                  )}
+                  {/* Calm reassurance — slot is held quietly while they check out (no countdown clock) */}
+                  <div className={`flex items-center gap-2 text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                    <Lock className="w-3.5 h-3.5 text-[#7DB00E]" />
+                    <span>Held for you while you complete booking</span>
+                  </div>
                 </div>
               )}
             </motion.div>
@@ -1520,7 +1518,7 @@ export function UnifiedQuoteCard({
 
         {/* Trust strip — near payment for maximum conversion impact */}
         <div className="flex flex-wrap items-center justify-center gap-1.5">
-          {['DBS Checked', '£2M Insured', '4.9★ Google', '127 Reviews'].map((label) => (
+          {['DBS Checked', '£2M Insured', '4.9★ Google'].map((label) => (
             <span
               key={label}
               className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
@@ -1549,13 +1547,6 @@ export function UnifiedQuoteCard({
               2. Complete your booking
             </h4>
             <div className={`rounded-xl p-4 ${isDarkTheme ? 'bg-white/5' : 'bg-slate-50'}`}>
-              <div className="flex items-center gap-2 mb-3">
-                <Lock className={`w-3.5 h-3.5 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} />
-                <span className={`text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                  256-bit encrypted
-                </span>
-              </div>
-
               {!effectiveEmail ? (
                 <div className="space-y-2">
                   <label className={`text-sm font-medium ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>

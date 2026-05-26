@@ -27,6 +27,7 @@ import { selectContentForQuote } from '../content-library/selector';
 import { trackQuoteCreated } from '../posthog';
 import { calculateMultiLineCost, checkMargin, calculateCostFromWTBP } from '../margin-engine';
 import { incrementExtrasPickCount } from '../quote-extras-catalog';
+import { findCandidateContractors } from '../contractor-matcher';
 import type {
   PricingContext,
   PricingComparisonResult,
@@ -1315,6 +1316,23 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       console.warn('[ContextualQuote] Margin calculation failed (non-blocking):', marginError instanceof Error ? marginError.message : marginError);
     }
 
+    // 6b. Candidate contractor pool (skill + location) — drives the customer's
+    // LIVE date picker via /api/public/quote/:id/availability. Same matcher the
+    // builder's "who fits" panel uses, so customer dates reflect the right pool.
+    let candidateContractorIds: string[] | null = null;
+    try {
+      const match = await findCandidateContractors({
+        categorySlugs: jobCategories as string[],
+        customerLat: input.coordinates?.lat,
+        customerLng: input.coordinates?.lng,
+      });
+      const ids = match.candidates.map((c) => c.contractorId);
+      candidateContractorIds = ids.length ? ids : null;
+      console.log(`[ContextualQuote] candidate pool: ${ids.length} contractor(s) for [${jobCategories.join(', ')}]`);
+    } catch (e) {
+      console.warn('[ContextualQuote] candidate match failed:', e instanceof Error ? e.message : e);
+    }
+
     // 7. Insert into personalizedQuotes
     const quoteInsertData = {
       id,
@@ -1325,6 +1343,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       address: input.address || null,
       postcode: input.postcode || null,
       coordinates: input.coordinates || null,
+      candidateContractorIds,
       jobDescription: input.jobDescription || input.lines.map((l) => l.description).join('; '),
       quoteMode: 'simple' as const,
       leadId: linkedLeadId,

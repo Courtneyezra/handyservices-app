@@ -15,7 +15,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:live-call": "npx tsx scripts/test-live-call-fixes.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "reconcile:stripe": "tsx scripts/reconcile-stripe.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.81.0",

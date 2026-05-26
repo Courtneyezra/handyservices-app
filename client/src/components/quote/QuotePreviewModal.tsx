@@ -8,7 +8,7 @@
  * Entry points: GenerateContextualQuote (after creation) + QuotesPage (Recent Quotes list).
  */
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -94,6 +94,7 @@ function nextNDays(n: number): string[] {
 interface EditableLineItem {
   lineId: string;
   description: string;
+  details: string;         // sub-copy — captured so it survives a save round-trip even if the spread can't find a match
   pricePounds: string;     // labour price — string for controlled input
   materialsPounds: string; // materials with margin — string for controlled input
   category: JobCategory | '';   // REQUIRED for engine to price this line for contractors
@@ -104,6 +105,7 @@ function fromLineItems(items: LineItemResult[]): EditableLineItem[] {
   return items.map(li => ({
     lineId: li.lineId,
     description: li.description,
+    details: li.details ?? '',
     pricePounds: penceToGBP(li.guardedPricePence),
     materialsPounds: penceToGBP(li.materialsWithMarginPence || 0),
     category: (li as any).category || '',
@@ -125,11 +127,19 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
   // Local copy of quote so edits persist across drawer open/close without
   // requiring the parent to re-fetch before the user reopens the drawer.
   const [localQuote, setLocalQuote] = useState<PreviewQuote | null>(null);
-  // Sync from prop whenever a new quote is passed in (or modal re-opens)
+
+  // Re-sync localQuote from the prop whenever the modal opens or the parent
+  // pushes a fresh quote. Without this, the modal stays mounted between
+  // opens, so a stale `localQuote` from the previous session leaks into the
+  // next open of the SAME quote — and saving from there wipes any externally
+  // applied line-item `details` (the save spreads from the stale snapshot).
+  useEffect(() => {
+    if (open && quoteProp) {
+      setLocalQuote(quoteProp);
+    }
+  }, [open, quoteProp]);
+
   const quote = localQuote && localQuote.quoteId === quoteProp?.quoteId ? localQuote : quoteProp;
-  if (quoteProp && (!localQuote || localQuote.quoteId !== quoteProp.quoteId)) {
-    setLocalQuote(quoteProp);
-  }
 
   // Customer fields
   const [custName, setCustName] = useState('');
@@ -180,6 +190,7 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
       {
         lineId: `li_${Date.now()}`,
         description: '',
+        details: '',
         pricePounds: '0.00',
         materialsPounds: '0.00',
         category: '',          // REQUIRED — admin must pick before save (validated below)
@@ -217,11 +228,17 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
 
     setSaving(true);
     try {
-      // Build updated line items (convert back to pence)
+      // Build updated line items (convert back to pence). Spread the original
+      // so non-editable fields (referencePricePence, llmSuggestedPricePence,
+      // adjustmentFactors, materialsCostPence) survive. `details` is then set
+      // explicitly from captured state so it round-trips even when the spread
+      // can't find a match (e.g. the original snapshot is stale or this is a
+      // newly added line).
       const updatedLineItems = lineItems.map(li => ({
         ...(quote.pricingLineItems?.find((orig: any) => orig.lineId === li.lineId) ?? {}),
         lineId: li.lineId,
         description: li.description,
+        details: li.details && li.details.trim().length > 0 ? li.details : null,
         guardedPricePence: gbpToPence(li.pricePounds),
         materialsWithMarginPence: gbpToPence(li.materialsPounds),
         category: li.category,
