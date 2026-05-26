@@ -132,6 +132,46 @@ export async function reserveSlot(params: {
 
     const conflictingSlots = getConflictingSlots(scheduledSlot);
 
+    // Travel-aware capacity prerequisites — fetch the quote once so we know the
+    // customer's location + job-duration estimate. Used to skip contractors
+    // whose travel + work time wouldn't fit the slot.
+    const { SLOT_CAPACITY_MIN } = await import('../shared/slot-times');
+    const { getTravelTimeMinutes } = await import('./lib/travel-time');
+    const [quoteRow] = await db
+        .select({
+            id: personalizedQuotes.id,
+            coordinates: personalizedQuotes.coordinates,
+            postcode: personalizedQuotes.postcode,
+            lines: personalizedQuotes.pricingLineItems,
+        })
+        .from(personalizedQuotes)
+        .where(eq(personalizedQuotes.id, quoteId))
+        .limit(1);
+
+    let customerCoords: { lat: number; lng: number } | null = null;
+    const c = quoteRow?.coordinates as any;
+    if (c && typeof c.lat === 'number' && typeof c.lng === 'number') {
+        customerCoords = { lat: c.lat, lng: c.lng };
+    } else if (quoteRow?.postcode) {
+        try {
+            const { geocodeAddress } = await import('./lib/geocoding');
+            const geo = await geocodeAddress(quoteRow.postcode);
+            if (geo) {
+                customerCoords = { lat: geo.lat, lng: geo.lng };
+                // Persist so we never have to geocode this quote again
+                await db.update(personalizedQuotes)
+                    .set({ coordinates: { lat: geo.lat, lng: geo.lng } as any })
+                    .where(eq(personalizedQuotes.id, quoteId));
+            }
+        } catch (e) {
+            console.warn(`[BookingEngine] geocode failed for quote ${quoteId}:`, e instanceof Error ? e.message : e);
+        }
+    }
+
+    const lines: any[] = Array.isArray(quoteRow?.lines) ? (quoteRow!.lines as any[]) : [];
+    const jobDurationMinutes = lines.reduce((s, l) => s + (Number(l?.timeEstimateMinutes) || 0), 0);
+    const slotCapacity = SLOT_CAPACITY_MIN[scheduledSlot];
+
     // 2. Try each candidate in order (full coverage first is handled by caller ordering)
     try {
         const result = await db.transaction(async (tx) => {
@@ -188,6 +228,33 @@ export async function reserveSlot(params: {
 
                 if (hasLockConflict) {
                     continue; // Try next contractor
+                }
+
+                // Travel-aware capacity check: skip if (job duration + one-way
+                // travel from contractor home to customer) wouldn't fit the
+                // slot. Only enforced when we have BOTH coords AND a non-zero
+                // job duration — otherwise fall through (better to book and
+                // surface to dispatch than to silently reject).
+                if (jobDurationMinutes > 0 && customerCoords) {
+                    const [profile] = await tx.select({
+                        lat: handymanProfiles.latitude,
+                        lng: handymanProfiles.longitude,
+                    })
+                        .from(handymanProfiles)
+                        .where(eq(handymanProfiles.id, contractorIdStr))
+                        .limit(1);
+                    if (profile?.lat && profile?.lng) {
+                        const cLat = parseFloat(profile.lat);
+                        const cLng = parseFloat(profile.lng);
+                        if (!isNaN(cLat) && !isNaN(cLng)) {
+                            const travel = await getTravelTimeMinutes(cLat, cLng, customerCoords.lat, customerCoords.lng);
+                            const required = jobDurationMinutes + travel.minutes;
+                            if (required > slotCapacity) {
+                                console.log(`[BookingEngine] Skipping contractor ${contractorIdStr}: ${jobDurationMinutes}min job + ${travel.minutes}min travel = ${required}min > ${slotCapacity}min ${scheduledSlot} cap (source=${travel.source})`);
+                                continue; // Try next contractor
+                            }
+                        }
+                    }
                 }
 
                 // No conflicts — insert lock with a 20-minute TTL. Calm hold: there's no
