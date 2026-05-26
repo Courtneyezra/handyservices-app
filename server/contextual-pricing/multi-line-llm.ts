@@ -296,6 +296,19 @@ function buildUserPrompt(request: MultiLineRequest): string {
     ? `\n\nIMPORTANT: The customer will NOT be present. The contextualMessage MUST acknowledge this — e.g. "no need for you to be there" or "we'll send you photos when it's done". Do NOT write as if they will be watching.`
     : '';
 
+  // Property context (Phase 4b) — affects SCHEDULING time, not price. Surface
+  // it so the LLM keeps line-item time estimates honest (no padding for
+  // "the flat's on the 3rd floor" — that's handled at schedule composition).
+  const pc = request.propertyContext;
+  let propertyContextBlock = '';
+  if (pc && (pc.floorNumber != null || pc.hasLift != null || pc.parkingDistanceCategory || pc.customerPresent != null)) {
+    const bits: string[] = [];
+    if (pc.floorNumber != null) bits.push(`floor: ${pc.floorNumber === 0 ? 'ground' : `${pc.floorNumber}${pc.floorNumber === 1 ? 'st' : pc.floorNumber === 2 ? 'nd' : pc.floorNumber === 3 ? 'rd' : 'th'} floor`}${pc.hasLift === false ? ' (no lift)' : pc.hasLift === true ? ' (lift)' : ''}`);
+    if (pc.parkingDistanceCategory) bits.push(`parking: ${pc.parkingDistanceCategory.replace(/_/g, ' ')}`);
+    if (pc.customerPresent != null) bits.push(`customer ${pc.customerPresent ? 'on site' : 'not present'}`);
+    propertyContextBlock = `\n\nProperty context (affects scheduling, not pricing — keep line-item time honest):\n  ${bits.join(' · ')}\n  NOTE: do NOT pad line-item timeEstimateMinutes for these factors. Scheduling adds materials-trip / parking / presence overhead automatically.`;
+  }
+
   return `${vaContextBlock}Price these ${request.lines.length} job line(s):
 
 ${linesList}
@@ -304,7 +317,7 @@ Contextual signals:
   urgency: ${signals.urgency}
   materialsSupply: ${signals.materialsSupply}
   timeOfService: ${signals.timeOfService}
-  isReturningCustomer: ${signals.isReturningCustomer ? `Yes (${signals.previousJobCount} previous jobs, avg £${signals.previousAvgPricePence !== null ? (signals.previousAvgPricePence / 100).toFixed(2) : 'N/A'})` : 'No (new customer)'}${winRateLine}${returningNote}${emergencyNote}${timingNote}${absentLandlordNote}`;
+  isReturningCustomer: ${signals.isReturningCustomer ? `Yes (${signals.previousJobCount} previous jobs, avg £${signals.previousAvgPricePence !== null ? (signals.previousAvgPricePence / 100).toFixed(2) : 'N/A'})` : 'No (new customer)'}${propertyContextBlock}${winRateLine}${returningNote}${emergencyNote}${timingNote}${absentLandlordNote}`;
 }
 
 // ---------------------------------------------------------------------------

@@ -987,6 +987,12 @@ const contextualQuoteInputSchema = z.object({
     })
     .optional(),
 
+  // Phase 4b — time-affecting property context (all optional)
+  floorNumber: z.number().int().min(0).max(50).optional(),
+  hasLift: z.boolean().optional(),
+  parkingDistanceCategory: z.enum(['on_drive', 'street_outside', 'street_within_50m', '50m_plus']).optional(),
+  customerPresent: z.boolean().optional(),
+
   // Source tracking
   sourceCallId: z.string().optional(),
   sourceLeadId: z.string().optional(),
@@ -1059,6 +1065,12 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       })),
       signals,
       vaContext: input.vaContext,
+      propertyContext: {
+        floorNumber: input.floorNumber ?? null,
+        hasLift: input.hasLift ?? null,
+        parkingDistanceCategory: input.parkingDistanceCategory ?? null,
+        customerPresent: input.customerPresent ?? null,
+      },
     };
 
     // 3. Select content from the content library based on job categories + signals
@@ -1347,6 +1359,12 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       jobDescription: input.jobDescription || input.lines.map((l) => l.description).join('; '),
       quoteMode: 'simple' as const,
       leadId: linkedLeadId,
+
+      // Phase 4b — time-affecting property context (drives scheduling math)
+      floorNumber: input.floorNumber ?? null,
+      hasLift: input.hasLift ?? null,
+      parkingDistanceCategory: input.parkingDistanceCategory ?? null,
+      customerPresent: input.customerPresent ?? null,
 
       // Canonical price
       basePrice: result.finalPricePence,

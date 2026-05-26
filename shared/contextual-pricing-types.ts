@@ -339,6 +339,18 @@ export interface ParsedJobResult {
 // Multi-Line Pricing — Request & Result
 // ---------------------------------------------------------------------------
 
+/** Property context that affects scheduling time (not pricing). */
+export interface QuotePropertyContext {
+  /** 0 = ground; higher floors add materials-trip overhead when no lift */
+  floorNumber?: number | null;
+  /** Lift in the building? null = unknown */
+  hasLift?: boolean | null;
+  /** Where the contractor can park relative to the front door */
+  parkingDistanceCategory?: 'on_drive' | 'street_outside' | 'street_within_50m' | '50m_plus' | null;
+  /** Will the customer be on site during the visit? Adds ~15% chatter buffer */
+  customerPresent?: boolean | null;
+}
+
 /** Input for the multi-line contextual pricing engine */
 export interface MultiLineRequest {
   /** One or more job lines to price together */
@@ -353,6 +365,8 @@ export interface MultiLineRequest {
    * can calibrate confidence. Omitted when fewer than 5 comparable quotes exist.
    */
   historicalWinRate?: number;
+  /** Phase 4b — property context that drives scheduling math (not pricing). */
+  propertyContext?: QuotePropertyContext;
 }
 
 /** Price result for a single line item */

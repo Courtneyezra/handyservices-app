@@ -897,6 +897,12 @@ export default function GenerateContextualQuote() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
+  // ── Property context (Phase 4b — drives scheduling math, not pricing) ──
+  const [floorNumber, setFloorNumber] = useState<number | null>(null);
+  const [hasLift, setHasLift] = useState<boolean | null>(null);
+  const [parkingDistance, setParkingDistance] = useState<'on_drive' | 'street_outside' | 'street_within_50m' | '50m_plus' | null>(null);
+  const [customerPresent, setCustomerPresent] = useState<boolean | null>(null);
+
   // ── Manual available dates (admin-picked whitelist for customer date picker) ──
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [datePickerMonth, setDatePickerMonth] = useState(new Date());
@@ -1238,6 +1244,11 @@ export default function GenerateContextualQuote() {
             previousJobCount: signals.previousJobCount,
             previousAvgPricePence: signals.previousAvgPricePence,
           },
+          // Phase 4b property context — drives scheduling, not pricing
+          floorNumber: floorNumber ?? undefined,
+          hasLift: hasLift ?? undefined,
+          parkingDistanceCategory: parkingDistance ?? undefined,
+          customerPresent: customerPresent ?? undefined,
           vaContext: enrichedVaContext,
           sourceCallId: selectedCallerId || undefined,
           contractorId: selectedContractorId || undefined,
@@ -2176,6 +2187,67 @@ export default function GenerateContextualQuote() {
                       }</span>
                     </div>
                   )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* ─── Section 4c: Property Context (Phase 4b — drives scheduling, not pricing) ─── */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Property Context</CardTitle>
+                <p className="text-xs text-zinc-500 mt-1">
+                  Drives scheduling math — adds floor/parking/presence overhead. Doesn't change price.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Floor number</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={50}
+                      placeholder="0 = ground"
+                      value={floorNumber ?? ''}
+                      onChange={(e) => setFloorNumber(e.target.value === '' ? null : parseInt(e.target.value) || 0)}
+                      className="mt-1 h-8 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Lift in building?</Label>
+                    <Select value={hasLift === null ? '__unset' : hasLift ? 'yes' : 'no'} onValueChange={(v) => setHasLift(v === '__unset' ? null : v === 'yes')}>
+                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__unset">— unknown —</SelectItem>
+                        <SelectItem value="yes">Yes (lift)</SelectItem>
+                        <SelectItem value="no">No lift</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Parking</Label>
+                    <Select value={parkingDistance ?? '__unset'} onValueChange={(v) => setParkingDistance(v === '__unset' ? null : v as any)}>
+                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__unset">— unknown —</SelectItem>
+                        <SelectItem value="on_drive">On their drive</SelectItem>
+                        <SelectItem value="street_outside">Street, just outside</SelectItem>
+                        <SelectItem value="street_within_50m">Street, within 50m</SelectItem>
+                        <SelectItem value="50m_plus">Further than 50m</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Customer present?</Label>
+                    <Select value={customerPresent === null ? '__unset' : customerPresent ? 'yes' : 'no'} onValueChange={(v) => setCustomerPresent(v === '__unset' ? null : v === 'yes')}>
+                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__unset">— unknown —</SelectItem>
+                        <SelectItem value="yes">Will be on site</SelectItem>
+                        <SelectItem value="no">Won't be present</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </CardContent>
             </Card>
