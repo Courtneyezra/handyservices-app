@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
 import { Zap, Calendar, Home, Clock, Timer, Coins, AlertTriangle } from 'lucide-react';
 import { useQuoteAvailability, countAvailableDatesThisWeek } from '@/hooks/useAvailability';
 
@@ -24,6 +25,8 @@ interface ScarcityData {
   focusMetric: string;
 }
 
+const EASE_OUT = [0.23, 1, 0.32, 1] as const;
+
 const SEGMENT_BANNER_CONFIG: Record<string, {
   icon: typeof Zap;
   getText: (data: ScarcityData, area: string) => string;
@@ -36,7 +39,7 @@ const SEGMENT_BANNER_CONFIG: Record<string, {
   },
   PROP_MGR: {
     icon: Calendar,
-    getText: (data, _area) => `${data.morningSlots} morning slots left \u2014 portfolio priority`,
+    getText: (data, _area) => `${data.morningSlots} morning slots left — portfolio priority`,
     getCount: (data) => data.morningSlots,
   },
   LANDLORD: {
@@ -55,14 +58,14 @@ const SEGMENT_BANNER_CONFIG: Record<string, {
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const nextMonth = monthNames[new Date().getMonth() + 1] || 'Jan';
       return data.isBusySeason
-        ? `Spring rush \u2014 ${data.totalSlotsThisWeek} slots left before ${nextMonth}`
+        ? `Spring rush — ${data.totalSlotsThisWeek} slots left before ${nextMonth}`
         : `${data.totalSlotsThisWeek} slots left this week`;
     },
     getCount: (data) => data.totalSlotsThisWeek,
   },
   BUDGET: {
     icon: Coins,
-    getText: (data, _area) => `${data.standardSlots ?? data.totalSlotsThisWeek} standard-rate slots left (express +\u00A380)`,
+    getText: (data, _area) => `${data.standardSlots ?? data.totalSlotsThisWeek} standard-rate slots left (express +£80)`,
     getCount: (data) => data.standardSlots ?? data.totalSlotsThisWeek,
   },
 };
@@ -79,23 +82,50 @@ const URGENCY_BANNER_CONFIG: Record<
 > = {
   standard: {
     icon: Calendar,
-    text: 'Limited slots this week \u2014 book now to secure your date',
+    text: 'Limited slots this week — book now to secure your date',
     urgencyClasses: 'bg-slate-800 text-slate-100',
     pulse: false,
   },
   priority: {
     icon: Zap,
-    text: 'Priority booking \u2014 only 2 slots left this week',
+    text: 'Priority booking — only 2 slots left this week',
     urgencyClasses: 'bg-amber-500 text-white',
     pulse: true,
   },
   emergency: {
     icon: AlertTriangle,
-    text: 'Emergency service \u2014 same-day availability',
+    text: 'Emergency service — same-day availability',
     urgencyClasses: 'bg-red-600 text-white',
     pulse: true,
   },
 };
+
+/** Pulsing dot with a soft halo ring — deliberate motion, not the flat tailwind default. */
+function PulseDot() {
+  return (
+    <span className="relative inline-flex w-1.5 h-1.5 flex-shrink-0">
+      <motion.span
+        className="absolute inset-0 rounded-full bg-current opacity-50"
+        animate={{ scale: [1, 2.2], opacity: [0.5, 0] }}
+        transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
+      />
+      <span className="relative w-1.5 h-1.5 rounded-full bg-current" />
+    </span>
+  );
+}
+
+function BannerShell({ children, className }: { children: React.ReactNode; className: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, ease: EASE_OUT }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
 
 export function ScarcityBanner({ segment, postcode, urgency, quoteId }: ScarcityBannerProps) {
   // Contextual mode: urgency-based messaging (no API call needed)
@@ -103,13 +133,11 @@ export function ScarcityBanner({ segment, postcode, urgency, quoteId }: Scarcity
     const config = URGENCY_BANNER_CONFIG[urgency];
     const Icon = config.icon;
     return (
-      <div className={`w-full py-2.5 px-4 flex items-center justify-center gap-2 text-xs font-semibold tracking-wide ${config.urgencyClasses}`}>
+      <BannerShell className={`w-full py-2.5 px-4 flex items-center justify-center gap-2 text-xs font-semibold tracking-wide ${config.urgencyClasses}`}>
         <Icon className="w-3.5 h-3.5 flex-shrink-0" />
         <span className="truncate">{config.text}</span>
-        {config.pulse && (
-          <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse flex-shrink-0" />
-        )}
-      </div>
+        {config.pulse && <PulseDot />}
+      </BannerShell>
     );
   }
 
@@ -152,13 +180,11 @@ function SegmentScarcityBanner({ segment, postcode, quoteId }: { segment: string
       ? `Limited availability this week in ${area}`
       : `${count} slot${count === 1 ? '' : 's'} left this week in ${area}`;
     return (
-      <div className={`w-full py-2 px-4 flex items-center justify-center gap-2 text-xs font-semibold tracking-wide ${getUrgencyClasses(count <= 0 ? 1 : count)}`}>
+      <BannerShell className={`w-full py-2 px-4 flex items-center justify-center gap-2 text-xs font-semibold tracking-wide ${getUrgencyClasses(count <= 0 ? 1 : count)}`}>
         <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
         <span>{label}</span>
-        {count <= 3 && (
-          <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse flex-shrink-0" />
-        )}
-      </div>
+        {count <= 3 && <PulseDot />}
+      </BannerShell>
     );
   }
 
@@ -170,10 +196,10 @@ function SegmentScarcityBanner({ segment, postcode, quoteId }: { segment: string
     const count = data.totalSlotsThisWeek;
     const Icon = AlertTriangle;
     return (
-      <div className={`w-full py-2 px-4 flex items-center justify-center gap-2 text-xs font-medium ${getUrgencyClasses(count)}`}>
+      <BannerShell className={`w-full py-2 px-4 flex items-center justify-center gap-2 text-xs font-medium ${getUrgencyClasses(count)}`}>
         <Icon className="w-3.5 h-3.5 flex-shrink-0" />
         <span>{count} slots left this week in {area}</span>
-      </div>
+      </BannerShell>
     );
   }
 
@@ -183,12 +209,10 @@ function SegmentScarcityBanner({ segment, postcode, quoteId }: { segment: string
   const urgencyClasses = getUrgencyClasses(count);
 
   return (
-    <div className={`w-full py-2.5 px-4 flex items-center justify-center gap-2 text-xs font-semibold tracking-wide ${urgencyClasses}`}>
+    <BannerShell className={`w-full py-2.5 px-4 flex items-center justify-center gap-2 text-xs font-semibold tracking-wide ${urgencyClasses}`}>
       <Icon className="w-3.5 h-3.5 flex-shrink-0" />
       <span className="truncate">{text}</span>
-      {count <= 3 && (
-        <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse flex-shrink-0" />
-      )}
-    </div>
+      {count <= 3 && <PulseDot />}
+    </BannerShell>
   );
 }

@@ -1385,9 +1385,13 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
           {content.stats.map((stat: any, i: number) => {
             const IconComponent = statIcons[i] || Star;
             return (
-              <div
+              <motion.div
                 key={i}
                 className="text-center"
+                initial={{ opacity: 0, y: 12 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: "50px" }}
+                transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1], delay: 0.05 + i * 0.05 }}
               >
                 <div className="flex justify-center mb-2">
                   <div className="p-2 bg-[#7DB00E]/10 rounded-full">
@@ -1398,7 +1402,7 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
                   <AnimatedStat value={stat.value} delay={0.2 + i * 0.1} />
                 </div>
                 <div className="text-xs text-slate-500 mt-1">{stat.label}</div>
-              </div>
+              </motion.div>
             );
           })}
         </div>
@@ -1519,7 +1523,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8 }}
+        transition={{ duration: 0.7, ease: [0.23, 1, 0.32, 1] }}
         viewport={{ once: true }}
         className="max-w-2xl z-10 relative"
       >
@@ -1708,7 +1712,7 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: "50px" }}
-        transition={{ duration: 0.5 }}
+        transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
         className="max-w-2xl"
       >
         {!isBusyPro && (
