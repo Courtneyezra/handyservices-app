@@ -188,10 +188,46 @@ export async function reserveSlot(params: {
     const jobDurationMinutes = scheduleBreakdown.totalMinutes;
     const slotCapacity = SLOT_CAPACITY_MIN[scheduledSlot];
 
-    // 2. Try each candidate in order (full coverage first is handled by caller ordering)
+    // ─── Phase 6 — Score candidates by travel cost ──────────────────────
+    // Sort by ascending home→customer travel time so the closest qualifying
+    // contractor is tried first. Eligibility checks inside the transaction
+    // still gate acceptance; we just optimise the iteration order.
+    let orderedCandidates: (number | string)[] = candidateContractorIds;
+    if (customerCoords) {
+        try {
+            const profilesForScoring = await db
+                .select({
+                    id: handymanProfiles.id,
+                    lat: handymanProfiles.latitude,
+                    lng: handymanProfiles.longitude,
+                })
+                .from(handymanProfiles)
+                .where(inArray(handymanProfiles.id, candidateContractorIds.map(String)));
+            const profileMap = new Map(profilesForScoring.map((p) => [p.id, p]));
+
+            const scored = await Promise.all(
+                candidateContractorIds.map(async (cid) => {
+                    const p = profileMap.get(String(cid));
+                    if (!p?.lat || !p?.lng) return { cid, score: Number.POSITIVE_INFINITY };
+                    const lat = parseFloat(p.lat);
+                    const lng = parseFloat(p.lng);
+                    if (isNaN(lat) || isNaN(lng)) return { cid, score: Number.POSITIVE_INFINITY };
+                    const t = await getTravelTimeMinutes(lat, lng, customerCoords.lat, customerCoords.lng);
+                    return { cid, score: t.minutes };
+                }),
+            );
+            scored.sort((a, b) => a.score - b.score);
+            orderedCandidates = scored.map((s) => s.cid);
+            console.log(`[BookingEngine] Candidates scored by travel: ${scored.map((s) => `${String(s.cid).slice(0, 8)}=${s.score}min`).join(', ')}`);
+        } catch (e) {
+            console.warn('[BookingEngine] Candidate scoring failed (using original order):', e instanceof Error ? e.message : e);
+        }
+    }
+
+    // 2. Try each candidate in order (closest-by-travel first after scoring)
     try {
         const result = await db.transaction(async (tx) => {
-            for (const contractorId of candidateContractorIds) {
+            for (const contractorId of orderedCandidates) {
                 // String version of contractorId for tables that use varchar
                 const contractorIdStr = String(contractorId);
 
