@@ -490,18 +490,6 @@ adminAvailabilityRouter.get('/matrix', async (req: Request, res: Response) => {
             }
         }
 
-        // Classify a time window into am/pm/full so we can subtract booked
-        // slots from overrides for the admin board view. Mirrors the
-        // 08:00/13:00/18:00 convention used by the AM/PM/Full buttons.
-        const classifyWindow = (startT?: string | null, endT?: string | null): 'am' | 'pm' | 'full' | 'other' => {
-            const s = startT || '08:00';
-            const e = endT || '18:00';
-            if (s <= '08:00' && e >= '17:00') return 'full';
-            if (s <= '08:00' && e <= '13:00') return 'am';
-            if (s >= '12:00' && e >= '17:00') return 'pm';
-            return 'other';
-        };
-
         const contractors = profiles.map(p => {
             const fullName = [p.user?.firstName, p.user?.lastName].filter(Boolean).join(' ').trim();
             const trades = Array.from(new Set(
@@ -509,49 +497,6 @@ adminAvailabilityRouter.get('/matrix', async (req: Request, res: Response) => {
                     .map(s => s.categorySlug ? getTradeForCategory(s.categorySlug as any) : null)
                     .filter((t): t is NonNullable<typeof t> => Boolean(t))
             ));
-
-            // Booked slots by date for THIS contractor — used to subtract
-            // already-booked AM/PM windows from the overrides we hand back.
-            const bookedSlotsByDate = new Map<string, Set<'am' | 'pm' | 'full'>>();
-            for (const j of jobs as any[]) {
-                const cid = j.assignedContractorId || j.contractorId;
-                if (cid !== p.id || !j.scheduledDate) continue;
-                const isActive = ['assigned', 'accepted', 'in_progress', 'completed'].includes(j.assignmentStatus) || ['accepted', 'completed'].includes(j.status);
-                if (!isActive) continue;
-                const dateStr = toDateStr(j.scheduledDate);
-                const slot = j.scheduledSlot === 'full_day' ? 'full' : (j.scheduledSlot === 'am' || j.scheduledSlot === 'pm') ? j.scheduledSlot : (j.scheduledStartTime && j.scheduledStartTime >= '12:00' ? 'pm' : 'am');
-                if (!bookedSlotsByDate.has(dateStr)) bookedSlotsByDate.set(dateStr, new Set());
-                bookedSlotsByDate.get(dateStr)!.add(slot as 'am' | 'pm' | 'full');
-            }
-
-            const projectedOverrides: Array<{ date: string; isAvailable: boolean; startTime: string | null; endTime: string | null; notes: string | null }> = [];
-            for (const o of overrides.filter(o => o.contractorId === p.id)) {
-                const dateStr = toDateStr(o.date);
-                const booked = bookedSlotsByDate.get(dateStr) || new Set<'am' | 'pm' | 'full'>();
-                // Off-days and non-AM/PM windows pass through unchanged.
-                if (!o.isAvailable) {
-                    projectedOverrides.push({ date: dateStr, isAvailable: o.isAvailable, startTime: o.startTime, endTime: o.endTime, notes: o.notes });
-                    continue;
-                }
-                if (booked.has('full')) continue; // Whole day consumed → drop override
-                const win = classifyWindow(o.startTime, o.endTime);
-                if (win === 'full') {
-                    const amBlocked = booked.has('am');
-                    const pmBlocked = booked.has('pm');
-                    if (amBlocked && pmBlocked) continue;
-                    if (amBlocked) { projectedOverrides.push({ date: dateStr, isAvailable: true, startTime: '13:00', endTime: '18:00', notes: o.notes }); continue; }
-                    if (pmBlocked) { projectedOverrides.push({ date: dateStr, isAvailable: true, startTime: '08:00', endTime: '13:00', notes: o.notes }); continue; }
-                    projectedOverrides.push({ date: dateStr, isAvailable: true, startTime: o.startTime, endTime: o.endTime, notes: o.notes });
-                } else if (win === 'am') {
-                    if (booked.has('am')) continue;
-                    projectedOverrides.push({ date: dateStr, isAvailable: true, startTime: o.startTime, endTime: o.endTime, notes: o.notes });
-                } else if (win === 'pm') {
-                    if (booked.has('pm')) continue;
-                    projectedOverrides.push({ date: dateStr, isAvailable: true, startTime: o.startTime, endTime: o.endTime, notes: o.notes });
-                } else {
-                    projectedOverrides.push({ date: dateStr, isAvailable: true, startTime: o.startTime, endTime: o.endTime, notes: o.notes });
-                }
-            }
 
             return {
                 id: p.id,
@@ -563,7 +508,9 @@ adminAvailabilityRouter.get('/matrix', async (req: Request, res: Response) => {
                 weeklyPatterns: patterns
                     .filter(pat => pat.handymanId === p.id && pat.isActive && pat.dayOfWeek != null)
                     .map(pat => ({ dayOfWeek: pat.dayOfWeek as number, startTime: pat.startTime, endTime: pat.endTime })),
-                overrides: projectedOverrides,
+                overrides: overrides
+                    .filter(o => o.contractorId === p.id)
+                    .map(o => ({ date: toDateStr(o.date), isAvailable: o.isAvailable, startTime: o.startTime, endTime: o.endTime, notes: o.notes })),
                 jobs: jobs
                     .filter((j: any) => {
                         const cid = j.assignedContractorId || j.contractorId;
