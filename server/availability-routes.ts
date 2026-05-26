@@ -478,18 +478,74 @@ adminAvailabilityRouter.get('/matrix', async (req: Request, res: Response) => {
         const toDateStr = (d: Date | string) => new Date(d).toISOString().split('T')[0];
         const toMin = (t?: string | null): number | null => { if (!t) return null; const [h, m] = t.split(':').map(Number); return (h * 60) + (m || 0); };
 
-        // Source per-job duration from the linked quote's estimated line-item minutes
+        // Source per-job duration AND customer coords from the linked quote.
+        // Coords either come from the quote row directly or get geocoded from
+        // postcode (and backfilled to the row so we only pay the geocode cost
+        // once per quote).
         const quoteIds = Array.from(new Set(jobs.map((j: any) => j.quoteId).filter(Boolean)));
         const quoteMinutes = new Map<string, number>();
+        const quoteCoords = new Map<string, { lat: number; lng: number }>();
         if (quoteIds.length) {
-            const quoteRows = await db.select({ id: personalizedQuotes.id, lines: personalizedQuotes.pricingLineItems })
-                .from(personalizedQuotes).where(inArray(personalizedQuotes.id, quoteIds as string[]));
+            const quoteRows = await db.select({
+                id: personalizedQuotes.id,
+                lines: personalizedQuotes.pricingLineItems,
+                coordinates: personalizedQuotes.coordinates,
+                postcode: personalizedQuotes.postcode,
+            }).from(personalizedQuotes).where(inArray(personalizedQuotes.id, quoteIds as string[]));
+
+            const needsGeocoding: Array<{ id: string; postcode: string }> = [];
             for (const q of quoteRows) {
                 const lines: any[] = Array.isArray(q.lines) ? (q.lines as any[]) : [];
                 const mins = lines.reduce((s, l) => s + (Number(l?.timeEstimateMinutes) || 0), 0);
                 if (mins > 0) quoteMinutes.set(q.id, mins);
+                const c = q.coordinates as any;
+                if (c && typeof c.lat === 'number' && typeof c.lng === 'number') {
+                    quoteCoords.set(q.id, { lat: c.lat, lng: c.lng });
+                } else if (q.postcode) {
+                    needsGeocoding.push({ id: q.id, postcode: q.postcode });
+                }
+            }
+
+            // Backfill missing coords by geocoding the postcode. Done in parallel
+            // since each geocode hits an external API (postcodes.io is fast).
+            if (needsGeocoding.length > 0) {
+                const { geocodeAddress } = await import('./lib/geocoding');
+                await Promise.all(needsGeocoding.map(async ({ id, postcode }) => {
+                    try {
+                        const geo = await geocodeAddress(postcode);
+                        if (geo) {
+                            quoteCoords.set(id, { lat: geo.lat, lng: geo.lng });
+                            // Persist so we never have to geocode this quote again
+                            await db.update(personalizedQuotes).set({ coordinates: { lat: geo.lat, lng: geo.lng } as any }).where(eq(personalizedQuotes.id, id));
+                        }
+                    } catch (e) {
+                        console.warn(`[Matrix] backfill geocode failed for quote ${id}: ${e instanceof Error ? e.message : e}`);
+                    }
+                }));
             }
         }
+
+        // Per-contractor travel-time lookups (bulk, one Routes API call per
+        // contractor with non-zero jobs, falls back to haversine).
+        const { getTravelTimesFromOrigin } = await import('./lib/travel-time');
+        const travelByContractor = new Map<string, Map<string, { minutes: number; source: string }>>();
+        await Promise.all(profiles.map(async (p) => {
+            const cid = p.id;
+            const myJobs = jobs.filter((j: any) => {
+                const jc = j.assignedContractorId || j.contractorId;
+                return jc === cid && j.quoteId && quoteCoords.has(j.quoteId);
+            });
+            if (myJobs.length === 0) return;
+            const cLat = p.latitude ? parseFloat(p.latitude) : NaN;
+            const cLng = p.longitude ? parseFloat(p.longitude) : NaN;
+            if (isNaN(cLat) || isNaN(cLng)) return;
+            const destinations = myJobs.map((j: any) => {
+                const c = quoteCoords.get(j.quoteId)!;
+                return { lat: c.lat, lng: c.lng, key: j.quoteId as string };
+            });
+            const lookup = await getTravelTimesFromOrigin(cLat, cLng, destinations);
+            travelByContractor.set(cid, lookup);
+        }));
 
         const contractors = profiles.map(p => {
             const fullName = [p.user?.firstName, p.user?.lastName].filter(Boolean).join(' ').trim();
@@ -524,8 +580,20 @@ adminAvailabilityRouter.get('/matrix', async (req: Request, res: Response) => {
                         const durationMinutes = (sM != null && eM != null && eM > sM) ? (eM - sM)
                             : (j.quoteId && quoteMinutes.get(j.quoteId)) ? (quoteMinutes.get(j.quoteId) as number)
                                 : (j.scheduledSlot === 'full_day' ? 480 : (j.scheduledSlot === 'am' || j.scheduledSlot === 'pm') ? 240 : 120);
-                        const start = j.scheduledStartTime || (slot === 'pm' ? '13:00' : '08:00');
-                        return { date: toDateStr(j.scheduledDate), slot, start, durationMinutes, status: j.assignmentStatus || j.status, customerName: j.customerName, jobDescription: j.description, scheduledTime: j.scheduledStartTime || j.requestedSlot };
+                        const start = j.scheduledStartTime || (slot === 'pm' ? '14:00' : '09:00');
+                        const tt = travelByContractor.get(p.id)?.get(j.quoteId);
+                        return {
+                            date: toDateStr(j.scheduledDate),
+                            slot,
+                            start,
+                            durationMinutes,
+                            status: j.assignmentStatus || j.status,
+                            customerName: j.customerName,
+                            jobDescription: j.description,
+                            scheduledTime: j.scheduledStartTime || j.requestedSlot,
+                            travelMinutes: tt?.minutes ?? null,
+                            travelSource: tt?.source ?? null,
+                        };
                     }),
             };
         });

@@ -38,7 +38,7 @@ interface MatrixContractor {
     skillCount: number;
     weeklyPatterns: { dayOfWeek: number; startTime: string | null; endTime: string | null }[];
     overrides: { date: string; isAvailable: boolean; startTime: string | null; endTime: string | null; notes: string | null }[];
-    jobs: { date: string; slot: string; start: string; durationMinutes: number; status: string; customerName: string | null; jobDescription: string | null; scheduledTime: string | null }[];
+    jobs: { date: string; slot: string; start: string; durationMinutes: number; status: string; customerName: string | null; jobDescription: string | null; scheduledTime: string | null; travelMinutes?: number | null; travelSource?: string | null }[];
 }
 
 interface MatrixResponse {
@@ -110,7 +110,8 @@ function WeekScheduleView({ contractors, dayColumns, onEdit }: {
                     {jobs.map((j, i) => {
                         const m = alloc(j);
                         if (m <= 0) return null;
-                        return <div key={i} className="bg-red-500 border-r border-white/40" style={{ width: `${(m / cap) * 100}%` }} title={`${(j.customerName || 'Job').replace('[DEMO] ', '')} · ${fmtH(j.durationMinutes)}${j.jobDescription ? ' · ' + j.jobDescription : ''}`} />;
+                        const travelStr = (j.travelMinutes && j.travelMinutes > 0) ? ` · 🚗 ${j.travelMinutes}min travel${j.travelSource === 'haversine' ? ' (est)' : ''}` : '';
+                        return <div key={i} className="bg-red-500 border-r border-white/40" style={{ width: `${(m / cap) * 100}%` }} title={`${(j.customerName || 'Job').replace('[DEMO] ', '')} · ${fmtH(j.durationMinutes)} job${travelStr}${j.jobDescription ? ' · ' + j.jobDescription : ''}`} />;
                     })}
                     {free > 0 && <div className="bg-emerald-500" style={{ width: `${(free / cap) * 100}%` }} title={`${fmtH(free)} free`} />}
                 </div>
