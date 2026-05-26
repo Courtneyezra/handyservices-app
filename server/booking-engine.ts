@@ -168,8 +168,11 @@ export async function reserveSlot(params: {
         }
     }
 
+    // Sum line item minutes for SCHEDULING (capped per-category — pricing keeps
+    // the raw inflated time). See shared/scheduling-caps.ts.
+    const { sumLineItemsForScheduling } = await import('../shared/scheduling-caps');
     const lines: any[] = Array.isArray(quoteRow?.lines) ? (quoteRow!.lines as any[]) : [];
-    const jobDurationMinutes = lines.reduce((s, l) => s + (Number(l?.timeEstimateMinutes) || 0), 0);
+    const jobDurationMinutes = sumLineItemsForScheduling(lines);
     const slotCapacity = SLOT_CAPACITY_MIN[scheduledSlot];
 
     // 2. Try each candidate in order (full coverage first is handled by caller ordering)

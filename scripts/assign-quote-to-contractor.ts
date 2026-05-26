@@ -191,7 +191,11 @@ async function assign(quoteSlug: string, contractorId: string, contractorName: s
   // Travel-aware capacity check (matches what reserveSlot enforces for
   // customer flow). --force bypasses this; useful when dispatch knows the
   // contractor can absorb the overrun (e.g. they live in the postcode area).
-  const jobDurationMinutes = quoteLineItems.reduce((s, l) => s + (Number(l?.timeEstimateMinutes) || 0), 0);
+  // Uses per-category caps from shared/scheduling-caps.ts so an inflated
+  // line item (e.g. waste_removal at 240min "for pricing") doesn't unfairly
+  // block scheduling.
+  const { sumLineItemsForScheduling } = await import('../shared/scheduling-caps');
+  const jobDurationMinutes = sumLineItemsForScheduling(quoteLineItems);
   if (jobDurationMinutes > 0) {
     const { SLOT_CAPACITY_MIN } = await import('../shared/slot-times');
     const { getTravelTimeMinutes } = await import('../server/lib/travel-time');

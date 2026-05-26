@@ -494,9 +494,10 @@ adminAvailabilityRouter.get('/matrix', async (req: Request, res: Response) => {
             }).from(personalizedQuotes).where(inArray(personalizedQuotes.id, quoteIds as string[]));
 
             const needsGeocoding: Array<{ id: string; postcode: string }> = [];
+            const { sumLineItemsForScheduling } = await import('../shared/scheduling-caps');
             for (const q of quoteRows) {
                 const lines: any[] = Array.isArray(q.lines) ? (q.lines as any[]) : [];
-                const mins = lines.reduce((s, l) => s + (Number(l?.timeEstimateMinutes) || 0), 0);
+                const mins = sumLineItemsForScheduling(lines);
                 if (mins > 0) quoteMinutes.set(q.id, mins);
                 const c = q.coordinates as any;
                 if (c && typeof c.lat === 'number' && typeof c.lng === 'number') {
