@@ -527,10 +527,13 @@ router.put('/:id/availability', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Contractor not found' });
         }
 
+        // Slot time windows — realistic 4h slots with a 13:00-14:00 lunch gap.
+        // Single source of truth in shared/slot-times.ts.
+        const { SLOT_TIMES } = await import('../shared/slot-times');
         const slotTimeMap: Record<string, { startTime: string; endTime: string }> = {
-            am: { startTime: '08:00', endTime: '13:00' },
-            pm: { startTime: '13:00', endTime: '18:00' },
-            full_day: { startTime: '08:00', endTime: '18:00' },
+            am: { startTime: SLOT_TIMES.am.start, endTime: SLOT_TIMES.am.end },
+            pm: { startTime: SLOT_TIMES.pm.start, endTime: SLOT_TIMES.pm.end },
+            full_day: { startTime: SLOT_TIMES.full_day.start, endTime: SLOT_TIMES.full_day.end },
         };
 
         const created = [];

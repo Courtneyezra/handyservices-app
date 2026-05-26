@@ -46,6 +46,7 @@ import {
     Loader2,
 } from 'lucide-react';
 import { CATEGORY_LABELS } from '@shared/categories';
+import { slotFromWindow } from '@shared/slot-times';
 import { useToast } from '@/hooks/use-toast';
 import { Link } from 'wouter';
 
@@ -232,8 +233,9 @@ export function ContractorFormPanel({
                 const dateStr = ov.date.split('T')[0];
                 let slot: AvailabilityOverride['slot'] = 'off';
                 if (ov.isAvailable) {
-                    if (ov.startTime === '08:00' && ov.endTime === '13:00') slot = 'am';
-                    else if (ov.startTime === '13:00' && ov.endTime === '18:00') slot = 'pm';
+                    const s = slotFromWindow(ov.startTime, ov.endTime);
+                    if (s === 'am') slot = 'am';
+                    else if (s === 'pm') slot = 'pm';
                     else slot = 'full_day';
                 }
                 overrides.push({ date: dateStr, slot });

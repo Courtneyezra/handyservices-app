@@ -423,18 +423,11 @@ function getConflictingSlots(slot: SlotParam): SlotParam[] {
 
 /**
  * Checks whether a contractor's time range covers the requested slot.
+ * Delegates to the shared canonical implementation in shared/slot-times.ts.
  */
+import { timeRangeCoversSlot as _coversSlot } from '../shared/slot-times';
 function timeRangeCoversSlot(startTime: string | null, endTime: string | null, slot: SlotParam): boolean {
-    const start = startTime || '08:00';
-    const end = endTime || '17:00';
-    switch (slot) {
-        case 'am':
-            return start <= '08:00' && end >= '12:00';
-        case 'pm':
-            return start <= '13:00' && end >= '17:00';
-        case 'full_day':
-            return start <= '08:00' && end >= '17:00';
-    }
+    return _coversSlot(startTime, endTime, slot as any);
 }
 
 /**
@@ -855,10 +848,8 @@ router.get('/availability/filtered', async (req: Request, res: Response) => {
                     const o = override[0];
                     if (o.isAvailable) {
                         availableContractorCount++;
-                        const start = o.startTime || '08:00';
-                        const end = o.endTime || '17:00';
-                        if (start <= '08:00' && end >= '12:00') slotsAvailable.add('am');
-                        if (start <= '13:00' && end >= '17:00') slotsAvailable.add('pm');
+                        if (_coversSlot(o.startTime, o.endTime, 'am')) slotsAvailable.add('am');
+                        if (_coversSlot(o.startTime, o.endTime, 'pm')) slotsAvailable.add('pm');
                     }
                     continue; // Override takes precedence
                 }
@@ -875,10 +866,8 @@ router.get('/availability/filtered', async (req: Request, res: Response) => {
 
                 if (pattern.length > 0) {
                     availableContractorCount++;
-                    const start = pattern[0].startTime || '08:00';
-                    const end = pattern[0].endTime || '17:00';
-                    if (start <= '08:00' && end >= '12:00') slotsAvailable.add('am');
-                    if (start <= '13:00' && end >= '17:00') slotsAvailable.add('pm');
+                    if (_coversSlot(pattern[0].startTime, pattern[0].endTime, 'am')) slotsAvailable.add('am');
+                    if (_coversSlot(pattern[0].startTime, pattern[0].endTime, 'pm')) slotsAvailable.add('pm');
                 }
             }
 
@@ -962,11 +951,8 @@ router.post('/booking/check-availability', async (req: Request, res: Response) =
             let isAvailableForSlot = false;
 
             if (override.length > 0 && override[0].isAvailable) {
-                const start = override[0].startTime || '08:00';
-                const end = override[0].endTime || '17:00';
-                if (slot === 'am' && start <= '08:00' && end >= '12:00') isAvailableForSlot = true;
-                if (slot === 'pm' && start <= '13:00' && end >= '17:00') isAvailableForSlot = true;
-                if (slot === 'full' && start <= '08:00' && end >= '17:00') isAvailableForSlot = true;
+                const slotKey = (slot === 'full' ? 'full_day' : slot) as any;
+                isAvailableForSlot = _coversSlot(override[0].startTime, override[0].endTime, slotKey);
             } else if (override.length === 0) {
                 // Check weekly pattern
                 const pattern = await db.select()
@@ -979,11 +965,8 @@ router.post('/booking/check-availability', async (req: Request, res: Response) =
                     .limit(1);
 
                 if (pattern.length > 0) {
-                    const start = pattern[0].startTime || '08:00';
-                    const end = pattern[0].endTime || '17:00';
-                    if (slot === 'am' && start <= '08:00' && end >= '12:00') isAvailableForSlot = true;
-                    if (slot === 'pm' && start <= '13:00' && end >= '17:00') isAvailableForSlot = true;
-                    if (slot === 'full' && start <= '08:00' && end >= '17:00') isAvailableForSlot = true;
+                    const slotKey = (slot === 'full' ? 'full_day' : slot) as any;
+                    isAvailableForSlot = _coversSlot(pattern[0].startTime, pattern[0].endTime, slotKey);
                 }
             }
 

@@ -157,21 +157,22 @@ router.post('/toggle', requireContractorAuth, async (req: Request, res: Response
         let endTime: string | null = null;
 
         if (mode) {
+            const { SLOT_TIMES } = await import('../shared/slot-times');
             switch (mode) {
                 case 'am':
                     finalIsAvailable = true;
-                    startTime = '08:00';
-                    endTime = '12:00';
+                    startTime = SLOT_TIMES.am.start;
+                    endTime = SLOT_TIMES.am.end;
                     break;
                 case 'pm':
                     finalIsAvailable = true;
-                    startTime = '13:00';
-                    endTime = '17:00';
+                    startTime = SLOT_TIMES.pm.start;
+                    endTime = SLOT_TIMES.pm.end;
                     break;
                 case 'full':
                     finalIsAvailable = true;
-                    startTime = '08:00';
-                    endTime = '17:00';
+                    startTime = SLOT_TIMES.full_day.start;
+                    endTime = SLOT_TIMES.full_day.end;
                     break;
                 case 'off':
                     finalIsAvailable = false;
@@ -584,10 +585,10 @@ adminAvailabilityRouter.get('/fit', async (req: Request, res: Response) => {
             ]);
         }
 
+        const { slotFromWindow } = await import('../shared/slot-times');
         const slotOf = (o: any): string => {
-            if (o.startTime === '08:00' && o.endTime === '13:00') return 'am';
-            if (o.startTime === '13:00' && o.endTime === '18:00') return 'pm';
-            return 'full';
+            const s = slotFromWindow(o.startTime, o.endTime);
+            return s === 'full_day' ? 'full' : s === 'other' ? 'full' : s;
         };
 
         const candidates = match.candidates.map(cand => {

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { getTradeIcon, getTradeLabel, type BroadTradeId } from '@shared/categories';
 import { useToast } from '@/hooks/use-toast';
+import { slotFromWindow, SLOT_TIMES, LUNCH_BREAK, timeToMinutes } from '@shared/slot-times';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,8 +78,8 @@ function startOfToday(): Date {
 
 function overrideToSlot(o: { isAvailable: boolean; startTime: string | null; endTime: string | null }): Slot {
     if (!o.isAvailable) return 'off';
-    if (o.startTime === '08:00' && o.endTime === '13:00') return 'am';
-    if (o.startTime === '13:00' && o.endTime === '18:00') return 'pm';
+    const s = slotFromWindow(o.startTime, o.endTime);
+    if (s === 'am' || s === 'pm') return s;
     return 'full_day';
 }
 
@@ -143,12 +144,16 @@ function WeekScheduleView({ contractors, dayColumns, onEdit }: {
                                 const dayJobs = c.jobs.filter((j) => j.date === col.key);
                                 const ov = c.overrides.find((o) => o.date === col.key);
                                 const pat = c.weeklyPatterns.find((p) => p.dayOfWeek === col.dow);
-                                let isOff = false, hasWindow = false, winStart = '08:00', winEnd = '18:00';
-                                if (ov) { if (!ov.isAvailable) isOff = true; else { winStart = ov.startTime || '08:00'; winEnd = ov.endTime || '18:00'; hasWindow = true; } }
-                                else if (pat) { winStart = pat.startTime || '08:00'; winEnd = pat.endTime || '18:00'; hasWindow = true; }
-                                const wsM = toMin(winStart), weM = toMin(winEnd), bound = 13 * 60;
-                                const amCap = Math.max(0, Math.min(weM, bound) - wsM);
-                                const pmCap = Math.max(0, weM - Math.max(wsM, bound));
+                                let isOff = false, hasWindow = false, winStart = SLOT_TIMES.full_day.start, winEnd = SLOT_TIMES.full_day.end;
+                                if (ov) { if (!ov.isAvailable) isOff = true; else { winStart = ov.startTime || SLOT_TIMES.full_day.start; winEnd = ov.endTime || SLOT_TIMES.full_day.end; hasWindow = true; } }
+                                else if (pat) { winStart = pat.startTime || SLOT_TIMES.full_day.start; winEnd = pat.endTime || SLOT_TIMES.full_day.end; hasWindow = true; }
+                                // AM ends at LUNCH_BREAK.start (13:00); PM starts at LUNCH_BREAK.end (14:00).
+                                // The 1h gap between is unbookable and never counts toward either cap.
+                                const wsM = toMin(winStart), weM = toMin(winEnd);
+                                const lunchStartM = timeToMinutes(LUNCH_BREAK.start);
+                                const lunchEndM = timeToMinutes(LUNCH_BREAK.end);
+                                const amCap = Math.max(0, Math.min(weM, lunchStartM) - wsM);
+                                const pmCap = Math.max(0, weM - Math.max(wsM, lunchEndM));
                                 const amJobs = dayJobs.filter((j) => j.slot === 'am' || j.slot === 'full');
                                 const pmJobs = dayJobs.filter((j) => j.slot === 'pm' || j.slot === 'full');
                                 const amAlloc = (j: any) => j.slot === 'full' ? Math.min(j.durationMinutes, amCap) : j.durationMinutes;

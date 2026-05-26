@@ -12,12 +12,13 @@ import {
 } from '../shared/schema';
 import { eq, and, lt, gte, lte, or, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import { timeRangeCoversSlot as canonicalTimeRangeCoversSlot, type SlotType as CanonicalSlotType } from '../shared/slot-times';
 
 // ============================================================================
 // SLOT CONFLICT LOGIC
 // ============================================================================
 
-type SlotType = 'am' | 'pm' | 'full_day';
+type SlotType = CanonicalSlotType;
 
 /**
  * Returns the set of slot types that conflict with the given slot.
@@ -38,21 +39,11 @@ function getConflictingSlots(slot: SlotType): SlotType[] {
 
 /**
  * Does a contractor's working window cover the requested slot?
- * Mirrors timeRangeCoversSlot in public-routes.ts so the engine's notion of
- * "available" matches the customer-facing availability endpoint exactly.
+ * Delegates to the shared canonical implementation in shared/slot-times.ts so
+ * the engine's notion of "available" stays in lockstep with the customer date
+ * picker and the admin matrix renderer.
  */
-function timeRangeCoversSlot(startTime: string | null, endTime: string | null, slot: SlotType): boolean {
-    const start = startTime || '08:00';
-    const end = endTime || '17:00';
-    switch (slot) {
-        case 'am':
-            return start <= '08:00' && end >= '12:00';
-        case 'pm':
-            return start <= '13:00' && end >= '17:00';
-        case 'full_day':
-            return start <= '08:00' && end >= '17:00';
-    }
-}
+const timeRangeCoversSlot = canonicalTimeRangeCoversSlot;
 
 /**
  * Is this contractor genuinely AVAILABLE for the given date + slot?
