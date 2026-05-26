@@ -143,10 +143,22 @@ export async function reserveSlot(params: {
             coordinates: personalizedQuotes.coordinates,
             postcode: personalizedQuotes.postcode,
             lines: personalizedQuotes.pricingLineItems,
+            floorNumber: personalizedQuotes.floorNumber,
+            hasLift: personalizedQuotes.hasLift,
+            parkingDistanceCategory: personalizedQuotes.parkingDistanceCategory,
+            customerPresent: personalizedQuotes.customerPresent,
         })
         .from(personalizedQuotes)
         .where(eq(personalizedQuotes.id, quoteId))
         .limit(1);
+
+    // Quote context: cross-cutting time variables (floor, lift, parking, presence)
+    const quoteContext = {
+        floorNumber: (quoteRow as any)?.floorNumber ?? null,
+        hasLift: (quoteRow as any)?.hasLift ?? null,
+        parkingDistanceCategory: (quoteRow as any)?.parkingDistanceCategory ?? null,
+        customerPresent: (quoteRow as any)?.customerPresent ?? null,
+    };
 
     let customerCoords: { lat: number; lng: number } | null = null;
     const c = quoteRow?.coordinates as any;
@@ -168,11 +180,12 @@ export async function reserveSlot(params: {
         }
     }
 
-    // Sum line item minutes for SCHEDULING (capped per-category — pricing keeps
-    // the raw inflated time). See shared/scheduling-caps.ts.
-    const { sumLineItemsForScheduling } = await import('../shared/scheduling-caps');
+    // Compose honest schedule minutes from line items + quote context.
+    // (Pricing reads timeEstimateMinutes directly; this is for scheduling only.)
+    const { composeScheduleMinutes } = await import('../shared/schedule-composition');
     const lines: any[] = Array.isArray(quoteRow?.lines) ? (quoteRow!.lines as any[]) : [];
-    const jobDurationMinutes = sumLineItemsForScheduling(lines);
+    const scheduleBreakdown = composeScheduleMinutes(lines, quoteContext);
+    const jobDurationMinutes = scheduleBreakdown.totalMinutes;
     const slotCapacity = SLOT_CAPACITY_MIN[scheduledSlot];
 
     // 2. Try each candidate in order (full coverage first is handled by caller ordering)

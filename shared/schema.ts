@@ -860,6 +860,15 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     // Revocation
     revokedAt: timestamp("revoked_at"),
 
+    // ── Time-affecting context (Phase 4b) ────────────────────────────────
+    // Cross-cutting variables that multiply or buffer per-line work time.
+    // The booking engine + LLM both read these when composing schedule
+    // duration; line items handle the work itself.
+    floorNumber: integer("floor_number"),                    // 0 = ground; affects materials trips
+    hasLift: boolean("has_lift"),                            // null = unknown; true = lift present
+    parkingDistanceCategory: varchar("parking_distance_category", { length: 20 }), // 'on_drive' | 'street_outside' | 'street_within_50m' | '50m_plus'
+    customerPresent: boolean("customer_present"),            // null = unknown; affects +15% buffer
+
     // Creation timestamp
     createdAt: timestamp("created_at").defaultNow(),
 
