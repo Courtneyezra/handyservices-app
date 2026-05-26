@@ -13,7 +13,8 @@ export type PipelineEventType =
     | 'pipeline:alert_resolved'
     | 'pipeline:activity'
     | 'pipeline:counts_updated'
-    | 'pipeline:lead_stage_change';
+    | 'pipeline:lead_stage_change'
+    | 'pipeline:booking_confirmed';
 
 /**
  * Broadcast a new pipeline alert
@@ -65,7 +66,7 @@ export function broadcastAlertResolved(alertId: string, reason?: string) {
  * Broadcast a new activity event
  */
 export function broadcastPipelineActivity(activity: {
-    type: 'call_started' | 'call_ended' | 'automation_sent' | 'quote_sent' | 'quote_viewed' | 'quote_selected' | 'payment_received' | 'payment_failed' | 'stage_change';
+    type: 'call_started' | 'call_ended' | 'automation_sent' | 'quote_sent' | 'quote_viewed' | 'quote_selected' | 'payment_received' | 'payment_failed' | 'stage_change' | 'booking_confirmed';
     leadId: string | null;
     customerName: string;
     summary: string;
@@ -129,5 +130,36 @@ export function broadcastLeadStageChange(data: {
         console.log(`[Pipeline-WS] Lead stage change: ${data.leadId} ${data.previousStage || 'null'} -> ${data.newStage}`);
     } catch (error) {
         console.error('[Pipeline-WS] Failed to broadcast lead stage change:', error);
+    }
+}
+
+/**
+ * Broadcast a confirmed booking. Real-time CRM notification so admins see new
+ * bookings the moment payment succeeds + the slot is locked into the contractor's
+ * calendar.
+ */
+export function broadcastBookingConfirmed(booking: {
+    quoteId: string;
+    quoteSlug?: string;
+    customerName: string;
+    contractorId: string;
+    contractorName?: string;
+    scheduledDate: string;   // YYYY-MM-DD
+    scheduledSlot: string;   // 'am' | 'pm' | 'full_day'
+    jobSheetId?: number;
+    leadId?: string | null;
+}) {
+    try {
+        broadcastToClients({
+            type: 'pipeline:booking_confirmed',
+            data: {
+                ...booking,
+                timestamp: new Date().toISOString(),
+            },
+            timestamp: new Date().toISOString(),
+        });
+        console.log(`[Pipeline-WS] Booking confirmed: ${booking.customerName} → ${booking.contractorName || booking.contractorId} on ${booking.scheduledDate} ${booking.scheduledSlot}`);
+    } catch (error) {
+        console.error('[Pipeline-WS] Failed to broadcast booking confirmation:', error);
     }
 }

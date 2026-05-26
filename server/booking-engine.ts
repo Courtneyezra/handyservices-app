@@ -2,12 +2,15 @@ import { db } from './db';
 import {
     bookingSlotLocks,
     contractorBookingRequests,
+    contractorAvailabilityDates,
+    handymanAvailability,
+    masterBlockedDates,
     personalizedQuotes,
     jobSheets,
     handymanProfiles,
     users,
 } from '../shared/schema';
-import { eq, and, lt, or, inArray } from 'drizzle-orm';
+import { eq, and, lt, gte, lte, or, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 
 // ============================================================================
@@ -31,6 +34,81 @@ function getConflictingSlots(slot: SlotType): SlotType[] {
         case 'full_day':
             return ['am', 'pm', 'full_day'];
     }
+}
+
+/**
+ * Does a contractor's working window cover the requested slot?
+ * Mirrors timeRangeCoversSlot in public-routes.ts so the engine's notion of
+ * "available" matches the customer-facing availability endpoint exactly.
+ */
+function timeRangeCoversSlot(startTime: string | null, endTime: string | null, slot: SlotType): boolean {
+    const start = startTime || '08:00';
+    const end = endTime || '17:00';
+    switch (slot) {
+        case 'am':
+            return start <= '08:00' && end >= '12:00';
+        case 'pm':
+            return start <= '13:00' && end >= '17:00';
+        case 'full_day':
+            return start <= '08:00' && end >= '17:00';
+    }
+}
+
+/**
+ * Is this contractor genuinely AVAILABLE for the given date + slot?
+ *
+ * This mirrors buildAvailabilityResponse() in public-routes.ts: a date-specific
+ * override wins (and a "not available" override blocks); otherwise fall back to the
+ * weekly pattern; a master-blocked date blocks everyone. Without this check the
+ * engine would happily lock a contractor who has NO availability that day (it only
+ * checked for conflicting bookings/locks), handing out holds the contractor can't keep.
+ */
+async function isContractorAvailableForSlot(
+    tx: any,
+    contractorIdStr: string,
+    scheduledDate: Date,
+    slot: SlotType,
+): Promise<boolean> {
+    const dateStr = scheduledDate.toISOString().split('T')[0];
+
+    // Master-blocked date → unavailable for everyone
+    const blocked = await tx.select({ date: masterBlockedDates.date })
+        .from(masterBlockedDates)
+        .where(eq(masterBlockedDates.date, dateStr))
+        .limit(1);
+    if (blocked.length > 0) return false;
+
+    // Date-specific override wins (matches the override by calendar day, UTC)
+    const dayStart = new Date(`${dateStr}T00:00:00.000Z`);
+    const dayEnd = new Date(`${dateStr}T23:59:59.999Z`);
+    const overrides = await tx.select()
+        .from(contractorAvailabilityDates)
+        .where(and(
+            eq(contractorAvailabilityDates.contractorId, contractorIdStr),
+            gte(contractorAvailabilityDates.date, dayStart),
+            lte(contractorAvailabilityDates.date, dayEnd),
+        ));
+    if (overrides.length > 0) {
+        const o = overrides[0];
+        if (!o.isAvailable) return false;
+        return timeRangeCoversSlot(o.startTime, o.endTime, slot);
+    }
+
+    // Fall back to the weekly recurring pattern (0 = Sunday … 6 = Saturday)
+    const dayOfWeek = new Date(`${dateStr}T12:00:00.000Z`).getUTCDay();
+    const patterns = await tx.select()
+        .from(handymanAvailability)
+        .where(and(
+            eq(handymanAvailability.handymanId, contractorIdStr),
+            eq(handymanAvailability.dayOfWeek, dayOfWeek),
+            eq(handymanAvailability.isActive, true),
+        ));
+    if (patterns.length > 0) {
+        return timeRangeCoversSlot(patterns[0].startTime, patterns[0].endTime, slot);
+    }
+
+    // No override and no weekly pattern → not available (opt-in model)
+    return false;
 }
 
 // ============================================================================
@@ -69,6 +147,12 @@ export async function reserveSlot(params: {
             for (const contractorId of candidateContractorIds) {
                 // String version of contractorId for tables that use varchar
                 const contractorIdStr = String(contractorId);
+
+                // Contractor must ACTUALLY be available this date+slot (overrides →
+                // weekly patterns, respecting master-blocked days) — same definition the
+                // customer's date picker uses. Skip anyone who isn't genuinely free.
+                const isAvailable = await isContractorAvailableForSlot(tx, contractorIdStr, scheduledDate, scheduledSlot);
+                if (!isAvailable) continue;
 
                 // Check for existing bookings in contractorBookingRequests
                 // that conflict with this date + slot
@@ -115,8 +199,10 @@ export async function reserveSlot(params: {
                     continue; // Try next contractor
                 }
 
-                // No conflicts — insert lock with 5-minute TTL
-                const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+                // No conflicts — insert lock with a 20-minute TTL. Calm hold: there's no
+                // visible countdown for the customer, so the window must be comfortably
+                // long enough to finish checkout without the slot silently expiring.
+                const expiresAt = new Date(Date.now() + 20 * 60 * 1000);
 
                 const [inserted] = await tx.insert(bookingSlotLocks)
                     .values({
@@ -183,6 +269,28 @@ export async function releaseSlot(lockId: number): Promise<void> {
         .where(eq(bookingSlotLocks.id, lockId));
 
     console.log(`[BookingEngine] Released slot lock ${lockId}`);
+}
+
+// ============================================================================
+// EXTEND LOCK — called when payment intent is created, so a slow checkout
+// doesn't lose its hold. Returns the new expiresAt, or null if the lock no
+// longer exists (e.g. already confirmed or cleaned up).
+// ============================================================================
+
+export async function extendLock(lockId: number, additionalMs: number): Promise<Date | null> {
+    const newExpiresAt = new Date(Date.now() + additionalMs);
+    const [updated] = await db
+        .update(bookingSlotLocks)
+        .set({ expiresAt: newExpiresAt })
+        .where(eq(bookingSlotLocks.id, lockId))
+        .returning({ id: bookingSlotLocks.id, expiresAt: bookingSlotLocks.expiresAt });
+
+    if (!updated) {
+        console.warn(`[BookingEngine] extendLock: lock ${lockId} not found`);
+        return null;
+    }
+    console.log(`[BookingEngine] Extended lock ${lockId} until ${newExpiresAt.toISOString()}`);
+    return updated.expiresAt;
 }
 
 // ============================================================================
@@ -329,8 +437,86 @@ export async function confirmBooking(params: {
             return {
                 success: true,
                 jobId: jobSheet.id,
+                // Data needed for the post-transaction CRM broadcast
+                _broadcastData: {
+                    quoteSlug: quote.shortSlug,
+                    customerName: quote.customerName,
+                    leadId: quote.leadId,
+                    scheduledDate: lock.scheduledDate.toISOString().split('T')[0],
+                    scheduledSlot: lock.scheduledSlot,
+                    contractorIdStr,
+                },
             };
         });
+
+        // CRM notification — broadcast after the transaction commits so any
+        // open admin dashboard tab sees the booking in real time. Best-effort:
+        // a broadcast failure should never roll back the booking.
+        if (result.success && (result as any)._broadcastData) {
+            try {
+                const b = (result as any)._broadcastData as {
+                    quoteSlug: string | null;
+                    customerName: string;
+                    leadId: string | null;
+                    scheduledDate: string;
+                    scheduledSlot: string;
+                    contractorIdStr: string;
+                };
+
+                // Look up the contractor's display name (best-effort)
+                let contractorName: string | undefined;
+                try {
+                    const [profile] = await db
+                        .select({ firstName: users.firstName, lastName: users.lastName })
+                        .from(handymanProfiles)
+                        .innerJoin(users, eq(handymanProfiles.userId, users.id))
+                        .where(eq(handymanProfiles.id, b.contractorIdStr))
+                        .limit(1);
+                    if (profile) {
+                        contractorName = [profile.firstName, profile.lastName].filter(Boolean).join(' ') || undefined;
+                    }
+                } catch { /* non-critical */ }
+
+                const { broadcastBookingConfirmed, broadcastPipelineActivity } = await import('./pipeline-events');
+                broadcastBookingConfirmed({
+                    quoteId,
+                    quoteSlug: b.quoteSlug || undefined,
+                    customerName: b.customerName,
+                    contractorId: b.contractorIdStr,
+                    contractorName,
+                    scheduledDate: b.scheduledDate,
+                    scheduledSlot: b.scheduledSlot,
+                    jobSheetId: result.jobId,
+                    leadId: b.leadId,
+                });
+
+                // Also push into the existing pipeline activity feed so dashboards
+                // that show "recent activity" pick it up alongside calls/quotes.
+                const slotLabel = b.scheduledSlot === 'am' ? 'morning' : b.scheduledSlot === 'pm' ? 'afternoon' : 'all day';
+                broadcastPipelineActivity({
+                    type: 'booking_confirmed',
+                    leadId: b.leadId,
+                    customerName: b.customerName,
+                    summary: `Booking confirmed: ${contractorName || 'Contractor'} → ${b.customerName}, ${b.scheduledDate} ${slotLabel}`,
+                    icon: 'calendar-check',
+                    data: {
+                        quoteId,
+                        quoteSlug: b.quoteSlug,
+                        contractorId: b.contractorIdStr,
+                        contractorName,
+                        scheduledDate: b.scheduledDate,
+                        scheduledSlot: b.scheduledSlot,
+                        jobSheetId: result.jobId,
+                    },
+                });
+            } catch (broadcastErr) {
+                console.error('[BookingEngine] Failed to broadcast booking confirmation:', broadcastErr);
+            }
+
+            // Strip the internal _broadcastData field from the public return shape
+            const { jobId, success } = result;
+            return { success, jobId };
+        }
 
         return result;
     } catch (error: any) {

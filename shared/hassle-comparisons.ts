@@ -15,6 +15,8 @@ export interface HassleComparison {
   withoutUs: string;
   /** ~10 words — the relief of choosing us */
   withUs: string;
+  /** Optional 2-4 word one-liner for compact comparison tables (falls back to withUs) */
+  label?: string;
   /** Single WhatsApp-friendly line (emoji optional) */
   whatsappLine: string;
   /** Conversational, <15 words — for VA to say on a live call */
@@ -196,16 +198,42 @@ export const SEGMENT_HASSLE_MAP: Record<string, HassleComparison[]> = {
 
   UNKNOWN: [
     {
+      id: 'punctual',
+      withoutUs: 'No-shows and vague "sometime Tuesday"',
+      withUs: 'Turn up on time, every time',
+      label: 'On time',
+      whatsappLine: '⏰ We turn up on time — your slot, kept',
+      vaScript: 'We turn up when we say we will',
+    },
+    {
+      id: 'fixed-price',
+      withoutUs: 'Hourly rates that creep up',
+      withUs: 'Fixed price agreed upfront',
+      label: 'Fixed price',
+      whatsappLine: '💷 Fixed price upfront — no hourly surprises',
+      vaScript: 'Fixed price agreed upfront — no surprises',
+    },
+    {
       id: 'quality',
       withoutUs: 'Gamble on an unknown tradesman — hope for the best',
       withUs: 'Vetted professional with proven track record',
+      label: 'Vetted & insured',
       whatsappLine: '✅ Vetted professional — 4.9★ rated, £2M insured',
       vaScript: 'We\'re vetted, insured, and 4.9-star rated',
+    },
+    {
+      id: 'payment',
+      withoutUs: 'Cash-only, no receipt',
+      withUs: 'Proper invoice — pay by card or in 3',
+      label: 'Proper invoice',
+      whatsappLine: '🧾 Proper invoice — pay by card or split in 3',
+      vaScript: 'Proper invoice, pay by card or split into three',
     },
     {
       id: 'cleanup',
       withoutUs: 'Mess left behind for you to sort out',
       withUs: 'Full cleanup included — we leave it spotless',
+      label: 'Full cleanup',
       whatsappLine: '✨ Full cleanup included — we leave it spotless',
       vaScript: 'Full cleanup included — we leave it spotless',
     },
@@ -213,6 +241,7 @@ export const SEGMENT_HASSLE_MAP: Record<string, HassleComparison[]> = {
       id: 'guarantee',
       withoutUs: 'If something goes wrong, good luck getting them back',
       withUs: '30-day guarantee — we come back and fix it free',
+      label: '30-day guarantee',
       whatsappLine: '🛡️ 30-day guarantee — peace of mind included',
       vaScript: '30-day guarantee — if anything\'s not right, we come back free',
     },

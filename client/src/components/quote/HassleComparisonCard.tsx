@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { X, Check } from "lucide-react";
 import { getHassleComparisons, HASSLE_SECTION_HEADLINES, type HassleComparison } from "@shared/hassle-comparisons";
 
@@ -84,40 +85,39 @@ export function HassleComparisonCard({ segment, maxItems = 4, hideTitle = false,
         </div>
       )}
 
-      {/* Desktop: 2-column grid */}
-      <div className="hidden md:block divide-y divide-slate-100">
-        {comparisons.map((item) => (
-          <div key={item.id} className="grid grid-cols-2 divide-x divide-slate-100">
-            <div className="px-4 py-3 flex items-start gap-2.5 bg-red-50/50">
-              <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <X className="w-3 h-3 text-red-400" />
-              </div>
-              <span className="text-slate-500 text-xs leading-relaxed">{item.withoutUs}</span>
-            </div>
-            <div className="px-4 py-3 flex items-start gap-2.5">
-              <div className="w-5 h-5 rounded-full bg-[#7DB00E]/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <Check className="w-3 h-3 text-[#7DB00E]" />
-              </div>
-              <span className="text-slate-700 text-xs font-medium leading-relaxed">{item.withUs}</span>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* Feature-comparison table: each row is a benefit, with a muted "Others" column
+          (✗) and a highlighted "Us" column (✓ on a green band). Columns are continuous
+          vertical bands behind a grid, so all ✗ line up and all ✓ line up. */}
+      <div className="p-4 sm:p-6">
+        <div className="relative">
+          {/* Continuous column bands */}
+          <div className="pointer-events-none absolute inset-y-0 right-16 w-16 rounded-xl bg-slate-100" aria-hidden="true" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-16 rounded-xl bg-gradient-to-b from-[#7DB00E] to-[#6a9a0c] shadow-lg shadow-[#7DB00E]/25" aria-hidden="true" />
 
-      {/* Mobile: stacked cards */}
-      <div className="md:hidden divide-y divide-slate-100">
-        {comparisons.map((item) => (
-          <div key={item.id}>
-            <div className="px-4 py-2.5 flex items-start gap-2.5 bg-red-50/40">
-              <X className="w-3.5 h-3.5 text-red-400 flex-shrink-0 mt-0.5" />
-              <span className="text-slate-400 text-sm line-through decoration-red-300/60">{item.withoutUs}</span>
-            </div>
-            <div className="px-4 py-2.5 flex items-start gap-2.5">
-              <Check className="w-3.5 h-3.5 text-[#7DB00E] flex-shrink-0 mt-0.5" />
-              <span className="text-slate-700 text-sm font-medium">{item.withUs}</span>
-            </div>
+          <div className="relative grid grid-cols-[1fr_4rem_4rem] items-stretch">
+            {/* Header row */}
+            <div />
+            <div className="flex items-center justify-center py-2.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">Others</div>
+            <div className="flex items-center justify-center py-2.5 text-[11px] font-bold uppercase tracking-wide text-white">Us</div>
+
+            {/* Feature rows */}
+            {comparisons.map((item) => (
+              <Fragment key={item.id}>
+                <div className="flex items-center py-3 pr-3 text-sm font-semibold text-slate-800 leading-tight">
+                  {item.label || item.withUs.split(/\s+—\s+/)[0]}
+                </div>
+                <div className="flex items-center justify-center py-3">
+                  <X className="w-4 h-4 text-slate-300" strokeWidth={2.5} />
+                </div>
+                <div className="flex items-center justify-center py-3">
+                  <span className="w-5 h-5 rounded-full bg-white flex items-center justify-center shadow-sm">
+                    <Check className="w-3 h-3 text-[#5f8209]" strokeWidth={3.5} />
+                  </span>
+                </div>
+              </Fragment>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
     </div>
   );

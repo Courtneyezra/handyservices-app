@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { updateLeadStage } from './lead-stage-engine';
 import { getPricingSettings } from './pricing-settings';
 import { insertInvoiceWithRetry } from './invoices';
+import { extendLock, confirmBooking } from './booking-engine';
 
 // Helper to get Stripe instance lazily
 const getStripe = () => {
@@ -72,7 +73,13 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             selectedTier, // Legacy — ignored, kept for API compat
             selectedTierPrice, // Legacy — ignored
             selectedExtras = [],
-            paymentType = 'full'
+            paymentType = 'full',
+            // Booking-confirm chain: passed from the customer's reserveSlot flow
+            // so the webhook can promote the soft hold into a real booking.
+            lockId,
+            contractorId,
+            scheduledDate,
+            scheduledSlot,
         } = req.body;
 
         if (!quoteId) {
@@ -171,6 +178,23 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         // Generate idempotency key to prevent duplicate payment intents
         const idempotencyKey = generateIdempotencyKey(quoteId, 'standard', selectedExtras, paymentType, chargeAmount);
 
+        // If a soft-hold lock was created during slot selection, extend it to 60
+        // minutes so a slow checkout doesn't lose its hold mid-payment.
+        if (lockId && typeof lockId === 'number') {
+            try {
+                await extendLock(lockId, 60 * 60 * 1000);
+            } catch (extendErr) {
+                console.warn('[Stripe] extendLock failed (continuing):', extendErr);
+            }
+        }
+
+        // Build booking metadata — Stripe requires all metadata values be strings.
+        const bookingMetadata: Record<string, string> = {};
+        if (lockId !== undefined && lockId !== null) bookingMetadata.lockId = String(lockId);
+        if (contractorId) bookingMetadata.contractorId = String(contractorId);
+        if (scheduledDate) bookingMetadata.scheduledDate = String(scheduledDate);
+        if (scheduledSlot) bookingMetadata.scheduledSlot = String(scheduledSlot);
+
         // Create payment intent with idempotency key
         const paymentIntent = await stripe.paymentIntents.create(
             {
@@ -186,7 +210,8 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
                     paymentType,
                     totalJobPrice: totalJobPrice.toString(),
                     depositAmount: chargeAmount.toString(),
-                    selectedExtras: selectedExtras.join(',')
+                    selectedExtras: selectedExtras.join(','),
+                    ...bookingMetadata,
                 },
                 receipt_email: customerEmail,
                 description: paymentType === 'full'
@@ -351,10 +376,38 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             if (extra) totalJobPrice += extra.priceInPence || 0;
                         }
 
-                        // 3. Job creation removed — deposits go into the dispatch pool.
-                        // Ben (admin) will assign a contractor and create the job later.
-                        const jobId: string | null = null;
-                        console.log(`[Stripe Webhook] Deposit recorded for quote ${quoteId} — awaiting dispatch by admin`);
+                        // 3. Booking-confirm chain: if the customer reserved a slot
+                        // before paying (lockId in metadata), promote that soft hold
+                        // into a confirmed booking — creates the contractorBookingRequests
+                        // row + jobSheet so the contractor's calendar + admin board
+                        // immediately reflect the new job. Falls through to the legacy
+                        // dispatch-pool path if no lock is present.
+                        let jobId: string | null = null;
+                        const lockIdMeta = paymentIntent.metadata?.lockId;
+                        if (lockIdMeta) {
+                            const lockIdNum = parseInt(lockIdMeta, 10);
+                            if (!isNaN(lockIdNum)) {
+                                try {
+                                    const result = await confirmBooking({
+                                        quoteId,
+                                        lockId: lockIdNum,
+                                        paymentIntentId: paymentIntent.id,
+                                    });
+                                    if (result.success && result.jobId !== undefined) {
+                                        jobId = String(result.jobId);
+                                        console.log(`[Stripe Webhook] confirmBooking succeeded: quote=${quoteId}, lockId=${lockIdNum}, jobSheetId=${jobId}`);
+                                    } else {
+                                        console.warn(`[Stripe Webhook] confirmBooking failed for quote ${quoteId}: ${result.error}`);
+                                    }
+                                } catch (confirmErr) {
+                                    // Never let a booking-confirm failure block the webhook
+                                    // (Stripe will retry the whole thing otherwise).
+                                    console.error('[Stripe Webhook] confirmBooking threw:', confirmErr);
+                                }
+                            }
+                        } else {
+                            console.log(`[Stripe Webhook] No lockId in PI metadata — quote ${quoteId} goes to dispatch pool for manual assignment`);
+                        }
 
                         // 4. Generate Invoice (MAX+1 numbering with retry on collisions)
                         // When paid in full (with discount), balance is 0 — the discount is intentional
@@ -577,6 +630,54 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
 
                         console.log('[Stripe Webhook] Invoice marked as paid:', invoiceResults[0].invoiceNumber);
                     }
+                }
+                break;
+            }
+
+            case 'charge.refunded': {
+                // Fires on full or partial refund of a charge (via Stripe dashboard or API).
+                // We update depositAmountPence to reflect net money still held, so the CRM
+                // accurately shows current cash position per customer. Original charge
+                // amount can always be recovered from Stripe by looking up the PI.
+                //
+                // Sole writer of depositAmountPence for the refund path — paired with
+                // payment_intent.succeeded above as the only two webhook writers.
+                const charge = event.data.object as any;
+                const piId: string | null = typeof charge.payment_intent === 'string'
+                    ? charge.payment_intent
+                    : charge.payment_intent?.id ?? null;
+
+                if (!piId) {
+                    console.log('[Stripe Webhook] charge.refunded with no payment_intent — skipping');
+                    break;
+                }
+
+                const grossPence = charge.amount ?? 0;
+                const refundedPence = charge.amount_refunded ?? 0;
+                const netPence = Math.max(0, grossPence - refundedPence);
+
+                const quoteResults = await db.select()
+                    .from(personalizedQuotes)
+                    .where(eq(personalizedQuotes.stripePaymentIntentId, piId))
+                    .limit(1);
+
+                if (quoteResults.length > 0) {
+                    const quote = quoteResults[0];
+                    await db.update(personalizedQuotes)
+                        .set({
+                            depositAmountPence: netPence,
+                            refundAmountPence: refundedPence,
+                            refundedAt: new Date(),
+                        })
+                        .where(eq(personalizedQuotes.id, quote.id));
+
+                    console.log(
+                        `[Stripe Webhook] Refund applied to quote ${quote.id} (${quote.customerName}): ` +
+                        `gross £${(grossPence / 100).toFixed(2)} → net £${(netPence / 100).toFixed(2)} ` +
+                        `(refunded £${(refundedPence / 100).toFixed(2)})`
+                    );
+                } else {
+                    console.log(`[Stripe Webhook] charge.refunded for PI ${piId} — no matching quote (may be invoice/v2/manual)`);
                 }
                 break;
             }

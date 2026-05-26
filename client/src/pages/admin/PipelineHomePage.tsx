@@ -1095,6 +1095,18 @@ export default function PipelineHomePage() {
                         queryClient.invalidateQueries({ queryKey: ["pipeline-home-activities"] });
                         queryClient.invalidateQueries({ queryKey: ["pipeline-home-alerts"] });
                     }
+
+                    // Real-time CRM notification when a booking is confirmed (Phase 2)
+                    if (msg.type === 'pipeline:booking_confirmed') {
+                        const d = msg.data || {};
+                        const slotLabel = d.scheduledSlot === 'am' ? 'morning' : d.scheduledSlot === 'pm' ? 'afternoon' : 'all day';
+                        toast({
+                            title: '📅 New booking confirmed',
+                            description: `${d.customerName || 'Customer'} → ${d.contractorName || 'Contractor'} · ${d.scheduledDate || ''} ${slotLabel}`,
+                        });
+                        queryClient.invalidateQueries({ queryKey: ["pipeline-home-tube-map"] });
+                        queryClient.invalidateQueries({ queryKey: ["pipeline-home-activities"] });
+                    }
                 } catch (e) {
                     console.error('[PipelineHome] WebSocket parse error:', e);
                 }

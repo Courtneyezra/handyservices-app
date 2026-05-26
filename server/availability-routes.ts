@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { db } from './db';
-import { contractorAvailabilityDates, handymanAvailability, handymanProfiles, masterAvailability, masterBlockedDates } from '../shared/schema';
-import { eq, and, gte, lte, sql } from 'drizzle-orm';
+import { contractorAvailabilityDates, handymanAvailability, handymanProfiles, masterAvailability, masterBlockedDates, contractorBookingRequests, personalizedQuotes } from '../shared/schema';
+import { eq, and, gte, lte, sql, inArray, or } from 'drizzle-orm';
+import { getTradeForCategory } from '../shared/categories';
+import { findCandidateContractors } from './contractor-matcher';
 import { v4 as uuidv4 } from 'uuid';
 import { requireContractorAuth } from './contractor-auth';
 
@@ -429,8 +431,269 @@ router.post('/weekly', requireContractorAuth, async (req: Request, res: Response
 // Create a separate admin router for master availability
 export const adminAvailabilityRouter = Router();
 
+// GET /api/admin/availability/matrix?from=YYYY-MM-DD&days=14
+// Manual ops dashboard: every contractor with skills (→ broad trades), their
+// date-specific availability overrides, weekly patterns, and bookings
+// (contractorJobs) within a date range. Read-only aggregation; saving reuses
+// PUT /api/admin/contractors/:id/availability.
+adminAvailabilityRouter.get('/matrix', async (req: Request, res: Response) => {
+    try {
+        const days = Math.min(Math.max(parseInt(req.query.days as string) || 14, 1), 42);
+        const fromStr = req.query.from as string | undefined;
+        // Parse 'from' as UTC midnight so a YYYY-MM-DD query returns the SAME
+        // calendar day everywhere (previously setHours() converted to local
+        // midnight, which on UTC+1 viewers landed on the previous UTC day and
+        // caused an off-by-one in the response's echoed `from`).
+        const start = fromStr ? new Date(`${fromStr}T00:00:00.000Z`) : new Date();
+        if (!fromStr) start.setUTCHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setUTCDate(end.getUTCDate() + days);
+        end.setUTCHours(23, 59, 59, 999);
+
+        const profiles = await db.query.handymanProfiles.findMany({
+            with: { user: true, skills: true },
+        });
+        const ids = profiles.map(p => p.id);
+
+        let overrides: any[] = [], jobs: any[] = [], patterns: any[] = [];
+        if (ids.length) {
+            [overrides, jobs, patterns] = await Promise.all([
+                db.select().from(contractorAvailabilityDates).where(and(
+                    inArray(contractorAvailabilityDates.contractorId, ids),
+                    gte(contractorAvailabilityDates.date, start),
+                    lte(contractorAvailabilityDates.date, end),
+                )),
+                db.select().from(contractorBookingRequests).where(and(
+                    or(inArray(contractorBookingRequests.assignedContractorId, ids), inArray(contractorBookingRequests.contractorId, ids)),
+                    gte(contractorBookingRequests.scheduledDate, start),
+                    lte(contractorBookingRequests.scheduledDate, end),
+                )),
+                db.select().from(handymanAvailability).where(
+                    inArray(handymanAvailability.handymanId, ids),
+                ),
+            ]);
+        }
+
+        const toDateStr = (d: Date | string) => new Date(d).toISOString().split('T')[0];
+        const toMin = (t?: string | null): number | null => { if (!t) return null; const [h, m] = t.split(':').map(Number); return (h * 60) + (m || 0); };
+
+        // Source per-job duration from the linked quote's estimated line-item minutes
+        const quoteIds = Array.from(new Set(jobs.map((j: any) => j.quoteId).filter(Boolean)));
+        const quoteMinutes = new Map<string, number>();
+        if (quoteIds.length) {
+            const quoteRows = await db.select({ id: personalizedQuotes.id, lines: personalizedQuotes.pricingLineItems })
+                .from(personalizedQuotes).where(inArray(personalizedQuotes.id, quoteIds as string[]));
+            for (const q of quoteRows) {
+                const lines: any[] = Array.isArray(q.lines) ? (q.lines as any[]) : [];
+                const mins = lines.reduce((s, l) => s + (Number(l?.timeEstimateMinutes) || 0), 0);
+                if (mins > 0) quoteMinutes.set(q.id, mins);
+            }
+        }
+
+        // Classify a time window into am/pm/full so we can subtract booked
+        // slots from overrides for the admin board view. Mirrors the
+        // 08:00/13:00/18:00 convention used by the AM/PM/Full buttons.
+        const classifyWindow = (startT?: string | null, endT?: string | null): 'am' | 'pm' | 'full' | 'other' => {
+            const s = startT || '08:00';
+            const e = endT || '18:00';
+            if (s <= '08:00' && e >= '17:00') return 'full';
+            if (s <= '08:00' && e <= '13:00') return 'am';
+            if (s >= '12:00' && e >= '17:00') return 'pm';
+            return 'other';
+        };
+
+        const contractors = profiles.map(p => {
+            const fullName = [p.user?.firstName, p.user?.lastName].filter(Boolean).join(' ').trim();
+            const trades = Array.from(new Set(
+                (p.skills || [])
+                    .map(s => s.categorySlug ? getTradeForCategory(s.categorySlug as any) : null)
+                    .filter((t): t is NonNullable<typeof t> => Boolean(t))
+            ));
+
+            // Booked slots by date for THIS contractor — used to subtract
+            // already-booked AM/PM windows from the overrides we hand back.
+            const bookedSlotsByDate = new Map<string, Set<'am' | 'pm' | 'full'>>();
+            for (const j of jobs as any[]) {
+                const cid = j.assignedContractorId || j.contractorId;
+                if (cid !== p.id || !j.scheduledDate) continue;
+                const isActive = ['assigned', 'accepted', 'in_progress', 'completed'].includes(j.assignmentStatus) || ['accepted', 'completed'].includes(j.status);
+                if (!isActive) continue;
+                const dateStr = toDateStr(j.scheduledDate);
+                const slot = j.scheduledSlot === 'full_day' ? 'full' : (j.scheduledSlot === 'am' || j.scheduledSlot === 'pm') ? j.scheduledSlot : (j.scheduledStartTime && j.scheduledStartTime >= '12:00' ? 'pm' : 'am');
+                if (!bookedSlotsByDate.has(dateStr)) bookedSlotsByDate.set(dateStr, new Set());
+                bookedSlotsByDate.get(dateStr)!.add(slot as 'am' | 'pm' | 'full');
+            }
+
+            const projectedOverrides: Array<{ date: string; isAvailable: boolean; startTime: string | null; endTime: string | null; notes: string | null }> = [];
+            for (const o of overrides.filter(o => o.contractorId === p.id)) {
+                const dateStr = toDateStr(o.date);
+                const booked = bookedSlotsByDate.get(dateStr) || new Set<'am' | 'pm' | 'full'>();
+                // Off-days and non-AM/PM windows pass through unchanged.
+                if (!o.isAvailable) {
+                    projectedOverrides.push({ date: dateStr, isAvailable: o.isAvailable, startTime: o.startTime, endTime: o.endTime, notes: o.notes });
+                    continue;
+                }
+                if (booked.has('full')) continue; // Whole day consumed → drop override
+                const win = classifyWindow(o.startTime, o.endTime);
+                if (win === 'full') {
+                    const amBlocked = booked.has('am');
+                    const pmBlocked = booked.has('pm');
+                    if (amBlocked && pmBlocked) continue;
+                    if (amBlocked) { projectedOverrides.push({ date: dateStr, isAvailable: true, startTime: '13:00', endTime: '18:00', notes: o.notes }); continue; }
+                    if (pmBlocked) { projectedOverrides.push({ date: dateStr, isAvailable: true, startTime: '08:00', endTime: '13:00', notes: o.notes }); continue; }
+                    projectedOverrides.push({ date: dateStr, isAvailable: true, startTime: o.startTime, endTime: o.endTime, notes: o.notes });
+                } else if (win === 'am') {
+                    if (booked.has('am')) continue;
+                    projectedOverrides.push({ date: dateStr, isAvailable: true, startTime: o.startTime, endTime: o.endTime, notes: o.notes });
+                } else if (win === 'pm') {
+                    if (booked.has('pm')) continue;
+                    projectedOverrides.push({ date: dateStr, isAvailable: true, startTime: o.startTime, endTime: o.endTime, notes: o.notes });
+                } else {
+                    projectedOverrides.push({ date: dateStr, isAvailable: true, startTime: o.startTime, endTime: o.endTime, notes: o.notes });
+                }
+            }
+
+            return {
+                id: p.id,
+                name: fullName || p.businessName || p.user?.email || 'Unknown',
+                postcode: p.postcode || null,
+                availabilityStatus: p.availabilityStatus || 'available',
+                trades,
+                skillCount: (p.skills || []).length,
+                weeklyPatterns: patterns
+                    .filter(pat => pat.handymanId === p.id && pat.isActive && pat.dayOfWeek != null)
+                    .map(pat => ({ dayOfWeek: pat.dayOfWeek as number, startTime: pat.startTime, endTime: pat.endTime })),
+                overrides: projectedOverrides,
+                jobs: jobs
+                    .filter((j: any) => {
+                        const cid = j.assignedContractorId || j.contractorId;
+                        if (cid !== p.id || !j.scheduledDate) return false;
+                        return ['assigned', 'accepted', 'in_progress', 'completed'].includes(j.assignmentStatus) || ['accepted', 'completed'].includes(j.status);
+                    })
+                    .map((j: any) => {
+                        const slot = j.scheduledSlot === 'full_day' ? 'full' : (j.scheduledSlot === 'am' || j.scheduledSlot === 'pm') ? j.scheduledSlot : (j.scheduledStartTime ? (j.scheduledStartTime >= '12:00' ? 'pm' : 'am') : 'full');
+                        const sM = toMin(j.scheduledStartTime), eM = toMin(j.scheduledEndTime);
+                        const durationMinutes = (sM != null && eM != null && eM > sM) ? (eM - sM)
+                            : (j.quoteId && quoteMinutes.get(j.quoteId)) ? (quoteMinutes.get(j.quoteId) as number)
+                                : (j.scheduledSlot === 'full_day' ? 480 : (j.scheduledSlot === 'am' || j.scheduledSlot === 'pm') ? 240 : 120);
+                        const start = j.scheduledStartTime || (slot === 'pm' ? '13:00' : '08:00');
+                        return { date: toDateStr(j.scheduledDate), slot, start, durationMinutes, status: j.assignmentStatus || j.status, customerName: j.customerName, jobDescription: j.description, scheduledTime: j.scheduledStartTime || j.requestedSlot };
+                    }),
+            };
+        });
+
+        res.json({ from: toDateStr(start), days, contractors });
+    } catch (error) {
+        console.error('[AdminAvailability] matrix error:', error);
+        res.status(500).json({ error: 'Failed to load availability matrix' });
+    }
+});
+
 // GET /api/admin/availability/master
 // Get master weekly pattern settings
+// GET /api/admin/availability/fit?categories=a,b&lat=..&lng=..&days=14
+// Quote-builder INFORM panel: which contractors FIT (skill coverage + within
+// service radius of the customer) for these job categories, and their available
+// days. Read-only — reuses findCandidateContractors; does NOT drive customer dates.
+adminAvailabilityRouter.get('/fit', async (req: Request, res: Response) => {
+    try {
+        const categorySlugs = ((req.query.categories as string) || '')
+            .split(',').map(c => c.trim()).filter(Boolean);
+        const latRaw = req.query.lat ? parseFloat(req.query.lat as string) : NaN;
+        const lngRaw = req.query.lng ? parseFloat(req.query.lng as string) : NaN;
+        const days = Math.min(Math.max(parseInt(req.query.days as string) || 14, 1), 42);
+
+        const start = new Date();
+        start.setUTCHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setUTCDate(start.getUTCDate() + days);
+        const dateKey = (d: Date | string) => new Date(d).toISOString().split('T')[0];
+
+        if (categorySlugs.length === 0) {
+            return res.json({ candidates: [], fullCoverageCandidates: 0, partialCoverageCandidates: 0, uncoveredCategories: [], from: dateKey(start), days });
+        }
+
+        const match = await findCandidateContractors({
+            categorySlugs,
+            customerLat: !isNaN(latRaw) ? latRaw : undefined,
+            customerLng: !isNaN(lngRaw) ? lngRaw : undefined,
+        });
+
+        const ids = match.candidates.map(c => c.contractorId);
+        let overrides: any[] = [], jobs: any[] = [], patterns: any[] = [];
+        if (ids.length) {
+            [overrides, jobs, patterns] = await Promise.all([
+                db.select().from(contractorAvailabilityDates).where(and(
+                    inArray(contractorAvailabilityDates.contractorId, ids),
+                    gte(contractorAvailabilityDates.date, start),
+                    lte(contractorAvailabilityDates.date, end),
+                )),
+                db.select().from(contractorBookingRequests).where(and(
+                    or(inArray(contractorBookingRequests.assignedContractorId, ids), inArray(contractorBookingRequests.contractorId, ids)),
+                    gte(contractorBookingRequests.scheduledDate, start),
+                    lte(contractorBookingRequests.scheduledDate, end),
+                )),
+                db.select().from(handymanAvailability).where(inArray(handymanAvailability.handymanId, ids)),
+            ]);
+        }
+
+        const slotOf = (o: any): string => {
+            if (o.startTime === '08:00' && o.endTime === '13:00') return 'am';
+            if (o.startTime === '13:00' && o.endTime === '18:00') return 'pm';
+            return 'full';
+        };
+
+        const candidates = match.candidates.map(cand => {
+            const id = cand.contractorId;
+            const cOverrides = overrides.filter(o => o.contractorId === id);
+            const booked = new Set(jobs
+                .filter((j: any) => {
+                    const cid = j.assignedContractorId || j.contractorId;
+                    if (cid !== id || !j.scheduledDate) return false;
+                    return ['assigned', 'accepted', 'in_progress', 'completed'].includes(j.assignmentStatus) || ['accepted', 'completed'].includes(j.status);
+                })
+                .map((j: any) => dateKey(j.scheduledDate)));
+            const cPatterns = patterns.filter(p => p.handymanId === id && p.isActive && p.dayOfWeek != null);
+
+            const availableDays: { date: string; slot: string }[] = [];
+            for (let i = 0; i < days; i++) {
+                const d = new Date(start);
+                d.setUTCDate(start.getUTCDate() + i);
+                const ds = dateKey(d);
+                if (booked.has(ds)) continue;
+                const ov = cOverrides.find(o => dateKey(o.date) === ds);
+                if (ov) {
+                    if (ov.isAvailable) availableDays.push({ date: ds, slot: slotOf(ov) });
+                } else {
+                    const pat = cPatterns.find(p => p.dayOfWeek === d.getUTCDay());
+                    if (pat) availableDays.push({ date: ds, slot: 'full' });
+                }
+            }
+
+            return {
+                contractorId: id,
+                name: cand.contractorName,
+                distanceMiles: cand.distanceMiles != null ? Math.round(cand.distanceMiles * 10) / 10 : null,
+                coveragePercent: cand.coveragePercent,
+                coveredCategories: cand.coveredCategories,
+                availableDays,
+            };
+        });
+
+        res.json({
+            candidates,
+            fullCoverageCandidates: match.fullCoverageCandidates,
+            partialCoverageCandidates: match.partialCoverageCandidates,
+            uncoveredCategories: match.uncoveredCategories,
+            from: dateKey(start),
+            days,
+        });
+    } catch (error) {
+        console.error('[AdminAvailability] fit error:', error);
+        res.status(500).json({ error: 'Failed to compute contractor fit' });
+    }
+});
+
 adminAvailabilityRouter.get('/master', async (req: Request, res: Response) => {
     try {
         const patterns = await db.select()
