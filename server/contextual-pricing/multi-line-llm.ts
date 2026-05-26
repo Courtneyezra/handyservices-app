@@ -22,6 +22,7 @@ import type {
   QuoteMessaging,
 } from '@shared/contextual-pricing-types';
 import { getLayoutTier } from '@shared/contextual-pricing-types';
+import { getPricingConfig } from '@shared/pricing-models';
 
 // ---------------------------------------------------------------------------
 // Approved Claims & Banned Phrases
@@ -99,7 +100,8 @@ function buildSystemPrompt(
   lineReferences: LineReference[],
   approvedClaims?: string[],
 ): string {
-  // Build per-line reference rate block
+  // Build per-line reference rate block — now pricing-model-aware so the LLM
+  // doesn't inflate time on fixed-fee categories to bump the price.
   const lineRateLines = lineReferences
     .map((ref, i) => {
       const line = request.lines[i];
@@ -107,7 +109,21 @@ function buildSystemPrompt(
       const hourlyPounds = (ref.hourlyRatePence / 100).toFixed(2);
       const lowPounds = (ref.marketRange.lowPence / 100).toFixed(2);
       const highPounds = (ref.marketRange.highPence / 100).toFixed(2);
-      return `  Line "${ref.lineId}" (${ref.category}): Reference £${refPounds} (${ref.referencePricePence}p), hourly £${hourlyPounds}/hr, market range £${lowPounds}–£${highPounds}/hr, est ${line.timeEstimateMinutes}min`;
+      const cfg = getPricingConfig(ref.category);
+      let modelHint = '';
+      if (cfg.model === 'fixed') {
+        if (cfg.fixedTiers && cfg.fixedTiers.length > 0) {
+          const tiers = cfg.fixedTiers.map(t => `${t.label} £${(t.pricePence/100).toFixed(0)} (${t.scheduleMinutes}min)`).join(' / ');
+          modelHint = ` ⟶ FIXED-FEE category (${cfg.unitLabel || 'unit'}). Tiers: ${tiers}. Price by tier, NOT by time × rate. Use minutes only as a scheduling honest estimate.`;
+        } else if (cfg.referenceUnitPricePence) {
+          modelHint = ` ⟶ FIXED-FEE category (per ${cfg.unitLabel || 'visit'}). Base £${(cfg.referenceUnitPricePence/100).toFixed(0)}, base time ${cfg.minutesPerUnit || 60}min. Price as a fixed fee, NOT time × rate.`;
+        }
+      } else if (cfg.model === 'per_unit') {
+        modelHint = ` ⟶ PER-UNIT category (per ${cfg.unitLabel || 'item'}). Base £${(cfg.referenceUnitPricePence!/100).toFixed(0)}/unit, ${cfg.minutesPerUnit}min/unit. Count units from the description; price = units × unit price.`;
+      } else {
+        modelHint = ` ⟶ TIME-BASED category. Price = time × hourly rate + premiums.`;
+      }
+      return `  Line "${ref.lineId}" (${ref.category}): Reference £${refPounds} (${ref.referencePricePence}p), hourly £${hourlyPounds}/hr, market range £${lowPounds}–£${highPounds}/hr, est ${line.timeEstimateMinutes}min${modelHint}`;
     })
     .join('\n');
 
@@ -132,6 +148,25 @@ OWNER'S PRICING EXPERIENCE (real Nottingham prices that customers accepted):
 - Painting (single room touch-up): 2-3hrs, £100-150
 - Tiling (small area, <2sqm): 2hrs, £120-160
 - Pressure washing (driveway): 2-3hrs, £100-150
+
+PRICING MODELS — apply these BEFORE signal premiums:
+
+  • TIME-BASED categories (painting, plumbing_minor, carpentry, tiling, plastering,
+    fencing, garden_maintenance, bathroom_fitting, kitchen_fitting, flooring,
+    general_fixing, electrical_minor, other):
+      price = realistic_time_minutes × hourly_rate + signal_premiums
+      DO NOT inflate time to push price up — use the realistic working time.
+
+  • PER-UNIT categories (tv_mounting, flat_pack, shelving, curtain_blinds,
+    silicone_sealant, door_fitting, furniture_repair):
+      Count the units from the description (e.g. "2 cupboards" = 2, "shelves" = count them).
+      price = unit_count × per_unit_reference_price + signal_premiums
+      Scheduling time = unit_count × minutes_per_unit (NOT inflated).
+
+  • FIXED-FEE categories (waste_removal, lock_change, guttering, pressure_washing):
+      Price by FIXED FEE (or the closest van-load / property-size tier shown above).
+      DO NOT compute price = time × rate — the value is in the call-out + disposal,
+      not the labour minutes. Schedule time reflects the real on-site time only.
 
 SIGNAL-BASED PRICING RULES — how each signal should influence the price:
 - urgency: emergency → 30-50% premium, priority → 10-20% premium
