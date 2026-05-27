@@ -848,6 +848,70 @@ function ContractorFitPanel({
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 20 — structured Customer Context
+// Replaces the freeform `vaContext` textarea + recording with a small set of
+// dropdowns/chips. `buildStructuredVaContext` (inside the component) composes
+// the legacy vaContext string from these fields so the LLM keeps the same
+// signal shape it always had.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CUSTOMER_TYPES = [
+  { value: 'homeowner', label: 'Homeowner', emoji: '🏠' },
+  { value: 'landlord', label: 'Landlord', emoji: '🔑' },
+  { value: 'property_manager', label: 'Property Manager', emoji: '🏢' },
+  { value: 'tenant', label: 'Tenant', emoji: '👤' },
+  { value: 'business', label: 'Business / Commercial', emoji: '💼' },
+  { value: 'letting_agent', label: 'Letting Agent', emoji: '🗂️' },
+] as const;
+type CustomerType = (typeof CUSTOMER_TYPES)[number]['value'];
+
+const URGENCY_OPTIONS = [
+  { value: 'standard' as const, label: 'Standard', helper: 'This week' },
+  { value: 'priority' as const, label: 'Priority', helper: 'Next 48h' },
+  { value: 'emergency' as const, label: 'Emergency', helper: 'Today' },
+];
+
+// Nottingham postcode prefix → human area label. The local business serves
+// these postcodes most often; outside the NG range we fall back to the raw
+// prefix so the LLM still gets a meaningful hint.
+const POSTCODE_AREA: Record<string, string> = {
+  NG1: 'Nottingham city centre',
+  NG2: 'West Bridgford / The Meadows',
+  NG3: 'Mapperley / Sneinton',
+  NG4: 'Carlton / Gedling',
+  NG5: 'Sherwood / Bestwood',
+  NG6: 'Bulwell / Bestwood Village',
+  NG7: 'Lenton / Radford / Hyson Green',
+  NG8: 'Aspley / Bilborough / Wollaton',
+  NG9: 'Beeston / Chilwell / Stapleford',
+  NG10: 'Long Eaton / Sandiacre',
+  NG11: 'Clifton / Ruddington',
+  NG12: 'Cotgrave / Keyworth / Radcliffe',
+  NG13: 'Bingham',
+  NG14: 'Calverton / Lowdham',
+  NG15: 'Hucknall',
+  NG16: 'Eastwood / Kimberley',
+  NG17: 'Sutton-in-Ashfield / Kirkby',
+  NG18: 'Mansfield',
+  NG19: 'Mansfield Woodhouse',
+  NG20: 'Warsop / Cuckney',
+  NG21: 'Rainworth / Edwinstowe',
+  NG22: 'Tuxford / Ollerton',
+  NG23: 'Newark area',
+  NG24: 'Newark',
+  NG25: 'Southwell',
+};
+
+function postcodeToArea(postcode: string | null | undefined): string | null {
+  if (!postcode) return null;
+  const trimmed = postcode.trim().toUpperCase();
+  if (!trimmed) return null;
+  const prefix = trimmed.match(/^[A-Z]{1,2}\d{1,2}/)?.[0] || null;
+  if (!prefix) return null;
+  return POSTCODE_AREA[prefix] || `${prefix} area`;
+}
+
 export default function GenerateContextualQuote() {
   const { toast } = useToast();
 
@@ -877,11 +941,12 @@ export default function GenerateContextualQuote() {
   });
 
   // ── VA Context ──
-  const [vaContext, setVaContext] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingError, setRecordingError] = useState<string | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  // Phase 20 — structured customer context replaces the freeform vaContext
+  // textarea + recording. The LLM still receives a vaContext string at
+  // submit time, but it's composed deterministically from these fields
+  // (see `buildStructuredVaContext` below) so similar customers across
+  // similar jobs produce comparable AI output.
+  const [customerType, setCustomerType] = useState<CustomerType | ''>('');
 
   // ── Property context (Phase 4b — drives scheduling math, not pricing) ──
   const [floorNumber, setFloorNumber] = useState<number | null>(null);
@@ -908,13 +973,6 @@ export default function GenerateContextualQuote() {
   const [aiSuggestionsLoading, setAiSuggestionsLoading] = useState(false);
   const aiSuggestionsAbortRef = useRef<AbortController | null>(null);
   const aiSuggestionsLastKeyRef = useRef<string>('');
-
-  // ── Behavioural signals ──
-  const [behavioralSignals, setBehavioralSignals] = useState({
-    isCommercialPremises: false,
-    wontBePresent: false,
-    priceConscious: false,
-  });
 
   // ── Contractor assignment ──
   const [selectedContractorId, setSelectedContractorId] = useState<string | null>(null);
@@ -1001,25 +1059,30 @@ export default function GenerateContextualQuote() {
     }
   }, []);
 
-  // Debounced effect: re-fetch live preview when line items, signals, or context change
+  // Phase 20 — derive the legacy `vaContext` string from structured fields.
+  // The contextual-pricing engine + AI-polish endpoints still expect a single
+  // string; this is the only place that string gets assembled now.
+  const buildStructuredVaContext = useCallback((): string | undefined => {
+    const ct = CUSTOMER_TYPES.find((t) => t.value === customerType);
+    const area = postcodeToArea(postcode);
+    const parts: string[] = [];
+    if (ct) parts.push(`Customer type: ${ct.label}`);
+    if (area) parts.push(`Area: ${area}`);
+    if (signals.urgency !== 'standard') parts.push(`Urgency: ${signals.urgency}`);
+    return parts.length ? parts.join('. ') + '.' : undefined;
+  }, [customerType, postcode, signals.urgency]);
+
+  // Debounced effect: re-fetch live preview when line items, signals, or
+  // structured context change.
   useEffect(() => {
     if (livePreviewTimerRef.current) clearTimeout(livePreviewTimerRef.current);
     livePreviewTimerRef.current = setTimeout(() => {
-      const behavioralNotes = [
-        behavioralSignals.isCommercialPremises ? 'commercial premises' : '',
-        behavioralSignals.wontBePresent ? "customer won't be present" : '',
-        behavioralSignals.priceConscious ? 'customer seemed price-conscious' : '',
-      ].filter(Boolean).join(', ');
-      const enrichedVaContext = [
-        vaContext.trim(),
-        behavioralNotes ? `Additional notes: ${behavioralNotes}` : '',
-      ].filter(Boolean).join('\n') || undefined;
-      fetchLivePreview(lineItems, signals, enrichedVaContext);
+      fetchLivePreview(lineItems, signals, buildStructuredVaContext());
     }, 600);
     return () => {
       if (livePreviewTimerRef.current) clearTimeout(livePreviewTimerRef.current);
     };
-  }, [lineItems, signals, vaContext, behavioralSignals, fetchLivePreview]);
+  }, [lineItems, signals, buildStructuredVaContext, fetchLivePreview]);
 
   // ── AI extras suggestions: fired when lineItems / vaContext stabilise ──
   // Phase 16 — catalog-driven suggested extras (replaces the LLM call).
@@ -1343,7 +1406,7 @@ export default function GenerateContextualQuote() {
   // Auto-draft a "what's included" detail for a line — called after polish succeeds.
   // Only runs if the line's `details` field is currently empty (so we don't
   // overwrite anything the user typed manually).
-  const autoDraftLineDetail = useCallback(async (id: string, polishedTitle: string, category: JobCategory, currentVaContext: string) => {
+  const autoDraftLineDetail = useCallback(async (id: string, polishedTitle: string, category: JobCategory, currentVaContext?: string) => {
     // Skip if we've already attempted a draft for this line
     if (draftedDetailIds.current.has(id)) return;
     draftedDetailIds.current.add(id);
@@ -1450,10 +1513,10 @@ export default function GenerateContextualQuote() {
       if (!hasManualDetail) {
         const currentCategory = (line?.category ?? 'general_fixing') as JobCategory;
         draftedDetailIds.current.delete(id);
-        autoDraftLineDetail(id, polishedFinal, currentCategory, vaContext);
+        autoDraftLineDetail(id, polishedFinal, currentCategory, buildStructuredVaContext());
       }
     }
-  }, [handleUpdateLineItem, autoDraftLineDetail, lineItems, vaContext, showLineDetails]);
+  }, [handleUpdateLineItem, autoDraftLineDetail, lineItems, buildStructuredVaContext, showLineDetails]);
 
   // Polish a manually-edited detail textarea on blur (mirrors title polish behaviour).
   const handlePolishDetail = useCallback(async (id: string, detail: string) => {
@@ -1497,47 +1560,10 @@ export default function GenerateContextualQuote() {
     parseJobMutation.mutate(jobDescription.trim());
   };
 
-  const handleToggleRecording = async () => {
-    if (isRecording) {
-      mediaRecorderRef.current?.stop();
-      setIsRecording(false);
-      return;
-    }
-
-    try {
-      setRecordingError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const formData = new FormData();
-        formData.append('audio', audioBlob, 'context.webm');
-
-        try {
-          const res = await fetch('/api/transcribe', { method: 'POST', body: formData });
-          const data = await res.json();
-          if (data.text) {
-            setVaContext(prev => prev ? `${prev} ${data.text}` : data.text);
-          }
-        } catch {
-          setRecordingError('Transcription failed — type it instead');
-        }
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-    } catch {
-      setRecordingError('Microphone access needed — type it instead');
-    }
-  };
+  // Phase 20 — voice recording removed. Customer context is now structured
+  // (customerType + auto-derived area + urgency), so there's no freeform
+  // textarea to transcribe into. The /api/transcribe endpoint still exists
+  // but is no longer called from this page.
 
   const handleGenerate = () => {
     if (!customerName.trim()) {
@@ -1566,19 +1592,8 @@ export default function GenerateContextualQuote() {
       setSignals((prev) => ({ ...prev, materialsSupply: 'we_supply' }));
     }
 
-    // Build enriched vaContext combining typed/spoken context with VA checkbox signals
-    const behavioralNotes = [
-      behavioralSignals.isCommercialPremises ? 'commercial premises' : '',
-      behavioralSignals.wontBePresent ? "customer won't be present" : '',
-      behavioralSignals.priceConscious ? 'customer seemed price-conscious' : '',
-    ].filter(Boolean).join(', ');
-
-    const enrichedVaContext = [
-      vaContext.trim(),
-      behavioralNotes ? `Additional notes: ${behavioralNotes}` : '',
-    ].filter(Boolean).join('\n') || undefined;
-
-    createQuoteMutation.mutate(enrichedVaContext);
+    // Phase 20 — vaContext is now built deterministically from structured fields.
+    createQuoteMutation.mutate(buildStructuredVaContext());
   };
 
   const handleCopyMessage = () => {
@@ -1633,10 +1648,7 @@ export default function GenerateContextualQuote() {
     setLineItems([]);
     setSelectedCallerId(null);
     setSelectedContractorId(null);
-    setVaContext('');
-    setIsRecording(false);
-    setRecordingError(null);
-    setBehavioralSignals({ isCommercialPremises: false, wontBePresent: false, priceConscious: false });
+    setCustomerType('');
     setAvailableDates([]);
     setDatePickerMonth(new Date());
     setOptionalExtras([]);
@@ -1763,11 +1775,51 @@ export default function GenerateContextualQuote() {
                       placeholder="NG1 1AA"
                       className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     />
-                    {coordinates && (
-                      <p className="text-muted-foreground text-[10px] mt-0.5">
-                        📍 {coordinates.lat.toFixed(4)}, {coordinates.lng.toFixed(4)}
+                    {/* Auto-derived area pill — drives the LLM context without manual entry. */}
+                    {postcodeToArea(postcode) && (
+                      <p className="text-handy-yellow text-[10px] mt-1 font-semibold">
+                        📍 {postcodeToArea(postcode)}
                       </p>
                     )}
+                  </div>
+                </div>
+
+                {/* ── Phase 20 — Structured Customer Context ── */}
+                <div className="space-y-3 pt-2 border-t border-handy-grid/60">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Customer type *</Label>
+                    <Select value={customerType} onValueChange={(v) => setCustomerType(v as CustomerType)}>
+                      <SelectTrigger className="mt-1 h-10">
+                        <SelectValue placeholder="Pick one…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CUSTOMER_TYPES.map((t) => (
+                          <SelectItem key={t.value} value={t.value} className="text-sm">
+                            <span className="flex items-center gap-2"><span>{t.emoji}</span>{t.label}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Urgency</Label>
+                    <div className="mt-1 grid grid-cols-3 gap-1.5">
+                      {URGENCY_OPTIONS.map((opt) => (
+                        <button
+                          type="button"
+                          key={opt.value}
+                          onClick={() => setSignals((prev) => ({ ...prev, urgency: opt.value }))}
+                          className={`h-12 px-2 rounded-md border text-xs font-semibold transition-[transform,background-color,border-color,color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] ${
+                            signals.urgency === opt.value
+                              ? 'bg-handy-navy text-white border-handy-navy shadow-sm'
+                              : 'bg-white text-handy-navy/70 border-handy-grid hover:border-handy-navy/40 hover:text-handy-navy'
+                          }`}
+                        >
+                          <div>{opt.label}</div>
+                          <div className={`text-[9px] font-normal mt-0.5 ${signals.urgency === opt.value ? 'text-handy-yellow' : 'text-handy-muted/70'}`}>{opt.helper}</div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -1797,7 +1849,7 @@ export default function GenerateContextualQuote() {
                             for (const li of lineItems) {
                               if (!li.details && li.description.trim().length >= 5) {
                                 draftedDetailIds.current.delete(li.id);
-                                autoDraftLineDetail(li.id, li.description, li.category, vaContext);
+                                autoDraftLineDetail(li.id, li.description, li.category, buildStructuredVaContext());
                               }
                             }
                           }
@@ -1898,7 +1950,7 @@ export default function GenerateContextualQuote() {
                                       // Clear the once-per-line guard + the current detail, then re-draft
                                       draftedDetailIds.current.delete(item.id);
                                       handleUpdateLineItem(item.id, 'details', '');
-                                      autoDraftLineDetail(item.id, item.description, item.category, vaContext);
+                                      autoDraftLineDetail(item.id, item.description, item.category, buildStructuredVaContext());
                                     }}
                                     className="text-muted-foreground/60 hover:text-handy-yellow disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                                   >
@@ -2450,59 +2502,10 @@ export default function GenerateContextualQuote() {
 
             {/* Old Section 4 removed — line items now in unified Jobs section above */}
 
-            {/* ─── Section 4b: VA Context ─── */}
-            <Card className="overflow-hidden border-handy-grid shadow-sm">
-              <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
-                <CardTitle className="text-base font-bold text-white tracking-tight">Customer Context</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <p className="text-xs text-handy-muted">Speak or type — who are they, what's their situation</p>
-
-                  {/* Record button */}
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={handleToggleRecording}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        isRecording
-                          ? 'bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse'
-                          : 'bg-handy-bg text-handy-navy border border-handy-grid hover:border-handy-navy/40'
-                      }`}
-                    >
-                      <span>{isRecording ? '⏹ Stop' : '🎙 Record'}</span>
-                      {isRecording && <span className="text-xs">Recording...</span>}
-                    </button>
-                    {recordingError && (
-                      <span className="text-xs text-red-400 self-center">{recordingError}</span>
-                    )}
-                  </div>
-
-                  {/* Text area */}
-                  <textarea
-                    value={vaContext}
-                    onChange={(e) => setVaContext(e.target.value)}
-                    placeholder="e.g. Sarah's a landlord, rental in Beeston, tenant flagged a dripping tap. She won't be there, relaxed about timing, asked about price briefly but didn't push back."
-                    className="w-full h-24 bg-white border border-handy-grid rounded-lg px-3 py-2 text-sm text-handy-navy placeholder-handy-muted/50 resize-none focus:outline-none focus:border-handy-yellow"
-                  />
-
-                  {/* Context quality indicator */}
-                  {vaContext.trim().length > 0 && (
-                    <div className={`flex items-center gap-2 text-xs ${
-                      vaContext.trim().length < 50 ? 'text-handy-yellow' :
-                      vaContext.trim().length < 120 ? 'text-lime-400' :
-                      'text-emerald-400'
-                    }`}>
-                      <span>{
-                        vaContext.trim().length < 50 ? '○ Thin context — add more if you can' :
-                        vaContext.trim().length < 120 ? '◑ Good context' :
-                        '● Rich context — great'
-                      }</span>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+            {/* Phase 20 — Customer Context card removed. Structured signals
+                (customer type / area / urgency) now live inside Customer
+                Details above; the legacy vaContext string is composed
+                deterministically at submit time. */}
 
             {/* ─── Section 4c: Property Context (Phase 4b — drives scheduling, not pricing) ─── */}
             <Card className="overflow-hidden border-handy-grid shadow-sm">
