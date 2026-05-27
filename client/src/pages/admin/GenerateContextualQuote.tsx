@@ -2457,12 +2457,7 @@ export default function GenerateContextualQuote() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-handy-navy">
-                      Customer Context
-                    </label>
-                    <span className="text-xs text-handy-muted">Speak or type — who are they, what's their situation</span>
-                  </div>
+                  <p className="text-xs text-handy-muted">Speak or type — who are they, what's their situation</p>
 
                   {/* Record button */}
                   <div className="flex gap-2">
