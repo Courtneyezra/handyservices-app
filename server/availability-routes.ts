@@ -202,6 +202,7 @@ router.post('/toggle', requireContractorAuth, async (req: Request, res: Response
 
         if (existing.length > 0) {
             // Update
+            console.log(`[CONTRACTOR_WRITE_DBG] UPDATE cid=${contractorId} date=${targetDate.toISOString()} mode=${mode} isAvail=${finalIsAvailable} ${startTime ?? '—'}-${endTime ?? '—'} rowId=${existing[0].id}`);
             await db.update(contractorAvailabilityDates)
                 .set({
                     isAvailable: finalIsAvailable,
@@ -211,6 +212,7 @@ router.post('/toggle', requireContractorAuth, async (req: Request, res: Response
                 .where(eq(contractorAvailabilityDates.id, existing[0].id));
         } else {
             // Insert
+            console.log(`[CONTRACTOR_WRITE_DBG] INSERT cid=${contractorId} date=${targetDate.toISOString()} mode=${mode} isAvail=${finalIsAvailable} ${startTime ?? '—'}-${endTime ?? '—'}`);
             await db.insert(contractorAvailabilityDates).values({
                 id: uuidv4(),
                 contractorId,
@@ -450,6 +452,8 @@ adminAvailabilityRouter.get('/matrix', async (req: Request, res: Response) => {
         const end = new Date(start);
         end.setUTCDate(end.getUTCDate() + days);
         end.setUTCHours(23, 59, 59, 999);
+        // [MATRIX_DBG] Phase 22a boundary log — remove once availability divergence is fixed.
+        console.log(`[MATRIX_DBG] window from=${start.toISOString()} to=${end.toISOString()} days=${days}`);
 
         const profiles = await db.query.handymanProfiles.findMany({
             with: { user: true, skills: true },
@@ -548,6 +552,26 @@ adminAvailabilityRouter.get('/matrix', async (req: Request, res: Response) => {
             travelByContractor.set(cid, lookup);
         }));
 
+        // [MATRIX_DBG] Per-contractor summary so we can diff against /fit
+        for (const p of profiles) {
+            const oCount = overrides.filter(o => o.contractorId === p.id).length;
+            const jCount = jobs.filter((j: any) => (j.assignedContractorId || j.contractorId) === p.id).length;
+            const pCount = patterns.filter(pat => pat.handymanId === p.id && pat.isActive).length;
+            if (oCount + jCount + pCount > 0) {
+                console.log(`[MATRIX_DBG] cid=${p.id} name="${[p.user?.firstName, p.user?.lastName].filter(Boolean).join(' ').trim() || p.businessName}" overrides=${oCount} jobs=${jCount} patterns=${pCount}`);
+                if (oCount > 0) {
+                    for (const o of overrides.filter(o => o.contractorId === p.id)) {
+                        console.log(`[MATRIX_DBG]   ovr ${toDateStr(o.date)} avail=${o.isAvailable} ${o.startTime ?? '—'}-${o.endTime ?? '—'}`);
+                    }
+                }
+                if (jCount > 0) {
+                    for (const j of jobs.filter((j: any) => (j.assignedContractorId || j.contractorId) === p.id)) {
+                        console.log(`[MATRIX_DBG]   job ${toDateStr(j.scheduledDate)} slot=${j.scheduledSlot} assignStatus=${j.assignmentStatus} status=${j.status}`);
+                    }
+                }
+            }
+        }
+
         const contractors = profiles.map(p => {
             const fullName = [p.user?.firstName, p.user?.lastName].filter(Boolean).join(' ').trim();
             const trades = Array.from(new Set(
@@ -626,7 +650,11 @@ adminAvailabilityRouter.get('/fit', async (req: Request, res: Response) => {
         end.setUTCDate(start.getUTCDate() + days);
         const dateKey = (d: Date | string) => new Date(d).toISOString().split('T')[0];
 
+        // [FIT_DBG] Phase 22a boundary log
+        console.log(`[FIT_DBG] window from=${start.toISOString()} to=${end.toISOString()} days=${days} categories=${categorySlugs.join(',')} lat=${latRaw} lng=${lngRaw}`);
+
         if (categorySlugs.length === 0) {
+            console.log('[FIT_DBG] no categories — short-circuit empty');
             return res.json({ candidates: [], fullCoverageCandidates: 0, partialCoverageCandidates: 0, uncoveredCategories: [], from: dateKey(start), days });
         }
 
@@ -672,20 +700,36 @@ adminAvailabilityRouter.get('/fit', async (req: Request, res: Response) => {
                 .map((j: any) => dateKey(j.scheduledDate)));
             const cPatterns = patterns.filter(p => p.handymanId === id && p.isActive && p.dayOfWeek != null);
 
+            // [FIT_DBG] Per-candidate inputs
+            console.log(`[FIT_DBG] cand=${id} name="${cand.contractorName}" overrides=${cOverrides.length} bookedDates=${[...booked].join(',') || '—'} patterns=${cPatterns.length}`);
+            for (const o of cOverrides) {
+                console.log(`[FIT_DBG]   ovr ${dateKey(o.date)} avail=${o.isAvailable} ${o.startTime ?? '—'}-${o.endTime ?? '—'}`);
+            }
+
             const availableDays: { date: string; slot: string }[] = [];
             for (let i = 0; i < days; i++) {
                 const d = new Date(start);
                 d.setUTCDate(start.getUTCDate() + i);
                 const ds = dateKey(d);
-                if (booked.has(ds)) continue;
+                if (booked.has(ds)) { console.log(`[FIT_DBG]   skip ${ds} reason=booked`); continue; }
                 const ov = cOverrides.find(o => dateKey(o.date) === ds);
                 if (ov) {
-                    if (ov.isAvailable) availableDays.push({ date: ds, slot: slotOf(ov) });
+                    if (ov.isAvailable) {
+                        availableDays.push({ date: ds, slot: slotOf(ov) });
+                        console.log(`[FIT_DBG]   keep ${ds} reason=override slot=${slotOf(ov)}`);
+                    } else {
+                        console.log(`[FIT_DBG]   skip ${ds} reason=override-off`);
+                    }
                 } else {
                     const pat = cPatterns.find(p => p.dayOfWeek === d.getUTCDay());
-                    if (pat) availableDays.push({ date: ds, slot: 'full' });
+                    if (pat) {
+                        availableDays.push({ date: ds, slot: 'full' });
+                        console.log(`[FIT_DBG]   keep ${ds} reason=pattern dow=${d.getUTCDay()}`);
+                    }
+                    // else: silently skip (no override, no pattern) — too noisy to log every empty day
                 }
             }
+            console.log(`[FIT_DBG] cand=${id} final availableDays=${availableDays.map(a => a.date + '/' + a.slot).join(',') || '∅'}`);
 
             return {
                 contractorId: id,

@@ -536,6 +536,8 @@ router.put('/:id/availability', async (req: Request, res: Response) => {
             full_day: { startTime: SLOT_TIMES.full_day.start, endTime: SLOT_TIMES.full_day.end },
         };
 
+        // [ADMIN_WRITE_DBG] Phase 22a boundary log
+        console.log(`[ADMIN_WRITE_DBG] PUT cid=${id} entries=${dates.length}`);
         const created = [];
         for (const entry of dates) {
             const { date, slot, isAvailable, notes } = entry;
@@ -547,16 +549,18 @@ router.put('/:id/availability', async (req: Request, res: Response) => {
             // day rather than create duplicates regardless of stored time-of-day).
             const dayStart = new Date(dateObj); dayStart.setUTCHours(0, 0, 0, 0);
             const dayEnd = new Date(dayStart); dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
-            await db.delete(contractorAvailabilityDates).where(
+            console.log(`[ADMIN_WRITE_DBG]   entry date=${date} parsedAs=${dateObj.toISOString()} slot=${slot} isAvailable=${isAvailable} dayRange=${dayStart.toISOString()}..${dayEnd.toISOString()}`);
+            const deleted = await db.delete(contractorAvailabilityDates).where(
                 and(
                     eq(contractorAvailabilityDates.contractorId, id),
                     gte(contractorAvailabilityDates.date, dayStart),
                     lt(contractorAvailabilityDates.date, dayEnd),
                 )
-            );
+            ).returning({ id: contractorAvailabilityDates.id });
+            console.log(`[ADMIN_WRITE_DBG]   deleted rows=${deleted.length} (${deleted.map(r => r.id).join(',') || '—'})`);
 
             // 'off' = remove the day's override (revert to none); don't insert a row
-            if (slot === 'off') continue;
+            if (slot === 'off') { console.log(`[ADMIN_WRITE_DBG]   slot=off → no insert`); continue; }
 
             const record = {
                 id: uuidv4(),
@@ -569,6 +573,7 @@ router.put('/:id/availability', async (req: Request, res: Response) => {
             };
 
             await db.insert(contractorAvailabilityDates).values(record);
+            console.log(`[ADMIN_WRITE_DBG]   inserted ${record.id} date=${record.date.toISOString()} ${record.startTime}-${record.endTime}`);
             created.push(record);
         }
 
