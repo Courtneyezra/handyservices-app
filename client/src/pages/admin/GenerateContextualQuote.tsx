@@ -1882,17 +1882,6 @@ export default function GenerateContextualQuote() {
             </Card>
 
             {/* ─── Phase 21 — context-driven warnings ─── */}
-            {signals.urgency === 'emergency' && (
-              <div className="rounded-lg border-2 border-red-500 bg-red-50 px-4 py-3 flex items-start gap-3 shadow-sm">
-                <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                <div className="min-w-0">
-                  <div className="font-bold text-red-700 text-sm">Emergency booking</div>
-                  <div className="text-xs text-red-700/90 mt-0.5">
-                    Pricing will use the emergency band. Confirm a same-day contractor in the fit panel before sending — emergencies that miss SLA hurt our review average.
-                  </div>
-                </div>
-              </div>
-            )}
             {customerType === 'tenant' && (
               <div className="rounded-lg border-2 border-handy-yellow bg-handy-cream px-4 py-3 flex items-start gap-3 shadow-sm">
                 <AlertTriangle className="w-5 h-5 text-handy-yellow shrink-0 mt-0.5" />
