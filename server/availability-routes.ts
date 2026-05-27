@@ -664,6 +664,19 @@ adminAvailabilityRouter.get('/fit', async (req: Request, res: Response) => {
             customerLng: !isNaN(lngRaw) ? lngRaw : undefined,
         });
 
+        // Phase 22b — the fit panel must only show contractors who cover EVERY
+        // requested category. Partial-coverage candidates can't complete the
+        // full job, so leaking them through would let the admin assign work
+        // that can't be delivered. Partial counts + uncoveredCategories are
+        // still returned so the UI can surface "no one covers X, split the
+        // quote" guidance.
+        const fullCoverageOnly = match.candidates.filter((c) => c.coveragePercent === 100);
+        const droppedPartials = match.candidates.length - fullCoverageOnly.length;
+        if (droppedPartials > 0) {
+            console.log(`[FIT_DBG] dropping ${droppedPartials} partial-coverage candidates — keeping ${fullCoverageOnly.length} full-coverage`);
+        }
+        match.candidates = fullCoverageOnly;
+
         const ids = match.candidates.map(c => c.contractorId);
         let overrides: any[] = [], jobs: any[] = [], patterns: any[] = [];
         if (ids.length) {
