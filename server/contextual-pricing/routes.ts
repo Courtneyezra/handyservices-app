@@ -181,17 +181,39 @@ router.post('/api/pricing/polish-description', async (req, res) => {
     const message = await claude.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 250,
-      system: `You polish a UK handyman quote line item AND propose a sensible time estimate + category for it.
+      system: `You polish a UK handyman quote line item into GENERIC SERVICE-MENU phrasing AND propose a sensible time estimate + category for it.
 
 Output STRICT JSON only — an object: {"polished": "...", "estimatedMinutes": 60, "suggestedCategory": "flooring"}
 
 Rules for "polished":
-- Max 8-10 words. Customers see this on their quote.
+- Max 6-8 words. Customers see this on their quote.
 - Start with a verb: Fix, Mount, Install, Replace, Repair, Assemble, Paint, Hang, etc.
-- Remove filler words, prices, timings, customer details.
-- Keep scope-affecting specifics (e.g. "55 inch", "brick wall", "3 shelves", "56 square metres").
+- Generic enough to apply to ANY similar job in this category — think "menu of services" not "this specific situation".
 - UK English (metre, colour, sealant).
 - If already clean, return unchanged.
+
+DROP these (they're customer-specific noise, not scope):
+- Brand names (Bristan, Yale, Bosch, Sony, B&Q)
+- Defect / cause descriptions ("dripping", "leaking", "broken", "old", "worn", "mouldy")
+- Customer possessives ("your", "their", "the customer's", "her", "his")
+- Specific room qualifiers UNLESS the scope differs by room (e.g. drop "in the living room"; keep "bathroom" for tiling/silicone because room type matters)
+- Colour choices unless the price changes with colour
+- Adjectives like "small", "quick", "simple"
+
+KEEP these (they're scope-affecting):
+- Size when it changes price/time ("over 55in TV", "double socket", "3 shelves", "56 square metres flooring")
+- Substrate when it changes method ("on brick wall", "lath-and-plaster")
+- Count / quantity ("4 panels", "2 cupboards")
+- Material type when the WORK differs ("internal door", "patio paving")
+
+Polish examples (input → output):
+- "Replace dripping Bristan kitchen mixer tap with new chrome one" → "Replace mixer tap"
+- "Mount 55 inch Sony TV in living room on brick wall" → "Wall-mount TV (over 55in) on brick"
+- "Reseal mouldy silicone in your en-suite shower" → "Re-seal shower silicone"
+- "Paint hallway walls magnolia, two coats" → "Repaint hallway walls"
+- "Install 56 square metres herringbone laminate" → "Install 56m² herringbone laminate"
+- "Fix wonky kitchen cupboard door" → "Realign cupboard door"
+- "Build 3 IKEA pax wardrobes from flatpack" → "Assemble 3 flat-pack wardrobes"
 
 Rules for "estimatedMinutes":
 - Integer minutes for a competent handyman to do this work end-to-end.
@@ -300,21 +322,40 @@ router.post('/api/pricing/draft-line-detail', async (req, res) => {
 
 Given a single quote line (the scope), write a 1-2 sentence detail describing what's actually included on this line — the work performed and what the customer ends up with.
 
+CRITICAL: Write the detail GENERICALLY so it would apply to ANY similar job in this category. Think "service-menu description" — the same phrasing should fit a different customer's identical job. NO customer-specific colour, brand, location, or situation.
+
 Rules:
 - 1-2 short sentences. No more.
 - Plain English. Reassuring but matter-of-fact tone.
 - No hype words ("amazing", "perfect", "expert"), no emoji, no exclamation marks.
 - UK English spelling (colour, metre, sealant).
 - Do NOT restate the line title verbatim. Add useful colour: method, materials, what's left at the end.
-- Do NOT include prices, timings, or contractor names.
-- Return ONLY the detail text. No quotes, no labels, no preamble.
+
+DROP these (they personalise the detail):
+- Customer possessives ("your", "their")
+- Specific brand names (Bosch, Yale, Bristan)
+- Specific room references ("the en-suite", "the kitchen") — say "the room" or just describe the work
+- Defect / cause descriptions ("the leaky one", "because it's broken")
+- Specific colour choices ("white", "magnolia") unless the spec is "as agreed"
+
+KEEP these (they're generic-but-useful):
+- Method (strip / scrape / sand / prime / two coats)
+- Material grade ("flexible bathroom-grade silicone", "premium emulsion")
+- What the customer ends up with ("clean cut edges", "ready to use the same day")
+- Cure / drying times when relevant
+- Standard checks ("tested before we leave", "leak-checked")
 
 Examples:
-Line: "Reseal shower in ensuite bathroom"
-Detail: Strip the existing silicone, clean and dry the joints thoroughly, then apply fresh flexible bathroom-grade sealant. 24-hour cure before water contact.
+Line: "Re-seal shower silicone"
+Detail: Strip the existing sealant, clean and dry the joints, then apply fresh flexible bathroom-grade silicone. 24-hour cure before water contact.
 
-Line: "Replace pull cord on extractor fan"
-Detail: Fit a new pull cord to the bathroom extractor switch. Includes the pull-cord fitting itself so it operates reliably again.`,
+Line: "Replace mixer tap"
+Detail: Isolate the supply, swap in the new tap with fresh washers, and leak-check both feeds. Existing tap removed and taken away.
+
+Line: "Wall-mount TV (over 55in) on brick"
+Detail: Fit a wall bracket suitable for the screen weight, drill and plug for masonry, then hang and level the unit. Cables tucked neatly behind the bracket.
+
+Return ONLY the detail text. No quotes, no labels, no preamble.`,
       messages: [
         {
           role: 'user',
