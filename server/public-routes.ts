@@ -465,59 +465,24 @@ router.get('/quote/:quoteId/availability', async (req: Request, res: Response) =
             return res.status(404).json({ error: 'Quote not found' });
         }
 
-        // LIVE POOL (Phase A): customer dates always reflect the matched contractors'
-        // real-time availability — overrides + weekly patterns, minus accepted bookings,
-        // active slot locks, and master-blocked dates — recomputed on every request.
-        // The admin-picked `quote.availableDates` is intentionally NOT a hard whitelist:
-        // dates are driven by live contractor supply, so the customer never sees a date
-        // or slot that nobody can actually do (e.g. PM on an AM-only day). buildAvailabilityResponse
-        // handles past-date skips, today's time-of-day cutoffs, and the month window itself.
-        const candidateIds = quote.candidateContractorIds as string[] | null;
+        // Phase 22f — resolve the candidate pool through the SAME helper the
+        // admin fit panel uses. This is the fix for the divergence where
+        // a quote's customer-facing dates included contractors the admin
+        // builder said couldn't do the job (out of range, or skill gaps).
+        //
+        // The stored `candidateContractorIds` on the quote row is treated
+        // as a cache — we ignore it and recompute live every read, because
+        // contractor skills/radius/verification status can change between
+        // quote creation and customer viewing.
+        const { resolveQuoteCandidatePoolForQuote } = await import('./lib/quote-fit');
+        const fit = await resolveQuoteCandidatePoolForQuote(quote);
 
-        // 2. Edge case: no candidate pool — fall back to category-based filtering
-        if (!candidateIds || candidateIds.length === 0) {
-            // Extract category slugs from the quote
-            let categorySlugs: string[] = [];
-
-            // Try pricingLineItems first (contextual quotes)
-            const lineItems = quote.pricingLineItems as any[] | null;
-            if (lineItems && Array.isArray(lineItems)) {
-                categorySlugs = Array.from(new Set(
-                    lineItems
-                        .map((li: any) => li.categorySlug || li.category)
-                        .filter(Boolean)
-                )) as string[];
-            }
-
-            // Fall back to quote.categories field
-            if (categorySlugs.length === 0 && quote.categories) {
-                categorySlugs = quote.categories.filter(Boolean) as string[];
-            }
-
-            if (categorySlugs.length === 0) {
-                return res.json([]);
-            }
-
-            // Find contractors matching these categories
-            const matchingContractorIds = new Set<string>();
-            for (const cat of categorySlugs) {
-                const skills = await db.select({ handymanId: handymanSkills.handymanId })
-                    .from(handymanSkills)
-                    .where(eq(handymanSkills.categorySlug, cat));
-                skills.forEach(s => matchingContractorIds.add(s.handymanId));
-            }
-
-            if (matchingContractorIds.size === 0) {
-                return res.json([]);
-            }
-
-            // Use category-matched contractors as candidate pool
-            return await buildAvailabilityResponse(
-                res, Array.from(matchingContractorIds), slot, monthParam
-            );
+        if (fit.candidates.length === 0) {
+            console.log(`[PublicAPI] quote ${quote.id}: no eligible contractors (uncovered=[${fit.uncoveredCategories.join(',')}], partialDropped=${fit.partialCoverageDropped})`);
+            return res.json([]);
         }
 
-        // 3. Use the quote's candidate pool
+        const candidateIds = fit.candidates.map((c) => c.contractorId);
         return await buildAvailabilityResponse(res, candidateIds, slot, monthParam);
 
     } catch (error: any) {
