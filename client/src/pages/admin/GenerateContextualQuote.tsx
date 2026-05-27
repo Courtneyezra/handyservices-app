@@ -485,9 +485,9 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
   };
 
   return (
-    <Card className="border border-handy-grid/60">
-      <CardHeader className="pb-2 px-3 sm:px-6 border-b-2 border-handy-yellow/40 mb-2">
-        <CardTitle className="text-sm font-bold text-handy-navy tracking-tight flex items-center gap-1.5 min-w-0">
+    <Card className="overflow-hidden border-handy-grid shadow-sm">
+      <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
+        <CardTitle className="text-sm font-bold text-white tracking-tight flex items-center gap-1.5 min-w-0">
           <AlertTriangle className="w-3.5 h-3.5 text-handy-yellow shrink-0" />
           <span className="truncate">{hasRevShare ? 'Rev Share — contractor & platform' : 'Margin'}</span>
         </CardTitle>
@@ -777,17 +777,17 @@ function ContractorFitPanel({
   if (categorySlugs.length === 0) return null;
 
   return (
-    <Card>
-      <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
-        <CardTitle className="text-base font-bold text-handy-navy tracking-tight flex items-center gap-2">
+    <Card className="overflow-hidden border-handy-grid shadow-sm">
+      <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
+        <CardTitle className="text-base font-bold text-white tracking-tight flex items-center gap-2">
           <Users className="w-4 h-4 text-handy-yellow" />
           Who fits this job
           {data && (
-            <span className="text-xs font-normal text-handy-muted">
+            <span className="text-xs font-normal text-white/70">
               · {data.candidates.length} contractor{data.candidates.length === 1 ? '' : 's'}
             </span>
           )}
-          <Button type="button" variant="ghost" size="sm" className="ml-auto h-6 text-xs" onClick={() => refetch()} disabled={isFetching}>
+          <Button type="button" variant="ghost" size="sm" className="ml-auto h-6 text-xs text-white/70 hover:text-handy-yellow hover:bg-white/5" onClick={() => refetch()} disabled={isFetching}>
             <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
           </Button>
         </CardTitle>
@@ -1713,9 +1713,9 @@ export default function GenerateContextualQuote() {
           <>
 
             {/* ─── Section 2: Customer Details ─── */}
-            <Card>
-              <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
-                <CardTitle className="text-base font-bold text-handy-navy tracking-tight">Customer Details</CardTitle>
+            <Card className="overflow-hidden border-handy-grid shadow-sm">
+              <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
+                <CardTitle className="text-base font-bold text-white tracking-tight">Customer Details</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1774,17 +1774,17 @@ export default function GenerateContextualQuote() {
             </Card>
 
             {/* ─── Section 3: Jobs (structured line-item slabs) ─── */}
-            <Card>
-              <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
-                <CardTitle className="text-base font-bold text-handy-navy tracking-tight flex items-center justify-between gap-3">
+            <Card className="overflow-hidden border-handy-grid shadow-sm">
+              <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
+                <CardTitle className="text-base font-bold text-white tracking-tight flex items-center justify-between gap-3">
                   <span>Jobs</span>
                   <div className="flex items-center gap-3">
                     {/* Detail toggle — when on, every line gets an auto-drafted "what's included" textarea */}
                     <Label
                       htmlFor="show-line-details"
-                      className="flex items-center gap-2 text-[11px] font-normal text-muted-foreground cursor-pointer select-none"
+                      className="flex items-center gap-2 text-[11px] font-normal text-white/70 cursor-pointer select-none"
                     >
-                      <Wand2 className="w-3 h-3 text-handy-yellow/70" />
+                      <Wand2 className="w-3 h-3 text-handy-yellow" />
                       Detail
                       <Switch
                         id="show-line-details"
@@ -1805,7 +1805,7 @@ export default function GenerateContextualQuote() {
                       />
                     </Label>
                     {lineItems.length > 0 && (
-                      <Badge variant="outline" className="text-xs">
+                      <Badge variant="outline" className="text-xs bg-handy-yellow/15 text-handy-yellow border-handy-yellow/60">
                         {lineItems.length} job{lineItems.length !== 1 ? 's' : ''}
                       </Badge>
                     )}
@@ -2194,9 +2194,9 @@ export default function GenerateContextualQuote() {
               </CardContent>
             </Card>
             {/* ─── Section 5a: Optional Extras (AI suggestions + library + custom) ─── */}
-            <Card>
-              <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
-                <CardTitle className="text-base font-bold text-handy-navy tracking-tight flex items-center justify-between gap-2">
+            <Card className="overflow-hidden border-handy-grid shadow-sm">
+              <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
+                <CardTitle className="text-base font-bold text-white tracking-tight flex items-center justify-between gap-2">
                   <span>Optional Extras</span>
                   <button
                     type="button"
@@ -2204,12 +2204,12 @@ export default function GenerateContextualQuote() {
                     disabled={aiSuggestionsLoading || lineItems.length === 0}
                     title="Re-suggest from current context"
                     aria-label="Refresh AI suggestions"
-                    className="text-muted-foreground/60 hover:text-handy-yellow disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="text-white/60 hover:text-handy-yellow disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${aiSuggestionsLoading ? 'animate-spin' : ''}`} />
                   </button>
                 </CardTitle>
-                <p className="text-xs text-handy-muted">
+                <p className="text-xs text-white/70 mt-1">
                   AI suggests context-relevant extras; you can also add a custom one-off below.
                 </p>
               </CardHeader>
@@ -2451,9 +2451,9 @@ export default function GenerateContextualQuote() {
             {/* Old Section 4 removed — line items now in unified Jobs section above */}
 
             {/* ─── Section 4b: VA Context ─── */}
-            <Card>
-              <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
-                <CardTitle className="text-base font-bold text-handy-navy tracking-tight">Customer Context</CardTitle>
+            <Card className="overflow-hidden border-handy-grid shadow-sm">
+              <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
+                <CardTitle className="text-base font-bold text-white tracking-tight">Customer Context</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
@@ -2510,10 +2510,10 @@ export default function GenerateContextualQuote() {
             </Card>
 
             {/* ─── Section 4c: Property Context (Phase 4b — drives scheduling, not pricing) ─── */}
-            <Card>
-              <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
-                <CardTitle className="text-base font-bold text-handy-navy tracking-tight">Property Context</CardTitle>
-                <p className="text-xs text-handy-muted mt-1">
+            <Card className="overflow-hidden border-handy-grid shadow-sm">
+              <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
+                <CardTitle className="text-base font-bold text-white tracking-tight">Property Context</CardTitle>
+                <p className="text-xs text-white/70 mt-1">
                   Drives scheduling math — adds floor/parking/presence overhead. Doesn't change price.
                 </p>
               </CardHeader>
@@ -2705,8 +2705,8 @@ export default function GenerateContextualQuote() {
             )}
 
             {/* WhatsApp Send Section */}
-            <Card>
-              <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
+            <Card className="overflow-hidden border-handy-grid shadow-sm">
+              <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
                 <CardTitle className="text-base font-bold text-handy-navy tracking-tight flex items-center gap-2">
                   <FaWhatsapp className="w-4 h-4 text-green-500" />
                   WhatsApp Message
