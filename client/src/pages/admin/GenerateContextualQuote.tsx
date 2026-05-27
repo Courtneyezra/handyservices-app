@@ -1660,7 +1660,29 @@ export default function GenerateContextualQuote() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   return (
-    <div className="p-4 md:p-8 bg-handy-bg/40 min-h-screen">
+    <div
+      className="p-4 md:p-8 bg-handy-bg min-h-screen"
+      style={{
+        // Force LIGHT shadcn tokens locally — the admin shell sets `.dark` on
+        // <html>, which makes Card / Input / Select default to a near-black
+        // surface and washes the handy-navy brand text out. Re-declaring the
+        // CSS vars here re-skins every nested shadcn primitive without
+        // touching the global theme.
+        ['--background' as any]: '0 0% 100%',
+        ['--foreground' as any]: '210 36% 18%',
+        ['--card' as any]: '0 0% 100%',
+        ['--card-foreground' as any]: '210 36% 18%',
+        ['--popover' as any]: '0 0% 100%',
+        ['--popover-foreground' as any]: '210 36% 18%',
+        ['--muted' as any]: '210 40% 96.1%',
+        ['--muted-foreground' as any]: '215 16% 46%',
+        ['--accent' as any]: '210 40% 96.1%',
+        ['--accent-foreground' as any]: '210 36% 18%',
+        ['--border' as any]: '218 25% 86%',
+        ['--input' as any]: '218 25% 86%',
+        ['--ring' as any]: '37 91% 55%',
+      }}
+    >
       <div className="max-w-3xl mx-auto space-y-6">
         {/* ─── Brand Hero (handy-services-pdf pattern: navy bar → yellow strip → stacked headline) ─── */}
         <div className="overflow-hidden rounded-xl border border-handy-grid shadow-sm">
