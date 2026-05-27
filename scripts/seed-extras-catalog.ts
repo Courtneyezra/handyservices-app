@@ -21,6 +21,9 @@ const SEED: Array<{
 }> = [
   // ── Always-relevant (impulse adds for any job) ──
   { label: 'Photo report on completion',  description: 'Before / during / after photos sent on the day so you have proof for records, landlord, or insurance.', priceInPence: 0,    badge: 'Free', sortOrder: 5,  relevantCategories: [] },
+  // ── Landlord / Property-manager favourites (Phase 21 auto-pick) ──
+  { label: 'Tax-ready itemised invoice',  description: 'Itemised PDF invoice with VAT-ready line items so you can claim it against rental income at year-end.', priceInPence: 0,    badge: 'Free', sortOrder: 6,  relevantCategories: [] },
+  { label: 'Tenant coordination',         description: 'We confirm the time with your tenant directly, knock on arrival, and update you when the work\'s done. No middle-manning for you.', priceInPence: 0, badge: 'Free', sortOrder: 7, relevantCategories: [] },
   { label: 'Final clean + hoover',        description: 'A proper wipe-down and hoover so the room is ready to use the moment we leave.',                          priceInPence: 1500, badge: 'Popular', sortOrder: 10, relevantCategories: [] },
   { label: 'Spare key copy',              description: 'Cut a spare key while we\'re there. Saves a separate trip to the locksmith.',                             priceInPence: 800,  sortOrder: 20, relevantCategories: ['lock_change'] },
   { label: 'Furniture lift / move',       description: 'Help shifting a heavy piece (sofa, bed frame, wardrobe) while we\'re already on site.',                  priceInPence: 2000, sortOrder: 25, relevantCategories: [] },

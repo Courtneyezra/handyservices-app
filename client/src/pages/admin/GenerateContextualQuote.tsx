@@ -1141,6 +1141,58 @@ export default function GenerateContextualQuote() {
     return () => clearTimeout(t);
   }, [fetchAiSuggestedExtras]);
 
+  // ─── Phase 21b — Auto-pick relevant catalog extras for landlord-type customers ───
+  // When customerType flips to landlord/property_manager, pull the matching
+  // catalog rows by label and add them to optionalExtras (dedupe by label so
+  // the user keeps anything they already picked). The user can untick any of
+  // the auto-picks in the AI-suggestions list as normal.
+  const autoPickedForRef = useRef<CustomerType | ''>('');
+  useEffect(() => {
+    if (!customerType || autoPickedForRef.current === customerType) return;
+    if (customerType !== 'landlord' && customerType !== 'property_manager') {
+      autoPickedForRef.current = customerType;
+      return;
+    }
+    const labelsForType: Record<string, string[]> = {
+      landlord: ['Photo report on completion', 'Tax-ready itemised invoice'],
+      property_manager: [
+        'Photo report on completion',
+        'Tax-ready itemised invoice',
+        'Tenant coordination',
+      ],
+    };
+    const wanted = new Set(labelsForType[customerType] || []);
+    if (wanted.size === 0) return;
+
+    fetch('/api/admin/extras-catalog', { headers: { ...getAuthHeaders() } })
+      .then((r) => (r.ok ? r.json() : { extras: [] }))
+      .then(({ extras }) => {
+        const matches = (extras || []).filter((e: any) => wanted.has(e.label));
+        if (matches.length === 0) return;
+        setOptionalExtras((prev) => {
+          const seen = new Set(prev.map((e) => e.label));
+          const additions = matches
+            .filter((m: any) => !seen.has(m.label))
+            .map((m: any) => ({
+              label: m.label,
+              description: m.description,
+              priceInPence: m.priceInPence,
+              ...(m.badge ? { badge: m.badge } : {}),
+            }));
+          return additions.length ? [...prev, ...additions] : prev;
+        });
+        autoPickedForRef.current = customerType;
+        toast({
+          title: 'Auto-picked relevant extras',
+          description:
+            customerType === 'landlord'
+              ? 'Photo report + tax-ready invoice added — untick on the right if not needed.'
+              : 'Photo report, tax-ready invoice + tenant coordination added — untick if not needed.',
+        });
+      })
+      .catch(() => {});
+  }, [customerType, toast]);
+
   // ═══════════════════════════════════════════════════════════════════════════
   // API: Fetch recent callers
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1305,6 +1357,10 @@ export default function GenerateContextualQuote() {
           parkingDistanceCategory: parkingDistance ?? undefined,
           customerPresent: customerPresent ?? undefined,
           vaContext: enrichedVaContext,
+          // Phase 21 — structured customer type drives downstream conditional
+          // UI (landlord banner, tenant consent disclaimer, trade-quote variant)
+          // and auto-pick of relevant extras. Persisted into contextSignals.
+          customerType: customerType || undefined,
           sourceCallId: selectedCallerId || undefined,
           contractorId: selectedContractorId || undefined,
           createdBy: adminUser?.id || undefined,
@@ -1824,6 +1880,38 @@ export default function GenerateContextualQuote() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* ─── Phase 21 — context-driven warnings ─── */}
+            {signals.urgency === 'emergency' && (
+              <div className="rounded-lg border-2 border-red-500 bg-red-50 px-4 py-3 flex items-start gap-3 shadow-sm">
+                <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <div className="font-bold text-red-700 text-sm">Emergency booking</div>
+                  <div className="text-xs text-red-700/90 mt-0.5">
+                    Pricing will use the emergency band. Confirm a same-day contractor in the fit panel before sending — emergencies that miss SLA hurt our review average.
+                  </div>
+                </div>
+              </div>
+            )}
+            {customerType === 'tenant' && (
+              <div className="rounded-lg border-2 border-handy-yellow bg-handy-cream px-4 py-3 flex items-start gap-3 shadow-sm">
+                <AlertTriangle className="w-5 h-5 text-handy-yellow shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <div className="font-bold text-handy-navy text-sm">Verify landlord consent</div>
+                  <div className="text-xs text-handy-navy/80 mt-0.5">
+                    Tenant-initiated work needs the landlord's OK — especially anything affecting fixtures (locks, plumbing, electrical, structural). Confirm before booking or we'll have an awkward conversation later.
+                  </div>
+                </div>
+              </div>
+            )}
+            {customerType === 'business' && (
+              <div className="rounded-lg border-2 border-handy-navy bg-handy-navy/5 px-4 py-3 flex items-center gap-3 shadow-sm">
+                <span className="px-2 py-0.5 rounded bg-handy-navy text-white text-[10px] font-bold tracking-widest uppercase shrink-0">Trade</span>
+                <div className="min-w-0 text-xs text-handy-navy/80">
+                  This quote will be tagged <span className="font-semibold">Trade</span> on the customer page (simpler CTA, no consumer-guarantee copy). VAT handling stays on the invoice, not the quote.
+                </div>
+              </div>
+            )}
 
             {/* ─── Section 3: Jobs (structured line-item slabs) ─── */}
             <Card className="overflow-hidden border-handy-grid shadow-sm">

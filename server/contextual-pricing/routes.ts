@@ -987,6 +987,21 @@ const contextualQuoteInputSchema = z.object({
   coordinates: z.object({ lat: z.number(), lng: z.number() }).optional(),
   vaContext: z.string().max(2000).optional(),
 
+  // Phase 21 — structured customer context (persisted to contextSignals JSONB
+  // and consumed by the customer-facing page + admin fit panel for conditional
+  // UI). customerType drives auto-pick of relevant extras (landlord → photo
+  // report + tax-ready invoice; property_manager → tenant coordination) and
+  // gates downstream "trade quote" / consent-disclaimer variants. Optional so
+  // legacy callers (older admin tools, integrations) keep working.
+  customerType: z.enum([
+    'homeowner',
+    'landlord',
+    'property_manager',
+    'tenant',
+    'business',
+    'letting_agent',
+  ]).optional(),
+
   // Job details
   jobDescription: z.string().optional(),
   lines: z
@@ -1456,8 +1471,16 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       pricingLayerBreakdown: result,
       batchDiscountPercent: result.batchDiscount.discountPercent,
 
-      // Raw signals for analytics/retraining
-      contextSignals: { ...(input.signals || {}), vaContext: input.vaContext || null },
+      // Raw signals for analytics/retraining + customer-page conditional
+      // rendering. `customerType` and structured urgency live alongside the
+      // raw vaContext string so downstream UI can branch deterministically
+      // without re-parsing freetext.
+      contextSignals: {
+        ...(input.signals || {}),
+        vaContext: input.vaContext || null,
+        customerType: input.customerType || null,
+        urgency: input.signals?.urgency || 'standard',
+      },
 
       // Content library: selected content IDs for conversion tracking
       selectedContentIds: contentSelection
