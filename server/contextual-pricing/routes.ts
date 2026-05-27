@@ -959,6 +959,8 @@ const contextualQuoteInputSchema = z.object({
         details: z.string().optional().nullable(),
         /** Phase 4d — tier id for fixed-fee tiered categories (e.g. waste_removal 'small' | 'medium' | 'full'). */
         fixedTier: z.string().optional().nullable(),
+        /** Phase 11 — line needs a materials collection trip (job-level deduped to +30min once). */
+        requiresMaterialCollection: z.boolean().optional(),
       }),
     )
     .min(1, 'At least one line item is required'),
@@ -1004,10 +1006,14 @@ const contextualQuoteInputSchema = z.object({
   // Contractor assignment (optional — shows their profile on the quote page)
   contractorId: z.string().optional(),
 
-  // Admin-picked available dates (hard whitelist for customer date picker). Required at generation time.
+  // Vestigial — Phase A locked the customer date pool to live contractor
+  // availability, so admins no longer need to hand-pick dates. Kept optional
+  // for backward compatibility with older quote flows. Newly-created quotes
+  // can omit this entirely; live availability covers everything.
   availableDates: z
     .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'availableDates must be YYYY-MM-DD'))
-    .min(1, 'Select at least one available date'),
+    .optional()
+    .default([]),
 });
 
 /**

@@ -16,7 +16,15 @@ import { clampLineItemMinutes } from './scheduling-caps';
 // ── Buffer defaults (per line item if not overridden) ─────────────────────
 export const DEFAULT_SETUP_MIN = 15;
 export const DEFAULT_CLEANUP_MIN = 15;
-export const DEFAULT_MATERIAL_COLLECTION_MIN = 45; // only when materialsSupply='we_supply'
+/** Legacy default; pre-Phase-11 path. */
+export const DEFAULT_MATERIAL_COLLECTION_MIN = 45;
+
+/**
+ * Phase 11 — one materials collection trip per job when any line is flagged.
+ * Job-level dedupe: multiple lines toggling `requiresMaterialCollection` add
+ * the trip ONCE, not per-line.
+ */
+export const MATERIAL_COLLECTION_TRIP_MIN = 30;
 
 // ── Cross-cutting multipliers/overheads (Phase 4b) ────────────────────────
 /** Customer present adds chatter/decision overhead — applied as multiplier on total work time. */
@@ -47,6 +55,8 @@ export interface LineItemTimeShape {
     cleanupMinutes?: number | null;
     materialCollectionMinutes?: number | null;
     materialsSupply?: 'we_supply' | 'customer_supplied' | 'labor_only' | null;
+    /** Phase 11 — line was flagged "needs collection trip" by the admin. Composer adds ONE +30min trip per quote when any line has this. */
+    requiresMaterialCollection?: boolean | null;
 }
 
 export interface ScheduleBreakdown {
@@ -92,10 +102,18 @@ export function composeScheduleMinutes(
         (s, l) => s + (l.cleanupMinutes != null ? Number(l.cleanupMinutes) : DEFAULT_CLEANUP_MIN),
         0,
     );
-    const materialCollectionMinutes = safeLines.reduce((s, l) => {
-        if (l.materialCollectionMinutes != null) return s + Number(l.materialCollectionMinutes);
-        return s + (l.materialsSupply === 'we_supply' ? DEFAULT_MATERIAL_COLLECTION_MIN : 0);
-    }, 0);
+    // Phase 11 — materials collection is a JOB-level event (1 trip per quote
+    // dedupes across multiple flagged lines). If admins explicitly set
+    // per-line minutes we still respect those; otherwise we add ONE trip when
+    // ANY line is flagged, or fall back to the legacy materialsSupply='we_supply'
+    // detection for older quotes.
+    const explicitPerLine = safeLines.reduce((s, l) => s + (l.materialCollectionMinutes != null ? Number(l.materialCollectionMinutes) : 0), 0);
+    const anyFlagged = safeLines.some((l) => l.requiresMaterialCollection === true);
+    const anyLegacyWeSupply = safeLines.some((l) => l.materialsSupply === 'we_supply');
+    const tripMinutes = explicitPerLine === 0 && (anyFlagged || anyLegacyWeSupply)
+        ? MATERIAL_COLLECTION_TRIP_MIN
+        : 0;
+    const materialCollectionMinutes = explicitPerLine + tripMinutes;
 
     // Property access overhead: floor × 15min when no lift, capped at 7 floors
     let propertyAccessOverheadMinutes = 0;

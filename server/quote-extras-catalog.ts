@@ -38,6 +38,57 @@ quoteExtrasCatalogRouter.get('/api/admin/extras-catalog', requireAdmin, async (_
   }
 });
 
+/**
+ * Phase 16 — suggested extras for a quote, scored by category-relevance.
+ *
+ *   GET /api/admin/extras-catalog/suggested?categories=tv_mounting,painting&limit=6
+ *
+ * Scoring:
+ *   - Each extra's relevantCategories overlapping the query categories scores +1 per match
+ *   - Extras with empty relevantCategories are always-relevant (score = 0.5, sorted last)
+ *   - Active extras only
+ *   - Sort: highest score first, then by sortOrder, then by id
+ */
+quoteExtrasCatalogRouter.get('/api/admin/extras-catalog/suggested', requireAdmin, async (req, res) => {
+  try {
+    const raw = (req.query.categories as string) || '';
+    const queryCats = raw.split(',').map((c) => c.trim()).filter(Boolean);
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 6, 1), 20);
+
+    const rows = await db
+      .select()
+      .from(quoteExtrasCatalog)
+      .where(eq(quoteExtrasCatalog.isActive, true))
+      .orderBy(asc(quoteExtrasCatalog.sortOrder), asc(quoteExtrasCatalog.id));
+
+    const scored = rows
+      .map((r) => {
+        const rcats = (r.relevantCategories as string[] | null) || [];
+        if (rcats.length === 0) return { row: r, score: 0.5, matches: [] as string[] };
+        const matches = queryCats.filter((qc) => rcats.includes(qc));
+        return { row: r, score: matches.length, matches };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score || a.row.sortOrder - b.row.sortOrder || a.row.id - b.row.id)
+      .slice(0, limit);
+
+    res.json({
+      extras: scored.map((s) => ({
+        id: s.row.id,
+        label: s.row.label,
+        description: s.row.description,
+        priceInPence: s.row.priceInPence,
+        badge: s.row.badge,
+        score: s.score,
+        matchedCategories: s.matches,
+      })),
+    });
+  } catch (err: any) {
+    console.error('[extras-catalog] suggested error:', err);
+    res.status(500).json({ error: err.message || 'Failed to load suggested extras' });
+  }
+});
+
 quoteExtrasCatalogRouter.post('/api/admin/extras-catalog', requireAdmin, async (req, res) => {
   try {
     const parsed = upsertSchema.parse(req.body);

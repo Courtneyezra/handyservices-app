@@ -278,6 +278,8 @@ export async function generateMultiLinePrice(
           adjustmentFactors: llmLine ? llmLine.adjustmentFactors : [],
           materialsCostPence,
           materialsWithMarginPence,
+          fixedTier: lineTierId,
+          requiresMaterialCollection: !!(line as any).requiresMaterialCollection,
         };
       }
     }
@@ -325,6 +327,7 @@ export async function generateMultiLinePrice(
       adjustmentFactors: llmLine ? llmLine.adjustmentFactors : [],
       materialsCostPence,
       materialsWithMarginPence,
+      requiresMaterialCollection: !!(line as any).requiresMaterialCollection,
     };
   });
 

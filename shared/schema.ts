@@ -2412,6 +2412,8 @@ export const quoteExtrasCatalog = pgTable("quote_extras_catalog", {
   isActive: boolean("is_active").notNull().default(true),
   /** Cumulative tracking — how often this entry has been picked into a quote. */
   pickCount: integer("pick_count").notNull().default(0),
+  /** Phase 16 — category slugs this extra is relevant for. Empty array = always-relevant impulse add. */
+  relevantCategories: text("relevant_categories").array(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [

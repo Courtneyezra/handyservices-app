@@ -399,6 +399,10 @@ export interface LineItemResult {
    * Populated via the admin description-toggle flow (or manually for bespoke high-ticket jobs).
    */
   details?: string | null;
+  /** Phase 4d — chosen tier id for fixed-fee tiered categories (e.g. waste_removal 'small' | 'medium' | 'full'). */
+  fixedTier?: string | null;
+  /** Phase 11 — line needs a materials collection trip. Composer dedupes across all lines (+30min once per quote). Schedule-only — not customer-facing. */
+  requiresMaterialCollection?: boolean;
 }
 
 /** Batch discount applied when multiple lines are quoted together */

@@ -43,6 +43,8 @@ import { FaWhatsapp } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 import { buildContextualQuoteWhatsAppMessage } from '@/lib/whatsapp-quote-message';
 import { AddressInput, type AddressDetails } from '@/components/live-call/AddressInput';
+import Autocomplete from 'react-google-autocomplete';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import type {
   JobCategory,
   ParsedJobResult,
@@ -89,6 +91,8 @@ interface LineItem {
   details?: string;
   /** Phase 4d — for fixed-fee categories with tiers (e.g. waste_removal: small/medium/full van load) */
   fixedTier?: string | null;
+  /** Phase 11 — line needs a materials collection trip. Composer dedupes across all lines; +30min ONCE per quote when any line is flagged. */
+  requiresMaterialCollection?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -750,17 +754,9 @@ interface FitResponse {
 function ContractorFitPanel({
   categorySlugs,
   coordinates,
-  selectedContractorId,
-  onSelectContractor,
-  availableDates,
-  onAddDays,
 }: {
   categorySlugs: string[];
   coordinates: { lat: number; lng: number } | null;
-  selectedContractorId: string | null;
-  onSelectContractor: (id: string) => void;
-  availableDates: string[];
-  onAddDays: (dates: string[]) => void;
 }) {
   const catKey = [...categorySlugs].sort().join(',');
   const { data, isLoading, isError, refetch, isFetching } = useQuery<FitResponse>({
@@ -795,9 +791,6 @@ function ContractorFitPanel({
             <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
           </Button>
         </CardTitle>
-        <p className="text-xs text-zinc-500">
-          Matched on skills{coordinates ? " + location (within each contractor's radius)" : ' — add the customer address for distance'}. Informational; does not change the customer's dates.
-        </p>
       </CardHeader>
       <CardContent className="space-y-3">
         {isLoading ? (
@@ -820,10 +813,8 @@ function ContractorFitPanel({
               </div>
             )}
             {data.candidates.map((c) => {
-              const isSel = c.contractorId === selectedContractorId;
-              const newDays = c.availableDays.map(d => d.date).filter(d => !availableDates.includes(d));
               return (
-                <div key={c.contractorId} className={`rounded-lg border p-3 ${isSel ? 'border-lime-400 bg-lime-500/10' : 'border-zinc-700 bg-zinc-800/50'}`}>
+                <div key={c.contractorId} className="rounded-lg border p-3 border-zinc-700 bg-zinc-800/50">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-sm">{c.name}</span>
                     {c.coveragePercent === 100 ? (
@@ -832,9 +823,6 @@ function ContractorFitPanel({
                       <Badge variant="outline" className="text-[10px] text-amber-300 border-amber-500/30">{c.coveragePercent}% skills</Badge>
                     )}
                     {c.distanceMiles != null && <span className="text-[11px] text-zinc-400">{c.distanceMiles} mi</span>}
-                    <Button type="button" size="sm" variant={isSel ? 'default' : 'outline'} className="ml-auto h-7 text-xs" onClick={() => onSelectContractor(c.contractorId)}>
-                      {isSel ? <><Check className="w-3 h-3 mr-1" />Assigned</> : 'Assign'}
-                    </Button>
                   </div>
                   <div className="mt-2">
                     {c.availableDays.length === 0 ? (
@@ -842,16 +830,11 @@ function ContractorFitPanel({
                     ) : (
                       <div className="flex flex-wrap items-center gap-1">
                         {c.availableDays.slice(0, 8).map((d) => (
-                          <span key={d.date} className={`text-[10px] px-1.5 py-0.5 rounded ${availableDates.includes(d.date) ? 'bg-lime-500/30 text-lime-100' : 'bg-zinc-700 text-zinc-300'}`}>
+                          <span key={d.date} className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-300">
                             {formatDate(new Date(d.date), 'EEE d')}{d.slot !== 'full' ? ` ${d.slot.toUpperCase()}` : ''}
                           </span>
                         ))}
                         {c.availableDays.length > 8 && <span className="text-[10px] text-zinc-500">+{c.availableDays.length - 8}</span>}
-                        {newDays.length > 0 && (
-                          <Button type="button" size="sm" variant="ghost" className="h-6 text-[11px] text-lime-400" onClick={() => onAddDays(newDays)}>
-                            <Plus className="w-3 h-3 mr-0.5" />Add {newDays.length} to quote
-                          </Button>
-                        )}
                       </div>
                     )}
                   </div>
@@ -942,6 +925,8 @@ export default function GenerateContextualQuote() {
   // ── Result ──
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  // Phase 15 — draft preview before quote is persisted
+  const [draftPreviewOpen, setDraftPreviewOpen] = useState(false);
 
   // ── Send mode: always 'full' (link-based quote message) ──
   const [sendMode, setSendMode] = useState<'full' | 'direct'>('full');
@@ -1037,18 +1022,18 @@ export default function GenerateContextualQuote() {
   }, [lineItems, signals, vaContext, behavioralSignals, fetchLivePreview]);
 
   // ── AI extras suggestions: fired when lineItems / vaContext stabilise ──
+  // Phase 16 — catalog-driven suggested extras (replaces the LLM call).
+  // Fetches from /api/admin/extras-catalog/suggested with the current line
+  // categories. Cheap (no LLM), curated, scored by category relevance.
   const fetchAiSuggestedExtras = useCallback(async (force = false) => {
-    const validLines = lineItems.filter((li) => li.description.trim().length >= 5);
+    const validLines = lineItems.filter((li) => li.description.trim().length >= 1);
     if (validLines.length === 0) {
       setAiSuggestedExtras([]);
       aiSuggestionsLastKeyRef.current = '';
       return;
     }
-    // Cache key — only re-fetch when signals change
-    const key = JSON.stringify({
-      ctx: vaContext.trim().slice(0, 600),
-      lines: validLines.map((l) => `${l.description.trim()}|${l.category}`).join('::'),
-    });
+    const cats = Array.from(new Set(validLines.map((l) => l.category))).sort();
+    const key = cats.join(',');
     if (!force && key === aiSuggestionsLastKeyRef.current) return;
     aiSuggestionsLastKeyRef.current = key;
 
@@ -1058,29 +1043,31 @@ export default function GenerateContextualQuote() {
 
     setAiSuggestionsLoading(true);
     try {
-      const res = await fetch('/api/pricing/suggest-extras', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+      const params = new URLSearchParams({ categories: cats.join(','), limit: '6' });
+      const res = await fetch(`/api/admin/extras-catalog/suggested?${params.toString()}`, {
+        headers: { ...getAuthHeaders() },
         signal: controller.signal,
-        body: JSON.stringify({
-          vaContext: vaContext.trim() || undefined,
-          lines: validLines.map((l) => ({ description: l.description, category: l.category })),
-        }),
       });
       if (!res.ok) {
         setAiSuggestedExtras([]);
         return;
       }
       const data = await res.json();
-      setAiSuggestedExtras(Array.isArray(data?.extras) ? data.extras : []);
+      // Map catalog shape → AiSuggestedExtra shape consumed by the UI
+      const mapped = (Array.isArray(data?.extras) ? data.extras : []).map((e: any) => ({
+        label: e.label,
+        description: e.description,
+        priceInPence: e.priceInPence,
+        badge: e.badge ?? undefined,
+        catalogId: e.id,
+      }));
+      setAiSuggestedExtras(mapped);
     } catch (e: any) {
-      if (e?.name !== 'AbortError') {
-        setAiSuggestedExtras([]);
-      }
+      if (e?.name !== 'AbortError') setAiSuggestedExtras([]);
     } finally {
       setAiSuggestionsLoading(false);
     }
-  }, [lineItems, vaContext]);
+  }, [lineItems]);
 
   // Debounced trigger — wait 1.2s after last edit before suggesting, so we
   // don't burn LLM calls during typing.
@@ -1239,6 +1226,7 @@ export default function GenerateContextualQuote() {
             materialsCostPence: Math.round(li.materialsCostPounds * 100) || 0,
             details: li.details ?? null,
             fixedTier: li.fixedTier ?? null,
+            requiresMaterialCollection: !!li.requiresMaterialCollection,
           })),
           signals: {
             urgency: signals.urgency,
@@ -1570,10 +1558,8 @@ export default function GenerateContextualQuote() {
       toast({ title: 'Incomplete items', description: 'All line items need a description.', variant: 'destructive' });
       return;
     }
-    if (availableDates.length === 0) {
-      toast({ title: 'Pick available dates', description: 'Select at least one date the customer can book.', variant: 'destructive' });
-      return;
-    }
+    // Phase 12 — availableDates whitelist no longer required (live contractor availability
+    // drives the customer's date picker). System auto-assigns contractor at reserve time.
     // Auto-set materialsSupply when any line has materials
     const hasMaterials = lineItems.some((li) => li.materialsCostPounds > 0);
     if (hasMaterials && signals.materialsSupply === 'labor_only') {
@@ -1667,7 +1653,7 @@ export default function GenerateContextualQuote() {
   };
 
   // Validate form completeness for button state
-  const canGenerate = customerName.trim() && phone.trim() && lineItems.length > 0 && lineItems.every((li) => li.description.trim()) && availableDates.length > 0;
+  const canGenerate = customerName.trim() && phone.trim() && lineItems.length > 0 && lineItems.every((li) => li.description.trim());
 
   // ═══════════════════════════════════════════════════════════════════════════
   // RENDER
@@ -1716,51 +1702,35 @@ export default function GenerateContextualQuote() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="cx-email" className="text-xs text-muted-foreground">Email</Label>
-                    <Input
-                      id="cx-email"
-                      placeholder="john@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
                     <Label className="text-xs text-muted-foreground">Postcode</Label>
-                    <Input
+                    <Autocomplete
+                      apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY}
+                      onPlaceSelected={(place: any) => {
+                        const postcodeComponent = place?.address_components?.find((c: any) => c.types.includes('postal_code'));
+                        if (postcodeComponent) setPostcode(postcodeComponent.long_name);
+                        if (place?.geometry?.location) {
+                          const lat = typeof place.geometry.location.lat === 'function' ? place.geometry.location.lat() : place.geometry.location.lat;
+                          const lng = typeof place.geometry.location.lng === 'function' ? place.geometry.location.lng() : place.geometry.location.lng;
+                          if (typeof lat === 'number' && typeof lng === 'number') {
+                            setCoordinates({ lat, lng });
+                          }
+                        }
+                      }}
+                      options={{
+                        types: ['postal_code'],
+                        componentRestrictions: { country: 'gb' },
+                      }}
+                      defaultValue={postcode}
+                      onChange={(e: any) => setPostcode(e.target.value)}
                       placeholder="NG1 1AA"
-                      value={postcode}
-                      onChange={(e) => setPostcode(e.target.value)}
-                      className="mt-1"
-                      readOnly={addressValidated}
+                      className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     />
-                    {addressValidated && (
-                      <p className="text-green-500 text-[10px] mt-0.5">✓ From verified address</p>
+                    {coordinates && (
+                      <p className="text-muted-foreground text-[10px] mt-0.5">
+                        📍 {coordinates.lat.toFixed(4)}, {coordinates.lng.toFixed(4)}
+                      </p>
                     )}
                   </div>
-                </div>
-                <div>
-                  <AddressInput
-                    value={address}
-                    onChange={(value: string, details?: AddressDetails) => {
-                      setAddress(value);
-                      if (details) {
-                        if (details.postcode) setPostcode(details.postcode);
-                        if (details.lat && details.lng) {
-                          setCoordinates({ lat: details.lat, lng: details.lng });
-                        }
-                        setAddressValidated(true);
-                      }
-                    }}
-                    isValidated={addressValidated}
-                    onValidationChange={setAddressValidated}
-                    placeholder="Start typing address..."
-                  />
-                  {coordinates && (
-                    <p className="text-muted-foreground text-[10px] mt-0.5">
-                      📍 {coordinates.lat.toFixed(4)}, {coordinates.lng.toFixed(4)}
-                    </p>
-                  )}
                 </div>
               </CardContent>
             </Card>
@@ -2006,6 +1976,19 @@ export default function GenerateContextualQuote() {
                                 />
                               </div>
                             )}
+                            {/* Phase 11 — collection toggle (schedule-only, no customer-facing charge) */}
+                            <button
+                              type="button"
+                              title="Adds +30 min to the contractor's day. Customer doesn't see this — covered by materials markup."
+                              onClick={() => setLineItems((prev) => prev.map((li) => li.id === item.id ? { ...li, requiresMaterialCollection: !li.requiresMaterialCollection } : li))}
+                              className={`text-sm sm:text-xs px-3 sm:px-2.5 py-1.5 sm:py-1 rounded-full border transition-all ${
+                                item.requiresMaterialCollection
+                                  ? 'border-sky-500/40 bg-sky-500/10 text-sky-300'
+                                  : 'border-white/10 text-muted-foreground/50 hover:border-white/20'
+                              }`}
+                            >
+                              {item.requiresMaterialCollection ? '🚐 Collection' : '+ Collection'}
+                            </button>
                           </div>
                         </div>
                       );
@@ -2169,130 +2152,6 @@ export default function GenerateContextualQuote() {
                 )}
               </CardContent>
             </Card>
-
-
-            {/* Old Section 4 removed — line items now in unified Jobs section above */}
-
-            {/* ─── Section 4b: VA Context ─── */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Customer Context</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-zinc-300">
-                      Customer Context
-                    </label>
-                    <span className="text-xs text-zinc-500">Speak or type — who are they, what's their situation</span>
-                  </div>
-
-                  {/* Record button */}
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={handleToggleRecording}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                        isRecording
-                          ? 'bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse'
-                          : 'bg-zinc-800 text-zinc-300 border border-zinc-700 hover:border-zinc-500'
-                      }`}
-                    >
-                      <span>{isRecording ? '⏹ Stop' : '🎙 Record'}</span>
-                      {isRecording && <span className="text-xs">Recording...</span>}
-                    </button>
-                    {recordingError && (
-                      <span className="text-xs text-red-400 self-center">{recordingError}</span>
-                    )}
-                  </div>
-
-                  {/* Text area */}
-                  <textarea
-                    value={vaContext}
-                    onChange={(e) => setVaContext(e.target.value)}
-                    placeholder="e.g. Sarah's a landlord, rental in Beeston, tenant flagged a dripping tap. She won't be there, relaxed about timing, asked about price briefly but didn't push back."
-                    className="w-full h-24 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 resize-none focus:outline-none focus:border-zinc-500"
-                  />
-
-                  {/* Context quality indicator */}
-                  {vaContext.trim().length > 0 && (
-                    <div className={`flex items-center gap-2 text-xs ${
-                      vaContext.trim().length < 50 ? 'text-amber-400' :
-                      vaContext.trim().length < 120 ? 'text-lime-400' :
-                      'text-emerald-400'
-                    }`}>
-                      <span>{
-                        vaContext.trim().length < 50 ? '○ Thin context — add more if you can' :
-                        vaContext.trim().length < 120 ? '◑ Good context' :
-                        '● Rich context — great'
-                      }</span>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* ─── Section 4c: Property Context (Phase 4b — drives scheduling, not pricing) ─── */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Property Context</CardTitle>
-                <p className="text-xs text-zinc-500 mt-1">
-                  Drives scheduling math — adds floor/parking/presence overhead. Doesn't change price.
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Floor number</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={50}
-                      placeholder="0 = ground"
-                      value={floorNumber ?? ''}
-                      onChange={(e) => setFloorNumber(e.target.value === '' ? null : parseInt(e.target.value) || 0)}
-                      className="mt-1 h-8 text-xs"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Lift in building?</Label>
-                    <Select value={hasLift === null ? '__unset' : hasLift ? 'yes' : 'no'} onValueChange={(v) => setHasLift(v === '__unset' ? null : v === 'yes')}>
-                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__unset">— unknown —</SelectItem>
-                        <SelectItem value="yes">Yes (lift)</SelectItem>
-                        <SelectItem value="no">No lift</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Parking</Label>
-                    <Select value={parkingDistance ?? '__unset'} onValueChange={(v) => setParkingDistance(v === '__unset' ? null : v as any)}>
-                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__unset">— unknown —</SelectItem>
-                        <SelectItem value="on_drive">On their drive</SelectItem>
-                        <SelectItem value="street_outside">Street, just outside</SelectItem>
-                        <SelectItem value="street_within_50m">Street, within 50m</SelectItem>
-                        <SelectItem value="50m_plus">Further than 50m</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Customer present?</Label>
-                    <Select value={customerPresent === null ? '__unset' : customerPresent ? 'yes' : 'no'} onValueChange={(v) => setCustomerPresent(v === '__unset' ? null : v === 'yes')}>
-                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__unset">— unknown —</SelectItem>
-                        <SelectItem value="yes">Will be on site</SelectItem>
-                        <SelectItem value="no">Won't be present</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
             {/* ─── Section 5a: Optional Extras (AI suggestions + library + custom) ─── */}
             <Card>
               <CardHeader className="pb-3">
@@ -2547,154 +2406,166 @@ export default function GenerateContextualQuote() {
               </CardContent>
             </Card>
 
-            {/* ─── Section 5a: Contractor fit (informational) ─── */}
-            <ContractorFitPanel
-              categorySlugs={lineItems.map(li => li.category)}
-              coordinates={coordinates}
-              selectedContractorId={selectedContractorId}
-              onSelectContractor={setSelectedContractorId}
-              availableDates={availableDates}
-              onAddDays={(dates) => setAvailableDates(prev => Array.from(new Set([...prev, ...dates])).sort())}
-            />
 
-            {/* ─── Section 5b: Available Dates (required) ─── */}
+            {/* Old Section 4 removed — line items now in unified Jobs section above */}
+
+            {/* ─── Section 4b: VA Context ─── */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Calendar className="w-4 h-4" />
-                  Available Dates <span className="text-red-500">*</span>
-                </CardTitle>
-                <p className="text-xs text-zinc-500">
-                  Pick the dates the customer can book. Only selected dates will show as available on the quote.
-                </p>
+                <CardTitle className="text-base">Customer Context</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {/* Month nav */}
-                <div className="flex items-center justify-between">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setDatePickerMonth(prev => {
-                      const d = new Date(prev);
-                      d.setMonth(d.getMonth() - 1);
-                      return d;
-                    })}
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </Button>
-                  <span className="text-sm font-medium">
-                    {formatDate(datePickerMonth, 'MMMM yyyy')}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setDatePickerMonth(prev => {
-                      const d = new Date(prev);
-                      d.setMonth(d.getMonth() + 1);
-                      return d;
-                    })}
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-zinc-300">
+                      Customer Context
+                    </label>
+                    <span className="text-xs text-zinc-500">Speak or type — who are they, what's their situation</span>
+                  </div>
 
-                {/* Day headers */}
-                <div className="grid grid-cols-7 gap-1">
-                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                    <div key={d} className="text-center text-[10px] font-medium text-zinc-500 uppercase py-1">
-                      {d}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Calendar grid */}
-                <div className="grid grid-cols-7 gap-1">
-                  {Array.from({ length: getDay(startOfMonth(datePickerMonth)) }).map((_, i) => (
-                    <div key={`empty-${i}`} className="aspect-square" />
-                  ))}
-                  {Array.from({ length: getDaysInMonth(datePickerMonth) }).map((_, i) => {
-                    const day = i + 1;
-                    const year = datePickerMonth.getFullYear();
-                    const month = datePickerMonth.getMonth();
-                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    const dateObj = new Date(year, month, day);
-                    const isPast = dateObj < today;
-                    const isToday = dateObj.getTime() === today.getTime();
-                    const isSelected = availableDates.includes(dateStr);
-
-                    return (
-                      <button
-                        key={day}
-                        type="button"
-                        disabled={isPast}
-                        onClick={() => {
-                          setAvailableDates(prev =>
-                            prev.includes(dateStr)
-                              ? prev.filter(d => d !== dateStr)
-                              : [...prev, dateStr].sort()
-                          );
-                        }}
-                        className={`
-                          aspect-square rounded-md text-xs font-medium transition-all
-                          ${isPast ? 'text-zinc-700 cursor-not-allowed' : 'cursor-pointer'}
-                          ${isSelected
-                            ? 'bg-lime-500/30 border-2 border-lime-400 text-lime-100'
-                            : isPast
-                              ? 'bg-transparent'
-                              : 'bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700'
-                          }
-                          ${isToday ? 'ring-1 ring-blue-400' : ''}
-                        `}
-                      >
-                        {day}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Selected summary */}
-                <div className="text-xs text-zinc-500 flex items-center justify-between pt-1">
-                  <span>
-                    {availableDates.length === 0
-                      ? <span className="text-amber-400">No dates selected — pick at least one</span>
-                      : <>{availableDates.length} date{availableDates.length === 1 ? '' : 's'} selected</>
-                    }
-                  </span>
-                  {availableDates.length > 0 && (
-                    <Button
+                  {/* Record button */}
+                  <div className="flex gap-2">
+                    <button
                       type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 text-xs text-zinc-400"
-                      onClick={() => setAvailableDates([])}
+                      onClick={handleToggleRecording}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                        isRecording
+                          ? 'bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse'
+                          : 'bg-zinc-800 text-zinc-300 border border-zinc-700 hover:border-zinc-500'
+                      }`}
                     >
-                      Clear all
-                    </Button>
+                      <span>{isRecording ? '⏹ Stop' : '🎙 Record'}</span>
+                      {isRecording && <span className="text-xs">Recording...</span>}
+                    </button>
+                    {recordingError && (
+                      <span className="text-xs text-red-400 self-center">{recordingError}</span>
+                    )}
+                  </div>
+
+                  {/* Text area */}
+                  <textarea
+                    value={vaContext}
+                    onChange={(e) => setVaContext(e.target.value)}
+                    placeholder="e.g. Sarah's a landlord, rental in Beeston, tenant flagged a dripping tap. She won't be there, relaxed about timing, asked about price briefly but didn't push back."
+                    className="w-full h-24 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 resize-none focus:outline-none focus:border-zinc-500"
+                  />
+
+                  {/* Context quality indicator */}
+                  {vaContext.trim().length > 0 && (
+                    <div className={`flex items-center gap-2 text-xs ${
+                      vaContext.trim().length < 50 ? 'text-amber-400' :
+                      vaContext.trim().length < 120 ? 'text-lime-400' :
+                      'text-emerald-400'
+                    }`}>
+                      <span>{
+                        vaContext.trim().length < 50 ? '○ Thin context — add more if you can' :
+                        vaContext.trim().length < 120 ? '◑ Good context' :
+                        '● Rich context — great'
+                      }</span>
+                    </div>
                   )}
                 </div>
               </CardContent>
             </Card>
 
-            {/* ─── Section 6: Generate Button ─── */}
-            <Button
-              size="lg"
-              className="w-full h-12 text-base font-semibold bg-amber-600 hover:bg-amber-700 text-white"
-              onClick={handleGenerate}
-              disabled={!canGenerate || createQuoteMutation.isPending}
-            >
-              {createQuoteMutation.isPending ? (
-                <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Generating Quote...
-                </>
-              ) : (
-                'Generate Quote'
-              )}
-            </Button>
+            {/* ─── Section 4c: Property Context (Phase 4b — drives scheduling, not pricing) ─── */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Property Context</CardTitle>
+                <p className="text-xs text-zinc-500 mt-1">
+                  Drives scheduling math — adds floor/parking/presence overhead. Doesn't change price.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Floor number</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={50}
+                      placeholder="0 = ground"
+                      value={floorNumber ?? ''}
+                      onChange={(e) => setFloorNumber(e.target.value === '' ? null : parseInt(e.target.value) || 0)}
+                      className="mt-1 h-8 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Lift in building?</Label>
+                    <Select value={hasLift === null ? '__unset' : hasLift ? 'yes' : 'no'} onValueChange={(v) => setHasLift(v === '__unset' ? null : v === 'yes')}>
+                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__unset">— unknown —</SelectItem>
+                        <SelectItem value="yes">Yes (lift)</SelectItem>
+                        <SelectItem value="no">No lift</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Parking</Label>
+                    <Select value={parkingDistance ?? '__unset'} onValueChange={(v) => setParkingDistance(v === '__unset' ? null : v as any)}>
+                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__unset">— unknown —</SelectItem>
+                        <SelectItem value="on_drive">On their drive</SelectItem>
+                        <SelectItem value="street_outside">Street, just outside</SelectItem>
+                        <SelectItem value="street_within_50m">Street, within 50m</SelectItem>
+                        <SelectItem value="50m_plus">Further than 50m</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Customer present?</Label>
+                    <Select value={customerPresent === null ? '__unset' : customerPresent ? 'yes' : 'no'} onValueChange={(v) => setCustomerPresent(v === '__unset' ? null : v === 'yes')}>
+                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__unset">— unknown —</SelectItem>
+                        <SelectItem value="yes">Will be on site</SelectItem>
+                        <SelectItem value="no">Won't be present</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+
+            {/* ─── Section 5a: Contractor fit (informational only — system auto-assigns at reserve time) ─── */}
+            <ContractorFitPanel
+              categorySlugs={lineItems.map(li => li.category)}
+              coordinates={coordinates}
+            />
+
+
+            {/* ─── Section 6: Preview + Generate ─── */}
+            <div className="flex gap-3">
+              <Button
+                size="lg"
+                variant="outline"
+                className="flex-1 h-12 text-base font-semibold border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+                onClick={() => setDraftPreviewOpen(true)}
+                disabled={!canGenerate || !livePreview}
+                title={!livePreview ? 'Wait for live pricing to compute' : 'Preview without saving'}
+              >
+                <Eye className="w-5 h-5 mr-2" />
+                Preview
+              </Button>
+              <Button
+                size="lg"
+                className="flex-1 h-12 text-base font-semibold bg-amber-600 hover:bg-amber-700 text-white"
+                onClick={handleGenerate}
+                disabled={!canGenerate || createQuoteMutation.isPending}
+              >
+                {createQuoteMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    Generating Quote...
+                  </>
+                ) : (
+                  'Generate Quote'
+                )}
+              </Button>
+            </div>
           </>
         )}
 
@@ -2887,6 +2758,92 @@ export default function GenerateContextualQuote() {
           } satisfies PreviewQuote}
         />
       )}
+
+      {/* Phase 15 — Draft Preview Dialog (renders from live pricing — no DB write) */}
+      <Dialog open={draftPreviewOpen} onOpenChange={setDraftPreviewOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Quote Preview (draft)</DialogTitle>
+            <DialogDescription>
+              Customer-facing summary based on the current builder state. Not saved yet — click "Generate Quote" to commit.
+            </DialogDescription>
+          </DialogHeader>
+          {livePreview ? (
+            <div className="space-y-4">
+              {/* Customer */}
+              <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Customer</div>
+                <div className="text-sm">{customerName || '—'}</div>
+                <div className="text-xs text-muted-foreground">{phone} · {postcode || 'no postcode'}</div>
+              </div>
+
+              {/* Headline */}
+              {livePreview.messaging?.contextualHeadline && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Headline</div>
+                  <div className="text-lg font-semibold">{livePreview.messaging.contextualHeadline}</div>
+                  {livePreview.messaging.contextualMessage && (
+                    <div className="text-sm text-muted-foreground mt-1">{livePreview.messaging.contextualMessage}</div>
+                  )}
+                </div>
+              )}
+
+              {/* Line items */}
+              <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 overflow-hidden">
+                <div className="px-3 py-2 text-xs uppercase tracking-wide text-muted-foreground border-b border-zinc-800">Line items</div>
+                <div className="divide-y divide-zinc-800/60">
+                  {livePreview.lineItems.map((li: any) => (
+                    <div key={li.lineId} className="px-3 py-2 flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm">{li.description}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {li.category} · {li.timeEstimateMinutes}min
+                          {li.materialsWithMarginPence > 0 ? ` · +£${(li.materialsWithMarginPence / 100).toFixed(0)} materials` : ''}
+                        </div>
+                      </div>
+                      <div className="text-sm font-semibold whitespace-nowrap">
+                        £{((li.guardedPricePence + (li.materialsWithMarginPence || 0)) / 100).toFixed(0)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Total */}
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 flex items-center justify-between">
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Total</div>
+                  <div className="text-2xl font-bold text-emerald-400">£{(livePreview.finalPricePence / 100).toFixed(0)}</div>
+                </div>
+                {livePreview.batchDiscount?.discountPercent ? (
+                  <div className="text-xs text-emerald-400">−{livePreview.batchDiscount.discountPercent}% batch discount</div>
+                ) : null}
+              </div>
+
+              {/* Value bullets preview */}
+              {Array.isArray(livePreview.messaging?.valueBullets) && livePreview.messaging.valueBullets.length > 0 && (
+                <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Value bullets</div>
+                  <ul className="space-y-1 text-sm">
+                    {livePreview.messaging.valueBullets.map((b: string, i: number) => (
+                      <li key={i} className="flex items-start gap-2"><span className="text-emerald-400">✓</span><span>{b}</span></li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <Button variant="ghost" className="flex-1" onClick={() => setDraftPreviewOpen(false)}>Close & Edit</Button>
+                <Button className="flex-1 bg-amber-600 hover:bg-amber-700 text-white" onClick={() => { setDraftPreviewOpen(false); handleGenerate(); }} disabled={createQuoteMutation.isPending}>
+                  {createQuoteMutation.isPending ? 'Generating…' : 'Generate Quote'}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground py-6 text-center">Live pricing not ready yet — wait a moment then reopen.</div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
