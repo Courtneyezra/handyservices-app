@@ -485,10 +485,10 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
   };
 
   return (
-    <Card className="border border-border">
-      <CardHeader className="pb-2 px-3 sm:px-6">
-        <CardTitle className="text-sm flex items-center gap-1.5 min-w-0">
-          <AlertTriangle className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+    <Card className="border border-handy-grid/60">
+      <CardHeader className="pb-2 px-3 sm:px-6 border-b-2 border-handy-yellow/40 mb-2">
+        <CardTitle className="text-sm font-bold text-handy-navy tracking-tight flex items-center gap-1.5 min-w-0">
+          <AlertTriangle className="w-3.5 h-3.5 text-handy-yellow shrink-0" />
           <span className="truncate">{hasRevShare ? 'Rev Share — contractor & platform' : 'Margin'}</span>
         </CardTitle>
       </CardHeader>
@@ -507,8 +507,8 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
                 {hasRevShare && <th className="text-right py-1.5 px-1 font-medium">Tier</th>}
                 <th className="text-right py-1.5 px-1 font-medium">Hrs</th>
                 <th className="text-right py-1.5 px-1 font-medium">Customer</th>
-                <th className="text-right py-1.5 px-1 font-medium text-amber-400/80">Contractor</th>
-                <th className="text-right py-1.5 px-1 font-medium text-emerald-400/80">Platform</th>
+                <th className="text-right py-1.5 px-1 font-medium text-handy-yellow">Contractor</th>
+                <th className="text-right py-1.5 px-1 font-medium text-handy-navy/80">Platform</th>
                 <th className="text-right py-1.5 pl-1 font-medium">%</th>
               </tr>
             </thead>
@@ -531,7 +531,7 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
                     )}
                     <td className="text-right py-1.5 px-1 text-muted-foreground">{parseFloat(line.hours.toFixed(2))}</td>
                     <td className="text-right py-1.5 px-1 text-foreground">{p2p(line.customerPricePence)}</td>
-                    <td className="text-right py-1.5 px-1 text-amber-400">
+                    <td className="text-right py-1.5 px-1 text-handy-yellow font-medium">
                       {p2p(line.contractorCostPence)}
                       <span className="text-muted-foreground/60 text-[10px] ml-1">({p2p(effHourly)}/hr)</span>
                     </td>
@@ -547,7 +547,7 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
                 {hasRevShare && <td className="py-2 px-1" />}
                 <td className="text-right py-2 px-1 text-muted-foreground">{parseFloat(totalHours.toFixed(1))}</td>
                 <td className="text-right py-2 px-1 text-foreground">{p2p(totalCustomerPrice)}</td>
-                <td className="text-right py-2 px-1 text-amber-400 font-bold">
+                <td className="text-right py-2 px-1 text-handy-yellow font-bold">
                   {p2p(totalContractorPay)}
                   <span className="text-muted-foreground/60 text-[10px] ml-1">({p2p(effectiveAvgHourly)}/hr)</span>
                 </td>
@@ -575,10 +575,10 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
                   )}
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div className="rounded bg-amber-500/5 border border-amber-500/15 px-2 py-1">
-                    <div className="text-muted-foreground/70 text-[9px] uppercase tracking-wider">Contractor</div>
-                    <div className="text-amber-400 font-semibold">{p2p(line.contractorCostPence)}</div>
-                    <div className="text-muted-foreground/60 text-[9px]">{parseFloat(line.hours.toFixed(1))}h · {p2p(effHourly)}/hr</div>
+                  <div className="rounded bg-handy-yellow/10 border border-handy-yellow/30 px-2 py-1">
+                    <div className="text-handy-navy/60 text-[9px] uppercase tracking-wider font-semibold">Contractor</div>
+                    <div className="text-handy-yellow font-bold">{p2p(line.contractorCostPence)}</div>
+                    <div className="text-handy-navy/50 text-[9px]">{parseFloat(line.hours.toFixed(1))}h · {p2p(effHourly)}/hr</div>
                   </div>
                   <div className={`rounded border px-2 py-1 ${getMarginBgColor(line.marginPercent)}`}>
                     <div className="text-muted-foreground/70 text-[9px] uppercase tracking-wider">Platform</div>
@@ -595,10 +595,10 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
 
         {/* Combined summary — Contractor + Platform side by side */}
         <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-md px-3 py-2.5 border bg-amber-500/10 border-amber-500/20">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-0.5">Contractor Payout</div>
-            <div className="text-base font-bold text-amber-400 tabular-nums">{p2p(totalContractorPay)}</div>
-            <div className="text-[10px] text-muted-foreground">
+          <div className="rounded-md px-3 py-2.5 border bg-handy-yellow/10 border-handy-yellow/40">
+            <div className="text-[10px] uppercase tracking-wider text-handy-navy/70 mb-0.5 font-semibold">Contractor Payout</div>
+            <div className="text-base font-bold text-handy-yellow tabular-nums">{p2p(totalContractorPay)}</div>
+            <div className="text-[10px] text-handy-navy/60">
               {p2p(effectiveAvgHourly)}/hr · {parseFloat(totalHours.toFixed(1))}h
             </div>
           </div>
@@ -778,7 +778,7 @@ function ContractorFitPanel({
 
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
         <CardTitle className="text-base flex items-center gap-2">
           <Users className="w-4 h-4" />
           Who fits this job
@@ -1660,14 +1660,30 @@ export default function GenerateContextualQuote() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   return (
-    <div className="p-4 md:p-8">
+    <div className="p-4 md:p-8 bg-handy-bg/40 min-h-screen">
       <div className="max-w-3xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="mb-2">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Generate Contextual Quote</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            AI-powered pricing with full context signals
-          </p>
+        {/* ─── Brand Hero (handy-services-pdf pattern: navy bar → yellow strip → stacked headline) ─── */}
+        <div className="overflow-hidden rounded-xl border border-handy-grid shadow-sm">
+          {/* Navy bar */}
+          <div className="bg-handy-navy px-4 py-3 flex items-center gap-3">
+            <div className="h-8 w-8 rounded-md bg-handy-yellow flex items-center justify-center shrink-0">
+              <span className="text-handy-navy font-bold text-base leading-none">H</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-white font-bold text-sm tracking-tight">Handy Services</div>
+              <div className="text-white/60 text-[11px]">Admin · Contextual Quote Builder</div>
+            </div>
+          </div>
+          {/* Yellow accent strip */}
+          <div className="bg-handy-yellow px-4 py-1.5 text-center">
+            <span className="text-handy-navy font-bold text-[11px] tracking-wide uppercase">⚡ AI-priced · Auto-assigned · Route-optimised</span>
+          </div>
+          {/* Stacked headline (navy → yellow) */}
+          <div className="bg-white px-4 sm:px-6 py-5">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-handy-navy leading-tight">Generate Contextual Quote</h1>
+            <p className="text-handy-yellow font-semibold text-base sm:text-lg mt-0.5">AI-powered pricing</p>
+            <p className="text-handy-muted text-xs mt-1.5">Full context signals · property, travel, slot fit</p>
+          </div>
         </div>
 
         {/* Only show form when no result yet */}
@@ -1676,8 +1692,8 @@ export default function GenerateContextualQuote() {
 
             {/* ─── Section 2: Customer Details ─── */}
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Customer Details</CardTitle>
+              <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
+                <CardTitle className="text-base font-bold text-handy-navy tracking-tight">Customer Details</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1737,8 +1753,8 @@ export default function GenerateContextualQuote() {
 
             {/* ─── Section 3: Jobs (structured line-item slabs) ─── */}
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center justify-between gap-3">
+              <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
+                <CardTitle className="text-base font-bold text-handy-navy tracking-tight flex items-center justify-between gap-3">
                   <span>Jobs</span>
                   <div className="flex items-center gap-3">
                     {/* Detail toggle — when on, every line gets an auto-drafted "what's included" textarea */}
@@ -2154,8 +2170,8 @@ export default function GenerateContextualQuote() {
             </Card>
             {/* ─── Section 5a: Optional Extras (AI suggestions + library + custom) ─── */}
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center justify-between gap-2">
+              <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
+                <CardTitle className="text-base font-bold text-handy-navy tracking-tight flex items-center justify-between gap-2">
                   <span>Optional Extras</span>
                   <button
                     type="button"
@@ -2411,8 +2427,8 @@ export default function GenerateContextualQuote() {
 
             {/* ─── Section 4b: VA Context ─── */}
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Customer Context</CardTitle>
+              <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
+                <CardTitle className="text-base font-bold text-handy-navy tracking-tight">Customer Context</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
@@ -2470,8 +2486,8 @@ export default function GenerateContextualQuote() {
 
             {/* ─── Section 4c: Property Context (Phase 4b — drives scheduling, not pricing) ─── */}
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Property Context</CardTitle>
+              <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
+                <CardTitle className="text-base font-bold text-handy-navy tracking-tight">Property Context</CardTitle>
                 <p className="text-xs text-zinc-500 mt-1">
                   Drives scheduling math — adds floor/parking/presence overhead. Doesn't change price.
                 </p>
@@ -2537,12 +2553,12 @@ export default function GenerateContextualQuote() {
             />
 
 
-            {/* ─── Section 6: Preview + Generate ─── */}
+            {/* ─── Section 6: Preview + Generate (brand CTAs — preview outline-navy, generate navy-primary) ─── */}
             <div className="flex gap-3">
               <Button
                 size="lg"
                 variant="outline"
-                className="flex-1 h-12 text-base font-semibold border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+                className="flex-1 h-12 text-base font-semibold border-handy-navy/30 text-handy-navy hover:bg-handy-navy/5"
                 onClick={() => setDraftPreviewOpen(true)}
                 disabled={!canGenerate || !livePreview}
                 title={!livePreview ? 'Wait for live pricing to compute' : 'Preview without saving'}
@@ -2552,7 +2568,7 @@ export default function GenerateContextualQuote() {
               </Button>
               <Button
                 size="lg"
-                className="flex-1 h-12 text-base font-semibold bg-amber-600 hover:bg-amber-700 text-white"
+                className="flex-1 h-12 text-base font-semibold bg-handy-navy hover:bg-handy-navy/90 text-white shadow-sm hover:shadow disabled:bg-handy-navy/40"
                 onClick={handleGenerate}
                 disabled={!canGenerate || createQuoteMutation.isPending}
               >
@@ -2562,7 +2578,10 @@ export default function GenerateContextualQuote() {
                     Generating Quote...
                   </>
                 ) : (
-                  'Generate Quote'
+                  <>
+                    Generate Quote
+                    <span className="ml-2 inline-block h-2 w-2 rounded-full bg-handy-yellow" aria-hidden />
+                  </>
                 )}
               </Button>
             </div>
@@ -2585,21 +2604,23 @@ export default function GenerateContextualQuote() {
               </div>
             )}
 
-            {/* Quote Summary Card */}
-            <Card className="border border-amber-500/30 bg-amber-500/5">
-              <CardContent className="pt-6 space-y-4">
+            {/* \u2500\u2500\u2500 Quote Summary (handy-services-pdf "Recommended Box" pattern: cream bg + thick yellow left edge) \u2500\u2500\u2500 */}
+            <Card className="relative border border-handy-yellow/60 bg-handy-cream overflow-hidden shadow-sm">
+              {/* 4px yellow left edge \u2014 mirrors PDF skill recommended-box LINEAFTER style */}
+              <div className="absolute left-0 top-0 bottom-0 w-1 bg-handy-yellow" aria-hidden />
+              <CardContent className="pt-6 space-y-4 pl-5">
                 {/* Headline */}
                 <div className="text-center">
-                  <h2 className="text-xl font-bold text-foreground">{quoteResult.messaging.headline}</h2>
+                  <h2 className="text-xl font-bold text-handy-navy tracking-tight">{quoteResult.messaging.headline}</h2>
                   <div className="mt-2">
                     <Badge
                       variant="outline"
                       className={
                         quoteResult.messaging.layoutTier === 'quick'
-                          ? 'border-green-500/40 text-green-400'
+                          ? 'border-handy-navy/40 text-handy-navy bg-white'
                           : quoteResult.messaging.layoutTier === 'standard'
-                          ? 'border-blue-500/40 text-blue-400'
-                          : 'border-purple-500/40 text-purple-400'
+                          ? 'border-handy-yellow/60 text-handy-navy bg-white'
+                          : 'border-handy-navy text-white bg-handy-navy'
                       }
                     >
                       {quoteResult.messaging.layoutTier.charAt(0).toUpperCase() + quoteResult.messaging.layoutTier.slice(1)} Quote
@@ -2607,10 +2628,10 @@ export default function GenerateContextualQuote() {
                   </div>
                 </div>
 
-                {/* Total Price */}
-                <div className="bg-muted rounded-lg p-4 text-center border border-amber-500/30">
-                  <div className="text-xs text-amber-400 uppercase font-semibold mb-1">Total Price</div>
-                  <div className="text-3xl sm:text-4xl font-bold text-amber-400">
+                {/* Total Price \u2014 navy hero block (mirrors PDF hero) */}
+                <div className="bg-handy-navy rounded-lg p-4 text-center shadow-inner">
+                  <div className="text-[10px] text-handy-yellow uppercase font-bold tracking-widest mb-1">Total Price</div>
+                  <div className="text-3xl sm:text-4xl font-bold text-white tracking-tight">
                     {quoteResult.pricing.totalFormatted}
                   </div>
                 </div>
@@ -2618,11 +2639,11 @@ export default function GenerateContextualQuote() {
                 {/* Line Item Breakdown */}
                 {quoteResult.pricing.lineItems.length > 1 && (
                   <div className="space-y-1.5">
-                    <div className="text-xs text-muted-foreground font-semibold uppercase">Breakdown</div>
+                    <div className="text-[10px] text-handy-navy font-bold uppercase tracking-widest">Breakdown</div>
                     {quoteResult.pricing.lineItems.map((li) => (
-                      <div key={li.lineId} className="flex items-center justify-between text-sm bg-muted/50 rounded px-3 py-1.5">
-                        <span className="text-foreground truncate mr-3">{li.description}</span>
-                        <span className="text-foreground font-medium shrink-0">
+                      <div key={li.lineId} className="flex items-center justify-between text-sm bg-white/70 border border-handy-grid/60 rounded px-3 py-1.5">
+                        <span className="text-handy-navy truncate mr-3">{li.description}</span>
+                        <span className="text-handy-navy font-semibold shrink-0">
                           {"\u00A3"}{(li.guardedPricePence / 100).toFixed(0)}
                         </span>
                       </div>
@@ -2632,11 +2653,11 @@ export default function GenerateContextualQuote() {
 
                 {/* Batch Discount */}
                 {quoteResult.pricing.batchDiscount.applied && (
-                  <div className="flex items-center justify-between text-sm bg-green-500/10 rounded px-3 py-1.5 border border-green-500/20">
-                    <span className="text-green-400">
+                  <div className="flex items-center justify-between text-sm bg-green-500/10 rounded px-3 py-1.5 border border-green-500/30">
+                    <span className="text-green-700 font-medium">
                       Batch discount ({quoteResult.pricing.batchDiscount.discountPercent}%)
                     </span>
-                    <span className="text-green-400 font-medium">
+                    <span className="text-green-700 font-semibold">
                       -{"\u00A3"}{(quoteResult.pricing.batchDiscount.savingsPence / 100).toFixed(0)}
                     </span>
                   </div>
@@ -2645,7 +2666,7 @@ export default function GenerateContextualQuote() {
                 {/* Booking Modes */}
                 <div className="flex flex-wrap gap-1.5">
                   {quoteResult.messaging.bookingModes.map((mode) => (
-                    <Badge key={mode} variant="secondary" className="text-xs">
+                    <Badge key={mode} variant="secondary" className="text-xs bg-white text-handy-navy border border-handy-grid">
                       {mode.replace(/_/g, ' ')}
                     </Badge>
                   ))}
@@ -2660,8 +2681,8 @@ export default function GenerateContextualQuote() {
 
             {/* WhatsApp Send Section */}
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
+              <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
+                <CardTitle className="text-base font-bold text-handy-navy tracking-tight flex items-center gap-2">
                   <FaWhatsapp className="w-4 h-4 text-green-500" />
                   WhatsApp Message
                 </CardTitle>
@@ -2727,11 +2748,11 @@ export default function GenerateContextualQuote() {
               <Button
                 variant="outline"
                 onClick={() => setPreviewOpen(true)}
-                className="flex-1 h-9 text-sm border-[#7DB00E]/40 text-[#7DB00E] hover:bg-[#7DB00E]/10"
+                className="flex-1 h-9 text-sm border-handy-navy/30 text-handy-navy hover:bg-handy-navy/5"
               >
                 <Eye className="w-4 h-4 mr-1.5" />Preview & Edit
               </Button>
-              <Button variant="ghost" onClick={handleReset} className="flex-1 h-9 text-sm">
+              <Button variant="ghost" onClick={handleReset} className="flex-1 h-9 text-sm text-handy-muted hover:text-handy-navy hover:bg-handy-navy/5">
                 New Quote
               </Button>
             </div>
@@ -2777,13 +2798,14 @@ export default function GenerateContextualQuote() {
                 <div className="text-xs text-muted-foreground">{phone} · {postcode || 'no postcode'}</div>
               </div>
 
-              {/* Headline */}
+              {/* Headline — handy-services-pdf recommended-box pattern */}
               {livePreview.messaging?.contextualHeadline && (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Headline</div>
-                  <div className="text-lg font-semibold">{livePreview.messaging.contextualHeadline}</div>
+                <div className="relative rounded-lg border border-handy-yellow/60 bg-handy-cream p-3 pl-4 overflow-hidden">
+                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-handy-yellow" aria-hidden />
+                  <div className="text-[10px] uppercase tracking-widest text-handy-navy font-bold mb-1">Headline</div>
+                  <div className="text-lg font-bold text-handy-navy">{livePreview.messaging.contextualHeadline}</div>
                   {livePreview.messaging.contextualMessage && (
-                    <div className="text-sm text-muted-foreground mt-1">{livePreview.messaging.contextualMessage}</div>
+                    <div className="text-sm text-handy-muted mt-1">{livePreview.messaging.contextualMessage}</div>
                   )}
                 </div>
               )}
@@ -2809,14 +2831,14 @@ export default function GenerateContextualQuote() {
                 </div>
               </div>
 
-              {/* Total */}
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 flex items-center justify-between">
+              {/* Total — navy hero block */}
+              <div className="rounded-lg bg-handy-navy p-3 flex items-center justify-between shadow-inner">
                 <div>
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Total</div>
-                  <div className="text-2xl font-bold text-emerald-400">£{(livePreview.finalPricePence / 100).toFixed(0)}</div>
+                  <div className="text-[10px] uppercase tracking-widest text-handy-yellow font-bold">Total</div>
+                  <div className="text-2xl font-bold text-white tracking-tight">£{(livePreview.finalPricePence / 100).toFixed(0)}</div>
                 </div>
                 {livePreview.batchDiscount?.discountPercent ? (
-                  <div className="text-xs text-emerald-400">−{livePreview.batchDiscount.discountPercent}% batch discount</div>
+                  <div className="text-xs text-handy-yellow font-semibold">−{livePreview.batchDiscount.discountPercent}% batch discount</div>
                 ) : null}
               </div>
 
@@ -2833,9 +2855,9 @@ export default function GenerateContextualQuote() {
               )}
 
               <div className="flex gap-2 pt-2">
-                <Button variant="ghost" className="flex-1" onClick={() => setDraftPreviewOpen(false)}>Close & Edit</Button>
-                <Button className="flex-1 bg-amber-600 hover:bg-amber-700 text-white" onClick={() => { setDraftPreviewOpen(false); handleGenerate(); }} disabled={createQuoteMutation.isPending}>
-                  {createQuoteMutation.isPending ? 'Generating…' : 'Generate Quote'}
+                <Button variant="ghost" className="flex-1 text-handy-muted hover:text-handy-navy hover:bg-handy-navy/5" onClick={() => setDraftPreviewOpen(false)}>Close & Edit</Button>
+                <Button className="flex-1 bg-handy-navy hover:bg-handy-navy/90 text-white shadow-sm" onClick={() => { setDraftPreviewOpen(false); handleGenerate(); }} disabled={createQuoteMutation.isPending}>
+                  {createQuoteMutation.isPending ? 'Generating…' : (<>Generate Quote<span className="ml-2 inline-block h-2 w-2 rounded-full bg-handy-yellow" aria-hidden /></>)}
                 </Button>
               </div>
             </div>

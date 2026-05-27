@@ -68,6 +68,23 @@ export default {
                     gray: "#F3F4F6",
                     blue: "#0065A0",
                 },
+                // Handy Services brand palette — mirrors handy-services-pdf
+                // SKILL.md so customer PDFs, customer pages, and admin
+                // builders all read from the same swatch.
+                //   navy    = primary surface + section headings
+                //   yellow  = accent / dividers / yellow HR / CTA highlight
+                //   cream   = recommended/highlighted-box background
+                //   bg      = page background tint
+                //   muted   = secondary text
+                //   grid    = borders / table grid lines
+                handy: {
+                    navy: "#1B2A4A",
+                    yellow: "#F5A623",
+                    cream: "#FFF8EC",
+                    bg: "#F7F8FC",
+                    muted: "#6B7280",
+                    grid: "#D0D5E3",
+                },
             },
             // Dark theme background gradient utilities
             backgroundImage: {
