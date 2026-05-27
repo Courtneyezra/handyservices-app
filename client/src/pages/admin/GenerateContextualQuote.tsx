@@ -779,11 +779,11 @@ function ContractorFitPanel({
   return (
     <Card>
       <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
-        <CardTitle className="text-base flex items-center gap-2">
-          <Users className="w-4 h-4" />
+        <CardTitle className="text-base font-bold text-handy-navy tracking-tight flex items-center gap-2">
+          <Users className="w-4 h-4 text-handy-yellow" />
           Who fits this job
           {data && (
-            <span className="text-xs font-normal text-zinc-500">
+            <span className="text-xs font-normal text-handy-muted">
               · {data.candidates.length} contractor{data.candidates.length === 1 ? '' : 's'}
             </span>
           )}
@@ -794,11 +794,11 @@ function ContractorFitPanel({
       </CardHeader>
       <CardContent className="space-y-3">
         {isLoading ? (
-          <div className="flex items-center gap-2 text-xs text-zinc-500 py-4"><Loader2 className="w-4 h-4 animate-spin" /> Finding contractors…</div>
+          <div className="flex items-center gap-2 text-xs text-handy-muted py-4"><Loader2 className="w-4 h-4 animate-spin" /> Finding contractors…</div>
         ) : isError ? (
           <div className="flex items-center gap-2 text-xs text-red-400 py-2"><AlertTriangle className="w-4 h-4" /> Couldn't load fit. <button type="button" onClick={() => refetch()} className="underline">Retry</button></div>
         ) : !data || data.candidates.length === 0 ? (
-          <div className="text-xs text-amber-400 py-2 flex items-start gap-2">
+          <div className="text-xs text-handy-yellow py-2 flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>
               No contractor covers all these categories{coordinates ? ' within range' : ''}.
@@ -808,33 +808,33 @@ function ContractorFitPanel({
         ) : (
           <>
             {data.uncoveredCategories.length > 0 && (
-              <div className="text-[11px] text-amber-400 flex items-center gap-1.5">
+              <div className="text-[11px] text-handy-yellow flex items-center gap-1.5">
                 <AlertTriangle className="w-3 h-3" /> No one covers: {data.uncoveredCategories.map(c => getCategoryLabel(c as any)).join(', ')}
               </div>
             )}
             {data.candidates.map((c) => {
               return (
-                <div key={c.contractorId} className="rounded-lg border p-3 border-zinc-700 bg-zinc-800/50">
+                <div key={c.contractorId} className="rounded-lg border p-3 border-handy-grid bg-white hover:border-handy-yellow/60 transition-[border-color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)]">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium text-sm">{c.name}</span>
+                    <span className="font-bold text-sm text-handy-navy">{c.name}</span>
                     {c.coveragePercent === 100 ? (
-                      <Badge className="bg-lime-500/20 text-lime-300 border-lime-500/30 text-[10px]">Full match</Badge>
+                      <Badge className="bg-handy-yellow text-handy-navy border-handy-yellow/80 text-[10px] font-bold">Full match</Badge>
                     ) : (
-                      <Badge variant="outline" className="text-[10px] text-amber-300 border-amber-500/30">{c.coveragePercent}% skills</Badge>
+                      <Badge variant="outline" className="text-[10px] text-handy-navy border-handy-yellow bg-handy-cream">{c.coveragePercent}% skills</Badge>
                     )}
-                    {c.distanceMiles != null && <span className="text-[11px] text-zinc-400">{c.distanceMiles} mi</span>}
+                    {c.distanceMiles != null && <span className="text-[11px] text-handy-muted font-medium">{c.distanceMiles} mi</span>}
                   </div>
                   <div className="mt-2">
                     {c.availableDays.length === 0 ? (
-                      <span className="text-[11px] text-zinc-500">No availability set in the next 14 days</span>
+                      <span className="text-[11px] text-handy-muted">No availability set in the next 14 days</span>
                     ) : (
                       <div className="flex flex-wrap items-center gap-1">
                         {c.availableDays.slice(0, 8).map((d) => (
-                          <span key={d.date} className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-300">
+                          <span key={d.date} className="text-[10px] px-1.5 py-0.5 rounded bg-white text-handy-navy border border-handy-grid">
                             {formatDate(new Date(d.date), 'EEE d')}{d.slot !== 'full' ? ` ${d.slot.toUpperCase()}` : ''}
                           </span>
                         ))}
-                        {c.availableDays.length > 8 && <span className="text-[10px] text-zinc-500">+{c.availableDays.length - 8}</span>}
+                        {c.availableDays.length > 8 && <span className="text-[10px] text-handy-muted">+{c.availableDays.length - 8}</span>}
                       </div>
                     )}
                   </div>
@@ -1762,7 +1762,7 @@ export default function GenerateContextualQuote() {
                       htmlFor="show-line-details"
                       className="flex items-center gap-2 text-[11px] font-normal text-muted-foreground cursor-pointer select-none"
                     >
-                      <Wand2 className="w-3 h-3 text-amber-400/70" />
+                      <Wand2 className="w-3 h-3 text-handy-yellow/70" />
                       Detail
                       <Switch
                         id="show-line-details"
@@ -1794,12 +1794,12 @@ export default function GenerateContextualQuote() {
                 {/* Job slabs */}
                 {lineItems.length === 0 ? (
                   <div
-                    className="text-center py-8 border-2 border-dashed border-white/10 rounded-xl cursor-pointer hover:border-amber-500/30 hover:bg-amber-500/5 transition-colors"
+                    className="text-center py-8 border-2 border-dashed border-handy-yellow/50 bg-handy-cream/50 rounded-xl cursor-pointer hover:border-handy-yellow hover:bg-handy-cream transition-[background-color,border-color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.99]"
                     onClick={handleAddLineItem}
                   >
-                    <Plus className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Add first job</p>
-                    <p className="text-xs text-muted-foreground/60 mt-1">One box per job — you decide the scope</p>
+                    <Plus className="w-6 h-6 mx-auto mb-2 text-handy-yellow" />
+                    <p className="text-sm text-handy-navy font-semibold">Add first job</p>
+                    <p className="text-xs text-handy-muted mt-1">One box per job — you decide the scope</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -1812,18 +1812,20 @@ export default function GenerateContextualQuote() {
                       return (
                         <div
                           key={item.id}
-                          className={`rounded-xl border bg-white/[0.02] p-3 sm:p-4 space-y-3 relative group transition-colors ${
-                            isPolishing ? 'border-amber-500/30' : 'border-white/10'
+                          className={`rounded-xl border-2 bg-white shadow-sm p-3 sm:p-4 space-y-3 relative group transition-[border-color,box-shadow] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] ${
+                            isPolishing ? 'border-handy-yellow shadow-handy-yellow/20' : 'border-handy-grid hover:border-handy-navy/30'
                           }`}
                         >
+                          {/* Brand left edge */}
+                          <div className="absolute left-0 top-3 bottom-3 w-1 bg-handy-yellow rounded-r" aria-hidden />
                           {/* Header: Job number + delete */}
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between pl-2">
                             <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/50">
+                              <span className="text-[10px] font-bold uppercase tracking-widest text-handy-navy bg-handy-cream px-2 py-0.5 rounded">
                                 Job {index + 1}
                               </span>
                               {isPolishing && (
-                                <span className="flex items-center gap-1 text-[10px] text-amber-400/70 animate-pulse">
+                                <span className="flex items-center gap-1 text-[10px] text-handy-yellow animate-pulse">
                                   <Wand2 className="w-2.5 h-2.5" />
                                   polishing...
                                 </span>
@@ -1846,7 +1848,7 @@ export default function GenerateContextualQuote() {
                             value={item.description}
                             onChange={(e) => handleUpdateLineItem(item.id, 'description', e.target.value)}
                             onBlur={() => handlePolishDescription(item.id, item.description)}
-                            className={`text-sm font-medium bg-transparent border-white/10 focus:border-amber-500/50 h-11 sm:h-10 transition-colors ${
+                            className={`text-sm font-medium bg-transparent border-handy-grid focus:border-handy-yellow h-11 sm:h-10 transition-colors ${
                               isPolishing ? 'opacity-60' : ''
                             }`}
                           />
@@ -1860,7 +1862,7 @@ export default function GenerateContextualQuote() {
                                 </Label>
                                 <div className="flex items-center gap-2">
                                   {(draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id)) && (
-                                    <span className="flex items-center gap-1 text-[10px] text-amber-400/70 animate-pulse">
+                                    <span className="flex items-center gap-1 text-[10px] text-handy-yellow animate-pulse">
                                       <Wand2 className="w-2.5 h-2.5" />
                                       {draftingDetailIds.has(item.id) ? 'drafting...' : 'polishing...'}
                                     </span>
@@ -1876,7 +1878,7 @@ export default function GenerateContextualQuote() {
                                       handleUpdateLineItem(item.id, 'details', '');
                                       autoDraftLineDetail(item.id, item.description, item.category, vaContext);
                                     }}
-                                    className="text-muted-foreground/60 hover:text-amber-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                    className="text-muted-foreground/60 hover:text-handy-yellow disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                                   >
                                     <RefreshCw className={`w-3 h-3 ${draftingDetailIds.has(item.id) ? 'animate-spin' : ''}`} />
                                   </button>
@@ -1889,7 +1891,7 @@ export default function GenerateContextualQuote() {
                                 onChange={(e) => handleUpdateLineItem(item.id, 'details', e.target.value)}
                                 onBlur={() => handlePolishDetail(item.id, item.details ?? '')}
                                 rows={3}
-                                className={`text-xs bg-transparent border-white/10 focus:border-amber-500/50 resize-none transition-colors ${
+                                className={`text-xs bg-transparent border-handy-grid focus:border-handy-yellow resize-none transition-colors ${
                                   draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) ? 'opacity-60' : ''
                                 }`}
                               />
@@ -1902,7 +1904,7 @@ export default function GenerateContextualQuote() {
                               value={item.category}
                               onValueChange={(val) => handleUpdateLineItem(item.id, 'category', val)}
                             >
-                              <SelectTrigger className="h-10 sm:h-9 text-sm sm:text-xs bg-transparent border-white/10 w-full sm:flex-1">
+                              <SelectTrigger className="h-10 sm:h-9 text-sm sm:text-xs bg-transparent border-handy-grid w-full sm:flex-1">
                                 <span className="flex items-center gap-1.5 truncate">
                                   <span className="shrink-0">{icon}</span>
                                   <span className="truncate">{categoryLabel}</span>
@@ -1941,7 +1943,7 @@ export default function GenerateContextualQuote() {
                                         );
                                       }}
                                     >
-                                      <SelectTrigger className="h-10 sm:h-9 text-sm sm:text-xs bg-transparent border-white/10 w-full sm:w-44">
+                                      <SelectTrigger className="h-10 sm:h-9 text-sm sm:text-xs bg-transparent border-handy-grid w-full sm:w-44">
                                         <SelectValue placeholder={`Pick ${cfg.unitLabel}…`} />
                                       </SelectTrigger>
                                       <SelectContent>
@@ -1972,8 +1974,8 @@ export default function GenerateContextualQuote() {
                               onClick={() => handleUpdateLineItem(item.id, 'materialsCostPounds', hasMaterials ? 0 : 1)}
                               className={`text-sm sm:text-xs px-3 sm:px-2.5 py-1.5 sm:py-1 rounded-full border transition-colors ${
                                 hasMaterials
-                                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
-                                  : 'border-white/10 text-muted-foreground/50 hover:border-white/20'
+                                  ? 'border-handy-yellow bg-handy-yellow/15 text-handy-navy font-semibold'
+                                  : 'border-handy-grid text-muted-foreground/50 hover:border-handy-navy/30'
                               }`}
                             >
                               {hasMaterials ? '🧱 Materials' : '+ Materials'}
@@ -1988,7 +1990,7 @@ export default function GenerateContextualQuote() {
                                   placeholder="0"
                                   value={item.materialsCostPounds || ''}
                                   onChange={(e) => handleUpdateLineItem(item.id, 'materialsCostPounds', parseFloat(e.target.value) || 0)}
-                                  className="w-24 sm:w-20 h-10 sm:h-8 text-center text-sm bg-transparent border-white/10"
+                                  className="w-24 sm:w-20 h-10 sm:h-8 text-center text-sm bg-transparent border-handy-grid"
                                 />
                               </div>
                             )}
@@ -1999,8 +2001,8 @@ export default function GenerateContextualQuote() {
                               onClick={() => setLineItems((prev) => prev.map((li) => li.id === item.id ? { ...li, requiresMaterialCollection: !li.requiresMaterialCollection } : li))}
                               className={`text-sm sm:text-xs px-3 sm:px-2.5 py-1.5 sm:py-1 rounded-full border transition-colors ${
                                 item.requiresMaterialCollection
-                                  ? 'border-sky-500/40 bg-sky-500/10 text-sky-300'
-                                  : 'border-white/10 text-muted-foreground/50 hover:border-white/20'
+                                  ? 'border-handy-navy bg-handy-navy/10 text-handy-navy font-semibold'
+                                  : 'border-handy-grid text-muted-foreground/60 hover:border-handy-navy/40'
                               }`}
                             >
                               {item.requiresMaterialCollection ? '🚐 Collection' : '+ Collection'}
@@ -2017,7 +2019,7 @@ export default function GenerateContextualQuote() {
                   <button
                     type="button"
                     onClick={handleAddLineItem}
-                    className="w-full py-2.5 rounded-xl border-2 border-dashed border-white/10 text-sm text-muted-foreground hover:border-amber-500/30 hover:text-amber-300 hover:bg-amber-500/5 transition-colors flex items-center justify-center gap-2"
+                    className="w-full py-2.5 rounded-xl border-2 border-dashed border-handy-grid text-sm text-muted-foreground hover:border-handy-yellow hover:text-handy-navy hover:bg-handy-cream transition-colors flex items-center justify-center gap-2"
                   >
                     <Plus className="w-4 h-4" />
                     Add another job
@@ -2025,9 +2027,9 @@ export default function GenerateContextualQuote() {
                 )}
 
                 {lineItems.length === 1 && (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/20">
-                    <span className="text-amber-400 text-sm">💡</span>
-                    <p className="text-xs text-amber-300/80">
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-handy-cream border border-handy-yellow/40">
+                    <span className="text-handy-yellow text-sm">💡</span>
+                    <p className="text-xs text-handy-navy/80">
                       Anything else to sort while we're there? Multi-job quotes convert 2× better.
                     </p>
                   </div>
@@ -2041,14 +2043,14 @@ export default function GenerateContextualQuote() {
                     <Separator />
                     {livePreviewLoading && !livePreview ? (
                       <div className="flex items-center justify-center gap-2 py-3">
-                        <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                        <Loader2 className="w-4 h-4 animate-spin text-handy-yellow" />
                         <span className="text-sm text-muted-foreground">Calculating price...</span>
                       </div>
                     ) : livePreview ? (
                       <div className="space-y-2">
                         {/* Header */}
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-handy-navy bg-handy-cream px-2 py-0.5 rounded">
                             Engine Breakdown
                           </span>
                           {livePreview.confidence && (
@@ -2058,7 +2060,7 @@ export default function GenerateContextualQuote() {
                                 livePreview.confidence === 'high'
                                   ? 'border-green-500/40 text-green-400'
                                   : livePreview.confidence === 'medium'
-                                    ? 'border-amber-500/40 text-amber-400'
+                                    ? 'border-handy-yellow text-handy-yellow'
                                     : 'border-red-500/40 text-red-400'
                               }`}
                             >
@@ -2125,13 +2127,13 @@ export default function GenerateContextualQuote() {
                           )}
                         </div>
 
-                        {/* Final total */}
-                        <div className="flex items-center justify-between py-2 border-t border-amber-500/20 mt-2">
-                          <span className="text-sm font-semibold text-foreground">
+                        {/* Final total — navy hero block (matches PDF brand) */}
+                        <div className="flex items-center justify-between py-2.5 px-3 rounded-md bg-handy-navy mt-2 shadow-inner">
+                          <span className="text-sm font-bold text-white">
                             Engine Total
-                            {livePreviewLoading && <Loader2 className="w-3 h-3 animate-spin inline ml-1.5" />}
+                            {livePreviewLoading && <Loader2 className="w-3 h-3 animate-spin inline ml-1.5 text-handy-yellow" />}
                           </span>
-                          <span className="text-2xl font-bold text-amber-400 tabular-nums">
+                          <span className="text-2xl font-bold text-handy-yellow tabular-nums tracking-tight">
                             £{(livePreview.finalPricePence / 100).toFixed(0)}
                           </span>
                         </div>
@@ -2140,10 +2142,10 @@ export default function GenerateContextualQuote() {
                         {(livePreview.guardrails?.floorTriggered || livePreview.guardrails?.ceilingTriggered || (livePreview.guardrails?.adjustments?.length ?? 0) > 0) && (
                           <div className="space-y-0.5 pt-1">
                             {livePreview.guardrails.floorTriggered && (
-                              <p className="text-[10px] text-amber-400/80">⚠ Floor triggered on at least one line — price raised to margin floor.</p>
+                              <p className="text-[10px] text-handy-yellow">⚠ Floor triggered on at least one line — price raised to margin floor.</p>
                             )}
                             {livePreview.guardrails.ceilingTriggered && (
-                              <p className="text-[10px] text-amber-400/80">⚠ Ceiling triggered on at least one line — capped at 3× reference.</p>
+                              <p className="text-[10px] text-handy-yellow">⚠ Ceiling triggered on at least one line — capped at 3× reference.</p>
                             )}
                           </div>
                         )}
@@ -2160,8 +2162,9 @@ export default function GenerateContextualQuote() {
                         )}
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between py-1">
-                        <span className="text-sm text-muted-foreground text-amber-500/70">Engine price unavailable — add a description and time estimate to see live pricing</span>
+                      <div className="flex items-center gap-2 py-2 px-3 rounded-md bg-handy-cream border border-handy-yellow/40">
+                        <Info className="w-3.5 h-3.5 text-handy-yellow shrink-0" />
+                        <span className="text-xs text-handy-navy">Add a description and time estimate to see live pricing</span>
                       </div>
                     )}
                   </>
@@ -2179,12 +2182,12 @@ export default function GenerateContextualQuote() {
                     disabled={aiSuggestionsLoading || lineItems.length === 0}
                     title="Re-suggest from current context"
                     aria-label="Refresh AI suggestions"
-                    className="text-muted-foreground/60 hover:text-amber-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="text-muted-foreground/60 hover:text-handy-yellow disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${aiSuggestionsLoading ? 'animate-spin' : ''}`} />
                   </button>
                 </CardTitle>
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-handy-muted">
                   AI suggests context-relevant extras; you can also add a custom one-off below.
                 </p>
               </CardHeader>
@@ -2192,7 +2195,7 @@ export default function GenerateContextualQuote() {
                 {/* AI Suggestions — context-driven, contextual to vaContext + jobs */}
                 {(aiSuggestedExtras.length > 0 || aiSuggestionsLoading) && (
                   <div className="space-y-2">
-                    <Label className="text-xs text-amber-400/80 flex items-center gap-1.5">
+                    <Label className="text-xs text-handy-yellow flex items-center gap-1.5">
                       <Wand2 className="w-3 h-3" />
                       AI suggestions
                       {aiSuggestionsLoading && <span className="text-[10px] text-muted-foreground/60 animate-pulse ml-1">thinking...</span>}
@@ -2212,8 +2215,8 @@ export default function GenerateContextualQuote() {
                             key={`ai-${idx}`}
                             className={`flex items-start gap-2.5 rounded-lg border px-2.5 py-2 cursor-pointer transition-colors ${
                               checked
-                                ? 'border-amber-500/40 bg-amber-500/10'
-                                : 'border-amber-500/15 bg-amber-500/[0.04] hover:border-amber-500/30 hover:bg-amber-500/10'
+                                ? 'border-handy-yellow bg-handy-yellow/15'
+                                : 'border-handy-yellow/30 bg-handy-cream hover:border-handy-yellow hover:bg-handy-yellow/15'
                             }`}
                           >
                             <input
@@ -2238,13 +2241,13 @@ export default function GenerateContextualQuote() {
                                   );
                                 }
                               }}
-                              className="mt-0.5 w-4 h-4 rounded border-zinc-600 bg-zinc-800 accent-amber-500 shrink-0"
+                              className="mt-0.5 w-4 h-4 rounded border-handy-grid bg-handy-bg accent-handy-yellow shrink-0"
                             />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-sm font-medium text-foreground">{sug.label}</span>
                                 {sug.badge && (
-                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-400">
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-handy-yellow text-handy-yellow">
                                     {sug.badge}
                                   </Badge>
                                 )}
@@ -2256,7 +2259,7 @@ export default function GenerateContextualQuote() {
                                 <p className="text-[11px] text-muted-foreground/70 mt-0.5">{sug.description}</p>
                               )}
                               {sug.reasoning && (
-                                <p className="text-[10px] text-amber-400/60 italic mt-0.5 flex items-start gap-1">
+                                <p className="text-[10px] text-handy-yellow/60 italic mt-0.5 flex items-start gap-1">
                                   <Wand2 className="w-2.5 h-2.5 mt-0.5 shrink-0" />
                                   <span>{sug.reasoning}</span>
                                 </p>
@@ -2277,18 +2280,18 @@ export default function GenerateContextualQuote() {
                       {optionalExtras.map((extra, idx) => (
                         <div
                           key={`${extra.catalogId ?? 'custom'}-${idx}`}
-                          className="flex items-start gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2.5 py-2"
+                          className="flex items-start gap-2 rounded-lg border border-handy-grid bg-handy-bg/50 px-2.5 py-2"
                         >
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-medium text-foreground">{extra.label}</span>
                               {extra.badge && (
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-400">
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-handy-yellow text-handy-yellow">
                                   {extra.badge}
                                 </Badge>
                               )}
                               {!extra.catalogId && (
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-zinc-500/40 text-zinc-400">
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-handy-grid text-handy-muted">
                                   custom
                                 </Badge>
                               )}
@@ -2328,8 +2331,8 @@ export default function GenerateContextualQuote() {
                       Add custom extra
                     </Button>
                   ) : (
-                    <div className="space-y-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
-                      <Label className="text-xs text-amber-300">New custom extra</Label>
+                    <div className="space-y-2 rounded-lg border border-handy-yellow/40 bg-handy-cream p-3">
+                      <Label className="text-xs text-handy-navy">New custom extra</Label>
                       <div>
                         <Label className="text-[10px] text-muted-foreground">Label</Label>
                         <Input
@@ -2433,10 +2436,10 @@ export default function GenerateContextualQuote() {
               <CardContent>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-zinc-300">
+                    <label className="text-sm font-medium text-handy-navy">
                       Customer Context
                     </label>
-                    <span className="text-xs text-zinc-500">Speak or type — who are they, what's their situation</span>
+                    <span className="text-xs text-handy-muted">Speak or type — who are they, what's their situation</span>
                   </div>
 
                   {/* Record button */}
@@ -2447,7 +2450,7 @@ export default function GenerateContextualQuote() {
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                         isRecording
                           ? 'bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse'
-                          : 'bg-zinc-800 text-zinc-300 border border-zinc-700 hover:border-zinc-500'
+                          : 'bg-handy-bg text-handy-navy border border-handy-grid hover:border-handy-navy/40'
                       }`}
                     >
                       <span>{isRecording ? '⏹ Stop' : '🎙 Record'}</span>
@@ -2463,13 +2466,13 @@ export default function GenerateContextualQuote() {
                     value={vaContext}
                     onChange={(e) => setVaContext(e.target.value)}
                     placeholder="e.g. Sarah's a landlord, rental in Beeston, tenant flagged a dripping tap. She won't be there, relaxed about timing, asked about price briefly but didn't push back."
-                    className="w-full h-24 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 resize-none focus:outline-none focus:border-zinc-500"
+                    className="w-full h-24 bg-white border border-handy-grid rounded-lg px-3 py-2 text-sm text-handy-navy placeholder-handy-muted/50 resize-none focus:outline-none focus:border-handy-yellow"
                   />
 
                   {/* Context quality indicator */}
                   {vaContext.trim().length > 0 && (
                     <div className={`flex items-center gap-2 text-xs ${
-                      vaContext.trim().length < 50 ? 'text-amber-400' :
+                      vaContext.trim().length < 50 ? 'text-handy-yellow' :
                       vaContext.trim().length < 120 ? 'text-lime-400' :
                       'text-emerald-400'
                     }`}>
@@ -2488,7 +2491,7 @@ export default function GenerateContextualQuote() {
             <Card>
               <CardHeader className="pb-2 mb-2 border-b-2 border-handy-yellow/50">
                 <CardTitle className="text-base font-bold text-handy-navy tracking-tight">Property Context</CardTitle>
-                <p className="text-xs text-zinc-500 mt-1">
+                <p className="text-xs text-handy-muted mt-1">
                   Drives scheduling math — adds floor/parking/presence overhead. Doesn't change price.
                 </p>
               </CardHeader>
@@ -2792,7 +2795,7 @@ export default function GenerateContextualQuote() {
           {livePreview ? (
             <div className="space-y-4">
               {/* Customer */}
-              <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
+              <div className="rounded-lg border border-handy-grid bg-handy-bg/60 p-3">
                 <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Customer</div>
                 <div className="text-sm">{customerName || '—'}</div>
                 <div className="text-xs text-muted-foreground">{phone} · {postcode || 'no postcode'}</div>
@@ -2811,9 +2814,9 @@ export default function GenerateContextualQuote() {
               )}
 
               {/* Line items */}
-              <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-                <div className="px-3 py-2 text-xs uppercase tracking-wide text-muted-foreground border-b border-zinc-800">Line items</div>
-                <div className="divide-y divide-zinc-800/60">
+              <div className="rounded-lg border border-handy-grid bg-handy-bg/60 overflow-hidden">
+                <div className="px-3 py-2 text-xs uppercase tracking-wide text-muted-foreground border-b border-handy-grid">Line items</div>
+                <div className="divide-y divide-handy-grid">
                   {livePreview.lineItems.map((li: any) => (
                     <div key={li.lineId} className="px-3 py-2 flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
@@ -2844,7 +2847,7 @@ export default function GenerateContextualQuote() {
 
               {/* Value bullets preview */}
               {Array.isArray(livePreview.messaging?.valueBullets) && livePreview.messaging.valueBullets.length > 0 && (
-                <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
+                <div className="rounded-lg border border-handy-grid bg-handy-bg/60 p-3">
                   <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Value bullets</div>
                   <ul className="space-y-1 text-sm">
                     {livePreview.messaging.valueBullets.map((b: string, i: number) => (
