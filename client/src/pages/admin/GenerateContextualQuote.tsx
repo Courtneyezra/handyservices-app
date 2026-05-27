@@ -404,7 +404,7 @@ function TimeInput({
             key={p.minutes}
             type="button"
             onClick={() => onChange(p.minutes)}
-            className={`h-7 px-2.5 rounded-full text-xs font-medium transition-all active:scale-95 ${
+            className={`h-7 px-2.5 rounded-full text-xs font-medium transition-[transform,background-color,color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] ${
               minutes === p.minutes
                 ? 'bg-primary text-primary-foreground ring-1 ring-primary'
                 : 'bg-muted/50 text-muted-foreground hover:bg-muted'
@@ -1778,7 +1778,7 @@ export default function GenerateContextualQuote() {
                 {/* Job slabs */}
                 {lineItems.length === 0 ? (
                   <div
-                    className="text-center py-8 border-2 border-dashed border-white/10 rounded-xl cursor-pointer hover:border-amber-500/30 hover:bg-amber-500/5 transition-all"
+                    className="text-center py-8 border-2 border-dashed border-white/10 rounded-xl cursor-pointer hover:border-amber-500/30 hover:bg-amber-500/5 transition-colors"
                     onClick={handleAddLineItem}
                   >
                     <Plus className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
@@ -1830,7 +1830,7 @@ export default function GenerateContextualQuote() {
                             value={item.description}
                             onChange={(e) => handleUpdateLineItem(item.id, 'description', e.target.value)}
                             onBlur={() => handlePolishDescription(item.id, item.description)}
-                            className={`text-sm font-medium bg-transparent border-white/10 focus:border-amber-500/50 h-11 sm:h-10 transition-all ${
+                            className={`text-sm font-medium bg-transparent border-white/10 focus:border-amber-500/50 h-11 sm:h-10 transition-colors ${
                               isPolishing ? 'opacity-60' : ''
                             }`}
                           />
@@ -1873,7 +1873,7 @@ export default function GenerateContextualQuote() {
                                 onChange={(e) => handleUpdateLineItem(item.id, 'details', e.target.value)}
                                 onBlur={() => handlePolishDetail(item.id, item.details ?? '')}
                                 rows={3}
-                                className={`text-xs bg-transparent border-white/10 focus:border-amber-500/50 resize-none transition-all ${
+                                className={`text-xs bg-transparent border-white/10 focus:border-amber-500/50 resize-none transition-colors ${
                                   draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) ? 'opacity-60' : ''
                                 }`}
                               />
@@ -1954,7 +1954,7 @@ export default function GenerateContextualQuote() {
                             <button
                               type="button"
                               onClick={() => handleUpdateLineItem(item.id, 'materialsCostPounds', hasMaterials ? 0 : 1)}
-                              className={`text-sm sm:text-xs px-3 sm:px-2.5 py-1.5 sm:py-1 rounded-full border transition-all ${
+                              className={`text-sm sm:text-xs px-3 sm:px-2.5 py-1.5 sm:py-1 rounded-full border transition-colors ${
                                 hasMaterials
                                   ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
                                   : 'border-white/10 text-muted-foreground/50 hover:border-white/20'
@@ -1981,7 +1981,7 @@ export default function GenerateContextualQuote() {
                               type="button"
                               title="Adds +30 min to the contractor's day. Customer doesn't see this — covered by materials markup."
                               onClick={() => setLineItems((prev) => prev.map((li) => li.id === item.id ? { ...li, requiresMaterialCollection: !li.requiresMaterialCollection } : li))}
-                              className={`text-sm sm:text-xs px-3 sm:px-2.5 py-1.5 sm:py-1 rounded-full border transition-all ${
+                              className={`text-sm sm:text-xs px-3 sm:px-2.5 py-1.5 sm:py-1 rounded-full border transition-colors ${
                                 item.requiresMaterialCollection
                                   ? 'border-sky-500/40 bg-sky-500/10 text-sky-300'
                                   : 'border-white/10 text-muted-foreground/50 hover:border-white/20'
@@ -2001,7 +2001,7 @@ export default function GenerateContextualQuote() {
                   <button
                     type="button"
                     onClick={handleAddLineItem}
-                    className="w-full py-2.5 rounded-xl border-2 border-dashed border-white/10 text-sm text-muted-foreground hover:border-amber-500/30 hover:text-amber-300 hover:bg-amber-500/5 transition-all flex items-center justify-center gap-2"
+                    className="w-full py-2.5 rounded-xl border-2 border-dashed border-white/10 text-sm text-muted-foreground hover:border-amber-500/30 hover:text-amber-300 hover:bg-amber-500/5 transition-colors flex items-center justify-center gap-2"
                   >
                     <Plus className="w-4 h-4" />
                     Add another job
@@ -2428,7 +2428,7 @@ export default function GenerateContextualQuote() {
                     <button
                       type="button"
                       onClick={handleToggleRecording}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                         isRecording
                           ? 'bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse'
                           : 'bg-zinc-800 text-zinc-300 border border-zinc-700 hover:border-zinc-500'

@@ -246,6 +246,20 @@
   background-repeat: no-repeat;
 }
 
+/* ─── Emil Kowalski easing tokens ─────────────────────────────────────
+ * Custom curves that feel intentional. The built-in CSS easings are
+ * too weak — these have the punch good UI needs.
+ *   --ease-out:    interactive feedback (buttons, dropdowns, tooltips)
+ *   --ease-in-out: on-screen movement, morphing
+ *   --ease-drawer: iOS-style drawer / sheet curve
+ * Usage in Tailwind: ease-[var(--ease-out)] or inline style.
+ */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 /* Respect the user's OS-level prefers-reduced-motion setting. Kills the
  * V2 feedback animations (success ring, cart bump, slide-ups) and the
  * generic Tailwind transitions so users with vestibular disorders or
