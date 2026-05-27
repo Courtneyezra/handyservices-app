@@ -158,12 +158,17 @@ function generatePassword(): string {
     return result;
 }
 
-function getNext14Days(): string[] {
+// Phase 23 — returns a 14-day window starting `offsetDays` from today.
+// offsetDays=0 → today..today+13, offsetDays=14 → today+14..today+27, etc.
+// Used by the availability tab pager so admins can set bookings further out.
+function getDateWindow(offsetDays: number, length = 14): string[] {
     const days: string[] = [];
-    const today = new Date();
-    for (let i = 0; i < 14; i++) {
-        const d = new Date(today);
-        d.setDate(today.getDate() + i);
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() + offsetDays);
+    for (let i = 0; i < length; i++) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
         days.push(d.toISOString().split('T')[0]);
     }
     return days;
@@ -199,6 +204,12 @@ export function ContractorFormPanel({
     const [form, setForm] = useState<ContractorFormData>(EMPTY_FORM);
     const [activeTab, setActiveTab] = useState<'details' | 'skills' | 'availability'>('details');
     const [availabilityOverrides, setAvailabilityOverrides] = useState<AvailabilityOverride[]>([]);
+    // Phase 23 — pager offset for the availability tab. 0 = today..+13d,
+    // 14 = +14d..+27d, etc. Capped at 90 days forward (no point setting
+    // availability ~3 months out for a handyman business).
+    const [availabilityOffset, setAvailabilityOffset] = useState(0);
+    const AVAILABILITY_WINDOW_DAYS = 14;
+    const AVAILABILITY_MAX_OFFSET = 90 - AVAILABILITY_WINDOW_DAYS; // last reachable window starts at day 76
 
     // Populate form when editing
     useEffect(() => {
@@ -246,6 +257,7 @@ export function ContractorFormPanel({
             setAvailabilityOverrides([]);
         }
         setActiveTab('details');
+        setAvailabilityOffset(0); // Phase 23 — reset pager when modal re-opens
     }, [editingContractor, open]);
 
     const updateField = <K extends keyof ContractorFormData>(key: K, value: ContractorFormData[K]) => {
@@ -406,7 +418,13 @@ export function ContractorFormPanel({
     };
 
     const isSaving = createMutation.isPending || updateMutation.isPending;
-    const next14Days = getNext14Days();
+    const windowDays = getDateWindow(availabilityOffset, AVAILABILITY_WINDOW_DAYS);
+    const windowFirst = windowDays[0];
+    const windowLast = windowDays[windowDays.length - 1];
+    const fmtDate = (s: string) => {
+        const d = new Date(s + 'T00:00:00');
+        return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    };
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -633,10 +651,39 @@ export function ContractorFormPanel({
                 {activeTab === 'availability' && isEditing && (
                     <div className="space-y-4">
                         <p className="text-sm text-muted-foreground">
-                            Set date-specific availability overrides for the next 14 days. These override the contractor's weekly pattern.
+                            Set date-specific availability overrides in 14-day windows. Use the arrows to set further-out dates. Overrides take precedence over the weekly pattern.
                         </p>
+                        {/* Phase 23 — pager: walk forward in 14-day chunks up to 90 days */}
+                        <div className="flex items-center justify-between gap-2 rounded-lg border border-input bg-muted/30 px-3 py-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8 px-3"
+                                disabled={availabilityOffset === 0}
+                                onClick={() => setAvailabilityOffset((o) => Math.max(0, o - AVAILABILITY_WINDOW_DAYS))}
+                            >
+                                ← Previous
+                            </Button>
+                            <div className="text-xs sm:text-sm font-medium text-foreground tabular-nums text-center">
+                                {fmtDate(windowFirst)} – {fmtDate(windowLast)}
+                                {availabilityOffset > 0 && (
+                                    <span className="text-muted-foreground font-normal ml-2">(+{availabilityOffset}d from today)</span>
+                                )}
+                            </div>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8 px-3"
+                                disabled={availabilityOffset >= AVAILABILITY_MAX_OFFSET}
+                                onClick={() => setAvailabilityOffset((o) => Math.min(AVAILABILITY_MAX_OFFSET, o + AVAILABILITY_WINDOW_DAYS))}
+                            >
+                                Next →
+                            </Button>
+                        </div>
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                            {next14Days.map(dateStr => {
+                            {windowDays.map(dateStr => {
                                 const d = new Date(dateStr + 'T00:00:00');
                                 const dayName = DAY_NAMES[d.getDay()];
                                 const dayNum = d.getDate();
