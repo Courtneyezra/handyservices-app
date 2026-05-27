@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
-import { ThemeToggle } from "@/components/ThemeToggle";
 import InstallPrompt from "@/components/InstallPrompt";
 import { Link, useLocation } from "wouter";
 import { useLiveCall } from "@/contexts/LiveCallContext";
@@ -338,7 +337,6 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             </>
                         ) : (
                             <>
-                                <ThemeToggle />
                                 <button className="p-2 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted transition-colors relative hidden sm:block">
                                     <Bell className="w-5 h-5" />
                                     <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-background"></span>

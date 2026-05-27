@@ -1,10 +1,16 @@
-import { createContext, useContext, useEffect, useState } from "react"
+import { createContext, useContext, useEffect } from "react"
 
-type Theme = "dark" | "light" | "system"
+// Phase 19 — dark mode removed. ThemeProvider is kept as a no-op shell so
+// existing `useTheme()` consumers don't crash; it always reports "light"
+// and `setTheme()` is a no-op. Any stale `vite-ui-theme=dark` entry in
+// localStorage is migrated to `light` on first load so returning users
+// don't get stuck with the old preference cached client-side.
+
+type Theme = "light"
 
 type ThemeProviderProps = {
     children: React.ReactNode
-    defaultTheme?: Theme
+    defaultTheme?: "dark" | "light" | "system"
     storageKey?: string
 }
 
@@ -13,50 +19,34 @@ type ThemeProviderState = {
     setTheme: (theme: Theme) => void
 }
 
-const initialState: ThemeProviderState = {
-    theme: "system",
+const ThemeProviderContext = createContext<ThemeProviderState>({
+    theme: "light",
     setTheme: () => null,
-}
-
-const ThemeProviderContext = createContext<ThemeProviderState>(initialState)
+})
 
 export function ThemeProvider({
     children,
-    defaultTheme = "system",
     storageKey = "vite-ui-theme",
 }: ThemeProviderProps) {
-    const [theme, setTheme] = useState<Theme>(
-        () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
-    )
-
     useEffect(() => {
         const root = window.document.documentElement
-
+        // Strip any previously-applied theme class.
         root.classList.remove("light", "dark")
-
-        if (theme === "system") {
-            const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
-                .matches
-                ? "dark"
-                : "light"
-
-            root.classList.add(systemTheme)
-            return
+        root.classList.add("light")
+        // One-shot localStorage migration so returning users with a stored
+        // "dark" preference don't see anything weird on first load.
+        try {
+            const stored = localStorage.getItem(storageKey)
+            if (stored && stored !== "light") {
+                localStorage.setItem(storageKey, "light")
+            }
+        } catch {
+            // localStorage may be unavailable (private mode etc.) — ignore.
         }
-
-        root.classList.add(theme)
-    }, [theme])
-
-    const value = {
-        theme,
-        setTheme: (theme: Theme) => {
-            localStorage.setItem(storageKey, theme)
-            setTheme(theme)
-        },
-    }
+    }, [storageKey])
 
     return (
-        <ThemeProviderContext.Provider value={value}>
+        <ThemeProviderContext.Provider value={{ theme: "light", setTheme: () => null }}>
             {children}
         </ThemeProviderContext.Provider>
     )
@@ -64,9 +54,8 @@ export function ThemeProvider({
 
 export const useTheme = () => {
     const context = useContext(ThemeProviderContext)
-
-    if (context === undefined)
+    if (context === undefined) {
         throw new Error("useTheme must be used within a ThemeProvider")
-
+    }
     return context
 }
