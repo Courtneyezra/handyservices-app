@@ -156,3 +156,44 @@ export function composeScheduleMinutes(
 export function totalScheduleMinutes(lines: LineItemTimeShape[], context: QuoteContext = {}): number {
     return composeScheduleMinutes(lines, context).totalMinutes;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 24 — multi-day jobs.
+//
+// A "working day" for scheduling = 8h × 60 = 480 minutes. This matches
+// SLOT_CAPACITY_MIN.full_day in booking-engine.ts and the 8h daily cap
+// applied by computeDayItinerary. We deliberately use the SAME number on
+// both sides so a job that says "needs 3 days" is also accepted by
+// reserveSlot for each of those 3 days.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Minutes of work that fit in one contractor working day. */
+export const DAILY_CAPACITY_MIN = 480;
+
+/**
+ * How many consecutive working days a quote needs.
+ *
+ * Single-day jobs (≤ DAILY_CAPACITY_MIN) return 1 — matches the legacy
+ * booking model exactly, so existing flow is unchanged. Larger jobs return
+ * 2, 3, … so the booking engine can reserve that many days from one
+ * contractor atomically.
+ *
+ * Note: travel time is NOT included here because travel is per-day, not
+ * per-quote. The day-fit check inside reserveSlot still applies the
+ * per-day cap; this function only sizes the OUTER reservation.
+ */
+export function computeRequiredDays(scheduleMinutes: number): number {
+    if (!Number.isFinite(scheduleMinutes) || scheduleMinutes <= 0) return 1;
+    return Math.max(1, Math.ceil(scheduleMinutes / DAILY_CAPACITY_MIN));
+}
+
+/**
+ * Convenience: derive the duration_days value to persist on a booking.
+ * Just `computeRequiredDays` after composing the schedule from lines.
+ */
+export function computeBookingDurationDays(
+    lines: LineItemTimeShape[],
+    context: QuoteContext = {},
+): number {
+    return computeRequiredDays(totalScheduleMinutes(lines, context));
+}

@@ -1038,6 +1038,10 @@ export const contractorBookingRequests = pgTable("contractor_booking_requests", 
 
     // Day-of Operations
     scheduledSlot: scheduledSlotEnum("scheduled_slot"), // AM/PM/FULL_DAY
+    // Phase 24 — multi-day jobs. 1 = single-day (legacy default, backward-compatible).
+    // 2+ = consecutive working days starting at scheduledDate. confirmBooking
+    // inserts ONE row per job; the booking engine treats N days as one reservation.
+    durationDays: integer("duration_days").notNull().default(1),
     dayOfStatus: dayOfStatusEnum("day_of_status").default('scheduled'),
     enRouteAt: timestamp("en_route_at"),
     arrivedAt: timestamp("arrived_at"),
@@ -2638,6 +2642,10 @@ export const bookingSlotLocks = pgTable('booking_slot_locks', {
     contractorId: varchar('contractor_id', { length: 255 }).notNull(),
     scheduledDate: timestamp('scheduled_date').notNull(),
     scheduledSlot: scheduledSlotEnum('scheduled_slot').notNull(),
+    // Phase 24 — multi-day jobs. 1 = single-day (legacy default). 2+ means the
+    // lock spans `durationDays` consecutive working days starting at
+    // scheduledDate. Conflict checks must consider every day in the span.
+    durationDays: integer('duration_days').notNull().default(1),
     expiresAt: timestamp('expires_at').notNull(), // 5 min TTL
     createdAt: timestamp('created_at').defaultNow().notNull(),
 });
