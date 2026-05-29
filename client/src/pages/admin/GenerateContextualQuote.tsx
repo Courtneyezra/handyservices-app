@@ -45,6 +45,14 @@ import { buildContextualQuoteWhatsAppMessage } from '@/lib/whatsapp-quote-messag
 import { AddressInput, type AddressDetails } from '@/components/live-call/AddressInput';
 import Autocomplete from 'react-google-autocomplete';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import {
+  SkuSearchModal,
+  SkuSlabSummary,
+  SkuEmptyPickButton,
+  getEffectiveSkuPriceAndMinutes,
+  type CatalogSku,
+  type SkuPickResult,
+} from '@/components/admin/SkuPicker';
 import type {
   JobCategory,
   ParsedJobResult,
@@ -93,6 +101,23 @@ interface LineItem {
   fixedTier?: string | null;
   /** Phase 11 — line needs a materials collection trip. Composer dedupes across all lines; +30min ONCE per quote when any line is flagged. */
   requiresMaterialCollection?: boolean;
+  /**
+   * Phase 25c — distinguishes catalog pick from free-text custom work.
+   * Default for new lines is 'sku' so the picker opens by default.
+   */
+  source: 'sku' | 'custom';
+  /** Phase 25c — when set, the engine resolves price + schedule from service_catalog. */
+  skuCode?: string;
+  /** Phase 25c — count for per_unit SKUs (defaults to sku.minimumUnits on pick). */
+  unitCount?: number;
+  /** Phase 25c — chosen tier label for tiered SKUs. */
+  selectedTier?: string;
+  /**
+   * Phase 25c — cached SKU row at pick-time so we can re-render the slab
+   * without round-tripping to the server. Kept local; the engine resolves
+   * fresh from the catalog when the quote actually generates.
+   */
+  skuMeta?: CatalogSku;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1006,6 +1031,11 @@ export default function GenerateContextualQuote() {
   // ── Call card selection ──
   const [selectedCallerId, setSelectedCallerId] = useState<string | null>(null);
 
+  // ── Phase 25c — SKU picker modal state ──
+  // Tracks which line item id (if any) has the SKU picker modal open.
+  // Null = closed. The picker auto-opens for newly added SKU-default lines.
+  const [skuPickerLineId, setSkuPickerLineId] = useState<string | null>(null);
+
   // ── Result ──
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -1039,7 +1069,9 @@ export default function GenerateContextualQuote() {
     // Cancel any in-flight request
     livePreviewAbortRef.current?.abort();
 
-    // Need at least one valid line item
+    // Need at least one valid line item. SKU-picked lines that haven't had
+    // a SKU selected yet (description still empty) are skipped — they're
+    // half-finished and would just error.
     const validItems = items.filter((li) => li.description.trim() && li.estimatedMinutes > 0);
     if (validItems.length === 0) {
       setLivePreview(null);
@@ -1063,6 +1095,12 @@ export default function GenerateContextualQuote() {
             category: li.category,
             timeEstimateMinutes: li.estimatedMinutes,
             materialsCostPence: Math.round((li.materialsCostPounds || 0) * 100),
+            // Phase 25c — pass SKU fields through so the server engine
+            // short-circuits the LLM for catalog-picked lines.
+            source: li.source,
+            ...(li.skuCode ? { skuCode: li.skuCode } : {}),
+            ...(li.unitCount !== undefined ? { unitCount: li.unitCount } : {}),
+            ...(li.selectedTier ? { selectedTier: li.selectedTier } : {}),
           })),
           signals: {
             urgency: sigs.urgency,
@@ -1322,13 +1360,16 @@ export default function GenerateContextualQuote() {
       return res.json();
     },
     onSuccess: (result) => {
-      // Map parsed lines to our LineItem format — accepts any minute value
+      // Map parsed lines to our LineItem format — accepts any minute value.
+      // AI-parsed lines arrive as free-text so they default to source='custom'
+      // (admin can flip to SKU per line if they recognise a catalog match).
       const newItems: LineItem[] = result.lines.map((line) => ({
         id: line.id || generateId(),
         description: line.description,
         category: line.category,
         estimatedMinutes: line.timeEstimateMinutes,
         materialsCostPounds: 0,
+        source: 'custom' as const,
       }));
       setLineItems(newItems);
 
@@ -1377,6 +1418,12 @@ export default function GenerateContextualQuote() {
             details: li.details ?? null,
             fixedTier: li.fixedTier ?? null,
             requiresMaterialCollection: !!li.requiresMaterialCollection,
+            // Phase 25c — SKU fields persist through to the server's
+            // catalog short-circuit path.
+            source: li.source,
+            ...(li.skuCode ? { skuCode: li.skuCode } : {}),
+            ...(li.unitCount !== undefined ? { unitCount: li.unitCount } : {}),
+            ...(li.selectedTier ? { selectedTier: li.selectedTier } : {}),
           })),
           signals: {
             urgency: signals.urgency,
@@ -1453,10 +1500,23 @@ export default function GenerateContextualQuote() {
   };
 
   const handleAddLineItem = () => {
+    const newId = generateId();
     setLineItems((prev) => [
       ...prev,
-      { id: generateId(), description: '', category: 'general_fixing' as JobCategory, estimatedMinutes: 30, materialsCostPounds: 0 },
+      {
+        id: newId,
+        description: '',
+        category: 'general_fixing' as JobCategory,
+        estimatedMinutes: 30,
+        materialsCostPounds: 0,
+        // Phase 25c — default new lines to SKU pick so the picker opens
+        // immediately. Custom remains one click away via the toggle.
+        source: 'sku',
+      },
     ]);
+    // Auto-open the SKU search modal for the new line so the admin lands in
+    // pick-mode without an extra click.
+    setSkuPickerLineId(newId);
   };
 
   const handleRemoveLineItem = (id: string) => {
@@ -1755,8 +1815,115 @@ export default function GenerateContextualQuote() {
     });
   };
 
-  // Validate form completeness for button state
-  const canGenerate = customerName.trim() && phone.trim() && lineItems.length > 0 && lineItems.every((li) => li.description.trim());
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Phase 25c — SKU line item handlers
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Flip a line between SKU pick and free-text custom modes. */
+  const handleToggleLineSource = useCallback((lineId: string, next: 'sku' | 'custom') => {
+    setLineItems((prev) =>
+      prev.map((li) => {
+        if (li.id !== lineId) return li;
+        if (next === 'custom') {
+          // Drop SKU references but keep the polished description so the
+          // admin can edit it as free-text. Reset minutes to the previous
+          // estimatedMinutes (no change needed) and clear SKU shape state.
+          return {
+            ...li,
+            source: 'custom',
+            skuCode: undefined,
+            unitCount: undefined,
+            selectedTier: undefined,
+            skuMeta: undefined,
+          };
+        }
+        // Switching to SKU: clear SKU-shape state but PRESERVE the
+        // description so admin's typed free-text seeds the picker query.
+        // Picking a SKU overwrites description with the SKU's name.
+        return {
+          ...li,
+          source: 'sku',
+          skuCode: undefined,
+          unitCount: undefined,
+          selectedTier: undefined,
+          skuMeta: undefined,
+        };
+      }),
+    );
+    // When flipping a freshly-emptied line back into SKU mode, open the
+    // picker for it so the admin lands in pick-mode.
+    if (next === 'sku') setSkuPickerLineId(lineId);
+  }, []);
+
+  /** Apply a picked SKU to the named line. */
+  const handlePickSkuForLine = useCallback((lineId: string, result: SkuPickResult) => {
+    setLineItems((prev) =>
+      prev.map((li) => {
+        if (li.id !== lineId) return li;
+        return {
+          ...li,
+          source: 'sku',
+          skuCode: result.sku.skuCode,
+          skuMeta: result.sku,
+          unitCount: result.unitCount,
+          selectedTier: result.selectedTier,
+          // Mirror the SKU's name into description so the LLM messaging
+          // pass + downstream readers (invoices, dispatch sheet) see the
+          // human-readable label. The server engine still resolves price
+          // from the catalog, not from this description.
+          description: result.sku.name,
+          category: (result.sku.category as JobCategory) || li.category,
+          estimatedMinutes: result.derivedScheduleMinutes,
+        };
+      }),
+    );
+  }, []);
+
+  /** Update the per-unit count for a SKU line; recompute derived schedule. */
+  const handleUpdateSkuUnitCount = useCallback((lineId: string, nextCount: number) => {
+    setLineItems((prev) =>
+      prev.map((li) => {
+        if (li.id !== lineId) return li;
+        if (!li.skuMeta) return li;
+        const derived = getEffectiveSkuPriceAndMinutes(li.skuMeta, nextCount, li.selectedTier);
+        return {
+          ...li,
+          unitCount: nextCount,
+          estimatedMinutes: derived.scheduleMinutes,
+        };
+      }),
+    );
+  }, []);
+
+  /** Update the tier for a tiered SKU line; recompute derived schedule. */
+  const handleUpdateSkuTier = useCallback((lineId: string, nextTier: string) => {
+    setLineItems((prev) =>
+      prev.map((li) => {
+        if (li.id !== lineId) return li;
+        if (!li.skuMeta) return li;
+        const derived = getEffectiveSkuPriceAndMinutes(li.skuMeta, li.unitCount, nextTier);
+        return {
+          ...li,
+          selectedTier: nextTier,
+          estimatedMinutes: derived.scheduleMinutes,
+        };
+      }),
+    );
+  }, []);
+
+  /** Find the line currently bound to the open SKU picker modal. */
+  const skuPickerLine = lineItems.find((li) => li.id === skuPickerLineId) || null;
+
+  // Validate form completeness for button state. SKU lines without a skuCode
+  // also count as incomplete even if estimatedMinutes is non-zero.
+  const canGenerate =
+    customerName.trim() &&
+    phone.trim() &&
+    lineItems.length > 0 &&
+    lineItems.every((li) => {
+      if (li.source === 'sku') return !!li.skuCode && li.description.trim();
+      return li.description.trim();
+    });
 
   // ═══════════════════════════════════════════════════════════════════════════
   // RENDER
@@ -2028,130 +2195,233 @@ export default function GenerateContextualQuote() {
                             )}
                           </div>
 
-                          {/* Description input — AI polishes on blur */}
-                          <Input
-                            placeholder="e.g. Fix leaking tap, Mount TV..."
-                            value={item.description}
-                            onChange={(e) => handleUpdateLineItem(item.id, 'description', e.target.value)}
-                            onBlur={() => handlePolishDescription(item.id, item.description)}
-                            className={`text-sm font-medium bg-transparent border-handy-grid focus:border-handy-yellow h-11 sm:h-10 transition-colors ${
-                              isPolishing ? 'opacity-60' : ''
-                            }`}
-                          />
-
-                          {/* Detail textarea — gated on the global "Detail" toggle, auto-drafted after polish */}
-                          {showLineDetails && (
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between">
-                                <Label htmlFor={`line-detail-${item.id}`} className="text-[10px] text-muted-foreground/70">
-                                  Detail
-                                </Label>
-                                <div className="flex items-center gap-2">
-                                  {(draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id)) && (
-                                    <span className="flex items-center gap-1 text-[10px] text-handy-yellow animate-pulse">
-                                      <Wand2 className="w-2.5 h-2.5" />
-                                      {draftingDetailIds.has(item.id) ? 'drafting...' : 'polishing...'}
-                                    </span>
-                                  )}
-                                  <button
-                                    type="button"
-                                    title="Regenerate detail from the title"
-                                    aria-label="Regenerate detail"
-                                    disabled={draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) || !item.description?.trim()}
-                                    onClick={() => {
-                                      // Clear the once-per-line guard + the current detail, then re-draft
-                                      draftedDetailIds.current.delete(item.id);
-                                      handleUpdateLineItem(item.id, 'details', '');
-                                      autoDraftLineDetail(item.id, item.description, item.category, buildStructuredVaContext());
-                                    }}
-                                    className="text-muted-foreground/60 hover:text-handy-yellow disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                                  >
-                                    <RefreshCw className={`w-3 h-3 ${draftingDetailIds.has(item.id) ? 'animate-spin' : ''}`} />
-                                  </button>
-                                </div>
-                              </div>
-                              <Textarea
-                                id={`line-detail-${item.id}`}
-                                placeholder="What's included in this line — auto-drafted, edit if needed."
-                                value={item.details ?? ''}
-                                onChange={(e) => handleUpdateLineItem(item.id, 'details', e.target.value)}
-                                onBlur={() => handlePolishDetail(item.id, item.details ?? '')}
-                                rows={3}
-                                className={`text-xs bg-transparent border-handy-grid focus:border-handy-yellow resize-none transition-colors ${
-                                  draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) ? 'opacity-60' : ''
+                          {/* Phase 25c — Source toggle: Catalog SKU vs Custom.
+                              Default for new lines is Catalog SKU; existing
+                              custom paths preserved unchanged below. */}
+                          <div className="pl-2">
+                            <div className="inline-flex rounded-md border border-handy-grid bg-handy-cream/40 p-0.5 gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (item.source !== 'sku') handleToggleLineSource(item.id, 'sku');
+                                }}
+                                className={`h-7 px-2.5 rounded text-[11px] font-semibold transition-[transform,background-color,color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] flex items-center gap-1 ${
+                                  item.source === 'sku'
+                                    ? 'bg-handy-navy text-white shadow-sm'
+                                    : 'text-handy-navy/60 hover:text-handy-navy'
                                 }`}
-                              />
-                            </div>
-                          )}
-
-                          {/* Category + Time — stacked on mobile, side-by-side on sm+ */}
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <Select
-                              value={item.category}
-                              onValueChange={(val) => handleUpdateLineItem(item.id, 'category', val)}
-                            >
-                              <SelectTrigger className="h-10 sm:h-9 text-sm sm:text-xs bg-transparent border-handy-grid w-full sm:flex-1">
-                                <span className="flex items-center gap-1.5 truncate">
-                                  <span className="shrink-0">{icon}</span>
-                                  <span className="truncate">{categoryLabel}</span>
-                                </span>
-                              </SelectTrigger>
-                              <SelectContent>
-                                {CATEGORY_OPTIONS.map((opt) => (
-                                  <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                                    <span className="flex items-center gap-1.5">
-                                      <span>{CATEGORY_ICONS[opt.value] || '📋'}</span>
-                                      {opt.label}
-                                    </span>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <div className="w-full sm:w-auto sm:shrink-0">
-                              {(() => {
-                                // Phase 4d — fixed-tier categories show a tier picker
-                                // instead of free-form minutes (e.g. waste_removal: van load size).
-                                const cfg = getPricingConfig(item.category);
-                                if (cfg.model === 'fixed' && cfg.fixedTiers && cfg.fixedTiers.length > 0) {
-                                  const currentTier = (item as any).fixedTier || '';
-                                  return (
-                                    <Select
-                                      value={currentTier}
-                                      onValueChange={(tierId) => {
-                                        const t = cfg.fixedTiers!.find((tt) => tt.id === tierId);
-                                        if (!t) return;
-                                        setLineItems((prev) =>
-                                          prev.map((li) =>
-                                            li.id === item.id
-                                              ? { ...li, fixedTier: tierId, estimatedMinutes: t.scheduleMinutes }
-                                              : li
-                                          )
-                                        );
-                                      }}
-                                    >
-                                      <SelectTrigger className="h-10 sm:h-9 text-sm sm:text-xs bg-transparent border-handy-grid w-full sm:w-44">
-                                        <SelectValue placeholder={`Pick ${cfg.unitLabel}…`} />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {cfg.fixedTiers.map((t) => (
-                                          <SelectItem key={t.id} value={t.id} className="text-xs">
-                                            {t.label} · £{(t.pricePence / 100).toFixed(0)} · {t.scheduleMinutes}min
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  );
-                                }
-                                return (
-                                  <TimeInput
-                                    minutes={item.estimatedMinutes}
-                                    onChange={(val) => handleUpdateLineItem(item.id, 'estimatedMinutes', val)}
-                                    compact
-                                  />
-                                );
-                              })()}
+                                aria-pressed={item.source === 'sku'}
+                              >
+                                Catalog SKU
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (item.source !== 'custom') handleToggleLineSource(item.id, 'custom');
+                                }}
+                                className={`h-7 px-2.5 rounded text-[11px] font-semibold transition-[transform,background-color,color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] flex items-center gap-1 ${
+                                  item.source === 'custom'
+                                    ? 'bg-handy-navy text-white shadow-sm'
+                                    : 'text-handy-navy/60 hover:text-handy-navy'
+                                }`}
+                                aria-pressed={item.source === 'custom'}
+                              >
+                                Custom
+                              </button>
                             </div>
                           </div>
+
+                          {/* SKU mode body — pick result OR empty pick CTA */}
+                          {item.source === 'sku' ? (
+                            <>
+                              {item.skuMeta && item.skuCode ? (
+                                <SkuSlabSummary
+                                  sku={item.skuMeta}
+                                  unitCount={item.unitCount}
+                                  selectedTier={item.selectedTier}
+                                  onChangeUnitCount={(next) => handleUpdateSkuUnitCount(item.id, next)}
+                                  onChangeSelectedTier={(next) => handleUpdateSkuTier(item.id, next)}
+                                  onEdit={() => setSkuPickerLineId(item.id)}
+                                  onClear={() => handleToggleLineSource(item.id, 'sku')}
+                                />
+                              ) : (
+                                <SkuEmptyPickButton onClick={() => setSkuPickerLineId(item.id)} />
+                              )}
+
+                              {/* Detail textarea — still applies to SKU lines so admin
+                                  can override the customer-facing description. */}
+                              {showLineDetails && item.skuCode && (
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <Label htmlFor={`line-detail-${item.id}`} className="text-[10px] text-muted-foreground/70">
+                                      Detail
+                                    </Label>
+                                    <div className="flex items-center gap-2">
+                                      {(draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id)) && (
+                                        <span className="flex items-center gap-1 text-[10px] text-handy-yellow animate-pulse">
+                                          <Wand2 className="w-2.5 h-2.5" />
+                                          {draftingDetailIds.has(item.id) ? 'drafting...' : 'polishing...'}
+                                        </span>
+                                      )}
+                                      <button
+                                        type="button"
+                                        title="Regenerate detail from the SKU"
+                                        aria-label="Regenerate detail"
+                                        disabled={draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) || !item.description?.trim()}
+                                        onClick={() => {
+                                          draftedDetailIds.current.delete(item.id);
+                                          handleUpdateLineItem(item.id, 'details', '');
+                                          autoDraftLineDetail(item.id, item.description, item.category, buildStructuredVaContext());
+                                        }}
+                                        className="text-muted-foreground/60 hover:text-handy-yellow disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                      >
+                                        <RefreshCw className={`w-3 h-3 ${draftingDetailIds.has(item.id) ? 'animate-spin' : ''}`} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <Textarea
+                                    id={`line-detail-${item.id}`}
+                                    placeholder="What's included in this line — auto-drafted from SKU, edit if needed."
+                                    value={item.details ?? ''}
+                                    onChange={(e) => handleUpdateLineItem(item.id, 'details', e.target.value)}
+                                    onBlur={() => handlePolishDetail(item.id, item.details ?? '')}
+                                    rows={3}
+                                    className={`text-xs bg-transparent border-handy-grid focus:border-handy-yellow resize-none transition-colors ${
+                                      draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) ? 'opacity-60' : ''
+                                    }`}
+                                  />
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            // ─── Custom mode — preserve the legacy free-text path verbatim ───
+                            <>
+                              {/* Description input — AI polishes on blur */}
+                              <Input
+                                placeholder="e.g. Fix leaking tap, Mount TV..."
+                                value={item.description}
+                                onChange={(e) => handleUpdateLineItem(item.id, 'description', e.target.value)}
+                                onBlur={() => handlePolishDescription(item.id, item.description)}
+                                className={`text-sm font-medium bg-transparent border-handy-grid focus:border-handy-yellow h-11 sm:h-10 transition-colors ${
+                                  isPolishing ? 'opacity-60' : ''
+                                }`}
+                              />
+
+                              {/* Detail textarea — gated on the global "Detail" toggle, auto-drafted after polish */}
+                              {showLineDetails && (
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <Label htmlFor={`line-detail-${item.id}`} className="text-[10px] text-muted-foreground/70">
+                                      Detail
+                                    </Label>
+                                    <div className="flex items-center gap-2">
+                                      {(draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id)) && (
+                                        <span className="flex items-center gap-1 text-[10px] text-handy-yellow animate-pulse">
+                                          <Wand2 className="w-2.5 h-2.5" />
+                                          {draftingDetailIds.has(item.id) ? 'drafting...' : 'polishing...'}
+                                        </span>
+                                      )}
+                                      <button
+                                        type="button"
+                                        title="Regenerate detail from the title"
+                                        aria-label="Regenerate detail"
+                                        disabled={draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) || !item.description?.trim()}
+                                        onClick={() => {
+                                          // Clear the once-per-line guard + the current detail, then re-draft
+                                          draftedDetailIds.current.delete(item.id);
+                                          handleUpdateLineItem(item.id, 'details', '');
+                                          autoDraftLineDetail(item.id, item.description, item.category, buildStructuredVaContext());
+                                        }}
+                                        className="text-muted-foreground/60 hover:text-handy-yellow disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                      >
+                                        <RefreshCw className={`w-3 h-3 ${draftingDetailIds.has(item.id) ? 'animate-spin' : ''}`} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <Textarea
+                                    id={`line-detail-${item.id}`}
+                                    placeholder="What's included in this line — auto-drafted, edit if needed."
+                                    value={item.details ?? ''}
+                                    onChange={(e) => handleUpdateLineItem(item.id, 'details', e.target.value)}
+                                    onBlur={() => handlePolishDetail(item.id, item.details ?? '')}
+                                    rows={3}
+                                    className={`text-xs bg-transparent border-handy-grid focus:border-handy-yellow resize-none transition-colors ${
+                                      draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) ? 'opacity-60' : ''
+                                    }`}
+                                  />
+                                </div>
+                              )}
+
+                              {/* Category + Time — stacked on mobile, side-by-side on sm+ */}
+                              <div className="flex flex-col sm:flex-row gap-2">
+                                <Select
+                                  value={item.category}
+                                  onValueChange={(val) => handleUpdateLineItem(item.id, 'category', val)}
+                                >
+                                  <SelectTrigger className="h-10 sm:h-9 text-sm sm:text-xs bg-transparent border-handy-grid w-full sm:flex-1">
+                                    <span className="flex items-center gap-1.5 truncate">
+                                      <span className="shrink-0">{icon}</span>
+                                      <span className="truncate">{categoryLabel}</span>
+                                    </span>
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {CATEGORY_OPTIONS.map((opt) => (
+                                      <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                                        <span className="flex items-center gap-1.5">
+                                          <span>{CATEGORY_ICONS[opt.value] || '📋'}</span>
+                                          {opt.label}
+                                        </span>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <div className="w-full sm:w-auto sm:shrink-0">
+                                  {(() => {
+                                    // Phase 4d — fixed-tier categories show a tier picker
+                                    // instead of free-form minutes (e.g. waste_removal: van load size).
+                                    const cfg = getPricingConfig(item.category);
+                                    if (cfg.model === 'fixed' && cfg.fixedTiers && cfg.fixedTiers.length > 0) {
+                                      const currentTier = (item as any).fixedTier || '';
+                                      return (
+                                        <Select
+                                          value={currentTier}
+                                          onValueChange={(tierId) => {
+                                            const t = cfg.fixedTiers!.find((tt) => tt.id === tierId);
+                                            if (!t) return;
+                                            setLineItems((prev) =>
+                                              prev.map((li) =>
+                                                li.id === item.id
+                                                  ? { ...li, fixedTier: tierId, estimatedMinutes: t.scheduleMinutes }
+                                                  : li
+                                              )
+                                            );
+                                          }}
+                                        >
+                                          <SelectTrigger className="h-10 sm:h-9 text-sm sm:text-xs bg-transparent border-handy-grid w-full sm:w-44">
+                                            <SelectValue placeholder={`Pick ${cfg.unitLabel}…`} />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {cfg.fixedTiers.map((t) => (
+                                              <SelectItem key={t.id} value={t.id} className="text-xs">
+                                                {t.label} · £{(t.pricePence / 100).toFixed(0)} · {t.scheduleMinutes}min
+                                              </SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                      );
+                                    }
+                                    return (
+                                      <TimeInput
+                                        minutes={item.estimatedMinutes}
+                                        onChange={(val) => handleUpdateLineItem(item.id, 'estimatedMinutes', val)}
+                                        compact
+                                      />
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            </>
+                          )}
 
                           {/* Materials toggle */}
                           <div className="flex items-center gap-3">
@@ -3002,6 +3272,18 @@ export default function GenerateContextualQuote() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Phase 25c — SKU search modal. Bound to the line whose id matches
+          skuPickerLineId; closing nulls the binding. Picking a SKU calls
+          handlePickSkuForLine which writes through to the line item. */}
+      <SkuSearchModal
+        open={!!skuPickerLineId && !!skuPickerLine}
+        initialQuery={skuPickerLine?.description?.trim() || ''}
+        onClose={() => setSkuPickerLineId(null)}
+        onPick={(result) => {
+          if (skuPickerLineId) handlePickSkuForLine(skuPickerLineId, result);
+        }}
+      />
     </div>
   );
 }

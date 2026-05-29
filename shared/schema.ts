@@ -165,6 +165,61 @@ export const productizedServices = pgTable("productized_services", {
 
 export type ProductizedService = typeof productizedServices.$inferSelect;
 
+// ──────────────────────────────────────────────────────────────────────────
+// Phase 25 — SKU catalog ("service_catalog")
+//
+// The catalog Agent 25a seeds and the contextual pricing engine resolves
+// against. Each row is one of three SHAPES:
+//   - 'fixed'     → single pricePence + scheduleMinutes
+//   - 'per_unit'  → pricePerUnitPence × count (+ setupMinutes once)
+//   - 'tiered'    → tiers JSONB array, one chosen at quote time
+//
+// pricingLineItems on personalized_quotes references a row by skuCode and
+// carries unitCount/selectedTier for the dynamic shapes. The pricing engine
+// reads price + schedule directly from this row — no LLM, no multiplier —
+// so customer price decouples cleanly from contractor on-site time.
+// ──────────────────────────────────────────────────────────────────────────
+export const serviceCatalog = pgTable("service_catalog", {
+    id: serial("id").primaryKey(),
+    skuCode: varchar("sku_code", { length: 40 }).unique().notNull(), // e.g. MIX-TAP-01
+    name: varchar("name", { length: 120 }).notNull(),
+    category: varchar("category", { length: 50 }).notNull(),         // JobCategory slug
+    shape: varchar("shape", { length: 16 }).notNull(),               // 'fixed' | 'per_unit' | 'tiered'
+
+    // Type A (fixed) — single price + duration
+    pricePence: integer("price_pence"),
+    scheduleMinutes: integer("schedule_minutes"),
+
+    // Type B (per_unit) — scales by count
+    unitLabel: varchar("unit_label", { length: 40 }),
+    pricePerUnitPence: integer("price_per_unit_pence"),
+    minimumUnits: integer("minimum_units"),
+    minutesPerUnit: integer("minutes_per_unit"),
+    setupMinutes: integer("setup_minutes"),
+
+    // Type C (tiered)
+    tiers: jsonb("tiers").$type<Array<{ label: string; pricePence: number; scheduleMinutes: number }>>(),
+
+    // Descriptions
+    customerDescription: text("customer_description").notNull(),
+    adminDescription: text("admin_description"),
+
+    // Yield rules
+    flexEligible: boolean("flex_eligible").notNull().default(true),
+    offPeakWeekendPremiumPence: integer("off_peak_weekend_premium_pence").notNull().default(0),
+
+    // Telemetry
+    pickCount: integer("pick_count").notNull().default(0),
+
+    // Audit
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type ServiceCatalogRow = typeof serviceCatalog.$inferSelect;
+export type InsertServiceCatalogRow = typeof serviceCatalog.$inferInsert;
+
 // SKU Detection Logs - For training/debugging "The Brain"
 export const skuMatchLogs = pgTable("sku_match_logs", {
     id: varchar("id").primaryKey().notNull(),
@@ -868,6 +923,13 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     hasLift: boolean("has_lift"),                            // null = unknown; true = lift present
     parkingDistanceCategory: varchar("parking_distance_category", { length: 20 }), // 'on_drive' | 'street_outside' | 'street_within_50m' | '50m_plus'
     customerPresent: boolean("customer_present"),            // null = unknown; affects +15% buffer
+
+    // ── Phase 25 — Flex booking (yield mechanism) ─────────────────────────
+    // When non-null, the quote was sold as flex: customer chose
+    // "we pick a day within N days, ~10% off" instead of a specific date.
+    // Dispatcher uses this to route bookings to thin days. Owned by
+    // Agent 25c/25d for the routing logic; this column is the persistence layer.
+    flexBookingWithinDays: integer("flex_booking_within_days"),
 
     // Creation timestamp
     createdAt: timestamp("created_at").defaultNow(),

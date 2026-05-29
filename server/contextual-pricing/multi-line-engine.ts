@@ -33,6 +33,7 @@ import type {
 } from '@shared/contextual-pricing-types';
 import { getPricingSettings } from '../pricing-settings';
 import { getPricingConfig } from '@shared/pricing-models';
+import { resolveLineItemFromSku, type ResolvedSkuLine } from './sku-resolver';
 
 // ---------------------------------------------------------------------------
 // Constants (fallback defaults — overridden by DB-backed pricing settings)
@@ -228,7 +229,38 @@ export async function generateMultiLinePrice(
   const minMarginPencePerHour = settings.minMarginPencePerHour;
   const depositSplitThresholdPence = settings.depositSplitThresholdPence;
 
-  // Layer 1 — Reference rate lookup per line
+  // ── Phase 25 — SKU preflight ─────────────────────────────────────────
+  // Resolve any line that carries a skuCode. Resolved SKUs short-circuit
+  // the LLM-driven path: price + scheduleMinutes come straight from the
+  // catalog row. Lines that don't resolve (unknown code, missing tier)
+  // fall back through the standard custom path so we never block a quote.
+  const scheduledDateForSku = (request as any).scheduledDate as
+    | Date
+    | string
+    | null
+    | undefined;
+
+  const skuResolutions = new Map<string, ResolvedSkuLine>();
+  await Promise.all(
+    request.lines.map(async (line) => {
+      const skuCode = (line as any).skuCode as string | undefined;
+      const source = (line as any).source as 'sku' | 'custom' | undefined;
+      // Treat a line as SKU-driven when source==='sku' OR when a skuCode is
+      // present (source is optional on the wire).
+      if (!skuCode || source === 'custom') return;
+      const resolved = await resolveLineItemFromSku({
+        skuCode,
+        unitCount: (line as any).unitCount,
+        selectedTier: (line as any).selectedTier,
+        scheduledDate: scheduledDateForSku ?? null,
+      });
+      if (resolved) skuResolutions.set(line.id, resolved);
+    }),
+  );
+
+  // Layer 1 — Reference rate lookup per line. SKU-resolved lines still get
+  // a reference number so the layer-1 breakdown isn't lying, but the engine
+  // ignores it for pricing.
   const lineReferences: LineReference[] = request.lines.map((line) => {
     const ref = getReferencePrice(line.category, line.timeEstimateMinutes);
     return {
@@ -240,7 +272,11 @@ export async function generateMultiLinePrice(
     };
   });
 
-  // Layer 2 — Polish descriptions + Layer 3 LLM pricing (run in parallel)
+  // Layer 2 — Polish descriptions + Layer 3 LLM pricing (run in parallel).
+  // The LLM call still receives all lines; SKU-resolved lines will simply
+  // have their LLM output overwritten in the assembly step below. We keep
+  // the LLM in the loop so messaging (headline, value bullets, etc.) still
+  // reflects the full job.
   const [polishedDescriptions, llmResult] = await Promise.all([
     polishAllDescriptions(request.lines),
     generateMultiLineLLMPrice(request, lineReferences, approvedClaims),
@@ -258,6 +294,48 @@ export async function generateMultiLinePrice(
 
     const cfg = getPricingConfig(line.category);
     const lineTierId = (line as any).fixedTier as string | null | undefined;
+
+    // ─── Phase 25 SKU-resolved path ─────────────────────────────────────
+    // When the line carried a recognised skuCode we already know the price
+    // and the on-site duration from the catalog. Skip the LLM/reference
+    // math entirely and emit a deterministic LineItemResult.
+    const resolved = skuResolutions.get(line.id);
+    if (resolved) {
+      const materialsCostPence = line.materialsCostPence || 0;
+      const materialsWithMarginPence = materialsCostPence > 0
+        ? roundToWholePounds(materialsCostPence * (1 + materialsMargin))
+        : 0;
+      if (resolved.offPeakPremiumAppliedPence > 0) {
+        allGuardrailAdjustments.push(
+          `[${line.id}] SKU ${resolved.skuRow.skuCode}: +${formatPence(resolved.offPeakPremiumAppliedPence)} off-peak weekend premium`,
+        );
+      }
+      return {
+        lineId: line.id,
+        description: polishedDescriptions.get(line.id) || line.description,
+        category: line.category,
+        // Mirror scheduleMinutes into timeEstimateMinutes so legacy readers
+        // (invoice generator, dispatch sheet, analytics) keep working.
+        timeEstimateMinutes: resolved.scheduleMinutes,
+        referencePricePence: ref.referencePricePence,
+        llmSuggestedPricePence: resolved.pricePence,
+        guardedPricePence: roundToWholePounds(resolved.pricePence),
+        adjustmentFactors: [],
+        materialsCostPence,
+        materialsWithMarginPence,
+        requiresMaterialCollection: !!(line as any).requiresMaterialCollection,
+        // Persist the SKU-aware fields on the line so the JSONB column
+        // carries everything we need for re-rendering and re-pricing.
+        // (LineItemResult is the shape that ends up in pricingLineItems.)
+        ...({
+          source: 'sku' as const,
+          skuCode: resolved.skuRow.skuCode,
+          unitCount: (line as any).unitCount,
+          selectedTier: (line as any).selectedTier,
+          scheduleMinutes: resolved.scheduleMinutes,
+        } as any),
+      };
+    }
 
     // ─── Fixed-tier path ────────────────────────────────────────────────
     if (cfg.model === 'fixed' && cfg.fixedTiers && lineTierId) {
@@ -280,6 +358,13 @@ export async function generateMultiLinePrice(
           materialsWithMarginPence,
           fixedTier: lineTierId,
           requiresMaterialCollection: !!(line as any).requiresMaterialCollection,
+          // Phase 25 — fixed-tier lines are still "custom" in the SKU sense
+          // (they don't reference service_catalog) but they DO carry an
+          // explicit scheduleMinutes so the composer reads it directly.
+          ...({
+            source: 'custom' as const,
+            scheduleMinutes: tier.scheduleMinutes,
+          } as any),
         };
       }
     }
@@ -328,6 +413,12 @@ export async function generateMultiLinePrice(
       materialsCostPence,
       materialsWithMarginPence,
       requiresMaterialCollection: !!(line as any).requiresMaterialCollection,
+      // Phase 25 — tag custom lines + mirror scheduleMinutes so legacy
+      // readers and new readers both work without a branch.
+      ...({
+        source: 'custom' as const,
+        scheduleMinutes: line.timeEstimateMinutes,
+      } as any),
     };
   });
 

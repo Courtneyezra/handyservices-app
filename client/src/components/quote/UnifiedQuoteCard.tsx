@@ -42,10 +42,29 @@ export interface PricingLineItem {
   lineId: string;
   description: string;
   category: string;
+  /** Internal capacity-scheduling field — never rendered to the customer */
   timeEstimateMinutes: number;
   guardedPricePence: number;
   /** Material cost with margin (what customer pays). 0 if no materials. */
   materialsWithMarginPence?: number;
+  // ── Phase 25 SKU-aware fields (spread by the engine when source === 'sku') ──
+  // All optional + read defensively so legacy lines without these still render.
+  /** 'sku' or 'custom'. Legacy lines may be undefined → treat as 'custom'. */
+  source?: 'sku' | 'custom';
+  /** Customer-facing SKU title (Agent 25a authored). */
+  skuName?: string;
+  /** Outcome-framed plain-English description (no hours, Agent 25a authored). */
+  skuCustomerDescription?: string;
+  /** Per-unit SKUs ("× 3 doors") — `× ${unitCount} ${unitLabel}`. */
+  unitCount?: number;
+  /** Unit label (e.g. "door", "shelf"). */
+  skuUnitLabel?: string;
+  /** Tiered SKUs — selected tier label, e.g. "Medium". */
+  selectedTier?: string;
+  /** Per-line Saturday surcharge in pence (catalog row, 0 when not eligible). */
+  offPeakWeekendPremiumPence?: number;
+  /** When true, this line can be moved to a flex day. Falsy → not flex-eligible. */
+  flexEligible?: boolean;
 }
 
 /** Multi-job batch discount details */
@@ -76,6 +95,13 @@ interface UnifiedQuoteCardProps {
     paymentMode: 'deposit' | 'full';
     usedDownsell: boolean;
     flexiblePeriodDays?: number; // When using downsell, how many days flexibility
+    /**
+     * Phase 25 — flex booking window (days). Set when the customer ticked
+     * "Flexible booking — save 10%" and accepted that we pick a weekday
+     * within N days. Mirrors the personalized_quotes.flexBookingWithinDays
+     * column. Server-side wiring is owned by Agent 25e.
+     */
+    flexBookingWithinDays?: number;
   }) => void;
   onPaymentSuccess?: (paymentIntentId: string) => Promise<void>;
   isBooking?: boolean;
@@ -184,6 +210,37 @@ export function UnifiedQuoteCard({
   // Deposit / Pay-in-full config (configurable via admin pricing settings)
   const DEPOSIT_PERCENT = (depositPercentProp ?? 30) / 100;
   const PAY_FULL_DISCOUNT = (payInFullDiscountPercentProp ?? 3) / 100;
+
+  // ── Phase 25 flex booking ──────────────────────────────────────────────
+  // Customer-facing knob: "Flexible booking — save 10%". When checked, the
+  // date picker collapses, we apply a 10% discount, and `flexBookingWithinDays`
+  // is sent through onBook so the server can route this booking to a thin day
+  // within the window. Defaults: 7-day window, 10% off — matches the catalog
+  // contract Agents 25a/25b agreed.
+  const FLEX_WINDOW_DAYS = 7;
+  const FLEX_DISCOUNT_PERCENT = 10;
+  const [useFlexBooking, setUseFlexBooking] = useState(false);
+
+  // Per-line off-peak premium total (drives the chip next to Saturday dates).
+  // Sum across all SKU lines that carry `offPeakWeekendPremiumPence`. Custom
+  // lines + legacy lines (which don't have the field) contribute 0, so this
+  // stays correct across mixed quotes.
+  const totalSaturdayPremiumPence = useMemo(() => {
+    if (!pricingLineItems) return 0;
+    return pricingLineItems.reduce((sum, li) => sum + ((li as any).offPeakWeekendPremiumPence || 0), 0);
+  }, [pricingLineItems]);
+
+  // Flex eligibility: any SKU line marked flex_eligible. When no SKU lines or
+  // none are flex-eligible we hide the checkbox so legacy free-text quotes
+  // don't see an option that can't be honoured.
+  const isQuoteFlexEligible = useMemo(() => {
+    if (!pricingLineItems || pricingLineItems.length === 0) return false;
+    const skuLines = pricingLineItems.filter(li => (li as any).source === 'sku');
+    if (skuLines.length === 0) return false;
+    // If ANY SKU line is explicitly flex_eligible, we offer it. Lines without
+    // the field default to NOT flex-eligible (safer than the other way).
+    return skuLines.some(li => (li as any).flexEligible === true);
+  }, [pricingLineItems]);
 
   // Payment state (for inline payment when using downsell)
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -406,10 +463,20 @@ export function UnifiedQuoteCard({
       const isSaturday = date.getDay() === 6;
       const isNextDay = i === 1; // Tomorrow (UK time)
 
-      // Calculate fee: next-day and weekend fees can stack
+      // Calculate fee: next-day and Saturday fees can stack.
+      // Phase 25 — when ANY line on the quote carries a non-zero SKU off-peak
+      // weekend premium, use that real catalog value rather than the flat
+      // weekend fee. Legacy quotes (totalSaturdayPremiumPence === 0) keep the
+      // flat fee — only shown when the segment config opts in.
       let fee = 0;
       if (isNextDay) fee += BASE_SCHEDULING_RULES.nextDayFee;
-      if (isSaturday && config.showWeekendFee) fee += BASE_SCHEDULING_RULES.weekendFee;
+      if (isSaturday) {
+        if (totalSaturdayPremiumPence > 0) {
+          fee += totalSaturdayPremiumPence;
+        } else if (config.showWeekendFee) {
+          fee += BASE_SCHEDULING_RULES.weekendFee;
+        }
+      }
 
       dates.push({
         date,
@@ -421,7 +488,7 @@ export function UnifiedQuoteCard({
       });
     }
     return dates;
-  }, [config, unavailableDates, quoteAvailableDateSet, allowedDates]);
+  }, [config, unavailableDates, quoteAvailableDateSet, allowedDates, totalSaturdayPremiumPence]);
 
   // When urgent_premium mode is disabled, filter out next-day priority dates
   // When allowedDates is set, restrict calendar to only those VA-specified dates
@@ -490,30 +557,57 @@ export function UnifiedQuoteCard({
   }, [config.addOns, optionalExtras]);
 
   // Calculate total price
-  const { total, breakdown, savingsPercent, wasPrice, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving } = useMemo(() => {
+  const { total, breakdown, savingsPercent, wasPrice, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, flexDiscountApplied } = useMemo(() => {
     let amount = basePrice;
     const items: { label: string; amount: number }[] = [
       { label: config.priceLabel, amount: basePrice },
     ];
 
-    // Downsell discount
+    // Downsell discount (legacy segment-driven path — separate from flex below)
     if (useDownsell && config.downsell) {
       const discount = Math.round(basePrice * (config.downsell.discountPercent / 100));
       amount -= discount;
       items.push({ label: config.downsell.label, amount: -discount });
     }
 
-    // Date fees (next-day and/or weekend)
-    const dateInfo = availableDates.find(d =>
-      selectedDate && d.date.toDateString() === selectedDate.toDateString()
-    );
+    // ── Phase 25 flex booking discount ─────────────────────────────────
+    // Honest line for the customer: "Flex booking 10% off". Stacks with the
+    // legacy downsell only if both are toggled (UI hides one when other is on,
+    // but the math here is defensive either way).
+    let flexDiscountApplied = 0;
+    if (useFlexBooking) {
+      flexDiscountApplied = Math.round(basePrice * (FLEX_DISCOUNT_PERCENT / 100));
+      amount -= flexDiscountApplied;
+      items.push({ label: `Flexible booking (-${FLEX_DISCOUNT_PERCENT}%)`, amount: -flexDiscountApplied });
+    }
+
+    // Date fees (next-day and/or weekend).
+    // Flex bookings have no fixed date yet, so date-driven fees DON'T apply.
+    const dateInfo = !useFlexBooking
+      ? availableDates.find(d =>
+          selectedDate && d.date.toDateString() === selectedDate.toDateString()
+        )
+      : undefined;
     if (dateInfo?.isNextDay) {
       amount += BASE_SCHEDULING_RULES.nextDayFee;
       items.push({ label: 'Priority (next day)', amount: BASE_SCHEDULING_RULES.nextDayFee });
     }
-    if (dateInfo?.isWeekend && config.showWeekendFee) {
-      amount += BASE_SCHEDULING_RULES.weekendFee;
-      items.push({ label: 'Weekend', amount: BASE_SCHEDULING_RULES.weekendFee });
+    // ── Phase 25 Saturday off-peak premium ──────────────────────────────
+    // Sum of per-line SKU `offPeakWeekendPremiumPence` (typically +£40 across
+    // the quote). Replaces the legacy flat-rate weekend fee for SKU-priced
+    // quotes; legacy quotes (totalSaturdayPremiumPence === 0) still hit the
+    // old flat-rate path. Honest line shown to customer either way.
+    let saturdayPremiumApplied = 0;
+    if (dateInfo?.isWeekend) {
+      if (totalSaturdayPremiumPence > 0) {
+        saturdayPremiumApplied = totalSaturdayPremiumPence;
+        amount += saturdayPremiumApplied;
+        items.push({ label: 'Saturday surcharge — peak demand', amount: saturdayPremiumApplied });
+      } else if (config.showWeekendFee) {
+        amount += BASE_SCHEDULING_RULES.weekendFee;
+        items.push({ label: 'Weekend', amount: BASE_SCHEDULING_RULES.weekendFee });
+        saturdayPremiumApplied = BASE_SCHEDULING_RULES.weekendFee;
+      }
     }
 
     // Time slot fee
@@ -563,8 +657,8 @@ export function UnifiedQuoteCard({
     const payFullTotal = Math.round(Math.round(adjustedAmount * (1 - PAY_FULL_DISCOUNT)) / 100) * 100;
     const payFullSaving = adjustedAmount - payFullTotal;
 
-    return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving };
-  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, availableDates, allAddOns, config, batchDiscount, pricingLineItems]);
+    return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, flexDiscountApplied };
+  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence]);
 
   // All 3 buffer dates must be selected before payment unlocks
   const allDatesSelected = confirmedDates.length >= MAX_BUFFER_DATES;
@@ -579,8 +673,8 @@ export function UnifiedQuoteCard({
   }, [allDatesSelected]);
 
   // Determine if we should show inline payment
-  // Show inline Stripe card entry when: downsell, single-date with reservation, or all 3 buffer dates picked
-  const showInlinePayment = useDownsell || (selectedDate && selectedTimeSlot && reservation) || allDatesSelected;
+  // Show inline Stripe card entry when: downsell, flex booking, single-date with reservation, or all 3 buffer dates picked
+  const showInlinePayment = useDownsell || useFlexBooking || (selectedDate && selectedTimeSlot && reservation) || allDatesSelected;
 
   // Create payment intent when inline payment should be shown
   useEffect(() => {
@@ -693,10 +787,10 @@ export function UnifiedQuoteCard({
 
         // First call onBook to set booking details in parent state
         onBook({
-          selectedDate: useDownsell ? null : (confirmedDates[0]?.date || selectedDate),
-          selectedDates: confirmedDates.map(cd => cd.date),
-          dateTimePreferences: dateTimePreferences.length > 0 ? dateTimePreferences : undefined,
-          timeSlot: useDownsell ? null : backcompatSlot,
+          selectedDate: useFlexBooking || useDownsell ? null : (confirmedDates[0]?.date || selectedDate),
+          selectedDates: useFlexBooking ? [] : confirmedDates.map(cd => cd.date),
+          dateTimePreferences: !useFlexBooking && dateTimePreferences.length > 0 ? dateTimePreferences : undefined,
+          timeSlot: useFlexBooking || useDownsell ? null : backcompatSlot,
           addOns: selectedAddOns,
           totalPrice: total,
           chargeNowPence: chargeNow,
@@ -704,6 +798,7 @@ export function UnifiedQuoteCard({
           paymentMode: mode,
           usedDownsell: useDownsell,
           flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
+          flexBookingWithinDays: useFlexBooking ? FLEX_WINDOW_DAYS : undefined,
         });
 
         // Then call onPaymentSuccess to complete the booking
@@ -750,10 +845,10 @@ export function UnifiedQuoteCard({
         const backcompatSlot = primaryTimePref === 'pm' ? 'afternoon' : 'morning';
 
         onBook({
-          selectedDate: useDownsell ? null : (confirmedDates[0]?.date || selectedDate),
-          selectedDates: confirmedDates.map(cd => cd.date),
-          dateTimePreferences: dateTimePreferences.length > 0 ? dateTimePreferences : undefined,
-          timeSlot: useDownsell ? null : backcompatSlot,
+          selectedDate: useFlexBooking || useDownsell ? null : (confirmedDates[0]?.date || selectedDate),
+          selectedDates: useFlexBooking ? [] : confirmedDates.map(cd => cd.date),
+          dateTimePreferences: !useFlexBooking && dateTimePreferences.length > 0 ? dateTimePreferences : undefined,
+          timeSlot: useFlexBooking || useDownsell ? null : backcompatSlot,
           addOns: selectedAddOns,
           totalPrice: total,
           chargeNowPence: chargeNow,
@@ -761,6 +856,7 @@ export function UnifiedQuoteCard({
           paymentMode: mode,
           usedDownsell: useDownsell,
           flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
+          flexBookingWithinDays: useFlexBooking ? FLEX_WINDOW_DAYS : undefined,
         });
 
         if (onPaymentSuccess) {
@@ -784,10 +880,10 @@ export function UnifiedQuoteCard({
     );
   };
 
-  // Can book if: downsell selected (flexible timing) OR both date and time selected
+  // Can book if: downsell selected (flexible timing) OR flex booking OR both date and time selected
   // Large jobs: just need dates (auto full day). Small jobs: dates selected is enough (each defaults to 'flexible')
-  // Can book when: downsell, or at least 1 confirmed date (with AM/PM chosen)
-  const canBook = useDownsell || allDatesSelected;
+  // Can book when: downsell, flex booking, or at least 1 confirmed date (with AM/PM chosen)
+  const canBook = useDownsell || useFlexBooking || allDatesSelected;
 
   // Reserve a slot before showing payment — called when date + time are selected
   const handleReserveSlot = async () => {
@@ -840,18 +936,35 @@ export function UnifiedQuoteCard({
 
   // Auto-reserve when date and time are both selected (and not already reserved)
   // Skip for buffer mode — all 3 dates required, contractor assigned later via dispatch
+  // Skip for flex booking — there is no specific date to reserve
   useEffect(() => {
-    if (selectedDate && selectedTimeSlot && quoteId && !reservation && !isReserving && !useDownsell && confirmedDates.length === 0) {
+    if (selectedDate && selectedTimeSlot && quoteId && !reservation && !isReserving && !useDownsell && !useFlexBooking && confirmedDates.length === 0) {
       // Only auto-reserve for non-buffer single-date flow (no confirmed buffer dates)
       handleReserveSlot();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, selectedTimeSlot, quoteId, confirmedDates.length]);
+  }, [selectedDate, selectedTimeSlot, quoteId, confirmedDates.length, useFlexBooking]);
 
   const handleBook = () => {
     const chargeNow = payFull ? payFullTotal : depositAmount;
     const balance = payFull ? 0 : balanceOnCompletion;
     const mode = payFull ? 'full' as const : 'deposit' as const;
+
+    // If using Phase 25 flex booking, no date/time — dispatcher picks within window
+    if (useFlexBooking) {
+      onBook({
+        selectedDate: null,
+        timeSlot: null,
+        addOns: selectedAddOns,
+        totalPrice: total,
+        chargeNowPence: chargeNow,
+        balanceOnCompletionPence: balance,
+        paymentMode: mode,
+        usedDownsell: false,
+        flexBookingWithinDays: FLEX_WINDOW_DAYS,
+      });
+      return;
+    }
 
     // If using downsell, date/time are flexible (we pick)
     if (useDownsell) {
@@ -1000,22 +1113,48 @@ export function UnifiedQuoteCard({
           {/* Inline Price Breakdown (always visible) */}
           {pricingLineItems && pricingLineItems.length > 0 && (
             <div className={`mt-3 pt-3 border-t text-left ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {pricingLineItems.map((item) => {
                   const hasMaterials = (item.materialsWithMarginPence || 0) > 0;
                   const lineTotal = item.guardedPricePence + (item.materialsWithMarginPence || 0);
+                  // Phase 25 SKU-aware fields (read defensively).
+                  // Title prefers the SKU name, falls back to engine-polished description.
+                  // Customer description is plain-English, outcome-framed, no hours.
+                  const anyItem = item as any;
+                  const title = anyItem.skuName || (item as PricingLineItem).description;
+                  const customerDesc: string | null =
+                    anyItem.skuCustomerDescription || (item as any).details || null;
+                  // "× 3 doors" for per_unit, tier label ("Medium") for tiered, else null.
+                  let qualifier: string | null = null;
+                  if (anyItem.source === 'sku') {
+                    if (anyItem.unitCount && anyItem.unitCount > 0) {
+                      const unit = anyItem.skuUnitLabel || anyItem.unitLabel || '';
+                      qualifier = `× ${anyItem.unitCount}${unit ? ` ${unit}` : ''}`;
+                    } else if (anyItem.selectedTier) {
+                      qualifier = String(anyItem.selectedTier);
+                    }
+                  }
                   return (
                     <div key={item.lineId} className="text-[13px] leading-snug">
                       <div className="flex items-start gap-2">
                         <span className={`shrink-0 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} aria-hidden>•</span>
-                        <span className={`min-w-0 flex-1 ${isDarkTheme ? 'text-slate-300' : 'text-slate-700'}`}>
-                          {item.description}
-                        </span>
-                        {(item as any).propertyTag && (
+                        <div className={`min-w-0 flex-1 ${isDarkTheme ? 'text-slate-300' : 'text-slate-700'}`}>
+                          <div className="flex flex-wrap items-baseline gap-1.5">
+                            <span className={`font-semibold ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>
+                              {title}
+                            </span>
+                            {qualifier && (
+                              <span className={`text-[11px] font-medium ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                                {qualifier}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {anyItem.propertyTag && (
                           <span className={`shrink-0 mt-0.5 text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded ${
                             isDarkTheme ? 'bg-white/10 text-slate-400 border border-white/10' : 'bg-slate-100 text-slate-500 border border-slate-200'
                           }`}>
-                            {(item as any).propertyTag}
+                            {anyItem.propertyTag}
                           </span>
                         )}
                         <div className="shrink-0 flex flex-col items-end leading-tight">
@@ -1029,9 +1168,9 @@ export function UnifiedQuoteCard({
                           )}
                         </div>
                       </div>
-                      {item.details && (
-                        <p className={`text-[11px] leading-relaxed mt-0.5 ml-4 ${isDarkTheme ? 'text-slate-500' : 'text-slate-500'}`}>
-                          {item.details}
+                      {customerDesc && (
+                        <p className={`text-[11px] leading-relaxed mt-0.5 ml-4 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                          {customerDesc}
                         </p>
                       )}
                     </div>
@@ -1093,13 +1232,29 @@ export function UnifiedQuoteCard({
                   })}
                 </div>
               )}
-              {/* Discounts */}
-              {(batchDiscount?.applied || (payFull && payFullSaving > 0)) && (
+              {/* Discounts & surcharges (honest, line-by-line) */}
+              {(batchDiscount?.applied || (payFull && payFullSaving > 0) || saturdayPremiumApplied > 0 || flexDiscountApplied > 0) && (
                 <div className={`mt-2 pt-2 border-t space-y-1 ${isDarkTheme ? 'border-white/5' : 'border-slate-100'}`}>
                   {batchDiscount?.applied && (
                     <div className="flex justify-between text-[13px]">
                       <span className="text-[#7DB00E] font-medium">Multi-job discount ({batchDiscount.discountPercent}%)</span>
                       <span className="text-[#7DB00E] font-semibold tabular-nums">-£{Math.round(batchDiscount.savingsPence / 100)}</span>
+                    </div>
+                  )}
+                  {flexDiscountApplied > 0 && (
+                    <div className="flex justify-between text-[13px]">
+                      <span className="text-[#7DB00E] font-medium">Flexible booking ({FLEX_DISCOUNT_PERCENT}% off)</span>
+                      <span className="text-[#7DB00E] font-semibold tabular-nums">-£{Math.round(flexDiscountApplied / 100)}</span>
+                    </div>
+                  )}
+                  {saturdayPremiumApplied > 0 && (
+                    <div className="flex justify-between text-[13px]">
+                      <span className={`font-medium ${isDarkTheme ? 'text-amber-300' : 'text-amber-700'}`}>
+                        Saturday surcharge — peak demand
+                      </span>
+                      <span className={`font-semibold tabular-nums ${isDarkTheme ? 'text-amber-300' : 'text-amber-700'}`}>
+                        +£{Math.round(saturdayPremiumApplied / 100)}
+                      </span>
                     </div>
                   )}
                   {payFull && payFullSaving > 0 && (
@@ -1196,8 +1351,84 @@ export function UnifiedQuoteCard({
           </div>
         )}
 
+        {/* Phase 25 — Flex booking checkbox (yield mechanism).
+            Hidden when no SKU line on this quote is flex-eligible so legacy
+            quotes don't see an option that can't be honoured. When checked
+            the date picker hides, a 10% discount applies, and the booking
+            ships `flexBookingWithinDays: 7` to the server. */}
+        {isQuoteFlexEligible && (
+          <div className={`rounded-xl p-4 transition-[transform,background-color] duration-150 ease-out ${
+            useFlexBooking
+              ? 'bg-handy-yellow/15 border-2 border-handy-yellow'
+              : isDarkTheme ? 'bg-white/10 border-2 border-white/10' : 'bg-slate-100 border-2 border-transparent'
+          }`}>
+            <label className="flex items-center gap-3 cursor-pointer active:scale-[0.99]">
+              <input
+                type="checkbox"
+                checked={useFlexBooking}
+                onChange={() => {
+                  const newValue = !useFlexBooking;
+                  setUseFlexBooking(newValue);
+                  if (newValue) {
+                    // Collapse the date picker — flex means we pick the day.
+                    setSelectedDate(null);
+                    setSelectedTimeSlot(null);
+                    setPendingDate(null);
+                    setConfirmedDates([]);
+                    // Release any held slot since the date no longer matters.
+                    if (reservation) {
+                      releaseSlotLock(reservation.lockId).catch(() => {});
+                      setReservation(null);
+                    }
+                    // If the segment-driven downsell was on, turn it off — only one flex mode at a time.
+                    if (useDownsell) setUseDownsell(false);
+                    setTimeout(() => {
+                      bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 150);
+                  }
+                }}
+                className={`w-5 h-5 rounded text-handy-yellow focus:ring-handy-yellow ${isDarkTheme ? 'border-white/30 bg-white/10' : 'border-slate-300'}`}
+              />
+              <div className="flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                    Flexible booking — save {FLEX_DISCOUNT_PERCENT}%
+                  </span>
+                  <span className="text-xs bg-handy-yellow text-handy-navy px-2 py-0.5 rounded-full font-bold">
+                    -{FLEX_DISCOUNT_PERCENT}%
+                  </span>
+                </div>
+                <p className={`text-sm ${isDarkTheme ? 'text-slate-400' : 'text-slate-600'}`}>
+                  We'll pick a weekday within {FLEX_WINDOW_DAYS} days that works for both of us. You'll get a text confirming the day.
+                </p>
+              </div>
+            </label>
+
+            {/* Confirmation chrono-text when selected */}
+            {useFlexBooking && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="mt-4 pt-4 border-t border-handy-yellow/30"
+              >
+                <div className={`flex items-center gap-3 ${isDarkTheme ? 'text-slate-200' : 'text-slate-700'}`}>
+                  <div className="w-10 h-10 rounded-full bg-handy-yellow flex items-center justify-center flex-shrink-0">
+                    <Check className="w-5 h-5 text-handy-navy" />
+                  </div>
+                  <div>
+                    <p className="font-semibold">Booking will be within {FLEX_WINDOW_DAYS} days of payment</p>
+                    <p className={`text-sm ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                      You save £{Math.round(flexDiscountApplied / 100)} — pay £{Math.round(total / 100)} instead of £{Math.round(basePrice / 100)}
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </div>
+        )}
+
         {/* Step 1: 3-Date Buffer — split-button flow: tap date → button splits into AM/PM → tap half to confirm */}
-        {!useDownsell && showStandardDate && (
+        {!useDownsell && !useFlexBooking && showStandardDate && (
         <div ref={dateSectionRef}>
           <h4 className={`text-3xl font-extrabold tracking-tight mb-3 flex items-center justify-center gap-2.5 text-center ${isDarkTheme ? 'text-white' : 'text-slate-800'}`}>
             <Calendar className="w-7 h-7 text-[#7DB00E]" />
@@ -1357,10 +1588,18 @@ export function UnifiedQuoteCard({
                         ? 'bg-white/10 backdrop-blur-md border border-white/10 text-white hover:bg-white/20'
                         : 'bg-slate-100 text-slate-700 hover:bg-slate-200')
                 }`}
+                title={d.isWeekend && d.fee > 0 ? 'Saturday surcharge — peak demand' : undefined}
               >
                 {d.isNextDay && !d.isBlocked && !isSelected && (
                   <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 text-[8px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded">
                     PRIORITY
+                  </div>
+                )}
+                {/* Phase 25 — Saturday badge so the surcharge isn't surprising.
+                    Hidden on the selected/blocked variants to avoid clutter. */}
+                {d.isWeekend && !d.isBlocked && !isSelected && !d.isNextDay && d.fee > 0 && (
+                  <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 text-[8px] font-bold bg-handy-yellow text-handy-navy px-1.5 py-0.5 rounded">
+                    SAT
                   </div>
                 )}
                 <div className="text-xs font-medium">{format(d.date, 'EEE')}</div>
@@ -1372,12 +1611,23 @@ export function UnifiedQuoteCard({
                     {selectedSlotChoice === 'pm' ? 'Afternoon' : 'Morning'}
                   </div>
                 ) : d.fee > 0 ? (
-                  <div className="text-[10px] text-amber-400 mt-0.5">+£{d.fee / 100}</div>
+                  <div className={`text-[10px] mt-0.5 ${d.isWeekend ? 'text-handy-yellow font-semibold' : 'text-amber-400'}`}>
+                    +£{d.fee / 100}
+                  </div>
                 ) : null}
               </button>
               );
             })}
           </div>
+
+          {/* Phase 25 — Honest Saturday caption. Only renders when a Saturday
+              date is actually selected and we're charging a surcharge. */}
+          {saturdayPremiumApplied > 0 && (
+            <p className={`mt-2 text-[11px] text-center ${isDarkTheme ? 'text-amber-300' : 'text-amber-700'}`}>
+              <span className="font-semibold">+£{Math.round(saturdayPremiumApplied / 100)}</span>{' '}
+              Saturday surcharge — peak demand
+            </p>
+          )}
 
           {!showAllDates && filteredDates.length > 8 && (
             <button
@@ -1448,7 +1698,7 @@ export function UnifiedQuoteCard({
 
         {/* Step 3: Add-ons (after time OR when using downsell) */}
         <AnimatePresence>
-          {(useDownsell || selectedTimeSlot) && allAddOns.length > 0 && (
+          {(useDownsell || useFlexBooking || selectedTimeSlot) && allAddOns.length > 0 && (
             <motion.div
               ref={addOnsSectionRef}
               initial={{ opacity: 0, height: 0 }}
@@ -1459,7 +1709,7 @@ export function UnifiedQuoteCard({
                 <Tag className="w-4 h-4 text-[#7DB00E]" />
                 {config.addOnsLabel
                   ? config.addOnsLabel.replace('{location}', location || 'local')
-                  : (useDownsell ? 'Add extras (optional)' : 'Add extras (optional)')}
+                  : 'Add extras (optional)'}
               </h4>
               <div className="space-y-2">
                 {allAddOns.map((addOn) => {

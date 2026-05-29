@@ -48,6 +48,7 @@ import { stripeRouter } from './stripe-routes';
 import { elevenLabsWebhookRouter } from './eleven-labs/webhook';
 import contextualPricingRouter from './contextual-pricing/routes';
 import { quoteExtrasCatalogRouter } from './quote-extras-catalog';
+import { skuCatalogRouter } from './sku-catalog-routes'; // Phase 25: SKU catalog admin endpoints
 import quoteAnalyticsRouter from './quote-analytics-api';
 import contentLibraryRouter from './content-library/routes';
 import contentRouter from './content';
@@ -326,6 +327,7 @@ app.use(quotesRouter);
 app.use(v2BookingsRouter);
 app.use(contextualPricingRouter);
 app.use(quoteExtrasCatalogRouter);
+app.use(skuCatalogRouter); // Phase 25: GET/POST /api/admin/sku-catalog/*
 app.use(quoteAnalyticsRouter);
 app.use(contentLibraryRouter);
 app.use('/api/quote-platform', quotePlatformRouter);

@@ -51,12 +51,36 @@ export interface QuoteContext {
 export interface LineItemTimeShape {
     category?: string | null;
     timeEstimateMinutes?: number | null;
+    /**
+     * Phase 25 — explicit on-site minutes for capacity scheduling. Decouples
+     * scheduling from pricing so a flat-priced SKU still books the real
+     * duration. Optional: legacy lines without this field fall back to
+     * `timeEstimateMinutes` (which is also what new v1 readers wrote).
+     */
+    scheduleMinutes?: number | null;
     setupMinutes?: number | null;
     cleanupMinutes?: number | null;
     materialCollectionMinutes?: number | null;
     materialsSupply?: 'we_supply' | 'customer_supplied' | 'labor_only' | null;
     /** Phase 11 — line was flagged "needs collection trip" by the admin. Composer adds ONE +30min trip per quote when any line has this. */
     requiresMaterialCollection?: boolean | null;
+}
+
+/**
+ * Pick the canonical capacity minutes for one line:
+ *   prefer Phase-25 `scheduleMinutes`, else legacy `timeEstimateMinutes`,
+ *   else 0. Centralised so all readers stay consistent.
+ */
+export function pickLineMinutes(line: LineItemTimeShape): number {
+    const sched = line.scheduleMinutes;
+    if (sched != null && Number.isFinite(Number(sched)) && Number(sched) > 0) {
+        return Number(sched);
+    }
+    const legacy = line.timeEstimateMinutes;
+    if (legacy != null && Number.isFinite(Number(legacy))) {
+        return Number(legacy);
+    }
+    return 0;
 }
 
 export interface ScheduleBreakdown {
@@ -87,9 +111,11 @@ export function composeScheduleMinutes(
 ): ScheduleBreakdown {
     const safeLines = Array.isArray(lines) ? lines : [];
 
-    // Work — clamped per category so legacy inflated quotes don't break
+    // Work — clamped per category so legacy inflated quotes don't break.
+    // Phase 25: prefer explicit scheduleMinutes, fall back to timeEstimateMinutes
+    // so legacy quotes keep computing exactly the same total they always did.
     const workMinutes = safeLines.reduce(
-        (s, l) => s + clampLineItemMinutes(l.category, Number(l.timeEstimateMinutes) || 0),
+        (s, l) => s + clampLineItemMinutes(l.category, pickLineMinutes(l)),
         0,
     );
 
@@ -196,4 +222,28 @@ export function computeBookingDurationDays(
     context: QuoteContext = {},
 ): number {
     return computeRequiredDays(totalScheduleMinutes(lines, context));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 25 — Flex booking detection.
+//
+// A quote is "flex" when `flexBookingWithinDays` is a positive integer N,
+// meaning the customer agreed to "we'll pick a day within N days" (typically
+// in exchange for a ~10% discount). The dispatcher uses this signal to route
+// the booking to a thin day rather than the customer's chosen date — the
+// routing logic itself lands in Agents 25c/25d; this helper is the column
+// reader so callers don't have to encode the truthiness rule inline.
+// ─────────────────────────────────────────────────────────────────────────────
+export function isQuoteFlex(quote: { flexBookingWithinDays?: number | null } | null | undefined): boolean {
+    if (!quote) return false;
+    const n = quote.flexBookingWithinDays;
+    return typeof n === 'number' && Number.isFinite(n) && n > 0;
+}
+
+/** Convenience: pull the flex window in days, or null when not a flex quote. */
+export function getFlexWindowDays(
+    quote: { flexBookingWithinDays?: number | null } | null | undefined,
+): number | null {
+    if (!isQuoteFlex(quote)) return null;
+    return Number(quote!.flexBookingWithinDays);
 }

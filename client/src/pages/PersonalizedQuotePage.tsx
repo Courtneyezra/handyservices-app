@@ -1944,7 +1944,49 @@ function ValueBulletsList({ bullets }: { bullets: string[] }) {
   );
 }
 
-/** Line items breakdown table with Job / Time / Price columns */
+/**
+ * Render the SKU "unit / tier" annotation for a single line.
+ * For per-unit SKUs ("× 3 doors"). For tiered ("Medium").
+ * Returns null for fixed / custom lines so we don't print noise.
+ */
+function getSkuQualifier(item: LineItemResult): string | null {
+  const anyItem = item as any;
+  if (anyItem.source !== 'sku') return null;
+  const unitCount = anyItem.unitCount;
+  const unitLabel = anyItem.skuUnitLabel || anyItem.unitLabel;
+  if (unitCount && unitCount > 0) {
+    return `× ${unitCount}${unitLabel ? ` ${unitLabel}` : ''}`;
+  }
+  const tier = anyItem.selectedTier;
+  if (tier) return String(tier);
+  return null;
+}
+
+/**
+ * Pick the customer-facing title for a line.
+ * SKU lines prefer the catalog SKU name (Agent 25a authored), falling back
+ * to the engine's polished description. Legacy lines just use description.
+ */
+function getLineTitle(item: LineItemResult): string {
+  const anyItem = item as any;
+  return anyItem.skuName || item.description;
+}
+
+/**
+ * Customer-facing outcome description for a line.
+ * SKU lines have `skuCustomerDescription` (plain-English, no hours) authored
+ * by Agent 25a — preferred when present. Falls back to the line's optional
+ * `details` field (legacy admin description). Returns null when there's
+ * nothing useful to render.
+ */
+function getLineCustomerDescription(item: LineItemResult): string | null {
+  const anyItem = item as any;
+  if (anyItem.skuCustomerDescription) return String(anyItem.skuCustomerDescription);
+  if (item.details) return item.details;
+  return null;
+}
+
+/** Line items breakdown table (no time column — customer never sees hours) */
 function PricingLineItems({
   lineItems,
   batchDiscount,
@@ -1954,47 +1996,47 @@ function PricingLineItems({
   batchDiscount?: BatchDiscount;
   formatPrice: (p: number) => number;
 }) {
-  const formatTime = (minutes: number) => {
-    if (minutes < 60) return `${minutes}m`;
-    const hrs = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
-  };
-
   return (
     <div className="space-y-2">
       <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Price Breakdown</h3>
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         {/* Table header */}
-        <div className="grid grid-cols-[1fr_auto_auto] gap-2 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+        <div className="grid grid-cols-[1fr_auto] gap-2 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Job</p>
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right w-12">Time</p>
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right w-14">Price</p>
         </div>
 
         {/* Line items */}
-        {lineItems.map((item, i) => (
-          <div
-            key={item.lineId}
-            className={`grid grid-cols-[1fr_auto] gap-2 items-center px-4 py-3 ${
-              i < lineItems.length - 1 ? 'border-b border-slate-100' : ''
-            }`}
-          >
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-slate-800 leading-snug flex gap-1.5">
-                <span className="text-slate-400" aria-hidden>•</span>
-                <span>{item.description}</span>
-              </p>
-              {item.details && (
-                <p className="text-xs text-slate-500 leading-snug mt-1 ml-3">{item.details}</p>
-              )}
-              <Badge variant="secondary" className="mt-1 text-[10px] font-medium">
-                {CATEGORY_LABELS[item.category] || item.category}
-              </Badge>
+        {lineItems.map((item, i) => {
+          const title = getLineTitle(item);
+          const customerDesc = getLineCustomerDescription(item);
+          const qualifier = getSkuQualifier(item);
+          return (
+            <div
+              key={item.lineId}
+              className={`grid grid-cols-[1fr_auto] gap-2 items-start px-4 py-3 ${
+                i < lineItems.length - 1 ? 'border-b border-slate-100' : ''
+              }`}
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-handy-navy leading-snug flex flex-wrap items-baseline gap-1.5">
+                  <span className="text-slate-400" aria-hidden>•</span>
+                  <span>{title}</span>
+                  {qualifier && (
+                    <span className="text-xs font-medium text-slate-500">{qualifier}</span>
+                  )}
+                </p>
+                {customerDesc && (
+                  <p className="text-xs text-handy-muted leading-snug mt-1 ml-3">{customerDesc}</p>
+                )}
+                <Badge variant="secondary" className="mt-1 text-[10px] font-medium">
+                  {CATEGORY_LABELS[item.category] || item.category}
+                </Badge>
+              </div>
+              <p className="text-sm font-bold text-slate-900 text-right w-14">£{formatPrice(item.guardedPricePence)}</p>
             </div>
-            <p className="text-sm font-bold text-slate-900 text-right w-14">£{formatPrice(item.guardedPricePence)}</p>
-          </div>
-        ))}
+          );
+        })}
 
         {/* Batch discount row */}
         {batchDiscount?.applied && (
@@ -2025,13 +2067,6 @@ function CategorisedPricingLineItems({
   batchDiscount?: BatchDiscount;
   formatPrice: (p: number) => number;
 }) {
-  const formatTime = (minutes: number) => {
-    if (minutes < 60) return `${minutes}m`;
-    const hrs = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
-  };
-
   // Group line items by category
   const grouped = lineItems.reduce<Record<string, LineItemResult[]>>((acc, item) => {
     const cat = item.category || 'other';
@@ -2062,25 +2097,33 @@ function CategorisedPricingLineItems({
               </div>
 
               {/* Items in this category */}
-              {items.map((item, i) => (
-                <div
-                  key={item.lineId}
-                  className={`grid grid-cols-[1fr_auto] gap-2 items-center px-4 py-3 ${
-                    i < items.length - 1 ? 'border-b border-slate-100' : ''
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm text-slate-700 leading-snug flex gap-1.5">
-                      <span className="text-slate-400" aria-hidden>•</span>
-                      <span>{item.description}</span>
-                    </p>
-                    {item.details && (
-                      <p className="text-xs text-slate-500 leading-snug mt-1 ml-3">{item.details}</p>
-                    )}
+              {items.map((item, i) => {
+                const title = getLineTitle(item);
+                const customerDesc = getLineCustomerDescription(item);
+                const qualifier = getSkuQualifier(item);
+                return (
+                  <div
+                    key={item.lineId}
+                    className={`grid grid-cols-[1fr_auto] gap-2 items-start px-4 py-3 ${
+                      i < items.length - 1 ? 'border-b border-slate-100' : ''
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-handy-navy leading-snug flex flex-wrap items-baseline gap-1.5">
+                        <span className="text-slate-400" aria-hidden>•</span>
+                        <span>{title}</span>
+                        {qualifier && (
+                          <span className="text-xs font-medium text-slate-500">{qualifier}</span>
+                        )}
+                      </p>
+                      {customerDesc && (
+                        <p className="text-xs text-handy-muted leading-snug mt-1 ml-3">{customerDesc}</p>
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold text-slate-800 text-right w-14">£{formatPrice(item.guardedPricePence)}</p>
                   </div>
-                  <p className="text-sm font-semibold text-slate-800 text-right w-14">£{formatPrice(item.guardedPricePence)}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           );
         })}
@@ -2591,6 +2634,10 @@ export default function PersonalizedQuotePage() {
   const [selectedDatesBuffer, setSelectedDatesBuffer] = useState<Date[]>([]); // 3-date buffer model
   const [dateTimePrefsBuffer, setDateTimePrefsBuffer] = useState<{ date: Date; timeSlot: 'am' | 'pm' | 'flexible' | 'full_day' }[]>([]); // Per-date time prefs
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<'AM' | 'PM' | undefined>(undefined); // Track selected time slot (AM/PM)
+  // Phase 25 — when the customer chose "Flexible booking — save 10%" in the
+  // UnifiedQuoteCard, this captures the window (typically 7). Forwarded to
+  // /track-booking so the dispatcher (Agent 25e) can route to a thin day.
+  const [flexBookingWithinDays, setFlexBookingWithinDays] = useState<number | undefined>(undefined);
   // const [isExpiredState, setIsExpiredState] = useState(false); // Removed - quotes no longer expire
   const [showPaymentForm, setShowPaymentForm] = useState(false); // Controls visibility of the payment section
 
@@ -3206,6 +3253,11 @@ export default function PersonalizedQuotePage() {
             // [RAMANUJAM] Include BUSY_PRO productization choices
             timingChoice: quote.segment === 'BUSY_PRO' ? timingChoice : undefined,
             whileImThereBundle: quote.segment === 'BUSY_PRO' ? whileImThereBundle : undefined,
+            // Phase 25 — flex booking window (only set when customer chose
+            // "Flexible booking — save 10%"). Persists to personalized_quotes
+            // .flexBookingWithinDays so the dispatcher (Agent 25e) can route
+            // this booking to a thin day within the window.
+            flexBookingWithinDays: flexBookingWithinDays,
           }),
         });
       }
@@ -3674,10 +3726,18 @@ export default function PersonalizedQuotePage() {
                           setWhileImThereBundle('quick');
                         }
 
+                        // Phase 25 — capture flex booking window so /track-booking
+                        // can persist it on personalized_quotes.flexBookingWithinDays.
+                        if (config.flexBookingWithinDays && config.flexBookingWithinDays > 0) {
+                          setFlexBookingWithinDays(config.flexBookingWithinDays);
+                        }
+
                         // Show payment form (for non-flexible timing)
                         // Skip external payment section when multi-date buffer used (payment handled inline in card)
+                        // Skip when flex booking — UnifiedQuoteCard handles payment inline.
                         const paidInline = config.selectedDates && config.selectedDates.length >= 3;
-                        if (!config.usedDownsell && !paidInline) {
+                        const isFlex = !!(config.flexBookingWithinDays && config.flexBookingWithinDays > 0);
+                        if (!config.usedDownsell && !paidInline && !isFlex) {
                           setShowPaymentForm(true);
                           setTimeout(() => {
                             document.getElementById('payment-section')?.scrollIntoView({
@@ -4129,13 +4189,13 @@ export default function PersonalizedQuotePage() {
                       <tr className="border-b border-gray-800">
                         <td className="py-3 px-2 sm:py-4 sm:px-4 text-white text-xs sm:text-sm break-words">Arrival window</td>
                         <td className="py-3 px-1 sm:py-4 sm:px-3 text-center">
-                          <div className="text-gray-300 text-xs sm:text-sm font-medium">4–6 hours</div>
+                          <div className="text-gray-300 text-xs sm:text-sm font-medium">Wider window</div>
                         </td>
                         <td className="py-3 px-1 sm:py-4 sm:px-3 text-center">
-                          <div className="text-gray-300 text-xs sm:text-sm font-medium">1–2 hours</div>
+                          <div className="text-gray-300 text-xs sm:text-sm font-medium">Tighter window</div>
                         </td>
                         <td className="py-3 px-1 sm:py-4 sm:px-3 text-center">
-                          <div className="text-gray-300 text-xs sm:text-sm font-medium">Exact time</div>
+                          <div className="text-gray-300 text-xs sm:text-sm font-medium">Exact arrival</div>
                         </td>
                       </tr>
                       <tr className="border-b border-gray-800">

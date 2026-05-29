@@ -300,6 +300,26 @@ export interface JobLine {
   materialsCostPence?: number;
   /** Phase 4d — tier id when category is a fixed-fee tiered model (e.g. waste_removal: 'small' | 'medium' | 'full'). When set, the LLM uses the tier's fixed price directly instead of time × rate. */
   fixedTier?: string | null;
+  /**
+   * Phase 25 — when set, the engine resolves price + scheduleMinutes from
+   * service_catalog instead of the LLM/reference path. `unitCount` is
+   * required for per_unit SKUs; `selectedTier` is required for tiered SKUs.
+   */
+  skuCode?: string;
+  unitCount?: number;
+  selectedTier?: string;
+  /**
+   * Phase 25 — explicit on-site minutes for capacity scheduling. When the
+   * line is resolved from a SKU the engine writes this from the catalog;
+   * for custom lines the engine mirrors timeEstimateMinutes here.
+   */
+  scheduleMinutes?: number;
+  /**
+   * Phase 25 — distinguishes catalog pick from free-text custom work.
+   * Optional in the request: server defaults to 'sku' when skuCode is set,
+   * otherwise 'custom'.
+   */
+  source?: 'sku' | 'custom';
 }
 
 /**
@@ -319,6 +339,58 @@ export interface ContextualSignals {
   previousJobCount: number;
   /** Average price of previous jobs in pence (only if returning) */
   previousAvgPricePence: number;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 25 — SKU-aware Line Item (V2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Stored shape of a line item on personalized_quotes.pricingLineItems.
+ *
+ * Legacy v1 lines (pre-Phase-25) DON'T have `source` or `scheduleMinutes`.
+ * Readers must treat those as `source = 'custom'` with `scheduleMinutes`
+ * falling back to `timeEstimateMinutes` so existing quotes keep rendering
+ * and pricing unchanged.
+ *
+ * New (v2) lines explicitly carry:
+ *   - `source = 'sku'` + `skuCode` when the line came from the SKU catalog,
+ *     in which case price + scheduleMinutes are resolved deterministically
+ *     from the catalog row.
+ *   - `source = 'custom'` for the ~13% of novel work that doesn't map to a
+ *     SKU, where the LLM still drives both price and time.
+ *
+ * `scheduleMinutes` is the canonical capacity field; `timeEstimateMinutes`
+ * is preserved as a legacy alias so older readers (invoice generator,
+ * dispatch sheet, analytics) keep working.
+ */
+export interface LineItemV2 {
+  /** Free-text scope of work shown to the customer */
+  description: string;
+  /** Job category slug (same enum as JobCategoryValues) */
+  category: string;
+  /** LEGACY — kept in sync with scheduleMinutes for backward compat. */
+  timeEstimateMinutes: number;
+  /** Customer price for this line in pence */
+  pricePence: number;
+  /** Optional materials cost (pence, trade price before margin) */
+  materialsCostPence?: number;
+
+  // ── Phase 25 fields ─────────────────────────────────────────────────────
+  /** Distinguishes catalog pick from free-text */
+  source: 'sku' | 'custom';
+  /** Catalog reference when source==='sku' */
+  skuCode?: string;
+  /** Count for Type B (per_unit) SKUs */
+  unitCount?: number;
+  /** Tier label for Type C (tiered) SKUs */
+  selectedTier?: string;
+  /**
+   * Explicit on-site minutes for capacity scheduling. Decoupled from
+   * pricing so an SKU can be priced flat while still booking the real
+   * duration. Defaults to timeEstimateMinutes when reading legacy rows.
+   */
+  scheduleMinutes: number;
 }
 
 // ---------------------------------------------------------------------------
