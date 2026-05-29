@@ -278,6 +278,17 @@ export function UnifiedQuoteCard({
       ? 'Limited availability — filling up fast'
       : `Only ${datesLeftThisWeek} date${datesLeftThisWeek === 1 ? '' : 's'} left this week`;
 
+  // Phase 24d — multi-day jobs. The server tags each entry with durationDays
+  // when the quote needs more than one consecutive day. Customer page surfaces
+  // this so the date being picked is understood as a START date.
+  const jobDurationDays = useMemo(() => {
+    if (!quoteAvailabilityData) return 1;
+    for (const d of quoteAvailabilityData) {
+      if ((d as any).durationDays && (d as any).durationDays > 1) return (d as any).durationDays as number;
+    }
+    return 1;
+  }, [quoteAvailabilityData]);
+
   // Fallback: generic availability for quotes without an ID
   const { data: fallbackAvailabilityData } = useAvailability({
     categories: jobCategories,
@@ -1201,6 +1212,19 @@ export function UnifiedQuoteCard({
               the customer engages. Centered + enlarged for prominence. */}
           {quoteId && quoteAvailabilityData && (
             <div className="mb-4 space-y-2 text-center">
+              {/* Phase 24d — multi-day job header. Surfaces "3-day job — pick
+                  a start date" when the quote spans more than one working
+                  day so customers understand the date is a starting point. */}
+              {jobDurationDays > 1 && (
+                <div className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg ${isDarkTheme ? 'bg-yellow-500/10 border border-yellow-500/30' : 'bg-amber-50 border border-amber-200'}`}>
+                  <span className={`text-sm font-bold ${isDarkTheme ? 'text-yellow-200' : 'text-amber-800'}`}>
+                    {jobDurationDays}-day job
+                  </span>
+                  <span className={`text-xs ${isDarkTheme ? 'text-yellow-200/80' : 'text-amber-700'}`}>
+                    Pick a start date — we'll be here for {jobDurationDays} consecutive days
+                  </span>
+                </div>
+              )}
               <div className={`flex items-center justify-center gap-2 text-base font-bold ${isDarkTheme ? 'text-gray-100' : 'text-slate-800'}`}>
                 <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7DB00E] opacity-75" />

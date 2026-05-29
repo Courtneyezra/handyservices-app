@@ -164,6 +164,8 @@ export interface QuoteDateAvailability {
   date: string;
   contractorCount: number;
   slot: string;
+  /** Phase 24d — when present, indicates the date is the START of an N-day span. */
+  durationDays?: number;
 }
 
 /**

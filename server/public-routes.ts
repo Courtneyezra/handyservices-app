@@ -482,8 +482,24 @@ router.get('/quote/:quoteId/availability', async (req: Request, res: Response) =
             return res.json([]);
         }
 
+        // Phase 24d — derive requiredDays from the quote's line items so
+        // multi-day jobs only surface valid start dates. Multi-day jobs are
+        // always full_day regardless of the slot query param.
+        const { computeBookingDurationDays } = await import('../shared/schedule-composition');
+        const lineItems = (quote.pricingLineItems as any[]) || [];
+        const requiredDays = computeBookingDurationDays(lineItems, {
+            floorNumber: (quote as any).floorNumber ?? null,
+            hasLift: (quote as any).hasLift ?? null,
+            parkingDistanceCategory: (quote as any).parkingDistanceCategory ?? null,
+            customerPresent: (quote as any).customerPresent ?? null,
+        });
+        const effectiveSlot: SlotParam = requiredDays > 1 ? 'full_day' : slot;
+        if (requiredDays > 1) {
+            console.log(`[PublicAPI] quote ${quote.id}: multi-day job (${requiredDays} days) — forcing slot=full_day`);
+        }
+
         const candidateIds = fit.candidates.map((c) => c.contractorId);
-        return await buildAvailabilityResponse(res, candidateIds, slot, monthParam);
+        return await buildAvailabilityResponse(res, candidateIds, effectiveSlot, monthParam, requiredDays);
 
     } catch (error: any) {
         console.error('[PublicAPI] Quote availability error:', error);
@@ -494,12 +510,18 @@ router.get('/quote/:quoteId/availability', async (req: Request, res: Response) =
 
 /**
  * Core availability builder for a set of contractor IDs, a slot, and a date range.
+ *
+ * Phase 24d — `requiredDays` is the number of consecutive working days the
+ * quote needs from one contractor. Defaults to 1 (legacy single-day flow,
+ * unchanged). For N >= 2 the response only includes dates where at least
+ * one contractor has all N consecutive days free.
  */
 async function buildAvailabilityResponse(
     res: Response,
     contractorIds: string[],
     slot: SlotParam,
-    monthParam?: string
+    monthParam?: string,
+    requiredDays: number = 1,
 ) {
     const ukNow = toZonedTime(new Date(), UK_TIMEZONE);
     const ukToday = startOfDay(ukNow);
@@ -597,92 +619,118 @@ async function buildAvailabilityResponse(
     }
 
     // Index booking conflicts: Map<contractorId-dateStr, Set<slot>>
+    // Phase 24c — a multi-day booking (durationDays>1) occupies every day in
+    // the span, so expand each booking row into one map entry per day.
     const bookingMap = new Map<string, Set<string>>();
     for (const b of bookingConflicts) {
         if (!b.scheduledDate || !b.assignedContractorId) continue;
-        const dateStr = b.scheduledDate.toISOString().split('T')[0];
-        const key = `${b.assignedContractorId}-${dateStr}`;
-        if (!bookingMap.has(key)) {
-            bookingMap.set(key, new Set());
-        }
-        // Track the slot of this booking (default full_day if not set)
+        const dur = (b as any).durationDays ?? 1;
         const bookedSlot = b.scheduledSlot || 'full_day';
-        bookingMap.get(key)!.add(bookedSlot);
+        for (let i = 0; i < dur; i++) {
+            const day = new Date(b.scheduledDate);
+            day.setUTCDate(day.getUTCDate() + i);
+            const dateStr = day.toISOString().split('T')[0];
+            const key = `${b.assignedContractorId}-${dateStr}`;
+            if (!bookingMap.has(key)) bookingMap.set(key, new Set());
+            bookingMap.get(key)!.add(bookedSlot);
+        }
     }
 
     // Index slot locks: Map<contractorId-dateStr, Set<slot>>
+    // Same multi-day expansion as bookings.
     const lockMap = new Map<string, Set<string>>();
     for (const lock of slotLocks) {
-        const dateStr = lock.scheduledDate.toISOString().split('T')[0];
-        // contractorId on bookingSlotLocks is integer, cast to string for lookup
-        const key = `${lock.contractorId}-${dateStr}`;
-        if (!lockMap.has(key)) {
-            lockMap.set(key, new Set());
+        const dur = (lock as any).durationDays ?? 1;
+        for (let i = 0; i < dur; i++) {
+            const day = new Date(lock.scheduledDate);
+            day.setUTCDate(day.getUTCDate() + i);
+            const dateStr = day.toISOString().split('T')[0];
+            const key = `${lock.contractorId}-${dateStr}`;
+            if (!lockMap.has(key)) lockMap.set(key, new Set());
+            lockMap.get(key)!.add(lock.scheduledSlot);
         }
-        lockMap.get(key)!.add(lock.scheduledSlot);
+    }
+
+    // Phase 24d — compute per-(contractor, date) availability first, then
+    // either return per-day counts (requiredDays=1, legacy) or slide an N-day
+    // window per contractor to find valid START dates (requiredDays>=2).
+
+    // Per-contractor free-day set within the window
+    const freePerContractor = new Map<string, Set<string>>();
+    const todayStr = formatTz(ukToday, 'yyyy-MM-dd', { timeZone: UK_TIMEZONE });
+
+    function isContractorFreeOnDate(contractorId: string, checkDate: Date, dateStr: string, dayOfWeek: number): boolean {
+        // Same-day time-of-day cutoffs
+        if (dateStr === todayStr) {
+            if (slot === 'am' && currentHour >= 12) return false;
+            if (slot === 'pm' && currentHour >= 15) return false;
+            if (slot === 'full_day' && currentHour >= 12) return false;
+        }
+        if (blockedDateSet.has(dateStr)) return false;
+
+        const override = overrideMap.get(`${contractorId}-${dateStr}`);
+        let isBaseAvailable = false;
+        if (override) {
+            if (override.isAvailable) {
+                isBaseAvailable = timeRangeCoversSlot(override.startTime, override.endTime, slot);
+            }
+        } else {
+            const pattern = patternMap.get(`${contractorId}-${dayOfWeek}`);
+            if (pattern) {
+                isBaseAvailable = timeRangeCoversSlot(pattern.startTime, pattern.endTime, slot);
+            }
+        }
+        if (!isBaseAvailable) return false;
+
+        const bookedSlots = bookingMap.get(`${contractorId}-${dateStr}`);
+        if (bookedSlots && conflictingSlots.some(cs => bookedSlots.has(cs))) return false;
+
+        const lockedSlots = lockMap.get(`${contractorId}-${dateStr}`);
+        if (lockedSlots && conflictingSlots.some(cs => lockedSlots.has(cs))) return false;
+
+        return true;
+    }
+
+    for (const contractorId of contractorIds) {
+        const free = new Set<string>();
+        for (let i = 0; i < totalDays; i++) {
+            const checkDate = addDays(rangeStart, i);
+            if (isBefore(checkDate, ukToday)) continue;
+            const dateStr = formatTz(checkDate, 'yyyy-MM-dd', { timeZone: UK_TIMEZONE });
+            const dayOfWeek = getDay(checkDate);
+            if (isContractorFreeOnDate(contractorId, checkDate, dateStr, dayOfWeek)) {
+                free.add(dateStr);
+            }
+        }
+        freePerContractor.set(contractorId, free);
     }
 
     // Build results
-    const results: Array<{ date: string; contractorCount: number; slot: string }> = [];
+    const results: Array<{ date: string; contractorCount: number; slot: string; durationDays?: number }> = [];
 
     for (let i = 0; i < totalDays; i++) {
         const checkDate = addDays(rangeStart, i);
-        const dateStr = formatTz(checkDate, 'yyyy-MM-dd', { timeZone: UK_TIMEZONE });
-        const dayOfWeek = getDay(checkDate);
-        const isToday = dateStr === formatTz(ukToday, 'yyyy-MM-dd', { timeZone: UK_TIMEZONE });
-
-        // Skip past dates
         if (isBefore(checkDate, ukToday)) continue;
-
-        // Skip today based on time-of-day cutoffs
-        if (isToday) {
-            if (slot === 'am' && currentHour >= 12) continue;
-            if (slot === 'pm' && currentHour >= 15) continue;
-            if (slot === 'full_day' && currentHour >= 12) continue; // FULL_DAY needs AM, so same cutoff as AM
-        }
-
-        // Master blocked date — hard override, always unavailable
-        if (blockedDateSet.has(dateStr)) continue;
+        const dateStr = formatTz(checkDate, 'yyyy-MM-dd', { timeZone: UK_TIMEZONE });
 
         let availableCount = 0;
-
-        for (const contractorId of contractorIds) {
-            // Check date-specific override first
-            const override = overrideMap.get(`${contractorId}-${dateStr}`);
-
-            let isBaseAvailable = false;
-
-            if (override) {
-                // Override exists — use it
-                if (override.isAvailable) {
-                    isBaseAvailable = timeRangeCoversSlot(override.startTime, override.endTime, slot);
-                }
-                // If override says not available, skip (don't fall through to weekly)
-            } else {
-                // Fall back to weekly pattern
-                const pattern = patternMap.get(`${contractorId}-${dayOfWeek}`);
-                if (pattern) {
-                    isBaseAvailable = timeRangeCoversSlot(pattern.startTime, pattern.endTime, slot);
-                }
+        if (requiredDays === 1) {
+            for (const contractorId of contractorIds) {
+                if (freePerContractor.get(contractorId)?.has(dateStr)) availableCount++;
             }
-
-            if (!isBaseAvailable) continue;
-
-            // Check booking conflicts — does any existing booking conflict with the requested slot?
-            const bookedSlots = bookingMap.get(`${contractorId}-${dateStr}`);
-            if (bookedSlots) {
-                const hasConflict = conflictingSlots.some(cs => bookedSlots.has(cs));
-                if (hasConflict) continue;
+        } else {
+            // Multi-day: contractor must have all N consecutive days free
+            // starting at this date.
+            const spanDates: string[] = [];
+            for (let j = 0; j < requiredDays; j++) {
+                const d = addDays(checkDate, j);
+                spanDates.push(formatTz(d, 'yyyy-MM-dd', { timeZone: UK_TIMEZONE }));
             }
-
-            // Check slot locks — does any active lock conflict?
-            const lockedSlots = lockMap.get(`${contractorId}-${dateStr}`);
-            if (lockedSlots) {
-                const hasLockConflict = conflictingSlots.some(cs => lockedSlots.has(cs));
-                if (hasLockConflict) continue;
+            for (const contractorId of contractorIds) {
+                const free = freePerContractor.get(contractorId);
+                if (!free) continue;
+                if (spanDates.every(ds => free.has(ds))) availableCount++;
             }
-
-            availableCount++;
         }
 
         if (availableCount > 0) {
@@ -690,11 +738,11 @@ async function buildAvailabilityResponse(
                 date: dateStr,
                 contractorCount: availableCount,
                 slot,
+                ...(requiredDays > 1 ? { durationDays: requiredDays } : {}),
             });
         }
     }
 
-    // Sort by date ascending (should already be in order, but ensure)
     results.sort((a, b) => a.date.localeCompare(b.date));
 
     return res.json(results);
