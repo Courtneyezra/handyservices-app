@@ -1290,8 +1290,14 @@ export function UnifiedQuoteCard({
 
         </div>
 
-        {/* Downsell Option (if available and flexible_discount mode enabled) */}
-        {config.downsell && showFlexibleDiscount && (
+        {/* Downsell Option (if available and flexible_discount mode enabled).
+            Phase 26 / Anomaly #3 — when ANY SKU line on the quote is
+            flex_eligible, the newer Phase 25 "Flexible booking" checkbox
+            renders instead, so we hide this legacy downsell to avoid
+            showing two visually-different flex options for the same
+            concept. Legacy quotes without SKU lines (showFlexBookingCheckbox
+            === false) still see this downsell exactly as before. */}
+        {config.downsell && showFlexibleDiscount && !showFlexBookingCheckbox && (
           <div className={`rounded-xl p-4 ${useDownsell
             ? 'bg-[#7DB00E]/20 border-2 border-[#7DB00E]'
             : isDarkTheme ? 'bg-white/10 border-2 border-white/10' : 'bg-slate-100 border-2 border-transparent'
