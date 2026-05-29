@@ -241,6 +241,7 @@ export async function generateMultiLinePrice(
     | undefined;
 
   const skuResolutions = new Map<string, ResolvedSkuLine>();
+  const skuFailures: Array<{ lineId: string; skuCode: string; selectedTier?: string; unitCount?: number }> = [];
   await Promise.all(
     request.lines.map(async (line) => {
       const skuCode = (line as any).skuCode as string | undefined;
@@ -254,9 +255,34 @@ export async function generateMultiLinePrice(
         selectedTier: (line as any).selectedTier,
         scheduledDate: scheduledDateForSku ?? null,
       });
-      if (resolved) skuResolutions.set(line.id, resolved);
+      if (resolved) {
+        skuResolutions.set(line.id, resolved);
+      } else {
+        // Phase 26 / Anomaly #2 — when admin explicitly picked a SKU
+        // (source='sku' OR skuCode present) but the resolver returned
+        // null (inactive SKU, unknown code, bad tier, etc.), we MUST
+        // NOT silently fall through to LLM/reference pricing. That
+        // would charge the customer a number that matches no catalog
+        // entry. Collect the failures and throw once we know them all.
+        skuFailures.push({
+          lineId: line.id,
+          skuCode,
+          selectedTier: (line as any).selectedTier,
+          unitCount: (line as any).unitCount,
+        });
+      }
     }),
   );
+  if (skuFailures.length > 0) {
+    const detail = skuFailures.map((f) =>
+      `line ${f.lineId}: skuCode=${f.skuCode}${f.selectedTier ? `, tier=${f.selectedTier}` : ''}${f.unitCount != null ? `, unitCount=${f.unitCount}` : ''}`,
+    ).join('; ');
+    throw new Error(
+      `SKU resolution failed for ${skuFailures.length} line(s). ${detail}. ` +
+      `Either the SKU is inactive/missing, the tier label doesn't match any catalog tier, ` +
+      `or the unit count is invalid. Pick a different SKU OR switch the line to Custom mode.`,
+    );
+  }
 
   // Layer 1 — Reference rate lookup per line. SKU-resolved lines still get
   // a reference number so the layer-1 breakdown isn't lying, but the engine
