@@ -1017,6 +1017,17 @@ const contextualQuoteInputSchema = z.object({
         fixedTier: z.string().optional().nullable(),
         /** Phase 11 — line needs a materials collection trip (job-level deduped to +30min once). */
         requiresMaterialCollection: z.boolean().optional(),
+        /**
+         * Phase 25/27 — SKU catalog fields. When source==='sku' with a skuCode,
+         * the engine prices the line from service_catalog (short-circuits the
+         * LLM). These MUST be in the schema or zod strips them on parse, and the
+         * line silently falls back to custom LLM pricing (the catalog price is
+         * lost). `unitCount` is for per_unit SKUs; `selectedTier` for tiered.
+         */
+        source: z.enum(['sku', 'custom']).optional(),
+        skuCode: z.string().optional(),
+        unitCount: z.number().int().positive().optional(),
+        selectedTier: z.string().optional(),
       }),
     )
     .min(1, 'At least one line item is required'),
@@ -1127,6 +1138,13 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         timeEstimateMinutes: l.estimatedMinutes,
         materialsCostPence: l.materialsCostPence || 0,
         fixedTier: l.fixedTier ?? null,
+        // Phase 27 fix — forward the SKU fields so the engine's catalog
+        // short-circuit fires. Without these, every line (even picked SKUs)
+        // is priced as custom via the LLM and the catalog price is lost.
+        source: l.source,
+        skuCode: l.skuCode,
+        unitCount: l.unitCount,
+        selectedTier: l.selectedTier,
       })),
       signals,
       vaContext: input.vaContext,

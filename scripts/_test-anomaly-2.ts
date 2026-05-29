@@ -33,7 +33,7 @@ async function main() {
   console.log('Case 1 — invalid tier on tiered SKU');
   try {
     const req: MultiLineRequest = {
-      lines: [{ id: 'L1', description: 'x', category: 'painting' as any, timeEstimateMinutes: 60, source: 'sku', skuCode: 'RPNT-28', selectedTier: 'XLarge' } as JobLine],
+      lines: [{ id: 'L1', description: 'x', category: 'painting' as any, timeEstimateMinutes: 60, source: 'sku', skuCode: 'PAINT-ROOM-01', selectedTier: 'XLarge' } as JobLine],
       signals: baseSignals as any,
       customerKnown: false,
     };
@@ -43,7 +43,7 @@ async function main() {
   } catch (err: any) {
     const msg = String(err?.message || err);
     check('Throws on invalid tier', true, msg.slice(0, 120));
-    check('Error message mentions skuCode', /RPNT-28/.test(msg));
+    check('Error message mentions skuCode', /PAINT-ROOM-01/.test(msg));
     check('Error message mentions tier', /XLarge|tier/.test(msg));
   }
 
@@ -83,13 +83,13 @@ async function main() {
   console.log('\nCase 4 — valid SKU resolves correctly');
   try {
     const req: MultiLineRequest = {
-      lines: [{ id: 'L1', description: 'x', category: 'painting' as any, timeEstimateMinutes: 60, source: 'sku', skuCode: 'RPNT-28', selectedTier: 'Medium' } as JobLine],
+      lines: [{ id: 'L1', description: 'x', category: 'painting' as any, timeEstimateMinutes: 60, source: 'sku', skuCode: 'PAINT-ROOM-01', selectedTier: 'Medium' } as JobLine],
       signals: baseSignals as any,
       customerKnown: false,
     };
     const result = await generateMultiLinePrice(req);
     check('Valid tier resolves', result.lineItems.length === 1);
-    check('Valid tier returns catalog price (£110)', result.lineItems[0].guardedPricePence === 11000, `${result.lineItems[0].guardedPricePence}p`);
+    check('Valid tier returns catalog price (£150)', result.lineItems[0].guardedPricePence === 15000, `${result.lineItems[0].guardedPricePence}p`);
   } catch (err: any) {
     check('Valid tier resolves', false, `unexpected throw: ${err?.message}`);
   }

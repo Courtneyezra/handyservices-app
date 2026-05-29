@@ -6,7 +6,7 @@
  * before exit, real prod data is read-only.
  *
  * Layers exercised:
- *   Test 1 — catalog integrity (49 active SKUs, shape constraints)
+ *   Test 1 — catalog integrity (161 active SKUs, shape constraints)
  *   Test 2 — resolveLineItemFromSku (fixed / per_unit / tiered + Sat premium)
  *   Test 3 — multi-line engine: 3 SKU lines + 1 custom line price together
  *   Test 4 — admin search query logic (matches /api/admin/sku-catalog/search)
@@ -88,7 +88,7 @@ async function main() {
         console.log('Test 1 — service_catalog integrity\n');
         const allSkus = await db.select().from(serviceCatalog);
         const activeSkus = allSkus.filter((r) => r.isActive);
-        check('exactly 49 active SKUs', activeSkus.length === 49, `actual=${activeSkus.length}`);
+        check('exactly 161 active SKUs', activeSkus.length === 161, `actual=${activeSkus.length}`);
 
         // All have the mandatory text fields
         const missingCore = activeSkus.filter(
@@ -100,12 +100,12 @@ async function main() {
         );
         check('every SKU has skuCode/name/category/customerDescription', missingCore.length === 0, `${missingCore.length} missing`);
 
-        // Shape distribution: 26 fixed, 13 tiered, 10 per_unit
+        // Shape distribution: 120 fixed, 15 tiered, 26 per_unit
         const byShape: Record<string, number> = {};
         for (const r of activeSkus) byShape[r.shape] = (byShape[r.shape] || 0) + 1;
-        check('26 fixed SKUs', byShape['fixed'] === 26, `actual=${byShape['fixed']}`);
-        check('13 tiered SKUs', byShape['tiered'] === 13, `actual=${byShape['tiered']}`);
-        check('10 per_unit SKUs', byShape['per_unit'] === 10, `actual=${byShape['per_unit']}`);
+        check('120 fixed SKUs', byShape['fixed'] === 120, `actual=${byShape['fixed']}`);
+        check('15 tiered SKUs', byShape['tiered'] === 15, `actual=${byShape['tiered']}`);
+        check('26 per_unit SKUs', byShape['per_unit'] === 26, `actual=${byShape['per_unit']}`);
 
         // Fixed: pricePence + scheduleMinutes populated; no tiers; no per-unit fields
         const fixedRows = activeSkus.filter((r) => r.shape === 'fixed');
@@ -162,82 +162,82 @@ async function main() {
         console.log('\nTest 2 — resolveLineItemFromSku (sku-resolver.ts)\n');
 
         // Pick known SKUs from prod
-        const tap = await getSkuByCode('TAP-01'); // fixed
-        const door = await getSkuByCode('DOOR-15'); // per_unit
-        const rpnt = await getSkuByCode('RPNT-28'); // tiered
+        const tap = await getSkuByCode('TAP-KIT-01'); // fixed
+        const door = await getSkuByCode('HANG-PIC-01'); // per_unit
+        const rpnt = await getSkuByCode('PAINT-ROOM-01'); // tiered
 
-        check('TAP-01 row fetched', !!tap, tap?.shape);
-        check('DOOR-15 row fetched', !!door, door?.shape);
-        check('RPNT-28 row fetched', !!rpnt, rpnt?.shape);
+        check('TAP-KIT-01 row fetched', !!tap, tap?.shape);
+        check('HANG-PIC-01 row fetched', !!door, door?.shape);
+        check('PAINT-ROOM-01 row fetched', !!rpnt, rpnt?.shape);
 
         const wedDate = nextWednesday();
         const satDate = nextSaturday();
 
         // Fixed: returns row's price + scheduleMinutes; no premium on Wed
-        const fixedWed = await resolveLineItemFromSku({ skuCode: 'TAP-01', scheduledDate: wedDate });
-        check('TAP-01 weekday: price matches catalog', fixedWed?.pricePence === tap?.pricePence, `got=${fixedWed?.pricePence}, expected=${tap?.pricePence}`);
-        check('TAP-01 weekday: scheduleMinutes matches catalog', fixedWed?.scheduleMinutes === tap?.scheduleMinutes, `got=${fixedWed?.scheduleMinutes}, expected=${tap?.scheduleMinutes}`);
-        check('TAP-01 weekday: NO off-peak premium', fixedWed?.offPeakPremiumAppliedPence === 0, `got=${fixedWed?.offPeakPremiumAppliedPence}`);
+        const fixedWed = await resolveLineItemFromSku({ skuCode: 'TAP-KIT-01', scheduledDate: wedDate });
+        check('TAP-KIT-01 weekday: price matches catalog', fixedWed?.pricePence === tap?.pricePence, `got=${fixedWed?.pricePence}, expected=${tap?.pricePence}`);
+        check('TAP-KIT-01 weekday: scheduleMinutes matches catalog', fixedWed?.scheduleMinutes === tap?.scheduleMinutes, `got=${fixedWed?.scheduleMinutes}, expected=${tap?.scheduleMinutes}`);
+        check('TAP-KIT-01 weekday: NO off-peak premium', fixedWed?.offPeakPremiumAppliedPence === 0, `got=${fixedWed?.offPeakPremiumAppliedPence}`);
 
         // Fixed on Saturday: premium added ONCE
-        const fixedSat = await resolveLineItemFromSku({ skuCode: 'TAP-01', scheduledDate: satDate });
+        const fixedSat = await resolveLineItemFromSku({ skuCode: 'TAP-KIT-01', scheduledDate: satDate });
         const expectedSatPrice = (tap!.pricePence || 0) + (tap!.offPeakWeekendPremiumPence || 0);
-        check('TAP-01 Saturday: price includes premium ONCE', fixedSat?.pricePence === expectedSatPrice, `got=${fixedSat?.pricePence}, expected=${expectedSatPrice} (${tap?.pricePence}+${tap?.offPeakWeekendPremiumPence})`);
-        check('TAP-01 Saturday: offPeakPremiumAppliedPence correct', fixedSat?.offPeakPremiumAppliedPence === (tap?.offPeakWeekendPremiumPence || 0));
+        check('TAP-KIT-01 Saturday: price includes premium ONCE', fixedSat?.pricePence === expectedSatPrice, `got=${fixedSat?.pricePence}, expected=${expectedSatPrice} (${tap?.pricePence}+${tap?.offPeakWeekendPremiumPence})`);
+        check('TAP-KIT-01 Saturday: offPeakPremiumAppliedPence correct', fixedSat?.offPeakPremiumAppliedPence === (tap?.offPeakWeekendPremiumPence || 0));
 
         // Per-unit: count above min
-        // DOOR-15: perUnit=8533p, label=door, min=1, minsPer=121, setup=20
+        // HANG-PIC-01: perUnit=2500p, label=item, min=1, minsPer=25, setup=20
         const door3 = await resolveLineItemFromSku({
-            skuCode: 'DOOR-15',
+            skuCode: 'HANG-PIC-01',
             unitCount: 3,
             scheduledDate: wedDate,
         });
         const expectedDoor3Price = (door!.pricePerUnitPence || 0) * 3;
         const expectedDoor3Mins = (door!.minutesPerUnit || 0) * 3 + (door!.setupMinutes || 0);
-        check('DOOR-15 x3: price = perUnit × 3', door3?.pricePence === expectedDoor3Price, `got=${door3?.pricePence}, expected=${expectedDoor3Price}`);
-        check('DOOR-15 x3: schedule = mins/unit × 3 + setup', door3?.scheduleMinutes === expectedDoor3Mins, `got=${door3?.scheduleMinutes}, expected=${expectedDoor3Mins}`);
+        check('HANG-PIC-01 x3: price = perUnit × 3', door3?.pricePence === expectedDoor3Price, `got=${door3?.pricePence}, expected=${expectedDoor3Price}`);
+        check('HANG-PIC-01 x3: schedule = mins/unit × 3 + setup', door3?.scheduleMinutes === expectedDoor3Mins, `got=${door3?.scheduleMinutes}, expected=${expectedDoor3Mins}`);
 
         // Per-unit: count below min (should be clamped up)
         const door0 = await resolveLineItemFromSku({
-            skuCode: 'DOOR-15',
+            skuCode: 'HANG-PIC-01',
             unitCount: 0,
             scheduledDate: wedDate,
         });
         const expectedDoorMinPrice = (door!.pricePerUnitPence || 0) * (door!.minimumUnits || 1);
-        check('DOOR-15 below min: clamps to minimum', door0?.pricePence === expectedDoorMinPrice, `got=${door0?.pricePence}, expected=${expectedDoorMinPrice} (min=${door?.minimumUnits})`);
+        check('HANG-PIC-01 below min: clamps to minimum', door0?.pricePence === expectedDoorMinPrice, `got=${door0?.pricePence}, expected=${expectedDoorMinPrice} (min=${door?.minimumUnits})`);
 
         // Per-unit on Saturday: premium added ONCE (not per unit)
         const door3Sat = await resolveLineItemFromSku({
-            skuCode: 'DOOR-15',
+            skuCode: 'HANG-PIC-01',
             unitCount: 3,
             scheduledDate: satDate,
         });
         const expectedDoor3SatPrice = expectedDoor3Price + (door!.offPeakWeekendPremiumPence || 0);
-        check('DOOR-15 x3 Saturday: premium added ONCE (not per unit)', door3Sat?.pricePence === expectedDoor3SatPrice, `got=${door3Sat?.pricePence}, expected=${expectedDoor3SatPrice}`);
+        check('HANG-PIC-01 x3 Saturday: premium added ONCE (not per unit)', door3Sat?.pricePence === expectedDoor3SatPrice, `got=${door3Sat?.pricePence}, expected=${expectedDoor3SatPrice}`);
 
         // Tiered: each tier resolves to its own price/mins
-        // RPNT-28 tiers: Small 9000p/120min, Medium 11000p/150min, Large 13700p/240min
+        // PAINT-ROOM-01 tiers: Small 11000p/150min, Medium 15000p/240min, Large 24000p/420min
         const tiers = rpnt!.tiers as any[];
         const tierMap = Object.fromEntries(tiers.map((t) => [t.label, t]));
         for (const label of ['Small', 'Medium', 'Large']) {
             const tier = tierMap[label];
             const r = await resolveLineItemFromSku({
-                skuCode: 'RPNT-28',
+                skuCode: 'PAINT-ROOM-01',
                 selectedTier: label,
                 scheduledDate: wedDate,
             });
-            check(`RPNT-28 ${label}: price = ${tier.pricePence}`, r?.pricePence === tier.pricePence, `got=${r?.pricePence}`);
-            check(`RPNT-28 ${label}: scheduleMinutes = ${tier.scheduleMinutes}`, r?.scheduleMinutes === tier.scheduleMinutes, `got=${r?.scheduleMinutes}`);
+            check(`PAINT-ROOM-01 ${label}: price = ${tier.pricePence}`, r?.pricePence === tier.pricePence, `got=${r?.pricePence}`);
+            check(`PAINT-ROOM-01 ${label}: scheduleMinutes = ${tier.scheduleMinutes}`, r?.scheduleMinutes === tier.scheduleMinutes, `got=${r?.scheduleMinutes}`);
         }
 
         // Tiered on Saturday: premium added ONCE
         const rpntSat = await resolveLineItemFromSku({
-            skuCode: 'RPNT-28',
+            skuCode: 'PAINT-ROOM-01',
             selectedTier: 'Medium',
             scheduledDate: satDate,
         });
         const expectedRpntSat = tierMap['Medium'].pricePence + (rpnt!.offPeakWeekendPremiumPence || 0);
-        check('RPNT-28 Medium Saturday: premium added ONCE', rpntSat?.pricePence === expectedRpntSat, `got=${rpntSat?.pricePence}, expected=${expectedRpntSat}`);
+        check('PAINT-ROOM-01 Medium Saturday: premium added ONCE', rpntSat?.pricePence === expectedRpntSat, `got=${rpntSat?.pricePence}, expected=${expectedRpntSat}`);
 
         // Unknown SKU → null
         const bogus = await resolveLineItemFromSku({ skuCode: 'BOGUS-9999', scheduledDate: wedDate });
@@ -245,7 +245,7 @@ async function main() {
 
         // Missing tier → null
         const missingTier = await resolveLineItemFromSku({
-            skuCode: 'RPNT-28',
+            skuCode: 'PAINT-ROOM-01',
             selectedTier: 'XXL',
             scheduledDate: wedDate,
         });
@@ -266,24 +266,24 @@ async function main() {
                     category: 'plumbing_minor',
                     timeEstimateMinutes: 45,
                     source: 'sku',
-                    skuCode: 'TAP-01',
+                    skuCode: 'TAP-KIT-01',
                 },
                 {
                     id: 'L2',
-                    description: 'Hang 3 internal doors',
-                    category: 'door_fitting',
-                    timeEstimateMinutes: 363,
+                    description: 'Hang 3 pictures',
+                    category: 'general_fixing',
+                    timeEstimateMinutes: 95,
                     source: 'sku',
-                    skuCode: 'DOOR-15',
+                    skuCode: 'HANG-PIC-01',
                     unitCount: 3,
                 },
                 {
                     id: 'L3',
                     description: 'Repaint medium bedroom',
                     category: 'painting',
-                    timeEstimateMinutes: 150,
+                    timeEstimateMinutes: 240,
                     source: 'sku',
-                    skuCode: 'RPNT-28',
+                    skuCode: 'PAINT-ROOM-01',
                     selectedTier: 'Medium',
                 },
                 {
@@ -319,28 +319,28 @@ async function main() {
             const l3 = items.find((x) => x.lineId === 'L3');
             const l4 = items.find((x) => x.lineId === 'L4');
 
-            // L1 (TAP-01 fixed)
+            // L1 (TAP-KIT-01 fixed)
             check('L1 source=sku', l1?.source === 'sku', `got=${l1?.source}`);
-            check('L1 skuCode=TAP-01', l1?.skuCode === 'TAP-01');
+            check('L1 skuCode=TAP-KIT-01', l1?.skuCode === 'TAP-KIT-01');
             check('L1 price matches catalog', l1?.guardedPricePence === tap?.pricePence, `got=${l1?.guardedPricePence}, expected=${tap?.pricePence}`);
             check('L1 scheduleMinutes populated', typeof l1?.scheduleMinutes === 'number' && l1.scheduleMinutes === tap?.scheduleMinutes, `got=${l1?.scheduleMinutes}`);
 
-            // L2 (DOOR-15 per_unit ×3). Engine rounds to whole pounds so
+            // L2 (HANG-PIC-01 per_unit ×3). Engine rounds to whole pounds so
             // display matches the Stripe charge (intentional).
             check('L2 source=sku', l2?.source === 'sku');
-            check('L2 skuCode=DOOR-15', l2?.skuCode === 'DOOR-15');
+            check('L2 skuCode=HANG-PIC-01', l2?.skuCode === 'HANG-PIC-01');
             const rawL2Price = (door!.pricePerUnitPence || 0) * 3;
             const expectedL2Price = Math.round(rawL2Price / 100) * 100;
             check('L2 price = perUnit × 3 (rounded to whole £)', l2?.guardedPricePence === expectedL2Price, `got=${l2?.guardedPricePence}, expected=${expectedL2Price} (raw ${rawL2Price})`);
             const expectedL2Mins = (door!.minutesPerUnit || 0) * 3 + (door!.setupMinutes || 0);
             check('L2 scheduleMinutes = mins/unit × 3 + setup', l2?.scheduleMinutes === expectedL2Mins, `got=${l2?.scheduleMinutes}, expected=${expectedL2Mins}`);
 
-            // L3 (RPNT-28 tiered Medium)
+            // L3 (PAINT-ROOM-01 tiered Medium)
             check('L3 source=sku', l3?.source === 'sku');
-            check('L3 skuCode=RPNT-28', l3?.skuCode === 'RPNT-28');
+            check('L3 skuCode=PAINT-ROOM-01', l3?.skuCode === 'PAINT-ROOM-01');
             check('L3 selectedTier=Medium', l3?.selectedTier === 'Medium');
-            check('L3 price = RPNT-28 Medium price', l3?.guardedPricePence === tierMap['Medium'].pricePence, `got=${l3?.guardedPricePence}, expected=${tierMap['Medium'].pricePence}`);
-            check('L3 scheduleMinutes = RPNT-28 Medium mins', l3?.scheduleMinutes === tierMap['Medium'].scheduleMinutes);
+            check('L3 price = PAINT-ROOM-01 Medium price', l3?.guardedPricePence === tierMap['Medium'].pricePence, `got=${l3?.guardedPricePence}, expected=${tierMap['Medium'].pricePence}`);
+            check('L3 scheduleMinutes = PAINT-ROOM-01 Medium mins', l3?.scheduleMinutes === tierMap['Medium'].scheduleMinutes);
 
             // L4 (custom): goes through LLM/reference path. Just verify it's
             // present and has a sane price.
@@ -359,7 +359,7 @@ async function main() {
         // ─────────────────────────────────────────────────────────────
         console.log('\nTest 4 — admin /api/admin/sku-catalog/search query logic\n');
 
-        // q=tap should include TAP-01
+        // q=tap should include TAP-KIT-01
         const qTap = `%tap%`;
         const tapResults = await db
             .select()
@@ -377,9 +377,9 @@ async function main() {
             .orderBy(desc(serviceCatalog.pickCount), asc(serviceCatalog.name))
             .limit(20);
         check('search q=tap returns ≥1 row', tapResults.length >= 1, `${tapResults.length} results`);
-        check('search q=tap includes TAP-01', tapResults.some((r) => r.skuCode === 'TAP-01'));
+        check('search q=tap includes TAP-KIT-01', tapResults.some((r) => r.skuCode === 'TAP-KIT-01'));
 
-        // q=door should include DOOR-15 / XDOOR-16 / HW-61
+        // q=door should include the door-fitting SKUs (DOOR-INT-01 etc.)
         const qDoor = `%door%`;
         const doorResults = await db
             .select()
@@ -399,8 +399,8 @@ async function main() {
         check('search q=door returns ≥1 row', doorResults.length >= 1, `${doorResults.length} results`);
         const doorCodes = doorResults.map((r) => r.skuCode);
         check(
-            'search q=door includes DOOR-15 / XDOOR-16 / HW-61',
-            doorCodes.includes('DOOR-15') || doorCodes.includes('XDOOR-16') || doorCodes.includes('HW-61'),
+            'search q=door includes DOOR-INT-01 / DOOR-EXT-01 / DOOR-HW-01',
+            doorCodes.includes('DOOR-INT-01') || doorCodes.includes('DOOR-EXT-01') || doorCodes.includes('DOOR-HW-01'),
             doorCodes.slice(0, 5).join(','),
         );
 
@@ -423,9 +423,9 @@ async function main() {
         const [tapDirect] = await db
             .select()
             .from(serviceCatalog)
-            .where(eq(serviceCatalog.skuCode, 'TAP-01'))
+            .where(eq(serviceCatalog.skuCode, 'TAP-KIT-01'))
             .limit(1);
-        check('GET /:skuCode returns full row', !!tapDirect && tapDirect.skuCode === 'TAP-01' && tapDirect.shape === 'fixed');
+        check('GET /:skuCode returns full row', !!tapDirect && tapDirect.skuCode === 'TAP-KIT-01' && tapDirect.shape === 'fixed');
 
         // ─────────────────────────────────────────────────────────────
         // TEST 5 — Backward compat: real accepted quotes still compute
@@ -538,23 +538,24 @@ async function main() {
         // Build a quote whose SKU-resolved scheduleMinutes pushes it over the
         // 480min/day cap. Use the resolver to source minutes directly so the
         // computation mirrors the production engine path.
-        const rpntLarge = await resolveLineItemFromSku({
-            skuCode: 'RPNT-28',
+        const paintLarge = await resolveLineItemFromSku({
+            skuCode: 'PAINT-ROOM-01',
             selectedTier: 'Large',
             scheduledDate: wedDate,
-        }); // 240min
-        const win = await resolveLineItemFromSku({
-            skuCode: 'WIN-23',
+        }); // 420min
+        const tapMins = await resolveLineItemFromSku({
+            skuCode: 'TAP-KIT-01',
             scheduledDate: wedDate,
-        }); // 210min
-        const bth = await resolveLineItemFromSku({
-            skuCode: 'BTHPNL-20',
+        }); // 60min
+        const hangMins = await resolveLineItemFromSku({
+            skuCode: 'HANG-PIC-01',
+            unitCount: 3,
             scheduledDate: wedDate,
-        }); // 120min
+        }); // 25×3 + 20 = 95min
 
-        check('RPNT-28 Large resolved (240min)', rpntLarge?.scheduleMinutes === 240, `got=${rpntLarge?.scheduleMinutes}`);
-        check('WIN-23 resolved (210min)', win?.scheduleMinutes === 210, `got=${win?.scheduleMinutes}`);
-        check('BTHPNL-20 resolved (120min)', bth?.scheduleMinutes === 120, `got=${bth?.scheduleMinutes}`);
+        check('PAINT-ROOM-01 Large resolved (420min)', paintLarge?.scheduleMinutes === 420, `got=${paintLarge?.scheduleMinutes}`);
+        check('TAP-KIT-01 resolved (60min)', tapMins?.scheduleMinutes === 60, `got=${tapMins?.scheduleMinutes}`);
+        check('HANG-PIC-01 ×3 resolved (95min)', hangMins?.scheduleMinutes === 95, `got=${hangMins?.scheduleMinutes}`);
 
         // Build the line items in the LineItemV2 shape that composeScheduleMinutes reads
         const multiDayLines = [

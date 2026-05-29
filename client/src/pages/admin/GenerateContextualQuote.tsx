@@ -46,9 +46,8 @@ import { AddressInput, type AddressDetails } from '@/components/live-call/Addres
 import Autocomplete from 'react-google-autocomplete';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
-  SkuSearchModal,
   SkuSlabSummary,
-  SkuEmptyPickButton,
+  InlineSkuAutocomplete,
   getEffectiveSkuPriceAndMinutes,
   type CatalogSku,
   type SkuPickResult,
@@ -102,8 +101,11 @@ interface LineItem {
   /** Phase 11 — line needs a materials collection trip. Composer dedupes across all lines; +30min ONCE per quote when any line is flagged. */
   requiresMaterialCollection?: boolean;
   /**
-   * Phase 25c — distinguishes catalog pick from free-text custom work.
-   * Default for new lines is 'sku' so the picker opens by default.
+   * Phase 25c/25d — distinguishes catalog pick from free-text custom work.
+   * A line is a SKU line iff source==='sku' && skuCode is set (picked from
+   * the inline autocomplete). Otherwise it's custom — the typed description
+   * goes through the LLM/reference pricing on generate. New lines default to
+   * 'custom' (the inline autocomplete state), flipping to 'sku' on pick.
    */
   source: 'sku' | 'custom';
   /** Phase 25c — when set, the engine resolves price + schedule from service_catalog. */
@@ -1031,10 +1033,11 @@ export default function GenerateContextualQuote() {
   // ── Call card selection ──
   const [selectedCallerId, setSelectedCallerId] = useState<string | null>(null);
 
-  // ── Phase 25c — SKU picker modal state ──
-  // Tracks which line item id (if any) has the SKU picker modal open.
-  // Null = closed. The picker auto-opens for newly added SKU-default lines.
-  const [skuPickerLineId, setSkuPickerLineId] = useState<string | null>(null);
+  // ── Phase 25d — inline SKU autocomplete ──
+  // The line description doubles as a catalog search box. We only track the
+  // most-recently-added line id so its inline input autofocuses; there is no
+  // modal any more — picks happen inline from the dropdown.
+  const [newLineId, setNewLineId] = useState<string | null>(null);
 
   // ── Result ──
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
@@ -1509,14 +1512,14 @@ export default function GenerateContextualQuote() {
         category: 'general_fixing' as JobCategory,
         estimatedMinutes: 30,
         materialsCostPounds: 0,
-        // Phase 25c — default new lines to SKU pick so the picker opens
-        // immediately. Custom remains one click away via the toggle.
-        source: 'sku',
+        // Phase 25d — new lines start as the inline-autocomplete (custom)
+        // state with the description field focused. Typing searches the
+        // catalog; picking a suggestion flips the line to a SKU line.
+        source: 'custom',
       },
     ]);
-    // Auto-open the SKU search modal for the new line so the admin lands in
-    // pick-mode without an extra click.
-    setSkuPickerLineId(newId);
+    // Mark this line so its inline description input autofocuses.
+    setNewLineId(newId);
   };
 
   const handleRemoveLineItem = (id: string) => {
@@ -1819,40 +1822,29 @@ export default function GenerateContextualQuote() {
   // Phase 25c — SKU line item handlers
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /** Flip a line between SKU pick and free-text custom modes. */
-  const handleToggleLineSource = useCallback((lineId: string, next: 'sku' | 'custom') => {
+  /**
+   * Clear a picked SKU, returning the line to the empty inline-autocomplete
+   * (custom) state. Wipes the SKU references AND the description so the input
+   * comes back blank and ready to re-search.
+   */
+  const handleClearSkuLine = useCallback((lineId: string) => {
     setLineItems((prev) =>
       prev.map((li) => {
         if (li.id !== lineId) return li;
-        if (next === 'custom') {
-          // Drop SKU references but keep the polished description so the
-          // admin can edit it as free-text. Reset minutes to the previous
-          // estimatedMinutes (no change needed) and clear SKU shape state.
-          return {
-            ...li,
-            source: 'custom',
-            skuCode: undefined,
-            unitCount: undefined,
-            selectedTier: undefined,
-            skuMeta: undefined,
-          };
-        }
-        // Switching to SKU: clear SKU-shape state but PRESERVE the
-        // description so admin's typed free-text seeds the picker query.
-        // Picking a SKU overwrites description with the SKU's name.
         return {
           ...li,
-          source: 'sku',
+          source: 'custom',
           skuCode: undefined,
           unitCount: undefined,
           selectedTier: undefined,
           skuMeta: undefined,
+          description: '',
+          estimatedMinutes: 30,
         };
       }),
     );
-    // When flipping a freshly-emptied line back into SKU mode, open the
-    // picker for it so the admin lands in pick-mode.
-    if (next === 'sku') setSkuPickerLineId(lineId);
+    // Refocus the now-empty inline input.
+    setNewLineId(lineId);
   }, []);
 
   /** Apply a picked SKU to the named line. */
@@ -1910,9 +1902,6 @@ export default function GenerateContextualQuote() {
       }),
     );
   }, []);
-
-  /** Find the line currently bound to the open SKU picker modal. */
-  const skuPickerLine = lineItems.find((li) => li.id === skuPickerLineId) || null;
 
   // Validate form completeness for button state. SKU lines without a skuCode
   // also count as incomplete even if estimatedMinutes is non-zero.
@@ -2161,6 +2150,11 @@ export default function GenerateContextualQuote() {
                       const categoryLabel = CATEGORY_LABELS[item.category] || 'General';
                       const hasMaterials = item.materialsCostPounds > 0;
                       const isPolishing = polishingIds.has(item.id);
+                      // Phase 25d — a line is a SKU line iff it was picked from
+                      // the inline autocomplete (source==='sku' && skuCode).
+                      // Everything else renders the inline autocomplete and is
+                      // treated as custom on generate.
+                      const isPickedSku = item.source === 'sku' && !!item.skuCode && !!item.skuMeta;
 
                       return (
                         <div
@@ -2195,58 +2189,22 @@ export default function GenerateContextualQuote() {
                             )}
                           </div>
 
-                          {/* Phase 25c — Source toggle: Catalog SKU vs Custom.
-                              Default for new lines is Catalog SKU; existing
-                              custom paths preserved unchanged below. */}
-                          <div className="pl-2">
-                            <div className="inline-flex rounded-md border border-handy-grid bg-handy-cream/40 p-0.5 gap-0.5">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (item.source !== 'sku') handleToggleLineSource(item.id, 'sku');
-                                }}
-                                className={`h-7 px-2.5 rounded text-[11px] font-semibold transition-[transform,background-color,color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] flex items-center gap-1 ${
-                                  item.source === 'sku'
-                                    ? 'bg-handy-navy text-white shadow-sm'
-                                    : 'text-handy-navy/60 hover:text-handy-navy'
-                                }`}
-                                aria-pressed={item.source === 'sku'}
-                              >
-                                Catalog SKU
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (item.source !== 'custom') handleToggleLineSource(item.id, 'custom');
-                                }}
-                                className={`h-7 px-2.5 rounded text-[11px] font-semibold transition-[transform,background-color,color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.97] flex items-center gap-1 ${
-                                  item.source === 'custom'
-                                    ? 'bg-handy-navy text-white shadow-sm'
-                                    : 'text-handy-navy/60 hover:text-handy-navy'
-                                }`}
-                                aria-pressed={item.source === 'custom'}
-                              >
-                                Custom
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* SKU mode body — pick result OR empty pick CTA */}
-                          {item.source === 'sku' ? (
+                          {/* Phase 25d — line body. A picked SKU shows the
+                              deterministic SKU slab; anything else shows the
+                              inline autocomplete (the description field that
+                              searches the catalog as you type). No toggle —
+                              picking a suggestion is what makes it a SKU line. */}
+                          {isPickedSku ? (
                             <>
-                              {item.skuMeta && item.skuCode ? (
-                                <SkuSlabSummary
-                                  sku={item.skuMeta}
-                                  unitCount={item.unitCount}
-                                  selectedTier={item.selectedTier}
-                                  onChangeUnitCount={(next) => handleUpdateSkuUnitCount(item.id, next)}
-                                  onChangeSelectedTier={(next) => handleUpdateSkuTier(item.id, next)}
-                                  onEdit={() => setSkuPickerLineId(item.id)}
-                                  onClear={() => handleToggleLineSource(item.id, 'sku')}
-                                />
-                              ) : (
-                                <SkuEmptyPickButton onClick={() => setSkuPickerLineId(item.id)} />
-                              )}
+                              <SkuSlabSummary
+                                sku={item.skuMeta!}
+                                unitCount={item.unitCount}
+                                selectedTier={item.selectedTier}
+                                onChangeUnitCount={(next) => handleUpdateSkuUnitCount(item.id, next)}
+                                onChangeSelectedTier={(next) => handleUpdateSkuTier(item.id, next)}
+                                onEdit={() => handleClearSkuLine(item.id)}
+                                onClear={() => handleClearSkuLine(item.id)}
+                              />
 
                               {/* Detail textarea — still applies to SKU lines so admin
                                   can override the customer-facing description. */}
@@ -2294,17 +2252,19 @@ export default function GenerateContextualQuote() {
                               )}
                             </>
                           ) : (
-                            // ─── Custom mode — preserve the legacy free-text path verbatim ───
+                            // ─── Inline autocomplete (custom / not-yet-picked) ───
+                            // The description field searches the catalog as you
+                            // type. Pick a suggestion → the line flips to a SKU
+                            // line. Type and don't pick → it stays custom and is
+                            // priced via the LLM/reference path on generate.
                             <>
-                              {/* Description input — AI polishes on blur */}
-                              <Input
-                                placeholder="e.g. Fix leaking tap, Mount TV..."
+                              <InlineSkuAutocomplete
                                 value={item.description}
-                                onChange={(e) => handleUpdateLineItem(item.id, 'description', e.target.value)}
+                                autoFocus={item.id === newLineId}
+                                dimmed={isPolishing}
+                                onChangeText={(next) => handleUpdateLineItem(item.id, 'description', next)}
+                                onPickSku={(result) => handlePickSkuForLine(item.id, result)}
                                 onBlur={() => handlePolishDescription(item.id, item.description)}
-                                className={`text-sm font-medium bg-transparent border-handy-grid focus:border-handy-yellow h-11 sm:h-10 transition-colors ${
-                                  isPolishing ? 'opacity-60' : ''
-                                }`}
                               />
 
                               {/* Detail textarea — gated on the global "Detail" toggle, auto-drafted after polish */}
@@ -3272,18 +3232,6 @@ export default function GenerateContextualQuote() {
           )}
         </DialogContent>
       </Dialog>
-
-      {/* Phase 25c — SKU search modal. Bound to the line whose id matches
-          skuPickerLineId; closing nulls the binding. Picking a SKU calls
-          handlePickSkuForLine which writes through to the line item. */}
-      <SkuSearchModal
-        open={!!skuPickerLineId && !!skuPickerLine}
-        initialQuery={skuPickerLine?.description?.trim() || ''}
-        onClose={() => setSkuPickerLineId(null)}
-        onPick={(result) => {
-          if (skuPickerLineId) handlePickSkuForLine(skuPickerLineId, result);
-        }}
-      />
     </div>
   );
 }
