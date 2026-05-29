@@ -643,6 +643,11 @@ adminAvailabilityRouter.get('/fit', async (req: Request, res: Response) => {
         const latRaw = req.query.lat ? parseFloat(req.query.lat as string) : NaN;
         const lngRaw = req.query.lng ? parseFloat(req.query.lng as string) : NaN;
         const days = Math.min(Math.max(parseInt(req.query.days as string) || 14, 1), 42);
+        // Phase 24b — multi-day jobs. Defaults to 1 so single-day quotes behave
+        // exactly as before. For N ≥ 2 we slide a window across each candidate's
+        // daily availability and return only start dates where N consecutive
+        // full-day, unbooked days exist.
+        const requiredDays = Math.min(Math.max(parseInt(req.query.requiredDays as string) || 1, 1), 14);
 
         const start = new Date();
         start.setUTCHours(0, 0, 0, 0);
@@ -651,7 +656,7 @@ adminAvailabilityRouter.get('/fit', async (req: Request, res: Response) => {
         const dateKey = (d: Date | string) => new Date(d).toISOString().split('T')[0];
 
         // [FIT_DBG] Phase 22a boundary log
-        console.log(`[FIT_DBG] window from=${start.toISOString()} to=${end.toISOString()} days=${days} categories=${categorySlugs.join(',')} lat=${latRaw} lng=${lngRaw}`);
+        console.log(`[FIT_DBG] window from=${start.toISOString()} to=${end.toISOString()} days=${days} requiredDays=${requiredDays} categories=${categorySlugs.join(',')} lat=${latRaw} lng=${lngRaw}`);
 
         if (categorySlugs.length === 0) {
             console.log('[FIT_DBG] no categories — short-circuit empty');
@@ -717,30 +722,44 @@ adminAvailabilityRouter.get('/fit', async (req: Request, res: Response) => {
                 console.log(`[FIT_DBG]   ovr ${dateKey(o.date)} avail=${o.isAvailable} ${o.startTime ?? '—'}-${o.endTime ?? '—'}`);
             }
 
-            const availableDays: { date: string; slot: string }[] = [];
+            // Phase 24b — build a daily-status map for the whole window first,
+            // then either return per-day availability (N=1, legacy) or slide
+            // an N-day window across it to find valid start dates (N >= 2).
+            interface DayStatus { date: string; slot: string | null; }
+            const dayMap: DayStatus[] = [];
             for (let i = 0; i < days; i++) {
                 const d = new Date(start);
                 d.setUTCDate(start.getUTCDate() + i);
                 const ds = dateKey(d);
-                if (booked.has(ds)) { console.log(`[FIT_DBG]   skip ${ds} reason=booked`); continue; }
+                if (booked.has(ds)) { dayMap.push({ date: ds, slot: null }); continue; }
                 const ov = cOverrides.find(o => dateKey(o.date) === ds);
                 if (ov) {
-                    if (ov.isAvailable) {
-                        availableDays.push({ date: ds, slot: slotOf(ov) });
-                        console.log(`[FIT_DBG]   keep ${ds} reason=override slot=${slotOf(ov)}`);
-                    } else {
-                        console.log(`[FIT_DBG]   skip ${ds} reason=override-off`);
-                    }
+                    dayMap.push({ date: ds, slot: ov.isAvailable ? slotOf(ov) : null });
                 } else {
                     const pat = cPatterns.find(p => p.dayOfWeek === d.getUTCDay());
-                    if (pat) {
-                        availableDays.push({ date: ds, slot: 'full' });
-                        console.log(`[FIT_DBG]   keep ${ds} reason=pattern dow=${d.getUTCDay()}`);
-                    }
-                    // else: silently skip (no override, no pattern) — too noisy to log every empty day
+                    dayMap.push({ date: ds, slot: pat ? 'full' : null });
                 }
             }
-            console.log(`[FIT_DBG] cand=${id} final availableDays=${availableDays.map(a => a.date + '/' + a.slot).join(',') || '∅'}`);
+
+            const availableDays: { date: string; slot: string }[] = [];
+            if (requiredDays === 1) {
+                // Legacy per-slot path — keep the day's actual slot (am/pm/full)
+                for (const ds of dayMap) {
+                    if (ds.slot) availableDays.push({ date: ds.date, slot: ds.slot });
+                }
+            } else {
+                // Multi-day: sliding window. Every day in the span must be
+                // 'full' AND free. AM-only / PM-only days don't qualify
+                // because a multi-day job needs a contractor's whole day.
+                for (let i = 0; i <= dayMap.length - requiredDays; i++) {
+                    let spans = true;
+                    for (let j = 0; j < requiredDays; j++) {
+                        if (dayMap[i + j].slot !== 'full') { spans = false; break; }
+                    }
+                    if (spans) availableDays.push({ date: dayMap[i].date, slot: 'full' });
+                }
+            }
+            console.log(`[FIT_DBG] cand=${id} requiredDays=${requiredDays} startDates=${availableDays.map(a => a.date).join(',') || '∅'}`);
 
             return {
                 contractorId: id,
@@ -759,6 +778,7 @@ adminAvailabilityRouter.get('/fit', async (req: Request, res: Response) => {
             uncoveredCategories: match.uncoveredCategories,
             from: dateKey(start),
             days,
+            requiredDays,
         });
     } catch (error) {
         console.error('[AdminAvailability] fit error:', error);

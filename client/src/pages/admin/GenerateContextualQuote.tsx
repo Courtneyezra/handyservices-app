@@ -749,18 +749,23 @@ interface FitResponse {
   uncoveredCategories: string[];
   from: string;
   days: number;
+  /** Phase 24b — echoed back so the UI can show "Start a 3-day job on…" */
+  requiredDays?: number;
 }
 
 function ContractorFitPanel({
   categorySlugs,
   coordinates,
+  requiredDays = 1,
 }: {
   categorySlugs: string[];
   coordinates: { lat: number; lng: number } | null;
+  /** Phase 24b — multi-day jobs need N consecutive days. Default 1 = legacy. */
+  requiredDays?: number;
 }) {
   const catKey = [...categorySlugs].sort().join(',');
   const { data, isLoading, isError, refetch, isFetching } = useQuery<FitResponse>({
-    queryKey: ['contractor-fit', catKey, coordinates?.lat, coordinates?.lng],
+    queryKey: ['contractor-fit', catKey, coordinates?.lat, coordinates?.lng, requiredDays],
     enabled: categorySlugs.length > 0,
     queryFn: async () => {
       const params = new URLSearchParams({ categories: categorySlugs.join(','), days: '14' });
@@ -768,6 +773,7 @@ function ContractorFitPanel({
         params.set('lat', String(coordinates.lat));
         params.set('lng', String(coordinates.lng));
       }
+      if (requiredDays > 1) params.set('requiredDays', String(requiredDays));
       const res = await fetch(`/api/admin/availability/fit?${params.toString()}`, { headers: { ...getAuthHeaders() } });
       if (!res.ok) throw new Error('Failed to load contractor fit');
       return res.json();
@@ -782,6 +788,11 @@ function ContractorFitPanel({
         <CardTitle className="text-base font-bold text-white tracking-tight flex items-center gap-2">
           <Users className="w-4 h-4 text-handy-yellow" />
           Who fits this job
+          {requiredDays > 1 && (
+            <span className="text-[10px] font-bold uppercase tracking-wider bg-handy-yellow text-handy-navy px-1.5 py-0.5 rounded">
+              {requiredDays}-day
+            </span>
+          )}
           {data && (
             <span className="text-xs font-normal text-white/70">
               · {data.candidates.length} contractor{data.candidates.length === 1 ? '' : 's'}
@@ -824,15 +835,32 @@ function ContractorFitPanel({
                   </div>
                   <div className="mt-2">
                     {c.availableDays.length === 0 ? (
-                      <span className="text-[11px] text-handy-muted">No availability set in the next 14 days</span>
+                      <span className="text-[11px] text-handy-muted">
+                        {requiredDays > 1
+                          ? `No ${requiredDays}-day window available in the next 14 days`
+                          : 'No availability set in the next 14 days'}
+                      </span>
                     ) : (
                       <div className="flex flex-wrap items-center gap-1">
-                        {c.availableDays.slice(0, 8).map((d) => (
-                          <span key={d.date} className="text-[10px] px-1.5 py-0.5 rounded bg-white text-handy-navy border border-handy-grid">
-                            {formatDate(new Date(d.date), 'EEE d')}{d.slot !== 'full' ? ` ${d.slot.toUpperCase()}` : ''}
-                          </span>
-                        ))}
-                        {c.availableDays.length > 8 && <span className="text-[10px] text-handy-muted">+{c.availableDays.length - 8}</span>}
+                        {c.availableDays.slice(0, 8).map((d) => {
+                          // Phase 24b — for multi-day jobs each chip is a START date.
+                          // Show "Wed 4 → Fri 6" so the span is visible.
+                          const startD = new Date(d.date);
+                          let label = formatDate(startD, 'EEE d');
+                          if (requiredDays > 1) {
+                            const endD = new Date(startD);
+                            endD.setDate(startD.getDate() + (requiredDays - 1));
+                            label = `${formatDate(startD, 'EEE d')} → ${formatDate(endD, 'EEE d')}`;
+                          } else if (d.slot !== 'full') {
+                            label += ` ${d.slot.toUpperCase()}`;
+                          }
+                          return (
+                            <span key={d.date} className="text-[10px] px-1.5 py-0.5 rounded bg-white text-handy-navy border border-handy-grid">
+                              {label}
+                            </span>
+                          );
+                        })}
+                        {c.availableDays.length > 8 && <span className="text-[10px] text-handy-muted">+{c.availableDays.length - 8} more</span>}
                       </div>
                     )}
                   </div>
@@ -996,6 +1024,15 @@ export default function GenerateContextualQuote() {
   const [liveMarginPreview, setLiveMarginPreview] = useState<MarginPreview | null>(null);
   const [livePreviewLoading, setLivePreviewLoading] = useState(false);
   const livePreviewAbortRef = useRef<AbortController | null>(null);
+
+  // Phase 24b — required days derived from the sum of line item minutes.
+  // Used by the fit panel to slide an N-day window; matches the server
+  // `computeRequiredDays` helper (480-min working day).
+  const liveRequiredDays = useMemo(() => {
+    const totalMin = lineItems.reduce((sum, li) => sum + (li.estimatedMinutes || 0), 0);
+    if (totalMin <= 0) return 1;
+    return Math.max(1, Math.ceil(totalMin / 480));
+  }, [lineItems]);
   const livePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchLivePreview = useCallback(async (items: LineItem[], sigs: ContextSignals, enrichedContext?: string) => {
@@ -2648,6 +2685,7 @@ export default function GenerateContextualQuote() {
             <ContractorFitPanel
               categorySlugs={lineItems.map(li => li.category)}
               coordinates={coordinates}
+              requiredDays={liveRequiredDays}
             />
 
 
