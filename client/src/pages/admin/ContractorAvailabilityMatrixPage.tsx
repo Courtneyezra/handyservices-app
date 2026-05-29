@@ -38,7 +38,15 @@ interface MatrixContractor {
     skillCount: number;
     weeklyPatterns: { dayOfWeek: number; startTime: string | null; endTime: string | null }[];
     overrides: { date: string; isAvailable: boolean; startTime: string | null; endTime: string | null; notes: string | null }[];
-    jobs: { date: string; slot: string; start: string; durationMinutes: number; status: string; customerName: string | null; jobDescription: string | null; scheduledTime: string | null; travelMinutes?: number | null; travelSource?: string | null }[];
+    jobs: {
+        date: string; slot: string; start: string; durationMinutes: number; status: string;
+        customerName: string | null; jobDescription: string | null; scheduledTime: string | null;
+        travelMinutes?: number | null; travelSource?: string | null;
+        /** Phase 24c — multi-day expansion. spanTotalDays > 1 means this chip
+         *  is one day of a longer booking. spanDayIndex is 0-based. */
+        spanDayIndex?: number;
+        spanTotalDays?: number;
+    }[];
 }
 
 interface MatrixResponse {
@@ -111,7 +119,11 @@ function WeekScheduleView({ contractors, dayColumns, onEdit }: {
                         const m = alloc(j);
                         if (m <= 0) return null;
                         const travelStr = (j.travelMinutes && j.travelMinutes > 0) ? ` · 🚗 ${j.travelMinutes}min travel${j.travelSource === 'haversine' ? ' (est)' : ''}` : '';
-                        return <div key={i} className="bg-red-500 border-r border-white/40" style={{ width: `${(m / cap) * 100}%` }} title={`${(j.customerName || 'Job').replace('[DEMO] ', '')} · ${fmtH(j.durationMinutes)} job${travelStr}${j.jobDescription ? ' · ' + j.jobDescription : ''}`} />;
+                        // Phase 24 — flag multi-day spans in the tooltip so the operator sees this isn't a one-off
+                        const spanStr = (j.spanTotalDays && j.spanTotalDays > 1)
+                            ? ` · Day ${(j.spanDayIndex ?? 0) + 1} of ${j.spanTotalDays}`
+                            : '';
+                        return <div key={i} className="bg-red-500 border-r border-white/40" style={{ width: `${(m / cap) * 100}%` }} title={`${(j.customerName || 'Job').replace('[DEMO] ', '')}${spanStr} · ${fmtH(j.durationMinutes)} job${travelStr}${j.jobDescription ? ' · ' + j.jobDescription : ''}`} />;
                     })}
                     {free > 0 && <div className="bg-emerald-500" style={{ width: `${(free / cap) * 100}%` }} title={`${fmtH(free)} free`} />}
                 </div>
@@ -455,6 +467,12 @@ export default function ContractorAvailabilityMatrixPage() {
                                                     const amState = halfState(!!amJob, availAM);
                                                     const pmState = halfState(!!pmJob, availPM);
 
+                                                    // Phase 24 — surface multi-day span at a glance. If either slot's job
+                                                    // is part of an N-day span, show "Day k/N" in the top-left corner.
+                                                    const spanJob = (amJob && amJob.spanTotalDays && amJob.spanTotalDays > 1) ? amJob
+                                                        : (pmJob && pmJob.spanTotalDays && pmJob.spanTotalDays > 1) ? pmJob : null;
+                                                    const spanLabel = spanJob ? `D${(spanJob.spanDayIndex ?? 0) + 1}/${spanJob.spanTotalDays}` : null;
+
                                                     const cellInner = (
                                                         <div className={`relative h-12 w-full rounded-md overflow-hidden border ${fullyBooked ? 'border-red-500' : 'border-border'} ${isDirty ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : ''}`}>
                                                             <div className={`h-1/2 flex items-center justify-center text-[9px] font-bold leading-none border-b border-background/40 ${halfClass(amState)}`}>
@@ -463,6 +481,11 @@ export default function ContractorAvailabilityMatrixPage() {
                                                             <div className={`h-1/2 flex items-center justify-center text-[9px] font-bold leading-none ${halfClass(pmState)}`}>
                                                                 {pmState === 'booked' ? shortName(pmJob!.customerName) : pmState === 'available' ? 'PM' : ''}
                                                             </div>
+                                                            {spanLabel && (
+                                                                <span className="absolute top-0.5 left-0.5 text-[7px] font-bold leading-none px-1 py-0.5 rounded bg-handy-yellow text-handy-navy">
+                                                                    {spanLabel}
+                                                                </span>
+                                                            )}
                                                             {notes && <StickyNote className="absolute top-0.5 right-0.5 h-2.5 w-2.5 text-amber-400" />}
                                                         </div>
                                                     );
@@ -477,6 +500,9 @@ export default function ContractorAvailabilityMatrixPage() {
                                                                             <div key={i}>
                                                                                 <span className="font-semibold">{j.customerName || 'Booked job'}</span>
                                                                                 <span className="text-xs opacity-70"> · {j.slot === 'full' ? 'Full day' : j.slot.toUpperCase()}{j.scheduledTime ? ` ${j.scheduledTime}` : ''}</span>
+                                                                                {j.spanTotalDays && j.spanTotalDays > 1 && (
+                                                                                    <span className="text-xs text-handy-yellow font-bold ml-1">· Day {(j.spanDayIndex ?? 0) + 1} of {j.spanTotalDays}</span>
+                                                                                )}
                                                                                 {j.jobDescription && <div className="text-xs">{j.jobDescription}</div>}
                                                                             </div>
                                                                         ))}

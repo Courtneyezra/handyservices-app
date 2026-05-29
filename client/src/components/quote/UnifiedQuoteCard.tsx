@@ -1215,16 +1215,37 @@ export function UnifiedQuoteCard({
               {/* Phase 24d — multi-day job header. Surfaces "3-day job — pick
                   a start date" when the quote spans more than one working
                   day so customers understand the date is a starting point. */}
-              {jobDurationDays > 1 && (
-                <div className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg ${isDarkTheme ? 'bg-yellow-500/10 border border-yellow-500/30' : 'bg-amber-50 border border-amber-200'}`}>
-                  <span className={`text-sm font-bold ${isDarkTheme ? 'text-yellow-200' : 'text-amber-800'}`}>
-                    {jobDurationDays}-day job
-                  </span>
-                  <span className={`text-xs ${isDarkTheme ? 'text-yellow-200/80' : 'text-amber-700'}`}>
-                    Pick a start date — we'll be here for {jobDurationDays} consecutive days
-                  </span>
-                </div>
-              )}
+              {jobDurationDays > 1 && (() => {
+                // Phase 24d — when a date is picked, show the actual span so
+                // the customer sees "we'll be there Wed → Fri" not just "Wed".
+                const pickedDate = selectedDate || pendingDate || confirmedDates[0]?.date || null;
+                let spanReadout: string | null = null;
+                if (pickedDate) {
+                  const end = new Date(pickedDate);
+                  end.setDate(pickedDate.getDate() + (jobDurationDays - 1));
+                  const fmt = (d: Date) => d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+                  spanReadout = `${fmt(pickedDate)} → ${fmt(end)}`;
+                }
+                return (
+                  <div className={`flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg ${isDarkTheme ? 'bg-yellow-500/10 border border-yellow-500/30' : 'bg-amber-50 border border-amber-200'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-bold ${isDarkTheme ? 'text-yellow-200' : 'text-amber-800'}`}>
+                        {jobDurationDays}-day job
+                      </span>
+                      <span className={`text-xs ${isDarkTheme ? 'text-yellow-200/80' : 'text-amber-700'}`}>
+                        {spanReadout
+                          ? `Your contractor will be here ${spanReadout.toLowerCase().replace(' → ', ' until ')}`
+                          : `Pick a start date — we'll be here for ${jobDurationDays} consecutive days`}
+                      </span>
+                    </div>
+                    {spanReadout && (
+                      <span className={`text-sm font-semibold tabular-nums ${isDarkTheme ? 'text-yellow-100' : 'text-amber-900'}`}>
+                        {spanReadout}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
               <div className={`flex items-center justify-center gap-2 text-base font-bold ${isDarkTheme ? 'text-gray-100' : 'text-slate-800'}`}>
                 <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7DB00E] opacity-75" />
