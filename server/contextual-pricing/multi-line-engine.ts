@@ -363,7 +363,10 @@ export async function generateMultiLinePrice(
           skuCustomerDescription: resolved.skuRow.customerDescription,
           skuUnitLabel: resolved.skuRow.unitLabel,
           skuShape: resolved.shape,
-          unitCount: (line as any).unitCount,
+          // Phase 26 / Anomaly #1 — write the EFFECTIVE count (clamped to
+          // minimum_units by the resolver), not the raw input. Ensures the
+          // customer page always shows "× N unit_label" for per_unit SKUs.
+          unitCount: resolved.effectiveUnitCount ?? (line as any).unitCount,
           selectedTier: (line as any).selectedTier,
           scheduleMinutes: resolved.scheduleMinutes,
           flexEligible: resolved.skuRow.flexEligible,

@@ -63,6 +63,13 @@ export interface ResolvedSkuLine {
     offPeakPremiumAppliedPence: number;
     /** Which SKU shape we resolved against */
     shape: ServiceCatalogRow['shape'];
+    /**
+     * Phase 26 / Anomaly #1 — the effective unit count actually used for
+     * pricing on a per-unit SKU (input.unitCount clamped up to minimumUnits).
+     * `null` for fixed and tiered SKUs. Engine writes this back onto the line
+     * output so the customer page can always render "× N unit_label".
+     */
+    effectiveUnitCount: number | null;
     /** The catalog row, useful for downstream display */
     skuRow: ServiceCatalogRow;
 }
@@ -107,6 +114,7 @@ export async function resolveLineItemFromSku(
 
     let pricePence = 0;
     let scheduleMinutes = 0;
+    let effectiveUnitCount: number | null = null;
 
     if (row.shape === 'fixed') {
         pricePence = row.pricePence ?? 0;
@@ -120,6 +128,7 @@ export async function resolveLineItemFromSku(
         const setup = row.setupMinutes ?? 0;
         pricePence = pricePer * count;
         scheduleMinutes = minsPer * count + setup;
+        effectiveUnitCount = count;
     } else if (row.shape === 'tiered') {
         const tiers = (row.tiers as Array<{ label: string; pricePence: number; scheduleMinutes: number }> | null) || [];
         const wantedTier = input.selectedTier;
@@ -156,6 +165,7 @@ export async function resolveLineItemFromSku(
         scheduleMinutes,
         offPeakPremiumAppliedPence,
         shape: row.shape,
+        effectiveUnitCount,
         skuRow: row,
     };
 }
