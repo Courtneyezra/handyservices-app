@@ -599,7 +599,11 @@ adminAvailabilityRouter.get('/matrix', async (req: Request, res: Response) => {
                         if (cid !== p.id || !j.scheduledDate) return false;
                         return ['assigned', 'accepted', 'in_progress', 'completed'].includes(j.assignmentStatus) || ['accepted', 'completed'].includes(j.status);
                     })
-                    .map((j: any) => {
+                    .flatMap((j: any) => {
+                        // Phase 24c — expand a multi-day booking into one chip
+                        // per occupied day. durationDays defaults to 1 so
+                        // existing single-day rows produce a single chip
+                        // exactly as before.
                         const slot = j.scheduledSlot === 'full_day' ? 'full' : (j.scheduledSlot === 'am' || j.scheduledSlot === 'pm') ? j.scheduledSlot : (j.scheduledStartTime ? (j.scheduledStartTime >= '12:00' ? 'pm' : 'am') : 'full');
                         const sM = toMin(j.scheduledStartTime), eM = toMin(j.scheduledEndTime);
                         const durationMinutes = (sM != null && eM != null && eM > sM) ? (eM - sM)
@@ -607,18 +611,29 @@ adminAvailabilityRouter.get('/matrix', async (req: Request, res: Response) => {
                                 : (j.scheduledSlot === 'full_day' ? 480 : (j.scheduledSlot === 'am' || j.scheduledSlot === 'pm') ? 240 : 120);
                         const start = j.scheduledStartTime || (slot === 'pm' ? '14:00' : '09:00');
                         const tt = travelByContractor.get(p.id)?.get(j.quoteId);
-                        return {
-                            date: toDateStr(j.scheduledDate),
-                            slot,
-                            start,
-                            durationMinutes,
-                            status: j.assignmentStatus || j.status,
-                            customerName: j.customerName,
-                            jobDescription: j.description,
-                            scheduledTime: j.scheduledStartTime || j.requestedSlot,
-                            travelMinutes: tt?.minutes ?? null,
-                            travelSource: tt?.source ?? null,
-                        };
+                        const dur = j.durationDays ?? 1;
+                        const chips = [];
+                        const baseDate = new Date(j.scheduledDate);
+                        for (let i = 0; i < dur; i++) {
+                            const d = new Date(baseDate);
+                            d.setUTCDate(baseDate.getUTCDate() + i);
+                            chips.push({
+                                date: toDateStr(d),
+                                slot,
+                                start,
+                                durationMinutes,
+                                status: j.assignmentStatus || j.status,
+                                customerName: j.customerName,
+                                jobDescription: j.description,
+                                scheduledTime: j.scheduledStartTime || j.requestedSlot,
+                                travelMinutes: tt?.minutes ?? null,
+                                travelSource: tt?.source ?? null,
+                                // Multi-day span context — UI can label "Day 1 of 3" etc.
+                                spanDayIndex: i,
+                                spanTotalDays: dur,
+                            });
+                        }
+                        return chips;
                     }),
             };
         });

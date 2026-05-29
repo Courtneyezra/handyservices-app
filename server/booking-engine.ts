@@ -182,11 +182,31 @@ export async function reserveSlot(params: {
 
     // Compose honest schedule minutes from line items + quote context.
     // (Pricing reads timeEstimateMinutes directly; this is for scheduling only.)
-    const { composeScheduleMinutes } = await import('../shared/schedule-composition');
+    const { composeScheduleMinutes, computeRequiredDays } = await import('../shared/schedule-composition');
     const lines: any[] = Array.isArray(quoteRow?.lines) ? (quoteRow!.lines as any[]) : [];
     const scheduleBreakdown = composeScheduleMinutes(lines, quoteContext);
     const jobDurationMinutes = scheduleBreakdown.totalMinutes;
-    const slotCapacity = SLOT_CAPACITY_MIN[scheduledSlot];
+
+    // Phase 24c — multi-day jobs span N consecutive working days from a
+    // single contractor. For N=1 the behaviour matches the legacy single-day
+    // path exactly. For N >= 2 we treat the booking as full_day on EACH day
+    // in the span, atomically check + lock every day, and persist the span as
+    // a single booking row + single lock row with `durationDays = N`.
+    const durationDays = computeRequiredDays(jobDurationMinutes);
+    const effectiveSlot: SlotType = durationDays > 1 ? 'full_day' : scheduledSlot;
+    const spanDates: Date[] = [];
+    for (let i = 0; i < durationDays; i++) {
+        const d = new Date(scheduledDate);
+        d.setUTCDate(d.getUTCDate() + i);
+        spanDates.push(d);
+    }
+    // Distribute work evenly across the span (last day takes the remainder).
+    // Used by the per-day itinerary check so each day's load is realistic.
+    const perDayWork = durationDays > 0 ? Math.ceil(jobDurationMinutes / durationDays) : jobDurationMinutes;
+    const slotCapacity = SLOT_CAPACITY_MIN[effectiveSlot];
+    if (durationDays > 1) {
+        console.log(`[BookingEngine] multi-day reservation: ${durationDays} days starting ${scheduledDate.toISOString().slice(0,10)}, ${perDayWork}min/day`);
+    }
 
     // ─── Phase 6 — Score candidates by travel cost ──────────────────────
     // Sort by ascending home→customer travel time so the closest qualifying
@@ -231,110 +251,112 @@ export async function reserveSlot(params: {
                 // String version of contractorId for tables that use varchar
                 const contractorIdStr = String(contractorId);
 
-                // Contractor must ACTUALLY be available this date+slot (overrides →
-                // weekly patterns, respecting master-blocked days) — same definition the
-                // customer's date picker uses. Skip anyone who isn't genuinely free.
-                const isAvailable = await isContractorAvailableForSlot(tx, contractorIdStr, scheduledDate, scheduledSlot);
-                if (!isAvailable) continue;
+                // Per-day availability + conflict + capacity gate.
+                // For single-day jobs spanDates.length === 1 → same behaviour as before.
+                // For multi-day jobs we must clear EVERY day in the span; any
+                // failure on any day eliminates the contractor.
+                let candidateOk = true;
+                for (let dayIdx = 0; dayIdx < spanDates.length; dayIdx++) {
+                    const dayDate = spanDates[dayIdx];
 
-                // Check for existing bookings in contractorBookingRequests
-                // that conflict with this date + slot
-                const existingBookings = await tx.select({
-                    id: contractorBookingRequests.id,
-                    scheduledSlot: contractorBookingRequests.scheduledSlot,
-                })
-                    .from(contractorBookingRequests)
-                    .where(and(
-                        or(
-                            eq(contractorBookingRequests.contractorId, contractorIdStr),
-                            eq(contractorBookingRequests.assignedContractorId, contractorIdStr),
-                        ),
-                        eq(contractorBookingRequests.scheduledDate, scheduledDate),
-                        eq(contractorBookingRequests.status, 'accepted'),
-                    ));
+                    // Availability for this day (multi-day always uses full_day)
+                    const isAvailable = await isContractorAvailableForSlot(tx, contractorIdStr, dayDate, effectiveSlot);
+                    if (!isAvailable) { candidateOk = false; break; }
 
-                // Check if any existing booking conflicts with our requested slot
-                const hasBookingConflict = existingBookings.some(booking => {
-                    if (!booking.scheduledSlot) return false;
-                    return conflictingSlots.includes(booking.scheduledSlot as SlotType);
-                });
-
-                if (hasBookingConflict) {
-                    continue; // Try next contractor
-                }
-
-                // Check for active locks in bookingSlotLocks
-                const existingLocks = await tx.select({
-                    id: bookingSlotLocks.id,
-                    scheduledSlot: bookingSlotLocks.scheduledSlot,
-                })
-                    .from(bookingSlotLocks)
-                    .where(and(
-                        eq(bookingSlotLocks.contractorId, contractorId),
-                        eq(bookingSlotLocks.scheduledDate, scheduledDate),
-                    ));
-
-                const hasLockConflict = existingLocks.some(lock => {
-                    return conflictingSlots.includes(lock.scheduledSlot as SlotType);
-                });
-
-                if (hasLockConflict) {
-                    continue; // Try next contractor
-                }
-
-                // Travel-aware capacity checks. Two layers:
-                //   (a) Slot fit — work + one-way travel ≤ slot cap (4h/4h/8h)
-                //   (b) Day fit  — across ALL bookings that day (existing +
-                //       this candidate), work + buffers + intra-day travel ≤
-                //       8h daily cap. Home commutes excluded.
-                if (jobDurationMinutes > 0 && customerCoords) {
-                    const [profile] = await tx.select({
-                        lat: handymanProfiles.latitude,
-                        lng: handymanProfiles.longitude,
+                    // Existing accepted bookings on this day. For single-day we
+                    // honour partial-slot conflicts (AM vs PM); for multi-day
+                    // any existing booking on the day blocks the whole day.
+                    const existingBookings = await tx.select({
+                        id: contractorBookingRequests.id,
+                        scheduledSlot: contractorBookingRequests.scheduledSlot,
+                        durationDays: contractorBookingRequests.durationDays,
+                        scheduledDate: contractorBookingRequests.scheduledDate,
                     })
-                        .from(handymanProfiles)
-                        .where(eq(handymanProfiles.id, contractorIdStr))
-                        .limit(1);
-                    if (profile?.lat && profile?.lng) {
-                        const cLat = parseFloat(profile.lat);
-                        const cLng = parseFloat(profile.lng);
-                        if (!isNaN(cLat) && !isNaN(cLng)) {
-                            const travel = await getTravelTimeMinutes(cLat, cLng, customerCoords.lat, customerCoords.lng);
-                            const required = jobDurationMinutes + travel.minutes;
-                            // (a) slot fit
-                            if (required > slotCapacity) {
-                                console.log(`[BookingEngine] Skip ${contractorIdStr} (slot fit): ${jobDurationMinutes}min + ${travel.minutes}min travel = ${required} > ${slotCapacity} ${scheduledSlot} cap`);
-                                continue;
+                        .from(contractorBookingRequests)
+                        .where(and(
+                            or(
+                                eq(contractorBookingRequests.contractorId, contractorIdStr),
+                                eq(contractorBookingRequests.assignedContractorId, contractorIdStr),
+                            ),
+                            eq(contractorBookingRequests.scheduledDate, dayDate),
+                            eq(contractorBookingRequests.status, 'accepted'),
+                        ));
+                    const bookingBlocked = durationDays > 1
+                        ? existingBookings.length > 0
+                        : existingBookings.some((b) => b.scheduledSlot && conflictingSlots.includes(b.scheduledSlot as SlotType));
+                    if (bookingBlocked) { candidateOk = false; break; }
+
+                    // Active locks on this day (any quote, including our own).
+                    const existingLocks = await tx.select({
+                        id: bookingSlotLocks.id,
+                        scheduledSlot: bookingSlotLocks.scheduledSlot,
+                        durationDays: bookingSlotLocks.durationDays,
+                    })
+                        .from(bookingSlotLocks)
+                        .where(and(
+                            eq(bookingSlotLocks.contractorId, contractorId),
+                            eq(bookingSlotLocks.scheduledDate, dayDate),
+                            gte(bookingSlotLocks.expiresAt, new Date()),
+                        ));
+                    const lockBlocked = durationDays > 1
+                        ? existingLocks.length > 0
+                        : existingLocks.some((l) => conflictingSlots.includes(l.scheduledSlot as SlotType));
+                    if (lockBlocked) { candidateOk = false; break; }
+
+                    // Travel-aware capacity checks for this day.
+                    if (perDayWork > 0 && customerCoords) {
+                        const [profile] = await tx.select({
+                            lat: handymanProfiles.latitude,
+                            lng: handymanProfiles.longitude,
+                        })
+                            .from(handymanProfiles)
+                            .where(eq(handymanProfiles.id, contractorIdStr))
+                            .limit(1);
+                        if (profile?.lat && profile?.lng) {
+                            const cLat = parseFloat(profile.lat);
+                            const cLng = parseFloat(profile.lng);
+                            if (!isNaN(cLat) && !isNaN(cLng)) {
+                                const travel = await getTravelTimeMinutes(cLat, cLng, customerCoords.lat, customerCoords.lng);
+                                const required = perDayWork + travel.minutes;
+                                // (a) slot fit — per-day work + travel ≤ slot cap
+                                if (required > slotCapacity) {
+                                    console.log(`[BookingEngine] Skip ${contractorIdStr} day ${dayDate.toISOString().slice(0,10)} (slot fit): ${perDayWork}min/day + ${travel.minutes}min travel = ${required} > ${slotCapacity} ${effectiveSlot} cap`);
+                                    candidateOk = false;
+                                    break;
+                                }
                             }
                         }
-                    }
 
-                    // (b) full-day fit — sequence with other bookings that day
-                    try {
-                        const { computeDayItinerary } = await import('./lib/day-itinerary');
-                        const itinerary = await computeDayItinerary({
-                            contractorId: contractorIdStr,
-                            date: scheduledDate,
-                            candidate: {
-                                quoteId,
-                                customerName: 'candidate',
-                                scheduledSlot,
-                                customerCoords,
-                                durationMinutes: jobDurationMinutes,
-                            },
-                        });
-                        if (!itinerary.fitsCapacity) {
-                            console.log(`[BookingEngine] Skip ${contractorIdStr} (day fit): ${itinerary.totals.countedMinutes}min counted > ${itinerary.capCapacityMinutes}min cap (work ${itinerary.totals.workAndBufferMinutes} + intra-day travel ${itinerary.totals.intraDayTravelMinutes})`);
-                            continue;
+                        // (b) day fit — sequence against any other bookings on that day
+                        try {
+                            const { computeDayItinerary } = await import('./lib/day-itinerary');
+                            const itinerary = await computeDayItinerary({
+                                contractorId: contractorIdStr,
+                                date: dayDate,
+                                candidate: {
+                                    quoteId,
+                                    customerName: 'candidate',
+                                    scheduledSlot: effectiveSlot,
+                                    customerCoords,
+                                    durationMinutes: perDayWork,
+                                },
+                            });
+                            if (!itinerary.fitsCapacity) {
+                                console.log(`[BookingEngine] Skip ${contractorIdStr} day ${dayDate.toISOString().slice(0,10)} (day fit): ${itinerary.totals.countedMinutes}min counted > ${itinerary.capCapacityMinutes}min cap`);
+                                candidateOk = false;
+                                break;
+                            }
+                        } catch (e) {
+                            console.warn('[BookingEngine] day itinerary check threw — proceeding anyway:', e instanceof Error ? e.message : e);
                         }
-                    } catch (e) {
-                        console.warn('[BookingEngine] day itinerary check threw — proceeding anyway:', e instanceof Error ? e.message : e);
                     }
-                }
+                } // end per-day loop
 
-                // No conflicts — insert lock with a 20-minute TTL. Calm hold: there's no
-                // visible countdown for the customer, so the window must be comfortably
-                // long enough to finish checkout without the slot silently expiring.
+                if (!candidateOk) continue; // Try next contractor
+
+                // All days in the span passed. Insert ONE lock row with
+                // durationDays = N — anchors the whole span. confirmBooking
+                // will read it back and create one booking spanning N days.
                 const expiresAt = new Date(Date.now() + 20 * 60 * 1000);
 
                 const [inserted] = await tx.insert(bookingSlotLocks)
@@ -342,7 +364,8 @@ export async function reserveSlot(params: {
                         quoteId,
                         contractorId,
                         scheduledDate,
-                        scheduledSlot: scheduledSlot,
+                        scheduledSlot: effectiveSlot,
+                        durationDays,
                         expiresAt,
                     })
                     .returning();
@@ -467,31 +490,33 @@ export async function confirmBooking(params: {
 
             const contractorIdStr = String(lock.contractorId);
             const conflictingSlots = getConflictingSlots(lock.scheduledSlot as SlotType);
+            const durationDays = lock.durationDays ?? 1;
 
-            // c. Double-check no conflicting booking was created (belt and suspenders)
-            const existingBookings = await tx.select({
-                id: contractorBookingRequests.id,
-                scheduledSlot: contractorBookingRequests.scheduledSlot,
-            })
-                .from(contractorBookingRequests)
-                .where(and(
-                    or(
-                        eq(contractorBookingRequests.contractorId, contractorIdStr),
-                        eq(contractorBookingRequests.assignedContractorId, contractorIdStr),
-                    ),
-                    eq(contractorBookingRequests.scheduledDate, lock.scheduledDate),
-                    eq(contractorBookingRequests.status, 'accepted'),
-                ));
-
-            const hasConflict = existingBookings.some(booking => {
-                if (!booking.scheduledSlot) return false;
-                return conflictingSlots.includes(booking.scheduledSlot as SlotType);
-            });
-
-            if (hasConflict) {
-                // Clean up lock since we can't proceed
-                await tx.delete(bookingSlotLocks).where(eq(bookingSlotLocks.id, lockId));
-                return { success: false, error: 'A conflicting booking was created while payment was processing' };
+            // c. Double-check no conflicting booking was created on ANY day of
+            // the span (belt and suspenders against races between reserve+pay).
+            for (let i = 0; i < durationDays; i++) {
+                const checkDate = new Date(lock.scheduledDate);
+                checkDate.setUTCDate(checkDate.getUTCDate() + i);
+                const existingBookings = await tx.select({
+                    id: contractorBookingRequests.id,
+                    scheduledSlot: contractorBookingRequests.scheduledSlot,
+                })
+                    .from(contractorBookingRequests)
+                    .where(and(
+                        or(
+                            eq(contractorBookingRequests.contractorId, contractorIdStr),
+                            eq(contractorBookingRequests.assignedContractorId, contractorIdStr),
+                        ),
+                        eq(contractorBookingRequests.scheduledDate, checkDate),
+                        eq(contractorBookingRequests.status, 'accepted'),
+                    ));
+                const hasConflict = durationDays > 1
+                    ? existingBookings.length > 0
+                    : existingBookings.some((b) => b.scheduledSlot && conflictingSlots.includes(b.scheduledSlot as SlotType));
+                if (hasConflict) {
+                    await tx.delete(bookingSlotLocks).where(eq(bookingSlotLocks.id, lockId));
+                    return { success: false, error: `A conflicting booking was created on ${checkDate.toISOString().slice(0,10)} while payment was processing` };
+                }
             }
 
             // d. Fetch quote data for creating the booking
@@ -521,6 +546,10 @@ export async function confirmBooking(params: {
                     status: 'accepted',
                     scheduledDate: lock.scheduledDate,
                     scheduledSlot: lock.scheduledSlot as 'am' | 'pm' | 'full_day',
+                    // Phase 24c — span the booking across N consecutive days
+                    // (single value persisted; the matrix + fit endpoints walk
+                    // the dates by reading start + durationDays).
+                    durationDays,
                     assignmentStatus: 'accepted',
                     assignedAt: new Date(),
                     acceptedAt: new Date(),
