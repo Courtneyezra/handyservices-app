@@ -327,12 +327,21 @@ export async function generateMultiLinePrice(
         // Persist the SKU-aware fields on the line so the JSONB column
         // carries everything we need for re-rendering and re-pricing.
         // (LineItemResult is the shape that ends up in pricingLineItems.)
+        // Phase 25 QA fix — also include the catalog row's display fields
+        // (name, customer description, unit label, shape, off-peak premium)
+        // so the customer page can render without a second catalog lookup.
         ...({
           source: 'sku' as const,
           skuCode: resolved.skuRow.skuCode,
+          skuName: resolved.skuRow.name,
+          skuCustomerDescription: resolved.skuRow.customerDescription,
+          skuUnitLabel: resolved.skuRow.unitLabel,
+          skuShape: resolved.shape,
           unitCount: (line as any).unitCount,
           selectedTier: (line as any).selectedTier,
           scheduleMinutes: resolved.scheduleMinutes,
+          flexEligible: resolved.skuRow.flexEligible,
+          offPeakWeekendPremiumPence: resolved.skuRow.offPeakWeekendPremiumPence,
         } as any),
       };
     }
