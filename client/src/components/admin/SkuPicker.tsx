@@ -525,6 +525,9 @@ interface InlineSkuAutocompleteProps {
   autoFocus?: boolean;
   /** Visual dim while a parent-driven polish is in flight. */
   dimmed?: boolean;
+  /** Fired after a settled search: true when the typed text (≥3 chars) found NO
+   *  catalog match, so the parent can reveal the custom Category/Time/Materials. */
+  onCustomChange?: (isCustom: boolean) => void;
 }
 
 export function InlineSkuAutocomplete({
@@ -535,6 +538,7 @@ export function InlineSkuAutocomplete({
   placeholder = 'e.g. Fix leaking tap, Mount TV…',
   autoFocus = false,
   dimmed = false,
+  onCustomChange,
 }: InlineSkuAutocompleteProps) {
   const [results, setResults] = useState<CatalogSku[]>([]);
   const [loading, setLoading] = useState(false);
@@ -567,6 +571,7 @@ export function InlineSkuAutocomplete({
       setResults([]);
       setLoading(false);
       setOpen(false);
+      onCustomChange?.(false);
       return;
     }
     setLoading(true);
@@ -589,6 +594,8 @@ export function InlineSkuAutocomplete({
       });
       if (!res.ok) {
         setResults([]);
+        // An auth/server error is not a real "no match" — don't flip to custom.
+        onCustomChange?.(false);
         return;
       }
       const data = await res.json();
@@ -596,6 +603,8 @@ export function InlineSkuAutocomplete({
       setResults(rows);
       setHighlight(0);
       setOpen(rows.length > 0);
+      // Settled search with real text but zero hits ⇒ this line is custom.
+      onCustomChange?.(q.length >= 3 && rows.length === 0);
     } catch (err: any) {
       if (err?.name !== 'AbortError') setResults([]);
     } finally {
@@ -611,6 +620,7 @@ export function InlineSkuAutocomplete({
     setPicked(true);
     setOpen(false);
     setResults([]);
+    onCustomChange?.(false);
     onPickSku({
       sku,
       derivedPricePence: preview.price,
@@ -670,7 +680,7 @@ export function InlineSkuAutocomplete({
         }}
         onKeyDown={handleKeyDown}
         autoComplete="off"
-        className={`text-sm font-medium bg-transparent border-handy-grid focus:border-handy-yellow h-11 sm:h-10 transition-colors ${
+        className={`text-base sm:text-sm font-medium bg-transparent border-handy-grid focus:border-handy-yellow h-11 sm:h-10 transition-colors ${
           dimmed ? 'opacity-60' : ''
         }`}
       />

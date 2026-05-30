@@ -965,6 +965,34 @@ function postcodeToArea(postcode: string | null | undefined): string | null {
   return POSTCODE_AREA[prefix] || `${prefix} area`;
 }
 
+// Best-effort category inference for a custom (no-SKU-match) line, from its typed
+// text — mirrors how catalog SKUs map words → category so a custom line lands in
+// the right trade. Returns null when nothing obvious matches (keep the current
+// default). Always editable via the now-visible Category dropdown.
+const CUSTOM_CATEGORY_GUESS: Array<[RegExp, string]> = [
+  [/\b(tap|leak|toilet|cistern|drain|radiator|plumb|basin|sink|shower|waste\s?pipe|stopcock|ballcock)\b/i, 'plumbing_minor'],
+  [/\b(socket|sockets|light|lights|lighting|fan|extractor|electric|wiring|fuse|consumer\s?unit|switch|downlight|spotlight)\b/i, 'electrical_minor'],
+  [/\b(tv|television|soundbar|bracket|wall\s?mount)\b/i, 'tv_mounting'],
+  [/\b(paint|painting|emulsion|undercoat|gloss|decorat)\b/i, 'painting'],
+  [/\b(tile|tiles|tiling|grout|re-?grout)\b/i, 'tiling'],
+  [/\b(silicone|sealant|re-?seal|caulk|mould)\b/i, 'silicone_sealant'],
+  [/\b(door|doors|hinge|latch|handle|lock|deadbolt)\b/i, 'door_fitting'],
+  [/\b(floor|flooring|laminate|vinyl|lvt|skirting)\b/i, 'flooring'],
+  [/\b(shelf|shelves|shelving|bracket|curtain|blind|blinds|rail|mirror|picture|frame)\b/i, 'shelving'],
+  [/\b(flat\s?pack|assemble|assembly|wardrobe|ikea|furniture|drawer)\b/i, 'flat_pack'],
+  [/\b(gutter|guttering|downpipe|fascia)\b/i, 'guttering'],
+  [/\b(jet\s?wash|pressure\s?wash|driveway\s?clean|patio\s?clean)\b/i, 'pressure_washing'],
+  [/\b(fence|fencing|gate|gatepost|post)\b/i, 'fencing'],
+  [/\b(garden|hedge|lawn|shed|patio|decking|weed)\b/i, 'garden_maintenance'],
+  [/\b(plaster|plastering|skim|render|patch)\b/i, 'plastering'],
+  [/\b(carpentry|joinery|architrave|worktop|stud\s?wall)\b/i, 'carpentry'],
+];
+function guessCategoryFromText(text: string): string | null {
+  const t = (text || '').toLowerCase();
+  for (const [re, cat] of CUSTOM_CATEGORY_GUESS) if (re.test(t)) return cat;
+  return null;
+}
+
 export default function GenerateContextualQuote() {
   const { toast } = useToast();
 
@@ -981,7 +1009,12 @@ export default function GenerateContextualQuote() {
   const [jobDescription, setJobDescription] = useState('');
 
   // ── Line items ──
-  const [lineItems, setLineItems] = useState<LineItem[]>([]);
+  const [lineItems, setLineItems] = useState<LineItem[]>(() => [
+    // Job 1 is present by default — no "Add first job" click needed. Starts as a
+    // blank custom line (inline autocomplete); not auto-focused so the admin can
+    // fill Customer Details first.
+    { id: generateId(), description: '', category: 'general_fixing' as JobCategory, estimatedMinutes: 30, materialsCostPounds: 0, source: 'custom' },
+  ]);
 
   // ── Pricing signals ──
   const [signals, setSignals] = useState<ContextSignals>({
@@ -1038,6 +1071,13 @@ export default function GenerateContextualQuote() {
   // most-recently-added line id so its inline input autofocuses; there is no
   // modal any more — picks happen inline from the dropdown.
   const [newLineId, setNewLineId] = useState<string | null>(null);
+
+  // Progressive disclosure: a not-yet-picked line stays a single input until the
+  // catalog finds no SKU match for the typed text; then it's "custom" and reveals
+  // Category / Time / Materials. Tracked per line id; the ref guards one-time
+  // category inference so we never clobber an admin's manual category choice.
+  const [customLineIds, setCustomLineIds] = useState<Set<string>>(new Set());
+  const categoryGuessedIds = useRef<Set<string>>(new Set());
 
   // ── Result ──
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
@@ -1848,6 +1888,31 @@ export default function GenerateContextualQuote() {
   }, []);
 
   /** Apply a picked SKU to the named line. */
+  // A line flips to "custom" when the inline autocomplete settles with no catalog
+  // match. We reveal Category/Time/Materials and, once per line, infer a starting
+  // category from the typed text (never overriding a category the admin set).
+  const handleLineCustomChange = useCallback((lineId: string, isCustom: boolean) => {
+    setCustomLineIds((prev) => {
+      if (isCustom === prev.has(lineId)) return prev;
+      const next = new Set(prev);
+      if (isCustom) next.add(lineId);
+      else next.delete(lineId);
+      return next;
+    });
+    if (isCustom && !categoryGuessedIds.current.has(lineId)) {
+      categoryGuessedIds.current.add(lineId);
+      setLineItems((prev) =>
+        prev.map((li) => {
+          if (li.id !== lineId) return li;
+          // Only fill when still on the creation default — respect a manual pick.
+          if (li.category && li.category !== 'general_fixing') return li;
+          const guess = guessCategoryFromText(li.description || '');
+          return guess ? { ...li, category: guess } : li;
+        }),
+      );
+    }
+  }, []);
+
   const handlePickSkuForLine = useCallback((lineId: string, result: SkuPickResult) => {
     setLineItems((prev) =>
       prev.map((li) => {
@@ -1914,6 +1979,12 @@ export default function GenerateContextualQuote() {
       return li.description.trim();
     });
 
+  // The "Detail" toggle only matters for custom lines (SKU lines carry their own
+  // customer description), so it's only surfaced once a line is in custom state.
+  const hasCustomLine = lineItems.some(
+    (li) => li.source !== 'sku' && customLineIds.has(li.id),
+  );
+
   // ═══════════════════════════════════════════════════════════════════════════
   // RENDER
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1943,30 +2014,6 @@ export default function GenerateContextualQuote() {
       }}
     >
       <div className="max-w-3xl mx-auto space-y-6">
-        {/* ─── Brand Hero (handy-services-pdf pattern: navy bar → yellow strip → stacked headline) ─── */}
-        <div className="overflow-hidden rounded-xl border border-handy-grid shadow-sm">
-          {/* Navy bar */}
-          <div className="bg-handy-navy px-4 py-3 flex items-center gap-3">
-            <div className="h-8 w-8 rounded-md bg-handy-yellow flex items-center justify-center shrink-0">
-              <span className="text-handy-navy font-bold text-base leading-none">H</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-white font-bold text-sm tracking-tight">Handy Services</div>
-              <div className="text-white/60 text-[11px]">Admin · Contextual Quote Builder</div>
-            </div>
-          </div>
-          {/* Yellow accent strip */}
-          <div className="bg-handy-yellow px-4 py-1.5 text-center">
-            <span className="text-handy-navy font-bold text-[11px] tracking-wide uppercase">⚡ AI-priced · Auto-assigned · Route-optimised</span>
-          </div>
-          {/* Stacked headline (navy → yellow) */}
-          <div className="bg-white px-4 sm:px-6 py-5">
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-handy-navy leading-tight">Generate Contextual Quote</h1>
-            <p className="text-handy-yellow font-semibold text-base sm:text-lg mt-0.5">AI-powered pricing</p>
-            <p className="text-handy-muted text-xs mt-1.5">Full context signals · property, travel, slot fit</p>
-          </div>
-        </div>
-
         {/* Only show form when no result yet */}
         {!quoteResult && (
           <>
@@ -1992,6 +2039,9 @@ export default function GenerateContextualQuote() {
                     <Label htmlFor="cx-phone" className="text-xs text-muted-foreground">Phone *</Label>
                     <Input
                       id="cx-phone"
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
                       placeholder="07700 900123"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
@@ -2020,7 +2070,7 @@ export default function GenerateContextualQuote() {
                       defaultValue={postcode}
                       onChange={(e: any) => setPostcode(e.target.value)}
                       placeholder="NG1 1AA"
-                      className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     />
                     {/* Auto-derived area pill — drives the LLM context without manual entry. */}
                     {postcodeToArea(postcode) && (
@@ -2099,7 +2149,8 @@ export default function GenerateContextualQuote() {
                 <CardTitle className="text-base font-bold text-white tracking-tight flex items-center justify-between gap-3">
                   <span>Jobs</span>
                   <div className="flex items-center gap-3">
-                    {/* Detail toggle — when on, every line gets an auto-drafted "what's included" textarea */}
+                    {/* Detail toggle — only for custom lines (SKU lines carry their own description) */}
+                    {hasCustomLine && (
                     <Label
                       htmlFor="show-line-details"
                       className="flex items-center gap-2 text-[11px] font-normal text-white/70 cursor-pointer select-none"
@@ -2124,6 +2175,7 @@ export default function GenerateContextualQuote() {
                         }}
                       />
                     </Label>
+                    )}
                     {lineItems.length > 0 && (
                       <Badge variant="outline" className="text-xs bg-handy-yellow/15 text-handy-yellow border-handy-yellow/60">
                         {lineItems.length} job{lineItems.length !== 1 ? 's' : ''}
@@ -2155,6 +2207,9 @@ export default function GenerateContextualQuote() {
                       // Everything else renders the inline autocomplete and is
                       // treated as custom on generate.
                       const isPickedSku = item.source === 'sku' && !!item.skuCode && !!item.skuMeta;
+                      // Reveal Category/Time/Materials only once the line is known custom
+                      // (typed, no catalog match). A picked SKU drives its own slab.
+                      const showCustomConfig = !isPickedSku && customLineIds.has(item.id);
 
                       return (
                         <div
@@ -2265,10 +2320,11 @@ export default function GenerateContextualQuote() {
                                 onChangeText={(next) => handleUpdateLineItem(item.id, 'description', next)}
                                 onPickSku={(result) => handlePickSkuForLine(item.id, result)}
                                 onBlur={() => handlePolishDescription(item.id, item.description)}
+                                onCustomChange={(c) => handleLineCustomChange(item.id, c)}
                               />
 
-                              {/* Detail textarea — gated on the global "Detail" toggle, auto-drafted after polish */}
-                              {showLineDetails && (
+                              {/* Detail textarea — only once the line is custom, then gated on the global "Detail" toggle */}
+                              {showCustomConfig && showLineDetails && (
                                 <div className="space-y-1">
                                   <div className="flex items-center justify-between">
                                     <Label htmlFor={`line-detail-${item.id}`} className="text-[10px] text-muted-foreground/70">
@@ -2312,7 +2368,8 @@ export default function GenerateContextualQuote() {
                                 </div>
                               )}
 
-                              {/* Category + Time — stacked on mobile, side-by-side on sm+ */}
+                              {/* Category + Time — revealed once the line is custom (no SKU match) */}
+                              {showCustomConfig && (
                               <div className="flex flex-col sm:flex-row gap-2">
                                 <Select
                                   value={item.category}
@@ -2380,10 +2437,12 @@ export default function GenerateContextualQuote() {
                                   })()}
                                 </div>
                               </div>
+                              )}
                             </>
                           )}
 
-                          {/* Materials toggle */}
+                          {/* Materials — shown for SKU lines; for custom lines only once revealed */}
+                          {(isPickedSku || showCustomConfig) && (
                           <div className="flex items-center gap-3">
                             <button
                               type="button"
@@ -2406,7 +2465,7 @@ export default function GenerateContextualQuote() {
                                   placeholder="0"
                                   value={item.materialsCostPounds || ''}
                                   onChange={(e) => handleUpdateLineItem(item.id, 'materialsCostPounds', parseFloat(e.target.value) || 0)}
-                                  className="w-24 sm:w-20 h-10 sm:h-8 text-center text-sm bg-transparent border-handy-grid"
+                                  className="w-24 sm:w-20 h-10 sm:h-8 text-center text-base sm:text-sm bg-transparent border-handy-grid"
                                 />
                               </div>
                             )}
@@ -2424,6 +2483,7 @@ export default function GenerateContextualQuote() {
                               {item.requiresMaterialCollection ? '🚐 Collection' : '+ Collection'}
                             </button>
                           </div>
+                          )}
                         </div>
                       );
                     })}
@@ -2440,15 +2500,6 @@ export default function GenerateContextualQuote() {
                     <Plus className="w-4 h-4" />
                     Add another job
                   </button>
-                )}
-
-                {lineItems.length === 1 && (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-handy-cream border border-handy-yellow/40">
-                    <span className="text-handy-yellow text-sm">💡</span>
-                    <p className="text-xs text-handy-navy/80">
-                      Anything else to sort while we're there? Multi-job quotes convert 2× better.
-                    </p>
-                  </div>
                 )}
 
                 {/* Job description is auto-derived from line items in the submit handler */}
@@ -2569,20 +2620,8 @@ export default function GenerateContextualQuote() {
                         <p className="text-[10px] text-muted-foreground/60 italic">
                           Live from contextual pricing engine — Layer 1 reference + Layer 3 LLM + Layer 4 guardrails.
                         </p>
-
-                        {/* Live margin preview */}
-                        {liveMarginPreview && (
-                          <div className="mt-3">
-                            <MarginPreviewPanel data={liveMarginPreview} />
-                          </div>
-                        )}
                       </div>
-                    ) : (
-                      <div className="flex items-center gap-2 py-2 px-3 rounded-md bg-handy-cream border border-handy-yellow/40">
-                        <Info className="w-3.5 h-3.5 text-handy-yellow shrink-0" />
-                        <span className="text-xs text-handy-navy">Add a description and time estimate to see live pricing</span>
-                      </div>
-                    )}
+                    ) : null}
                   </>
                 )}
               </CardContent>
@@ -2755,7 +2794,7 @@ export default function GenerateContextualQuote() {
                           placeholder="e.g. Hallway clean-up"
                           value={customExtraDraft.label}
                           onChange={(e) => setCustomExtraDraft((d) => ({ ...d, label: e.target.value }))}
-                          className="mt-1 h-8 text-xs"
+                          className="mt-1 h-10 text-base sm:h-8 sm:text-xs"
                         />
                       </div>
                       <div>
@@ -2765,7 +2804,7 @@ export default function GenerateContextualQuote() {
                           value={customExtraDraft.description}
                           onChange={(e) => setCustomExtraDraft((d) => ({ ...d, description: e.target.value }))}
                           rows={2}
-                          className="mt-1 text-xs resize-none"
+                          className="mt-1 text-base sm:text-xs resize-none"
                         />
                       </div>
                       <div className="grid grid-cols-2 gap-2">
@@ -2778,7 +2817,7 @@ export default function GenerateContextualQuote() {
                             placeholder="25"
                             value={customExtraDraft.pricePounds}
                             onChange={(e) => setCustomExtraDraft((d) => ({ ...d, pricePounds: e.target.value }))}
-                            className="mt-1 h-8 text-xs"
+                            className="mt-1 h-10 text-base sm:h-8 sm:text-xs"
                           />
                         </div>
                         <div>
@@ -2787,7 +2826,7 @@ export default function GenerateContextualQuote() {
                             placeholder="Popular"
                             value={customExtraDraft.badge}
                             onChange={(e) => setCustomExtraDraft((d) => ({ ...d, badge: e.target.value }))}
-                            className="mt-1 h-8 text-xs"
+                            className="mt-1 h-10 text-base sm:h-8 sm:text-xs"
                           />
                         </div>
                       </div>
@@ -2868,13 +2907,13 @@ export default function GenerateContextualQuote() {
                       placeholder="0 = ground"
                       value={floorNumber ?? ''}
                       onChange={(e) => setFloorNumber(e.target.value === '' ? null : parseInt(e.target.value) || 0)}
-                      className="mt-1 h-8 text-xs"
+                      className="mt-1 h-10 text-base sm:h-8 sm:text-xs"
                     />
                   </div>
                   <div>
                     <Label className="text-xs text-muted-foreground">Lift in building?</Label>
                     <Select value={hasLift === null ? '__unset' : hasLift ? 'yes' : 'no'} onValueChange={(v) => setHasLift(v === '__unset' ? null : v === 'yes')}>
-                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectTrigger className="mt-1 h-10 text-base sm:h-8 sm:text-xs"><SelectValue placeholder="—" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__unset">— unknown —</SelectItem>
                         <SelectItem value="yes">Yes (lift)</SelectItem>
@@ -2885,7 +2924,7 @@ export default function GenerateContextualQuote() {
                   <div>
                     <Label className="text-xs text-muted-foreground">Parking</Label>
                     <Select value={parkingDistance ?? '__unset'} onValueChange={(v) => setParkingDistance(v === '__unset' ? null : v as any)}>
-                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectTrigger className="mt-1 h-10 text-base sm:h-8 sm:text-xs"><SelectValue placeholder="—" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__unset">— unknown —</SelectItem>
                         <SelectItem value="on_drive">On their drive</SelectItem>
@@ -2898,7 +2937,7 @@ export default function GenerateContextualQuote() {
                   <div>
                     <Label className="text-xs text-muted-foreground">Customer present?</Label>
                     <Select value={customerPresent === null ? '__unset' : customerPresent ? 'yes' : 'no'} onValueChange={(v) => setCustomerPresent(v === '__unset' ? null : v === 'yes')}>
-                      <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectTrigger className="mt-1 h-10 text-base sm:h-8 sm:text-xs"><SelectValue placeholder="—" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__unset">— unknown —</SelectItem>
                         <SelectItem value="yes">Will be on site</SelectItem>
@@ -2920,11 +2959,12 @@ export default function GenerateContextualQuote() {
 
 
             {/* ─── Section 6: Preview + Generate (brand CTAs — preview outline-navy, generate navy-primary) ─── */}
-            <div className="flex gap-3">
+            {/* Stack full-width on mobile (the two labels can't fit one row < 380px); side-by-side on sm+. */}
+            <div className="flex flex-col sm:flex-row gap-3">
               <Button
                 size="lg"
                 variant="outline"
-                className="flex-1 h-12 text-base font-semibold border-handy-navy/30 text-handy-navy hover:bg-handy-navy/5"
+                className="w-full sm:flex-1 h-12 text-base font-semibold border-handy-navy/30 text-handy-navy hover:bg-handy-navy/5"
                 onClick={() => setDraftPreviewOpen(true)}
                 disabled={!canGenerate || !livePreview}
                 title={!livePreview ? 'Wait for live pricing to compute' : 'Preview without saving'}
@@ -2934,7 +2974,7 @@ export default function GenerateContextualQuote() {
               </Button>
               <Button
                 size="lg"
-                className="flex-1 h-12 text-base font-semibold bg-handy-navy hover:bg-handy-navy/90 text-white shadow-sm hover:shadow disabled:bg-handy-navy/40"
+                className="w-full sm:flex-1 h-12 text-base font-semibold bg-handy-navy hover:bg-handy-navy/90 text-white shadow-sm hover:shadow disabled:bg-handy-navy/40"
                 onClick={handleGenerate}
                 disabled={!canGenerate || createQuoteMutation.isPending}
               >
@@ -3039,11 +3079,6 @@ export default function GenerateContextualQuote() {
                 </div>
               </CardContent>
             </Card>
-
-            {/* Margin Preview (from created quote) */}
-            {quoteResult.marginPreview && (
-              <MarginPreviewPanel data={quoteResult.marginPreview} />
-            )}
 
             {/* WhatsApp Send Section */}
             <Card className="overflow-hidden border-handy-grid shadow-sm">
