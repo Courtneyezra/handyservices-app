@@ -107,7 +107,6 @@ const SeasonalMenu = lazy(() => import("@/pages/SeasonalMenu"));
 const CareersPage = lazy(() => import("@/pages/CareersPage"));
 const PartnerPage = lazy(() => import("@/pages/PartnerPage"));
 const JoinPage = lazy(() => import("@/pages/JoinPage"));
-const AnimationsLab = lazy(() => import("@/pages/labs/AnimationsLab"));
 
 // Client Portal Pages (public, token-based access)
 const InvoiceView = lazy(() => import("@/pages/client/InvoiceView"));
@@ -295,7 +294,6 @@ function Router() {
                         <PersonalizedQuotePage />
                     </Suspense>
                 </Route>
-                <Route path="/labs/animations" component={AnimationsLab} />
                 <Route path="/booking-confirmed/:quoteId">
                     <BookingConfirmedPage />
                 </Route>
