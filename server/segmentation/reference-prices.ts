@@ -40,7 +40,7 @@ export const HOURLY_REFERENCE: ReferenceRate = {
   lowPence: 3000,       // £30/hr — Checkatrade / Lady Bay
   midPence: 4000,       // £40/hr — mid-market
   highPence: 4800,      // £48/hr — Handyman HQ / TaskRabbit
-  referencePence: 3500, // £35/hr — our reference anchor (slightly above low)
+  referencePence: 3745, // £37.45/hr — our anchor (+7% uplift to fund the default flexible-booking discount)
   source: 'Nottingham market March 2026: Checkatrade, TaskRabbit, Handyman HQ, Lady Bay',
 };
 
@@ -51,7 +51,7 @@ export const DAILY_REFERENCE: ReferenceRate = {
   lowPence: 24000,      // £240/day (£30/hr × 8)
   midPence: 36000,      // £360/day — Handyman HQ general rate
   highPence: 45600,     // £456/day — Handyman HQ specialist rate
-  referencePence: 36000, // £360/day
+  referencePence: 38520, // £385.20/day (+7% uplift to fund the default flexible-booking discount)
   source: 'Handyman Headquarters Nottingham daily rates',
 };
 

@@ -6,9 +6,25 @@ interface ConfirmationHeaderProps {
   customerName: string;
   depositAmount: number;
   jobTopLine?: string;
+  mode?: 'exact' | 'flexible';
+  paidInFull?: boolean;
+  contractorName?: string;
+  dateLabel?: string | null;
+  slotLabel?: string | null;
+  flexWindowDays?: number;
 }
 
-export function ConfirmationHeader({ customerName, depositAmount, jobTopLine }: ConfirmationHeaderProps) {
+export function ConfirmationHeader({
+  customerName,
+  depositAmount,
+  jobTopLine,
+  mode = 'exact',
+  paidInFull = false,
+  contractorName,
+  dateLabel,
+  slotLabel,
+  flexWindowDays = 7,
+}: ConfirmationHeaderProps) {
   const [showConfetti, setShowConfetti] = useState(true);
 
   useEffect(() => {
@@ -18,6 +34,19 @@ export function ConfirmationHeader({ customerName, depositAmount, jobTopLine }: 
 
   const firstName = customerName?.split(' ')[0] || 'there';
   const depositFormatted = (depositAmount / 100).toFixed(2);
+
+  // Mode-aware reassurance line. Exact = a named contractor is locked to a date;
+  // flexible = we slot them in and confirm the day a few days out.
+  let subhead: string;
+  if (mode === 'flexible') {
+    subhead = `You're booked in, ${firstName}. We'll fit your job in within ${flexWindowDays} days and confirm your exact day by WhatsApp a few days before.`;
+  } else if (contractorName && dateLabel) {
+    subhead = `You're all set, ${firstName}. ${contractorName} is booked in for ${dateLabel}${slotLabel ? `, ${slotLabel}` : ''}.`;
+  } else if (dateLabel) {
+    subhead = `You're all set, ${firstName}. Your ${dateLabel} slot is locked in. We're confirming your contractor now.`;
+  } else {
+    subhead = `Thanks, ${firstName}. Your booking is confirmed and we're sorting the details now.`;
+  }
 
   return (
     <div className="relative text-center py-8 overflow-hidden">
@@ -30,7 +59,7 @@ export function ConfirmationHeader({ customerName, depositAmount, jobTopLine }: 
               className="absolute w-2 h-2 rounded-full"
               style={{
                 left: `${Math.random() * 100}%`,
-                backgroundColor: ['#e8b323', '#22c55e', '#3b82f6', '#f97316', '#8b5cf6'][
+                backgroundColor: ['#1B2A4A', '#F5A623', '#FFF8EC', '#F5A623', '#1B2A4A'][
                   Math.floor(Math.random() * 5)
                 ],
               }}
@@ -60,14 +89,14 @@ export function ConfirmationHeader({ customerName, depositAmount, jobTopLine }: 
       >
         {/* Outer glow */}
         <motion.div
-          className="absolute inset-0 bg-green-500/20 rounded-full"
+          className="absolute inset-0 bg-handy-yellow/30 rounded-full"
           initial={{ scale: 0 }}
           animate={{ scale: 1.5, opacity: 0 }}
           transition={{ duration: 1, delay: 0.5 }}
         />
 
         {/* Main circle */}
-        <div className="absolute inset-0 bg-gradient-to-br from-green-400 to-green-600 rounded-full shadow-lg shadow-green-500/40" />
+        <div className="absolute inset-0 bg-handy-navy rounded-full shadow-lg shadow-handy-navy/30 ring-4 ring-handy-yellow/40" />
 
         {/* Check icon with draw animation */}
         <motion.div
@@ -81,7 +110,7 @@ export function ConfirmationHeader({ customerName, depositAmount, jobTopLine }: 
 
       {/* Main heading */}
       <motion.h1
-        className="text-3xl md:text-4xl font-bold text-green-400 mb-2"
+        className="text-3xl md:text-4xl font-bold text-handy-navy mb-2"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.5 }}
@@ -91,7 +120,7 @@ export function ConfirmationHeader({ customerName, depositAmount, jobTopLine }: 
 
       {jobTopLine && (
         <motion.p
-          className="text-lg text-[#e8b323]/80 italic mb-1"
+          className="text-lg text-handy-navy/70 italic mb-1"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.55 }}
@@ -101,23 +130,23 @@ export function ConfirmationHeader({ customerName, depositAmount, jobTopLine }: 
       )}
 
       <motion.p
-        className="text-xl text-gray-200 mb-4"
+        className="text-xl text-handy-navy/90 mb-4"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.6 }}
       >
-        Thanks, {firstName}. We're matching your job now — you'll hear from us within 24 hours.
+        {subhead}
       </motion.p>
 
       {/* Deposit badge */}
       <motion.div
-        className="inline-flex items-center gap-2 bg-green-500/20 border border-green-500/30 rounded-full px-6 py-3"
+        className="inline-flex items-center gap-2 bg-handy-cream border border-handy-yellow/40 rounded-full px-6 py-3"
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: 0.7 }}
       >
-        <span className="text-gray-300 text-sm">Deposit paid:</span>
-        <span className="text-green-400 font-bold text-xl">£{depositFormatted}</span>
+        <span className="text-handy-navy/70 text-sm">{paidInFull ? 'Paid in full:' : 'Deposit paid:'}</span>
+        <span className="text-handy-navy font-bold text-xl">£{depositFormatted}</span>
       </motion.div>
     </div>
   );

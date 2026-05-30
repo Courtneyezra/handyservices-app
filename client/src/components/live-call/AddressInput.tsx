@@ -92,12 +92,16 @@ export interface AddressInputProps {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const GOOGLE_PLACES_SCRIPT_ID = 'google-places-script';
-const GOOGLE_PLACES_API_KEY = import.meta.env.VITE_GOOGLE_PLACES_API_KEY;
+// .env provides VITE_GOOGLE_MAPS_API_KEY (the canonical name used across the app);
+// some setups also define VITE_GOOGLE_PLACES_API_KEY. Take whichever is set so the
+// Places autocomplete actually loads instead of silently falling back to manual entry.
+const GOOGLE_PLACES_API_KEY =
+  import.meta.env.VITE_GOOGLE_PLACES_API_KEY || import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 // Track script loading state globally
 let scriptLoadingPromise: Promise<boolean> | null = null;
 
-function loadGooglePlacesScript(): Promise<boolean> {
+export function loadGooglePlacesScript(): Promise<boolean> {
   // Return existing promise if already loading
   if (scriptLoadingPromise) {
     return scriptLoadingPromise;

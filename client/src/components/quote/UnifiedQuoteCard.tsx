@@ -5,8 +5,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Check, Calendar, CalendarCheck, Clock, Tag, Shield, Zap,
   ChevronRight, ChevronDown, Percent, Sparkles, Star, Plus,
-  Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle, User
+  Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle, User,
+  PencilRuler, MapPin
 } from 'lucide-react';
+import { SkuIcon } from '@/lib/sku-icons';
+import { QuoteAddressInput } from '@/components/quote/QuoteAddressInput';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { format, addDays, isWeekend } from 'date-fns';
@@ -65,6 +68,12 @@ export interface PricingLineItem {
   offPeakWeekendPremiumPence?: number;
   /** When true, this line can be moved to a flex day. Falsy → not flex-eligible. */
   flexEligible?: boolean;
+  /** SKU shape — drives the "Fixed price" vs per-unit/tier presentation. */
+  skuShape?: 'fixed' | 'per_unit' | 'tiered';
+  /** Per-SKU Lucide icon name (Phase 28/29). Null → resolved from category. */
+  skuIcon?: string | null;
+  /** Catalog code, e.g. TAP-KIT-01. */
+  skuCode?: string;
 }
 
 /** Multi-job batch discount details */
@@ -72,6 +81,104 @@ export interface QuoteBatchDiscount {
   applied: boolean;
   discountPercent: number;
   savingsPence: number;
+}
+
+/**
+ * One line on the customer quote — a compact, tappable row optimised for
+ * mobile. Collapsed by default (icon + name + price + chevron); tapping
+ * reveals the "Fixed price"/"Tailored" badge + description via a grid-rows
+ * reveal. SKU lines read as solid product tiles (green icon), custom lines as
+ * a dashed "made-to-order" outline (neutral icon).
+ */
+function QuoteLineRow({ item, isDarkTheme }: { item: PricingLineItem; isDarkTheme: boolean }) {
+  const [open, setOpen] = useState(false);
+  const anyItem = item as any;
+  const isSku = anyItem.source === 'sku';
+  const title = anyItem.skuName || item.description;
+  const customerDesc: string | null = anyItem.skuCustomerDescription || anyItem.details || null;
+  const hasMaterials = (item.materialsWithMarginPence || 0) > 0;
+  const lineTotal = item.guardedPricePence + (item.materialsWithMarginPence || 0);
+
+  let qualifier: string | null = null;
+  let unitEach: string | null = null;
+  if (isSku) {
+    if (anyItem.unitCount && anyItem.unitCount > 0) {
+      const unit = anyItem.skuUnitLabel || anyItem.unitLabel || '';
+      qualifier = `× ${anyItem.unitCount}${unit ? ` ${unit}` : ''}`;
+      if (anyItem.unitCount > 1 && item.guardedPricePence > 0) {
+        unitEach = `£${Math.round(item.guardedPricePence / anyItem.unitCount / 100)} each`;
+      }
+    } else if (anyItem.selectedTier) {
+      qualifier = String(anyItem.selectedTier);
+    }
+  }
+
+  const cardClass = isSku
+    ? (isDarkTheme ? 'border border-white/10 bg-white/[0.04]' : 'border border-slate-200 bg-white')
+    : (isDarkTheme ? 'border border-dashed border-white/25' : 'border border-dashed border-slate-300 bg-slate-50/50');
+
+  return (
+    <div className={`rounded-lg overflow-hidden ${cardClass}`}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left active:scale-[0.995] transition-transform"
+      >
+        {isSku ? (
+          <div className={`shrink-0 w-8 h-8 rounded-md flex items-center justify-center ${isDarkTheme ? 'bg-[#7DB00E]/20 ring-1 ring-[#7DB00E]/25' : 'bg-[#7DB00E]/12 ring-1 ring-[#7DB00E]/20'}`}>
+            <SkuIcon
+              name={anyItem.skuIcon}
+              sku={{ icon: anyItem.skuIcon, category: item.category }}
+              className={`w-4 h-4 ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}
+            />
+          </div>
+        ) : (
+          <div className={`shrink-0 w-8 h-8 rounded-md flex items-center justify-center ${isDarkTheme ? 'bg-white/[0.06]' : 'bg-slate-100'}`}>
+            <PencilRuler className="w-4 h-4 text-slate-400" />
+          </div>
+        )}
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-1.5">
+            <span className={`text-[13px] font-semibold ${open ? 'break-words' : 'truncate'} ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>{title}</span>
+            {qualifier && (
+              <span className={`shrink-0 text-[10.5px] font-semibold ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>{qualifier}</span>
+            )}
+          </div>
+        </div>
+
+        <span className={`shrink-0 text-[14px] font-bold tabular-nums ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>£{Math.round(lineTotal / 100)}</span>
+        <ChevronDown className={`shrink-0 w-4 h-4 transition-transform duration-300 ${open ? 'rotate-180' : ''} ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} />
+      </button>
+
+      <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+        <div className="overflow-hidden">
+          <div className="px-2.5 pb-2.5 flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {isSku ? (
+                <span className={`inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${isDarkTheme ? 'bg-[#7DB00E]/15 text-[#a3d65f]' : 'bg-[#7DB00E]/12 text-[#4d7a09]'}`}>
+                  <Tag className="w-2.5 h-2.5" /> Fixed price
+                </span>
+              ) : (
+                <span className={`inline-flex items-center gap-1 text-[10px] font-medium rounded-full px-1.5 py-0.5 ${isDarkTheme ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
+                  <PencilRuler className="w-2.5 h-2.5" /> Tailored to your job
+                </span>
+              )}
+              {unitEach && <span className={`text-[10px] ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>{unitEach}</span>}
+              {hasMaterials && <span className={`text-[10px] ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>inc. materials</span>}
+              {anyItem.propertyTag && (
+                <span className={`text-[10px] font-medium rounded-full px-1.5 py-0.5 ${isDarkTheme ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>{anyItem.propertyTag}</span>
+              )}
+            </div>
+            {customerDesc && (
+              <p className={`text-[11.5px] leading-relaxed ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>{customerDesc}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 interface UnifiedQuoteCardProps {
@@ -82,6 +189,7 @@ interface UnifiedQuoteCardProps {
   quoteId?: string;
   jobDescription?: string;
   location?: string; // e.g., "Fulham" - used for social proof labels
+  postcode?: string; // full postcode (e.g. "NG1 1AA") shown for trust + address bias
   optionalExtras?: { label: string; description?: string; priceInPence: number; badge?: string }[] | null;
   onBook: (config: {
     selectedDate: Date | null;
@@ -94,6 +202,8 @@ interface UnifiedQuoteCardProps {
     balanceOnCompletionPence: number; // Remaining balance due on job completion
     paymentMode: 'deposit' | 'full';
     usedDownsell: boolean;
+    /** Phase 30 — address captured at the quote so dispatch has it (no later chase). */
+    address?: { line: string; postcode?: string; lat?: number; lng?: number };
     flexiblePeriodDays?: number; // When using downsell, how many days flexibility
     /**
      * Phase 25 — flex booking window (days). Set when the customer ticked
@@ -141,6 +251,7 @@ export function UnifiedQuoteCard({
   quoteId,
   jobDescription,
   location,
+  postcode,
   optionalExtras,
   onBook,
   onPaymentSuccess,
@@ -206,6 +317,12 @@ export function UnifiedQuoteCard({
   const [isReserving, setIsReserving] = useState(false);
   const [reserveError, setReserveError] = useState<string | null>(null);
   const [countdownSeconds, setCountdownSeconds] = useState<number>(0);
+  // The customer-facing "secure your slot" window: 5 minutes of urgency to push
+  // them into payment. Capped at the server hold. The deadline is pinned ONCE in a
+  // ref when the slot is first reserved, so re-renders / detailsConfirmed flips don't
+  // restart the clock.
+  const RESERVE_WINDOW_SECONDS = 5 * 60;
+  const paymentDeadlineRef = useRef<number | null>(null);
 
   // Deposit / Pay-in-full config (configurable via admin pricing settings)
   const DEPOSIT_PERCENT = (depositPercentProp ?? 30) / 100;
@@ -218,7 +335,7 @@ export function UnifiedQuoteCard({
   // within the window. Defaults: 7-day window, 10% off — matches the catalog
   // contract Agents 25a/25b agreed.
   const FLEX_WINDOW_DAYS = 7;
-  const FLEX_DISCOUNT_PERCENT = 10;
+  const FLEX_DISCOUNT_PERCENT = 7;
   const [useFlexBooking, setUseFlexBooking] = useState(false);
 
   // Per-line off-peak premium total (drives the chip next to Saturday dates).
@@ -242,6 +359,18 @@ export function UnifiedQuoteCard({
     return skuLines.some(li => (li as any).flexEligible === true);
   }, [pricingLineItems]);
 
+  // Phase 29 — flexible booking is the DEFAULT (it lets us route to thin days
+  // and is funded by the 7% uplift baked into prices). Tick it once when a
+  // flex-eligible quote loads; the ref guard means a customer who unticks it
+  // (or picks a specific date) is never silently re-defaulted.
+  const flexDefaultedRef = useRef(false);
+  useEffect(() => {
+    if (isQuoteFlexEligible && !flexDefaultedRef.current) {
+      flexDefaultedRef.current = true;
+      setUseFlexBooking(true);
+    }
+  }, [isQuoteFlexEligible]);
+
   // Payment state (for inline payment when using downsell)
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -250,6 +379,25 @@ export function UnifiedQuoteCard({
   const [isLoadingPaymentIntent, setIsLoadingPaymentIntent] = useState(false);
   const [inlineEmail, setInlineEmail] = useState(customerEmail || '');
   const [emailConfirmed, setEmailConfirmed] = useState(false);
+
+  // Phase 30 — address captured at the quote (Places autocomplete) so the
+  // booking arrives complete and dispatch never has to chase the address.
+  const [addressLine, setAddressLine] = useState('');
+  const [addressDetails, setAddressDetails] = useState<{ formattedAddress: string; postcode?: string; lat?: number; lng?: number } | null>(null);
+  const [detailsConfirmed, setDetailsConfirmed] = useState(false);
+  const addressOk = addressLine.trim().length >= 6;
+  // Phase 30 — package the captured door address so onBook → /track-booking can
+  // persist it on personalized_quotes (address + coordinates). Built whenever the
+  // customer has typed something usable; Places fills postcode/lat/lng, manual
+  // typing still persists the line. This is what removes the later address chase.
+  const bookingAddress = addressLine.trim().length >= 3
+    ? {
+        line: addressLine.trim(),
+        postcode: addressDetails?.postcode,
+        lat: addressDetails?.lat,
+        lng: addressDetails?.lng,
+      }
+    : undefined;
   const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(v);
   const effectiveEmail = customerEmail || (emailConfirmed && isValidEmail(inlineEmail) ? inlineEmail : undefined);
 
@@ -332,7 +480,7 @@ export function UnifiedQuoteCard({
   const scarcityLabel = datesLeftThisWeek == null
     ? null
     : datesLeftThisWeek <= 0
-      ? 'Limited availability — filling up fast'
+      ? 'Limited availability, filling up fast'
       : `Only ${datesLeftThisWeek} date${datesLeftThisWeek === 1 ? '' : 's'} left this week`;
 
   // Phase 24d — multi-day jobs. The server tags each entry with durationDays
@@ -378,24 +526,36 @@ export function UnifiedQuoteCard({
     return set;
   }, [quoteId, fallbackAvailabilityData]);
 
-  // Countdown timer for slot reservation
+  // Countdown timer for slot reservation — a 5-minute "secure your slot" window that
+  // pushes the customer to start payment. Once they proceed (detailsConfirmed →
+  // create-payment-intent extends the server lock to 1h), we FREEZE it rather than
+  // release, so the urgency clock can never kill an in-flight payment.
   useEffect(() => {
     if (!reservation) {
       setCountdownSeconds(0);
+      paymentDeadlineRef.current = null;
       return;
     }
+    // Payment started — the server lock is extended; stop the urgency countdown.
+    if (detailsConfirmed) return;
 
-    const expiresAt = new Date(reservation.expiresAt).getTime();
+    // Pin the 5-min deadline once, when the slot is first reserved (capped at the
+    // server hold so we never display longer than the slot is actually held).
+    if (paymentDeadlineRef.current === null) {
+      const serverExpiry = new Date(reservation.expiresAt).getTime();
+      paymentDeadlineRef.current = Math.min(Date.now() + RESERVE_WINDOW_SECONDS * 1000, serverExpiry);
+    }
+    const deadline = paymentDeadlineRef.current;
 
     const tick = () => {
-      const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       setCountdownSeconds(remaining);
 
       if (remaining <= 0) {
-        // Timer expired - release the slot
+        // Window elapsed without payment — release the slot back to availability.
         releaseSlotLock(reservation.lockId).catch(() => {});
         setReservation(null);
-        setReserveError('Your slot reservation expired. Please select a new date and time.');
+        setReserveError('Your held slot expired. Please pick a date and time again.');
         setClientSecret(null);
         setPaymentIntentId(null);
       }
@@ -404,7 +564,7 @@ export function UnifiedQuoteCard({
     tick(); // Initial tick
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [reservation]);
+  }, [reservation, detailsConfirmed]);
 
   // Release reservation on unmount (e.g. user navigates away)
   const reservationRef = useRef(reservation);
@@ -672,13 +832,29 @@ export function UnifiedQuoteCard({
     }
   }, [allDatesSelected]);
 
+  // Auto-scroll to the booking section once a single exact-date slot is held.
+  // Mirrors the 3-date-buffer scroll above: after the customer picks a date + AM/PM
+  // and the slot reserves, hand them straight down to "Complete your booking"
+  // instead of leaving them up at the calendar. Keyed on `reservation` so it fires
+  // AFTER the reserve resolves (the section is mounted by then), not on the click.
+  useEffect(() => {
+    const singleDateReserved =
+      !!reservation && !!selectedDate && !!selectedTimeSlot &&
+      !useDownsell && !useFlexBooking && confirmedDates.length === 0;
+    if (!singleDateReserved) return;
+    const t = setTimeout(() => {
+      bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [reservation, selectedDate, selectedTimeSlot, useDownsell, useFlexBooking, confirmedDates.length]);
+
   // Determine if we should show inline payment
   // Show inline Stripe card entry when: downsell, flex booking, single-date with reservation, or all 3 buffer dates picked
   const showInlinePayment = useDownsell || useFlexBooking || (selectedDate && selectedTimeSlot && reservation) || allDatesSelected;
 
   // Create payment intent when inline payment should be shown
   useEffect(() => {
-    if (!showInlinePayment || !quoteId || !stripe || !effectiveEmail) {
+    if (!showInlinePayment || !quoteId || !stripe || !effectiveEmail || !detailsConfirmed) {
       setClientSecret(null);
       setPaymentIntentId(null);
       return;
@@ -707,6 +883,12 @@ export function UnifiedQuoteCard({
             flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
             lockId: reservation?.lockId || undefined,
             contractorId: reservation?.contractorId || undefined,
+            // Phase 30 — door address in the PI body so the webhook can snapshot it
+            // race-free (via PI metadata) onto the quote + invoice, instead of racing
+            // the fire-and-forget /track-booking write.
+            address: bookingAddress?.line,
+            addressLat: bookingAddress?.lat,
+            addressLng: bookingAddress?.lng,
           }),
           signal: abortController.signal,
         });
@@ -742,7 +924,7 @@ export function UnifiedQuoteCard({
       isCurrentRequest = false;
       abortController.abort();
     };
-  }, [showInlinePayment, useDownsell, quoteId, customerName, effectiveEmail, total, selectedAddOns, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation]);
+  }, [showInlinePayment, useDownsell, quoteId, customerName, effectiveEmail, detailsConfirmed, total, selectedAddOns, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation]);
 
   // Handle inline payment submission
   const handlePayment = async (e: React.FormEvent) => {
@@ -797,6 +979,7 @@ export function UnifiedQuoteCard({
           balanceOnCompletionPence: balance,
           paymentMode: mode,
           usedDownsell: useDownsell,
+          address: bookingAddress,
           flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
           flexBookingWithinDays: useFlexBooking ? FLEX_WINDOW_DAYS : undefined,
         });
@@ -855,6 +1038,7 @@ export function UnifiedQuoteCard({
           balanceOnCompletionPence: balance,
           paymentMode: mode,
           usedDownsell: useDownsell,
+          address: bookingAddress,
           flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
           flexBookingWithinDays: useFlexBooking ? FLEX_WINDOW_DAYS : undefined,
         });
@@ -961,6 +1145,7 @@ export function UnifiedQuoteCard({
         balanceOnCompletionPence: balance,
         paymentMode: mode,
         usedDownsell: false,
+        address: bookingAddress,
         flexBookingWithinDays: FLEX_WINDOW_DAYS,
       });
       return;
@@ -977,6 +1162,7 @@ export function UnifiedQuoteCard({
         balanceOnCompletionPence: balance,
         paymentMode: mode,
         usedDownsell: true,
+        address: bookingAddress,
         flexiblePeriodDays: config.downsell?.periodDays,
       });
       return;
@@ -1003,6 +1189,7 @@ export function UnifiedQuoteCard({
       balanceOnCompletionPence: balance,
       paymentMode: mode,
       usedDownsell: false,
+      address: bookingAddress,
     });
   };
 
@@ -1113,69 +1300,10 @@ export function UnifiedQuoteCard({
           {/* Inline Price Breakdown (always visible) */}
           {pricingLineItems && pricingLineItems.length > 0 && (
             <div className={`mt-3 pt-3 border-t text-left ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
-              <div className="space-y-2">
-                {pricingLineItems.map((item) => {
-                  const hasMaterials = (item.materialsWithMarginPence || 0) > 0;
-                  const lineTotal = item.guardedPricePence + (item.materialsWithMarginPence || 0);
-                  // Phase 25 SKU-aware fields (read defensively).
-                  // Title prefers the SKU name, falls back to engine-polished description.
-                  // Customer description is plain-English, outcome-framed, no hours.
-                  const anyItem = item as any;
-                  const title = anyItem.skuName || (item as PricingLineItem).description;
-                  const customerDesc: string | null =
-                    anyItem.skuCustomerDescription || (item as any).details || null;
-                  // "× 3 doors" for per_unit, tier label ("Medium") for tiered, else null.
-                  let qualifier: string | null = null;
-                  if (anyItem.source === 'sku') {
-                    if (anyItem.unitCount && anyItem.unitCount > 0) {
-                      const unit = anyItem.skuUnitLabel || anyItem.unitLabel || '';
-                      qualifier = `× ${anyItem.unitCount}${unit ? ` ${unit}` : ''}`;
-                    } else if (anyItem.selectedTier) {
-                      qualifier = String(anyItem.selectedTier);
-                    }
-                  }
-                  return (
-                    <div key={item.lineId} className="text-[13px] leading-snug">
-                      <div className="flex items-start gap-2">
-                        <span className={`shrink-0 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} aria-hidden>•</span>
-                        <div className={`min-w-0 flex-1 ${isDarkTheme ? 'text-slate-300' : 'text-slate-700'}`}>
-                          <div className="flex flex-wrap items-baseline gap-1.5">
-                            <span className={`font-semibold ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>
-                              {title}
-                            </span>
-                            {qualifier && (
-                              <span className={`text-[11px] font-medium ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                                {qualifier}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        {anyItem.propertyTag && (
-                          <span className={`shrink-0 mt-0.5 text-[10px] font-bold tracking-wide px-1.5 py-0.5 rounded ${
-                            isDarkTheme ? 'bg-white/10 text-slate-400 border border-white/10' : 'bg-slate-100 text-slate-500 border border-slate-200'
-                          }`}>
-                            {anyItem.propertyTag}
-                          </span>
-                        )}
-                        <div className="shrink-0 flex flex-col items-end leading-tight">
-                          <span className={`font-semibold tabular-nums ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                            £{Math.round(lineTotal / 100)}
-                          </span>
-                          {hasMaterials && (
-                            <span className={`text-[10px] mt-0.5 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
-                              inc. materials
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      {customerDesc && (
-                        <p className={`text-[11px] leading-relaxed mt-0.5 ml-4 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                          {customerDesc}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
+              <div className="space-y-1.5">
+                {pricingLineItems.map((item) => (
+                  <QuoteLineRow key={item.lineId} item={item} isDarkTheme={isDarkTheme} />
+                ))}
               </div>
               {/* Optional extras (ticked add-ons below line items) */}
               {(optionalExtras?.length ?? 0) > 0 && (
@@ -1362,79 +1490,11 @@ export function UnifiedQuoteCard({
             quotes don't see an option that can't be honoured. When checked
             the date picker hides, a 10% discount applies, and the booking
             ships `flexBookingWithinDays: 7` to the server. */}
-        {isQuoteFlexEligible && (
-          <div className={`rounded-xl p-4 transition-[transform,background-color] duration-150 ease-out ${
-            useFlexBooking
-              ? 'bg-handy-yellow/15 border-2 border-handy-yellow'
-              : isDarkTheme ? 'bg-white/10 border-2 border-white/10' : 'bg-slate-100 border-2 border-transparent'
-          }`}>
-            <label className="flex items-center gap-3 cursor-pointer active:scale-[0.99]">
-              <input
-                type="checkbox"
-                checked={useFlexBooking}
-                onChange={() => {
-                  const newValue = !useFlexBooking;
-                  setUseFlexBooking(newValue);
-                  if (newValue) {
-                    // Collapse the date picker — flex means we pick the day.
-                    setSelectedDate(null);
-                    setSelectedTimeSlot(null);
-                    setPendingDate(null);
-                    setConfirmedDates([]);
-                    // Release any held slot since the date no longer matters.
-                    if (reservation) {
-                      releaseSlotLock(reservation.lockId).catch(() => {});
-                      setReservation(null);
-                    }
-                    // If the segment-driven downsell was on, turn it off — only one flex mode at a time.
-                    if (useDownsell) setUseDownsell(false);
-                    setTimeout(() => {
-                      bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }, 150);
-                  }
-                }}
-                className={`w-5 h-5 rounded text-handy-yellow focus:ring-handy-yellow ${isDarkTheme ? 'border-white/30 bg-white/10' : 'border-slate-300'}`}
-              />
-              <div className="flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                    Flexible booking — save {FLEX_DISCOUNT_PERCENT}%
-                  </span>
-                  <span className="text-xs bg-handy-yellow text-handy-navy px-2 py-0.5 rounded-full font-bold">
-                    -{FLEX_DISCOUNT_PERCENT}%
-                  </span>
-                </div>
-                <p className={`text-sm ${isDarkTheme ? 'text-slate-400' : 'text-slate-600'}`}>
-                  We'll pick a weekday within {FLEX_WINDOW_DAYS} days that works for both of us. You'll get a text confirming the day.
-                </p>
-              </div>
-            </label>
-
-            {/* Confirmation chrono-text when selected */}
-            {useFlexBooking && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="mt-4 pt-4 border-t border-handy-yellow/30"
-              >
-                <div className={`flex items-center gap-3 ${isDarkTheme ? 'text-slate-200' : 'text-slate-700'}`}>
-                  <div className="w-10 h-10 rounded-full bg-handy-yellow flex items-center justify-center flex-shrink-0">
-                    <Check className="w-5 h-5 text-handy-navy" />
-                  </div>
-                  <div>
-                    <p className="font-semibold">Booking will be within {FLEX_WINDOW_DAYS} days of payment</p>
-                    <p className={`text-sm ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                      You save £{Math.round(flexDiscountApplied / 100)} — pay £{Math.round(total / 100)} instead of £{Math.round(basePrice / 100)}
-                    </p>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </div>
-        )}
+        {/* Flex toggle now lives inside the scheduling block, centred directly
+            above the date grid (Phase 29 — see below). */}
 
         {/* Step 1: 3-Date Buffer — split-button flow: tap date → button splits into AM/PM → tap half to confirm */}
-        {!useDownsell && !useFlexBooking && showStandardDate && (
+        {!useDownsell && showStandardDate && (
         <div ref={dateSectionRef}>
           <h4 className={`text-3xl font-extrabold tracking-tight mb-3 flex items-center justify-center gap-2.5 text-center ${isDarkTheme ? 'text-white' : 'text-slate-800'}`}>
             <Calendar className="w-7 h-7 text-[#7DB00E]" />
@@ -1443,6 +1503,97 @@ export function UnifiedQuoteCard({
               <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
             )}
           </h4>
+
+          {/* Phase 29 — Flexible vs Pick-exact-date (two equal boxes). Flexible
+              is the default (−7%); choosing "Pick exact date" drops the date
+              grid down below. Non-flex-eligible quotes skip this and just show
+              the grid. */}
+          {isQuoteFlexEligible && (
+            <div className="mb-4">
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (useFlexBooking) return;
+                    setUseFlexBooking(true);
+                    setSelectedDate(null);
+                    setSelectedTimeSlot(null);
+                    setPendingDate(null);
+                    setConfirmedDates([]);
+                    if (reservation) {
+                      releaseSlotLock(reservation.lockId).catch(() => {});
+                      setReservation(null);
+                    }
+                    if (useDownsell) setUseDownsell(false);
+                  }}
+                  className={`w-full rounded-xl p-3 text-left transition-colors active:scale-[0.99] ${
+                    useFlexBooking
+                      ? 'bg-handy-yellow/15 border-2 border-handy-yellow'
+                      : isDarkTheme ? 'bg-white/[0.04] border-2 border-white/10' : 'bg-slate-50 border-2 border-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${useFlexBooking ? 'bg-handy-yellow border-handy-yellow' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
+                      {useFlexBooking && <Check className="w-3 h-3 text-handy-navy" strokeWidth={3} />}
+                    </span>
+                    <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>Flexible</span>
+                    <span className="ml-auto text-[10px] bg-handy-yellow text-handy-navy px-1.5 py-0.5 rounded-full font-bold">−{FLEX_DISCOUNT_PERCENT}%</span>
+                  </div>
+                  <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                    We pick the best weekday within {FLEX_WINDOW_DAYS} days
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!useFlexBooking) return;
+                    setUseFlexBooking(false);
+                    setTimeout(() => {
+                      dateSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 120);
+                  }}
+                  className={`w-full rounded-xl p-3 text-left transition-colors active:scale-[0.99] ${
+                    !useFlexBooking
+                      ? 'bg-[#7DB00E]/10 border-2 border-[#7DB00E]'
+                      : isDarkTheme ? 'bg-white/[0.04] border-2 border-white/10' : 'bg-slate-50 border-2 border-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${!useFlexBooking ? 'bg-[#7DB00E] border-[#7DB00E]' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
+                      {!useFlexBooking && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                    </span>
+                    <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>Pick exact date</span>
+                    <Calendar className="ml-auto w-4 h-4 text-slate-400" />
+                  </div>
+                  <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Choose a specific day · standard rate
+                  </p>
+                </button>
+              </div>
+              {useFlexBooking && (
+                <p className={`text-center text-[11px] mt-2 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                  We'll confirm a weekday within {FLEX_WINDOW_DAYS} days — you save £{Math.round(flexDiscountApplied / 100)}.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Date grid — collapsed under Flexible, drops down on "Pick exact date". */}
+          <AnimatePresence initial={false}>
+          {(!isQuoteFlexEligible || !useFlexBooking) && (
+          <motion.div
+            key="date-grid-drop"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+            // overflow-hidden is needed for the height drop animation, but it also
+            // clips the selected date tile's ring-offset on the edge columns. The
+            // -mx-1.5/px-1.5 pair pushes the clip boundary 6px outward while keeping
+            // the grid content aligned, so the ring has room to breathe.
+            className="overflow-hidden -mx-1.5 px-1.5"
+          >
           {/* Minimal-premium, scarcity-forward cue (Airbnb/Google pattern): a live dot +
               an HONEST "Only N dates left this week" (counted from real availability), with
               a freshness fallback; plus a gentle "tap a date" nudge that disappears once
@@ -1570,6 +1721,10 @@ export function UnifiedQuoteCard({
                     return;
                   }
 
+                  // Phase 29 — picking a specific date opts out of the default
+                  // flexible discount (you pay the standard, non-discounted rate).
+                  if (useFlexBooking) setUseFlexBooking(false);
+
                   if (isLargeJob) {
                     // Large jobs: single full-day commit
                     setSelectedDate(d.date);
@@ -1611,7 +1766,9 @@ export function UnifiedQuoteCard({
                 <div className="text-xs font-medium">{format(d.date, 'EEE')}</div>
                 <div className="text-lg font-bold">{format(d.date, 'd')}</div>
                 {d.isBlocked ? (
-                  <div className="text-[9px] font-semibold text-red-500 mt-0.5">Fully Booked</div>
+                  // Unavailable, not an error — recede in muted neutral so the one
+                  // available (green) date is the clear hero, instead of a wall of red.
+                  <div className={`text-[9px] font-medium mt-0.5 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>Fully booked</div>
                 ) : isSelected && !isLargeJob ? (
                   <div className="text-[9px] font-bold mt-0.5 text-slate-900">
                     {selectedSlotChoice === 'pm' ? 'Afternoon' : 'Morning'}
@@ -1643,6 +1800,9 @@ export function UnifiedQuoteCard({
               Show more dates...
             </button>
           )}
+          </motion.div>
+          )}
+          </AnimatePresence>
         </div>
         )}
 
@@ -1656,14 +1816,38 @@ export function UnifiedQuoteCard({
               exit={{ opacity: 0, height: 0 }}
               className="space-y-3"
             >
-              {/* Reserving spinner */}
+              {/* Reserving — a prominent "holding your slot" card sized like the
+                  reserved card, with a spinning ring that mirrors (and visually
+                  morphs into) the countdown ring once the slot is held. Gives the
+                  customer a clear "we're securing it, hang on" beat to wait through. */}
               {isReserving && (
-                <div className={`flex items-center gap-2 p-4 rounded-xl ${isDarkTheme ? 'bg-white/5' : 'bg-slate-50'}`}>
-                  <Loader2 className="w-5 h-5 animate-spin text-[#7DB00E]" />
-                  <span className={`text-sm ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
-                    Reserving your slot...
-                  </span>
-                </div>
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className={`p-4 rounded-xl border space-y-3 ${isDarkTheme ? 'bg-[#7DB00E]/10 border-[#7DB00E]/30' : 'bg-green-50 border-green-200'}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 flex-shrink-0 flex items-center justify-center">
+                      <svg className="w-11 h-11 animate-spin" viewBox="0 0 44 44">
+                        <circle cx="22" cy="22" r="18" fill="none" strokeWidth="3" className="stroke-[#7DB00E]/15" />
+                        <circle cx="22" cy="22" r="18" fill="none" strokeWidth="3" strokeLinecap="round"
+                          className="stroke-[#7DB00E]"
+                          strokeDasharray={2 * Math.PI * 18} strokeDashoffset={2 * Math.PI * 18 * 0.7} />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className={`text-sm font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                        Holding your slot…
+                      </div>
+                      <div className={`text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {selectedDate
+                          ? `${format(selectedDate, 'EEE d MMM')}${isLargeJob ? '' : ` · ${selectedSlotChoice === 'pm' ? 'Afternoon' : 'Morning'}`} · just a moment`
+                          : 'Just a moment'}
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
               )}
 
               {/* Reservation error */}
@@ -1674,30 +1858,70 @@ export function UnifiedQuoteCard({
                 </Alert>
               )}
 
-              {/* Reservation success: date confirmed + countdown */}
-              {reservation && (
-                <div className={`p-4 rounded-xl border space-y-3 ${isDarkTheme ? 'bg-[#7DB00E]/10 border-[#7DB00E]/30' : 'bg-green-50 border-green-200'}`}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-[#7DB00E]/20 flex items-center justify-center flex-shrink-0">
-                      <Check className="w-5 h-5 text-[#7DB00E]" />
-                    </div>
-                    <div>
-                      <div className={`text-sm font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                        Slot reserved for you
+              {/* Reservation success: a live 5-minute countdown that pushes the
+                  customer to pay before the slot is released. Once they proceed
+                  (detailsConfirmed → server lock extended), it switches to a calm
+                  "secured" state so it can't pressure an in-flight payment. */}
+              {reservation && (() => {
+                const secsLeft = countdownSeconds;
+                const m = Math.floor(secsLeft / 60);
+                const s = secsLeft % 60;
+                const mmss = `${m}:${String(s).padStart(2, '0')}`;
+                const frac = Math.max(0, Math.min(1, secsLeft / RESERVE_WINDOW_SECONDS));
+                const urgent = !detailsConfirmed && secsLeft <= 90;
+                const C = 2 * Math.PI * 18; // ring circumference (r=18)
+                const dateLine = selectedDate
+                  ? `${format(selectedDate, 'EEE d MMM')}${isLargeJob ? '' : ` · ${selectedSlotChoice === 'pm' ? 'Afternoon' : 'Morning'}`}`
+                  : '';
+                return (
+                  <div className={`p-4 rounded-xl border space-y-3 transition-colors ${
+                    detailsConfirmed
+                      ? (isDarkTheme ? 'bg-[#7DB00E]/10 border-[#7DB00E]/30' : 'bg-green-50 border-green-200')
+                      : urgent
+                        ? (isDarkTheme ? 'bg-amber-500/10 border-amber-500/40' : 'bg-amber-50 border-amber-300')
+                        : (isDarkTheme ? 'bg-[#7DB00E]/10 border-[#7DB00E]/30' : 'bg-green-50 border-green-200')
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      {detailsConfirmed ? (
+                        <div className="w-11 h-11 rounded-full bg-[#7DB00E]/20 flex items-center justify-center flex-shrink-0">
+                          <Check className="w-5 h-5 text-[#7DB00E]" />
+                        </div>
+                      ) : (
+                        <div className="relative w-11 h-11 flex-shrink-0">
+                          <svg className="w-11 h-11 -rotate-90" viewBox="0 0 44 44">
+                            <circle cx="22" cy="22" r="18" fill="none" strokeWidth="3"
+                              className={urgent ? 'stroke-amber-500/20' : 'stroke-[#7DB00E]/20'} />
+                            <circle cx="22" cy="22" r="18" fill="none" strokeWidth="3" strokeLinecap="round"
+                              className={urgent ? 'stroke-amber-400' : 'stroke-[#7DB00E]'}
+                              strokeDasharray={C} strokeDashoffset={C * (1 - frac)}
+                              style={{ transition: 'stroke-dashoffset 1s linear' }} />
+                          </svg>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className={`text-[11px] font-bold tabular-nums ${
+                              urgent ? (isDarkTheme ? 'text-amber-300' : 'text-amber-600') : (isDarkTheme ? 'text-white' : 'text-slate-900')
+                            }`}>{mmss}</span>
+                          </div>
+                        </div>
+                      )}
+                      <div>
+                        <div className={`text-sm font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                          {detailsConfirmed ? 'Slot secured' : `Slot held — ${mmss} left`}
+                        </div>
+                        <div className={`text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                          {dateLine}
+                        </div>
                       </div>
-                      <div className={`text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                        {selectedDate ? `${format(selectedDate, 'EEE d MMM')}${isLargeJob ? '' : ` · ${selectedSlotChoice === 'pm' ? 'Afternoon' : 'Morning'}`}` : ''}
-                      </div>
                     </div>
-                  </div>
 
-                  {/* Calm reassurance — slot is held quietly while they check out (no countdown clock) */}
-                  <div className={`flex items-center gap-2 text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                    <Lock className="w-3.5 h-3.5 text-[#7DB00E]" />
-                    <span>Held for you while you complete booking</span>
+                    <div className={`flex items-center gap-2 text-xs ${
+                      urgent ? (isDarkTheme ? 'text-amber-300' : 'text-amber-700') : (isDarkTheme ? 'text-slate-400' : 'text-slate-500')
+                    }`}>
+                      <Lock className={`w-3.5 h-3.5 ${urgent ? 'text-amber-400' : 'text-[#7DB00E]'}`} />
+                      <span>{detailsConfirmed ? 'Finish payment to confirm your booking' : 'Secure it now before the slot is released'}</span>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </motion.div>
           )}
         </AnimatePresence>
@@ -1769,29 +1993,8 @@ export function UnifiedQuoteCard({
           )}
         </AnimatePresence>
 
-        {/* Price Breakdown (if multiple items) */}
-        <AnimatePresence>
-          {canBook && breakdown.length > 1 && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className={`rounded-xl p-4 space-y-2 ${isDarkTheme ? 'bg-white/5' : 'bg-slate-100'}`}
-            >
-              {breakdown.map((item, i) => (
-                <div key={i} className="flex justify-between text-sm">
-                  <span className={isDarkTheme ? 'text-slate-400' : 'text-slate-600'}>{item.label}</span>
-                  <span className={`${item.amount < 0 ? 'text-[#7DB00E]' : isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                    {item.amount < 0 ? '-' : ''}£{Math.abs(Math.round(item.amount / 100))}
-                  </span>
-                </div>
-              ))}
-              <div className={`border-t pt-2 flex justify-between font-bold ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
-                <span className={isDarkTheme ? 'text-white' : 'text-slate-900'}>Total</span>
-                <span className="text-[#7DB00E] text-lg">£{Math.round(total / 100)}</span>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* Phase 30 — the duplicate price-recap box was removed here; the total
+            is reaffirmed as a slim line right above the pay CTA instead. */}
 
         {/* What's Included — near payment for trust at decision point */}
         <div className={`grid grid-cols-4 gap-2`}>
@@ -1848,36 +2051,61 @@ export function UnifiedQuoteCard({
               2. Complete your booking
             </h4>
             <div className={`rounded-xl p-4 ${isDarkTheme ? 'bg-white/5' : 'bg-slate-50'}`}>
-              {!effectiveEmail ? (
-                <div className="space-y-2">
-                  <label className={`text-sm font-medium ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
-                    Email for receipt
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="email"
-                      value={inlineEmail}
-                      onChange={e => { setInlineEmail(e.target.value); setEmailConfirmed(false); }}
-                      onBlur={() => { if (isValidEmail(inlineEmail)) setEmailConfirmed(true); }}
-                      onKeyDown={e => { if (e.key === 'Enter' && isValidEmail(inlineEmail)) { e.preventDefault(); setEmailConfirmed(true); } }}
-                      placeholder="your@email.com"
-                      className={`flex-1 min-w-0 border rounded-lg p-3 text-base outline-none focus:ring-2 focus:ring-[#7DB00E]/40 ${
-                        isDarkTheme ? 'border-white/20 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-900'
-                      }`}
+              {!detailsConfirmed ? (
+                <div className="space-y-3">
+                  {/* Postcode — we already have it; shown locked for trust. */}
+                  {postcode && (
+                    <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${isDarkTheme ? 'bg-white/5 border border-white/10' : 'bg-white border border-slate-200'}`}>
+                      <MapPin className="w-4 h-4 text-[#7DB00E] shrink-0" />
+                      <span className={`font-semibold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>{postcode}</span>
+                      <span className={`text-[11px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>— we've got your postcode</span>
+                    </div>
+                  )}
+                  {/* Address — Google Places autocomplete (single line). */}
+                  <div className="space-y-1.5">
+                    <label className={`text-sm font-medium ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>Property address</label>
+                    <QuoteAddressInput
+                      value={addressLine}
+                      onChange={(val, details) => { setAddressLine(val); setAddressDetails(details ?? null); }}
+                      isDarkTheme={isDarkTheme}
+                      placeholder="Start typing your address…"
                     />
-                    <button
-                      type="button"
-                      onClick={() => { if (isValidEmail(inlineEmail)) setEmailConfirmed(true); }}
-                      disabled={!isValidEmail(inlineEmail)}
-                      className={`px-4 rounded-lg font-medium text-sm transition-all shrink-0 ${
-                        isValidEmail(inlineEmail)
-                          ? 'bg-[#7DB00E] text-white hover:bg-[#6a9a0c]'
-                          : isDarkTheme ? 'bg-white/5 text-slate-600 cursor-not-allowed' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                      }`}
-                    >
-                      Next
-                    </button>
                   </div>
+                  {/* Email (only if we don't already have it). */}
+                  {!customerEmail && (
+                    <div className="space-y-1.5">
+                      <label className={`text-sm font-medium ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>Email for receipt</label>
+                      <input
+                        type="email"
+                        value={inlineEmail}
+                        onChange={e => { setInlineEmail(e.target.value); setEmailConfirmed(false); }}
+                        placeholder="your@email.com"
+                        className={`w-full border rounded-lg p-3 text-base outline-none focus:ring-2 focus:ring-[#7DB00E]/40 ${
+                          isDarkTheme ? 'border-white/20 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-900'
+                        }`}
+                      />
+                    </div>
+                  )}
+                  {/* Continue → reveals secure payment. Requires address + email. */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!addressOk) return;
+                      if (!customerEmail) {
+                        if (!isValidEmail(inlineEmail)) return;
+                        setEmailConfirmed(true);
+                      }
+                      setDetailsConfirmed(true);
+                    }}
+                    disabled={!addressOk || (!customerEmail && !isValidEmail(inlineEmail))}
+                    className={`w-full px-4 py-3 rounded-lg font-bold text-sm transition-all ${
+                      addressOk && (customerEmail || isValidEmail(inlineEmail))
+                        ? 'bg-[#7DB00E] text-white hover:bg-[#6a9a0c]'
+                        : isDarkTheme ? 'bg-white/5 text-slate-600 cursor-not-allowed' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    Continue to payment
+                  </button>
                 </div>
               ) : isLoadingPaymentIntent ? (
                 <div className="flex items-center justify-center py-6">
@@ -1950,6 +2178,16 @@ export function UnifiedQuoteCard({
                       <AlertDescription>{paymentError}</AlertDescription>
                     </Alert>
                   )}
+
+                  {/* Phase 30 — reaffirm the amount right before paying. */}
+                  <div className={`flex items-center justify-between gap-2 mb-3 pt-3 border-t text-sm ${isDarkTheme ? 'border-white/10 text-slate-300' : 'border-slate-200 text-slate-600'}`}>
+                    <span>Total <span className={`font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>£{Math.round(total / 100)}</span></span>
+                    <span className="text-[12px] text-right">
+                      {payFull
+                        ? `Pay £${Math.round(payFullTotal / 100)} now`
+                        : `Pay £${Math.round(depositAmount / 100)} today · £${Math.round(balanceOnCompletion / 100)} on completion`}
+                    </span>
+                  </div>
 
                   <Button
                     type="submit"

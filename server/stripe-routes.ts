@@ -24,8 +24,15 @@ const getStripe = () => {
 export const stripeRouter = Router();
 
 // Generate idempotency key from quote details to prevent duplicate payments
-function generateIdempotencyKey(quoteId: string, tier: string, extras: string[], paymentType: string = 'full', chargeAmount: number = 0): string {
-    const data = `${quoteId}-${tier}-${extras.sort().join(',')}-${paymentType}-${chargeAmount}`;
+function generateIdempotencyKey(quoteId: string, tier: string, extras: string[], paymentType: string = 'full', chargeAmount: number = 0, bookingMeta: Record<string, string> = {}): string {
+    // The key MUST be a function of EVERY param the PI is created with — Stripe
+    // rejects reuse of a key with different params. bookingMeta carries everything
+    // volatile that goes into the PI metadata (lockId, contractorId, scheduledDate/
+    // Slot, address, coords), so re-reserving a different slot OR editing the address
+    // mints a fresh key instead of colliding, while a genuine retry of the SAME
+    // request (identical params) still dedupes to the same PI.
+    const metaStr = Object.keys(bookingMeta).sort().map((k) => `${k}=${bookingMeta[k]}`).join('&');
+    const data = `${quoteId}-${tier}-${extras.sort().join(',')}-${paymentType}-${chargeAmount}-${metaStr}`;
     return crypto.createHash('sha256').update(data).digest('hex');
 }
 
@@ -80,6 +87,10 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             contractorId,
             scheduledDate,
             scheduledSlot,
+            // Phase 30 — customer-confirmed door address (carried race-free via PI metadata)
+            address,
+            addressLat,
+            addressLng,
         } = req.body;
 
         if (!quoteId) {
@@ -175,9 +186,6 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         // Minimum Stripe charge is 30p (£0.30)
         chargeAmount = Math.max(chargeAmount, 30);
 
-        // Generate idempotency key to prevent duplicate payment intents
-        const idempotencyKey = generateIdempotencyKey(quoteId, 'standard', selectedExtras, paymentType, chargeAmount);
-
         // If a soft-hold lock was created during slot selection, extend it to 60
         // minutes so a slow checkout doesn't lose its hold mid-payment.
         if (lockId && typeof lockId === 'number') {
@@ -194,6 +202,20 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         if (contractorId) bookingMetadata.contractorId = String(contractorId);
         if (scheduledDate) bookingMetadata.scheduledDate = String(scheduledDate);
         if (scheduledSlot) bookingMetadata.scheduledSlot = String(scheduledSlot);
+        // Phase 30 — door address (Stripe metadata values are strings, max 500 chars each).
+        if (address && typeof address === 'string' && address.trim()) {
+            bookingMetadata.address = address.trim().slice(0, 480);
+        }
+        if (typeof addressLat === 'number' && typeof addressLng === 'number') {
+            bookingMetadata.addressLat = String(addressLat);
+            bookingMetadata.addressLng = String(addressLng);
+        }
+
+        // Generate the idempotency key AFTER bookingMetadata is assembled, derived
+        // from the full metadata so it always matches the PI's params. This prevents
+        // the "Keys for idempotent requests…" error when the customer re-reserves a
+        // different date/slot (new lockId) or edits their address.
+        const idempotencyKey = generateIdempotencyKey(quoteId, 'standard', selectedExtras, paymentType, chargeAmount, bookingMetadata);
 
         // Create payment intent with idempotency key
         const paymentIntent = await stripe.paymentIntents.create(
@@ -360,6 +382,20 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             console.log(`[Stripe Webhook] Updated quote email from metadata: ${metadataEmail}`);
                         }
 
+                        // Phase 30 — persist the customer-confirmed door address captured at
+                        // the quote. Authoritative + race-free (reads this PI's own metadata),
+                        // so dispatch + the invoice get the real address, not just the postcode.
+                        const metadataAddress = paymentIntent.metadata?.address;
+                        if (metadataAddress && metadataAddress.trim()) {
+                            updateFields.address = metadataAddress.trim();
+                            const mLat = parseFloat(paymentIntent.metadata?.addressLat || '');
+                            const mLng = parseFloat(paymentIntent.metadata?.addressLng || '');
+                            if (!isNaN(mLat) && !isNaN(mLng)) {
+                                updateFields.coordinates = { lat: mLat, lng: mLng };
+                            }
+                            console.log(`[Stripe Webhook] Persisted customer address from metadata for quote ${quoteId}`);
+                        }
+
                         await db.update(personalizedQuotes)
                             .set(updateFields)
                             .where(eq(personalizedQuotes.id, quoteId));
@@ -429,7 +465,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             customerName: quote.customerName,
                             customerEmail: effectiveEmail, // Use effective email (quote or metadata fallback)
                             customerPhone: quote.phone,
-                            customerAddress: quote.address || '',
+                            customerAddress: (paymentIntent.metadata?.address || quote.address || '').trim(),
                             totalAmount: totalJobPrice,
                             depositPaid: depositAmount,
                             balanceDue: balanceDue,

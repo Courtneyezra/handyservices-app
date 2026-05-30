@@ -58,6 +58,7 @@ const SKUSimulatorPage = lazy(() => import("@/pages/admin/SKUSimulatorPage"));
 const PricingComparePage = lazy(() => import("@/pages/admin/PricingComparePage"));
 const PricingLabV2 = lazy(() => import("@/pages/admin/PricingLabV2"));
 const GenerateContextualQuote = lazy(() => import("@/pages/admin/GenerateContextualQuote"));
+const SkuLibraryPage = lazy(() => import("@/pages/admin/SkuLibraryPage"));
 const QuoteAnalyticsPage = lazy(() => import("@/pages/admin/QuoteAnalyticsPage"));
 const QuoteTestLab = lazy(() => import("@/pages/admin/QuoteTestLab"));
 const QuoteFlowDiagram = lazy(() => import("@/pages/admin/QuoteFlowDiagram"));
@@ -705,6 +706,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <GenerateContextualQuote />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/sku-library">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <SkuLibraryPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

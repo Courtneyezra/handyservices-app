@@ -40,6 +40,8 @@ interface ConfirmationData {
     schedulingFeeInPence?: number;
     depositAmountPence: number;
     depositPaidAt: string;
+    paymentType?: string; // 'deposit' | 'full' | 'installments'
+    flexBookingWithinDays?: number; // > 0 => customer chose Flexible scheduling
     // Contextual quote fields
     contextualHeadline?: string;
     contextualMessage?: string;
@@ -90,7 +92,11 @@ const TEST_JOB_DESCRIPTIONS: Record<string, string> = {
   UNKNOWN: 'General handyman work needed',
 };
 
-function generateTestData(segment: string): ConfirmationData {
+function generateTestData(
+  segment: string,
+  mode: 'exact' | 'flexible' = 'exact',
+  payment: 'deposit' | 'full' = 'deposit',
+): ConfirmationData {
   const scheduledDate = addDays(new Date(), 3);
 
   const base: ConfirmationData = {
@@ -107,6 +113,7 @@ function generateTestData(segment: string): ConfirmationData {
       selectedPackage: 'enhanced',
       selectedExtras: ['Photo Report', 'Tenant Coordination'],
       selectedDate: scheduledDate.toISOString(),
+      timeSlotType: 'morning',
       depositAmountPence: 4900,
       depositPaidAt: new Date().toISOString(),
     },
@@ -130,9 +137,11 @@ function generateTestData(segment: string): ConfirmationData {
     },
   };
 
+  let data: ConfirmationData = base;
+
   // Contextual test data — uses AI-generated fields instead of segment content
   if (segment === 'CONTEXTUAL') {
-    return {
+    data = {
       ...base,
       quote: {
         ...base.quote,
@@ -141,11 +150,11 @@ function generateTestData(segment: string): ConfirmationData {
         selectedExtras: undefined,
         depositAmountPence: 4650,
         contextualHeadline: 'Your Living Room Sorted',
-        contextualMessage: "We'll mount your TV with full cable management and patch those hallway holes — you won't need to lift a finger.",
+        contextualMessage: "We'll mount your TV with full cable management and patch those hallway holes, so you won't need to lift a finger.",
         jobTopLine: 'TV mounted, walls patched',
         proposalSummary: 'Mount a 65-inch TV on the living room wall with in-wall cable management for a clean finish. Patch and paint two nail holes in the hallway to match existing decor. All materials included.',
         valueBullets: [
-          'Fixed price — no surprises',
+          'Fixed price, no surprises',
           'Full cleanup included',
           '90-day workmanship guarantee',
           '£2M insured',
@@ -167,7 +176,31 @@ function generateTestData(segment: string): ConfirmationData {
     };
   }
 
-  return base;
+  // Mode — flexible means no fixed date or contractor yet; exact means assigned.
+  if (mode === 'flexible') {
+    data = {
+      ...data,
+      quote: { ...data.quote, selectedDate: undefined, timeSlotType: undefined, flexBookingWithinDays: 7 },
+      contractor: undefined,
+      job: undefined,
+    };
+  } else {
+    data = { ...data, quote: { ...data.quote, flexBookingWithinDays: 0 } };
+  }
+
+  // Payment — full means paid in full with zero balance; deposit keeps the balance.
+  if (payment === 'full') {
+    const total = data.invoice?.totalAmount ?? data.quote.depositAmountPence;
+    data = {
+      ...data,
+      quote: { ...data.quote, paymentType: 'full', depositAmountPence: total },
+      invoice: data.invoice ? { ...data.invoice, depositPaid: total, balanceDue: 0 } : undefined,
+    };
+  } else {
+    data = { ...data, quote: { ...data.quote, paymentType: 'deposit' } };
+  }
+
+  return data;
 }
 
 function BookingConfirmedPage() {
@@ -180,6 +213,8 @@ function BookingConfirmedPage() {
   const searchString = window.location.search;
   const urlParams = new URLSearchParams(searchString);
   const testSegment = urlParams.get('segment') || 'BUSY_PRO';
+  const testMode: 'exact' | 'flexible' = urlParams.get('mode') === 'flexible' ? 'flexible' : 'exact';
+  const testPayment: 'deposit' | 'full' = urlParams.get('payment') === 'full' ? 'full' : 'deposit';
 
   // Check if this is test mode
   const isTestMode = quoteId === 'test';
@@ -187,8 +222,8 @@ function BookingConfirmedPage() {
   // Generate test data if in test mode
   const testData = useMemo(() => {
     if (!isTestMode) return null;
-    return generateTestData(testSegment);
-  }, [isTestMode, testSegment]);
+    return generateTestData(testSegment, testMode, testPayment);
+  }, [isTestMode, testSegment, testMode, testPayment]);
 
   // Fetch confirmation data (skip if test mode)
   const { data: fetchedData, isLoading, error } = useQuery<ConfirmationData>({
@@ -303,8 +338,8 @@ END:VCALENDAR`;
   // Loading state (not for test mode)
   if (isLoading && !isTestMode) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#e8b323]" />
+      <div className="min-h-screen bg-handy-bg flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-handy-navy" />
       </div>
     );
   }
@@ -312,16 +347,16 @@ END:VCALENDAR`;
   // Error state
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-handy-bg flex items-center justify-center p-4">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-red-400 mb-2">Booking Not Found</h1>
-          <p className="text-gray-400 mb-4">
+          <h1 className="text-2xl font-bold text-handy-navy mb-2">Booking Not Found</h1>
+          <p className="text-handy-muted mb-4">
             {error instanceof Error ? error.message : 'This booking could not be found.'}
           </p>
           <Button
             variant="outline"
             onClick={() => setLocation('/')}
-            className="border-gray-600"
+            className="border-handy-navy/30 text-handy-navy"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
             Go Home
@@ -336,18 +371,43 @@ END:VCALENDAR`;
   // Detect contextual quote — has AI-generated fields instead of segment content
   const isContextualQuote = !!(quote.contextualHeadline && quote.valueBullets?.length);
 
+  // Phase 31 — booking mode + payment state drive the confirmation copy.
+  //  • exact   = a specific date was booked and a contractor is assigned to it
+  //  • flexible = customer chose "we slot you in", confirmed nearer the day
+  const mode: 'exact' | 'flexible' = (quote.flexBookingWithinDays ?? 0) > 0 ? 'flexible' : 'exact';
+  const paidInFull = quote.paymentType === 'full' || (invoice ? invoice.balanceDue <= 0 : false);
+  const flexWindowDays = quote.flexBookingWithinDays || 7;
+  const dateLabel = quote.selectedDate ? format(new Date(quote.selectedDate), 'EEEE d MMMM') : null;
+  const slotLabel = (() => {
+    switch (quote.timeSlotType) {
+      case 'morning': return 'morning (8am–1pm)';
+      case 'afternoon': return 'afternoon (1pm–6pm)';
+      case 'first': return 'first slot (8am–9am)';
+      default: return null;
+    }
+  })();
+  const balanceLabel = invoice && invoice.balanceDue > 0 ? `£${(invoice.balanceDue / 100).toFixed(2)}` : null;
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800">
-      {/* Header */}
-      <header className="bg-gray-900/80 border-b border-gray-700 sticky top-0 z-50">
-        <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
-          <img src={handyServicesLogo} alt="Handy Services" className="h-8" />
+    <div className="min-h-screen bg-handy-bg font-sans">
+      {/* Brand nav bar — navy with logo, wordmark, social proof + phone (PDF parity) */}
+      <header className="bg-handy-navy sticky top-0 z-50">
+        <div className="max-w-lg mx-auto px-4 py-2.5 flex items-center gap-3">
+          <img src={handyServicesLogo} alt="Handy Services" className="h-7 w-auto shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-white font-bold text-sm leading-tight">Handy Services</div>
+            <div className="text-[11px] leading-tight">
+              <span className="text-handy-yellow">★★★★★</span>{' '}
+              <span className="text-white/75">4.9 from 300+ reviews</span>
+            </div>
+          </div>
           <a
-            href="tel:08001234567"
-            className="text-[#e8b323] text-sm hover:underline flex items-center gap-1"
+            href="tel:07449501762"
+            className="text-white text-sm font-semibold hover:text-handy-yellow flex items-center gap-1.5 shrink-0"
           >
             <Phone className="w-4 h-4" />
-            Call Us
+            <span className="hidden xs:inline">07449 501 762</span>
+            <span className="xs:hidden">Call</span>
           </a>
         </div>
       </header>
@@ -373,10 +433,36 @@ END:VCALENDAR`;
                       : 'border-purple-500 text-purple-300 hover:bg-purple-800 text-xs h-7'
                   }
                   onClick={() => {
-                    window.location.href = `/booking-confirmed/test?segment=${seg}`;
+                    window.location.href = `/booking-confirmed/test?segment=${seg}&mode=${testMode}&payment=${testPayment}`;
                   }}
                 >
                   {seg}
+                </Button>
+              ))}
+            </div>
+            {/* Mode + payment toggles — preview all four confirmation states */}
+            <div className="flex flex-wrap gap-2 mt-2">
+              {([['exact', 'Exact date'], ['flexible', 'Flexible']] as const).map(([m, label]) => (
+                <Button
+                  key={m}
+                  size="sm"
+                  variant={testMode === m ? 'default' : 'outline'}
+                  className={testMode === m ? 'bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7' : 'border-purple-500 text-purple-300 hover:bg-purple-800 text-xs h-7'}
+                  onClick={() => { window.location.href = `/booking-confirmed/test?segment=${testSegment}&mode=${m}&payment=${testPayment}`; }}
+                >
+                  {label}
+                </Button>
+              ))}
+              <span className="w-px bg-purple-700 mx-1" />
+              {([['deposit', 'Deposit'], ['full', 'Paid in full']] as const).map(([p, label]) => (
+                <Button
+                  key={p}
+                  size="sm"
+                  variant={testPayment === p ? 'default' : 'outline'}
+                  className={testPayment === p ? 'bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7' : 'border-purple-500 text-purple-300 hover:bg-purple-800 text-xs h-7'}
+                  onClick={() => { window.location.href = `/booking-confirmed/test?segment=${testSegment}&mode=${testMode}&payment=${p}`; }}
+                >
+                  {label}
                 </Button>
               ))}
             </div>
@@ -391,6 +477,12 @@ END:VCALENDAR`;
           customerName={quote.customerName}
           depositAmount={quote.depositAmountPence}
           jobTopLine={quote.jobTopLine}
+          mode={mode}
+          paidInFull={paidInFull}
+          contractorName={contractor?.name}
+          dateLabel={dateLabel}
+          slotLabel={slotLabel}
+          flexWindowDays={flexWindowDays}
         />
 
         {/* Booking Summary */}
@@ -408,8 +500,13 @@ END:VCALENDAR`;
 
         {/* What Happens Next */}
         <WhatsNextCard
-          scheduledDate={quote.selectedDate}
+          mode={mode}
+          paidInFull={paidInFull}
           contractorName={contractor?.name}
+          dateLabel={dateLabel}
+          slotLabel={slotLabel}
+          flexWindowDays={flexWindowDays}
+          balanceLabel={balanceLabel}
         />
 
         {/* Value Card — contextual or segment-based */}
@@ -452,41 +549,47 @@ END:VCALENDAR`;
           />
         )}
 
-        {/* Contact Footer */}
+        {/* Contact Footer — navy brand block */}
         <motion.div
-          className="text-center pt-4 pb-8 border-t border-gray-700"
+          className="bg-handy-navy rounded-2xl px-6 py-6 text-center"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.8 }}
         >
-          <p className="text-gray-400 text-sm mb-3">Questions? Get in touch:</p>
+          <p className="text-white/70 text-sm mb-3">Questions? Get in touch:</p>
           <div className="flex items-center justify-center gap-4">
             <a
-              href="tel:08001234567"
-              className="text-[#e8b323] hover:underline flex items-center gap-1"
+              href="tel:07449501762"
+              className="text-white font-semibold hover:text-handy-yellow flex items-center gap-1.5"
             >
-              <Phone className="w-4 h-4" />
-              0800 123 4567
+              <Phone className="w-4 h-4 text-handy-yellow" />
+              07449 501 762
             </a>
-            <span className="text-gray-600">|</span>
+            <span className="text-white/25">|</span>
             <a
-              href="mailto:hello@handyservices.co.uk"
-              className="text-[#e8b323] hover:underline flex items-center gap-1"
+              href="mailto:info@handyservices.co.uk"
+              className="text-white font-semibold hover:text-handy-yellow flex items-center gap-1.5"
             >
-              <Mail className="w-4 h-4" />
+              <Mail className="w-4 h-4 text-handy-yellow" />
               Email Us
             </a>
           </div>
 
-          {/* Balance Due Note */}
-          {invoice && invoice.balanceDue > 0 && (
-            <div className="mt-4 bg-blue-900/20 border border-blue-500/30 rounded-lg p-3">
-              <p className="text-sm text-blue-300">
+          {/* Balance-due (deposit) or paid-in-full reassurance */}
+          {invoice && invoice.balanceDue > 0 ? (
+            <div className="mt-4 bg-handy-yellow/15 border border-handy-yellow/30 rounded-lg p-3">
+              <p className="text-sm text-white/90">
                 Balance due on completion:{' '}
-                <span className="font-bold">£{(invoice.balanceDue / 100).toFixed(2)}</span>
+                <span className="font-bold text-handy-yellow">£{(invoice.balanceDue / 100).toFixed(2)}</span>
               </p>
             </div>
-          )}
+          ) : paidInFull ? (
+            <div className="mt-4 bg-handy-yellow/15 border border-handy-yellow/30 rounded-lg p-3">
+              <p className="text-sm text-white/90">
+                <span className="font-bold text-handy-yellow">Paid in full.</span> Nothing more to pay on the day.
+              </p>
+            </div>
+          ) : null}
         </motion.div>
       </main>
     </div>

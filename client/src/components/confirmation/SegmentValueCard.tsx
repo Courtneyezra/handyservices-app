@@ -57,11 +57,12 @@ export function SegmentValueCard({ segment, onAction, portalToken }: SegmentValu
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.4 }}
     >
-      <Card className="bg-gradient-to-b from-[#e8b323]/10 to-gray-800/50 border-[#e8b323]/30">
+      <Card className="bg-handy-cream border-handy-yellow/40 shadow-sm">
         <CardContent className="p-6">
           {/* Header */}
-          <h3 className="text-xl font-bold text-[#e8b323] mb-2">{content.header}</h3>
-          <p className="text-gray-300 mb-4">{content.subheader}</p>
+          <h3 className="text-xl font-bold text-handy-navy mb-1.5">{content.header}</h3>
+          <div className="h-0.5 w-12 bg-handy-yellow rounded-full mb-3" />
+          <p className="text-handy-navy/80 mb-4">{content.subheader}</p>
 
           {/* Benefit bullets */}
           <ul className="space-y-3 mb-6">
@@ -70,13 +71,13 @@ export function SegmentValueCard({ segment, onAction, portalToken }: SegmentValu
               return (
                 <motion.li
                   key={index}
-                  className="flex items-center gap-3 text-white"
+                  className="flex items-center gap-3 text-handy-navy"
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.5 + index * 0.1 }}
                 >
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#e8b323]/20 flex items-center justify-center">
-                    <Icon className="w-4 h-4 text-[#e8b323]" />
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-handy-yellow/20 flex items-center justify-center">
+                    <Icon className="w-4 h-4 text-handy-navy" />
                   </div>
                   <span>{bullet.text}</span>
                 </motion.li>
@@ -90,8 +91,8 @@ export function SegmentValueCard({ segment, onAction, portalToken }: SegmentValu
               onClick={handlePrimaryClick}
               className={
                 content.cta.variant === 'primary'
-                  ? 'w-full bg-[#e8b323] hover:bg-[#d4a41e] text-gray-900 font-semibold'
-                  : 'w-full bg-gray-700 hover:bg-gray-600 text-white'
+                  ? 'w-full bg-handy-navy hover:bg-handy-navy/90 text-white font-semibold'
+                  : 'w-full bg-handy-navy hover:bg-handy-navy/90 text-white'
               }
               size="lg"
             >
@@ -102,7 +103,7 @@ export function SegmentValueCard({ segment, onAction, portalToken }: SegmentValu
               <Button
                 onClick={handleSecondaryClick}
                 variant="outline"
-                className="w-full border-gray-600 text-gray-300 hover:bg-gray-700"
+                className="w-full border-handy-navy/30 text-handy-navy hover:bg-handy-navy/5"
                 size="lg"
               >
                 {content.secondaryCta.label}
@@ -111,13 +112,13 @@ export function SegmentValueCard({ segment, onAction, portalToken }: SegmentValu
           </div>
 
           {/* Trust strip */}
-          <div className="mt-6 pt-4 border-t border-gray-700">
-            <p className="text-xs text-center text-gray-400">{content.trustStrip}</p>
+          <div className="mt-6 pt-4 border-t border-handy-grid">
+            <p className="text-xs text-center text-handy-muted">{content.trustStrip}</p>
           </div>
 
           {/* Risk reversal */}
-          <div className="mt-4 bg-green-900/20 border border-green-500/30 rounded-lg p-3">
-            <p className="text-sm text-center text-green-400">{content.riskReversal}</p>
+          <div className="mt-4 bg-handy-yellow/10 border border-handy-yellow/30 rounded-lg p-3">
+            <p className="text-sm text-center text-handy-navy">{content.riskReversal}</p>
           </div>
         </CardContent>
       </Card>

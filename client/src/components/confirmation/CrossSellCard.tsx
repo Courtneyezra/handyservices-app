@@ -35,29 +35,29 @@ export function CrossSellCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.6 }}
     >
-      <Card className="bg-gray-800/60 border-gray-700">
+      <Card className="bg-white border-handy-grid shadow-sm">
         <CardContent className="p-6">
-          <h3 className="text-lg font-semibold text-white mb-1">{content.header}</h3>
-          <p className="text-gray-400 text-sm mb-4">{content.subheader}</p>
+          <h3 className="text-lg font-semibold text-handy-navy mb-1">{content.header}</h3>
+          <p className="text-handy-muted text-sm mb-4">{content.subheader}</p>
 
           {/* Service cards */}
           <div className="space-y-3 mb-4">
             {recommendations.map((service, index) => (
               <motion.div
                 key={service.skuCode}
-                className="flex items-center justify-between p-3 bg-gray-700/50 rounded-lg border border-gray-600 hover:border-[#e8b323]/50 transition-colors"
+                className="flex items-center justify-between p-3 bg-handy-bg rounded-lg border border-handy-grid hover:border-handy-yellow/50 transition-colors"
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.7 + index * 0.1 }}
               >
                 <div className="flex-1">
-                  <h4 className="font-medium text-white text-sm">{service.name}</h4>
-                  <p className="text-xs text-gray-400">{service.description}</p>
+                  <h4 className="font-medium text-handy-navy text-sm">{service.name}</h4>
+                  <p className="text-xs text-handy-muted">{service.description}</p>
                 </div>
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="text-[#e8b323] hover:bg-[#e8b323]/20"
+                  className="text-handy-navy hover:bg-handy-yellow/20"
                   onClick={() => onRequestService(service)}
                 >
                   <Plus className="w-4 h-4 mr-1" />
@@ -70,7 +70,7 @@ export function CrossSellCard({
           {/* See all services link */}
           <Button
             variant="link"
-            className="w-full text-gray-400 hover:text-[#e8b323]"
+            className="w-full text-handy-navy hover:text-handy-yellow"
             onClick={onViewAllServices}
           >
             View All Services
@@ -78,8 +78,8 @@ export function CrossSellCard({
           </Button>
 
           {/* No pressure note */}
-          <p className="text-xs text-center text-gray-500 mt-2">
-            Add now or request later - no pressure
+          <p className="text-xs text-center text-handy-muted mt-2">
+            Add now or request later, no pressure
           </p>
         </CardContent>
       </Card>

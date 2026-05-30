@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "./db";
 import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, segmentEnum, invoices, invoiceTokens, contractorJobs, contentClaims, contentGuarantees, contentTestimonials, contentHassleItems, contentImages, jobDispatches, dispatchBonds, users } from "@shared/schema";
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, desc, inArray, or } from "drizzle-orm";
 import crypto from 'crypto';
 import { z } from "zod";
 import { nanoid } from "nanoid";
@@ -1095,6 +1095,9 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
             exactTimeRequested,
             isWeekendBooking,
             schedulingFeeInPence,
+            // Phase 30 — door address captured in the customer quote booking section
+            address,
+            coordinates,
         } = req.body;
 
         console.log(`[track-booking] Quote ${id} — date: ${selectedDate}, timeSlot: ${timeSlotType}, tier: ${schedulingTier}, weekend: ${isWeekendBooking}, fee: ${schedulingFeeInPence}p`);
@@ -1153,6 +1156,15 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
                 exactTimeRequested: exactTimeRequested || undefined,
                 isWeekendBooking: isWeekendBooking ?? false,
                 schedulingFeeInPence: schedulingFeeInPence || 0,
+                // Phase 30 — persist the customer-confirmed door address. Conditional
+                // spread so a booking flow that doesn't send one never clobbers the
+                // admin's original quote.address / coordinates with undefined.
+                ...(typeof address === 'string' && address.trim()
+                  ? { address: address.trim() }
+                  : {}),
+                ...(coordinates && typeof coordinates.lat === 'number' && typeof coordinates.lng === 'number'
+                  ? { coordinates: { lat: coordinates.lat, lng: coordinates.lng } }
+                  : {}),
                 // depositPaidAt is set by Stripe webhook after payment confirmation
                 // bookedAt is set by Stripe webhook after payment confirmation
             })
@@ -1877,13 +1889,12 @@ quotesRouter.get('/api/personalized-quotes/:id/confirmation', async (req, res) =
     try {
         const { id } = req.params;
 
-        // Get quote by ID or short slug
-        const isUUID = id.length > 8 && id.includes('-');
+        // Look up by id OR shortSlug. The old `id.includes('-')` UUID heuristic
+        // mis-detected ~70% of quote ids — nanoids like `quote_…` usually have no
+        // hyphen — so it queried by shortSlug and 404'd. The post-payment redirect
+        // passes quote.id, so that broke the confirmation page for most paid bookings.
         const [quote] = await db.select().from(personalizedQuotes)
-            .where(isUUID
-                ? eq(personalizedQuotes.id, id)
-                : eq(personalizedQuotes.shortSlug, id)
-            );
+            .where(or(eq(personalizedQuotes.id, id), eq(personalizedQuotes.shortSlug, id)));
 
         if (!quote) {
             return res.status(404).json({ error: 'Quote not found' });
@@ -1894,9 +1905,10 @@ quotesRouter.get('/api/personalized-quotes/:id/confirmation', async (req, res) =
             return res.status(400).json({ error: 'Quote not yet booked - payment required' });
         }
 
-        // Get associated invoice
+        // Get associated invoice (use resolved quote.id so this also works when the
+        // page was reached via shortSlug, not just the raw id param).
         const [invoice] = await db.select().from(invoices)
-            .where(eq(invoices.quoteId, id))
+            .where(eq(invoices.quoteId, quote.id))
             .limit(1);
 
         // Get or create invoice token for portal access
@@ -1922,9 +1934,9 @@ quotesRouter.get('/api/personalized-quotes/:id/confirmation', async (req, res) =
             }
         }
 
-        // Get job if created
+        // Get job if created (resolved quote.id, for the shortSlug path)
         const [job] = await db.select().from(contractorJobs)
-            .where(eq(contractorJobs.quoteId, id))
+            .where(eq(contractorJobs.quoteId, quote.id))
             .limit(1);
 
         // Get contractor info if assigned
@@ -1966,6 +1978,11 @@ quotesRouter.get('/api/personalized-quotes/:id/confirmation', async (req, res) =
                 schedulingFeeInPence: quote.schedulingFeeInPence,
                 depositAmountPence: quote.depositAmountPence,
                 depositPaidAt: quote.depositPaidAt,
+                // Phase 31 — confirmation page branches on these: paymentType drives
+                // deposit-vs-paid-in-full copy; flexBookingWithinDays > 0 means the
+                // customer chose Flexible (we slot them in) vs an exact assigned date.
+                paymentType: quote.paymentType,
+                flexBookingWithinDays: quote.flexBookingWithinDays,
                 // Contextual quote fields
                 contextualHeadline: quote.contextualHeadline,
                 contextualMessage: quote.contextualMessage,

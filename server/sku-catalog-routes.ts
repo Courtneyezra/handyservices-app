@@ -23,6 +23,7 @@ import { db } from './db';
 import { serviceCatalog } from '../shared/schema';
 import { requireAdmin } from './auth';
 import { invalidateSkuCache } from './contextual-pricing/sku-resolver';
+import { z } from 'zod';
 
 export const skuCatalogRouter = Router();
 
@@ -47,9 +48,13 @@ skuCatalogRouter.get('/api/admin/sku-catalog/search', requireAdmin, async (req, 
   try {
     const q = ((req.query.q as string) || '').trim();
     const category = ((req.query.category as string) || '').trim();
-    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 20, 1), 100);
+    // The admin SKU Library pulls the whole catalog (incl. inactive) in one
+    // go; the quote autocomplete keeps its small active-only window.
+    const includeInactive = req.query.includeInactive === '1' || req.query.includeInactive === 'true';
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 20, 1), 500);
 
-    const conds: any[] = [eq(serviceCatalog.isActive, true)];
+    const conds: any[] = [];
+    if (!includeInactive) conds.push(eq(serviceCatalog.isActive, true));
     if (category) conds.push(eq(serviceCatalog.category, category));
 
     const orderBy: any[] = [];
@@ -146,5 +151,73 @@ skuCatalogRouter.post('/api/admin/sku-catalog/:skuCode/pick', requireAdmin, asyn
     invalidateSkuCache(skuCode);
   } catch (err: any) {
     console.error('[sku-catalog] pick increment error:', err?.message || err);
+  }
+});
+
+// ── PATCH /api/admin/sku-catalog/:skuCode ─────────────────────────────────
+// Phase 28 — edit a SKU from the admin SKU Library: descriptions, icon, price
+// (shape-aware), yield rules, active toggle. Whitelisted fields only; an
+// explicit null clears a nullable column. Invalidates the resolver cache so
+// the next quote prices off the edited row.
+const skuPatchSchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  customerDescription: z.string().min(1).optional(),
+  adminDescription: z.string().max(2000).nullable().optional(),
+  icon: z.string().max(40).nullable().optional(),
+  isActive: z.boolean().optional(),
+  flexEligible: z.boolean().optional(),
+  offPeakWeekendPremiumPence: z.number().int().min(0).optional(),
+  // fixed
+  pricePence: z.number().int().min(0).nullable().optional(),
+  scheduleMinutes: z.number().int().min(0).nullable().optional(),
+  // per_unit
+  pricePerUnitPence: z.number().int().min(0).nullable().optional(),
+  unitLabel: z.string().max(40).nullable().optional(),
+  minimumUnits: z.number().int().min(1).nullable().optional(),
+  minutesPerUnit: z.number().int().min(0).nullable().optional(),
+  setupMinutes: z.number().int().min(0).nullable().optional(),
+  // tiered
+  tiers: z
+    .array(
+      z.object({
+        label: z.string().min(1),
+        pricePence: z.number().int().min(0),
+        scheduleMinutes: z.number().int().min(0),
+      }),
+    )
+    .nullable()
+    .optional(),
+});
+
+skuCatalogRouter.patch('/api/admin/sku-catalog/:skuCode', requireAdmin, async (req, res) => {
+  try {
+    const skuCode = req.params.skuCode;
+    if (!skuCode) return res.status(400).json({ error: 'skuCode is required' });
+
+    const parsed = skuPatchSchema.parse(req.body);
+    const updates: Record<string, any> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (v !== undefined) updates[k] = v;
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No editable fields provided' });
+    }
+    updates.updatedAt = new Date();
+
+    const [row] = await db
+      .update(serviceCatalog)
+      .set(updates)
+      .where(eq(serviceCatalog.skuCode, skuCode))
+      .returning();
+    if (!row) return res.status(404).json({ error: 'SKU not found' });
+
+    invalidateSkuCache(skuCode);
+    res.json({ sku: row });
+  } catch (err: any) {
+    if (err?.name === 'ZodError') {
+      return res.status(400).json({ error: 'Invalid payload', details: err.errors });
+    }
+    console.error('[sku-catalog] patch error:', err?.message || err);
+    res.status(500).json({ error: err?.message || 'SKU update failed' });
   }
 });

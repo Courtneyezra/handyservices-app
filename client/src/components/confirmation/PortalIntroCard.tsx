@@ -22,54 +22,55 @@ export function PortalIntroCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.5 }}
     >
-      <Card className="bg-gray-800/60 border-gray-700">
+      <Card className="bg-white border-handy-grid shadow-sm">
         <CardContent className="p-6">
-          <h3 className="text-lg font-semibold text-white mb-3">
+          <h3 className="text-lg font-bold text-handy-navy mb-1">
             Track Your Booking Online
           </h3>
-          <p className="text-gray-400 text-sm mb-4">
+          <div className="h-0.5 w-12 bg-handy-yellow rounded-full mb-3" />
+          <p className="text-handy-muted text-sm mb-4">
             Access your booking portal anytime to view your invoice, pay the balance, or leave a review.
           </p>
 
           {/* Portal features */}
           <div className="grid grid-cols-3 gap-4 mb-6">
             <div className="text-center">
-              <div className="w-10 h-10 mx-auto rounded-full bg-blue-500/20 flex items-center justify-center mb-2">
-                <FileText className="w-5 h-5 text-blue-400" />
+              <div className="w-10 h-10 mx-auto rounded-full bg-handy-yellow/15 flex items-center justify-center mb-2">
+                <FileText className="w-5 h-5 text-handy-navy" />
               </div>
-              <p className="text-xs text-gray-400">View Invoice</p>
+              <p className="text-xs text-handy-muted">View Invoice</p>
             </div>
             <div className="text-center">
-              <div className="w-10 h-10 mx-auto rounded-full bg-green-500/20 flex items-center justify-center mb-2">
-                <CreditCard className="w-5 h-5 text-green-400" />
+              <div className="w-10 h-10 mx-auto rounded-full bg-handy-yellow/15 flex items-center justify-center mb-2">
+                <CreditCard className="w-5 h-5 text-handy-navy" />
               </div>
-              <p className="text-xs text-gray-400">Pay Balance</p>
+              <p className="text-xs text-handy-muted">Pay Balance</p>
             </div>
             <div className="text-center">
-              <div className="w-10 h-10 mx-auto rounded-full bg-yellow-500/20 flex items-center justify-center mb-2">
-                <Star className="w-5 h-5 text-yellow-400" />
+              <div className="w-10 h-10 mx-auto rounded-full bg-handy-yellow/15 flex items-center justify-center mb-2">
+                <Star className="w-5 h-5 text-handy-navy" />
               </div>
-              <p className="text-xs text-gray-400">Leave Review</p>
+              <p className="text-xs text-handy-muted">Leave Review</p>
             </div>
           </div>
 
           {portalUrl ? (
             <Button
               onClick={onViewPortal}
-              className="w-full bg-blue-600 hover:bg-blue-700"
+              className="w-full bg-handy-navy hover:bg-handy-navy/90 text-white font-semibold"
               size="lg"
             >
               <ExternalLink className="w-4 h-4 mr-2" />
               View My Booking Portal
             </Button>
           ) : (
-            <p className="text-sm text-gray-400 text-center">
+            <p className="text-sm text-handy-muted text-center">
               Portal link will be sent to your email shortly.
             </p>
           )}
 
           {invoiceNumber && (
-            <p className="text-xs text-center text-gray-500 mt-3">
+            <p className="text-xs text-center text-handy-muted mt-3">
               Invoice: {invoiceNumber}
             </p>
           )}

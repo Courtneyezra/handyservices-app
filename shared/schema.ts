@@ -204,6 +204,11 @@ export const serviceCatalog = pgTable("service_catalog", {
     customerDescription: text("customer_description").notNull(),
     adminDescription: text("admin_description"),
 
+    // Presentation — Lucide icon name (e.g. "tv", "wrench") for the SKU's
+    // "shelf item" card on the customer quote + the admin library. Null falls
+    // back to a per-category default resolved client-side (Phase 28).
+    icon: varchar("icon", { length: 40 }),
+
     // Yield rules
     flexEligible: boolean("flex_eligible").notNull().default(true),
     offPeakWeekendPremiumPence: integer("off_peak_weekend_premium_pence").notNull().default(0),

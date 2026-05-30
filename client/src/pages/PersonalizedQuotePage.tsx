@@ -2638,6 +2638,11 @@ export default function PersonalizedQuotePage() {
   // UnifiedQuoteCard, this captures the window (typically 7). Forwarded to
   // /track-booking so the dispatcher (Agent 25e) can route to a thin day.
   const [flexBookingWithinDays, setFlexBookingWithinDays] = useState<number | undefined>(undefined);
+  // Phase 30 — door address the customer confirmed in the UnifiedQuoteCard booking
+  // section. Held in a ref so handleBooking reads the latest synchronously (onBook
+  // fires immediately before onPaymentSuccess → handleBooking → /track-booking),
+  // which persists it to personalized_quotes so dispatch has the real address.
+  const bookingAddressRef = useRef<{ line: string; postcode?: string; lat?: number; lng?: number } | null>(null);
   // const [isExpiredState, setIsExpiredState] = useState(false); // Removed - quotes no longer expire
   const [showPaymentForm, setShowPaymentForm] = useState(false); // Controls visibility of the payment section
 
@@ -3258,6 +3263,13 @@ export default function PersonalizedQuotePage() {
             // .flexBookingWithinDays so the dispatcher (Agent 25e) can route
             // this booking to a thin day within the window.
             flexBookingWithinDays: flexBookingWithinDays,
+            // Phase 30 — door address captured in the UnifiedQuoteCard booking section.
+            // Persists to personalized_quotes.address (+ coordinates when Places-validated)
+            // so dispatch routes to the real address, not just the postcode.
+            address: bookingAddressRef.current?.line || undefined,
+            coordinates: (bookingAddressRef.current?.lat != null && bookingAddressRef.current?.lng != null)
+              ? { lat: bookingAddressRef.current.lat, lng: bookingAddressRef.current.lng }
+              : undefined,
           }),
         });
       }
@@ -3695,6 +3707,7 @@ export default function PersonalizedQuotePage() {
                       quoteId={quote.id}
                       jobDescription={quote.jobDescription}
                       location={quote.postcode?.split(' ')[0]}
+                      postcode={quote.postcode || undefined}
                       optionalExtras={quote.optionalExtras}
                       depositPercent={pricingSettings?.depositPercent}
                       payInFullDiscountPercent={pricingSettings?.payInFullDiscountPercent}
@@ -3730,6 +3743,13 @@ export default function PersonalizedQuotePage() {
                         // can persist it on personalized_quotes.flexBookingWithinDays.
                         if (config.flexBookingWithinDays && config.flexBookingWithinDays > 0) {
                           setFlexBookingWithinDays(config.flexBookingWithinDays);
+                        }
+
+                        // Phase 30 — capture the confirmed door address so handleBooking
+                        // forwards it to /track-booking (persists to personalized_quotes
+                        // .address/.coordinates). Removes the later "what's the address?" chase.
+                        if (config.address?.line) {
+                          bookingAddressRef.current = config.address;
                         }
 
                         // Show payment form (for non-flexible timing)
