@@ -265,6 +265,13 @@ interface UnifiedQuoteCardProps {
    * 0/undefined = no nudge yet.
    */
   highlightLiaiseSignal?: number;
+  /**
+   * Structured customer type, read from the persisted contextSignals.customerType
+   * (one of the 6 canonical builder values) with a legacy free-text fallback.
+   * Drives per-type booking defaults: homeowners default to the "I'm flexible"
+   * window. Distinct from isLandlord, which gates the whole landlord booking flow.
+   */
+  customerType?: 'homeowner' | 'landlord' | 'property_manager' | 'tenant' | 'business' | 'letting_agent';
 }
 
 export function UnifiedQuoteCard({
@@ -292,6 +299,7 @@ export function UnifiedQuoteCard({
   contractor,
   isLandlord = false,
   highlightLiaiseSignal = 0,
+  customerType = 'homeowner',
 }: UnifiedQuoteCardProps) {
   // Booking mode flags — when bookingModes is provided, only show those options
   const showStandardDate = !bookingModes || bookingModes.includes('standard_date');
@@ -427,19 +435,27 @@ export function UnifiedQuoteCard({
   }, [pricingLineItems]);
 
   // Phase 29 — flexible booking is the DEFAULT (it lets us route to thin days
-  // and is funded by the 7% uplift baked into prices). Tick it once when a
-  // flex-eligible quote loads; the ref guard means a customer who unticks it
-  // (or picks a specific date) is never silently re-defaulted.
+  // and is funded by the 7% uplift baked into prices). Tick it once on load;
+  // the ref guard means a customer who unticks it (or picks a specific date) is
+  // never silently re-defaulted.
+  // NB: the flex toggle is now OFFERED to every non-landlord quote (see the
+  // render gate below). This effect only controls whether it auto-defaults ON:
+  //   - Homeowners ALWAYS default ON. The flex discount is a flat 7% of
+  //     basePrice (independent of per-line flex_eligible), so it's safe to apply
+  //     to any homeowner quote, including custom/free-text ones.
+  //   - Other non-landlord types default ON only when the quote is flex-eligible
+  //     (has a flex_eligible SKU line); otherwise they open on a firm date with
+  //     no silently-applied discount, but can still opt in.
   // Landlords do NOT auto-default into liaise: it's now a paid premium (+£25), so
   // it must be an explicit opt-in (no surprise fee). They open on the firm-date
   // grid with the liaison toggle offered above it.
   const flexDefaultedRef = useRef(false);
   useEffect(() => {
-    if (isQuoteFlexEligible && !isLandlord && !flexDefaultedRef.current) {
+    if (!isLandlord && (customerType === 'homeowner' || isQuoteFlexEligible) && !flexDefaultedRef.current) {
       flexDefaultedRef.current = true;
       setUseFlexBooking(true);
     }
-  }, [isQuoteFlexEligible, isLandlord]);
+  }, [isQuoteFlexEligible, isLandlord, customerType]);
 
   // Payment state (for inline payment when using downsell)
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -1783,7 +1799,14 @@ export function UnifiedQuoteCard({
               is the default (−7%); choosing "Pick exact date" drops the date
               grid down below. Non-flex-eligible quotes skip this and just show
               the grid. Hidden for landlords (they get the liaise toggle above). */}
-          {!isLandlord && isQuoteFlexEligible && (
+          {/* "I'm flexible" / "I want a set date" toggle — offered to EVERY
+              non-landlord quote (it's the homeowner counterpart to the landlord
+              liaise toggle), no longer gated on per-line SKU flex-eligibility.
+              The 7% saving is a flat % of basePrice (baked into prices), so it's
+              valid on any quote. `isQuoteFlexEligible` now only decides whether
+              flex auto-defaults ON (see effect above); the option itself is
+              always shown. Landlords get the liaise toggle instead. */}
+          {!isLandlord && (
             <div className="mb-4">
               <div className="space-y-2">
                 <button
@@ -1854,12 +1877,11 @@ export function UnifiedQuoteCard({
             </div>
           )}
 
-          {/* Date grid — collapses when liaise is on for landlords (mirrors the
-              "I'm flexible" toggle: no fixed date ⇒ no grid; untick liaise to bring
-              it back). For everyone else it collapses under Flexible and drops down
-              on "set date"; non-flex-eligible quotes always show it. */}
+          {/* Date grid — shown whenever flex/liaise is OFF. Landlords: hidden in
+              liaise mode (no fixed date yet), back when liaise is off. Everyone
+              else: hidden under "I'm flexible", drops down on "I want a set date". */}
           <AnimatePresence initial={false}>
-          {(isLandlord ? !useFlexBooking : (!isQuoteFlexEligible || !useFlexBooking)) && (
+          {!useFlexBooking && (
           <motion.div
             key="date-grid-drop"
             initial={{ height: 0, opacity: 0 }}

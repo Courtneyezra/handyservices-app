@@ -3397,6 +3397,31 @@ export default function PersonalizedQuotePage() {
   // Tenant", so tenants don't get the landlord booking flow.
   const isLandlordQuote = /\blandlord\b/i.test((quote as any).contextSignals?.vaContext || '');
 
+  // Structured customer type. Prefer the value the quote builder persisted
+  // (contextSignals.customerType — one of the 6 canonical values the server's
+  // Phase 21 zod enum allows); fall back to parsing the VA free-text only for
+  // legacy quotes created before that field existed. Drives per-type
+  // booking-card behaviour (e.g. homeowners default to "I'm flexible"). This is
+  // distinct from isLandlordQuote, which is a narrower literal-word match that
+  // gates the landlord booking flow / tenant-liaison promo.
+  const customerType: 'homeowner' | 'landlord' | 'property_manager' | 'tenant' | 'business' | 'letting_agent' = (() => {
+    const stored = (quote as any).contextSignals?.customerType;
+    if (
+      stored === 'homeowner' || stored === 'landlord' || stored === 'property_manager' ||
+      stored === 'tenant' || stored === 'business' || stored === 'letting_agent'
+    ) {
+      return stored;
+    }
+    // Legacy fallback: no persisted customerType, so infer from free-text.
+    const v = ((quote as any).contextSignals?.vaContext || '').toLowerCase();
+    if (/letting agent/.test(v)) return 'letting_agent';
+    if (/landlord|buy.to.let|\bbtl\b/.test(v)) return 'landlord';
+    if (/property manager|portfolio|prop mgr|managing agent/.test(v)) return 'property_manager';
+    if (/\btenant\b/.test(v)) return 'tenant';
+    if (/office|business|company|commercial|shop/.test(v)) return 'business';
+    return 'homeowner';
+  })();
+
   // [DEBUG] Log all conditions for BUSY_PRO feature overrides
   console.log('[QUOTE DEBUG] =====================================');
   console.log('[QUOTE DEBUG] segment:', quote.segment);
@@ -3780,6 +3805,7 @@ export default function PersonalizedQuotePage() {
                       flexibleDiscountPercent={pricingSettings?.flexibleDiscountPercent}
                       contractor={null}
                       isLandlord={isLandlordQuote}
+                      customerType={customerType}
                       highlightLiaiseSignal={liaiseSignal}
                       isBooking={isBooking}
                       onBook={async (config) => {
