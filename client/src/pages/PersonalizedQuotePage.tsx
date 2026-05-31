@@ -1357,60 +1357,65 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
   }, [wistiaLoaded]);
 
   return (
-    <SectionWrapper className="bg-white text-slate-900 py-16">
+    <SectionWrapper className="bg-white text-slate-900 py-16 lg:py-24">
       <div
-        className="max-w-2xl"
+        className="max-w-2xl md:max-w-6xl w-full"
       >
         {/* Header to fill whitespace */}
         <div className="text-center mb-12">
-          <h2 className="text-3xl md:text-4xl font-bold text-[#1D2D3D] mb-4">
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-[#1D2D3D] mb-4">
             {socialProofTitle}
           </h2>
-          <p className="text-slate-500 mb-8">
+          <p className="text-slate-500">
             {content.description}
           </p>
+        </div>
 
+        {/* Body: stacked on mobile, video | proof side-by-side on desktop */}
+        <div className="md:grid md:grid-cols-2 md:gap-14 md:items-center">
           {/* Social Proof Video - Trust Builder (lazy loaded) */}
-          <div ref={videoRef} className="relative aspect-video rounded-2xl overflow-hidden bg-slate-900 shadow-xl mb-12 border-4 border-white/50 ring-1 ring-slate-900/10">
+          <div ref={videoRef} className="relative aspect-video rounded-2xl overflow-hidden bg-slate-900 shadow-xl mb-12 md:mb-0 border-4 border-white/50 ring-1 ring-slate-900/10">
             {/* Wistia Script Injection handled in component body to ensure execution */}
             <style dangerouslySetInnerHTML={{ __html: `wistia-player[media-id='z6vtl8u04e']:not(:defined) { background: center / contain no-repeat url('https://fast.wistia.com/embed/medias/z6vtl8u04e/swatch'); display: block; filter: blur(5px); padding-top:75.0%; }` }} />
             {/* @ts-ignore */}
             <wistia-player media-id="z6vtl8u04e" aspect="1.3333333333333333"></wistia-player>
           </div>
-        </div>
 
-        {/* Stats Row with Icons */}
-        {content.stats && content.stats.length > 0 && (
-        <div className="flex justify-center gap-6 md:gap-12 mb-10">
-          {content.stats.map((stat: any, i: number) => {
-            const IconComponent = statIcons[i] || Star;
-            return (
-              <motion.div
-                key={i}
-                className="text-center"
-                initial={{ opacity: 0, y: 12 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: "50px" }}
-                transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1], delay: 0.05 + i * 0.05 }}
-              >
-                <div className="flex justify-center mb-2">
-                  <div className="p-2 bg-[#7DB00E]/10 rounded-full">
-                    <IconComponent className="w-5 h-5 text-[#7DB00E]" />
-                  </div>
-                </div>
-                <div>
-                  <AnimatedStat value={stat.value} delay={0.2 + i * 0.1} />
-                </div>
-                <div className="text-xs text-slate-500 mt-1">{stat.label}</div>
-              </motion.div>
-            );
-          })}
-        </div>
-        )}
+          <div>
+            {/* Stats Row with Icons */}
+            {content.stats && content.stats.length > 0 && (
+            <div className="flex justify-center md:justify-start gap-6 md:gap-12 mb-10">
+              {content.stats.map((stat: any, i: number) => {
+                const IconComponent = statIcons[i] || Star;
+                return (
+                  <motion.div
+                    key={i}
+                    className="text-center"
+                    initial={{ opacity: 0, y: 12 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, margin: "50px" }}
+                    transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1], delay: 0.05 + i * 0.05 }}
+                  >
+                    <div className="flex justify-center md:justify-start mb-2">
+                      <div className="p-2 bg-[#7DB00E]/10 rounded-full">
+                        <IconComponent className="w-5 h-5 text-[#7DB00E]" />
+                      </div>
+                    </div>
+                    <div>
+                      <AnimatedStat value={stat.value} delay={0.2 + i * 0.1} />
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1">{stat.label}</div>
+                  </motion.div>
+                );
+              })}
+            </div>
+            )}
 
-        {/* Single Testimonial with Image Placeholder */}
-        <div className="max-w-lg mx-auto">
-          <GoogleReviewCard postcode={quote.postcode} variant="light" />
+            {/* Single Testimonial with Image Placeholder */}
+            <div className="max-w-lg mx-auto md:mx-0">
+              <GoogleReviewCard postcode={quote.postcode} variant="light" />
+            </div>
+          </div>
         </div>
       </div>
     </SectionWrapper>
@@ -1507,17 +1512,19 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
   };
 
   return (
-    <SectionWrapper className={`relative overflow-hidden`}>
+    <SectionWrapper className={`relative overflow-hidden bg-slate-900 min-h-[68vh] lg:min-h-[82vh]`}>
       {/* Background Image with Overlay */}
       <div className="absolute inset-0 z-0 select-none">
         <img
           src={getHeroImage(quote)}
           alt="Friendly Plumber"
-          className="w-full h-full object-cover opacity-50 contrast-125"
+          className="w-full h-full object-cover opacity-60 contrast-110"
           style={{ objectPosition: 'center 30%' }}
         />
-        <div className={`absolute inset-0 bg-slate-900/80 mix-blend-multiply`} />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent opacity-90" />
+        {/* Uniform scrim guarantees heading contrast wherever it lands vertically */}
+        <div className={`absolute inset-0 bg-slate-900/60`} />
+        {/* Depth: darker at the very top (scarcity banner) and bottom (timer bar) */}
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-900/70 via-transparent to-slate-900" />
       </div>
 
       <motion.div
@@ -1525,7 +1532,7 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
         whileInView={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.7, ease: [0.23, 1, 0.32, 1] }}
         viewport={{ once: true }}
-        className="max-w-2xl z-10 relative"
+        className="max-w-2xl lg:max-w-3xl z-10 relative"
       >
         {/* BUSY_PRO: Simple confirmation - they've already engaged */}
         {isBusyPro && (
@@ -1537,13 +1544,13 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
           </div>
         )}
 
-        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-4 drop-shadow-sm text-white leading-tight">
+        <h1 className="text-5xl md:text-7xl lg:text-8xl font-extrabold tracking-tight mb-4 drop-shadow-sm text-white leading-tight">
           Hi {quote.customerName.split(' ')[0]},
         </h1>
 
         {/* Contextual headline — punchy outcome statement, only for contextual quotes */}
         {isContextual && content.title && (
-          <p className="text-2xl font-bold text-white/90 italic mb-3 drop-shadow-sm">
+          <p className="text-2xl lg:text-3xl font-bold text-white/90 italic mb-3 drop-shadow-sm">
             "{content.title}"
           </p>
         )}
@@ -1707,16 +1714,17 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
   };
 
   return (
-    <SectionWrapper className={`bg-[#1D2D3D] text-white relative`}>
+    <SectionWrapper className={`bg-[#1D2D3D] text-white relative py-16 lg:py-24`}>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: "50px" }}
         transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
-        className="max-w-2xl"
+        className={`w-full ${!isBusyPro ? 'max-w-2xl md:max-w-6xl' : 'max-w-2xl'}`}
       >
+        <div className={!isBusyPro ? 'md:grid md:grid-cols-2 md:gap-14 md:items-center' : ''}>
         {!isBusyPro && (
-          <div className="flex justify-center mb-10">
+          <div className="flex justify-center mb-10 md:mb-0">
             {content.image ? (
               // Rectangular 'Embed-style' Image for Older Woman / Custom Images
               <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-slate-900 shadow-xl border-4 border-white/10 ring-1 ring-slate-900/10 group">
@@ -1754,8 +1762,9 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
           </div>
         )}
 
+        <div className={!isBusyPro ? 'md:text-left' : ''}>
         <h2 className="text-[#7DB00E] text-xs font-bold uppercase tracking-[0.2em] mb-4">{content.title}</h2>
-        <h3 className="text-4xl md:text-5xl font-light mb-8 text-white">{content.mainTitle}</h3>
+        <h3 className="text-4xl md:text-5xl lg:text-6xl font-light mb-8 text-white">{content.mainTitle}</h3>
 
         <p className="text-slate-300 text-sm md:text-base mb-6">{content.description}</p>
 
@@ -1806,6 +1815,8 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
               <div className="text-[11px] text-slate-400 uppercase tracking-wider">The HandyServices Team</div>
             </div>
           </div>
+        </div>
+        </div>
         </div>
 
 
@@ -3565,7 +3576,7 @@ export default function PersonalizedQuotePage() {
 
         {/* Hassle Comparison — "Without Us vs With Us" */}
         <SectionWrapper className="bg-white">
-          <div className="max-w-2xl mx-auto">
+          <div className="max-w-2xl md:max-w-3xl mx-auto w-full">
             {(() => {
               const vaCtx = ((quote as any).contextSignals?.vaContext || '').toLowerCase();
               const customerType =
@@ -3587,7 +3598,7 @@ export default function PersonalizedQuotePage() {
 
         {/* The Final Reveal: Quote Section */}
         <section id="packages-section" className="bg-slate-50 pt-16 pb-8 px-4 md:px-6 lg:px-8 relative overflow-visible">
-          <div className="w-full max-w-full">
+          <div className="w-full max-w-2xl md:max-w-5xl mx-auto">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
@@ -3598,14 +3609,14 @@ export default function PersonalizedQuotePage() {
               <div className="text-center space-y-4">
 
                 {/* What to expect — Book → Do → Guaranteed timeline */}
-                <div className="max-w-lg mx-auto rounded-2xl bg-[#1D2D3D] text-white text-left p-6 sm:p-8 shadow-lg">
+                <div className="max-w-lg md:max-w-4xl mx-auto rounded-2xl bg-[#1D2D3D] text-white text-left p-6 sm:p-8 shadow-lg">
                   <div className="rounded-xl overflow-hidden mb-6 ring-1 ring-white/10 h-44">
                     <img src={payIn3PromoImage} alt="HandyServices at your door" className="w-full h-full object-cover object-[15%_100%] scale-[1.8]" loading="lazy" />
                   </div>
                   <h3 className="text-2xl font-bold text-center text-white mb-1">What to expect</h3>
                   <p className="text-slate-400 text-sm text-center mb-8">From quote to done — three simple steps</p>
-                  <ol className="relative space-y-7">
-                    <span className="absolute left-[17px] top-3 bottom-3 w-0.5 bg-white/15" aria-hidden="true" />
+                  <ol className="relative space-y-7 md:space-y-0 md:grid md:grid-cols-3 md:gap-8">
+                    <span className="absolute left-[17px] top-3 bottom-3 w-0.5 bg-white/15 md:hidden" aria-hidden="true" />
                     {[
                       { title: 'Pick your date', sub: 'Reserve with a deposit — pay the rest after' },
                       { title: 'We arrive & do it right', sub: 'Vetted pro · fixed price · full cleanup' },
@@ -3625,8 +3636,12 @@ export default function PersonalizedQuotePage() {
 
               </div>
 
-              {/* Scope of Works — standalone block */}
+              {/* Stacked: job summary (full width) then booking card (full width).
+                  Each is wide and uses an internal 2-column desktop layout. */}
+              <div className="space-y-12">
+              {/* Scope of Works — standalone block, centred & readable */}
               <ScopeOfWorks
+                className="md:max-w-4xl md:mx-auto w-full"
                 text={getScopeOfWorks(quote as any)}
                 summary={(quote.jobs as any)?.[0]?.summary}
                 proposalSummary={isContextualQuote ? (quote as any).proposalSummary : undefined}
@@ -3634,6 +3649,8 @@ export default function PersonalizedQuotePage() {
                 estimatorPhotoUrl={mikeProfilePhoto}
               />
 
+              {/* Amended notice + price/booking card */}
+              <div className="space-y-12">
               {(() => {
                 const tierPrice = quote.selectedTierPricePence ?? 0;
                 const currentTotal = quote.basePrice ?? 0;
@@ -3806,6 +3823,8 @@ export default function PersonalizedQuotePage() {
                   </button>
                 </QuoteTimer>
               )}
+              </div>
+              </div>
 
             </motion.div>
 
@@ -3815,7 +3834,7 @@ export default function PersonalizedQuotePage() {
                 id="payment-section"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mt-12 space-y-8"
+                className="mt-12 space-y-8 md:max-w-2xl md:mx-auto"
               >
                 {/* Payment Section */}
                 {showPaymentForm && (

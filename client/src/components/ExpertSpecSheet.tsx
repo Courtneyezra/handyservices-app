@@ -95,7 +95,7 @@ export function ScopeOfWorks({ text, summary, proposalSummary, pricingLineItems,
                         <p className="text-slate-800 text-base md:text-lg font-semibold leading-relaxed pl-4">{proposalSummary}{"\u201D"}</p>
                     </div>
                 ) : useLineItems ? (
-                    <div className="space-y-2.5">
+                    <div className="space-y-2.5 md:grid md:grid-cols-2 md:gap-x-8 md:gap-y-3 md:space-y-0">
                         {visibleItems.map((item) => (
                             <div key={item.lineId} className="flex items-start gap-3">
                                 <div className="w-5 h-5 rounded-full bg-[#7DB00E]/10 flex items-center justify-center shrink-0 mt-0.5">
@@ -113,7 +113,7 @@ export function ScopeOfWorks({ text, summary, proposalSummary, pricingLineItems,
                             <button
                                 type="button"
                                 onClick={() => setShowAll(true)}
-                                className="text-[#7DB00E] text-sm font-semibold hover:underline mt-1 ml-8"
+                                className="text-[#7DB00E] text-sm font-semibold hover:underline mt-1 ml-8 md:col-span-2"
                             >
                                 Show {hiddenCount} more item{hiddenCount === 1 ? '' : 's'}
                             </button>
@@ -122,7 +122,7 @@ export function ScopeOfWorks({ text, summary, proposalSummary, pricingLineItems,
                             <button
                                 type="button"
                                 onClick={() => setShowAll(false)}
-                                className="text-slate-500 text-sm font-semibold hover:underline mt-1 ml-8"
+                                className="text-slate-500 text-sm font-semibold hover:underline mt-1 ml-8 md:col-span-2"
                             >
                                 Show less
                             </button>

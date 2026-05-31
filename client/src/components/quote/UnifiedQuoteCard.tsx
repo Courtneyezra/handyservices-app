@@ -408,8 +408,9 @@ export function UnifiedQuoteCard({
   const priceCardRef = useRef<HTMLDivElement>(null);
   const dateSectionRef = useRef<HTMLDivElement>(null);
 
-  // Sticky CTA: show once the price card has been scrolled past,
-  // stays visible until the user selects a date (starts booking flow)
+  // Sticky CTA: show once the price card has been scrolled past. In the
+  // flexible default no date is ever picked, so it stays until booking; the
+  // button itself adapts ("Book now" vs "Choose your date") based on mode.
   const [stickyCTAActivated, setStickyCTAActivated] = useState(false);
   const showStickyCTA = stickyCTAActivated && selectedDates.length === 0;
 
@@ -1201,9 +1202,9 @@ export function UnifiedQuoteCard({
     <div className={`${isDarkTheme ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 rounded-3xl overflow-hidden shadow-2xl' : ''}`}>
       {/* Header Badge removed — replaced by QuoteTimer pill */}
 
-      <div className={`${isDarkTheme ? 'p-6' : ''} space-y-6`}>
-        {/* Price Display */}
-        <div ref={priceCardRef} className={`text-center ${!isDarkTheme ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-[#7DB00E] rounded-2xl p-6' : ''}`}>
+      <div className={`${isDarkTheme ? 'p-6' : ''} space-y-6 md:space-y-0 md:grid md:grid-cols-5 md:gap-8 md:items-start`}>
+        {/* Price Display — left column on desktop, sticky so it follows the booking flow */}
+        <div ref={priceCardRef} className={`text-center md:col-span-2 md:sticky md:top-6 md:self-start ${!isDarkTheme ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-[#7DB00E] rounded-2xl p-6' : ''}`}>
           {/* Discount Badge — only show when there's a real savings to display and not in pay-full mode */}
           {!payFull && config.showDiscountBadge && savingsPercent > 0 && (
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#7DB00E] text-white text-xs font-bold mb-4">
@@ -1261,40 +1262,50 @@ export function UnifiedQuoteCard({
             </AnimatePresence>
           </div>
 
-          {/* Payment mode toggle: Deposit (default) / Pay in full */}
-          <div className="mt-3 mb-2 flex justify-center">
-            <div className={`inline-flex rounded-full p-0.5 text-xs font-semibold ${isDarkTheme ? 'bg-white/10 backdrop-blur-md border border-white/15' : 'bg-slate-200/80'}`}>
-              <button
-                type="button"
-                onClick={() => setPayFull(false)}
-                className={`relative px-4 py-1.5 rounded-full transition-all duration-200 ${
-                  !payFull
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : isDarkTheme ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Reserve — £{Math.round(depositAmount / 100)} today
-              </button>
-              <button
-                type="button"
-                onClick={() => setPayFull(true)}
-                className={`relative px-4 py-1.5 rounded-full transition-all duration-200 flex items-center gap-1.5 ${
-                  payFull
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : isDarkTheme ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Pay in full
-                <span className="text-[#7DB00E] font-bold">-{Math.round(PAY_FULL_DISCOUNT * 100)}%</span>
-              </button>
-            </div>
-          </div>
+          {/* Payment mode toggle — radio cards matching the Flexible / Pick-date selector.
+              Stacks to one column through the cramped 2-col-card range (768–1279px) so the
+              label and price subtext each stay on a single line; side-by-side on mobile
+              (full-width card) and wide desktop (≥1280px, buttons wide enough). */}
+          <div className="mt-4 grid grid-cols-2 md:grid-cols-1 xl:grid-cols-2 gap-2 text-left">
+            <button
+              type="button"
+              onClick={() => setPayFull(false)}
+              className={`rounded-xl p-3 transition-colors active:scale-[0.99] ${
+                !payFull
+                  ? 'bg-[#7DB00E]/10 border-2 border-[#7DB00E]'
+                  : isDarkTheme ? 'bg-white/[0.04] border-2 border-white/10' : 'bg-slate-50 border-2 border-slate-200'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${!payFull ? 'bg-[#7DB00E] border-[#7DB00E]' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
+                  {!payFull && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                </span>
+                <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I'll reserve it</span>
+              </div>
+              <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                £{Math.round(depositAmount / 100)} now · £{Math.round(balanceOnCompletion / 100)} later
+              </p>
+            </button>
 
-          <div className={`text-sm ${isDarkTheme ? 'text-slate-400' : 'text-slate-600'}`}>
-            {payFull
-              ? `Pay £${Math.round(payFullTotal / 100)} now — nothing on the day`
-              : `£${Math.round(depositAmount / 100)} deposit · £${Math.round(balanceOnCompletion / 100)} on completion`
-            }
+            <button
+              type="button"
+              onClick={() => setPayFull(true)}
+              className={`rounded-xl p-3 transition-colors active:scale-[0.99] ${
+                payFull
+                  ? 'bg-[#7DB00E]/10 border-2 border-[#7DB00E]'
+                  : isDarkTheme ? 'bg-white/[0.04] border-2 border-white/10' : 'bg-slate-50 border-2 border-slate-200'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${payFull ? 'bg-[#7DB00E] border-[#7DB00E]' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
+                  {payFull && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                </span>
+                <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I'll pay in full</span>
+              </div>
+              <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                £{Math.round(payFullTotal / 100)} now · <span className="text-[#7DB00E] font-bold">save £{Math.round(payFullSaving / 100)}</span>
+              </p>
+            </button>
           </div>
 
           {/* Inline Price Breakdown (always visible) */}
@@ -1304,6 +1315,34 @@ export function UnifiedQuoteCard({
                 {pricingLineItems.map((item) => (
                   <QuoteLineRow key={item.lineId} item={item} isDarkTheme={isDarkTheme} />
                 ))}
+              </div>
+              {/* What's included — trust band directly under the line items */}
+              <div className="mt-3">
+                <p className={`text-[11px] font-semibold uppercase tracking-wide mb-2 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Included as standard
+                </p>
+                <div className="grid grid-cols-4 gap-2">
+                  {([
+                    { icon: <Tag className="w-4 h-4" />, label: 'Fixed price' },
+                    { icon: <Camera className="w-4 h-4" />, label: 'Photo report' },
+                    { icon: <Sparkles className="w-4 h-4" />, label: 'Full cleanup' },
+                    { icon: <Shield className="w-4 h-4" />, label: 'Guaranteed' },
+                  ]).map((item, i) => (
+                    <div
+                      key={i}
+                      className={`flex flex-col items-center justify-center rounded-lg py-2.5 px-1 text-center ${
+                        isDarkTheme
+                          ? 'bg-white/5 border border-white/10'
+                          : 'bg-slate-50 border border-slate-200'
+                      }`}
+                    >
+                      <div className="text-[#7DB00E] mb-1">{item.icon}</div>
+                      <span className={`text-[10px] font-medium leading-tight ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
+                        {item.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
               {/* Optional extras (ticked add-ons below line items) */}
               {(optionalExtras?.length ?? 0) > 0 && (
@@ -1417,6 +1456,9 @@ export function UnifiedQuoteCard({
           </div>
 
         </div>
+
+        {/* Right column on desktop: booking flow (scheduling, add-ons, trust, payment) */}
+        <div className="space-y-6 md:col-span-3">
 
         {/* Downsell Option (if available and flexible_discount mode enabled).
             Phase 26 / Anomaly #3 — when ANY SKU line on the quote is
@@ -1536,7 +1578,7 @@ export function UnifiedQuoteCard({
                     <span className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${useFlexBooking ? 'bg-handy-yellow border-handy-yellow' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
                       {useFlexBooking && <Check className="w-3 h-3 text-handy-navy" strokeWidth={3} />}
                     </span>
-                    <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>Flexible</span>
+                    <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I'm flexible</span>
                     <span className="ml-auto text-[10px] bg-handy-yellow text-handy-navy px-1.5 py-0.5 rounded-full font-bold">−{FLEX_DISCOUNT_PERCENT}%</span>
                   </div>
                   <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -1563,7 +1605,7 @@ export function UnifiedQuoteCard({
                     <span className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${!useFlexBooking ? 'bg-[#7DB00E] border-[#7DB00E]' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
                       {!useFlexBooking && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
                     </span>
-                    <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>Pick exact date</span>
+                    <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I want a set date</span>
                     <Calendar className="ml-auto w-4 h-4 text-slate-400" />
                   </div>
                   <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -1996,30 +2038,6 @@ export function UnifiedQuoteCard({
         {/* Phase 30 — the duplicate price-recap box was removed here; the total
             is reaffirmed as a slim line right above the pay CTA instead. */}
 
-        {/* What's Included — near payment for trust at decision point */}
-        <div className={`grid grid-cols-4 gap-2`}>
-          {([
-            { icon: <Tag className="w-4 h-4" />, label: 'Fixed price' },
-            { icon: <Camera className="w-4 h-4" />, label: 'Photo report' },
-            { icon: <Sparkles className="w-4 h-4" />, label: 'Full cleanup' },
-            { icon: <Shield className="w-4 h-4" />, label: 'Guaranteed' },
-          ]).map((item, i) => (
-            <div
-              key={i}
-              className={`flex flex-col items-center justify-center rounded-lg py-2.5 px-1 text-center ${
-                isDarkTheme
-                  ? 'bg-white/5 border border-white/10'
-                  : 'bg-slate-50 border border-slate-200'
-              }`}
-            >
-              <div className="text-[#7DB00E] mb-1">{item.icon}</div>
-              <span className={`text-[10px] font-medium leading-tight ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
-                {item.label}
-              </span>
-            </div>
-          ))}
-        </div>
-
         {/* Trust strip — near payment for maximum conversion impact */}
         <div className="flex flex-wrap items-center justify-center gap-1.5">
           {['DBS Checked', '£2M Insured', '4.9★ Google'].map((label) => (
@@ -2058,7 +2076,7 @@ export function UnifiedQuoteCard({
                     <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${isDarkTheme ? 'bg-white/5 border border-white/10' : 'bg-white border border-slate-200'}`}>
                       <MapPin className="w-4 h-4 text-[#7DB00E] shrink-0" />
                       <span className={`font-semibold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>{postcode}</span>
-                      <span className={`text-[11px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>— we've got your postcode</span>
+                      <span className={`text-[11px] whitespace-nowrap ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>— already on file</span>
                     </div>
                   )}
                   {/* Address — Google Places autocomplete (single line). */}
@@ -2256,6 +2274,8 @@ export function UnifiedQuoteCard({
         )}
         </div>
 
+        </div>
+
       </div>
 
       {/* Sticky bottom CTA — portaled to body to avoid transform containment breaking fixed positioning */}
@@ -2282,15 +2302,28 @@ export function UnifiedQuoteCard({
                   <button
                     type="button"
                     onClick={() => {
-                      dateSectionRef.current?.scrollIntoView({
+                      // Flexible is the default: the customer doesn't pick a date,
+                      // so drive them to the booking/payment step. Only the
+                      // "Pick exact date" path needs the date grid.
+                      const target = useFlexBooking ? bookSectionRef : dateSectionRef;
+                      target.current?.scrollIntoView({
                         behavior: 'smooth',
-                        block: 'center',
+                        block: useFlexBooking ? 'start' : 'center',
                       });
                     }}
                     className="flex-1 max-w-[220px] bg-[#7DB00E] hover:bg-[#6a9a0c] active:scale-[0.98] text-white font-bold py-3 px-5 rounded-xl text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#7DB00E]/25"
                   >
-                    <Calendar className="w-4 h-4" />
-                    Choose your date
+                    {useFlexBooking ? (
+                      <>
+                        <CreditCard className="w-4 h-4" />
+                        Book now
+                      </>
+                    ) : (
+                      <>
+                        <Calendar className="w-4 h-4" />
+                        Choose your date
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
