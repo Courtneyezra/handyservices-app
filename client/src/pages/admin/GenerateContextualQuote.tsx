@@ -2321,6 +2321,7 @@ export default function GenerateContextualQuote() {
                                 onPickSku={(result) => handlePickSkuForLine(item.id, result)}
                                 onBlur={() => handlePolishDescription(item.id, item.description)}
                                 onCustomChange={(c) => handleLineCustomChange(item.id, c)}
+                                onCreateCustom={() => handleLineCustomChange(item.id, true)}
                               />
 
                               {/* Detail textarea — only once the line is custom, then gated on the global "Detail" toggle */}

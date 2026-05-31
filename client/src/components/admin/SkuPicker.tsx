@@ -17,11 +17,13 @@
  * Pick telemetry is fire-and-forget: POST /api/admin/sku-catalog/:sku/pick.
  */
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Loader2, Search, Clock, Tag, Package, Layers, X, Star, Info } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Loader2, Search, Clock, Tag, Package, Layers, X, Star, PencilRuler } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { searchSkus } from '@/lib/sku-search';
 
 // ──────────────────────────────────────────────────────────────────────────
 // Types — mirror server `serviceCatalog` shape, kept loose because rows are
@@ -76,6 +78,25 @@ export interface SkuPickResult {
 function getAuthHeaders(): Record<string, string> {
   const token = localStorage.getItem('adminToken');
   return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/**
+ * Phase 33 — load the whole active catalog once and cache it. The catalog is
+ * only ~161 rows, so the inline autocomplete searches it in-memory rather than
+ * round-tripping per keystroke. Shared cache key so every inline field reuses
+ * the same fetched list.
+ */
+export function useActiveSkuCatalog() {
+  return useQuery({
+    queryKey: ['sku-catalog-active'],
+    queryFn: async (): Promise<CatalogSku[]> => {
+      const res = await fetch('/api/admin/sku-catalog/search?limit=500', { headers: { ...getAuthHeaders() } });
+      if (!res.ok) throw new Error('catalog load failed');
+      const j = await res.json();
+      return (j.results as CatalogSku[]) || [];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
 }
 
 function formatMinutes(min: number): string {
@@ -528,6 +549,8 @@ interface InlineSkuAutocompleteProps {
   /** Fired after a settled search: true when the typed text (≥3 chars) found NO
    *  catalog match, so the parent can reveal the custom Category/Time/Materials. */
   onCustomChange?: (isCustom: boolean) => void;
+  /** Fired when the admin explicitly chooses "Create custom" from the dropdown. */
+  onCreateCustom?: () => void;
 }
 
 export function InlineSkuAutocomplete({
@@ -539,16 +562,20 @@ export function InlineSkuAutocomplete({
   autoFocus = false,
   dimmed = false,
   onCustomChange,
+  onCreateCustom,
 }: InlineSkuAutocompleteProps) {
-  const [results, setResults] = useState<CatalogSku[]>([]);
-  const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
-  /** Set true once a SKU is picked from this field so the "no match" hint and
-   *  the dropdown both stand down even if `value` still holds query text. */
+  /** Set true once a SKU is picked from this field so the dropdown stands down
+   *  even if `value` still holds the (rewritten) SKU-name text. */
   const [picked, setPicked] = useState(false);
+  /** Set true once the admin explicitly committed to a custom line via the
+   *  "Create custom" row, so the dropdown stops re-offering it. */
+  const [committedCustom, setCommittedCustom] = useState(false);
 
-  const abortRef = useRef<AbortController | null>(null);
+  // Phase 33 — the whole active catalog, cached + searched in-memory.
+  const { data: catalog = [], isLoading: catalogLoading } = useActiveSkuCatalog();
+
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -561,56 +588,42 @@ export function InlineSkuAutocomplete({
     }
   }, [autoFocus]);
 
-  // Debounced search — 200ms after last keystroke; min 2 chars. We only search
-  // while the field is in "typing" mode (not just picked) to avoid a flash of
-  // results the instant a pick rewrites `value` to the SKU name.
+  // In-memory matches. No matches once the line is picked or the admin has
+  // committed to custom, and not until there's ≥2 chars to search on.
+  const results = useMemo(
+    () => (picked || committedCustom || value.trim().length < 2 ? [] : searchSkus(catalog, value, 8)),
+    [catalog, value, picked, committedCustom],
+  );
+
+  // Clearing the field (back below 2 chars) re-arms search mode: drop both the
+  // picked + custom-committed latches so typing again searches afresh.
   useEffect(() => {
-    if (picked) return;
-    const q = value.trim();
-    if (q.length < 2) {
-      setResults([]);
-      setLoading(false);
-      setOpen(false);
+    if (value.trim().length < 2) {
+      setPicked(false);
+      setCommittedCustom(false);
+    }
+  }, [value]);
+
+  // Keep highlight in range as results change; reset to the top on each new set.
+  useEffect(() => {
+    setHighlight(0);
+  }, [results]);
+
+  // A custom line is offered whenever there's real text and we're neither picked
+  // nor already committed to custom.
+  const canCreateCustom = value.trim().length >= 2 && !picked && !committedCustom;
+
+  // Settled in-memory search with real text (≥3 chars) but zero hits ⇒ the
+  // parent should treat this line as custom (reveal Category/Time/Materials).
+  // Below 2 chars we explicitly clear the custom flag.
+  useEffect(() => {
+    if (value.trim().length < 2) {
       onCustomChange?.(false);
       return;
     }
-    setLoading(true);
-    const handle = setTimeout(() => {
-      runSearch(q);
-    }, 200);
-    return () => clearTimeout(handle);
+    onCustomChange?.(value.trim().length >= 3 && results.length === 0 && !catalogLoading);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, picked]);
-
-  async function runSearch(q: string) {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    try {
-      const params = new URLSearchParams({ q, limit: '8' });
-      const res = await fetch(`/api/admin/sku-catalog/search?${params.toString()}`, {
-        headers: { ...getAuthHeaders() },
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        setResults([]);
-        // An auth/server error is not a real "no match" — don't flip to custom.
-        onCustomChange?.(false);
-        return;
-      }
-      const data = await res.json();
-      const rows = Array.isArray(data?.results) ? data.results : [];
-      setResults(rows);
-      setHighlight(0);
-      setOpen(rows.length > 0);
-      // Settled search with real text but zero hits ⇒ this line is custom.
-      onCustomChange?.(q.length >= 3 && rows.length === 0);
-    } catch (err: any) {
-      if (err?.name !== 'AbortError') setResults([]);
-    } finally {
-      if (!controller.signal.aborted) setLoading(false);
-    }
-  }
+  }, [results, value, catalogLoading]);
 
   function commitPick(sku: CatalogSku) {
     const preview = previewSkuPriceAndMinutes(sku);
@@ -619,7 +632,6 @@ export function InlineSkuAutocomplete({
     recordPick(sku.skuCode);
     setPicked(true);
     setOpen(false);
-    setResults([]);
     onCustomChange?.(false);
     onPickSku({
       sku,
@@ -630,33 +642,53 @@ export function InlineSkuAutocomplete({
     });
   }
 
+  // Admin explicitly chose the "Create custom" row. Latch custom so the dropdown
+  // stops re-offering it; leave `value` untouched (the typed text is the line
+  // description). The parent reveal is driven via onCreateCustom.
+  function commitCustom() {
+    setCommittedCustom(true);
+    setOpen(false);
+    onCreateCustom?.();
+  }
+
+  // The custom row sits at index === results.length, so keyboard nav cycles
+  // through [...results, custom]. When there are zero results but custom is
+  // available, that single row is index 0.
+  const navCount = results.length + (canCreateCustom ? 1 : 0);
+  // The dropdown only renders when focused/active AND there's something to show.
+  const showDropdown = open && (results.length > 0 || canCreateCustom);
+  const customIndex = results.length; // index of the custom row when present
+
   function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (!open || results.length === 0) {
-      // Esc still closes a stale-open dropdown
+    if (!showDropdown || navCount === 0) {
+      // Esc still closes a stale-open dropdown.
       if (e.key === 'Escape') setOpen(false);
       return;
     }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setHighlight((h) => (h + 1) % results.length);
+      setHighlight((h) => (h + 1) % navCount);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setHighlight((h) => (h - 1 + results.length) % results.length);
+      setHighlight((h) => (h - 1 + navCount) % navCount);
     } else if (e.key === 'Enter') {
-      // Only swallow Enter when a suggestion is highlighted; otherwise let the
-      // keystroke fall through (the text stays as a custom description).
-      const sku = results[highlight];
-      if (sku) {
+      // Custom row highlighted → create custom; a SKU row highlighted → pick it.
+      // Otherwise let Enter fall through (text stays as a custom description).
+      if (canCreateCustom && highlight === customIndex) {
         e.preventDefault();
-        commitPick(sku);
+        commitCustom();
+      } else {
+        const sku = results[highlight];
+        if (sku) {
+          e.preventDefault();
+          commitPick(sku);
+        }
       }
     } else if (e.key === 'Escape') {
       e.preventDefault();
       setOpen(false);
     }
   }
-
-  const showHint = !picked && !open && !loading && value.trim().length >= 2 && results.length === 0;
 
   return (
     <div ref={containerRef} className="relative">
@@ -665,14 +697,14 @@ export function InlineSkuAutocomplete({
         placeholder={placeholder}
         value={value}
         onChange={(e) => {
-          // Any keystroke re-arms search mode; a previously-picked field is now
-          // being re-typed (the parent's Clear path resets value to '').
+          // Any keystroke re-arms search mode; a previously-picked or
+          // custom-committed field is now being re-typed.
           setPicked(false);
+          setCommittedCustom(false);
+          setOpen(true);
           onChangeText(e.target.value);
         }}
-        onFocus={() => {
-          if (results.length > 0 && !picked) setOpen(true);
-        }}
+        onFocus={() => setOpen(true)}
         onBlur={() => {
           // Defer close so an in-flight mousedown on a row still registers.
           blurTimer.current = setTimeout(() => setOpen(false), 120);
@@ -685,13 +717,13 @@ export function InlineSkuAutocomplete({
         }`}
       />
 
-      {/* Loading spinner pinned right while the debounce resolves */}
-      {loading && !open && (
+      {/* Initial catalog load spinner (only while the cache is empty) */}
+      {catalogLoading && catalog.length === 0 && value.trim().length >= 2 && (
         <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-handy-muted animate-spin" />
       )}
 
-      {/* Dropdown */}
-      {open && results.length > 0 && (
+      {/* Dropdown — SKU results plus an always-available "Create custom" row */}
+      {showDropdown && (
         <div
           className="absolute z-30 left-0 right-0 mt-1 rounded-lg border border-handy-grid bg-white shadow-lg overflow-hidden max-h-[18rem] overflow-y-auto"
           // Keep focus on the input so blur-close doesn't fire mid-pick.
@@ -749,15 +781,36 @@ export function InlineSkuAutocomplete({
               </button>
             );
           })}
-        </div>
-      )}
 
-      {/* No-match hint — the line will be quoted as custom work */}
-      {showHint && (
-        <p className="mt-1 flex items-center gap-1 text-[11px] text-handy-muted">
-          <Info className="w-3 h-3 shrink-0" />
-          No catalog match — will be quoted as a custom job.
-        </p>
+          {/* Create-custom row — always last; the only/primary row when no SKU
+              matches. Styled as a distinct make-to-order action. */}
+          {canCreateCustom && (() => {
+            const isActive = highlight === customIndex;
+            const trimmed = value.trim();
+            const shown = trimmed.length > 38 ? `${trimmed.slice(0, 38)}…` : trimmed;
+            return (
+              <button
+                type="button"
+                onMouseEnter={() => setHighlight(customIndex)}
+                onClick={commitCustom}
+                className={`w-full text-left px-3 py-2.5 flex items-center gap-2 transition-[transform,background-color,color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-[0.99] ${
+                  results.length > 0 ? 'border-t border-dashed border-handy-grid' : ''
+                } ${isActive ? 'bg-handy-navy text-white' : 'bg-handy-cream/40 hover:bg-handy-navy/5'}`}
+              >
+                <PencilRuler className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-white' : 'text-handy-muted'}`} />
+                <span className={`text-xs font-semibold truncate ${isActive ? 'text-white' : 'text-handy-navy'}`}>
+                  Create custom:{' '}
+                  <span className={`font-normal ${isActive ? 'text-white/80' : 'text-handy-muted'}`}>
+                    “{shown}”
+                  </span>
+                </span>
+                <span className={`ml-auto shrink-0 text-[9px] uppercase tracking-wider font-semibold ${isActive ? 'text-white/70' : 'text-handy-muted/70'}`}>
+                  make-to-order
+                </span>
+              </button>
+            );
+          })()}
+        </div>
       )}
     </div>
   );
