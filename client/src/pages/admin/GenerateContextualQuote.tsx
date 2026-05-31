@@ -1257,58 +1257,6 @@ export default function GenerateContextualQuote() {
     return () => clearTimeout(t);
   }, [fetchAiSuggestedExtras]);
 
-  // ─── Phase 21b — Auto-pick relevant catalog extras for landlord-type customers ───
-  // When customerType flips to landlord/property_manager, pull the matching
-  // catalog rows by label and add them to optionalExtras (dedupe by label so
-  // the user keeps anything they already picked). The user can untick any of
-  // the auto-picks in the AI-suggestions list as normal.
-  const autoPickedForRef = useRef<CustomerType | ''>('');
-  useEffect(() => {
-    if (!customerType || autoPickedForRef.current === customerType) return;
-    if (customerType !== 'landlord' && customerType !== 'property_manager') {
-      autoPickedForRef.current = customerType;
-      return;
-    }
-    const labelsForType: Record<string, string[]> = {
-      landlord: ['Photo report on completion', 'Tax-ready itemised invoice'],
-      property_manager: [
-        'Photo report on completion',
-        'Tax-ready itemised invoice',
-        'Tenant coordination',
-      ],
-    };
-    const wanted = new Set(labelsForType[customerType] || []);
-    if (wanted.size === 0) return;
-
-    fetch('/api/admin/extras-catalog', { headers: { ...getAuthHeaders() } })
-      .then((r) => (r.ok ? r.json() : { extras: [] }))
-      .then(({ extras }) => {
-        const matches = (extras || []).filter((e: any) => wanted.has(e.label));
-        if (matches.length === 0) return;
-        setOptionalExtras((prev) => {
-          const seen = new Set(prev.map((e) => e.label));
-          const additions = matches
-            .filter((m: any) => !seen.has(m.label))
-            .map((m: any) => ({
-              label: m.label,
-              description: m.description,
-              priceInPence: m.priceInPence,
-              ...(m.badge ? { badge: m.badge } : {}),
-            }));
-          return additions.length ? [...prev, ...additions] : prev;
-        });
-        autoPickedForRef.current = customerType;
-        toast({
-          title: 'Auto-picked relevant extras',
-          description:
-            customerType === 'landlord'
-              ? 'Photo report + tax-ready invoice added — untick on the right if not needed.'
-              : 'Photo report, tax-ready invoice + tenant coordination added — untick if not needed.',
-        });
-      })
-      .catch(() => {});
-  }, [customerType, toast]);
-
   // ═══════════════════════════════════════════════════════════════════════════
   // API: Fetch recent callers
   // ═══════════════════════════════════════════════════════════════════════════

@@ -1098,6 +1098,10 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
             // Phase 30 — door address captured in the customer quote booking section
             address,
             coordinates,
+            // Landlord liaise-with-tenant — tenant contact for ops to arrange access
+            liaiseWithTenant,
+            tenantName,
+            tenantMobile,
         } = req.body;
 
         console.log(`[track-booking] Quote ${id} — date: ${selectedDate}, timeSlot: ${timeSlotType}, tier: ${schedulingTier}, weekend: ${isWeekendBooking}, fee: ${schedulingFeeInPence}p`);
@@ -1164,6 +1168,20 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
                   : {}),
                 ...(coordinates && typeof coordinates.lat === 'number' && typeof coordinates.lng === 'number'
                   ? { coordinates: { lat: coordinates.lat, lng: coordinates.lng } }
+                  : {}),
+                // Landlord liaise-with-tenant — merge the tenant contact into the
+                // existing contextSignals (preserving vaContext etc.) so ops can
+                // reach the tenant. Conditional spread: only written when the
+                // customer actually chose to liaise, so other bookings are untouched.
+                ...(liaiseWithTenant
+                  ? {
+                      contextSignals: {
+                        ...((quote.contextSignals as Record<string, unknown>) || {}),
+                        liaiseWithTenant: true,
+                        tenantName: typeof tenantName === 'string' && tenantName.trim() ? tenantName.trim() : undefined,
+                        tenantMobile: typeof tenantMobile === 'string' && tenantMobile.trim() ? tenantMobile.trim() : undefined,
+                      },
+                    }
                   : {}),
                 // depositPaidAt is set by Stripe webhook after payment confirmation
                 // bookedAt is set by Stripe webhook after payment confirmation

@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar, CalendarCheck, Sun, Clipboard, Calculator, CreditCard, Gift, Play, Truck, Award, Sparkles, Package, Download, Building, FileText } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock, Check, Loader2, Star, Shield, Crown, Camera, PhoneCall, UserCheck, X, Zap, Lock, ShieldCheck, Wrench, User, Phone, Mail, MapPin, ChevronDown, Calendar, CalendarCheck, Sun, Clipboard, Calculator, CreditCard, Gift, Play, Truck, Award, Sparkles, Package, Download, Building, FileText, MessageCircle } from 'lucide-react';
 import { SiGoogle, SiVisa, SiMastercard, SiAmericanexpress, SiApplepay, SiStripe, SiKlarna } from 'react-icons/si';
 import { FaWhatsapp, FaPaypal } from 'react-icons/fa';
 import { useToast } from '@/hooks/use-toast';
@@ -1323,8 +1323,6 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
     /professional|busy exec|corporate/.test(vaCtxSocial) ? 'professionals' :
     'homeowners';
 
-  const socialProofTitle = `Trusted by ${locationName} ${customerType}`;
-
   // Lazy load Wistia scripts — only when video section enters viewport
   const videoRef = useRef<HTMLDivElement>(null);
   const [wistiaLoaded, setWistiaLoaded] = useState(false);
@@ -1363,10 +1361,15 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
       >
         {/* Header to fill whitespace */}
         <div className="text-center mb-12">
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-[#1D2D3D] mb-4">
-            {socialProofTitle}
+          {/* Eyebrow: live credibility anchor above the headline */}
+          <div className="flex items-center justify-center gap-1.5 mb-4 text-[13px] font-semibold uppercase tracking-wider text-slate-500">
+            <Star className="w-4 h-4 fill-[#7DB00E] text-[#7DB00E]" />
+            <span><span className="text-[#1D2D3D]">{pricingSettings?.googleRating ?? '4.9'}</span> · {pricingSettings?.reviewCount ?? 127} Google reviews</span>
+          </div>
+          <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold text-[#1D2D3D] tracking-tight leading-[1.08] mb-4">
+            Trusted by {locationName} <span className="text-[#7DB00E]">{customerType}</span>
           </h2>
-          <p className="text-slate-500">
+          <p className="text-base md:text-lg text-slate-600 max-w-md mx-auto">
             {content.description}
           </p>
         </div>
@@ -2654,6 +2657,14 @@ export default function PersonalizedQuotePage() {
   // fires immediately before onPaymentSuccess → handleBooking → /track-booking),
   // which persists it to personalized_quotes so dispatch has the real address.
   const bookingAddressRef = useRef<{ line: string; postcode?: string; lat?: number; lng?: number } | null>(null);
+  // Landlord liaise-with-tenant contact captured in the UnifiedQuoteCard booking
+  // section. Held in a ref (same reason as bookingAddressRef) so handleBooking
+  // forwards it to /track-booking, which merges it into contextSignals so ops can
+  // arrange access with the tenant.
+  const tenantInfoRef = useRef<{ liaiseWithTenant: boolean; tenantName?: string; tenantMobile?: string } | null>(null);
+  // Landlord-only: the tenant-liaison promo CTA bumps this nonce; UnifiedQuoteCard
+  // watches it to scroll to + pulse the liaise toggle (the nudge lives with the toggle).
+  const [liaiseSignal, setLiaiseSignal] = useState(0);
   // const [isExpiredState, setIsExpiredState] = useState(false); // Removed - quotes no longer expire
   const [showPaymentForm, setShowPaymentForm] = useState(false); // Controls visibility of the payment section
 
@@ -3281,6 +3292,11 @@ export default function PersonalizedQuotePage() {
             coordinates: (bookingAddressRef.current?.lat != null && bookingAddressRef.current?.lng != null)
               ? { lat: bookingAddressRef.current.lat, lng: bookingAddressRef.current.lng }
               : undefined,
+            // Landlord liaise-with-tenant contact — merged into contextSignals
+            // server-side so ops can arrange access with the tenant directly.
+            liaiseWithTenant: tenantInfoRef.current?.liaiseWithTenant || undefined,
+            tenantName: tenantInfoRef.current?.tenantName || undefined,
+            tenantMobile: tenantInfoRef.current?.tenantMobile || undefined,
           }),
         });
       }
@@ -3374,6 +3390,12 @@ export default function PersonalizedQuotePage() {
   // Payment) instead of the bare-bones ContextualQuoteLayout.
   // ---------------------------------------------------------------------------
   const isContextualQuote = (quote?.segment === 'CONTEXTUAL') || !!(quote?.layoutTier && quote?.valueBullets);
+
+  // Landlord detection. ownershipContext is never populated with 'landlord', so the
+  // real signal is the VA free-text context ("Customer type: Landlord. Area: NG7…").
+  // The \b word boundary deliberately matches "landlord" but NOT "Customer type:
+  // Tenant", so tenants don't get the landlord booking flow.
+  const isLandlordQuote = /\blandlord\b/i.test((quote as any).contextSignals?.vaContext || '');
 
   // [DEBUG] Log all conditions for BUSY_PRO feature overrides
   console.log('[QUOTE DEBUG] =====================================');
@@ -3608,6 +3630,33 @@ export default function PersonalizedQuotePage() {
             >
               <div className="text-center space-y-4">
 
+                {/* Landlord-only: promote the +£25 tenant-liaison concierge. The CTA
+                    nudges (scrolls to + pulses) the liaise toggle in the booking card
+                    below rather than toggling it for them — the choice still happens
+                    there, where the tenant's contact is captured. */}
+                {isLandlordQuote && (
+                  <div className="max-w-lg md:max-w-4xl mx-auto rounded-2xl border border-[#7DB00E]/30 bg-[#7DB00E]/[0.06] p-6 sm:p-7 text-left">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-5">
+                      <span className="shrink-0 w-12 h-12 rounded-full bg-[#7DB00E] flex items-center justify-center">
+                        <MessageCircle className="w-6 h-6 text-[#1D2D3D]" strokeWidth={2.5} />
+                      </span>
+                      <div className="flex-1">
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-[#5a8000] mb-1">Hands-off access</p>
+                        <h3 className="text-lg sm:text-xl font-bold text-[#1D2D3D] leading-tight">Can't be there? We'll handle your tenant.</h3>
+                        <p className="text-sm text-slate-600 mt-1.5 leading-snug">We text your tenant, agree a time, sort access, and confirm it back to you. You don't lift a finger.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setLiaiseSignal(n => n + 1)}
+                        className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-[#7DB00E] px-5 py-3 text-sm font-bold text-[#1D2D3D] transition-[background-color,transform] duration-150 ease-out hover:bg-[#8cc40f] active:scale-[0.97]"
+                      >
+                        Add tenant liaison
+                        <span className="text-[11px] bg-[#1D2D3D] text-white px-2 py-0.5 rounded-full">+£25</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* What to expect — Book → Do → Guaranteed timeline */}
                 <div className="max-w-lg md:max-w-4xl mx-auto rounded-2xl bg-[#1D2D3D] text-white text-left p-6 sm:p-8 shadow-lg">
                   <div className="rounded-xl overflow-hidden mb-6 ring-1 ring-white/10 h-44">
@@ -3730,6 +3779,8 @@ export default function PersonalizedQuotePage() {
                       payInFullDiscountPercent={pricingSettings?.payInFullDiscountPercent}
                       flexibleDiscountPercent={pricingSettings?.flexibleDiscountPercent}
                       contractor={null}
+                      isLandlord={isLandlordQuote}
+                      highlightLiaiseSignal={liaiseSignal}
                       isBooking={isBooking}
                       onBook={async (config) => {
                         setIsBooking(true);
@@ -3767,6 +3818,16 @@ export default function PersonalizedQuotePage() {
                         // .address/.coordinates). Removes the later "what's the address?" chase.
                         if (config.address?.line) {
                           bookingAddressRef.current = config.address;
+                        }
+
+                        // Landlord liaise-with-tenant — capture tenant contact so
+                        // handleBooking forwards it to /track-booking.
+                        if (config.liaiseWithTenant) {
+                          tenantInfoRef.current = {
+                            liaiseWithTenant: true,
+                            tenantName: config.tenantName,
+                            tenantMobile: config.tenantMobile,
+                          };
                         }
 
                         // Show payment form (for non-flexible timing)

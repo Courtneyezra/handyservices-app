@@ -6,7 +6,7 @@ import {
   Check, Calendar, CalendarCheck, Clock, Tag, Shield, Zap,
   ChevronRight, ChevronDown, Percent, Sparkles, Star, Plus,
   Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle, User,
-  PencilRuler, MapPin
+  PencilRuler, MapPin, Receipt, Umbrella
 } from 'lucide-react';
 import { SkuIcon } from '@/lib/sku-icons';
 import { QuoteAddressInput } from '@/components/quote/QuoteAddressInput';
@@ -212,6 +212,15 @@ interface UnifiedQuoteCardProps {
      * column. Server-side wiring is owned by Agent 25e.
      */
     flexBookingWithinDays?: number;
+    /**
+     * Landlord liaise-with-tenant booking. When the customer is a landlord and
+     * chooses "Liaise dates with my tenant" instead of picking a date, we capture
+     * the tenant's contact so ops can arrange access directly. Persisted into
+     * personalized_quotes.contextSignals via /track-booking.
+     */
+    liaiseWithTenant?: boolean;
+    tenantName?: string;
+    tenantMobile?: string;
   }) => void;
   onPaymentSuccess?: (paymentIntentId: string) => Promise<void>;
   isBooking?: boolean;
@@ -241,6 +250,21 @@ interface UnifiedQuoteCardProps {
     bio?: string | null;
     trustBadges?: string[] | null;
   } | null;
+  /**
+   * Landlord mode. Detected upstream from the VA context signal
+   * (`/\blandlord\b/i.test(contextSignals.vaContext)`), NOT from ownershipContext
+   * which is never populated with 'landlord'. When true the booking card swaps the
+   * "Included as standard" grid + the flexible/set-date toggle for landlord-specific
+   * variants (tenant liaison, tax-ready invoice, liaise-with-tenant scheduling).
+   */
+  isLandlord?: boolean;
+  /**
+   * Nonce bumped by the page's landlord promo CTA. Each increment scrolls the
+   * liaise toggle into view and pulses it once — a "look here" nudge that lives
+   * with the toggle (which this card owns) rather than reaching across the DOM.
+   * 0/undefined = no nudge yet.
+   */
+  highlightLiaiseSignal?: number;
 }
 
 export function UnifiedQuoteCard({
@@ -266,6 +290,8 @@ export function UnifiedQuoteCard({
   shortSlug,
   allowedDates,
   contractor,
+  isLandlord = false,
+  highlightLiaiseSignal = 0,
 }: UnifiedQuoteCardProps) {
   // Booking mode flags — when bookingModes is provided, only show those options
   const showStandardDate = !bookingModes || bookingModes.includes('standard_date');
@@ -336,7 +362,48 @@ export function UnifiedQuoteCard({
   // contract Agents 25a/25b agreed.
   const FLEX_WINDOW_DAYS = 7;
   const FLEX_DISCOUNT_PERCENT = 7;
+  // Flat premium for the landlord tenant-liaison concierge (pence). It's the
+  // inverse of the flex discount: flex saves us effort (thin-day routing), liaise
+  // costs us effort (chasing the tenant, arranging access), so it's a charge.
+  const LIAISE_PREMIUM_PENCE = 2500;
   const [useFlexBooking, setUseFlexBooking] = useState(false);
+  // Landlord promo nudge: the page's "Add tenant liaison" CTA bumps
+  // highlightLiaiseSignal; we scroll the toggle into view and pulse a ring once.
+  const liaiseToggleRef = useRef<HTMLButtonElement>(null);
+  const [liaisePulse, setLiaisePulse] = useState(false);
+  useEffect(() => {
+    if (!highlightLiaiseSignal) return;
+    const el = liaiseToggleRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setLiaisePulse(true);
+    const t = setTimeout(() => setLiaisePulse(false), 1700);
+    return () => clearTimeout(t);
+  }, [highlightLiaiseSignal]);
+
+  // ── Landlord liaise-with-tenant ───────────────────────────────────────
+  // For landlord quotes the date grid is always shown (the master view) with an
+  // opt-in premium toggle on top: "Can't be there? We'll liaise with your tenant
+  // (+£25)". Liaise reuses `useFlexBooking` (no fixed date, inline payment, ops
+  // arranges access) but instead of the flex discount it adds the flat liaison
+  // premium — it's a paid concierge, not a thin-day yield play. Tapping a date on
+  // the grid flips `useFlexBooking` off → a firm booking at the standard rate, so
+  // liaise and pick-a-date are naturally mutually exclusive. We capture the
+  // tenant's contact so ops can arrange access without chasing.
+  const [tenantName, setTenantName] = useState('');
+  const [tenantMobile, setTenantMobile] = useState('');
+  const tenantNameValid = tenantName.trim().length >= 2;
+  const tenantMobileValid = /^\+?\d{10,15}$/.test(tenantMobile.replace(/[^\d+]/g, ''));
+  // In landlord liaise mode (isLandlord + useFlexBooking) booking is gated on a
+  // usable tenant contact. Every other mode is unaffected.
+  const tenantContactOk = !isLandlord || !useFlexBooking || (tenantNameValid && tenantMobileValid);
+  // Tenant contact fragment spread into every onBook payload — only in landlord
+  // liaise mode, so normal/flex/empty-property bookings are untouched. There are
+  // three onBook call sites (handleBook + the two inline Stripe handlers); this
+  // keeps them in sync.
+  const landlordTenantPayload = isLandlord && useFlexBooking
+    ? { liaiseWithTenant: true, tenantName: tenantName.trim(), tenantMobile: tenantMobile.trim() }
+    : {};
 
   // Per-line off-peak premium total (drives the chip next to Saturday dates).
   // Sum across all SKU lines that carry `offPeakWeekendPremiumPence`. Custom
@@ -363,13 +430,16 @@ export function UnifiedQuoteCard({
   // and is funded by the 7% uplift baked into prices). Tick it once when a
   // flex-eligible quote loads; the ref guard means a customer who unticks it
   // (or picks a specific date) is never silently re-defaulted.
+  // Landlords do NOT auto-default into liaise: it's now a paid premium (+£25), so
+  // it must be an explicit opt-in (no surprise fee). They open on the firm-date
+  // grid with the liaison toggle offered above it.
   const flexDefaultedRef = useRef(false);
   useEffect(() => {
-    if (isQuoteFlexEligible && !flexDefaultedRef.current) {
+    if (isQuoteFlexEligible && !isLandlord && !flexDefaultedRef.current) {
       flexDefaultedRef.current = true;
       setUseFlexBooking(true);
     }
-  }, [isQuoteFlexEligible]);
+  }, [isQuoteFlexEligible, isLandlord]);
 
   // Payment state (for inline payment when using downsell)
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -718,7 +788,7 @@ export function UnifiedQuoteCard({
   }, [config.addOns, optionalExtras]);
 
   // Calculate total price
-  const { total, breakdown, savingsPercent, wasPrice, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, flexDiscountApplied } = useMemo(() => {
+  const { total, breakdown, savingsPercent, wasPrice, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, flexDiscountApplied, liaisePremiumApplied } = useMemo(() => {
     let amount = basePrice;
     const items: { label: string; amount: number }[] = [
       { label: config.priceLabel, amount: basePrice },
@@ -735,11 +805,25 @@ export function UnifiedQuoteCard({
     // Honest line for the customer: "Flex booking 10% off". Stacks with the
     // legacy downsell only if both are toggled (UI hides one when other is on,
     // but the math here is defensive either way).
+    // Landlords in liaise mode also use `useFlexBooking`, but coordinating with a
+    // tenant isn't a thin-day yield play, so they don't get the flex discount.
     let flexDiscountApplied = 0;
-    if (useFlexBooking) {
+    if (useFlexBooking && !isLandlord) {
       flexDiscountApplied = Math.round(basePrice * (FLEX_DISCOUNT_PERCENT / 100));
       amount -= flexDiscountApplied;
       items.push({ label: `Flexible booking (-${FLEX_DISCOUNT_PERCENT}%)`, amount: -flexDiscountApplied });
+    }
+
+    // ── Landlord tenant-liaison premium ─────────────────────────────────
+    // Liaise mode (isLandlord + useFlexBooking) is a paid concierge: we chase the
+    // tenant, arrange access, and confirm the time back to the landlord. It's the
+    // inverse of the flex discount — we do the legwork — so it carries a flat +£25
+    // rather than a saving. No date is tied yet, so date-driven fees never apply.
+    let liaisePremiumApplied = 0;
+    if (isLandlord && useFlexBooking) {
+      liaisePremiumApplied = LIAISE_PREMIUM_PENCE;
+      amount += liaisePremiumApplied;
+      items.push({ label: 'Tenant liaison', amount: liaisePremiumApplied });
     }
 
     // Date fees (next-day and/or weekend).
@@ -818,8 +902,8 @@ export function UnifiedQuoteCard({
     const payFullTotal = Math.round(Math.round(adjustedAmount * (1 - PAY_FULL_DISCOUNT)) / 100) * 100;
     const payFullSaving = adjustedAmount - payFullTotal;
 
-    return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, flexDiscountApplied };
-  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence]);
+    return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, flexDiscountApplied, liaisePremiumApplied };
+  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence]);
 
   // All 3 buffer dates must be selected before payment unlocks
   const allDatesSelected = confirmedDates.length >= MAX_BUFFER_DATES;
@@ -983,6 +1067,7 @@ export function UnifiedQuoteCard({
           address: bookingAddress,
           flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
           flexBookingWithinDays: useFlexBooking ? FLEX_WINDOW_DAYS : undefined,
+          ...landlordTenantPayload,
         });
 
         // Then call onPaymentSuccess to complete the booking
@@ -1042,6 +1127,7 @@ export function UnifiedQuoteCard({
           address: bookingAddress,
           flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
           flexBookingWithinDays: useFlexBooking ? FLEX_WINDOW_DAYS : undefined,
+          ...landlordTenantPayload,
         });
 
         if (onPaymentSuccess) {
@@ -1067,8 +1153,9 @@ export function UnifiedQuoteCard({
 
   // Can book if: downsell selected (flexible timing) OR flex booking OR both date and time selected
   // Large jobs: just need dates (auto full day). Small jobs: dates selected is enough (each defaults to 'flexible')
-  // Can book when: downsell, flex booking, or at least 1 confirmed date (with AM/PM chosen)
-  const canBook = useDownsell || useFlexBooking || allDatesSelected;
+  // Can book when: downsell, flex booking, or at least 1 confirmed date (with AM/PM chosen).
+  // Landlord liaise mode additionally requires a usable tenant contact.
+  const canBook = (useDownsell || useFlexBooking || allDatesSelected) && tenantContactOk;
 
   // Reserve a slot before showing payment — called when date + time are selected
   const handleReserveSlot = async () => {
@@ -1135,7 +1222,9 @@ export function UnifiedQuoteCard({
     const balance = payFull ? 0 : balanceOnCompletion;
     const mode = payFull ? 'full' as const : 'deposit' as const;
 
-    // If using Phase 25 flex booking, no date/time — dispatcher picks within window
+    // If using Phase 25 flex booking, no date/time — dispatcher picks within window.
+    // Landlord liaise mode rides the same branch but carries the tenant contact so
+    // ops arranges access with the tenant rather than auto-routing to a thin day.
     if (useFlexBooking) {
       onBook({
         selectedDate: null,
@@ -1148,6 +1237,7 @@ export function UnifiedQuoteCard({
         usedDownsell: false,
         address: bookingAddress,
         flexBookingWithinDays: FLEX_WINDOW_DAYS,
+        ...landlordTenantPayload,
       });
       return;
     }
@@ -1322,7 +1412,16 @@ export function UnifiedQuoteCard({
                   Included as standard
                 </p>
                 <div className="grid grid-cols-4 gap-2">
-                  {([
+                  {(isLandlord ? [
+                    // Landlords aren't on site — what reassures them is proof of work,
+                    // cover against damage, and a clean paper trail for tax. Tenant
+                    // liaison is NOT here: it's a paid +£25 premium, so claiming it as
+                    // standard would undercut the charge.
+                    { icon: <Camera className="w-4 h-4" />, label: 'Photo report' },
+                    { icon: <Umbrella className="w-4 h-4" />, label: '£2M insured' },
+                    { icon: <Receipt className="w-4 h-4" />, label: 'Tax-ready invoice' },
+                    { icon: <Shield className="w-4 h-4" />, label: 'Guaranteed' },
+                  ] : [
                     { icon: <Tag className="w-4 h-4" />, label: 'Fixed price' },
                     { icon: <Camera className="w-4 h-4" />, label: 'Photo report' },
                     { icon: <Sparkles className="w-4 h-4" />, label: 'Full cleanup' },
@@ -1400,20 +1499,41 @@ export function UnifiedQuoteCard({
                 </div>
               )}
               {/* Discounts & surcharges (honest, line-by-line) */}
-              {(batchDiscount?.applied || (payFull && payFullSaving > 0) || saturdayPremiumApplied > 0 || flexDiscountApplied > 0) && (
-                <div className={`mt-2 pt-2 border-t space-y-1 ${isDarkTheme ? 'border-white/5' : 'border-slate-100'}`}>
-                  {batchDiscount?.applied && (
-                    <div className="flex justify-between text-[13px]">
-                      <span className="text-[#7DB00E] font-medium">Multi-job discount ({batchDiscount.discountPercent}%)</span>
-                      <span className="text-[#7DB00E] font-semibold tabular-nums">-£{Math.round(batchDiscount.savingsPence / 100)}</span>
+              {(batchDiscount?.applied || (payFull && payFullSaving > 0) || saturdayPremiumApplied > 0 || flexDiscountApplied > 0 || liaisePremiumApplied > 0) && (
+                <div className={`mt-2 pt-2 border-t space-y-1.5 ${isDarkTheme ? 'border-white/5' : 'border-slate-100'}`}>
+                  {/* Savings zone — grouped + highlighted so they read as offers, not ledger lines */}
+                  {(batchDiscount?.applied || flexDiscountApplied > 0 || (payFull && payFullSaving > 0)) && (
+                    <div className="rounded-lg bg-[#7DB00E]/10 px-3 py-2 space-y-1.5">
+                      {batchDiscount?.applied && (
+                        <div className="flex justify-between items-center text-[13px]">
+                          <span className="flex items-center gap-1.5 text-[#7DB00E] font-medium">
+                            <Tag className="w-3.5 h-3.5 shrink-0" />
+                            Multi-job saving ({batchDiscount.discountPercent}%)
+                          </span>
+                          <span className="text-[#7DB00E] font-bold tabular-nums">−£{Math.round(batchDiscount.savingsPence / 100)}</span>
+                        </div>
+                      )}
+                      {flexDiscountApplied > 0 && (
+                        <div className="flex justify-between items-center text-[13px]">
+                          <span className="flex items-center gap-1.5 text-[#7DB00E] font-medium">
+                            <Zap className="w-3.5 h-3.5 shrink-0" />
+                            Flexible booking ({FLEX_DISCOUNT_PERCENT}% off)
+                          </span>
+                          <span className="text-[#7DB00E] font-bold tabular-nums">−£{Math.round(flexDiscountApplied / 100)}</span>
+                        </div>
+                      )}
+                      {payFull && payFullSaving > 0 && (
+                        <div className="flex justify-between items-center text-[13px]">
+                          <span className="flex items-center gap-1.5 text-[#7DB00E] font-medium">
+                            <Percent className="w-3.5 h-3.5 shrink-0" />
+                            Pay in full ({Math.round(PAY_FULL_DISCOUNT * 100)}% off)
+                          </span>
+                          <span className="text-[#7DB00E] font-bold tabular-nums">−£{Math.round(payFullSaving / 100)}</span>
+                        </div>
+                      )}
                     </div>
                   )}
-                  {flexDiscountApplied > 0 && (
-                    <div className="flex justify-between text-[13px]">
-                      <span className="text-[#7DB00E] font-medium">Flexible booking ({FLEX_DISCOUNT_PERCENT}% off)</span>
-                      <span className="text-[#7DB00E] font-semibold tabular-nums">-£{Math.round(flexDiscountApplied / 100)}</span>
-                    </div>
-                  )}
+                  {/* Surcharge stays neutral and outside the savings zone — it isn't an offer */}
                   {saturdayPremiumApplied > 0 && (
                     <div className="flex justify-between text-[13px]">
                       <span className={`font-medium ${isDarkTheme ? 'text-amber-300' : 'text-amber-700'}`}>
@@ -1424,10 +1544,16 @@ export function UnifiedQuoteCard({
                       </span>
                     </div>
                   )}
-                  {payFull && payFullSaving > 0 && (
-                    <div className="flex justify-between text-[13px]">
-                      <span className="text-[#7DB00E] font-medium">Pay in full ({Math.round(PAY_FULL_DISCOUNT * 100)}% off)</span>
-                      <span className="text-[#7DB00E] font-semibold tabular-nums">-£{Math.round(payFullSaving / 100)}</span>
+                  {/* Tenant-liaison premium — neutral addition, not an offer */}
+                  {liaisePremiumApplied > 0 && (
+                    <div className="flex justify-between items-center text-[13px]">
+                      <span className={`flex items-center gap-1.5 font-medium ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
+                        <MessageCircle className="w-3.5 h-3.5 shrink-0" />
+                        Tenant liaison
+                      </span>
+                      <span className={`font-semibold tabular-nums ${isDarkTheme ? 'text-slate-200' : 'text-slate-700'}`}>
+                        +£{Math.round(liaisePremiumApplied / 100)}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -1546,11 +1672,118 @@ export function UnifiedQuoteCard({
             )}
           </h4>
 
+          {/* Landlord scheduling — a single opt-in premium toggle ("Can't be there?
+              We'll liaise with your tenant · +£25") above the always-visible date
+              grid. ON reuses useFlexBooking (no fixed date, inline payment) and
+              captures the tenant's contact so ops arranges access; tapping a grid
+              date flips it off into a firm, standard-rate booking. Shown for
+              landlords regardless of SKU flex-eligibility; the non-landlord
+              flex/set-date toggle below is hidden for them. */}
+          {isLandlord && (
+            <div className="mb-4">
+              <div className="space-y-2">
+                {/* Tenant-liaison premium — opt-in concierge toggle. ON ⇒ no fixed
+                    date, +£25, tenant capture. The date grid stays visible below;
+                    tapping a date there flips this off (firm booking, standard rate). */}
+                <button
+                  ref={liaiseToggleRef}
+                  id="liaise-toggle"
+                  type="button"
+                  onClick={() => {
+                    if (useFlexBooking) {
+                      // Re-tap toggles the premium back off — the grid below is the
+                      // firm-date fallback, already on screen.
+                      setUseFlexBooking(false);
+                      return;
+                    }
+                    setUseFlexBooking(true);
+                    setSelectedDate(null);
+                    setSelectedTimeSlot(null);
+                    setPendingDate(null);
+                    setConfirmedDates([]);
+                    if (reservation) {
+                      releaseSlotLock(reservation.lockId).catch(() => {});
+                      setReservation(null);
+                    }
+                    if (useDownsell) setUseDownsell(false);
+                  }}
+                  className={`w-full rounded-xl p-3 text-left transition-[background-color,border-color,box-shadow,color] duration-300 ease-out active:scale-[0.99] ${
+                    useFlexBooking
+                      ? 'bg-handy-yellow/15 border-2 border-handy-yellow'
+                      : isDarkTheme ? 'bg-white/[0.04] border-2 border-white/10' : 'bg-slate-50 border-2 border-slate-200'
+                  } ${liaisePulse ? `ring-2 ring-[#7DB00E] ring-offset-2 ${isDarkTheme ? 'ring-offset-[#1D2D3D]' : 'ring-offset-white'}` : ''}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center ${useFlexBooking ? 'bg-handy-yellow border-handy-yellow' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
+                      {useFlexBooking && <Check className="w-3 h-3 text-handy-navy" strokeWidth={3} />}
+                    </span>
+                    <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>We'll liaise with your tenant</span>
+                    <span className="ml-auto shrink-0 text-[10px] bg-handy-yellow text-handy-navy px-1.5 py-0.5 rounded-full font-bold">+£{LIAISE_PREMIUM_PENCE / 100}</span>
+                  </div>
+                  <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                    We arrange access so you don't need to be there.
+                  </p>
+                </button>
+
+                {/* Tenant contact — revealed only in liaise mode */}
+                <AnimatePresence initial={false}>
+                  {useFlexBooking && (
+                    <motion.div
+                      key="tenant-capture"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+                      className="overflow-hidden"
+                    >
+                      <div className={`rounded-xl p-3 space-y-2.5 ${isDarkTheme ? 'bg-white/[0.04] border border-white/10' : 'bg-white border border-slate-200'}`}>
+                        <p className={`text-[11px] font-semibold uppercase tracking-wide ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                          Your tenant's details
+                        </p>
+                        <div className="space-y-2">
+                          <div className="relative">
+                            <User className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} />
+                            <input
+                              type="text"
+                              value={tenantName}
+                              onChange={e => setTenantName(e.target.value)}
+                              placeholder="Tenant's name"
+                              className={`w-full border rounded-lg pl-9 pr-3 py-2.5 text-base outline-none focus:ring-2 focus:ring-[#7DB00E]/40 ${
+                                isDarkTheme ? 'border-white/20 bg-slate-800 text-white placeholder:text-slate-500' : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-400'
+                              }`}
+                            />
+                          </div>
+                          <div className="relative">
+                            <Phone className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} />
+                            <input
+                              type="tel"
+                              inputMode="tel"
+                              value={tenantMobile}
+                              onChange={e => setTenantMobile(e.target.value)}
+                              placeholder="Tenant's mobile"
+                              className={`w-full border rounded-lg pl-9 pr-3 py-2.5 text-base outline-none focus:ring-2 focus:ring-[#7DB00E]/40 ${
+                                isDarkTheme ? 'border-white/20 bg-slate-800 text-white placeholder:text-slate-500' : 'border-slate-200 bg-white text-slate-900 placeholder:text-slate-400'
+                              }`}
+                            />
+                          </div>
+                        </div>
+                        <p className={`text-[10.5px] leading-snug ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
+                          We'll text them to agree a time, then confirm it with you.
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+              </div>
+            </div>
+          )}
+
           {/* Phase 29 — Flexible vs Pick-exact-date (two equal boxes). Flexible
               is the default (−7%); choosing "Pick exact date" drops the date
               grid down below. Non-flex-eligible quotes skip this and just show
-              the grid. */}
-          {isQuoteFlexEligible && (
+              the grid. Hidden for landlords (they get the liaise toggle above). */}
+          {!isLandlord && isQuoteFlexEligible && (
             <div className="mb-4">
               <div className="space-y-2">
                 <button
@@ -1621,9 +1854,12 @@ export function UnifiedQuoteCard({
             </div>
           )}
 
-          {/* Date grid — collapsed under Flexible, drops down on "Pick exact date". */}
+          {/* Date grid — collapses when liaise is on for landlords (mirrors the
+              "I'm flexible" toggle: no fixed date ⇒ no grid; untick liaise to bring
+              it back). For everyone else it collapses under Flexible and drops down
+              on "set date"; non-flex-eligible quotes always show it. */}
           <AnimatePresence initial={false}>
-          {(!isQuoteFlexEligible || !useFlexBooking) && (
+          {(isLandlord ? !useFlexBooking : (!isQuoteFlexEligible || !useFlexBooking)) && (
           <motion.div
             key="date-grid-drop"
             initial={{ height: 0, opacity: 0 }}
@@ -2104,20 +2340,29 @@ export function UnifiedQuoteCard({
                       />
                     </div>
                   )}
-                  {/* Continue → reveals secure payment. Requires address + email. */}
+                  {/* Landlord liaise — the tenant contact lives under the scheduling
+                      toggle above; block payment until it's filled and say why. */}
+                  {isLandlord && useFlexBooking && !(tenantNameValid && tenantMobileValid) && (
+                    <div className={`flex items-start gap-2 rounded-lg px-3 py-2 text-[12px] leading-snug ${isDarkTheme ? 'bg-amber-400/10 text-amber-300' : 'bg-amber-50 text-amber-700'}`}>
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>Add your tenant's name and mobile above so we can arrange access.</span>
+                    </div>
+                  )}
+                  {/* Continue → reveals secure payment. Requires address + email
+                      (+ tenant contact for landlords in liaise mode). */}
                   <button
                     type="button"
                     onClick={() => {
-                      if (!addressOk) return;
+                      if (!addressOk || !tenantContactOk) return;
                       if (!customerEmail) {
                         if (!isValidEmail(inlineEmail)) return;
                         setEmailConfirmed(true);
                       }
                       setDetailsConfirmed(true);
                     }}
-                    disabled={!addressOk || (!customerEmail && !isValidEmail(inlineEmail))}
+                    disabled={!addressOk || (!customerEmail && !isValidEmail(inlineEmail)) || !tenantContactOk}
                     className={`w-full px-4 py-3 rounded-lg font-bold text-sm transition-all ${
-                      addressOk && (customerEmail || isValidEmail(inlineEmail))
+                      addressOk && (customerEmail || isValidEmail(inlineEmail)) && tenantContactOk
                         ? 'bg-[#7DB00E] text-white hover:bg-[#6a9a0c]'
                         : isDarkTheme ? 'bg-white/5 text-slate-600 cursor-not-allowed' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                     }`}
