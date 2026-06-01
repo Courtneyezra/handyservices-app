@@ -370,6 +370,15 @@ export function UnifiedQuoteCard({
   // contract Agents 25a/25b agreed.
   const FLEX_WINDOW_DAYS = 7;
   const FLEX_DISCOUNT_PERCENT = 7;
+  // Phase 37 — the flex saving is really a near-fixed "convenience rebate":
+  // flexibility is worth roughly the same to dispatch regardless of ticket size, so
+  // we clamp the 7%-of-price figure to a floor (keeps small-job savings meaningful)
+  // and a cap (protects margin on big jobs, where 7% would over-give).
+  const FLEX_MIN_SAVING_PENCE = 1200; // £12 floor
+  const FLEX_MAX_SAVING_PENCE = 3000; // £30 cap
+  // Rule of 100: below £100 a % reads bigger than the £ figure; at/above £100 the £
+  // reads bigger. Pick whichever framing flatters the saving at this job's size.
+  const RULE_OF_100_PENCE = 10000; // £100
   // Flat premium for the landlord tenant-liaison concierge (pence). It's the
   // inverse of the flex discount: flex saves us effort (thin-day routing), liaise
   // costs us effort (chasing the tenant, arranging access), so it's a charge.
@@ -471,6 +480,10 @@ export function UnifiedQuoteCard({
   const [addressLine, setAddressLine] = useState('');
   const [addressDetails, setAddressDetails] = useState<{ formattedAddress: string; postcode?: string; lat?: number; lng?: number } | null>(null);
   const [detailsConfirmed, setDetailsConfirmed] = useState(false);
+  // Reveal-on-commit: once a slot is chosen we show a single "Book my slot" CTA
+  // and keep address/email/payment hidden until the customer commits. Showing the
+  // whole "Complete your booking" form inline up-front depressed bookings.
+  const [bookingStarted, setBookingStarted] = useState(false);
   const addressOk = addressLine.trim().length >= 6;
   // Phase 30 — package the captured door address so onBook → /track-booking can
   // persist it on personalized_quotes (address + coordinates). Built whenever the
@@ -825,9 +838,12 @@ export function UnifiedQuoteCard({
     // tenant isn't a thin-day yield play, so they don't get the flex discount.
     let flexDiscountApplied = 0;
     if (useFlexBooking && !isLandlord) {
-      flexDiscountApplied = Math.round(basePrice * (FLEX_DISCOUNT_PERCENT / 100));
+      flexDiscountApplied = Math.min(
+        FLEX_MAX_SAVING_PENCE,
+        Math.max(FLEX_MIN_SAVING_PENCE, Math.round(basePrice * (FLEX_DISCOUNT_PERCENT / 100))),
+      );
       amount -= flexDiscountApplied;
-      items.push({ label: `Flexible booking (-${FLEX_DISCOUNT_PERCENT}%)`, amount: -flexDiscountApplied });
+      items.push({ label: 'Flexible booking', amount: -flexDiscountApplied });
     }
 
     // ── Landlord tenant-liaison premium ─────────────────────────────────
@@ -921,6 +937,20 @@ export function UnifiedQuoteCard({
     return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, flexDiscountApplied, liaisePremiumApplied };
   }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence]);
 
+  // Prospective flex saving for the incentive badge + helper line. These show
+  // whether or not flex is currently selected, so they derive from basePrice (the
+  // stable anchor) rather than the selection-gated flexDiscountApplied — same clamp,
+  // so the badge and the price breakdown can never disagree.
+  const flexProspectiveSaving = Math.min(
+    FLEX_MAX_SAVING_PENCE,
+    Math.max(FLEX_MIN_SAVING_PENCE, Math.round(basePrice * (FLEX_DISCOUNT_PERCENT / 100))),
+  );
+  const flexProspectivePercent = basePrice > 0 ? Math.round((flexProspectiveSaving / basePrice) * 100) : FLEX_DISCOUNT_PERCENT;
+  // Rule of 100 — lead with the % on small jobs (where the floor makes it read big),
+  // the £ on jobs at/above £100 (where the % would read weak).
+  const flexBadgeText = basePrice < RULE_OF_100_PENCE ? `−${flexProspectivePercent}%` : `−£${Math.round(flexProspectiveSaving / 100)}`;
+  const flexSavingText = basePrice < RULE_OF_100_PENCE ? `${flexProspectivePercent}%` : `£${Math.round(flexProspectiveSaving / 100)}`;
+
   // All 3 buffer dates must be selected before payment unlocks
   const allDatesSelected = confirmedDates.length >= MAX_BUFFER_DATES;
 
@@ -952,6 +982,13 @@ export function UnifiedQuoteCard({
   // Determine if we should show inline payment
   // Show inline Stripe card entry when: downsell, flex booking, single-date with reservation, or all 3 buffer dates picked
   const showInlinePayment = useDownsell || useFlexBooking || (selectedDate && selectedTimeSlot && reservation) || allDatesSelected;
+
+  // Reveal-on-commit: if the customer clears their slot (the section collapses),
+  // drop the commit so re-picking shows the "Book my slot" gate again rather than
+  // jumping straight back into the address/payment form.
+  useEffect(() => {
+    if (!showInlinePayment) setBookingStarted(false);
+  }, [showInlinePayment]);
 
   // Create payment intent when inline payment should be shown
   useEffect(() => {
@@ -1533,7 +1570,8 @@ export function UnifiedQuoteCard({
                         <div className="flex justify-between items-center text-[13px]">
                           <span className="flex items-center gap-1.5 text-[#7DB00E] font-medium">
                             <Zap className="w-3.5 h-3.5 shrink-0" />
-                            Flexible booking ({FLEX_DISCOUNT_PERCENT}% off)
+                            {/* Rule of 100: surface the % only on small jobs; the −£ on the right is the hero above £100. */}
+                            Flexible booking{basePrice < RULE_OF_100_PENCE ? ` (${Math.round((flexDiscountApplied / basePrice) * 100)}% off)` : ''}
                           </span>
                           <span className="text-[#7DB00E] font-bold tabular-nums">−£{Math.round(flexDiscountApplied / 100)}</span>
                         </div>
@@ -1835,7 +1873,7 @@ export function UnifiedQuoteCard({
                       {useFlexBooking && <Check className="w-3 h-3 text-handy-navy" strokeWidth={3} />}
                     </span>
                     <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I'm flexible</span>
-                    <span className="ml-auto text-[10px] bg-handy-yellow text-handy-navy px-1.5 py-0.5 rounded-full font-bold">−{FLEX_DISCOUNT_PERCENT}%</span>
+                    <span className="ml-auto text-[10px] bg-handy-yellow text-handy-navy px-1.5 py-0.5 rounded-full font-bold">{flexBadgeText}</span>
                   </div>
                   <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                     We pick the best weekday within {FLEX_WINDOW_DAYS} days
@@ -1871,7 +1909,7 @@ export function UnifiedQuoteCard({
               </div>
               {useFlexBooking && (
                 <p className={`text-center text-[11px] mt-2 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                  We'll confirm a weekday within {FLEX_WINDOW_DAYS} days — you save £{Math.round(flexDiscountApplied / 100)}.
+                  We'll confirm a weekday within {FLEX_WINDOW_DAYS} days — you save {flexSavingText}.
                 </p>
               )}
             </div>
@@ -2315,7 +2353,38 @@ export function UnifiedQuoteCard({
         {/* Payment/Book Section */}
         <div ref={bookSectionRef}>
         {showInlinePayment && stripe ? (
-          /* Inline Stripe card entry — auto-reveals when date + time selected */
+          !bookingStarted ? (
+            /* Reveal-on-commit gate — the customer commits to their slot here.
+               Address/email/payment only appear after this CTA; keeping that whole
+               form on the quote up-front depressed bookings. */
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+              className="space-y-3"
+            >
+              <Button
+                onClick={() => {
+                  setBookingStarted(true);
+                  setTimeout(() => {
+                    bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }, 80);
+                }}
+                className="w-full h-14 rounded-2xl font-bold text-lg bg-[#7DB00E] hover:bg-[#6da000] text-slate-900 transition-all"
+              >
+                <span className="flex items-center gap-2">
+                  Book my slot
+                  <ChevronRight className="w-5 h-5" />
+                </span>
+              </Button>
+              <p className={`text-xs text-center ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
+                {payFull
+                  ? `£${Math.round(payFullTotal / 100)} · secure payment by Stripe`
+                  : `Just £${Math.round(depositAmount / 100)} to secure it · £${Math.round(balanceOnCompletion / 100)} on completion`}
+              </p>
+            </motion.div>
+          ) : (
+          /* Inline Stripe card entry — reveals once the slot is committed */
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -2506,6 +2575,7 @@ export function UnifiedQuoteCard({
               </p>
             </div>
           </motion.div>
+          )
         ) : (
           /* Regular Book Button - only show when canBook (date+time selected) */
           canBook && (
