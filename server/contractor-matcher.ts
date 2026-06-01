@@ -75,7 +75,13 @@ export async function findCandidateContractors(params: {
   customerLat?: number;
   customerLng?: number;
 }): Promise<ContractorMatchResult> {
-  const { categorySlugs, customerLat, customerLng } = params;
+  const { customerLat, customerLng } = params;
+  // Coverage measures DISTINCT required categories. The live quote builder passes
+  // one slug per line item, so a 4-job quote (2 pressure-washing + 2 garden) arrives
+  // as 4 entries with duplicates. Dividing distinct-covered by the raw count makes
+  // 100% coverage unreachable whenever a category repeats, dropping every contractor
+  // as "partial". Dedupe to the set of required categories.
+  const categorySlugs = Array.from(new Set(params.categorySlugs));
 
   if (categorySlugs.length === 0) {
     return {
