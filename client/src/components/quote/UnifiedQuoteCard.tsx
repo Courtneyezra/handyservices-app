@@ -274,6 +274,19 @@ interface UnifiedQuoteCardProps {
   customerType?: 'homeowner' | 'landlord' | 'property_manager' | 'tenant' | 'business' | 'letting_agent';
 }
 
+/**
+ * Personal/brand identity for CONTEXTUAL quotes. `lead` is kept consistent with
+ * the quote page's hero "Prepared by Ben from HandyServices" so the WhatsApp
+ * prompt reads as one trusted local person, not a faceless platform. Only
+ * applied to CONTEXTUAL (see the `isContextual` copy swaps below); other
+ * segments keep the platform voice. If the hero preparer name changes, update
+ * `lead` here too.
+ */
+const BRAND = {
+  lead: 'Ben',
+  homesBadge: '100s of homes',
+} as const;
+
 export function UnifiedQuoteCard({
   segment,
   basePrice,
@@ -306,6 +319,20 @@ export function UnifiedQuoteCard({
   const showFlexibleDiscount = !bookingModes || bookingModes.includes('flexible_discount');
   const showUrgentPremium = !bookingModes || bookingModes.includes('urgent_premium');
   const showDepositSplit = !bookingModes || bookingModes.includes('deposit_split');
+
+  // CONTEXTUAL gets a personal, single-trusted-local voice (every other segment
+  // keeps the platform voice). Mirrors PersonalizedQuotePage's contextual
+  // detection: explicit segment OR presence of contextual value bullets.
+  // Voice/copy only — pricing model is unchanged.
+  const isContextual = segment === 'CONTEXTUAL' || !!contextualBullets;
+
+  // Business quotes reuse the homeowner two-lane flow (flexible default ON → hands
+  // dispatch the movable window), but the flexible lane is dressed as a deadline
+  // guarantee, NOT a price discount: a business values a kept date over a few %
+  // off, and discount-framing on a commercial job invites procurement scrutiny.
+  // So `isBusiness` keeps the same `useFlexBooking` plumbing but suppresses the
+  // flex discount and swaps the badge/copy (see the discount memo + flex card).
+  const isBusiness = customerType === 'business';
 
   // Stripe hooks (will be null if not wrapped in Elements provider)
   const stripe = useStripe();
@@ -452,6 +479,9 @@ export function UnifiedQuoteCard({
   //   - Homeowners ALWAYS default ON. The flex discount is a flat 7% of
   //     basePrice (independent of per-line flex_eligible), so it's safe to apply
   //     to any homeowner quote, including custom/free-text ones.
+  //   - Businesses ALWAYS default ON too, but carry NO flex discount (see the
+  //     discount memo): the flexible lane is framed as a deadline guarantee, so
+  //     it's safe to default on for any business quote regardless of SKU flags.
   //   - Other non-landlord types default ON only when the quote is flex-eligible
   //     (has a flex_eligible SKU line); otherwise they open on a firm date with
   //     no silently-applied discount, but can still opt in.
@@ -460,7 +490,7 @@ export function UnifiedQuoteCard({
   // grid with the liaison toggle offered above it.
   const flexDefaultedRef = useRef(false);
   useEffect(() => {
-    if (!isLandlord && (customerType === 'homeowner' || isQuoteFlexEligible) && !flexDefaultedRef.current) {
+    if (!isLandlord && (customerType === 'homeowner' || customerType === 'business' || isQuoteFlexEligible) && !flexDefaultedRef.current) {
       flexDefaultedRef.current = true;
       setUseFlexBooking(true);
     }
@@ -836,8 +866,11 @@ export function UnifiedQuoteCard({
     // but the math here is defensive either way).
     // Landlords in liaise mode also use `useFlexBooking`, but coordinating with a
     // tenant isn't a thin-day yield play, so they don't get the flex discount.
+    // Businesses also use `useFlexBooking` (it still hands dispatch the movable
+    // window), but their flexible lane is sold as a deadline guarantee, not a
+    // price cut — so they get no flex discount either.
     let flexDiscountApplied = 0;
-    if (useFlexBooking && !isLandlord) {
+    if (useFlexBooking && !isLandlord && !isBusiness) {
       flexDiscountApplied = Math.min(
         FLEX_MAX_SAVING_PENCE,
         Math.max(FLEX_MIN_SAVING_PENCE, Math.round(basePrice * (FLEX_DISCOUNT_PERCENT / 100))),
@@ -879,7 +912,7 @@ export function UnifiedQuoteCard({
       if (totalSaturdayPremiumPence > 0) {
         saturdayPremiumApplied = totalSaturdayPremiumPence;
         amount += saturdayPremiumApplied;
-        items.push({ label: 'Saturday surcharge — peak demand', amount: saturdayPremiumApplied });
+        items.push({ label: isContextual ? 'Saturday visit' : 'Saturday surcharge — peak demand', amount: saturdayPremiumApplied });
       } else if (config.showWeekendFee) {
         amount += BASE_SCHEDULING_RULES.weekendFee;
         items.push({ label: 'Weekend', amount: BASE_SCHEDULING_RULES.weekendFee });
@@ -935,7 +968,7 @@ export function UnifiedQuoteCard({
     const payFullSaving = adjustedAmount - payFullTotal;
 
     return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, flexDiscountApplied, liaisePremiumApplied };
-  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence]);
+  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, isBusiness, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence]);
 
   // Prospective flex saving for the incentive badge + helper line. These show
   // whether or not flex is currently selected, so they derive from basePrice (the
@@ -1019,6 +1052,11 @@ export function UnifiedQuoteCard({
             chargeAmountPence: payFull ? payFullTotal : depositAmount,
             flexibleTiming: useDownsell,
             flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
+            // Phase 25 flex (DISTINCT from the downsell above): carry the chosen flex
+            // window in the PI body so it lands in PI metadata → the Stripe webhook
+            // persists flexBookingWithinDays race-free, instead of relying solely on
+            // the fire-and-forget /track-booking PUT. Mirrors what onBook passes.
+            flexBookingWithinDays: useFlexBooking ? FLEX_WINDOW_DAYS : undefined,
             lockId: reservation?.lockId || undefined,
             contractorId: reservation?.contractorId || undefined,
             // Phase 30 — door address in the PI body so the webhook can snapshot it
@@ -1062,7 +1100,7 @@ export function UnifiedQuoteCard({
       isCurrentRequest = false;
       abortController.abort();
     };
-  }, [showInlinePayment, useDownsell, quoteId, customerName, effectiveEmail, detailsConfirmed, total, selectedAddOns, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation]);
+  }, [showInlinePayment, useDownsell, useFlexBooking, quoteId, customerName, effectiveEmail, detailsConfirmed, total, selectedAddOns, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation]);
 
   // Handle inline payment submission
   const handlePayment = async (e: React.FormEvent) => {
@@ -1591,7 +1629,7 @@ export function UnifiedQuoteCard({
                   {saturdayPremiumApplied > 0 && (
                     <div className="flex justify-between text-[13px]">
                       <span className={`font-medium ${isDarkTheme ? 'text-amber-300' : 'text-amber-700'}`}>
-                        Saturday surcharge — peak demand
+                        {isContextual ? 'Saturday visit' : 'Saturday surcharge — peak demand'}
                       </span>
                       <span className={`font-semibold tabular-nums ${isDarkTheme ? 'text-amber-300' : 'text-amber-700'}`}>
                         +£{Math.round(saturdayPremiumApplied / 100)}
@@ -1631,7 +1669,7 @@ export function UnifiedQuoteCard({
               }`}
             >
               <MessageCircle className="w-3.5 h-3.5" />
-              Have a question? Chat with us
+              {isContextual ? `Question? Message ${BRAND.lead}` : 'Have a question? Chat with us'}
             </a>
           </div>
 
@@ -1720,7 +1758,7 @@ export function UnifiedQuoteCard({
         <div ref={dateSectionRef}>
           <h4 className={`text-3xl font-extrabold tracking-tight mb-3 flex items-center justify-center gap-2.5 text-center ${isDarkTheme ? 'text-white' : 'text-slate-800'}`}>
             <Calendar className="w-7 h-7 text-[#7DB00E]" />
-            Secure your slot
+            {isContextual ? 'When suits you?' : 'Secure your slot'}
             {isLoadingQuoteAvailability && (
               <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
             )}
@@ -1873,10 +1911,12 @@ export function UnifiedQuoteCard({
                       {useFlexBooking && <Check className="w-3 h-3 text-handy-navy" strokeWidth={3} />}
                     </span>
                     <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I'm flexible</span>
-                    <span className="ml-auto text-[10px] bg-handy-yellow text-handy-navy px-1.5 py-0.5 rounded-full font-bold">{flexBadgeText}</span>
+                    <span className="ml-auto text-[10px] bg-handy-yellow text-handy-navy px-1.5 py-0.5 rounded-full font-bold">{isBusiness ? 'Guaranteed' : flexBadgeText}</span>
                   </div>
                   <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                    We pick the best weekday within {FLEX_WINDOW_DAYS} days
+                    {isBusiness
+                      ? `Done within ${FLEX_WINDOW_DAYS} days — backup engineer booked, so your date never slips`
+                      : `We pick the best weekday within ${FLEX_WINDOW_DAYS} days`}
                   </p>
                 </button>
 
@@ -1903,15 +1943,10 @@ export function UnifiedQuoteCard({
                     <Calendar className="ml-auto w-4 h-4 text-slate-400" />
                   </div>
                   <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Choose a specific day · standard rate
+                    {isBusiness ? 'Choose a specific day yourself' : 'Choose a specific day · standard rate'}
                   </p>
                 </button>
               </div>
-              {useFlexBooking && (
-                <p className={`text-center text-[11px] mt-2 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                  We'll confirm a weekday within {FLEX_WINDOW_DAYS} days — you save {flexSavingText}.
-                </p>
-              )}
             </div>
           )}
 
@@ -1973,18 +2008,22 @@ export function UnifiedQuoteCard({
                 );
               })()}
               <div className={`flex items-center justify-center gap-2 text-base font-bold ${isDarkTheme ? 'text-gray-100' : 'text-slate-800'}`}>
-                <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7DB00E] opacity-75" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#7DB00E]" />
-                </span>
+                {isContextual && !scarcityLabel ? (
+                  <Calendar className="w-4 h-4 text-[#7DB00E] flex-shrink-0" />
+                ) : (
+                  <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7DB00E] opacity-75" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#7DB00E]" />
+                  </span>
+                )}
                 {scarcityLabel
                   ? <span>{scarcityLabel}</span>
-                  : <span className="font-medium">Real-time availability · updated {availabilityUpdatedLabel}</span>}
+                  : <span className="font-medium">{isContextual ? "Here's where I can fit you in" : `Real-time availability · updated ${availabilityUpdatedLabel}`}</span>}
               </div>
               {confirmedDates.length === 0 && !pendingDate && (
                 <div className={`flex items-center justify-center gap-1 text-sm ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
                   <ChevronDown className="w-5 h-5 text-[#7DB00E]" />
-                  Tap a date below
+                  {isContextual ? 'Pick whatever day works' : 'Tap a date below'}
                 </div>
               )}
             </div>
@@ -2087,7 +2126,7 @@ export function UnifiedQuoteCard({
                         ? 'bg-white/10 backdrop-blur-md border border-white/10 text-white hover:bg-white/20'
                         : 'bg-slate-100 text-slate-700 hover:bg-slate-200')
                 }`}
-                title={d.isWeekend && d.fee > 0 ? 'Saturday surcharge — peak demand' : undefined}
+                title={d.isWeekend && d.fee > 0 ? (isContextual ? 'Saturday visit' : 'Saturday surcharge — peak demand') : undefined}
               >
                 {d.isNextDay && !d.isBlocked && !isSelected && (
                   <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 text-[8px] font-bold bg-amber-500 text-white px-1.5 py-0.5 rounded">
@@ -2126,7 +2165,7 @@ export function UnifiedQuoteCard({
           {saturdayPremiumApplied > 0 && (
             <p className={`mt-2 text-[11px] text-center ${isDarkTheme ? 'text-amber-300' : 'text-amber-700'}`}>
               <span className="font-semibold">+£{Math.round(saturdayPremiumApplied / 100)}</span>{' '}
-              Saturday surcharge — peak demand
+              {isContextual ? 'for a Saturday visit' : 'Saturday surcharge — peak demand'}
             </p>
           )}
 
@@ -2176,7 +2215,7 @@ export function UnifiedQuoteCard({
                     </div>
                     <div>
                       <div className={`text-sm font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                        Holding your slot…
+                        {isContextual ? 'Pencilling you in…' : 'Holding your slot…'}
                       </div>
                       <div className={`text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                         {selectedDate
@@ -2243,7 +2282,7 @@ export function UnifiedQuoteCard({
                       )}
                       <div>
                         <div className={`text-sm font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                          {detailsConfirmed ? 'Slot secured' : `Slot held — ${mmss} left`}
+                          {detailsConfirmed ? (isContextual ? "You're all set" : 'Slot secured') : (isContextual ? `Holding it for you · ${mmss}` : `Slot held — ${mmss} left`)}
                         </div>
                         <div className={`text-xs ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                           {dateLine}
@@ -2255,7 +2294,7 @@ export function UnifiedQuoteCard({
                       urgent ? (isDarkTheme ? 'text-amber-300' : 'text-amber-700') : (isDarkTheme ? 'text-slate-400' : 'text-slate-500')
                     }`}>
                       <Lock className={`w-3.5 h-3.5 ${urgent ? 'text-amber-400' : 'text-[#7DB00E]'}`} />
-                      <span>{detailsConfirmed ? 'Finish payment to confirm your booking' : 'Secure it now before the slot is released'}</span>
+                      <span>{detailsConfirmed ? (isContextual ? "Add your details and you're booked" : 'Finish payment to confirm your booking') : (isContextual ? "No rush — I'll hold it while you decide" : 'Secure it now before the slot is released')}</span>
                     </div>
                   </div>
                 );
@@ -2335,8 +2374,8 @@ export function UnifiedQuoteCard({
             is reaffirmed as a slim line right above the pay CTA instead. */}
 
         {/* Trust strip — near payment for maximum conversion impact */}
-        <div className="flex flex-wrap items-center justify-center gap-1.5">
-          {['DBS Checked', '£2M Insured', '4.9★ Google'].map((label) => (
+        <div className="flex flex-nowrap items-center justify-center gap-1.5">
+          {(isContextual ? ['DBS checked', 'Fully insured', BRAND.homesBadge] : ['DBS Checked', '£2M Insured', '4.9★ Google']).map((label) => (
             <span
               key={label}
               className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
@@ -2373,7 +2412,7 @@ export function UnifiedQuoteCard({
                 className="w-full h-14 rounded-2xl font-bold text-lg bg-[#7DB00E] hover:bg-[#6da000] text-slate-900 transition-all"
               >
                 <span className="flex items-center gap-2">
-                  Book my slot
+                  {isContextual ? 'Book it in' : 'Book my slot'}
                   <ChevronRight className="w-5 h-5" />
                 </span>
               </Button>
