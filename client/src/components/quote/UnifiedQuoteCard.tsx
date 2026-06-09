@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Check, Calendar, CalendarCheck, Clock, Tag, Shield, Zap,
+  Check, Calendar, CalendarCheck, CalendarRange, Clock, Tag, Shield, Zap,
   ChevronRight, ChevronDown, Percent, Sparkles, Star, Plus,
   Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle, User,
   PencilRuler, MapPin, Receipt, Umbrella
@@ -1988,22 +1988,23 @@ export function UnifiedQuoteCard({
                   spanReadout = `${fmt(pickedDate)} → ${fmt(end)}`;
                 }
                 return (
-                  <div className={`flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg ${isDarkTheme ? 'bg-yellow-500/10 border border-yellow-500/30' : 'bg-amber-50 border border-amber-200'}`}>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-sm font-bold ${isDarkTheme ? 'text-yellow-200' : 'text-amber-800'}`}>
+                  <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-[#7DB00E] shadow-sm shadow-[#7DB00E]/20">
+                    <CalendarRange className="w-5 h-5 shrink-0 text-[#1D2D3D]" strokeWidth={2.25} />
+                    <div className="flex flex-col min-w-0 text-left">
+                      <span className="text-sm font-extrabold uppercase tracking-wide leading-tight text-[#1D2D3D]">
                         {jobDurationDays}-day job
                       </span>
-                      <span className={`text-xs ${isDarkTheme ? 'text-yellow-200/80' : 'text-amber-700'}`}>
-                        {spanReadout
-                          ? `Your contractor will be here ${spanReadout.toLowerCase().replace(' → ', ' until ')}`
-                          : `Pick a start date — we'll be here for ${jobDurationDays} consecutive days`}
-                      </span>
+                      {spanReadout ? (
+                        <span className="text-xs leading-snug font-semibold text-[#1D2D3D]/85">
+                          We'll be here{' '}
+                          <span className="font-extrabold tabular-nums text-[#1D2D3D]">{spanReadout}</span>
+                        </span>
+                      ) : (
+                        <span className="text-xs leading-snug font-semibold text-[#1D2D3D]/85">
+                          Pick a start date — we'll be here for {jobDurationDays} consecutive days
+                        </span>
+                      )}
                     </div>
-                    {spanReadout && (
-                      <span className={`text-sm font-semibold tabular-nums ${isDarkTheme ? 'text-yellow-100' : 'text-amber-900'}`}>
-                        {spanReadout}
-                      </span>
-                    )}
                   </div>
                 );
               })()}
