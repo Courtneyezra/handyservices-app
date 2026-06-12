@@ -1,39 +1,35 @@
-import { loadStripe } from '@stripe/stripe-js';
+import { loadStripe, type Stripe } from '@stripe/stripe-js';
 
-// Get the Stripe publishable key from environment variables
-// Use test key in development, live key in production
+// Get the Stripe publishable key from environment variables.
+// Use test key in development, live key in production.
 const rawStripeKey = import.meta.env.DEV
     ? (import.meta.env.VITE_STRIPE_TEST_PUBLIC_KEY || import.meta.env.VITE_STRIPE_PUBLIC_KEY)
     : (import.meta.env.VITE_STRIPE_PUBLIC_KEY || import.meta.env.VITE_STRIPE_TEST_PUBLIC_KEY);
 
-// Debug: log raw key format (masked)
-console.log('[Stripe] Raw key from env:', rawStripeKey ? `${rawStripeKey.substring(0, 10)}...${rawStripeKey.substring(rawStripeKey.length - 5)}` : 'undefined');
-console.log('[Stripe] Raw key length:', rawStripeKey?.length);
-
-// Strip any surrounding quotes that may have been included in the .env file
+// Strip any surrounding quotes that may have been included in the .env file.
 const stripePublishableKey = rawStripeKey?.replace(/^["']|["']$/g, '').trim();
 
-// Debug: log processed key format (masked)
-console.log('[Stripe] Processed key:', stripePublishableKey ? `${stripePublishableKey.substring(0, 10)}...${stripePublishableKey.substring(stripePublishableKey.length - 5)}` : 'undefined');
-console.log('[Stripe] Processed key length:', stripePublishableKey?.length);
-
-// Initialize Stripe with the publishable key
 export const isStripeConfigured = !!(stripePublishableKey && stripePublishableKey.startsWith('pk_'));
 
 if (!isStripeConfigured) {
     if (!stripePublishableKey) {
         console.warn('[Stripe] Publishable key not found. Payment functionality will be disabled.');
         console.warn('[Stripe] Please check your .env file for VITE_STRIPE_PUBLIC_KEY or VITE_STRIPE_TEST_PUBLIC_KEY.');
-        console.warn('[Stripe] Current Mode:', import.meta.env.DEV ? 'Development' : 'Production');
     } else {
         console.error('[Stripe] Invalid key format. Key should start with pk_live_ or pk_test_');
-        console.error('[Stripe] First 20 chars:', stripePublishableKey.substring(0, 20));
     }
 }
 
-// Initialize Stripe with the publishable key
-export const stripePromise = stripePublishableKey && stripePublishableKey.startsWith('pk_')
-    ? loadStripe(stripePublishableKey)
-    : null;
-
-console.log('[Stripe] stripePromise initialized:', stripePromise !== null);
+// loadStripe() injects the Stripe.js script and starts network work the instant
+// it runs. Calling it at module-eval put that fetch on the quote page's initial
+// critical path (competing with hero image + fonts during the skeleton gate).
+// Instead, load lazily on first <Elements> render and memoize so every call site
+// shares one stable promise.
+let stripeInstance: Promise<Stripe | null> | null = null;
+export function getStripe(): Promise<Stripe | null> | null {
+    if (!isStripeConfigured) return null;
+    if (!stripeInstance) {
+        stripeInstance = loadStripe(stripePublishableKey as string);
+    }
+    return stripeInstance;
+}

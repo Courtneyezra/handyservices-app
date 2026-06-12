@@ -11,7 +11,7 @@ import {
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
-import { stripePromise, isStripeConfigured } from "@/lib/stripe";
+import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { Card, CardContent } from "@/components/ui/card";
 import { NeonBadge } from "@/components/ui/neon-badge";
 import { SectionWrapper } from "@/components/SectionWrapper";
@@ -1217,12 +1217,12 @@ function InvoicePageContent() {
 // ==========================================
 
 export default function InvoiceView() {
-  if (!stripePromise) {
+  if (!isStripeConfigured) {
     return <InvoicePageContent />;
   }
 
   return (
-    <Elements stripe={stripePromise}>
+    <Elements stripe={getStripe()}>
       <InvoicePageContent />
     </Elements>
   );

@@ -16,7 +16,7 @@ import {
     AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Elements } from '@stripe/react-stripe-js';
-import { stripePromise } from '@/lib/stripe';
+import { getStripe, isStripeConfigured } from '@/lib/stripe';
 import { PaymentForm } from '@/components/PaymentForm';
 import { ExpertStickyNote } from "@/components/ExpertStickyNote";
 import mikeProfilePhoto from '@assets/mike-profile-photo.webp';
@@ -353,8 +353,8 @@ export default function DiagnosticVisitPage() {
 
                                             {/* Direct Payment Form (No Proceed Button) */}
                                             <div className="animate-in fade-in slide-in-from-top-2 bg-slate-900/80 p-4 rounded-xl border border-slate-700/50 mt-4">
-                                                {stripePromise ? (
-                                                    <Elements stripe={stripePromise}>
+                                                {isStripeConfigured ? (
+                                                    <Elements stripe={getStripe()}>
                                                         <PaymentForm
                                                             amount={tier.price * 100}
                                                             customerName={quote.customerName}
@@ -526,8 +526,8 @@ export default function DiagnosticVisitPage() {
                                         </Button>
                                     ) : (
                                         <div className="animate-in fade-in slide-in-from-top-2 bg-slate-800/80 p-4 rounded-xl border border-slate-700/50">
-                                            {stripePromise ? (
-                                                <Elements stripe={stripePromise}>
+                                            {isStripeConfigured ? (
+                                                <Elements stripe={getStripe()}>
                                                     <PaymentForm
                                                         amount={basePrice * 100} // fallback
                                                         customerName={quote.customerName}

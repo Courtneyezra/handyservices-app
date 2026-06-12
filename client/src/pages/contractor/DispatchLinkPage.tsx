@@ -23,7 +23,7 @@ import {
     Play, Maximize2, MousePointerClick, UserCheck, CreditCard, Trophy, Star,
 } from "lucide-react";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
-import { stripePromise } from "@/lib/stripe";
+import { getStripe, isStripeConfigured } from "@/lib/stripe";
 
 interface PublicDispatch {
     id: string;
@@ -709,14 +709,14 @@ function BondStep({
                     </div>
                 )}
 
-                {!clientSecret || !stripePromise ? (
+                {!clientSecret || !isStripeConfigured ? (
                     <div className="bg-[#F7F8FA] border border-[#E6E8EC] rounded-lg p-4 flex items-center gap-2">
                         <Loader2 className="h-4 w-4 text-[#5C6470] animate-spin" />
                         <p className="text-[12px] text-[#5C6470]">Setting up secure payment…</p>
                     </div>
                 ) : (
                     <Elements
-                        stripe={stripePromise}
+                        stripe={getStripe()}
                         options={{
                             clientSecret,
                             appearance: {

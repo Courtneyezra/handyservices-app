@@ -4,9 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Check, Clock, Shield } from 'lucide-react';
 import type { PersonalizedQuote } from '@/pages/PersonalizedQuotePage';
-import { Elements } from '@stripe/react-stripe-js';
-import { stripePromise } from '@/lib/stripe';
-import { PaymentForm } from '@/components/PaymentForm';
 import { useToast } from '@/hooks/use-toast';
 
 interface InstantActionQuoteProps {

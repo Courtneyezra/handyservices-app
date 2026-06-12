@@ -49,7 +49,7 @@ import {
 import { StepIndicator } from "./BasketV2";
 import { ALL_SERVICES, CART_STORAGE_KEY } from "./HandymanV2";
 import { trackEvent as posthogTrack } from "@/lib/posthog";
-import { stripePromise } from "@/lib/stripe";
+import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import {
     Elements,
     PaymentElement,
@@ -1223,9 +1223,9 @@ export function BookingReviewV2() {
                         {error}
                     </div>
                 )}
-                {isInPaymentStep && paymentSession && stripePromise && (
+                {isInPaymentStep && paymentSession && isStripeConfigured && (
                     <Elements
-                        stripe={stripePromise}
+                        stripe={getStripe()}
                         options={{
                             clientSecret: paymentSession.clientSecret,
                             appearance: { theme: "stripe" },

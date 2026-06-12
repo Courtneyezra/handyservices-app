@@ -17,7 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { PaymentForm } from '@/components/PaymentForm';
 import { QuoteSkeleton } from '@/components/QuoteSkeleton';
 import { Elements } from '@stripe/react-stripe-js';
-import { stripePromise } from '@/lib/stripe';
+import { getStripe, isStripeConfigured } from '@/lib/stripe';
 // import handymanPhoto from '@assets/Untitled design (27)_1762913661129.png';
 import handyServicesLogo from '../assets/handy-logo.webp';
 import payIn3PromoImage from '../assets/pay-in-3-banner-original.webp';
@@ -2668,6 +2668,39 @@ export default function PersonalizedQuotePage() {
   // const [isExpiredState, setIsExpiredState] = useState(false); // Removed - quotes no longer expire
   const [showPaymentForm, setShowPaymentForm] = useState(false); // Controls visibility of the payment section
 
+  // Gate Stripe.js behind booking intent. The booking card's <Elements> mounts
+  // immediately with stripe={null} (so UnifiedQuoteCard renders and its useStripe/
+  // useElements return null — a state its payment path already guards), then we swap
+  // in the real loadStripe() promise once the card nears the viewport. null→instance
+  // is the one stripe-prop transition <Elements> allows. An IntersectionObserver on a
+  // sentinel at the card (not a scroll listener — those fire on the transient reflow
+  // scrolls that happen while the skeleton swaps to content, which would load Stripe
+  // for everyone including bounces) loads Stripe only when the user actually scrolls
+  // toward booking: off the initial paint, skipped for bounces who never reach the
+  // card, and the rootMargin gives Stripe time to load before they touch it.
+  const [deferredStripe, setDeferredStripe] = useState<ReturnType<typeof getStripe>>(null);
+  const stripeRequestedRef = useRef(false);
+  const stripeIoRef = useRef<IntersectionObserver | null>(null);
+  const requestStripe = useCallback(() => {
+    if (stripeRequestedRef.current || !isStripeConfigured) return;
+    stripeRequestedRef.current = true;
+    setDeferredStripe(getStripe());
+  }, []);
+  // Callback ref on the booking-card sentinel: attaches the observer the moment the
+  // card mounts (quotePrice > 0 && !hasBooked) and disconnects on unmount/reattach.
+  // A callback ref (not a useEffect keyed on quotePrice) avoids the temporal dead
+  // zone — quotePrice is declared further down this very large component.
+  const bookingSentinelRef = useCallback((node: HTMLDivElement | null) => {
+    if (stripeIoRef.current) { stripeIoRef.current.disconnect(); stripeIoRef.current = null; }
+    if (!node || !isStripeConfigured || stripeRequestedRef.current) return;
+    if (typeof IntersectionObserver === 'undefined') { requestStripe(); return; }
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { requestStripe(); io.disconnect(); stripeIoRef.current = null; }
+    }, { rootMargin: '400px 0px' });
+    io.observe(node);
+    stripeIoRef.current = io;
+  }, [requestStripe]);
+
   // Cinematic Intro State
   const [showCinematicIntro, setShowCinematicIntro] = useState(false);
   const [introDismissed, setIntroDismissed] = useState(false);
@@ -3780,8 +3813,9 @@ export default function PersonalizedQuotePage() {
               {/* Price Card + Booking Flow */}
               {quotePrice > 0 && !hasBooked && (
                 <QuoteTimer>
+                  <div ref={bookingSentinelRef} aria-hidden="true" />
                   <Elements
-                    stripe={stripePromise}
+                    stripe={deferredStripe}
                     key={`unified-${quotePrice}-${pricingSettings?.depositPercent ?? 30}`}
                     options={{ mode: 'payment', amount: Math.round(quotePrice * ((pricingSettings?.depositPercent ?? 30) / 100)), currency: 'gbp', appearance: { theme: 'night', variables: { colorPrimary: '#e8b323' } } }}
                   >
@@ -4033,9 +4067,9 @@ export default function PersonalizedQuotePage() {
                             )}
                           </div>
 
-                          {stripePromise ? (
+                          {isStripeConfigured ? (
                             <Elements
-                              stripe={stripePromise}
+                              stripe={getStripe()}
                               key={`${selectedEEEPackage}-${isInstallmentsMode ? 'installments' : 'full'}-${selectedExtras.join(',')}`}
                               options={{ mode: 'payment', amount: totalDeposit, currency: 'gbp', appearance: { theme: 'night', variables: { colorPrimary: '#e8b323' } } }}
                             >
@@ -5209,9 +5243,9 @@ export default function PersonalizedQuotePage() {
                             </div>
 
                             {
-                              stripePromise ? (
+                              isStripeConfigured ? (
                                 <Elements
-                                  stripe={stripePromise}
+                                  stripe={getStripe()}
                                   key={`${selectedEEEPackage}-${isInstallmentsMode ? 'installments' : 'full'}-${selectedExtras.join(',')}`}
                                   options={{ mode: 'payment', amount: totalDeposit, currency: 'gbp', appearance: { theme: 'night', variables: { colorPrimary: '#e8b323' } } }}
                                 >
