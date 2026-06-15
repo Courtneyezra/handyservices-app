@@ -2623,6 +2623,12 @@ export default function PersonalizedQuotePage() {
   // homeowner flex booking persisted as "neither" (no date AND no flex flag). Mirror
   // the selectedCalendarDateRef / bookingAddressRef pattern and read this ref instead.
   const flexBookingWithinDaysRef = useRef<number | undefined>(undefined);
+  // Phase 37 — the pricing lane the card reported ('flex' | 'date_time' | 'liaise').
+  // Same same-tick race as the flex window, so it's held in a ref. Forwarded to
+  // /track-booking, where the SERVER re-derives the lane-adjusted price from
+  // quote.basePrice (the set-date premium / flex rebate / liaise +£25 are all
+  // server-authoritative).
+  const pricingLaneRef = useRef<'flex' | 'date_time' | 'liaise' | undefined>(undefined);
   // Phase 32 — the inline card's REAL full-vs-deposit choice. Same race as flex:
   // the legacy `paymentMode` state ('full'|'installments', defaults 'full') never
   // learns the card's deposit selection, so handleBooking sent a stale 'full' that
@@ -3312,6 +3318,10 @@ export default function PersonalizedQuotePage() {
             // Persists to personalized_quotes.flexBookingWithinDays so the dispatcher
             // (Agent 25e) can route this booking to a thin day within the window.
             flexBookingWithinDays: flexBookingWithinDaysRef.current ?? flexBookingWithinDays,
+            // Phase 37 — pricing lane → server re-derives the lane-adjusted price
+            // (flex rebate / set-date premium) from quote.basePrice. Ref, not state,
+            // for the same same-tick reason as flexBookingWithinDays above.
+            pricingLane: pricingLaneRef.current,
             // Phase 30 — door address captured in the UnifiedQuoteCard booking section.
             // Persists to personalized_quotes.address (+ coordinates when Places-validated)
             // so dispatch routes to the real address, not just the postcode.
@@ -3868,6 +3878,11 @@ export default function PersonalizedQuotePage() {
                           : undefined;
                         flexBookingWithinDaysRef.current = flexWindow;
                         setFlexBookingWithinDays(flexWindow);
+
+                        // Phase 37 — capture the pricing lane (same same-tick race as
+                        // the flex window, so write the ref). The server re-derives the
+                        // £ from quote.basePrice; we only forward the lane name.
+                        pricingLaneRef.current = config.pricingLane;
 
                         // Phase 32 — capture the card's REAL payment choice so
                         // handleBooking sends 'deposit'/'full' truthfully instead of the

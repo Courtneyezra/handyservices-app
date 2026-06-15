@@ -16,6 +16,7 @@ import { updateLeadStage } from "./lead-stage-engine";
 import { captureServerEvent } from "./posthog";
 import { optionalAuth } from "./auth";
 import { getShortQuoteUrl, getBookVisitUrl } from "./url-utils";
+import { computeLaneBasePence, parsePricingLane } from "./lane-pricing";
 
 // Define input schema for value pricing
 const valuePricingInputSchema = z.object({
@@ -1095,6 +1096,9 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
             exactTimeRequested,
             isWeekendBooking,
             schedulingFeeInPence,
+            // Pricing lane ('flex' | 'date_time') — the SERVER re-derives the £ from
+            // quote.basePrice so the persisted selectedTierPricePence matches the charge.
+            pricingLane,
             // Phase 30 — door address captured in the customer quote booking section
             address,
             coordinates,
@@ -1114,8 +1118,16 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
             return res.status(404).json({ error: "Quote not found" });
         }
 
-        // Single price model — use basePrice (fall back to legacy tier columns)
-        const selectedTierPricePence = quote.basePrice || quote.essentialPrice || 0;
+        // Single price model — use basePrice (fall back to legacy tier columns),
+        // re-deriving the lane-adjusted price server-side so this mirror of the price
+        // matches what /create-payment-intent actually charged. No lane → flat base.
+        const trackLane = parsePricingLane(pricingLane);
+        const trackLanePricing = computeLaneBasePence(
+            quote.basePrice || quote.essentialPrice || 0,
+            quote.contextSignals,
+            trackLane,
+        );
+        const selectedTierPricePence = trackLanePricing.laneBasePence;
 
         // Calculate deposit ONLY when paymentType === 'deposit'.
         // For 'full' (and 'installments'), the Stripe webhook is the sole writer of

@@ -9,6 +9,7 @@ import { updateLeadStage } from './lead-stage-engine';
 import { getPricingSettings } from './pricing-settings';
 import { insertInvoiceWithRetry } from './invoices';
 import { extendLock, confirmBooking } from './booking-engine';
+import { computeLaneBasePence, parsePricingLane } from './lane-pricing';
 
 // Helper to get Stripe instance lazily
 const getStripe = () => {
@@ -91,6 +92,11 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             address,
             addressLat,
             addressLng,
+            // Pricing lane the customer chose in UnifiedQuoteCard ('flex' | 'date_time').
+            // The SERVER re-derives the £ adjustment from quote.basePrice — the client
+            // only names the lane, never the amount. Legacy callers (PaymentForm,
+            // diagnostic visits) omit this, so they keep the flat-base behaviour.
+            pricingLane,
         } = req.body;
 
         if (!quoteId) {
@@ -129,7 +135,26 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         }
 
         // Single price model — use basePrice (fall back to legacy tier columns)
-        const baseTierPrice = quote.basePrice || quote.essentialPrice || 0;
+        const storedBasePrice = quote.basePrice || quote.essentialPrice || 0;
+
+        // ── Pricing lane (server-authoritative) ─────────────────────────────
+        // Re-derive the lane-adjusted base from the TRUSTED stored price. The
+        // customer card sends only the lane name; the £ is computed here so the
+        // flex rebate / set-date premium are actually charged (not display-only).
+        // No lane (legacy/diagnostic callers) → base unchanged.
+        const lane = parsePricingLane(pricingLane);
+        const lanePricing = computeLaneBasePence(storedBasePrice, quote.contextSignals, lane);
+        const baseTierPrice = lanePricing.laneBasePence;
+        if (lanePricing.laneApplied) {
+            console.log('[Stripe] Pricing lane applied:', {
+                lane: lanePricing.lane,
+                storedBasePrice,
+                flexDiscountPence: lanePricing.flexDiscountPence,
+                setDatePremiumPence: lanePricing.setDatePremiumPence,
+                liaisePremiumPence: lanePricing.liaisePremiumPence,
+                laneBasePence: lanePricing.laneBasePence,
+            });
+        }
 
         // Calculate extras total
         const optionalExtras = (quote.optionalExtras as any[]) || [];
@@ -209,6 +234,11 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         if (typeof addressLat === 'number' && typeof addressLng === 'number') {
             bookingMetadata.addressLat = String(addressLat);
             bookingMetadata.addressLng = String(addressLng);
+        }
+        // Carry the chosen pricing lane so the webhook re-derives the SAME
+        // lane-adjusted total when it builds the invoice + dispatch record.
+        if (lanePricing.laneApplied && lanePricing.lane) {
+            bookingMetadata.pricingLane = lanePricing.lane;
         }
 
         // Generate the idempotency key AFTER bookingMetadata is assembled, derived
@@ -403,7 +433,20 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         console.log(`[Stripe Webhook] Quote ${quoteId} marked as paid. Deposit: £${(depositAmount / 100).toFixed(2)}`);
 
                         // 2. Calculate total job price (single price model)
-                        let totalJobPrice = quote.basePrice || quote.essentialPrice || 0;
+                        // Re-derive the SAME lane-adjusted base the charge used, from THIS
+                        // PI's own metadata (authoritative + race-free). pricingLane was
+                        // stamped by /create-payment-intent only for eligible lane bookings;
+                        // its absence (legacy/diagnostic) leaves the base flat, as before.
+                        const webhookLane = parsePricingLane(paymentIntent.metadata?.pricingLane);
+                        const webhookLanePricing = computeLaneBasePence(
+                            quote.basePrice || quote.essentialPrice || 0,
+                            quote.contextSignals,
+                            webhookLane,
+                        );
+                        let totalJobPrice = webhookLanePricing.laneBasePence;
+                        if (webhookLanePricing.laneApplied) {
+                            console.log(`[Stripe Webhook] Pricing lane '${webhookLanePricing.lane}' applied for quote ${quoteId}: base ${quote.basePrice} → ${webhookLanePricing.laneBasePence} (flexDiscount ${webhookLanePricing.flexDiscountPence}, setDatePremium ${webhookLanePricing.setDatePremiumPence}, liaisePremium ${webhookLanePricing.liaisePremiumPence})`);
+                        }
 
                         // Add extras
                         const optionalExtras = (quote.optionalExtras as any[]) || [];

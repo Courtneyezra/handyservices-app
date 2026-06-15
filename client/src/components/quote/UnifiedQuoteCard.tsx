@@ -225,6 +225,14 @@ interface UnifiedQuoteCardProps {
      */
     flexBookingWithinDays?: number;
     /**
+     * Phase 37 — the pricing lane the customer is in ('flex' = convenience-rebate
+     * lane, 'date_time' = firm date+slot premium lane, 'liaise' = landlord
+     * tenant-liaison concierge +£25). Forwarded to /track-booking so the SERVER
+     * re-derives the lane-adjusted price from quote.basePrice. Omitted for
+     * businesses (no price lever), firm-date landlords, and legacy/downsell flows.
+     */
+    pricingLane?: 'flex' | 'date_time' | 'liaise';
+    /**
      * Landlord liaise-with-tenant booking. When the customer is a landlord and
      * chooses "Liaise dates with my tenant" instead of picking a date, we capture
      * the tenant's contact so ops can arrange access directly. Persisted into
@@ -951,6 +959,19 @@ export function UnifiedQuoteCard({
   // sum to this; picking a date & time adds setDatePremium on top.
   const flexBasePrice = Math.max(0, basePrice - flexDiscountValue);
 
+  // The pricing lane we report to the SERVER so it can re-derive the charged price
+  // from quote.basePrice (server-authoritative; the client never sends the amount).
+  // Mirrors the breakdown memo's price levers exactly:
+  //   • homeowner/eligible: 'flex' (rebate) when flexible, else 'date_time' (premium)
+  //   • landlord + flexible booking: 'liaise' (the +£25 tenant-liaison concierge)
+  //   • landlord on a firm date, and businesses: no lever → undefined (flat base)
+  const pricingLane: 'flex' | 'date_time' | 'liaise' | undefined =
+    isLandlord
+      ? (useFlexBooking ? 'liaise' : undefined)
+      : isBusiness
+        ? undefined
+        : (useFlexBooking ? 'flex' : 'date_time');
+
   // Calculate total price
   const { total, breakdown, savingsPercent, wasPrice, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied } = useMemo(() => {
     let amount = basePrice;
@@ -1180,6 +1201,8 @@ export function UnifiedQuoteCard({
             // persists flexBookingWithinDays race-free, instead of relying solely on
             // the fire-and-forget /track-booking PUT. Mirrors what onBook passes.
             flexBookingWithinDays: useFlexBooking ? FLEX_WINDOW_DAYS : undefined,
+            // Pricing lane → server re-derives the charged £ from quote.basePrice.
+            pricingLane,
             lockId: reservation?.lockId || undefined,
             contractorId: reservation?.contractorId || undefined,
             // Phase 30 — door address in the PI body so the webhook can snapshot it
@@ -1223,7 +1246,7 @@ export function UnifiedQuoteCard({
       isCurrentRequest = false;
       abortController.abort();
     };
-  }, [showInlinePayment, useDownsell, useFlexBooking, quoteId, customerName, effectiveEmail, detailsConfirmed, total, selectedAddOns, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation]);
+  }, [showInlinePayment, useDownsell, useFlexBooking, pricingLane, quoteId, customerName, effectiveEmail, detailsConfirmed, total, selectedAddOns, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation]);
 
   // Handle inline payment submission
   const handlePayment = async (e: React.FormEvent) => {
@@ -1281,6 +1304,8 @@ export function UnifiedQuoteCard({
           address: bookingAddress,
           flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
           flexBookingWithinDays: useFlexBooking ? FLEX_WINDOW_DAYS : undefined,
+          // Pricing lane → server re-derives selectedTierPricePence from basePrice.
+          pricingLane,
           ...landlordTenantPayload,
         });
 
@@ -1341,6 +1366,8 @@ export function UnifiedQuoteCard({
           address: bookingAddress,
           flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
           flexBookingWithinDays: useFlexBooking ? FLEX_WINDOW_DAYS : undefined,
+          // Pricing lane → server re-derives selectedTierPricePence from basePrice.
+          pricingLane,
           ...landlordTenantPayload,
         });
 
@@ -1451,6 +1478,8 @@ export function UnifiedQuoteCard({
         usedDownsell: false,
         address: bookingAddress,
         flexBookingWithinDays: FLEX_WINDOW_DAYS,
+        // Pricing lane → server re-derives selectedTierPricePence from basePrice.
+        pricingLane,
         ...landlordTenantPayload,
       });
       return;
@@ -1495,6 +1524,8 @@ export function UnifiedQuoteCard({
       paymentMode: mode,
       usedDownsell: false,
       address: bookingAddress,
+      // Firm date & time lane (no flex/downsell) → server applies the set-date premium.
+      pricingLane,
     });
   };
 
