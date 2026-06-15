@@ -6,7 +6,7 @@ import {
   Check, Calendar, CalendarCheck, CalendarRange, Clock, Tag, Shield, Zap,
   ChevronRight, ChevronDown, Percent, Sparkles, Star, Plus,
   Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle, User,
-  PencilRuler, MapPin, Receipt, Umbrella
+  PencilRuler, MapPin, Receipt
 } from 'lucide-react';
 import { SkuIcon } from '@/lib/sku-icons';
 import { QuoteAddressInput } from '@/components/quote/QuoteAddressInput';
@@ -18,6 +18,7 @@ import { CardElement, ExpressCheckoutElement, useStripe, useElements } from '@st
 import type { StripeExpressCheckoutElementConfirmEvent } from '@stripe/stripe-js';
 import { isStripeConfigured } from '@/lib/stripe';
 import { getHassleComparisons } from '@shared/hassle-comparisons';
+import { trackBookingModeInteraction } from '@/lib/quote-analytics';
 import {
   BASE_SCHEDULING_RULES,
   BASE_TIME_SLOTS,
@@ -58,6 +59,8 @@ export interface PricingLineItem {
   skuName?: string;
   /** Outcome-framed plain-English description (no hours, Agent 25a authored). */
   skuCustomerDescription?: string;
+  /** Plain-English detail shown when a custom line is expanded. */
+  customerDescription?: string;
   /** Per-unit SKUs ("× 3 doors") — `× ${unitCount} ${unitLabel}`. */
   unitCount?: number;
   /** Unit label (e.g. "door", "shelf"). */
@@ -90,12 +93,12 @@ export interface QuoteBatchDiscount {
  * reveal. SKU lines read as solid product tiles (green icon), custom lines as
  * a dashed "made-to-order" outline (neutral icon).
  */
-function QuoteLineRow({ item, isDarkTheme }: { item: PricingLineItem; isDarkTheme: boolean }) {
+function QuoteLineRow({ item, isDarkTheme, displayPricePence }: { item: PricingLineItem; isDarkTheme: boolean; displayPricePence?: number }) {
   const [open, setOpen] = useState(false);
   const anyItem = item as any;
   const isSku = anyItem.source === 'sku';
   const title = anyItem.skuName || item.description;
-  const customerDesc: string | null = anyItem.skuCustomerDescription || anyItem.details || null;
+  const customerDesc: string | null = anyItem.skuCustomerDescription || anyItem.customerDescription || anyItem.details || null;
   const hasMaterials = (item.materialsWithMarginPence || 0) > 0;
   const lineTotal = item.guardedPricePence + (item.materialsWithMarginPence || 0);
 
@@ -113,9 +116,15 @@ function QuoteLineRow({ item, isDarkTheme }: { item: PricingLineItem; isDarkThem
     }
   }
 
-  const cardClass = isSku
-    ? (isDarkTheme ? 'border border-white/10 bg-white/[0.04]' : 'border border-slate-200 bg-white')
-    : (isDarkTheme ? 'border border-dashed border-white/25' : 'border border-dashed border-slate-300 bg-slate-50/50');
+  // Highlighted line-item row: a soft green FILL (no outline) marks these as
+  // itemised content. Deliberately NOT an outlined pill — on this page a solid
+  // coloured border = a selectable choice (the payment + scheduling toggles), so
+  // an outline here reads as a button and causes confusion. The fill keeps the
+  // green highlight without competing with the CTAs; the icon tile + green price
+  // (and the expanded badge) still distinguish SKU vs tailored rows.
+  const cardClass = isDarkTheme
+    ? 'bg-[#7DB00E]/[0.14]'
+    : 'bg-[#7DB00E]/[0.12]';
 
   return (
     <div className={`rounded-lg overflow-hidden ${cardClass}`}>
@@ -134,21 +143,21 @@ function QuoteLineRow({ item, isDarkTheme }: { item: PricingLineItem; isDarkThem
             />
           </div>
         ) : (
-          <div className={`shrink-0 w-8 h-8 rounded-md flex items-center justify-center ${isDarkTheme ? 'bg-white/[0.06]' : 'bg-slate-100'}`}>
+          <div className={`shrink-0 w-8 h-8 rounded-md flex items-center justify-center ${isDarkTheme ? 'bg-[#7DB00E]/[0.18] ring-1 ring-[#7DB00E]/30' : 'bg-[#7DB00E]/[0.12] ring-1 ring-[#7DB00E]/20'}`}>
             <PencilRuler className="w-4 h-4 text-slate-400" />
           </div>
         )}
 
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5">
-            <span className={`text-[13px] font-semibold ${open ? 'break-words' : 'truncate'} ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>{title}</span>
+            <span className={`text-[13px] font-semibold ${open ? 'break-words' : 'line-clamp-2'} ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>{title}</span>
             {qualifier && (
               <span className={`shrink-0 text-[10.5px] font-semibold ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>{qualifier}</span>
             )}
           </div>
         </div>
 
-        <span className={`shrink-0 text-[14px] font-bold tabular-nums ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>£{Math.round(lineTotal / 100)}</span>
+        <span className={`shrink-0 text-[14px] font-bold tabular-nums ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}>£{Math.round((displayPricePence ?? lineTotal) / 100)}</span>
         <ChevronDown className={`shrink-0 w-4 h-4 transition-transform duration-300 ${open ? 'rotate-180' : ''} ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} />
       </button>
 
@@ -180,6 +189,9 @@ function QuoteLineRow({ item, isDarkTheme }: { item: PricingLineItem; isDarkThem
     </div>
   );
 }
+
+/** The six canonical customer types (mirrors contextSignals.customerType). */
+type CustomerType = 'homeowner' | 'landlord' | 'property_manager' | 'tenant' | 'business' | 'letting_agent';
 
 interface UnifiedQuoteCardProps {
   segment: string;
@@ -271,7 +283,7 @@ interface UnifiedQuoteCardProps {
    * Drives per-type booking defaults: homeowners default to the "I'm flexible"
    * window. Distinct from isLandlord, which gates the whole landlord booking flow.
    */
-  customerType?: 'homeowner' | 'landlord' | 'property_manager' | 'tenant' | 'business' | 'letting_agent';
+  customerType?: CustomerType;
 }
 
 /**
@@ -286,6 +298,66 @@ const BRAND = {
   lead: 'Ben',
   homesBadge: '100s of homes',
 } as const;
+
+/** One differentiator chip: a brand-green icon + a short, single-line label. */
+interface DifferentiatorChip {
+  icon: React.ReactNode;
+  label: string;
+}
+
+/**
+ * Per-customer-type differentiator chips, shown on the quote *before* payment.
+ *
+ * Strategy (anti-handyman): each type gets the basics a normal handyman fails at,
+ * tuned to that type's #1 fear. These sit in a small-card grid that forbids
+ * wrapping, so every label stays short and single-line (≤ ~13 chars). The fuller
+ * risk-reversal promise ("…or we make it right") lives in the guarantee card
+ * below — not here.
+ *
+ * Rule: every chip must be genuinely included free. Paid add-ons (tenant liaison
+ * +£25, after-hours access) are deliberately excluded so a chip never undercuts a
+ * charge.
+ */
+const DIFFERENTIATOR_CHIPS: Record<CustomerType, DifferentiatorChip[]> = {
+  homeowner: [
+    { icon: <Tag className="w-4 h-4" />, label: 'Fixed price' },
+    { icon: <Clock className="w-4 h-4" />, label: 'On time' },
+    { icon: <Sparkles className="w-4 h-4" />, label: 'Spotless' },
+    { icon: <Shield className="w-4 h-4" />, label: 'Guaranteed' },
+  ],
+  landlord: [
+    // Tenant liaison is a paid +£25 add-on → NOT claimed here as standard.
+    { icon: <Tag className="w-4 h-4" />, label: 'Fixed price' },
+    { icon: <Camera className="w-4 h-4" />, label: 'Photo proof' },
+    { icon: <Receipt className="w-4 h-4" />, label: 'Tax invoice' },
+    { icon: <Shield className="w-4 h-4" />, label: 'Guaranteed' },
+  ],
+  property_manager: [
+    { icon: <Clock className="w-4 h-4" />, label: '48-72hr' },
+    { icon: <Camera className="w-4 h-4" />, label: 'Photo report' },
+    { icon: <Receipt className="w-4 h-4" />, label: 'One invoice' },
+    { icon: <Tag className="w-4 h-4" />, label: 'Fixed price' },
+  ],
+  business: [
+    // After-hours access is a premium, not standard → excluded from the chips.
+    { icon: <CalendarCheck className="w-4 h-4" />, label: 'By deadline' },
+    { icon: <Tag className="w-4 h-4" />, label: 'Fixed price' },
+    { icon: <Sparkles className="w-4 h-4" />, label: 'Clean finish' },
+    { icon: <Shield className="w-4 h-4" />, label: 'Guaranteed' },
+  ],
+  letting_agent: [
+    { icon: <Phone className="w-4 h-4" />, label: 'One contact' },
+    { icon: <Camera className="w-4 h-4" />, label: 'Photo proof' },
+    { icon: <Clock className="w-4 h-4" />, label: '48-72hr' },
+    { icon: <Tag className="w-4 h-4" />, label: 'Fixed price' },
+  ],
+  tenant: [
+    { icon: <Zap className="w-4 h-4" />, label: 'Fast reply' },
+    { icon: <Clock className="w-4 h-4" />, label: 'On time' },
+    { icon: <Sparkles className="w-4 h-4" />, label: 'Left tidy' },
+    { icon: <Shield className="w-4 h-4" />, label: 'Guaranteed' },
+  ],
+};
 
 export function UnifiedQuoteCard({
   segment,
@@ -333,6 +405,13 @@ export function UnifiedQuoteCard({
   // So `isBusiness` keeps the same `useFlexBooking` plumbing but suppresses the
   // flex discount and swaps the badge/copy (see the discount memo + flex card).
   const isBusiness = customerType === 'business';
+
+  // Which differentiator-chip set to show. Prefer the canonical customerType; fall
+  // back to the legacy isLandlord gate when customerType wasn't supplied (older
+  // quotes default it to 'homeowner').
+  const chipType: CustomerType = customerType !== 'homeowner'
+    ? customerType
+    : (isLandlord ? 'landlord' : 'homeowner');
 
   // Stripe hooks (will be null if not wrapped in Elements provider)
   const stripe = useStripe();
@@ -403,9 +482,13 @@ export function UnifiedQuoteCard({
   // and a cap (protects margin on big jobs, where 7% would over-give).
   const FLEX_MIN_SAVING_PENCE = 1200; // £12 floor
   const FLEX_MAX_SAVING_PENCE = 3000; // £30 cap
-  // Rule of 100: below £100 a % reads bigger than the £ figure; at/above £100 the £
-  // reads bigger. Pick whichever framing flatters the saving at this job's size.
-  const RULE_OF_100_PENCE = 10000; // £100
+  // ── "I want a date & time" premium (decoupled from the flex rebate) ─────
+  // Committing a specific date AND arrival slot is a real surcharge, anchored to
+  // the cost of taking time off work to wait in (a half-day off ≈ £65). The flat
+  // WTP sits just under that so it's an obvious trade; the % keeps it scaling with
+  // bigger jobs while still reading as a small slice of the total.
+  const SET_DATE_WTP_PENCE = 3000;   // £30 flat WTP anchor (≈ just under a half-day off work)
+  const SET_DATE_PCT = 0.06;         // + 6% of the quote price
   // Flat premium for the landlord tenant-liaison concierge (pence). It's the
   // inverse of the flex discount: flex saves us effort (thin-day routing), liaise
   // costs us effort (chasing the tenant, arranging access), so it's a charge.
@@ -846,8 +929,30 @@ export function UnifiedQuoteCard({
     return [...configAddOns, ...quoteExtras];
   }, [config.addOns, optionalExtras]);
 
+  // ── Flexible vs "date & time" price split (two independent levers) ──────
+  // flexDiscountValue: the convenience rebate that makes the FLEXIBLE lane the
+  //   headline (funds thin-day routing). Clamped £12–£30, ~7% of basePrice.
+  // setDatePremium: the surcharge for the FIRM "date & time" lane — a flat WTP
+  //   anchor + % of the quote (see constants above). Previously these were welded
+  //   to the same clamp; decoupling lets the firm premium reflect real operational
+  //   cost without dragging the flexible price down with it.
+  // Businesses (deadline-guarantee framing) and landlords (liaise flow) carry
+  // neither — both resolve to 0.
+  const flexDiscountValue = (!isLandlord && !isBusiness)
+    ? Math.min(
+        FLEX_MAX_SAVING_PENCE,
+        Math.max(FLEX_MIN_SAVING_PENCE, Math.round(basePrice * (FLEX_DISCOUNT_PERCENT / 100))),
+      )
+    : 0;
+  const setDatePremium = (!isLandlord && !isBusiness)
+    ? Math.round((SET_DATE_WTP_PENCE + Math.round(basePrice * SET_DATE_PCT)) / 100) * 100
+    : 0;
+  // The flexible headline = basePrice minus the rebate. Line items are rebased to
+  // sum to this; picking a date & time adds setDatePremium on top.
+  const flexBasePrice = Math.max(0, basePrice - flexDiscountValue);
+
   // Calculate total price
-  const { total, breakdown, savingsPercent, wasPrice, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, flexDiscountApplied, liaisePremiumApplied } = useMemo(() => {
+  const { total, breakdown, savingsPercent, wasPrice, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied } = useMemo(() => {
     let amount = basePrice;
     const items: { label: string; amount: number }[] = [
       { label: config.priceLabel, amount: basePrice },
@@ -871,12 +976,18 @@ export function UnifiedQuoteCard({
     // price cut — so they get no flex discount either.
     let flexDiscountApplied = 0;
     if (useFlexBooking && !isLandlord && !isBusiness) {
-      flexDiscountApplied = Math.min(
-        FLEX_MAX_SAVING_PENCE,
-        Math.max(FLEX_MIN_SAVING_PENCE, Math.round(basePrice * (FLEX_DISCOUNT_PERCENT / 100))),
-      );
+      flexDiscountApplied = flexDiscountValue;
       amount -= flexDiscountApplied;
       items.push({ label: 'Flexible booking', amount: -flexDiscountApplied });
+    }
+
+    // ── Date & time premium (decoupled from the flex rebate) ────────────
+    // Committing a specific date & arrival slot is a real surcharge, not the flex
+    // rebate handed back. Rebase basePrice → flexible headline (strip the baked-in
+    // flex gap) then add the WTP-anchored premium on top.
+    if (!useFlexBooking && setDatePremium > 0) {
+      amount = amount - flexDiscountValue + setDatePremium;
+      items.push({ label: 'Date & time', amount: setDatePremium });
     }
 
     // ── Landlord tenant-liaison premium ─────────────────────────────────
@@ -939,18 +1050,20 @@ export function UnifiedQuoteCard({
     // Prices are already whole pounds from the engine — no client-side adjustment needed
     const adjustedAmount = amount;
 
-    // Calculate "was" price for discount badge
-    // If we have real batch discount data, use the actual subtotal (before discount)
-    // Otherwise fall back to the old 1.18x markup for BUDGET segment
+    // "Was" price = current total + the savings actually itemized below
+    // (multi-job batch only). The strikethrough then reads as exactly those green
+    // discount lines rather than an arbitrary markup. The flexible/set-date split is
+    // a premium frame now (a date & time costs +£X), not a discount, so it never anchors
+    // here. No real saving → no anchor (the strikethrough is gated on savings > 0).
+    const itemizedSavings = batchDiscount?.applied ? batchDiscount.savingsPence : 0;
     let was: number;
     let savings: number;
-    if (batchDiscount?.applied && batchDiscount.savingsPence > 0) {
-      // Real data: "was" = current price + actual savings
-      was = adjustedAmount + batchDiscount.savingsPence;
-      savings = batchDiscount.discountPercent;
+    if (itemizedSavings > 0) {
+      was = adjustedAmount + itemizedSavings;
+      savings = Math.round((itemizedSavings / was) * 100);
     } else {
-      was = Math.round(basePrice * 1.18);
-      savings = Math.round(((was - adjustedAmount) / was) * 100);
+      was = adjustedAmount;
+      savings = 0;
     }
 
     // Deposit model: 100% of materials upfront + 30% of labour
@@ -967,22 +1080,32 @@ export function UnifiedQuoteCard({
     const payFullTotal = Math.round(Math.round(adjustedAmount * (1 - PAY_FULL_DISCOUNT)) / 100) * 100;
     const payFullSaving = adjustedAmount - payFullTotal;
 
-    return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, flexDiscountApplied, liaisePremiumApplied };
-  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, isBusiness, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence]);
+    return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied };
+  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, isBusiness, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence, flexDiscountValue, setDatePremium]);
 
-  // Prospective flex saving for the incentive badge + helper line. These show
-  // whether or not flex is currently selected, so they derive from basePrice (the
-  // stable anchor) rather than the selection-gated flexDiscountApplied — same clamp,
-  // so the badge and the price breakdown can never disagree.
-  const flexProspectiveSaving = Math.min(
-    FLEX_MAX_SAVING_PENCE,
-    Math.max(FLEX_MIN_SAVING_PENCE, Math.round(basePrice * (FLEX_DISCOUNT_PERCENT / 100))),
-  );
-  const flexProspectivePercent = basePrice > 0 ? Math.round((flexProspectiveSaving / basePrice) * 100) : FLEX_DISCOUNT_PERCENT;
-  // Rule of 100 — lead with the % on small jobs (where the floor makes it read big),
-  // the £ on jobs at/above £100 (where the % would read weak).
-  const flexBadgeText = basePrice < RULE_OF_100_PENCE ? `−${flexProspectivePercent}%` : `−£${Math.round(flexProspectiveSaving / 100)}`;
-  const flexSavingText = basePrice < RULE_OF_100_PENCE ? `${flexProspectivePercent}%` : `£${Math.round(flexProspectiveSaving / 100)}`;
+  // Display-only rebasing of the line items so the customer-facing set sums to
+  // flexBasePrice. The real lineTotal (guarded price + materials) is untouched —
+  // deposit/total math still uses it. No premium (business/landlord) → unchanged.
+  const displayLineItems = useMemo(() => {
+    const lines = pricingLineItems || [];
+    const raw = (li: PricingLineItem) => li.guardedPricePence + (li.materialsWithMarginPence || 0);
+    if (flexDiscountValue <= 0 || lines.length === 0) {
+      return lines.map((item) => ({ item, displayPence: raw(item) }));
+    }
+    const sum = lines.reduce((s, li) => s + raw(li), 0);
+    const factor = sum > 0 ? flexBasePrice / sum : 1;
+    let allocated = 0;
+    return lines.map((item, idx) => {
+      let displayPence: number;
+      if (idx === lines.length - 1) {
+        displayPence = Math.max(0, flexBasePrice - allocated); // last line absorbs rounding drift
+      } else {
+        displayPence = Math.round((raw(item) * factor) / 100) * 100;
+        allocated += displayPence;
+      }
+      return { item, displayPence };
+    });
+  }, [pricingLineItems, flexDiscountValue, flexBasePrice]);
 
   // All 3 buffer dates must be selected before payment unlocks
   const allDatesSelected = confirmedDates.length >= MAX_BUFFER_DATES;
@@ -1386,14 +1509,6 @@ export function UnifiedQuoteCard({
       <div className={`${isDarkTheme ? 'p-6' : ''} space-y-6 md:space-y-0 md:grid md:grid-cols-5 md:gap-8 md:items-start`}>
         {/* Price Display — left column on desktop, sticky so it follows the booking flow */}
         <div ref={priceCardRef} className={`text-center md:col-span-2 md:sticky md:top-6 md:self-start ${!isDarkTheme ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-[#7DB00E] rounded-2xl p-6' : ''}`}>
-          {/* Discount Badge — only show when there's a real savings to display and not in pay-full mode */}
-          {!payFull && config.showDiscountBadge && savingsPercent > 0 && (
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#7DB00E] text-white text-xs font-bold mb-4">
-              <Percent className="w-3.5 h-3.5" />
-              SAVE {savingsPercent}%
-            </div>
-          )}
-
           <div className={`${isDarkTheme ? 'text-slate-400' : 'text-slate-600'} text-sm mb-1`}>
             {customerName.split(' ')[0]}, your quote
           </div>
@@ -1423,7 +1538,7 @@ export function UnifiedQuoteCard({
                     </span>
                   </div>
                   <div className={`text-xs mt-1 ${isDarkTheme ? 'text-slate-500' : 'text-slate-500'}`}>
-                    Save £{Math.round(payFullSaving / 100)} · pay today, nothing on the day
+                    Save {Math.round(PAY_FULL_DISCOUNT * 100)}% · pay today, nothing on the day
                   </div>
                 </motion.div>
               ) : (
@@ -1484,7 +1599,7 @@ export function UnifiedQuoteCard({
                 <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I'll pay in full</span>
               </div>
               <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                £{Math.round(payFullTotal / 100)} now · <span className="text-[#7DB00E] font-bold">save £{Math.round(payFullSaving / 100)}</span>
+                £{Math.round(payFullTotal / 100)} now · <span className="text-[#7DB00E] font-bold">save {Math.round(PAY_FULL_DISCOUNT * 100)}%</span>
               </p>
             </button>
           </div>
@@ -1493,46 +1608,9 @@ export function UnifiedQuoteCard({
           {pricingLineItems && pricingLineItems.length > 0 && (
             <div className={`mt-3 pt-3 border-t text-left ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
               <div className="space-y-1.5">
-                {pricingLineItems.map((item) => (
-                  <QuoteLineRow key={item.lineId} item={item} isDarkTheme={isDarkTheme} />
+                {displayLineItems.map(({ item, displayPence }) => (
+                  <QuoteLineRow key={item.lineId} item={item} isDarkTheme={isDarkTheme} displayPricePence={displayPence} />
                 ))}
-              </div>
-              {/* What's included — trust band directly under the line items */}
-              <div className="mt-3">
-                <p className={`text-[11px] font-semibold uppercase tracking-wide mb-2 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                  Included as standard
-                </p>
-                <div className="grid grid-cols-4 gap-2">
-                  {(isLandlord ? [
-                    // Landlords aren't on site — what reassures them is proof of work,
-                    // cover against damage, and a clean paper trail for tax. Tenant
-                    // liaison is NOT here: it's a paid +£25 premium, so claiming it as
-                    // standard would undercut the charge.
-                    { icon: <Camera className="w-4 h-4" />, label: 'Photo report' },
-                    { icon: <Umbrella className="w-4 h-4" />, label: '£2M insured' },
-                    { icon: <Receipt className="w-4 h-4" />, label: 'Tax-ready invoice' },
-                    { icon: <Shield className="w-4 h-4" />, label: 'Guaranteed' },
-                  ] : [
-                    { icon: <Tag className="w-4 h-4" />, label: 'Fixed price' },
-                    { icon: <Camera className="w-4 h-4" />, label: 'Photo report' },
-                    { icon: <Sparkles className="w-4 h-4" />, label: 'Full cleanup' },
-                    { icon: <Shield className="w-4 h-4" />, label: 'Guaranteed' },
-                  ]).map((item, i) => (
-                    <div
-                      key={i}
-                      className={`flex flex-col items-center justify-center rounded-lg py-2.5 px-1 text-center ${
-                        isDarkTheme
-                          ? 'bg-white/5 border border-white/10'
-                          : 'bg-slate-50 border border-slate-200'
-                      }`}
-                    >
-                      <div className="text-[#7DB00E] mb-1">{item.icon}</div>
-                      <span className={`text-[10px] font-medium leading-tight ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
-                        {item.label}
-                      </span>
-                    </div>
-                  ))}
-                </div>
               </div>
               {/* Optional extras (ticked add-ons below line items) */}
               {(optionalExtras?.length ?? 0) > 0 && (
@@ -1590,10 +1668,10 @@ export function UnifiedQuoteCard({
                 </div>
               )}
               {/* Discounts & surcharges (honest, line-by-line) */}
-              {(batchDiscount?.applied || (payFull && payFullSaving > 0) || saturdayPremiumApplied > 0 || flexDiscountApplied > 0 || liaisePremiumApplied > 0) && (
+              {(batchDiscount?.applied || (payFull && payFullSaving > 0) || saturdayPremiumApplied > 0 || (!useFlexBooking && setDatePremium > 0) || liaisePremiumApplied > 0) && (
                 <div className={`mt-2 pt-2 border-t space-y-1.5 ${isDarkTheme ? 'border-white/5' : 'border-slate-100'}`}>
                   {/* Savings zone — grouped + highlighted so they read as offers, not ledger lines */}
-                  {(batchDiscount?.applied || flexDiscountApplied > 0 || (payFull && payFullSaving > 0)) && (
+                  {(batchDiscount?.applied || (payFull && payFullSaving > 0)) && (
                     <div className="rounded-lg bg-[#7DB00E]/10 px-3 py-2 space-y-1.5">
                       {batchDiscount?.applied && (
                         <div className="flex justify-between items-center text-[13px]">
@@ -1602,16 +1680,6 @@ export function UnifiedQuoteCard({
                             Multi-job saving ({batchDiscount.discountPercent}%)
                           </span>
                           <span className="text-[#7DB00E] font-bold tabular-nums">−£{Math.round(batchDiscount.savingsPence / 100)}</span>
-                        </div>
-                      )}
-                      {flexDiscountApplied > 0 && (
-                        <div className="flex justify-between items-center text-[13px]">
-                          <span className="flex items-center gap-1.5 text-[#7DB00E] font-medium">
-                            <Zap className="w-3.5 h-3.5 shrink-0" />
-                            {/* Rule of 100: surface the % only on small jobs; the −£ on the right is the hero above £100. */}
-                            Flexible booking{basePrice < RULE_OF_100_PENCE ? ` (${Math.round((flexDiscountApplied / basePrice) * 100)}% off)` : ''}
-                          </span>
-                          <span className="text-[#7DB00E] font-bold tabular-nums">−£{Math.round(flexDiscountApplied / 100)}</span>
                         </div>
                       )}
                       {payFull && payFullSaving > 0 && (
@@ -1623,6 +1691,18 @@ export function UnifiedQuoteCard({
                           <span className="text-[#7DB00E] font-bold tabular-nums">−£{Math.round(payFullSaving / 100)}</span>
                         </div>
                       )}
+                    </div>
+                  )}
+                  {/* Date & time premium — neutral addition (premium frame), not an offer */}
+                  {!useFlexBooking && setDatePremium > 0 && (
+                    <div className="flex justify-between items-center text-[13px]">
+                      <span className={`flex items-center gap-1.5 font-medium ${isDarkTheme ? 'text-amber-300' : 'text-amber-700'}`}>
+                        <CalendarCheck className="w-3.5 h-3.5 shrink-0" />
+                        Date &amp; time
+                      </span>
+                      <span className={`font-semibold tabular-nums ${isDarkTheme ? 'text-amber-300' : 'text-amber-700'}`}>
+                        +£{Math.round(setDatePremium / 100)}
+                      </span>
                     </div>
                   )}
                   {/* Surcharge stays neutral and outside the savings zone — it isn't an offer */}
@@ -1655,22 +1735,65 @@ export function UnifiedQuoteCard({
                 <span className={isDarkTheme ? 'text-white' : 'text-slate-900'}>Total</span>
                 <span className="text-[#7DB00E] text-lg tabular-nums">£{Math.round((payFull ? payFullTotal : total) / 100)}</span>
               </div>
+              {/* What's included — trust band shown below the total, reinforcing
+                  what the price covers right at the decision point. */}
+              <div className={`mt-3 pt-3 border-t ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
+                <p className={`text-[11px] font-semibold uppercase tracking-wide mb-2 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Included as standard
+                </p>
+                <div className="grid grid-cols-4 gap-2">
+                  {(DIFFERENTIATOR_CHIPS[chipType] ?? DIFFERENTIATOR_CHIPS.homeowner).map((item, i) => (
+                    <div
+                      key={i}
+                      className={`flex flex-col items-center justify-center rounded-lg py-2.5 px-1 text-center ${
+                        isDarkTheme
+                          ? 'bg-white/5 border border-white/10'
+                          : 'bg-slate-50 border border-slate-200'
+                      }`}
+                    >
+                      <div className="text-[#7DB00E] mb-1">{item.icon}</div>
+                      <span className={`text-[10px] font-medium leading-tight ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
+                        {item.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
-          {/* WhatsApp question link — reduces decision anxiety */}
-          <div className="mt-3 text-center">
-            <a
-              href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I have a question about my quote${shortSlug ? ` (${shortSlug})` : ''}`)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`inline-flex items-center gap-1.5 text-xs transition-colors px-3 py-1.5 rounded-full ${
-                isDarkTheme ? 'bg-white/5 backdrop-blur-md border border-white/10 text-slate-300 hover:bg-white/10' : 'bg-slate-100 border border-slate-200 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              <MessageCircle className="w-3.5 h-3.5" />
-              {isContextual ? `Question? Message ${BRAND.lead}` : 'Have a question? Chat with us'}
-            </a>
+          {/* Contact card — chat or call Ben directly (reduces decision anxiety).
+              Uses the same translucent dark fill as the "included as standard" tiles
+              (bg-white/5 + border-white/10) so it blends into the dark card instead of
+              floating as a solid white panel; text is light for contrast on the dark
+              fill. Header + subtitle are left-aligned (override the inherited
+              text-center) and forced onto a single line each (whitespace-nowrap); the
+              buttons are sized down to free room for the subtitle to fit. */}
+          <div className="mt-4 rounded-2xl bg-white/5 border border-white/10 p-3.5 flex items-center justify-between gap-2">
+            <div className="min-w-0 text-left">
+              <p className="text-[14px] font-bold text-white leading-tight whitespace-nowrap">Still have questions?</p>
+              <p className="text-[11px] text-slate-400 leading-snug mt-0.5 whitespace-nowrap">Connect with {BRAND.lead} for answers.</p>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <a
+                href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I have a question about my quote${shortSlug ? ` (${shortSlug})` : ''}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Message ${BRAND.lead} on WhatsApp`}
+                className="w-9 h-9 rounded-full bg-[#7DB00E] text-white flex items-center justify-center shadow-sm transition-colors hover:bg-[#6a9a0c]"
+              >
+                <MessageCircle className="w-4 h-4" />
+              </a>
+              <a
+                href="https://call.whatsapp.com/voice/2yJRisb6ailWZArVFCDqVm"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Call ${BRAND.lead} on WhatsApp`}
+                className="w-9 h-9 rounded-full bg-white/10 text-[#a3d65f] flex items-center justify-center transition-colors hover:bg-white/20"
+              >
+                <Phone className="w-4 h-4" />
+              </a>
+            </div>
           </div>
 
         </div>
@@ -1697,6 +1820,7 @@ export function UnifiedQuoteCard({
                 onChange={() => {
                   const newValue = !useDownsell;
                   setUseDownsell(newValue);
+                  trackBookingModeInteraction({ quoteId: quoteId || '', shortSlug: shortSlug || '', mode: 'downsell', action: newValue ? 'selected' : 'abandoned', totalPricePence: total, segment });
                   // Clear date/time selection when toggling downsell
                   if (newValue) {
                     setSelectedDate(null);
@@ -1786,9 +1910,11 @@ export function UnifiedQuoteCard({
                       // Re-tap toggles the premium back off — the grid below is the
                       // firm-date fallback, already on screen.
                       setUseFlexBooking(false);
+                      trackBookingModeInteraction({ quoteId: quoteId || '', shortSlug: shortSlug || '', mode: 'liaise', action: 'abandoned', totalPricePence: total, segment });
                       return;
                     }
                     setUseFlexBooking(true);
+                    trackBookingModeInteraction({ quoteId: quoteId || '', shortSlug: shortSlug || '', mode: 'liaise', action: 'selected', totalPricePence: total, segment });
                     setSelectedDate(null);
                     setSelectedTimeSlot(null);
                     setPendingDate(null);
@@ -1875,7 +2001,7 @@ export function UnifiedQuoteCard({
               is the default (−7%); choosing "Pick exact date" drops the date
               grid down below. Non-flex-eligible quotes skip this and just show
               the grid. Hidden for landlords (they get the liaise toggle above). */}
-          {/* "I'm flexible" / "I want a set date" toggle — offered to EVERY
+          {/* "I'm flexible" / "I want a date & time" toggle — offered to EVERY
               non-landlord quote (it's the homeowner counterpart to the landlord
               liaise toggle), no longer gated on per-line SKU flex-eligibility.
               The 7% saving is a flat % of basePrice (baked into prices), so it's
@@ -1890,6 +2016,7 @@ export function UnifiedQuoteCard({
                   onClick={() => {
                     if (useFlexBooking) return;
                     setUseFlexBooking(true);
+                    trackBookingModeInteraction({ quoteId: quoteId || '', shortSlug: shortSlug || '', mode: 'flex', action: 'selected', totalPricePence: total, segment });
                     setSelectedDate(null);
                     setSelectedTimeSlot(null);
                     setPendingDate(null);
@@ -1911,7 +2038,9 @@ export function UnifiedQuoteCard({
                       {useFlexBooking && <Check className="w-3 h-3 text-handy-navy" strokeWidth={3} />}
                     </span>
                     <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I'm flexible</span>
-                    <span className="ml-auto text-[10px] bg-handy-yellow text-handy-navy px-1.5 py-0.5 rounded-full font-bold">{isBusiness ? 'Guaranteed' : flexBadgeText}</span>
+                    {isBusiness && (
+                      <span className="ml-auto text-[10px] bg-handy-yellow text-handy-navy px-1.5 py-0.5 rounded-full font-bold">Guaranteed</span>
+                    )}
                   </div>
                   <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                     {isBusiness
@@ -1925,6 +2054,7 @@ export function UnifiedQuoteCard({
                   onClick={() => {
                     if (!useFlexBooking) return;
                     setUseFlexBooking(false);
+                    trackBookingModeInteraction({ quoteId: quoteId || '', shortSlug: shortSlug || '', mode: 'set_date', action: 'selected', totalPricePence: total, segment });
                     setTimeout(() => {
                       dateSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     }, 120);
@@ -1939,11 +2069,15 @@ export function UnifiedQuoteCard({
                     <span className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${!useFlexBooking ? 'bg-[#7DB00E] border-[#7DB00E]' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
                       {!useFlexBooking && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
                     </span>
-                    <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I want a set date</span>
-                    <Calendar className="ml-auto w-4 h-4 text-slate-400" />
+                    <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I want a date &amp; time</span>
+                    {!isBusiness && setDatePremium > 0 ? (
+                      <span className="ml-auto text-[10px] bg-amber-400 text-amber-950 px-1.5 py-0.5 rounded-full font-bold">+£{Math.round(setDatePremium / 100)}</span>
+                    ) : (
+                      <CalendarCheck className="ml-auto w-4 h-4 text-slate-400" />
+                    )}
                   </div>
                   <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                    {isBusiness ? 'Choose a specific day yourself' : 'Choose a specific day · standard rate'}
+                    {isBusiness ? 'Choose a specific day yourself' : 'Your exact day & time slot — no day off to wait in'}
                   </p>
                 </button>
               </div>
@@ -1952,7 +2086,7 @@ export function UnifiedQuoteCard({
 
           {/* Date grid — shown whenever flex/liaise is OFF. Landlords: hidden in
               liaise mode (no fixed date yet), back when liaise is off. Everyone
-              else: hidden under "I'm flexible", drops down on "I want a set date". */}
+              else: hidden under "I'm flexible", drops down on "I want a date & time". */}
           <AnimatePresence initial={false}>
           {!useFlexBooking && (
           <motion.div
@@ -2101,7 +2235,10 @@ export function UnifiedQuoteCard({
 
                   // Phase 29 — picking a specific date opts out of the default
                   // flexible discount (you pay the standard, non-discounted rate).
-                  if (useFlexBooking) setUseFlexBooking(false);
+                  if (useFlexBooking) {
+                    setUseFlexBooking(false);
+                    trackBookingModeInteraction({ quoteId: quoteId || '', shortSlug: shortSlug || '', mode: 'set_date', action: 'selected', totalPricePence: total, segment });
+                  }
 
                   if (isLargeJob) {
                     // Large jobs: single full-day commit
