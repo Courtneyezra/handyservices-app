@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import { lockSecondsLeft, TOTAL_LOCK_SECONDS } from './quoteLockClock';
 
-const TOTAL_SECONDS = 15 * 60;
+const TOTAL_SECONDS = TOTAL_LOCK_SECONDS;
 
 interface QuoteTimerState {
   secondsLeft: number;
@@ -48,20 +49,32 @@ export function StickyTimerProgress() {
 export function QuoteTimerProvider({
   children,
   durationSeconds = TOTAL_SECONDS,
+  quoteKey,
 }: {
   children: React.ReactNode;
   durationSeconds?: number;
+  /**
+   * When provided, the countdown is derived from the shared lock anchor for
+   * this quote (set the moment the loading skeleton's seal first rendered),
+   * so the timer continues seamlessly across the skeleton → page swap instead
+   * of restarting at 15:00. Omit to fall back to a fresh local countdown.
+   */
+  quoteKey?: string;
 }) {
-  const [secondsLeft, setSecondsLeft] = useState(durationSeconds);
+  const [secondsLeft, setSecondsLeft] = useState(() =>
+    quoteKey ? lockSecondsLeft(quoteKey, durationSeconds) : durationSeconds,
+  );
   const expired = secondsLeft <= 0;
 
   useEffect(() => {
     if (expired) return;
     const interval = setInterval(() => {
-      setSecondsLeft((s) => Math.max(0, s - 1));
+      setSecondsLeft((s) =>
+        quoteKey ? lockSecondsLeft(quoteKey, durationSeconds) : Math.max(0, s - 1),
+      );
     }, 1000);
     return () => clearInterval(interval);
-  }, [expired]);
+  }, [expired, quoteKey, durationSeconds]);
 
   const timeDisplay = useMemo(() => {
     const m = Math.floor(secondsLeft / 60);

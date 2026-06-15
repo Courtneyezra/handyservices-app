@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Clock, MessageCircle, Phone } from 'lucide-react';
+import { Clock, Lock, MessageCircle, Phone } from 'lucide-react';
 import { useQuoteTimer } from './QuoteTimerContext';
 
 interface QuoteTimerProps {
@@ -31,9 +31,6 @@ export function QuoteTimer({
     return `conic-gradient(from 0deg, ${borderColor} ${deg}deg, rgba(200,200,200,0.15) ${deg}deg)`;
   }, [progress, borderColor]);
 
-  // Badge text color — amber needs dark text for readability
-  const badgeTextColor = secondsLeft <= 300 ? 'text-white' : 'text-slate-900';
-
   return (
     <div className="relative">
       {/* Keyframes for the pulse glow */}
@@ -42,9 +39,9 @@ export function QuoteTimer({
           0%, 100% { box-shadow: 0 0 8px 2px var(--timer-glow); }
           50% { box-shadow: 0 0 20px 6px var(--timer-glow); }
         }
-        @keyframes badgePulse {
-          0%, 100% { transform: translateX(-50%) scale(1); }
-          50% { transform: translateX(-50%) scale(1.03); }
+        @keyframes sealPulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.04); }
         }
       `}</style>
 
@@ -58,23 +55,43 @@ export function QuoteTimer({
           '--timer-glow': glowColor,
         } as React.CSSProperties}
       >
-        {/* Timer label - shown above the card */}
+        {/* Price-locked seal — circular corner badge */}
         {!expired && (
           <div
-            className="absolute -top-3.5 left-1/2 z-10"
+            className="absolute -top-10 -right-2 z-20"
             style={{
-              animation: `badgePulse ${pulseSpeed} ease-in-out infinite`,
+              animation: `sealPulse ${pulseSpeed} ease-in-out infinite`,
             }}
           >
+            {/* Draining conic ring (mirrors the card border) */}
             <div
-              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold ${badgeTextColor} shadow-lg whitespace-nowrap`}
+              className="rounded-full"
               style={{
-                backgroundColor: borderColor,
-                boxShadow: `0 4px 12px ${glowColor}`,
+                width: 76,
+                height: 76,
+                padding: 3,
+                background: borderGradient,
+                boxShadow: `0 6px 18px ${glowColor}`,
               }}
             >
-              <Clock className="w-3.5 h-3.5" />
-              <span>Quote valid for {timeDisplay}</span>
+              {/* Inner disc */}
+              <div className="w-full h-full rounded-full bg-slate-900 flex flex-col items-center justify-center gap-0.5 text-center">
+                <div className="flex items-center gap-1">
+                  <Lock className="w-2.5 h-2.5 text-white" />
+                  <span className="text-[9px] font-bold tracking-[0.15em] text-white leading-none">
+                    PRICE
+                  </span>
+                </div>
+                <span className="text-[11px] font-black tracking-[0.12em] text-white leading-none">
+                  LOCKED
+                </span>
+                <span
+                  className="text-[14px] font-black tabular-nums leading-none mt-0.5"
+                  style={{ color: borderColor }}
+                >
+                  {timeDisplay}
+                </span>
+              </div>
             </div>
           </div>
         )}

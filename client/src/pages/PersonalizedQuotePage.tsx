@@ -42,9 +42,9 @@ import { SingleProductQuote } from '@/components/quote/SingleProductQuote';
 import { HassleComparisonCard } from '@/components/quote/HassleComparisonCard';
 import { BudgetQuoteInline } from '@/components/quote/BudgetQuoteInline';
 import { UnifiedQuoteCard } from '@/components/quote/UnifiedQuoteCard';
+import { WistiaFacade } from '@/components/quote/WistiaFacade';
 import { AmendedQuoteCard } from '@/components/quote/AmendedQuoteCard';
 import { BookingConfirmation } from '@/components/quote/BookingConfirmation';
-import { ScarcityBanner } from '@/components/quote/ScarcityBanner';
 import { QuoteTimer } from '@/components/quote/QuoteTimer';
 import { QuoteTimerProvider, StickyTimerProgress } from '@/components/quote/QuoteTimerContext';
 import type { LayoutTier, BookingMode, LineItemResult, BatchDiscount } from '../../../shared/contextual-pricing-types';
@@ -969,7 +969,7 @@ const SEGMENT_CONTENT_MAP: Record<string, any> = {
     },
     guarantee: {
       title: 'OUR GUARANTEE',
-      mainTitle: <span className="font-bold block leading-tight">Not right? We return<br /> and fix it free.</span>,
+      mainTitle: <span className="font-bold block leading-tight">Not right?<br />We return and fix it free.</span>,
       description: 'Quality workmanship, full cleanup, and photo report on every job. No questions asked.',
       boxText: 'Quality guaranteed. No hidden fees.',
       guaranteeItems: [
@@ -1323,36 +1323,9 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
     /professional|busy exec|corporate/.test(vaCtxSocial) ? 'professionals' :
     'homeowners';
 
-  // Lazy load Wistia scripts — only when video section enters viewport
-  const videoRef = useRef<HTMLDivElement>(null);
-  const [wistiaLoaded, setWistiaLoaded] = useState(false);
-  useEffect(() => {
-    if (wistiaLoaded || !videoRef.current) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          if (!document.querySelector('script[src*="wistia.com/player.js"]')) {
-            const script1 = document.createElement('script');
-            script1.src = 'https://fast.wistia.com/player.js';
-            script1.async = true;
-            document.body.appendChild(script1);
-          }
-          if (!document.querySelector('script[src*="wistia.com/embed/z6vtl8u04e.js"]')) {
-            const script2 = document.createElement('script');
-            script2.src = 'https://fast.wistia.com/embed/z6vtl8u04e.js';
-            script2.async = true;
-            script2.type = 'module';
-            document.body.appendChild(script2);
-          }
-          setWistiaLoaded(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: '200px' }
-    );
-    observer.observe(videoRef.current);
-    return () => observer.disconnect();
-  }, [wistiaLoaded]);
+  // Wistia video now loads via a click-to-play facade (see WistiaFacade).
+  // The ~1 MB player JS is only fetched when the visitor clicks play, instead
+  // of auto-loading on scroll-intersection for a video most never watch.
 
   return (
     <SectionWrapper className="bg-white text-slate-900 py-16 lg:py-24">
@@ -1376,12 +1349,15 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
 
         {/* Body: stacked on mobile, video | proof side-by-side on desktop */}
         <div className="md:grid md:grid-cols-2 md:gap-14 md:items-center">
-          {/* Social Proof Video - Trust Builder (lazy loaded) */}
-          <div ref={videoRef} className="relative aspect-video rounded-2xl overflow-hidden bg-slate-900 shadow-xl mb-12 md:mb-0 border-4 border-white/50 ring-1 ring-slate-900/10">
-            {/* Wistia Script Injection handled in component body to ensure execution */}
-            <style dangerouslySetInnerHTML={{ __html: `wistia-player[media-id='z6vtl8u04e']:not(:defined) { background: center / contain no-repeat url('https://fast.wistia.com/embed/medias/z6vtl8u04e/swatch'); display: block; filter: blur(5px); padding-top:75.0%; }` }} />
-            {/* @ts-ignore */}
-            <wistia-player media-id="z6vtl8u04e" aspect="1.3333333333333333"></wistia-player>
+          {/* Social Proof Video - Trust Builder (click-to-play facade).
+              The aspect-video box is fixed regardless of facade vs. real
+              player, so swapping in the player on click causes no layout shift. */}
+          <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-900 shadow-xl mb-12 md:mb-0 border-4 border-white/50 ring-1 ring-slate-900/10">
+            <WistiaFacade
+              mediaId="z6vtl8u04e"
+              aspect="1.3333333333333333"
+              posterUrl="https://embed-ssl.wistia.com/deliveries/925b06d85de10fd26fe76b778fdf4fa5.jpg?image_crop_resized=1280x720"
+            />
           </div>
 
           <div>
@@ -1699,7 +1675,7 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
     } else if (isProfessional) {
       content.mainTitle = 'Zero hassle. 90-day guarantee.';
     } else {
-      content.mainTitle = <span className="font-bold block leading-tight">Not right? We return<br /> and fix it free.</span>;
+      content.mainTitle = <span className="font-bold block leading-tight">Not right?<br />We return and fix it free.</span>;
     }
   }
 
@@ -1738,12 +1714,6 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                   loading="lazy"
                 />
-                {/* Badge Overlay */}
-                <div className="absolute bottom-4 right-4 z-20">
-                  <div className="bg-[#7DB00E] text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg border border-white/20">
-                    Verified Pro
-                  </div>
-                </div>
               </div>
             ) : (
               // Rectangular contractor image — contextual engine picks image based on job type
@@ -1755,11 +1725,6 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                   loading="lazy"
                 />
-                <div className="absolute bottom-4 right-4 z-20">
-                  <div className="bg-[#7DB00E] text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg border border-white/20">
-                    Verified Pro
-                  </div>
-                </div>
               </div>
             )}
           </div>
@@ -2648,10 +2613,23 @@ export default function PersonalizedQuotePage() {
   const [selectedDatesBuffer, setSelectedDatesBuffer] = useState<Date[]>([]); // 3-date buffer model
   const [dateTimePrefsBuffer, setDateTimePrefsBuffer] = useState<{ date: Date; timeSlot: 'am' | 'pm' | 'flexible' | 'full_day' }[]>([]); // Per-date time prefs
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<'AM' | 'PM' | undefined>(undefined); // Track selected time slot (AM/PM)
-  // Phase 25 — when the customer chose "Flexible booking — save 10%" in the
-  // UnifiedQuoteCard, this captures the window (typically 7). Forwarded to
-  // /track-booking so the dispatcher (Agent 25e) can route to a thin day.
+  // Phase 25 — when the customer chose "Flexible booking" in the UnifiedQuoteCard
+  // (default ON for homeowners), this captures the window (typically 7). Forwarded
+  // to /track-booking so the dispatcher (Agent 25e) can route to a thin day.
   const [flexBookingWithinDays, setFlexBookingWithinDays] = useState<number | undefined>(undefined);
+  // Race fix: onBook fires in the SAME synchronous tick as onPaymentSuccess →
+  // handleBooking, so the state setter above hasn't committed when handleBooking
+  // reads it — the flex window was always sent as stale `undefined`, so the default
+  // homeowner flex booking persisted as "neither" (no date AND no flex flag). Mirror
+  // the selectedCalendarDateRef / bookingAddressRef pattern and read this ref instead.
+  const flexBookingWithinDaysRef = useRef<number | undefined>(undefined);
+  // Phase 32 — the inline card's REAL full-vs-deposit choice. Same race as flex:
+  // the legacy `paymentMode` state ('full'|'installments', defaults 'full') never
+  // learns the card's deposit selection, so handleBooking sent a stale 'full' that
+  // race-clobbered the webhook's authoritative 'deposit'. onBook writes the card's
+  // config.paymentMode ('full'|'deposit') here so handleBooking reads the truth
+  // synchronously and /track-booking can't mislabel a deposit booking as paid-in-full.
+  const paymentModeRef = useRef<'full' | 'deposit' | undefined>(undefined);
   // Phase 30 — door address the customer confirmed in the UnifiedQuoteCard booking
   // section. Held in a ref so handleBooking reads the latest synchronously (onBook
   // fires immediately before onPaymentSuccess → handleBooking → /track-booking),
@@ -2806,8 +2784,13 @@ export default function PersonalizedQuotePage() {
   useEffect(() => {
     if (isLoading || !quote) return;
     let cancelled = false;
-    const MIN_DISPLAY_MS = 1400;
-    const HARD_TIMEOUT_MS = 3000;
+    // Long enough for the user to watch the price-lock seal actually tick
+    // down a few seconds ("15:00 → 14:58 …") and read the "No surprises, no
+    // hidden fees" line before content swaps in. The countdown is continuous
+    // (shared anchor), so this just controls how much of it plays on the
+    // loading card vs. the live page.
+    const MIN_DISPLAY_MS = 4000;
+    const HARD_TIMEOUT_MS = 4500;
 
     const run = async () => {
       const work = (async () => {
@@ -2817,14 +2800,17 @@ export default function PersonalizedQuotePage() {
           try { await fonts.ready; } catch { /* non-fatal */ }
         }
 
-        // 2. Preload critical images we know the page will paint.
+        // 2. Preload ONLY the images actually painted above the fold.
+        //    The hero is the one big above-the-fold image (a job-aware .webp
+        //    from getHeroImage — the exact same call ValueHero renders).
+        //    Note: quote.selectedContent.images (~7 MB of legacy JPGs + S3
+        //    content-library PNGs) is NOT rendered on this page, and the
+        //    contractor avatar shown is a static bundled asset
+        //    (ben-estimator.webp), not matchedContractor.profileImageUrl —
+        //    so neither is preloaded here.
         const urls = new Set<string>();
-        const sc: any = (quote as any).selectedContent;
-        if (Array.isArray(sc?.images)) {
-          for (const img of sc.images) {
-            if (img?.url) urls.add(img.url);
-          }
-        }
+        const heroImg = getHeroImage(quote);
+        if (heroImg) urls.add(heroImg);
         const contractorImg = (quote as any).matchedContractor?.profileImageUrl
           || (quote as any).matchedContractorProfileImageUrl;
         if (contractorImg) urls.add(contractorImg);
@@ -3229,9 +3215,13 @@ export default function PersonalizedQuotePage() {
   const handleBooking = async (paymentIntentId: string) => {
     if (!quote) return;
 
-    // Determine payment type based on current paymentMode and tier
+    // Determine payment type based on current paymentMode and tier.
+    // Phase 32 — prefer the card's captured choice (paymentModeRef: 'full'|'deposit')
+    // over the legacy `paymentMode` state, which defaults to 'full' and never learns
+    // the inline deposit selection. Without this the PUT sends a stale 'full' that
+    // race-clobbers the webhook's authoritative 'deposit'.
     const isTier1 = selectedEEEPackage === 'essential';
-    const effectivePaymentType = isTier1 ? 'full' : paymentMode;
+    const effectivePaymentType = isTier1 ? 'full' : (paymentModeRef.current ?? paymentMode);
 
     setIsBooking(true);
 
@@ -3250,6 +3240,8 @@ export default function PersonalizedQuotePage() {
         phone: quote.phone,
         email: quote.email || undefined,
         jobDescription: quote.jobDescription,
+        postcode: quote.postcode || undefined,
+        address: bookingAddressRef.current?.line || quote.address || undefined,
         outcome: 'phone_quote',
         eeePackage: 'standard', // Single price model
         quoteAmount: quotePrice,
@@ -3313,11 +3305,13 @@ export default function PersonalizedQuotePage() {
             // [RAMANUJAM] Include BUSY_PRO productization choices
             timingChoice: quote.segment === 'BUSY_PRO' ? timingChoice : undefined,
             whileImThereBundle: quote.segment === 'BUSY_PRO' ? whileImThereBundle : undefined,
-            // Phase 25 — flex booking window (only set when customer chose
-            // "Flexible booking — save 10%"). Persists to personalized_quotes
-            // .flexBookingWithinDays so the dispatcher (Agent 25e) can route
-            // this booking to a thin day within the window.
-            flexBookingWithinDays: flexBookingWithinDays,
+            // Phase 25 — flex booking window (set when customer chose "Flexible
+            // booking", default ON for homeowners). Read from the ref, not state:
+            // onBook sets it in the same synchronous tick this runs in, so the state
+            // is stale here (that drop is what produced the "neither" bookings).
+            // Persists to personalized_quotes.flexBookingWithinDays so the dispatcher
+            // (Agent 25e) can route this booking to a thin day within the window.
+            flexBookingWithinDays: flexBookingWithinDaysRef.current ?? flexBookingWithinDays,
             // Phase 30 — door address captured in the UnifiedQuoteCard booking section.
             // Persists to personalized_quotes.address (+ coordinates when Places-validated)
             // so dispatch routes to the real address, not just the postcode.
@@ -3357,7 +3351,7 @@ export default function PersonalizedQuotePage() {
         segment: quote.segment || 'UNKNOWN',
         totalPricePence: quotePrice,
         depositPence: Math.round(quotePrice * 0.3),
-        paymentMode: effectivePaymentType as 'full' | 'installments',
+        paymentMode: effectivePaymentType as 'full' | 'deposit' | 'installments',
         bookingMode: schedulingTier || undefined,
         selectedDate: (selectedDate || selectedCalendarDateRef.current || selectedCalendarDate)?.toISOString(),
         schedulingTier: schedulingTier || undefined,
@@ -3381,7 +3375,7 @@ export default function PersonalizedQuotePage() {
   // Keep the skeleton up while we wait for either the API or the assets
   // (fonts + above-the-fold images). Real content swaps in as one piece.
   if (isLoading || !assetsReady) {
-    return <QuoteSkeleton />;
+    return <QuoteSkeleton quoteKey={params?.slug || 'quote'} />;
   }
 
   // Quote expiration check removed - quotes no longer expire
@@ -3640,11 +3634,8 @@ export default function PersonalizedQuotePage() {
   // ValueSocialProof → ValueGuarantee → HassleComparisonCard → Packages → Payment
   if (quote.proposalModeEnabled || isContextualQuote) {
     return (
-      <QuoteTimerProvider>
+      <QuoteTimerProvider quoteKey={params?.slug || 'quote'}>
       <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
-
-        {/* Scarcity Banner - Top of page, data-driven per segment */}
-        <ScarcityBanner segment={quote.segment || 'UNKNOWN'} postcode={quote.postcode} quoteId={quote.id} />
 
         {/* Value Sections Flow */}
         <ValueHero quote={quote} config={config} />
@@ -3718,14 +3709,14 @@ export default function PersonalizedQuotePage() {
                 {/* What to expect — Book → Do → Guaranteed timeline */}
                 <div className="max-w-lg md:max-w-4xl mx-auto rounded-2xl bg-[#1D2D3D] text-white text-left p-6 sm:p-8 shadow-lg">
                   <div className="rounded-xl overflow-hidden mb-6 ring-1 ring-white/10 h-44">
-                    <img src={payIn3PromoImage} alt="HandyServices at your door" className="w-full h-full object-cover object-[15%_100%] scale-[1.8]" loading="lazy" />
+                    <img src={payIn3PromoImage} alt="HandyServices at your door" className="w-full h-full object-cover object-[15%_30%] scale-[1.75]" loading="lazy" />
                   </div>
                   <h3 className="text-2xl font-bold text-center text-white mb-1">What to expect</h3>
                   <p className="text-slate-400 text-sm text-center mb-8">From quote to done — three simple steps</p>
                   <ol className="relative space-y-7 md:space-y-0 md:grid md:grid-cols-3 md:gap-8">
                     <span className="absolute left-[17px] top-3 bottom-3 w-0.5 bg-white/15 md:hidden" aria-hidden="true" />
                     {[
-                      { title: 'Pick your date', sub: 'Reserve with a deposit — pay the rest after' },
+                      { title: 'Pick your date', sub: 'A small deposit books your slot · pay the rest after' },
                       { title: 'We arrive & do it right', sub: 'Vetted pro · fixed price · full cleanup' },
                       { title: 'Done & guaranteed', sub: 'Photo report + 30-day guarantee' },
                     ].map((s, i) => (
@@ -3869,9 +3860,19 @@ export default function PersonalizedQuotePage() {
 
                         // Phase 25 — capture flex booking window so /track-booking
                         // can persist it on personalized_quotes.flexBookingWithinDays.
-                        if (config.flexBookingWithinDays && config.flexBookingWithinDays > 0) {
-                          setFlexBookingWithinDays(config.flexBookingWithinDays);
-                        }
+                        // Write the ref (not just state) because handleBooking runs in
+                        // this same tick and reads state stale — see flexBookingWithinDaysRef.
+                        // Reflect config exactly so switching to a set date clears flex.
+                        const flexWindow = (config.flexBookingWithinDays && config.flexBookingWithinDays > 0)
+                          ? config.flexBookingWithinDays
+                          : undefined;
+                        flexBookingWithinDaysRef.current = flexWindow;
+                        setFlexBookingWithinDays(flexWindow);
+
+                        // Phase 32 — capture the card's REAL payment choice so
+                        // handleBooking sends 'deposit'/'full' truthfully instead of the
+                        // stale legacy `paymentMode` state. See paymentModeRef declaration.
+                        paymentModeRef.current = config.paymentMode;
 
                         // Phase 30 — capture the confirmed door address so handleBooking
                         // forwards it to /track-booking (persists to personalized_quotes
@@ -3913,6 +3914,19 @@ export default function PersonalizedQuotePage() {
                     />
                   </Elements>
 
+                  {/* Payment trust — directly under the booking CTA */}
+                  <div className="flex flex-col items-center gap-2 mt-4">
+                    <div className="flex items-center gap-3 opacity-90">
+                      <SiVisa className="w-7 h-7 text-[#1434CB]" />
+                      <SiMastercard className="w-7 h-7 text-[#EB001B]" />
+                      <SiAmericanexpress className="w-7 h-7 text-[#2E77BC]" />
+                      <SiApplepay className="w-7 h-7 text-white" />
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                      <Lock className="w-3 h-3" />
+                      Secure payments via Stripe · 256-bit SSL
+                    </div>
+                  </div>
 
                   {/* PDF Download — subtle link */}
                   <button
@@ -4112,16 +4126,6 @@ export default function PersonalizedQuotePage() {
         {/* COMPACT TRUST FOOTER */}
         <div className="bg-slate-50 py-5 px-6 border-t border-slate-200 relative">
           <div className="max-w-lg mx-auto flex flex-col items-center gap-3">
-            <div className="flex items-center gap-3 opacity-60">
-              <SiVisa className="w-7 h-7 text-[#1434CB]" />
-              <SiMastercard className="w-7 h-7 text-[#EB001B]" />
-              <SiAmericanexpress className="w-7 h-7 text-[#2E77BC]" />
-              <SiApplepay className="w-7 h-7 text-slate-900" />
-            </div>
-            <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
-              <Lock className="w-3 h-3" />
-              Secure payments via Stripe · 256-bit SSL
-            </div>
             <p className="text-[10px] text-slate-400">
               &copy; {new Date().getFullYear()} HandyServices. All rights reserved.
             </p>

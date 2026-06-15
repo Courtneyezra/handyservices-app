@@ -1,4 +1,20 @@
-import handyServicesLogo from "../assets/handy-logo.webp";
+import { useEffect, useState } from "react";
+import { Lock } from "lucide-react";
+import { lockSecondsLeft, formatMMSS } from "./quote/quoteLockClock";
+
+/**
+ * Live tick for the price-lock seal on the loading screen. Reads the shared
+ * lock anchor (set here on first render) every 250ms so the swap to the real
+ * QuoteTimer seal hands off mid-second without a visible jump.
+ */
+function useLockCountdown(quoteKey: string): number {
+    const [secs, setSecs] = useState(() => lockSecondsLeft(quoteKey));
+    useEffect(() => {
+        const id = setInterval(() => setSecs(lockSecondsLeft(quoteKey)), 250);
+        return () => clearInterval(id);
+    }, [quoteKey]);
+    return secs;
+}
 
 /**
  * Skeleton loading screen for PersonalizedQuotePage (contextual quote layout)
@@ -19,7 +35,8 @@ import handyServicesLogo from "../assets/handy-logo.webp";
  *  9. Date picker grid
  * 10. Trust badges + PDF link + payment methods
  */
-export function QuoteSkeleton() {
+export function QuoteSkeleton({ quoteKey = "quote" }: { quoteKey?: string }) {
+    const lockSecs = useLockCountdown(quoteKey);
     const Bar = ({ className = "" }: { className?: string }) => (
         <div className={`bg-slate-200 rounded ${className}`} />
     );
@@ -305,44 +322,55 @@ export function QuoteSkeleton() {
                 aria-live="polite"
             >
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl px-6 py-7 max-w-sm w-full text-center pointer-events-auto">
-                    {/* Inline keyframes for the logo breathe + halo float */}
+                    {/* Inline keyframes for the seal breathe + halo pulse */}
                     <style>{`
-                        @keyframes logo-breathe {
-                            0%, 100% { transform: scale(1) rotate(0deg); }
-                            50%      { transform: scale(1.08) rotate(-2deg); }
+                        @keyframes seal-breathe {
+                            0%, 100% { transform: scale(1);    }
+                            50%      { transform: scale(1.04); }
                         }
                         @keyframes halo-pulse {
-                            0%, 100% { transform: scale(1);   opacity: 0.45; }
-                            50%      { transform: scale(1.25); opacity: 0;   }
+                            0%, 100% { transform: scale(1);    opacity: 0.5; }
+                            50%      { transform: scale(1.35); opacity: 0;   }
                         }
                     `}</style>
 
-                    {/* Animated brand logo with pulsing halo */}
-                    <div className="relative inline-flex items-center justify-center mb-4 h-16 w-16 mx-auto">
+                    {/* Price-lock seal — primes the 15-minute price hold before the
+                        quote even paints. Mirrors the live QuoteTimer seal at full
+                        time (amber #F59E0B / 15:00) so the swap to the real ticking
+                        seal reads as continuous, not a new element appearing. */}
+                    <div
+                        className="relative inline-flex items-center justify-center mb-4 h-20 w-20 mx-auto"
+                        style={{ animation: "seal-breathe 2s ease-in-out infinite", transformOrigin: "center" }}
+                        role="img"
+                        aria-label="Price locked for 15 minutes"
+                    >
+                        {/* Soft pulsing halo */}
                         <span
                             aria-hidden
-                            className="absolute inset-0 rounded-full bg-[#e8b323]"
-                            style={{
-                                animation: "halo-pulse 1.8s ease-in-out infinite",
-                            }}
+                            className="absolute inset-0 rounded-full bg-[#F59E0B]"
+                            style={{ animation: "halo-pulse 1.8s ease-in-out infinite" }}
                         />
-                        <span
-                            aria-hidden
-                            className="absolute inset-1 rounded-full bg-[#e8b323]/40"
-                            style={{
-                                animation: "halo-pulse 1.8s ease-in-out infinite",
-                                animationDelay: "0.4s",
-                            }}
-                        />
-                        <img
-                            src={handyServicesLogo}
-                            alt="Handy Services"
-                            className="relative h-14 w-14 object-contain drop-shadow-sm"
-                            style={{
-                                animation: "logo-breathe 2s ease-in-out infinite",
-                                transformOrigin: "center",
-                            }}
-                        />
+                        {/* Amber ring (full-time state) */}
+                        <div
+                            className="relative w-20 h-20 rounded-full"
+                            style={{ padding: 3, background: "#F59E0B", boxShadow: "0 6px 18px rgba(245,158,11,0.45)" }}
+                        >
+                            {/* Inner dark disc */}
+                            <div className="w-full h-full rounded-full bg-slate-900 flex flex-col items-center justify-center gap-0.5 text-center">
+                                <div className="flex items-center gap-1">
+                                    <Lock className="w-2.5 h-2.5 text-white" />
+                                    <span className="text-[9px] font-bold tracking-[0.15em] text-white leading-none">
+                                        PRICE
+                                    </span>
+                                </div>
+                                <span className="text-[11px] font-black tracking-[0.12em] text-white leading-none">
+                                    LOCKED
+                                </span>
+                                <span className="text-[14px] font-black tabular-nums leading-none mt-0.5 text-[#F59E0B]">
+                                    {formatMMSS(lockSecs)}
+                                </span>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Headline — specific, not generic */}
