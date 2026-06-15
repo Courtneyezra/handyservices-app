@@ -127,11 +127,9 @@ export function QuoteSkeleton({ quoteKey = "quote" }: { quoteKey?: string }) {
                 </div>
             </section>
 
-            {/* 6. Reveal header + Pay-in-3 banner */}
+            {/* 6. Reveal header */}
             <section className="bg-slate-50 pt-16 pb-4 px-4">
                 <div className="max-w-2xl mx-auto text-center space-y-4">
-                    {/* Pay in 3 banner */}
-                    <div className="rounded-xl bg-slate-200 h-20 max-w-lg mx-auto mb-6" />
                     <Bar className="h-6 w-1/2 mx-auto" />
                     <Bar className="h-12 w-3/4 mx-auto" />
                     <Bar className="h-4 w-2/3 mx-auto" />

@@ -104,7 +104,6 @@ const HHH_FIXED_VALUE_BULLETS = {
     'Detailed before/after photo report',
     'Assigned Senior Technician',
     'Priority aftercare support',
-    'Split payment: Pay in 3 Interest-Free',
     '1-Year Ironclad Warranty',
   ],
 
@@ -4263,21 +4262,6 @@ export default function PersonalizedQuotePage() {
 
       {/* QuoteExpiredPopup removed - quotes no longer expire */}
 
-      {!quote.bookedAt && (
-        <div className="sticky top-0 z-50 bg-gradient-to-r from-gray-950 via-gray-900 to-gray-950 border-b border-amber-500/30 px-3 py-2.5">
-          <div className="max-w-2xl mx-auto flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 flex-1 min-w-0">
-              <span className="text-xl flex-shrink-0 animate-pulse">✨</span>
-              <p className="text-gray-100 text-xs sm:text-sm font-medium truncate">
-                <span className="text-[#e8b323] font-bold">New Year Offer:</span> Pay in 3 Interest-Free available today.
-              </p>
-            </div>
-            {/* Countdown timer removed - quotes no longer expire */}
-          </div >
-        </div >
-      )
-      }
-
       {
         showPriceIncreaseNotice && (
           <div className="sticky top-[60px] z-40 bg-orange-600/95 backdrop-blur border-b border-orange-700 px-4 py-3">
@@ -4297,10 +4281,6 @@ export default function PersonalizedQuotePage() {
 
       <div className="flex-1 px-4 py-3 pb-24 overflow-auto">
         <div className="max-w-2xl mx-auto">
-          <div className="mb-6 rounded-xl overflow-hidden shadow-lg w-full h-auto relative">
-            <img src={payIn3PromoImage} className="w-full h-auto" />
-          </div>
-
           <div className="mb-10 px-4">
             <ExpertSpecSheet
               text={getScopeOfWorks(quote as any)}
@@ -4808,71 +4788,6 @@ export default function PersonalizedQuotePage() {
             )
           }
 
-          {/* Pay in 3 Section - Simple Pie Chart Design - Hide when already booked */}
-          {
-            !hasReserved && !hasBooked && (
-              <div className="mt-8 px-4" data-testid="pay-in-3-section">
-                <div className="bg-gradient-to-br from-amber-900/20 to-orange-900/10 border border-amber-500/30 rounded-2xl p-8 flex flex-col md:flex-row items-center justify-center gap-6">
-                  {/* Pie Chart SVG - 3 equal segments */}
-                  <div className="relative w-28 h-28 flex-shrink-0">
-                    <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
-                      {/* Segment 1 - Filled (amber) */}
-                      <circle
-                        cx="50"
-                        cy="50"
-                        r="40"
-                        fill="transparent"
-                        stroke="#f59e0b"
-                        strokeWidth="20"
-                        strokeDasharray="83.78 251.33"
-                        strokeDashoffset="0"
-                      />
-                      {/* Segment 2 - Lighter */}
-                      <circle
-                        cx="50"
-                        cy="50"
-                        r="40"
-                        fill="transparent"
-                        stroke="#78350f"
-                        strokeWidth="20"
-                        strokeDasharray="83.78 251.33"
-                        strokeDashoffset="-83.78"
-                      />
-                      {/* Segment 3 - Lighter */}
-                      <circle
-                        cx="50"
-                        cy="50"
-                        r="40"
-                        fill="transparent"
-                        stroke="#78350f"
-                        strokeWidth="20"
-                        strokeDasharray="83.78 251.33"
-                        strokeDashoffset="-167.56"
-                      />
-                    </svg>
-                  </div>
-
-                  {/* Text Content */}
-                  <div className="text-center">
-                    <h3 className="text-2xl font-bold text-white mb-1">Pay in 3</h3>
-                    <p className="text-gray-300 text-sm mb-3">Spread the cost into 3 simple monthly payments.</p>
-                    <ul className="text-gray-400 text-sm space-y-1 inline-block text-left">
-                      <li className="flex items-center gap-2">
-                        <span className="text-amber-500">✓</span> No credit checks
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <span className="text-amber-500">✓</span> No forms to fill
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <span className="text-amber-500">✓</span> Instant approval
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            )
-          }
-
           {/* FAQ Section - Hide when payment form is shown or already booked */}
           {
             !hasReserved && !hasBooked && (
@@ -4958,7 +4873,7 @@ export default function PersonalizedQuotePage() {
                         What are my payment options?
                       </AccordionTrigger>
                       <AccordionContent className="text-gray-300 pb-4">
-                        You can pay in full upfront, or choose to spread the cost over 3 monthly payments (a small convenience fee applies). Both options require a deposit to secure your booking, which is deducted from the final price.
+                        You'll pay a deposit to secure your booking, then settle the remaining balance once the job is complete. Your deposit is deducted from the final price.
                       </AccordionContent>
                     </AccordionItem>
 
@@ -5118,30 +5033,6 @@ export default function PersonalizedQuotePage() {
 
                         return (
                           <>
-                            {/* Payment Choice Toggle */}
-                            <div className="flex justify-center mb-6">
-                              <div className="bg-gray-700/50 p-1 rounded-lg inline-flex items-center border border-gray-600">
-                                <button
-                                  onClick={() => setPaymentMode('full')}
-                                  className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${paymentMode === 'full'
-                                    ? 'bg-[#e8b323] text-gray-900 shadow-lg'
-                                    : 'text-gray-400 hover:text-white'
-                                    }`}
-                                >
-                                  Pay in Full
-                                </button>
-                                <button
-                                  onClick={() => setPaymentMode('installments')}
-                                  className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${paymentMode === 'installments'
-                                    ? 'bg-[#e8b323] text-gray-900 shadow-lg'
-                                    : 'text-gray-400 hover:text-white'
-                                    }`}
-                                >
-                                  Pay in 3
-                                </button>
-                              </div>
-                            </div>
-
                             <div className="text-center mb-6">
                               <div className="mb-4">
                                 <h4 className="text-lg font-semibold text-white mb-2">Payment Breakdown</h4>

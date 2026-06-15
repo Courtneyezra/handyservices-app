@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useToast } from '@/hooks/use-toast';
 import { Copy, Check, Loader2, LinkIcon, Send, X, Plus, Shield, ArrowRight, Search, Eye, Edit, Trash2, RefreshCw, Phone, CreditCard, Calendar, Settings, FileText, Receipt, DollarSign, Wrench, Sparkles } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -23,6 +24,37 @@ import {
   desiredTimeframeEnum,
 } from '@shared/schema';
 import { RouteRecommendation, RouteAnalysis } from '../components/RouteRecommendation';
+
+// Outbound WhatsApp message context/style — prepends a short line to the message.
+// Message-only: no persistence, does not affect the quote page or pricing.
+type MessageStyle = 'none' | 'running_late' | 'big_quote' | 'checking_materials';
+
+const MESSAGE_STYLE_OPTIONS: {
+  value: MessageStyle;
+  label: string;
+  hint: string;
+  preamble: string;
+}[] = [
+  { value: 'none', label: 'None', hint: 'No preamble', preamble: '' },
+  {
+    value: 'running_late',
+    label: 'Running late',
+    hint: 'Apologise for the wait',
+    preamble: `Apologies for the wait — we've been busier than usual and wanted to get your quote right.`,
+  },
+  {
+    value: 'big_quote',
+    label: 'Big / complex quote',
+    hint: 'We took extra care on the detail',
+    preamble: `This one's comprehensive — we took extra care to get every detail right for you.`,
+  },
+  {
+    value: 'checking_materials',
+    label: 'Checking materials',
+    hint: 'Double-checked prices & availability',
+    preamble: `We double-checked material prices & availability so there are no surprises.`,
+  },
+];
 
 // Task item interface for editable tasks
 interface TaskItem {
@@ -262,13 +294,8 @@ export default function GenerateQuoteLink() {
     reasoning: string;
   } | null>(null);
 
-  // WhatsApp message customization
-  const [excuseToggles, setExcuseToggles] = useState({
-    christmasRush: false,
-    weekendDelay: false,
-    highDemand: false,
-    staffHoliday: false,
-  });
+  // WhatsApp message customization — context/style preamble for the outbound message
+  const [messageStyle, setMessageStyle] = useState<MessageStyle>('none');
 
   // WhatsApp conversation context for seamless quote delivery
   const [conversationContext, setConversationContext] = useState('');
@@ -941,15 +968,10 @@ export default function GenerateQuoteLink() {
 
     let message = `Thanks ${customerName}!\n\n`;
 
-    // 1. Excuses (Universal - applied to all modes)
-    if (excuseToggles.christmasRush) {
-      message += `Sorry for the delay — everyone's trying to get their jobs done before Christmas! 🎄\n\n`;
-    } else if (excuseToggles.weekendDelay) {
-      message += `Sorry for the delay over the weekend — we're back on it now!\n\n`;
-    } else if (excuseToggles.highDemand) {
-      message += `Apologies for the wait — we've been busier than usual this week!\n\n`;
-    } else if (excuseToggles.staffHoliday) {
-      message += `Sorry for the delay — one of our team is on holiday so we're catching up!\n\n`;
+    // 1. Message context/style preamble (Universal - applied to all modes)
+    const stylePreamble = MESSAGE_STYLE_OPTIONS.find(o => o.value === messageStyle)?.preamble;
+    if (stylePreamble) {
+      message += `${stylePreamble}\n\n`;
     }
 
     // 2. Mode-Specific Messaging (THE VALUE PRIMER)
@@ -957,12 +979,12 @@ export default function GenerateQuoteLink() {
       // --- DIAGNOSTIC / BOOK VISIT MODE ---
     } else if (quoteMode === 'hhh' && primingPriceRange) {
       // --- PACKAGES / HHH MODE ---
-      message += `Rough price guide: £${primingPriceRange.low} - £${primingPriceRange.high}\n`;
-      message += `Pay in 3 interest-free available 💳\n\n`;
+      message += `Rough price guide: £${primingPriceRange.low} - £${primingPriceRange.high}\n\n`;
     }
 
-    // 3. Append Link (for all Quote modes)
-    message += `${generatedUrl}`;
+    // 3. Call-to-action + link (instruct the customer to self-serve)
+    message += `View your full quote and book online here:\n${generatedUrl}\n\n`;
+    message += `Any questions, don't hesitate to ask 😊`;
 
     return message;
   };
@@ -1009,12 +1031,7 @@ export default function GenerateQuoteLink() {
     setGeneratedPricing(null);
     setGeneratedQuoteMode('hhh'); // Reset to default mode
     // Reset WhatsApp message customization
-    setExcuseToggles({
-      christmasRush: false,
-      weekendDelay: false,
-      highDemand: false,
-      staffHoliday: false,
-    });
+    setMessageStyle('none');
     // Reset conversation context
     setConversationContext('');
     setAiGeneratedMessage(null);
@@ -2318,71 +2335,34 @@ Example:
                         </div>
                       )}
 
-                      {/* Excuse Toggles */}
+                      {/* Message Context / Style */}
                       <div className="space-y-2">
-                        <Label className="text-sm font-medium text-slate-300">Delay Apology (optional)</Label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="flex items-center justify-between p-2 bg-slate-800 rounded border border-slate-700">
-                            <Label htmlFor="christmas-rush" className="text-xs cursor-pointer text-slate-300">Christmas Rush 🎄</Label>
-                            <Switch
-                              id="christmas-rush"
-                              checked={excuseToggles.christmasRush}
-                              onCheckedChange={(checked) => setExcuseToggles(prev => ({
-                                ...prev,
-                                christmasRush: checked,
-                                weekendDelay: checked ? false : prev.weekendDelay,
-                                highDemand: checked ? false : prev.highDemand,
-                                staffHoliday: checked ? false : prev.staffHoliday
-                              }))}
-                              data-testid="switch-christmas-rush"
-                            />
-                          </div>
-                          <div className="flex items-center justify-between p-2 bg-slate-800 rounded border border-slate-700">
-                            <Label htmlFor="weekend-delay" className="text-xs cursor-pointer text-slate-300">Weekend Delay</Label>
-                            <Switch
-                              id="weekend-delay"
-                              checked={excuseToggles.weekendDelay}
-                              onCheckedChange={(checked) => setExcuseToggles(prev => ({
-                                ...prev,
-                                weekendDelay: checked,
-                                christmasRush: checked ? false : prev.christmasRush,
-                                highDemand: checked ? false : prev.highDemand,
-                                staffHoliday: checked ? false : prev.staffHoliday
-                              }))}
-                              data-testid="switch-weekend-delay"
-                            />
-                          </div>
-                          <div className="flex items-center justify-between p-2 bg-slate-800 rounded border border-slate-700">
-                            <Label htmlFor="high-demand" className="text-xs cursor-pointer text-slate-300">High Demand</Label>
-                            <Switch
-                              id="high-demand"
-                              checked={excuseToggles.highDemand}
-                              onCheckedChange={(checked) => setExcuseToggles(prev => ({
-                                ...prev,
-                                highDemand: checked,
-                                christmasRush: checked ? false : prev.christmasRush,
-                                weekendDelay: checked ? false : prev.weekendDelay,
-                                staffHoliday: checked ? false : prev.staffHoliday
-                              }))}
-                              data-testid="switch-high-demand"
-                            />
-                          </div>
-                          <div className="flex items-center justify-between p-2 bg-slate-800 rounded border border-slate-700">
-                            <Label htmlFor="staff-holiday" className="text-xs cursor-pointer text-slate-300">Staff Holiday</Label>
-                            <Switch
-                              id="staff-holiday"
-                              checked={excuseToggles.staffHoliday}
-                              onCheckedChange={(checked) => setExcuseToggles(prev => ({
-                                ...prev,
-                                staffHoliday: checked,
-                                christmasRush: checked ? false : prev.christmasRush,
-                                weekendDelay: checked ? false : prev.weekendDelay,
-                                highDemand: checked ? false : prev.highDemand
-                              }))}
-                              data-testid="switch-staff-holiday"
-                            />
-                          </div>
-                        </div>
+                        <Label className="text-sm font-medium text-slate-300">Message context (optional)</Label>
+                        <p className="text-xs text-slate-500">Adds a short line to the top of the WhatsApp message.</p>
+                        <RadioGroup
+                          value={messageStyle}
+                          onValueChange={(value) => setMessageStyle(value as MessageStyle)}
+                          className="grid grid-cols-1 gap-2"
+                        >
+                          {MESSAGE_STYLE_OPTIONS.map((opt) => (
+                            <Label
+                              key={opt.value}
+                              htmlFor={`message-style-${opt.value}`}
+                              className="flex items-center gap-3 p-2 bg-slate-800 rounded border border-slate-700 cursor-pointer hover:border-slate-600"
+                            >
+                              <RadioGroupItem
+                                id={`message-style-${opt.value}`}
+                                value={opt.value}
+                                className="border-slate-500 text-green-500"
+                                data-testid={`radio-message-style-${opt.value}`}
+                              />
+                              <div className="flex flex-col">
+                                <span className="text-xs text-slate-200">{opt.label}</span>
+                                <span className="text-[11px] text-slate-500">{opt.hint}</span>
+                              </div>
+                            </Label>
+                          ))}
+                        </RadioGroup>
                       </div>
 
                       {/* Message Preview */}

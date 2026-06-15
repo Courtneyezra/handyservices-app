@@ -761,7 +761,6 @@ export default function HandymanLanding({
                         <ServicesSection />
                         <RealJobsSection />
                         <BeforeAfterSection />
-                        <PayIn3Section />
 
                         <GuaranteesSection />
 

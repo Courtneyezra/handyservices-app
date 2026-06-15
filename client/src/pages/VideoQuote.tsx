@@ -299,13 +299,6 @@ export default function VideoQuote() {
                 <p className="text-slate-400 text-xs uppercase tracking-wider font-semibold">Selected</p>
                 <p className="text-white font-bold text-lg">{selectedPkg.name} <span className="text-emerald-400">£{selectedPkg.price}</span></p>
               </div>
-              {selectedPkg.tier !== 'essential' && (
-                <div className="text-right">
-                  <div className="bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded text-[10px] text-emerald-400 font-medium">
-                    Split Payments Available
-                  </div>
-                </div>
-              )}
             </div>
 
             <Button

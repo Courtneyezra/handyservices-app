@@ -28,7 +28,6 @@ export function BusinessView() {
             <VideoQuoteSection />
             <ServicesSection />
             <RealJobsSection />
-            <PayIn3Section />
             <TestimonialsSection />
             <GuaranteesSection />
             <FooterCTA />

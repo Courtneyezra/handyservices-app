@@ -126,7 +126,6 @@ import slideShelf from "@assets/c2f4951d-baa5-4a9f-8b4e-233fa5fcb49c_17646871569
 import skuWallInstall from "@assets/528c52d4-f8ff-4e5b-9853-b68263a62c2f_1764694548068.webp";
 import slideAfter from "@assets/cb5e8951-9d46-4023-9909-510a89d3da60_1764693845208.webp";
 import slideHero from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
-import slidePayIn3 from "@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.webp";
 import promoHandyman from "@assets/123d3462-a11d-42b8-9fad-fdb2d6f29b11_1764600237774.webp";
 // City-specific local maps (used in the SEO intro block on /v2 vs /v2/derby).
 // Kept as legacy fallback imports; AnimatedMap now drives the SEO block.
@@ -2200,17 +2199,6 @@ const SLIDES: Slide[] = [
         image: slideHero,
         overlay: "from-slate-800 via-slate-800/80 to-transparent",
     },
-    {
-        eyebrow: "Flexible payments",
-        headline: <>Pay in 3 with Klarna — no fees</>,
-        subhead: "Spread the cost across 3 months on jobs over £150.",
-        bgClass: "bg-gradient-to-r from-slate-800 to-slate-900",
-        textColor: "text-white",
-        Icon: CreditCard,
-        eyebrowChip: "bg-amber-400 text-slate-900",
-        image: slidePayIn3,
-        overlay: "from-slate-800 via-slate-800/80 to-transparent",
-    },
 ];
 
 /**
@@ -2983,12 +2971,6 @@ const MOBILE_PROMOS: {
         Icon: Sparkles,
         title: "£10 off your first booking",
         subtitle: "Use code WELCOME10",
-    },
-    {
-        id: "klarna",
-        Icon: CreditCard,
-        title: "Pay in 3 with Klarna",
-        subtitle: "On jobs over £150 — no fees",
     },
 ];
 
