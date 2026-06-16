@@ -8,6 +8,8 @@ COPY package*.json ./
 
 # Install dependencies
 RUN npm install
+# Ensure the linux-x64 sharp native binary is installed (lockfile generated on macOS won't include it)
+RUN npm install --os=linux --cpu=x64 sharp
 
 # Copy source code
 COPY . .
