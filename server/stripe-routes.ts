@@ -45,7 +45,8 @@ function calculateDeposit(totalPrice: number, materialsCost: number, depositFrac
 } {
     const labourCost = totalPrice - materialsCost;
     const labourDepositComponent = Math.round(labourCost * depositFraction);
-    const total = materialsCost + labourDepositComponent;
+    // Round to nearest whole pound to match the client's display calculation exactly
+    const total = Math.round((materialsCost + labourDepositComponent) / 100) * 100;
 
     return {
         total,
@@ -92,6 +93,9 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             address,
             addressLat,
             addressLng,
+            // Phase 25 flex — carried into PI metadata so the webhook persists it
+            // race-free, instead of relying solely on the fire-and-forget /track-booking PUT.
+            flexBookingWithinDays,
             // Pricing lane the customer chose in UnifiedQuoteCard ('flex' | 'date_time').
             // The SERVER re-derives the £ adjustment from quote.basePrice — the client
             // only names the lane, never the amount. Legacy callers (PaymentForm,
@@ -234,6 +238,11 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         if (typeof addressLat === 'number' && typeof addressLng === 'number') {
             bookingMetadata.addressLat = String(addressLat);
             bookingMetadata.addressLng = String(addressLng);
+        }
+        // Phase 25 flex — only stamp when a positive window was chosen, so non-flex
+        // (exact-date) bookings never carry a misleading flex tag into the webhook.
+        if (typeof flexBookingWithinDays === 'number' && flexBookingWithinDays > 0) {
+            bookingMetadata.flexBookingWithinDays = String(flexBookingWithinDays);
         }
         // Carry the chosen pricing lane so the webhook re-derives the SAME
         // lane-adjusted total when it builds the invoice + dispatch record.
@@ -424,6 +433,17 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                 updateFields.coordinates = { lat: mLat, lng: mLng };
                             }
                             console.log(`[Stripe Webhook] Persisted customer address from metadata for quote ${quoteId}`);
+                        }
+
+                        // Phase 25 flex — persist the flex window from this PI's own
+                        // metadata (authoritative + race-free). Only writes when the
+                        // customer chose flex (> 0), so exact-date bookings are never
+                        // mislabelled. The fire-and-forget /track-booking PUT likewise
+                        // only ever sets a positive value, so neither path nulls the other.
+                        const metadataFlexDays = parseInt(paymentIntent.metadata?.flexBookingWithinDays || '', 10);
+                        if (!isNaN(metadataFlexDays) && metadataFlexDays > 0) {
+                            updateFields.flexBookingWithinDays = metadataFlexDays;
+                            console.log(`[Stripe Webhook] Persisted flexBookingWithinDays=${metadataFlexDays} from metadata for quote ${quoteId}`);
                         }
 
                         await db.update(personalizedQuotes)
@@ -630,6 +650,9 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                     invoiceNumber,
                                     jobId,
                                     availableDates: (quote as any).availableDates || null,
+                                    // Phase 25 flex — show ops whether this is a flex (route-to-thin-day)
+                                    // booking or an exact-date pick. Prefer the value we just persisted.
+                                    flexBookingWithinDays: updateFields.flexBookingWithinDays ?? quote.flexBookingWithinDays ?? null,
                                     isDispatchPool: true,
                                 });
                             } catch (notifyError) {

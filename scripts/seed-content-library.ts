@@ -69,8 +69,10 @@ const CLAIMS_DATA = [
 // ---------------------------------------------------------------------------
 
 const IMAGES_DATA = [
-  { filename: "door-greeting.jpg", alt: "Handyman greeting customer at the door", placement: "hero", jobCategories: null, isUniversal: true },
-  { filename: "plumber-smile.jpg", alt: "Smiling plumber after completing a job", placement: "guarantee", jobCategories: ["plumbing_minor"], isUniversal: false },
+  // Use optimized .webp twins (present in client/public/assets/quote-images/) to
+  // keep quote image payload small — never seed the legacy uncompressed .jpg/.png.
+  { filename: "door-greeting.webp", alt: "Handyman greeting customer at the door", placement: "hero", jobCategories: null, isUniversal: true },
+  { filename: "plumber-smile.webp", alt: "Smiling plumber after completing a job", placement: "guarantee", jobCategories: ["plumbing_minor"], isUniversal: false },
 ];
 
 // ---------------------------------------------------------------------------

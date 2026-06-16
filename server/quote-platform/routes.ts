@@ -611,49 +611,51 @@ async function seedQuotePlatform(): Promise<{ seeded: boolean; message: string }
   // ---- Images ----
   if (Number(imageCount.c) === 0) {
     await db.insert(quotePlatformImages).values([
+      // Use optimized .webp twins (present in client/public/assets/quote-images/)
+      // to keep quote image payload small — never seed legacy .jpg/.png here.
       {
-        url: '/assets/quote-images/door-greeting.jpg',
-        filename: 'door-greeting.jpg',
+        url: '/assets/quote-images/door-greeting.webp',
+        filename: 'door-greeting.webp',
         altText: 'Tradesperson greeting customer at the door',
         archetypes: ['homeowner', 'landlord'],
         genderCue: 'neutral',
         jobTypes: ['general'],
       },
       {
-        url: '/assets/quote-images/plumber-smile.jpg',
-        filename: 'plumber-smile.jpg',
+        url: '/assets/quote-images/plumber-smile.webp',
+        filename: 'plumber-smile.webp',
         altText: 'Smiling plumber ready to help',
         archetypes: ['homeowner'],
         genderCue: 'male',
         jobTypes: ['plumbing'],
       },
       {
-        url: '/assets/quote-images/older-person-door.jpg',
-        filename: 'older-person-door.jpg',
+        url: '/assets/quote-images/older-person-door.webp',
+        filename: 'older-person-door.webp',
         altText: 'Older homeowner welcoming tradesperson',
         archetypes: ['elderly', 'homeowner'],
         genderCue: 'female',
         jobTypes: ['general'],
       },
       {
-        url: '/assets/quote-images/tap-repair.png',
-        filename: 'tap-repair.png',
+        url: '/assets/quote-images/tap-repair.webp',
+        filename: 'tap-repair.webp',
         altText: 'Close-up of tap repair work',
         archetypes: ['homeowner', 'landlord'],
         genderCue: 'neutral',
         jobTypes: ['plumbing'],
       },
       {
-        url: '/assets/quote-images/painting.png',
-        filename: 'painting.png',
+        url: '/assets/quote-images/painting.webp',
+        filename: 'painting.webp',
         altText: 'Decorator painting a wall',
         archetypes: ['homeowner'],
         genderCue: 'neutral',
         jobTypes: ['painting'],
       },
       {
-        url: '/assets/quote-images/bathroom-repair.png',
-        filename: 'bathroom-repair.png',
+        url: '/assets/quote-images/bathroom-repair.webp',
+        filename: 'bathroom-repair.webp',
         altText: 'Bathroom repair and refurbishment work',
         archetypes: ['homeowner', 'landlord'],
         genderCue: 'neutral',

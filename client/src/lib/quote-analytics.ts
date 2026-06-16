@@ -89,7 +89,7 @@ interface PaymentProps {
   segment: string;
   totalPricePence: number;
   depositPence: number;
-  paymentMode: 'full' | 'installments';
+  paymentMode: 'full' | 'deposit' | 'installments';
   bookingMode?: string;
   selectedDate?: string;
   schedulingTier?: string;

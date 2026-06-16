@@ -158,6 +158,9 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 const ContractorPublicProfile = lazy(() => import("@/pages/public/ContractorPublicProfile"));
 const InstantPricePage = lazy(() => import("@/pages/InstantPricePage"));
 
+// Labs — self-contained, frontend-only sandbox pages (no backend)
+const BookingTwoLaneLab = lazy(() => import("@/pages/labs/BookingTwoLaneLab"));
+
 // Pitch/Sales Pages
 const PitchIndex = lazy(() => import("@/pages/pitch/PitchIndex"));
 const CustomerJourney = lazy(() => import("@/pages/pitch/CustomerJourney"));
@@ -330,6 +333,13 @@ function Router() {
                   * contractor. See DispatchPreviewPage.tsx for seed data. */}
                 <Route path="/dispatch-preview">
                     <DispatchPreviewPage />
+                </Route>
+                {/* Two-lane booking sandbox — frontend-only demo, no backend.
+                  * Restyled mock of UnifiedQuoteCard's scheduling: Lane A (flexible
+                  * → optimisation pool) vs Lane B (set date → route-impact priced).
+                  * Flip customer type to see homeowner vs landlord lanes. */}
+                <Route path="/labs/booking">
+                    <BookingTwoLaneLab />
                 </Route>
                 <Route path="/review/:token">
                     <LeaveReview />

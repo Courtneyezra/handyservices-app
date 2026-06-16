@@ -22,6 +22,8 @@ export function InstantActionQuote({ quote }: InstantActionQuoteProps) {
                 phone: quote.phone,
                 email: quote.email || undefined,
                 jobDescription: quote.jobDescription,
+                postcode: quote.postcode || undefined,
+                address: quote.address || undefined,
                 outcome: 'phone_quote',
                 eeePackage: 'simple',
                 quoteAmount: quote.basePrice, // already in pence? Check type. PersonalizedQuote basePrice is number (pence or pounds? Schema says pence usually, but display divides by 100. Let's assume pence.)

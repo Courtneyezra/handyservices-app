@@ -2581,8 +2581,8 @@ export function UnifiedQuoteCard({
                Address/email/payment only appear after this CTA; keeping that whole
                form on the quote up-front depressed bookings. */
             <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
               transition={{ duration: 0.3 }}
               className="space-y-3"
             >
@@ -2591,7 +2591,7 @@ export function UnifiedQuoteCard({
                   setBookingStarted(true);
                   setTimeout(() => {
                     bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  }, 80);
+                  }, 350);
                 }}
                 className="w-full h-14 rounded-2xl font-bold text-lg bg-[#7DB00E] hover:bg-[#6da000] text-slate-900 transition-all"
               >
@@ -2609,8 +2609,8 @@ export function UnifiedQuoteCard({
           ) : (
           /* Inline Stripe card entry — reveals once the slot is committed */
           <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             transition={{ duration: 0.3 }}
             className="space-y-4"
           >

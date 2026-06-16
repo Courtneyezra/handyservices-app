@@ -16,6 +16,7 @@ import { updateLeadStage } from "./lead-stage-engine";
 import { captureServerEvent } from "./posthog";
 import { optionalAuth } from "./auth";
 import { getShortQuoteUrl, getBookVisitUrl } from "./url-utils";
+import { normalizeQuoteImageUrls } from "./quote-image-utils";
 import { computeLaneBasePence, parsePricingLane } from "./lane-pricing";
 
 // Define input schema for value pricing
@@ -919,13 +920,16 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
                         : Promise.resolve([]),
                 ]);
 
-                selectedContent = {
+                // Normalize legacy local .jpg/.png image URLs to their .webp twin
+                // at read time (covers all existing quotes, no migration needed).
+                // S3 content-library URLs and unknown names are left untouched.
+                selectedContent = normalizeQuoteImageUrls({
                     guarantee: guaranteeRows[0] ?? null,
                     testimonials: testimonialRows,
                     hassleItems: hassleItemRows,
                     claims: claimRows,
                     images: imageRows,
-                };
+                });
             } catch (contentFetchError) {
                 console.warn('[Quote GET] Failed to fetch selectedContent (non-blocking):', contentFetchError instanceof Error ? contentFetchError.message : contentFetchError);
                 // selectedContent stays null — frontend falls back to hardcoded defaults
@@ -1096,6 +1100,9 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
             exactTimeRequested,
             isWeekendBooking,
             schedulingFeeInPence,
+            // Phase 25 flex — the chosen flex window ("we pick a day within N days").
+            // Belt-and-suspenders with the Stripe webhook, which is the authoritative writer.
+            flexBookingWithinDays,
             // Pricing lane ('flex' | 'date_time') — the SERVER re-derives the £ from
             // quote.basePrice so the persisted selectedTierPricePence matches the charge.
             pricingLane,
@@ -1143,6 +1150,22 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
             depositAmountUpdate.depositAmountPence = materialsCost + Math.round(laborCost * 0.30);
         }
 
+        // Phase 32 — defense-in-depth: never let this fire-and-forget PUT DOWNGRADE
+        // the Stripe webhook's authoritative 'deposit' to 'full'. The legacy client
+        // sent a stale 'full' (its paymentMode state never learned the inline deposit
+        // choice); landing after the webhook it mislabelled ~84% of deposit bookings
+        // as paid-in-full, which then told those customers "nothing more to pay" on
+        // the confirmation page while they still owed ~70%. The webhook writes
+        // paymentType from PI metadata (the card's real choice), so if the row is
+        // already 'deposit' we keep it regardless of what this PUT claims.
+        const effectivePaymentType =
+            (paymentType === 'full' && quote.paymentType === 'deposit')
+                ? 'deposit'
+                : paymentType;
+        if (effectivePaymentType !== paymentType) {
+            console.warn(`[track-booking] Quote ${id} — blocked paymentType downgrade '${quote.paymentType}'→'${paymentType}'; keeping '${effectivePaymentType}' (webhook authoritative)`);
+        }
+
         // NOTE: depositPaidAt is NOT set here - it will be set by the Stripe webhook
         // when the payment is confirmed. This prevents race conditions and false positives.
         await db.update(personalizedQuotes)
@@ -1151,7 +1174,7 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
                 selectedPackage: selectedPackage || 'standard', // Legacy field
                 selectedExtras: selectedExtras || [],
                 selectedAt: new Date(), // Track when package was selected
-                paymentType,
+                paymentType: effectivePaymentType,
                 selectedTierPricePence,
                 ...depositAmountUpdate,
                 // Scheduling fields
@@ -1172,6 +1195,12 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
                 exactTimeRequested: exactTimeRequested || undefined,
                 isWeekendBooking: isWeekendBooking ?? false,
                 schedulingFeeInPence: schedulingFeeInPence || 0,
+                // Phase 25 flex — conditional spread: only write when a positive window
+                // was sent, so a non-flex (exact-date) or stale PUT can never null out a
+                // value the Stripe webhook already persisted from PI metadata.
+                ...(typeof flexBookingWithinDays === 'number' && flexBookingWithinDays > 0
+                  ? { flexBookingWithinDays }
+                  : {}),
                 // Phase 30 — persist the customer-confirmed door address. Conditional
                 // spread so a booking flow that doesn't send one never clobbers the
                 // admin's original quote.address / coordinates with undefined.

@@ -21,10 +21,10 @@ export function DesktopLeadForm() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formData.jobDescription || !formData.phone) {
+        if (!formData.jobDescription || !formData.phone || !formData.postcode) {
             toast({
                 title: "Missing details",
-                description: "Please describe your job and provide a phone number.",
+                description: "Please describe your job, enter your postcode, and provide a phone number.",
                 variant: "destructive"
             });
             return;

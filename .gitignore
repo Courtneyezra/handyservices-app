@@ -32,3 +32,9 @@ dist-ssr
 storage/recordings/*.raw
 sqlite.db
 *.log
+
+# LLM Council reports / transcripts (local strategy artifacts)
+council/
+
+# WhatsApp chat exports (customer PII — never commit)
+whatsapp-export/

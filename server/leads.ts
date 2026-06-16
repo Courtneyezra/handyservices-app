@@ -34,11 +34,18 @@ leadsRouter.post('/api/leads', async (req, res) => {
             jobDescription: inputData.jobDescription || "No description provided",
             source: inputData.source || "web_quote",
             status: "new",
-            // Store rich context in JSONB fields if available
-            // Store rich context in JSONB fields if available
+            // Location fields — previously dropped, which left every webform lead with a blank postcode/address
+            postcode: inputData.postcode || null,
+            address: inputData.address || null,
+            addressRaw: inputData.addressRaw || null,
+            addressCanonical: inputData.addressCanonical || null,
+            placeId: inputData.placeId || null,
+            coordinates: inputData.coordinates || null,
+            // Store rich context in JSONB; keep the full raw submission so no webform field is ever silently lost again
             transcriptJson: {
                 ...(inputData.analyzedJobData ? { analyzedData: inputData.analyzedJobData } : {}),
-                ...(inputData.bookingRequest ? { bookingRequest: inputData.bookingRequest } : {})
+                ...(inputData.bookingRequest ? { bookingRequest: inputData.bookingRequest } : {}),
+                rawSubmission: inputData,
             },
         };
 

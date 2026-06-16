@@ -470,10 +470,13 @@ router.get('/quote/:quoteId/availability', async (req: Request, res: Response) =
         // a quote's customer-facing dates included contractors the admin
         // builder said couldn't do the job (out of range, or skill gaps).
         //
-        // The stored `candidateContractorIds` on the quote row is treated
-        // as a cache — we ignore it and recompute live every read, because
-        // contractor skills/radius/verification status can change between
-        // quote creation and customer viewing.
+        // The stored `candidateContractorIds` on the quote row is ignored —
+        // we resolve the pool fresh because contractor skills/radius/
+        // verification status can change between quote creation and viewing.
+        // `resolveQuoteCandidatePoolForQuote` is single-flight + 60s-TTL
+        // cached (see quote-fit.ts): the banner + picker firing on one page
+        // load share a single geocode + matcher pass, and slot/month/focus
+        // refetches reuse it. Staleness is bounded to 60s.
         const { resolveQuoteCandidatePoolForQuote } = await import('./lib/quote-fit');
         const fit = await resolveQuoteCandidatePoolForQuote(quote);
 

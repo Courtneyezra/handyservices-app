@@ -28,6 +28,7 @@ import { trackQuoteCreated } from '../posthog';
 import { calculateMultiLineCost, checkMargin, calculateCostFromWTBP } from '../margin-engine';
 import { incrementExtrasPickCount } from '../quote-extras-catalog';
 import { findCandidateContractors } from '../contractor-matcher';
+import { normalizeQuoteImageUrl } from '../quote-image-utils';
 import type {
   PricingContext,
   PricingComparisonResult,
@@ -1518,6 +1519,11 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       // Admin-picked available dates (hard whitelist for customer date picker)
       availableDates: input.availableDates,
 
+      // Materials cost (100% charged upfront in deposit calculation)
+      materialsCostWithMarkupPence: result.lineItems.reduce(
+        (s: number, li: any) => s + (Number(li.materialsWithMarginPence) || 0), 0
+      ),
+
       // Margin Engine data
       costPence: marginData.costPence,
       marginPence: marginData.marginPence,
@@ -1688,7 +1694,11 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
               guarantee: contentSelection.guarantee,
               testimonials: contentSelection.testimonials,
               hassleItems: contentSelection.hassleItems,
-              images: contentSelection.images,
+              // Normalize legacy local .jpg/.png to .webp twin (S3 URLs untouched)
+              images: contentSelection.images.map((i) => ({
+                ...i,
+                url: normalizeQuoteImageUrl(i.url),
+              })),
             },
             selectedContent: {
               guarantee: contentSelection.guarantee
@@ -1720,7 +1730,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
               })),
               images: contentSelection.images.map((i) => ({
                 id: i.id,
-                url: i.url,
+                url: normalizeQuoteImageUrl(i.url),
                 alt: i.alt,
                 placement: i.placement,
               })),

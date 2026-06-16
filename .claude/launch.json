@@ -15,6 +15,20 @@
       "runtimeArgs": ["-c", "cd /Users/courtneebonnick/v6-switchboard/.claude/worktrees/elegant-dubinsky-d522cf && export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" && FF_FLEX_TIER=1 npm run dev"],
       "port": 5050,
       "autoPort": true
+    },
+    {
+      "name": "quote-page-polish",
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "cd /Users/courtneebonnick/v6-switchboard/.claude/worktrees/quote-page-polish && export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" && npm run dev"],
+      "port": 5052,
+      "autoPort": true
+    },
+    {
+      "name": "booking-lab",
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" && npx vite --port 5199 --strictPort"],
+      "port": 5199,
+      "autoPort": true
     }
   ]
 }

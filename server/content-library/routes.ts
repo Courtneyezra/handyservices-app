@@ -20,6 +20,7 @@ import multer from 'multer';
 import path from 'path';
 import { nanoid } from 'nanoid';
 import { S3Client, PutObjectCommand, ObjectCannedACL } from '@aws-sdk/client-s3';
+import sharp from 'sharp';
 import { db } from '../db';
 import {
   contentClaims,
@@ -279,6 +280,12 @@ const MIME_MAP: Record<string, string> = {
   '.webp': 'image/webp', '.svg': 'image/svg+xml',
 };
 
+// Raster formats we optimize to WebP before upload. SVG is vector and must be
+// passed through untouched (rasterizing it would destroy scalability).
+const RASTER_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+const WEBP_MAX_WIDTH = 1280;
+const WEBP_QUALITY = 80;
+
 router.post('/api/content/images/upload', imageUpload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
@@ -286,23 +293,51 @@ router.post('/api/content/images/upload', imageUpload.single('image'), async (re
     }
 
     const ext = path.extname(req.file.originalname).toLowerCase();
-    const filename = `${nanoid(12)}${ext}`;
+
+    // Optimize raster images to WebP (resize to max 1280px wide, quality 80) so
+    // future content-library uploads don't bloat quote payloads. SVGs and any
+    // unexpected types are uploaded as-is. Conversion failures fall back to the
+    // original buffer so an upload is never lost to an optimization hiccup.
+    let body: Buffer = req.file.buffer;
+    let uploadExt = ext;
+    let contentType = MIME_MAP[ext] || 'application/octet-stream';
+
+    if (RASTER_EXTS.has(ext)) {
+      try {
+        body = await sharp(req.file.buffer)
+          .rotate() // honor EXIF orientation before stripping metadata
+          .resize({ width: WEBP_MAX_WIDTH, withoutEnlargement: true })
+          .webp({ quality: WEBP_QUALITY })
+          .toBuffer();
+        uploadExt = '.webp';
+        contentType = 'image/webp';
+      } catch (optimizeError) {
+        console.warn(
+          '[content/images] WebP optimization failed, uploading original:',
+          optimizeError instanceof Error ? optimizeError.message : optimizeError,
+        );
+        body = req.file.buffer;
+        uploadExt = ext;
+        contentType = MIME_MAP[ext] || 'application/octet-stream';
+      }
+    }
+
+    const filename = `${nanoid(12)}${uploadExt}`;
     const key = `content-library/${filename}`;
     const bucket = process.env.AWS_S3_BUCKET!;
     const region = process.env.AWS_REGION || 'eu-west-2';
-    const contentType = MIME_MAP[ext] || 'application/octet-stream';
 
     const client = getContentS3Client();
     await client.send(new PutObjectCommand({
       Bucket: bucket,
       Key: key,
-      Body: req.file.buffer,
+      Body: body,
       ContentType: contentType,
       ACL: ObjectCannedACL.public_read,
     }));
 
     const url = `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
-    console.log(`[content/images] S3 upload: ${url}`);
+    console.log(`[content/images] S3 upload: ${url} (${body.length} bytes, ${contentType})`);
     return res.json({ success: true, url, filename });
   } catch (error) {
     console.error('[content/images] S3 upload error:', error);

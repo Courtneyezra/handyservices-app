@@ -292,7 +292,7 @@ export async function sendJobAssignmentEmail(data: JobAssignmentEmailData): Prom
 }
 
 // Internal notification for ops team
-export async function sendInternalBookingNotification(data: BookingConfirmationData & { phone: string }): Promise<void> {
+export async function sendInternalBookingNotification(data: BookingConfirmationData & { phone: string; flexBookingWithinDays?: number | null }): Promise<void> {
     const resend = getResend();
 
     if (!resend) {
@@ -323,7 +323,9 @@ export async function sendInternalBookingNotification(data: BookingConfirmationD
                 <p><strong>Balance Due:</strong> ${formatCurrency(data.balanceDue)}</p>
                 <hr>
                 <p><strong>Invoice:</strong> ${data.invoiceNumber}</p>
-                <p><strong>Customer's preferred dates:</strong> Awaiting dispatch</p>
+                <p><strong>Scheduling:</strong> ${data.flexBookingWithinDays && data.flexBookingWithinDays > 0
+                    ? `🟢 Flexible — book within ${data.flexBookingWithinDays} days (route to a thin day)`
+                    : (data.scheduledDate ? `📅 Customer picked ${data.scheduledDate}` : 'Awaiting dispatch')}</p>
                 <hr>
                 <p><a href="${getBaseUrlFromEnv()}/admin/daily-planner" style="display:inline-block;background:#e8b323;color:#1a1a2e;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:bold;">Open Daily Planner →</a></p>
             `,

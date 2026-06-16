@@ -51,6 +51,15 @@ export interface GoogleReviewsData {
 const reviewsCache = new Map<string, { data: GoogleReviewsData; timestamp: number }>();
 const REVIEWS_CACHE_TTL = 24 * 60 * 60 * 1000;
 
+// Postcode → coordinates is effectively static, but `validatePostcode` was
+// hitting postcodes.io fresh on every call (3s timeout). That external
+// round-trip was the dominant cost of the customer date-picker availability
+// path (geocodes the quote postcode on every read). Cache valid lookups for
+// the same 30-day TTL as addressCache — repeat reads, and different quotes in
+// the same postcode, resolve instantly. Negative results are NOT cached so a
+// transient network blip is never pinned as "invalid".
+const postcodeCache = new Map<string, { result: PostcodeValidationResult; timestamp: number }>();
+
 /**
  * B4: Validate UK postcode using free postcodes.io API
  * Returns validation result with coordinates if valid
@@ -59,6 +68,12 @@ export async function validatePostcode(postcode: string): Promise<PostcodeValida
     try {
         // Normalize postcode (remove spaces, uppercase)
         const normalized = postcode.replace(/\s/g, '').toUpperCase();
+
+        // Cache hit — postcode coords don't change, so skip the postcodes.io call.
+        const cached = postcodeCache.get(normalized);
+        if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+            return cached.result;
+        }
 
         const response = await axios.get(`https://api.postcodes.io/postcodes/${normalized}`, {
             timeout: 3000,
@@ -69,7 +84,7 @@ export async function validatePostcode(postcode: string): Promise<PostcodeValida
             return { valid: false };
         }
 
-        return {
+        const result: PostcodeValidationResult = {
             valid: true,
             postcode: response.data.result.postcode, // Returns properly formatted postcode
             coordinates: {
@@ -77,6 +92,8 @@ export async function validatePostcode(postcode: string): Promise<PostcodeValida
                 lng: response.data.result.longitude
             }
         };
+        postcodeCache.set(normalized, { result, timestamp: Date.now() });
+        return result;
     } catch (error) {
         console.error('[Postcode Validation] Error:', error);
         return { valid: false };

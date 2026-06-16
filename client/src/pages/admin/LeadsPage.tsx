@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
-import { Loader2, Phone, Mail, MessageSquare, FileText } from "lucide-react";
+import { Loader2, Phone, Mail, MessageSquare, FileText, MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -97,6 +97,7 @@ export default function LeadsPage() {
                                     <tr>
                                         <th className="p-4 font-medium">Customer</th>
                                         <th className="p-4 font-medium">Contact</th>
+                                        <th className="p-4 font-medium">Location</th>
                                         <th className="p-4 font-medium">Request</th>
                                         <th className="p-4 font-medium">Source</th>
                                         <th className="p-4 font-medium">Date</th>
@@ -124,6 +125,18 @@ export default function LeadsPage() {
                                                         <Mail className="h-3 w-3" />
                                                         <span className="truncate max-w-[150px]">{lead.email}</span>
                                                     </div>
+                                                )}
+                                            </td>
+                                            <td className="p-4">
+                                                {lead.postcode || lead.address ? (
+                                                    <div className="flex items-center gap-2 text-muted-foreground">
+                                                        <MapPin className="h-3 w-3 shrink-0" />
+                                                        <span className="truncate max-w-[160px]" title={lead.address || lead.postcode || ""}>
+                                                            {lead.postcode || lead.address}
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-muted-foreground/50">—</span>
                                                 )}
                                             </td>
                                             <td className="p-4">

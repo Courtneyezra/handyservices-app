@@ -90,9 +90,18 @@ export function ScopeOfWorks({ text, summary, proposalSummary, pricingLineItems,
             <div className="bg-white rounded-xl p-5 md:p-6 border border-slate-200 shadow-sm relative">
                 <h3 className="text-sm font-bold uppercase tracking-widest text-slate-500 mb-4 text-center">Job summary</h3>
                 {useProposal ? (
-                    <div>
-                        <span className="text-3xl text-[#7DB00E] font-serif leading-none absolute left-4">{"\u201C"}</span>
-                        <p className="text-slate-800 text-base md:text-lg font-semibold leading-relaxed pl-4">{proposalSummary}{"\u201D"}</p>
+                    <div className="relative pl-6">
+                        <span className="text-4xl text-[#7DB00E] font-serif leading-none absolute left-0 top-0">{"\u201C"}</span>
+                        <div className="space-y-2.5">
+                            {(proposalSummary!.match(/[^.!?]+[.!?]*/g) || [proposalSummary!])
+                                .map((s) => s.trim())
+                                .filter(Boolean)
+                                .map((sentence, i) => (
+                                    <p key={i} className="text-slate-800 text-base md:text-lg font-medium leading-relaxed">
+                                        {sentence}
+                                    </p>
+                                ))}
+                        </div>
                     </div>
                 ) : useLineItems ? (
                     <div className="space-y-2.5 md:grid md:grid-cols-2 md:gap-x-8 md:gap-y-3 md:space-y-0">

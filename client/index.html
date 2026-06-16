@@ -26,8 +26,11 @@
     href="https://fonts.googleapis.com/css2?family=Kalam:wght@300;400;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
     onload="this.onload=null;this.rel='stylesheet'">
   <noscript><link href="https://fonts.googleapis.com/css2?family=Kalam:wght@300;400;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
-  <!-- Preload critical above-fold quote hero image -->
-  <link rel="preload" as="image" type="image/webp" href="/assets/quote-images/door-greeting.webp">
+  <!-- Hero image is job-dependent and unknown at HTML-parse time (plumbing,
+       painting, landlord/elderly, default each use a different .webp). The
+       asset-readiness gate in PersonalizedQuotePage warms the correct hero
+       from getHeroImage(quote) once quote data loads, so a static preload of
+       one fixed hero here would just waste bandwidth on most quotes. -->
   <title>Handy Services - Best Rated Handyman Service</title>
   <meta property="og:title" content="Handy Services - Best Rated Handyman Service" />
   <meta property="og:description" content="Book a vetted pro in seconds. Standard & Priority options available." />
