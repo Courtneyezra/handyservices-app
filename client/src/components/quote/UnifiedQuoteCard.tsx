@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { format, addDays, isWeekend } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
-import { CardElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { CardNumberElement, CardExpiryElement, CardCvcElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import type { StripeExpressCheckoutElementConfirmEvent } from '@stripe/stripe-js';
 import { isStripeConfigured } from '@/lib/stripe';
 import { getHassleComparisons } from '@shared/hassle-comparisons';
@@ -605,7 +605,10 @@ export function UnifiedQuoteCard({
   // and keep address/email/payment hidden until the customer commits. Showing the
   // whole "Complete your booking" form inline up-front depressed bookings.
   const [bookingStarted, setBookingStarted] = useState(false);
-  const addressOk = addressLine.trim().length >= 6;
+  // UK postcode pattern (e.g. "NG35TF", "NG3 5TF", "SW1A 1AA") — catch the case
+  // where the customer types only their postcode instead of a full address.
+  const looksLikePostcodeOnly = /^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(addressLine.trim());
+  const addressOk = addressLine.trim().length >= 6 && !looksLikePostcodeOnly;
   // Phase 30 — package the captured door address so onBook → /track-booking can
   // persist it on personalized_quotes (address + coordinates). Built whenever the
   // customer has typed something usable; Places fills postcode/lat/lng, manual
@@ -1167,6 +1170,18 @@ export function UnifiedQuoteCard({
     if (!showInlinePayment) setBookingStarted(false);
   }, [showInlinePayment]);
 
+  // Scroll the booking section into view when the Stripe card form reveals
+  // (detailsConfirmed → true). On mobile the address/email form and keyboard
+  // hold the viewport in a different position, so users don't see the card
+  // input appear without an explicit scroll.
+  useEffect(() => {
+    if (!detailsConfirmed) return;
+    const t = setTimeout(() => {
+      bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 350); // slight delay lets the motion.div animation start first
+    return () => clearTimeout(t);
+  }, [detailsConfirmed]);
+
   // Create payment intent when inline payment should be shown
   useEffect(() => {
     if (!showInlinePayment || !quoteId || !stripe || !effectiveEmail || !detailsConfirmed) {
@@ -1258,7 +1273,7 @@ export function UnifiedQuoteCard({
     setPaymentError(null);
 
     try {
-      const cardElement = elements.getElement(CardElement);
+      const cardElement = elements.getElement(CardNumberElement);
       if (!cardElement) throw new Error('Card element not found');
 
       const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(
@@ -2623,6 +2638,11 @@ export function UnifiedQuoteCard({
                       isDarkTheme={isDarkTheme}
                       placeholder="Start typing your address…"
                     />
+                    {looksLikePostcodeOnly && (
+                      <p className={`text-xs ${isDarkTheme ? 'text-amber-400' : 'text-amber-600'}`}>
+                        Please enter your full address (e.g. 12 High Street, Nottingham) so we know exactly where to come.
+                      </p>
+                    )}
                   </div>
                   {/* Email (only if we don't already have it). */}
                   {!customerEmail && (
@@ -2706,32 +2726,47 @@ export function UnifiedQuoteCard({
                     </>
                   )}
                 <form onSubmit={handlePayment}>
-                  <div className={`border rounded-lg p-3 mb-4 ${isDarkTheme ? 'border-white/20 bg-slate-800' : 'border-slate-200 bg-white'}`}>
-                    <CardElement
-                      options={{
-                        hidePostalCode: false,
-                        style: {
-                          base: {
-                            fontSize: '16px',
-                            fontFamily: 'system-ui, -apple-system, sans-serif',
-                            color: isDarkTheme ? '#ffffff' : '#1e293b',
-                            backgroundColor: 'transparent',
-                            iconColor: '#7DB00E',
-                            '::placeholder': {
-                              color: isDarkTheme ? '#64748b' : '#94a3b8',
-                            },
-                          },
-                          invalid: {
-                            color: '#ef4444',
-                            iconColor: '#ef4444',
-                          },
-                          complete: {
-                            color: '#22c55e',
-                            iconColor: '#22c55e',
-                          },
+                  {/* Split card fields — explicit layout so CVC is always visible on mobile */}
+                  <div className="space-y-2 mb-4">
+                    {(() => {
+                      const stripeStyle = {
+                        base: {
+                          fontSize: '16px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif',
+                          color: isDarkTheme ? '#ffffff' : '#1e293b',
+                          backgroundColor: 'transparent',
+                          iconColor: '#7DB00E',
+                          '::placeholder': { color: isDarkTheme ? '#64748b' : '#94a3b8' },
                         },
-                      }}
-                    />
+                        invalid: { color: '#ef4444', iconColor: '#ef4444' },
+                        complete: { color: '#22c55e', iconColor: '#22c55e' },
+                      };
+                      const fieldCls = `border rounded-lg px-3 py-3 ${isDarkTheme ? 'border-white/20 bg-slate-800' : 'border-slate-200 bg-white'}`;
+                      return (
+                        <>
+                          <div>
+                            <label className={`text-[11px] font-medium uppercase tracking-wide mb-1 block ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Card number</label>
+                            <div className={fieldCls}>
+                              <CardNumberElement options={{ style: stripeStyle, showIcon: true }} />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className={`text-[11px] font-medium uppercase tracking-wide mb-1 block ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Expiry</label>
+                              <div className={fieldCls}>
+                                <CardExpiryElement options={{ style: stripeStyle }} />
+                              </div>
+                            </div>
+                            <div>
+                              <label className={`text-[11px] font-medium uppercase tracking-wide mb-1 block ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>CVC</label>
+                              <div className={fieldCls}>
+                                <CardCvcElement options={{ style: stripeStyle }} />
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {paymentError && (
@@ -2742,13 +2777,22 @@ export function UnifiedQuoteCard({
                   )}
 
                   {/* Phase 30 — reaffirm the amount right before paying. */}
-                  <div className={`flex items-center justify-between gap-2 mb-3 pt-3 border-t text-sm ${isDarkTheme ? 'border-white/10 text-slate-300' : 'border-slate-200 text-slate-600'}`}>
-                    <span>Total <span className={`font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>£{Math.round(total / 100)}</span></span>
-                    <span className="text-[12px] text-right">
-                      {payFull
-                        ? `Pay £${Math.round(payFullTotal / 100)} now`
-                        : `Pay £${Math.round(depositAmount / 100)} today · £${Math.round(balanceOnCompletion / 100)} on completion`}
-                    </span>
+                  <div className={`flex items-center justify-between gap-2 mb-3 pt-3 border-t ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
+                    <div>
+                      <p className={`text-xs uppercase tracking-wide ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Total</p>
+                      <p className={`text-lg font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>£{Math.round(total / 100)}</p>
+                    </div>
+                    {payFull ? (
+                      <div className="text-right">
+                        <p className={`text-base font-bold ${isDarkTheme ? 'text-[#7DB00E]' : 'text-[#5a8a0a]'}`}>£{Math.round(payFullTotal / 100)} now</p>
+                        <p className={`text-[11px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>full payment · save 3%</p>
+                      </div>
+                    ) : (
+                      <div className="text-right">
+                        <p className={`text-base font-bold ${isDarkTheme ? 'text-[#7DB00E]' : 'text-[#5a8a0a]'}`}>£{Math.round(depositAmount / 100)} today</p>
+                        <p className={`text-[11px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>£{Math.round(balanceOnCompletion / 100)} on completion</p>
+                      </div>
+                    )}
                   </div>
 
                   <Button
