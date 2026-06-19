@@ -1,9 +1,10 @@
 import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Loader2, AlertTriangle, CheckCircle2, UserCheck, Inbox,
   ArrowRight, UserPlus, MapPin, Send, Copy, Clock, PauseCircle,
+  Lock, Minus, Plus, RotateCcw,
 } from "lucide-react";
 import { SLA_DUE_SOON_DAYS } from "@shared/dispatch-sla";
 import { Card, CardContent } from "@/components/ui/card";
@@ -139,6 +140,41 @@ async function abandonSlotOffer(quoteId: string): Promise<{ ok: true }> {
   return res.json();
 }
 
+// One editable schedule line on a quote — its description plus the minutes the optimiser
+// budgets for it. The job's total on-site time is just the Σ of these (read-only badge).
+interface QuoteLine {
+  lineId: string;
+  description: string;
+  category?: string | null;
+  scheduleMinutes: number;
+}
+
+// Fetch the per-line schedule breakdown for a quote (description + editable minutes per line).
+async function fetchQuoteLines(quoteId: string): Promise<QuoteLine[]> {
+  const token = localStorage.getItem("adminToken");
+  const res = await fetch(`/api/admin/daily-planner/quote/${quoteId}/lines`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+  const j = await res.json();
+  return j.lines ?? [];
+}
+
+// Override ONE line's on-site TIME (decoupled from the locked price). Re-flows the job's
+// Σ workMinutes + daysNeeded into the next preview; returns the new job total.
+async function setLineMinutes(
+  quoteId: string, lineId: string, scheduleMinutes: number,
+): Promise<{ ok: true; totalWorkMinutes: number }> {
+  const token = localStorage.getItem("adminToken");
+  const res = await fetch(`/api/admin/daily-planner/quote/${quoteId}/line/${lineId}/minutes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ scheduleMinutes }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+  return res.json();
+}
+
 function formatPence(pence: number): string {
   return `£${(pence / 100).toFixed(0)}`;
 }
@@ -220,14 +256,110 @@ function fireSignal(group: ProposalGroup): { hold: boolean; reason: string } {
   return { hold: false, reason: totalMin >= DAY_NEARLY_FULL_MIN ? "full day" : "dense & on track" };
 }
 
+const WORK_STEP_MIN = 15; // stepper granularity (¼ hour)
+const WORK_MIN_FLOOR = 15; // never below 15 min of on-site time
+
+/**
+ * Editable on-site TIME control — a compact −/+ stepper (step 15 min, min 15) used per
+ * schedule line. Committing persists that line's minutes and re-optimises the job
+ * (daysNeeded/grouping) without touching the locked price. Shows a subtle "edited" state
+ * when the draft differs from the line's last-saved minutes, with a one-tap reset back to it.
+ *
+ * Local state is seeded from the `minutes` prop and re-syncs whenever it changes (the
+ * line refetch / 45s preview refetch) while no commit is in flight, so background updates
+ * flow in without clobbering an in-progress edit; the POST is debounced so rapid clicks fire once.
+ */
+function WorkMinutesStepper({
+  minutes, originalMinutes, onEdit,
+}: {
+  minutes: number;
+  originalMinutes: number;
+  onEdit: (minutes: number) => void;
+}) {
+  const [draft, setDraft] = useState(minutes);
+  // Re-sync to the server value when it changes (re-optimise / refetch) and no commit is in flight.
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (timer.current == null) setDraft(minutes);
+  }, [minutes]);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+  const commit = (next: number) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      onEdit(next);
+    }, 350);
+  };
+  const bump = (deltaMin: number) => {
+    const next = Math.max(WORK_MIN_FLOOR, draft + deltaMin);
+    if (next === draft) return;
+    setDraft(next);
+    commit(next);
+  };
+  const reset = () => {
+    if (draft === originalMinutes) return;
+    setDraft(originalMinutes);
+    commit(originalMinutes);
+  };
+  const isEdited = draft !== originalMinutes;
+
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-md border px-0.5 py-0.5",
+        isEdited ? "border-sky-400 bg-sky-50 dark:bg-sky-950/40" : "border-border bg-muted",
+      )}
+      title="Edit on-site time — re-optimises the schedule (price stays locked)"
+    >
+      <button
+        type="button"
+        aria-label="Reduce on-site time 15 min"
+        className="grid h-5 w-5 place-items-center rounded text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-30"
+        disabled={draft <= WORK_MIN_FLOOR}
+        onClick={(e) => { e.stopPropagation(); bump(-WORK_STEP_MIN); }}
+      >
+        <Minus className="h-3 w-3" />
+      </button>
+      <span className={cn("min-w-[2.75rem] text-center text-[11px] font-semibold tabular-nums", isEdited && "text-sky-700 dark:text-sky-300")}>
+        {formatHours(draft)}
+      </span>
+      <button
+        type="button"
+        aria-label="Add on-site time 15 min"
+        className="grid h-5 w-5 place-items-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
+        onClick={(e) => { e.stopPropagation(); bump(WORK_STEP_MIN); }}
+      >
+        <Plus className="h-3 w-3" />
+      </button>
+      {isEdited && (
+        <button
+          type="button"
+          aria-label="Reset on-site time to saved value"
+          title="Reset to saved value"
+          className="grid h-5 w-5 place-items-center rounded text-sky-600 hover:bg-background dark:text-sky-300"
+          onClick={(e) => { e.stopPropagation(); reset(); }}
+        >
+          <RotateCcw className="h-3 w-3" />
+        </button>
+      )}
+    </span>
+  );
+}
+
 /**
  * One job's facts — customer, optional slot, price, address, categories, full
  * description, and any uncovered-category flag. Shared by the bundle modal (one per
  * member) and the unassigned-job modal (single), so the two render identically.
+ *
+ * When `editable && quoteId`, it also fetches the job's schedule LINES and renders a
+ * per-line on-site-time editor (one stepper per line). Editing a line persists that
+ * line's minutes and re-optimises the whole preview; the aggregate ≈Xh badge stays
+ * read-only (it's the Σ, which re-flows from the optimiser after the re-optimise).
  */
 function JobFacts({
   customerName, slot, valuePence, address, postcode, categories, jobDescription, uncoveredCategories,
-  slackDays, deadline, workMinutes, daysNeeded,
+  slackDays, deadline, workMinutes, daysNeeded, quoteId, editable = false,
 }: {
   customerName: string;
   slot?: string;
@@ -241,25 +373,68 @@ function JobFacts({
   deadline?: string | null;
   workMinutes?: number | null;
   daysNeeded?: number | null;
+  quoteId?: string;
+  // When true (and quoteId is set) the job's schedule lines become individually editable.
+  editable?: boolean;
 }) {
   const cats = [...new Set(categories)].map(prettyCat).join(", ");
   const uncovered = uncoveredCategories ?? [];
-  const multiDay = typeof daysNeeded === "number" && daysNeeded > 1;
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  // Per-line schedule breakdown — only fetched in the editable (bundle-modal) usage.
+  const canEditLines = editable && !!quoteId;
+  const { data: lines = [], isLoading: linesLoading } = useQuery({
+    queryKey: ["job-lines", quoteId],
+    queryFn: () => fetchQuoteLines(quoteId!),
+    enabled: canEditLines,
+    refetchOnWindowFocus: false,
+  });
+
+  // Persist ONE line's minutes, then re-optimise (workMinutes/daysNeeded/grouping reflow)
+  // and refresh this job's lines so the stepper re-syncs to the saved value.
+  const editLineMutation = useMutation({
+    mutationFn: ({ lineId, scheduleMinutes }: { lineId: string; scheduleMinutes: number }) =>
+      setLineMinutes(quoteId!, lineId, scheduleMinutes),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dispatch-preview"] });
+      queryClient.invalidateQueries({ queryKey: ["job-lines", quoteId] });
+    },
+    onError: (err: Error) => toast({ title: "Couldn't update time", description: err.message, variant: "destructive" }),
+  });
+
+  // Total + days reflect the LIVE per-line sum once lines load, so a line edit updates the
+  // badge and the "~N days" flag (after its save) — not the stale proposal value. Falls back
+  // to the proposal's workMinutes/daysNeeded when lines aren't loaded (non-editable usage).
+  const liveTotalMin = canEditLines && lines.length > 0
+    ? lines.reduce((s, l) => s + (Number(l.scheduleMinutes) || 0), 0)
+    : null;
+  const effWorkMinutes = liveTotalMin ?? workMinutes;
+  const effDaysNeeded = liveTotalMin != null ? Math.max(1, Math.round(liveTotalMin / 480)) : daysNeeded;
+  const multiDay = typeof effDaysNeeded === "number" && effDaysNeeded > 1;
+
   return (
     <div className="rounded-md border border-border p-3">
       <div className="flex items-baseline justify-between gap-2">
         <span className="truncate text-sm font-semibold">{customerName}</span>
         <div className="flex items-center gap-2 whitespace-nowrap">
-          {typeof workMinutes === "number" && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{formatHours(workMinutes)}</span>}
+          {typeof effWorkMinutes === "number" && (
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{formatHours(effWorkMinutes)}</span>
+          )}
           {slot && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">{slot}</span>}
-          {valuePence != null && <span className="text-sm font-semibold">{formatPence(valuePence)}</span>}
+          {valuePence != null && (
+            <span className="inline-flex items-center gap-1 text-sm font-semibold" title="Price locked — accepted, deposit-paid quote">
+              <Lock className="h-3 w-3 text-muted-foreground" />
+              {formatPence(valuePence)}
+            </span>
+          )}
         </div>
       </div>
       {/* Multi-day jobs can't fit one contractor-day — flag, don't pretend. */}
       {multiDay && (
         <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-950/60 dark:text-red-300">
           <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
-          ~{daysNeeded} days — schedule separately
+          ~{effDaysNeeded} days — schedule separately
         </div>
       )}
       {/* How long before the 7-day promise — the window to give a date + book. */}
@@ -279,6 +454,40 @@ function JobFacts({
       {cats && <p className="mt-1.5 text-[11px] font-medium text-muted-foreground">{cats}</p>}
       {jobDescription && (
         <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-foreground/90">{jobDescription}</p>
+      )}
+      {/* Per-line on-site-time editor — each line gets its own stepper; the job total
+          above is the read-only Σ that re-flows after a line edit re-optimises. */}
+      {canEditLines && (
+        <div className="mt-2.5 space-y-1 border-t border-border pt-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">On-site time per line</p>
+            {editLineMutation.isPending && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-sky-600">
+                <Loader2 className="h-2.5 w-2.5 animate-spin" /> Re-optimising…
+              </span>
+            )}
+          </div>
+          {linesLoading ? (
+            <div className="flex items-center gap-1.5 py-1 text-[11px] text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> Loading lines…
+            </div>
+          ) : lines.length === 0 ? (
+            <p className="py-0.5 text-[11px] text-muted-foreground">No schedule lines.</p>
+          ) : (
+            lines.map((line) => (
+              <div key={line.lineId} className="flex items-center justify-between gap-2">
+                <span className="min-w-0 flex-1 truncate text-xs text-foreground/90" title={line.description}>
+                  {line.description}
+                </span>
+                <WorkMinutesStepper
+                  minutes={line.scheduleMinutes}
+                  originalMinutes={line.scheduleMinutes}
+                  onEdit={(scheduleMinutes) => editLineMutation.mutate({ lineId: line.lineId, scheduleMinutes })}
+                />
+              </div>
+            ))
+          )}
+        </div>
       )}
       {uncovered.length > 0 && (
         <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
@@ -378,6 +587,8 @@ function JobDetailModal({
                     deadline={m.flexDeadline}
                     workMinutes={m.workMinutes}
                     daysNeeded={m.daysNeeded}
+                    quoteId={m.quoteId}
+                    editable
                   />
                 ))}
               </div>
@@ -448,6 +659,8 @@ function UnassignedJobModal({
               postcode={job.postcode}
               categories={job.categories}
               jobDescription={job.jobDescription}
+              quoteId={job.quoteId}
+              editable
             />
 
             <DialogFooter className="gap-2 sm:gap-2">
@@ -590,6 +803,13 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
   const [detailGroup, setDetailGroup] = useState<ProposalGroup | null>(null);
   // The unassigned job whose detail modal is open (needs-assigning card click), or null.
   const [detailJob, setDetailJob] = useState<Unassignable | null>(null);
+
+  // Re-derive the open bundle from the LIVE preview each render (by groupId), so the modal —
+  // margin, revenue, days, members — reflects re-optimisation (e.g. after a per-line time
+  // edit). Falls back to the captured group if the optimiser re-bundled it away (no blank).
+  const liveDetailGroup = detailGroup
+    ? (groups.find((g) => g.groupId === detailGroup.groupId) ?? detailGroup)
+    : null;
 
   // Send date options to every customer in a bundle. Each member is a separate customer,
   // so we POST one offer per member (its own slot, the bundle's contractor as the recommended
@@ -969,7 +1189,7 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
       </div>
 
       <JobDetailModal
-        group={detailGroup}
+        group={liveDetailGroup}
         onClose={() => setDetailGroup(null)}
         onSend={sendOptions}
         isSending={sendOffersMutation.isPending && pendingGroupId === detailGroup?.groupId}

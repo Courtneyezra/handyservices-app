@@ -605,6 +605,51 @@ router.get('/pool', async (_req: Request, res: Response) => {
   }
 });
 
+// ─── Dispatcher edits a job's per-LINE on-site time (price locked; time decoupled) ───
+// GET  /quote/:quoteId/lines                 → line items {lineId, description, category, scheduleMinutes}
+// POST /quote/:quoteId/line/:lineId/minutes  { scheduleMinutes } → set ONE line's minutes
+// Editing a line re-flows the job's Σ workMinutes + daysNeeded on the next preview/sweep.
+
+router.get('/quote/:quoteId/lines', async (req: Request, res: Response) => {
+  try {
+    const [q] = await db.select({ lines: personalizedQuotes.pricingLineItems })
+      .from(personalizedQuotes).where(eq(personalizedQuotes.id, req.params.quoteId)).limit(1);
+    if (!q) return res.status(404).json({ error: 'Quote not found' });
+    const lines = ((q.lines as any[]) || []).map((li) => ({
+      lineId: li.lineId, description: li.description, category: li.category,
+      scheduleMinutes: Number(li.scheduleMinutes ?? li.timeEstimateMinutes ?? 60) || 60,
+    }));
+    return res.json({ lines });
+  } catch (err: any) {
+    console.error('[lines] error:', err?.message || err);
+    return res.status(500).json({ error: err?.message || 'Failed to load lines' });
+  }
+});
+
+router.post('/quote/:quoteId/line/:lineId/minutes', async (req: Request, res: Response) => {
+  try {
+    const { quoteId, lineId } = req.params;
+    const { scheduleMinutes } = req.body as { scheduleMinutes: number };
+    if (!Number.isFinite(scheduleMinutes) || scheduleMinutes <= 0) {
+      return res.status(400).json({ error: 'scheduleMinutes must be a positive number' });
+    }
+    const mins = Math.round(scheduleMinutes);
+    const [q] = await db.select({ lines: personalizedQuotes.pricingLineItems })
+      .from(personalizedQuotes).where(eq(personalizedQuotes.id, quoteId)).limit(1);
+    if (!q) return res.status(404).json({ error: 'Quote not found' });
+    let found = false;
+    const next = ((q.lines as any[]) || []).map((li) =>
+      li.lineId === lineId ? ((found = true), { ...li, scheduleMinutes: mins, timeEstimateMinutes: mins }) : li);
+    if (!found) return res.status(404).json({ error: 'Line not found' });
+    await db.update(personalizedQuotes).set({ pricingLineItems: next }).where(eq(personalizedQuotes.id, quoteId));
+    const total = next.reduce((s, li) => s + (Number(li.scheduleMinutes ?? li.timeEstimateMinutes ?? 60) || 0), 0);
+    return res.json({ ok: true, lineId, scheduleMinutes: mins, totalWorkMinutes: total });
+  } catch (err: any) {
+    console.error('[line-minutes] error:', err?.message || err);
+    return res.status(500).json({ error: err?.message || 'Failed to set line minutes' });
+  }
+});
+
 // ─── POST /confirm-dispatch — Pick date, assign contractor, notify customer ───
 
 router.post('/confirm-dispatch', async (req: Request, res: Response) => {

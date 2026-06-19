@@ -381,6 +381,8 @@ export async function loadDispatchPool(today: Date, limit = 50, testOnly = false
     const jLng = coords?.lng != null && Number.isFinite(Number(coords.lng)) ? Number(coords.lng) : null;
     // Real on-site work time: sum each line's scheduleMinutes (canonical capacity field) →
     // timeEstimateMinutes → a per-line default. This is what the optimiser packs a day with.
+    // Job on-site time = Σ each line's scheduleMinutes (the canonical, per-line editable
+    // capacity field). Editing a line's minutes at dispatch re-flows this on the next sweep.
     const workMinutes = lineItems.reduce(
       (s, li) => s + (Number(li.scheduleMinutes ?? li.timeEstimateMinutes ?? DEFAULT_LINE_MINUTES) || 0), 0,
     ) || DEFAULT_JOB_MINUTES;
