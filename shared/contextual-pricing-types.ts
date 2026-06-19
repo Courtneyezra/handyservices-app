@@ -14,6 +14,8 @@
  * use LeadSegment from schema.ts when constructing PricingContext.
  */
 
+import type { ServiceCatalogRow } from './schema';
+
 // ---------------------------------------------------------------------------
 // Job Categories
 // ---------------------------------------------------------------------------
@@ -320,6 +322,32 @@ export interface JobLine {
    * otherwise 'custom'.
    */
   source?: 'sku' | 'custom';
+  /**
+   * Track B — advisory auto-match from the keyword SKU matcher (later + Claude).
+   * Surfaced at the admin verify step so a human can ACCEPT it (which sets
+   * `skuCode`/`source:'sku'`) or override. Pricing never reads the suggestion —
+   * only the confirmed `skuCode` — so an unconfirmed suggestion can't change a price.
+   */
+  suggestedSkuCode?: string;
+  suggestedSkuName?: string;
+  suggestedSkuConfidence?: 'high' | 'medium' | 'low';
+  /**
+   * Track B — the full catalog row backing the suggestion, resolved server-side
+   * so the admin verify UI can ACCEPT it (build a priced SKU line) without a
+   * second fetch. Shape matches `service_catalog`. Advisory only — present iff
+   * the suggested SKU resolved; pricing never reads it.
+   */
+  suggestedSku?: ServiceCatalogRow;
+  /**
+   * Two-rail split — explicit per-line overrides that WIN over the source default
+   * (SKU catalog value, fixed tier, or reference-rate derivation). The rails stay
+   * independent: a price override never moves the dispatch time, and a time override
+   * never moves the price. This lets a matched SKU be a smart DEFAULT you can nudge
+   * per-job (premium fitting → +price; awkward access → +time), and gives custom
+   * lines a real price instead of one derived from the time.
+   */
+  priceOverridePence?: number;
+  timeOverrideMinutes?: number;
 }
 
 /**

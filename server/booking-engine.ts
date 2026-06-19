@@ -689,3 +689,214 @@ export async function confirmBooking(params: {
         };
     }
 }
+
+// ============================================================================
+// ASSIGN FROM POOL — called by the Dispatch Board's auto-assign sweep.
+//
+// Flexible ("I'm flexible") pool jobs have NO slot lock (the customer never
+// picked a date), so this mirrors confirmBooking's write path — conflict check
+// + contractorBookingRequests insert + jobSheet + quote update — but WITHOUT
+// any lock to verify or delete. The (date, slot) come straight from the sweep
+// proposal, which already reserved them in-memory across the batch.
+// ============================================================================
+
+export async function assignFromPool(params: {
+    quoteId: string;
+    contractorId: string;
+    date: string;          // YYYY-MM-DD
+    slot: 'am' | 'pm';
+}): Promise<{
+    success: boolean;
+    bookingId?: string;
+    error?: string;
+}> {
+    const { quoteId, contractorId, date, slot } = params;
+
+    // Parse the YYYY-MM-DD into a UTC midnight Date (matches how the sweep and
+    // availability/booking dates are stored — date-only, no local-tz drift).
+    const scheduledDate = new Date(`${date}T00:00:00.000Z`);
+    if (isNaN(scheduledDate.getTime())) {
+        return { success: false, error: `Invalid date: ${date}` };
+    }
+
+    try {
+        const result = await db.transaction(async (tx) => {
+            const contractorIdStr = String(contractorId);
+            const conflictingSlots = getConflictingSlots(slot as SlotType);
+
+            // a. Conflict check. Fetch accepted bookings by a date RANGE (tolerant of
+            // non-midnight stored timestamps) over a lookback window so multi-day
+            // bookings that START earlier but SPAN onto the target day are also caught
+            // (mirrors confirmBooking's span semantics; an exact-equality match missed both).
+            const nextDay = new Date(scheduledDate); nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+            const lookback = new Date(scheduledDate); lookback.setUTCDate(lookback.getUTCDate() - 14);
+            const existingBookings = await tx.select({
+                scheduledSlot: contractorBookingRequests.scheduledSlot,
+                scheduledDate: contractorBookingRequests.scheduledDate,
+                durationDays: contractorBookingRequests.durationDays,
+            })
+                .from(contractorBookingRequests)
+                .where(and(
+                    or(
+                        eq(contractorBookingRequests.contractorId, contractorIdStr),
+                        eq(contractorBookingRequests.assignedContractorId, contractorIdStr),
+                    ),
+                    eq(contractorBookingRequests.status, 'accepted'),
+                    gte(contractorBookingRequests.scheduledDate, lookback),
+                    lt(contractorBookingRequests.scheduledDate, nextDay),
+                ));
+            const targetMs = scheduledDate.getTime();
+            const hasConflict = existingBookings.some((b) => {
+                if (!b.scheduledDate) return false;
+                const start = new Date(b.scheduledDate); start.setUTCHours(0, 0, 0, 0);
+                const span = b.durationDays ?? 1;
+                const coversTarget = targetMs >= start.getTime() && targetMs <= start.getTime() + (span - 1) * 86_400_000;
+                if (!coversTarget) return false;
+                // A multi-day booking occupies the whole target day; otherwise check slot overlap.
+                return span > 1 || (!!b.scheduledSlot && conflictingSlots.includes(b.scheduledSlot as SlotType));
+            });
+            if (hasConflict) {
+                return { success: false, error: `Contractor already has an accepted booking covering ${date} ${slot.toUpperCase()}` };
+            }
+
+            // b. Fetch the quote for the booking payload.
+            const [quote] = await tx.select()
+                .from(personalizedQuotes)
+                .where(eq(personalizedQuotes.id, quoteId))
+                .limit(1);
+
+            if (!quote) {
+                return { success: false, error: 'Quote not found' };
+            }
+            if (quote.bookedAt) {
+                return { success: false, error: 'Quote is already booked' };
+            }
+
+            // c. Create the contractorBookingRequests record (auto-accept model).
+            const bookingId = uuidv4();
+            await tx.insert(contractorBookingRequests)
+                .values({
+                    id: bookingId,
+                    contractorId: contractorIdStr,
+                    assignedContractorId: contractorIdStr,
+                    customerName: quote.customerName,
+                    customerEmail: quote.email || undefined,
+                    customerPhone: quote.phone,
+                    quoteId: quoteId,
+                    requestedDate: scheduledDate,
+                    requestedSlot: slot,
+                    description: quote.jobDescription || '',
+                    status: 'accepted',
+                    scheduledDate: scheduledDate,
+                    scheduledSlot: slot,
+                    durationDays: 1,
+                    assignmentStatus: 'accepted',
+                    assignedAt: new Date(),
+                    acceptedAt: new Date(),
+                })
+                .returning();
+
+            // d. Generate the job sheet from the quote line items (mirrors confirmBooking).
+            const lineItems = (quote.pricingLineItems as any[]) || [];
+            const jobSheetLineItems = lineItems.map((item: any) => ({
+                description: item.description || item.label || 'Task',
+                categorySlug: item.categorySlug || item.category || null,
+                estimatedMinutes: item.estimatedMinutes || item.durationMins || null,
+                pricePence: item.pricePence || item.customerPricePence || 0,
+                contractorRatePence: item.contractorRatePence || 0,
+                materialsRequired: item.materialsRequired || [],
+                status: 'pending',
+            }));
+
+            await tx.insert(jobSheets)
+                .values({
+                    jobId: bookingId,
+                    quoteId: quoteId,
+                    lineItems: jobSheetLineItems as any,
+                    accessInstructions: (quote as any).customerAccessNotes || null,
+                    generatedAt: new Date(),
+                })
+                .returning();
+
+            // e. Update the quote with the booking details.
+            await tx.update(personalizedQuotes)
+                .set({
+                    bookedAt: new Date(),
+                    contractorId: contractorIdStr,
+                    bookingLockedAt: new Date(),
+                    selectedDate: scheduledDate,
+                    timeSlotType: slot,
+                })
+                .where(eq(personalizedQuotes.id, quoteId));
+
+            console.log(`[BookingEngine] Pool assignment booked: quote=${quoteId}, contractor=${contractorIdStr}, date=${date} ${slot}`);
+
+            return {
+                success: true,
+                bookingId,
+                _broadcastData: {
+                    quoteSlug: quote.shortSlug,
+                    customerName: quote.customerName,
+                    leadId: quote.leadId,
+                    scheduledDate: date,
+                    scheduledSlot: slot,
+                    contractorIdStr,
+                },
+            };
+        });
+
+        // CRM broadcast after commit so open admin dashboards + the activity feed reflect
+        // the booking live (mirrors confirmBooking). Best-effort — never undoes the booking.
+        // NOTE: customer/contractor WhatsApp/email notifications are NOT sent here.
+        if (result.success && (result as any)._broadcastData) {
+            try {
+                const b = (result as any)._broadcastData;
+                let contractorName: string | undefined;
+                try {
+                    const [profile] = await db
+                        .select({ firstName: users.firstName, lastName: users.lastName })
+                        .from(handymanProfiles)
+                        .innerJoin(users, eq(handymanProfiles.userId, users.id))
+                        .where(eq(handymanProfiles.id, b.contractorIdStr))
+                        .limit(1);
+                    if (profile) contractorName = [profile.firstName, profile.lastName].filter(Boolean).join(' ') || undefined;
+                } catch { /* non-critical */ }
+                const { broadcastBookingConfirmed, broadcastPipelineActivity } = await import('./pipeline-events');
+                broadcastBookingConfirmed({
+                    quoteId,
+                    quoteSlug: b.quoteSlug || undefined,
+                    customerName: b.customerName,
+                    contractorId: b.contractorIdStr,
+                    contractorName,
+                    scheduledDate: b.scheduledDate,
+                    scheduledSlot: b.scheduledSlot,
+                    jobSheetId: (result as any).bookingId,
+                    leadId: b.leadId,
+                });
+                const slotLabel = b.scheduledSlot === 'am' ? 'morning' : b.scheduledSlot === 'pm' ? 'afternoon' : 'all day';
+                broadcastPipelineActivity({
+                    type: 'booking_confirmed',
+                    leadId: b.leadId,
+                    customerName: b.customerName,
+                    summary: `Auto-assigned: ${contractorName || 'Contractor'} → ${b.customerName}, ${b.scheduledDate} ${slotLabel}`,
+                    icon: 'calendar-check',
+                    data: {
+                        quoteId, quoteSlug: b.quoteSlug, contractorId: b.contractorIdStr,
+                        contractorName, scheduledDate: b.scheduledDate, scheduledSlot: b.scheduledSlot,
+                        jobSheetId: (result as any).bookingId,
+                    },
+                });
+            } catch (broadcastErr) {
+                console.error('[BookingEngine] assignFromPool broadcast failed:', broadcastErr);
+            }
+        }
+
+        return { success: result.success, bookingId: (result as any).bookingId, error: (result as any).error };
+    } catch (error: any) {
+        console.error('[BookingEngine] assignFromPool error:', error);
+        return {
+            success: false,
+            error: error.message || 'Failed to assign from pool',
+        };
+    }
+}

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "./db";
-import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, segmentEnum, invoices, invoiceTokens, contractorJobs, contentClaims, contentGuarantees, contentTestimonials, contentHassleItems, contentImages, jobDispatches, dispatchBonds, users } from "@shared/schema";
+import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, serviceCatalog, segmentEnum, invoices, invoiceTokens, contractorJobs, contentClaims, contentGuarantees, contentTestimonials, contentHassleItems, contentImages, jobDispatches, dispatchBonds, users } from "@shared/schema";
 import { eq, desc, inArray, or } from "drizzle-orm";
 import crypto from 'crypto';
 import { z } from "zod";
@@ -941,6 +941,60 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
         const quoteSegment = quote.segment || ((quote as any).leadClassification as any)?.segment || 'UNKNOWN';
         const segmentConfig = getSegmentTierConfig(quoteSegment);
 
+        // Resolve post-commitment upsell SKUs from the primary line item's upsell list
+        let upsellSkus: Array<{ skuCode: string; name: string; pricePence: number; customerDescription: string; shape: string }> = [];
+        try {
+            const lineItems = (quote.pricingLineItems as any[]) || [];
+            const primarySkuCodes = lineItems
+                .filter((l: any) => l.source === 'sku' && l.skuCode)
+                .map((l: any) => l.skuCode as string)
+                .slice(0, 3);
+
+            if (primarySkuCodes.length > 0) {
+                const primaryRows = await db
+                    .select({ skuCode: serviceCatalog.skuCode, upsellSkuCodes: serviceCatalog.upsellSkuCodes })
+                    .from(serviceCatalog)
+                    .where(inArray(serviceCatalog.skuCode, primarySkuCodes));
+
+                const upsellCodes = primaryRows
+                    .flatMap((r: any) => (r.upsellSkuCodes as string[] | null) ?? [])
+                    .filter((c: string) => !primarySkuCodes.includes(c));
+                const unique = [...new Set(upsellCodes)].slice(0, 3);
+
+                if (unique.length > 0) {
+                    const upsellRows = await db
+                        .select({
+                            skuCode: serviceCatalog.skuCode,
+                            name: serviceCatalog.name,
+                            shape: serviceCatalog.shape,
+                            pricePence: serviceCatalog.pricePence,
+                            pricePerUnitPence: serviceCatalog.pricePerUnitPence,
+                            tiers: serviceCatalog.tiers,
+                            customerDescription: serviceCatalog.customerDescription,
+                        })
+                        .from(serviceCatalog)
+                        .where(inArray(serviceCatalog.skuCode, unique));
+
+                    upsellSkus = upsellRows.map((r: any) => {
+                        let displayPence = 0;
+                        if (r.shape === 'fixed') displayPence = r.pricePence ?? 0;
+                        else if (r.shape === 'per_unit') displayPence = r.pricePerUnitPence ?? 0;
+                        else if (r.shape === 'tiered' && r.tiers?.length) displayPence = r.tiers[0].pricePence ?? 0;
+                        return {
+                            skuCode: r.skuCode,
+                            name: r.name,
+                            shape: r.shape,
+                            pricePence: displayPence,
+                            customerDescription: r.customerDescription,
+                        };
+                    }).sort((a, b) => a.pricePence - b.pricePence);
+                }
+            }
+        } catch (upsellErr) {
+            // Non-blocking — upsell enrichment failure must never break the quote page
+            console.warn('[Quote] Upsell lookup failed:', upsellErr);
+        }
+
         res.json({
             ...quote,
             segment: quoteSegment, // Use the direct field from database (B3.4)
@@ -968,6 +1022,7 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
                 matchCount: matchingContractors.length
             },
             selectedContent,
+            upsellSkus,
         });
 
     } catch (error) {

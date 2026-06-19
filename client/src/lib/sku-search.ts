@@ -69,18 +69,33 @@ const FIELD_WEIGHTS: Array<[keyof CatalogSku, number]> = [
 
 const RELEVANCE_FLOOR = 5;
 
+// Curated keyword phrases are high-signal — they're the enriched match data the catalog
+// rebuild added (the wording SKU names lack). Weighted just under the name.
+const KEYWORD_WEIGHT = 8;
+
 export function searchSkus(catalog: CatalogSku[], query: string, limit = 8): CatalogSku[] {
   const tokens = tokenize(query);
   if (tokens.length === 0) return [];
+  const ql = query.toLowerCase();
   const scored: Array<{ sku: CatalogSku; score: number }> = [];
   for (const sku of catalog) {
     if (!sku.isActive) continue;
+    // Negative-keyword guard: a curated negative phrase present in the full query means
+    // this SKU is wrong (e.g. "bath tap" must not surface the kitchen TAP-KIT SKU).
+    if (sku.negativeKeywords?.some((n) => n && ql.includes(n.toLowerCase()))) continue;
     let total = 0, matched = 0;
     for (const tok of tokens) {
       let best = 0;
       for (const [field, w] of FIELD_WEIGHTS) {
         const text = sku[field];
         if (typeof text === 'string' && text) best = Math.max(best, fieldScore(text, tok) * w);
+      }
+      // Curated keywords — phrases the SKU name often lacks ("brick wall", "waste and
+      // rubbish"). This is the enrichment that lifted catalog coverage 3% → 83%.
+      if (sku.keywords) {
+        for (const kw of sku.keywords) {
+          if (kw) best = Math.max(best, fieldScore(kw, tok) * KEYWORD_WEIGHT);
+        }
       }
       if (best > 0) matched++;
       total += best;

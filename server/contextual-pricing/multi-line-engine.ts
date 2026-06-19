@@ -463,6 +463,30 @@ export async function generateMultiLinePrice(
     };
   });
 
+  // ── Per-line manual overrides — the two-rail split for EVERY line ───────────
+  // A line may carry an explicit price and/or time that WIN over the source default
+  // (SKU catalog value, fixed tier, or reference-rate derivation). Applied uniformly
+  // here so all three pricing paths get it. The rails stay independent: a price
+  // override never moves the dispatch time, and a time override never moves the price.
+  // Margin preview downstream recomputes from these finals, so a loss-making override
+  // is still surfaced to the quoter.
+  const lineSrcById = new Map(request.lines.map((l) => [l.id, l as any]));
+  for (const li of lineItems) {
+    const src = lineSrcById.get(li.lineId);
+    if (!src) continue;
+    if (typeof src.priceOverridePence === 'number' && src.priceOverridePence >= 0) {
+      li.guardedPricePence = roundToWholePounds(src.priceOverridePence);
+      li.llmSuggestedPricePence = li.guardedPricePence;
+      allGuardrailAdjustments.push(`[${li.lineId}] manual price override → ${formatPence(li.guardedPricePence)}`);
+    }
+    if (typeof src.timeOverrideMinutes === 'number' && src.timeOverrideMinutes > 0) {
+      const mins = Math.round(src.timeOverrideMinutes);
+      li.timeEstimateMinutes = mins;
+      (li as any).scheduleMinutes = mins;
+      allGuardrailAdjustments.push(`[${li.lineId}] manual time override → ${mins}min`);
+    }
+  }
+
   // Sum guarded line prices → labour subtotal
   const subtotalPence = lineItems.reduce(
     (sum, li) => sum + li.guardedPricePence,

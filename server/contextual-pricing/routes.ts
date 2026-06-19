@@ -20,6 +20,8 @@ import { generateEVEPricingQuote, EVE_SEGMENT_RATES } from '../eve-pricing-engin
 import { getAllCategories } from './reference-rates';
 import { JobCategoryValues } from '@shared/contextual-pricing-types';
 import { parseJobDescription } from './job-parser';
+import { matchLineToSku } from './sku-matcher';
+import { getSkuByCode } from './sku-resolver';
 import { db } from '../db';
 import { personalizedQuotes, leads, quotePlatformImages, quotePlatformHeadlines, handymanProfiles, handymanSkills, users } from '@shared/schema';
 import { normalizePhoneNumber } from '../phone-utils';
@@ -29,6 +31,7 @@ import { calculateMultiLineCost, checkMargin, calculateCostFromWTBP } from '../m
 import { incrementExtrasPickCount } from '../quote-extras-catalog';
 import { findCandidateContractors } from '../contractor-matcher';
 import { normalizeQuoteImageUrl } from '../quote-image-utils';
+import { geocodePostcode } from '../lib/geocode';
 import type {
   PricingContext,
   PricingComparisonResult,
@@ -148,6 +151,32 @@ router.post('/api/pricing/parse-job', async (req, res) => {
     }
 
     const result = await parseJobDescription(description.trim());
+    // Track B (suggest-and-confirm) — attach an advisory SKU match to each line so the
+    // verify UI can offer it for one-tap accept. Best-effort: never block parsing on it,
+    // and it does NOT set skuCode (pricing is unaffected until a human accepts).
+    await Promise.all(
+      result.lines.map(async (line) => {
+        try {
+          const m = await matchLineToSku({ description: line.description, category: line.category });
+          if (m) {
+            line.suggestedSkuCode = m.skuCode;
+            line.suggestedSkuName = m.name;
+            line.suggestedSkuConfidence = m.confidence;
+            // Also resolve the full catalog row so the verify UI can ACCEPT the
+            // suggestion (flip the line to a priced SKU line) without a second
+            // round-trip. Still advisory — pricing only reads a CONFIRMED
+            // skuCode, never this. Best-effort: if resolution fails the chip
+            // simply won't have a row to accept (the code/name/confidence stay).
+            const row = await getSkuByCode(m.skuCode);
+            if (row) {
+              line.suggestedSku = row;
+            }
+          }
+        } catch {
+          /* advisory only — swallow */
+        }
+      }),
+    );
     return res.json(result);
   } catch (error) {
     console.error('[pricing/parse-job] Error:', error);
@@ -1412,6 +1441,31 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       console.warn('[ContextualQuote] Margin calculation failed (non-blocking):', marginError instanceof Error ? marginError.message : marginError);
     }
 
+    // 6a-geo. Resolve coordinates from postcode when the client didn't supply
+    // them. Jobs need lat/lng to be radius-matched to contractors and plotted
+    // on the map, but most quotes arrive with only a postcode. Best-effort:
+    // geocodePostcode never throws, and we never block/fail quote creation on
+    // a geocode miss. Computed here (before the matcher) so the freshly-resolved
+    // coords feed BOTH the candidate pool below AND the stored row.
+    let resolvedCoordinates: { lat: number; lng: number } | null =
+      input.coordinates ?? null;
+    if (!resolvedCoordinates && input.postcode) {
+      try {
+        const geo = await geocodePostcode(input.postcode);
+        if (geo) {
+          resolvedCoordinates = geo;
+          console.log(
+            `[ContextualQuote] geocoded postcode ${input.postcode} → ${geo.lat}, ${geo.lng}`,
+          );
+        }
+      } catch (geoError) {
+        console.warn(
+          '[ContextualQuote] geocode failed (non-blocking):',
+          geoError instanceof Error ? geoError.message : geoError,
+        );
+      }
+    }
+
     // 6b. Candidate contractor pool (skill + location) — drives the customer's
     // LIVE date picker via /api/public/quote/:id/availability. Same matcher the
     // builder's "who fits" panel uses, so customer dates reflect the right pool.
@@ -1419,8 +1473,8 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
     try {
       const match = await findCandidateContractors({
         categorySlugs: jobCategories as string[],
-        customerLat: input.coordinates?.lat,
-        customerLng: input.coordinates?.lng,
+        customerLat: resolvedCoordinates?.lat,
+        customerLng: resolvedCoordinates?.lng,
       });
       const ids = match.candidates.map((c) => c.contractorId);
       candidateContractorIds = ids.length ? ids : null;
@@ -1438,7 +1492,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       email: input.email || null,
       address: input.address || null,
       postcode: input.postcode || null,
-      coordinates: input.coordinates || null,
+      coordinates: resolvedCoordinates || null,
       candidateContractorIds,
       jobDescription: input.jobDescription || input.lines.map((l) => l.description).join('; '),
       quoteMode: 'simple' as const,

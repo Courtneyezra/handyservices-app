@@ -20,8 +20,201 @@ import {
   type PoolJob,
   type Contractor,
 } from './smart-planner-engine';
+import { buildSchedule, buildFixedLane } from './dispatch-sweep';
+import { runDispatchOptimizer, type DispatchGoal } from './dispatch-optimizer';
+import { readDispatchGoal, writeDispatchGoal } from './dispatch-settings';
+import { assignFromPool } from './booking-engine';
+import { isTestQuoteId } from './dispatch-test-mode';
 
 const router = Router();
+
+/**
+ * GET /api/admin/daily-planner/settings → the persisted DispatchGoal.
+ * PUT /api/admin/daily-planner/settings (body: Partial<DispatchGoal>) →
+ *   merge over the current goal, persist, return the merged DispatchGoal.
+ *
+ * The goal steers the OPTIMISER that backs /dispatch-preview (proposals only). It is
+ * NOT consulted by the live write-path (assignFromPool / dispatch-run).
+ */
+router.get('/settings', (_req: Request, res: Response) => {
+  res.json(readDispatchGoal());
+});
+
+router.put('/settings', (req: Request, res: Response) => {
+  try {
+    const patch = (req.body ?? {}) as Partial<DispatchGoal>;
+    const merged = writeDispatchGoal(patch);
+    res.json(merged);
+  } catch (e: any) {
+    console.error('[DispatchBoard] settings PUT error:', e);
+    res.status(500).json({ error: e?.message || 'failed to save settings' });
+  }
+});
+
+/**
+ * GET /api/admin/daily-planner/contractor-rates
+ *
+ * TRUE-MARGIN economics: the per-contractor FIXED day rate (pence) that the optimiser's
+ * `day_margin` objective bills each contractor-day, plus the goal-level default + fuel
+ * rate. `effectiveDayRatePence` = the contractor's own day_rate, or the default when
+ * unset (the same fallback the optimiser uses). Read-only.
+ */
+router.get('/contractor-rates', async (_req: Request, res: Response) => {
+  try {
+    const goal = readDispatchGoal();
+    const rows = await db
+      .select({
+        id: handymanProfiles.id,
+        dayRate: handymanProfiles.dayRate,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        businessName: handymanProfiles.businessName,
+      })
+      .from(handymanProfiles)
+      .leftJoin(users, eq(handymanProfiles.userId, users.id));
+
+    const contractors = rows.map((c) => {
+      const name = [c.firstName, c.lastName].filter(Boolean).join(' ') || c.businessName || 'Contractor';
+      const dayRatePence = c.dayRate ?? null;
+      return {
+        id: c.id,
+        name,
+        dayRatePence,
+        effectiveDayRatePence: dayRatePence ?? goal.defaultDayRatePence,
+      };
+    });
+
+    res.json({
+      defaultDayRatePence: goal.defaultDayRatePence,
+      fuelPencePerMile: goal.fuelPencePerMile,
+      contractors,
+    });
+  } catch (e: any) {
+    console.error('[DispatchBoard] contractor-rates GET error:', e);
+    res.status(500).json({ error: e?.message || 'failed to load contractor rates' });
+  }
+});
+
+/**
+ * PUT /api/admin/daily-planner/contractor-rates
+ * body { contractorId: string, dayRatePence: number | null }
+ *
+ * Sets (or clears, when null) a contractor's FIXED day rate in handyman_profiles.day_rate.
+ * null = "use the goal default". Clamped 0..200000 pence (£0..£2000). Returns { ok: true }.
+ */
+router.put('/contractor-rates', async (req: Request, res: Response) => {
+  try {
+    const { contractorId } = (req.body ?? {}) as { contractorId?: string };
+    const rawDayRate = (req.body ?? {}).dayRatePence;
+    if (!contractorId || typeof contractorId !== 'string') {
+      return res.status(400).json({ error: 'contractorId required' });
+    }
+    // null (or explicit null) clears the override → contractor uses the goal default.
+    let dayRatePence: number | null;
+    if (rawDayRate === null || rawDayRate === undefined) {
+      dayRatePence = null;
+    } else {
+      const n = Number(rawDayRate);
+      if (!Number.isFinite(n)) return res.status(400).json({ error: 'dayRatePence must be a number or null' });
+      dayRatePence = Math.max(0, Math.min(200000, Math.round(n)));
+    }
+
+    const updated = await db
+      .update(handymanProfiles)
+      .set({ dayRate: dayRatePence })
+      .where(eq(handymanProfiles.id, contractorId))
+      .returning({ id: handymanProfiles.id });
+
+    if (updated.length === 0) {
+      return res.status(404).json({ error: 'Contractor not found' });
+    }
+    res.json({ ok: true });
+  } catch (e: any) {
+    console.error('[DispatchBoard] contractor-rates PUT error:', e);
+    res.status(500).json({ error: e?.message || 'failed to save contractor rate' });
+  }
+});
+
+/**
+ * POST /api/admin/daily-planner/assign
+ * body { quoteId, contractorId, date: 'YYYY-MM-DD', slot: 'am'|'pm', testOnly? }
+ *
+ * Manual override-assign: books ONE pool job to a chosen contractor regardless of the
+ * optimiser's auto-match (the dispatcher knows availability/skills the system doesn't).
+ * Reuses the SAME write-path (assignFromPool) + double-book guard as auto-dispatch. Test
+ * guard mirrors /dispatch-run: test mode books ONLY dummies; real mode ONLY real jobs.
+ */
+router.post('/assign', async (req: Request, res: Response) => {
+  try {
+    const { quoteId, contractorId, date, slot } = (req.body ?? {}) as
+      { quoteId?: string; contractorId?: string; date?: string; slot?: string };
+    const testOnly = req.body?.testOnly === true || req.body?.testOnly === '1' || req.body?.testOnly === 'true';
+    if (!quoteId || !contractorId || !date || (slot !== 'am' && slot !== 'pm')) {
+      return res.status(400).json({ error: 'quoteId, contractorId, date and slot (am|pm) are required' });
+    }
+    if (testOnly && !isTestQuoteId(quoteId)) {
+      return res.status(400).json({ error: 'Refusing to book a real job in test mode' });
+    }
+    if (!testOnly && isTestQuoteId(quoteId)) {
+      return res.status(400).json({ error: 'Refusing to book a test (dummy) job on the real path' });
+    }
+    const result = await assignFromPool({ quoteId, contractorId, date, slot });
+    if (!result.success) {
+      return res.status(409).json({ error: result.error || 'Could not assign (slot taken or already booked)' });
+    }
+    res.json({ success: true, bookingId: result.bookingId });
+  } catch (e: any) {
+    console.error('[DispatchBoard] manual assign error:', e);
+    res.status(500).json({ error: e?.message || 'assign failed' });
+  }
+});
+
+/**
+ * GET /api/admin/daily-planner/dispatch-preview
+ *
+ * Dispatch Board cockpit feed: dry-runs the goal-driven OPTIMISER over the flexible
+ * pool and returns proposed assignments + the "unassignable + why" punch-list. The
+ * optimiser reads the persisted DispatchGoal at run time, computes work-pattern
+ * combinations within each job's slack window, and picks the arrangement maximising the
+ * configured objective (default contractor £/hr density). Each group carries `goalScore`
+ * (higher = better) and an objective-aware `rationale`. Read-only — writes nothing.
+ *
+ * Assignability does NOT regress vs the old greedy sweep: the optimiser consumes the
+ * IDENTICAL pool + canonical availability, so the same jobs still place; the objective
+ * only changes WHO/WHEN/bundling.
+ */
+router.get('/dispatch-preview', async (req: Request, res: Response) => {
+  try {
+    // Map tidy: consider the WHOLE pool by default (was 50) so a grey/blocked pin on the
+    // map means GENUINELY un-placeable — not just "fell beyond a 50-job cap". Clamped 500.
+    const limit = Math.min(parseInt(req.query.limit as string) || 250, 500);
+    // Test mode: preview ONLY seeded dummies. Default (falsy) shows real jobs only —
+    // seeded dummies stay invisible in the normal console.
+    const testOnly = req.query.testOnly === '1' || req.query.testOnly === 'true';
+    const goal = readDispatchGoal();
+    const result = await runDispatchOptimizer(goal, { limit, maxWindowDays: 21, testOnly });
+    // Group the unassignable list by a normalised reason → the actionable punch-list.
+    const byReason: Record<string, number> = {};
+    for (const u of result.unassignable) {
+      const key = u.reason
+        .replace(/on \d{4}-\d{2}-\d{2}.*$/, 'on any available date')
+        .replace(/\([^)]*\)/g, '')
+        .replace(/\[[^\]]*\]/g, '')
+        .trim();
+      byReason[key] = (byReason[key] || 0) + 1;
+    }
+    res.json({
+      poolSize: result.poolSize,
+      assigned: result.assigned,
+      unassignable: result.unassignable,
+      byReason,
+      groups: result.groups,
+    });
+  } catch (e: any) {
+    console.error('[DispatchBoard] preview error:', e);
+    res.status(500).json({ error: e?.message || 'optimiser failed' });
+  }
+});
 
 /**
  * GET /api/admin/daily-planner?from=2026-04-14&to=2026-04-20
@@ -1336,6 +1529,133 @@ router.post('/confirm-cluster', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('[Daily Planner] Confirm cluster error:', error);
     res.status(500).json({ error: error.message || 'Failed to dispatch cluster' });
+  }
+});
+
+/**
+ * POST /api/admin/daily-planner/dispatch-run
+ *
+ * The live counterpart to /dispatch-preview: runs the same auto-assign sweep,
+ * then WRITES each proposed assignment as a real booking via assignFromPool().
+ * Returns how many were booked and any per-quote failures (e.g. a slot that got
+ * taken between sweep and write). Gated by requireAdmin at the mount point.
+ */
+// In-process guard: only one sweep+write may run at a time. Without the per-quote
+// slot-lock that confirmBooking has, two concurrent runs could both pass the conflict
+// check and double-book — serialising the route closes that window.
+let dispatchRunInProgress = false;
+router.post('/dispatch-run', async (req: Request, res: Response) => {
+  if (dispatchRunInProgress) {
+    return res.status(409).json({ error: 'A dispatch run is already in progress — try again in a moment.' });
+  }
+  dispatchRunInProgress = true;
+  try {
+    const limit = Math.min(parseInt(req.body?.limit) || 50, 100);
+    // Test mode: book ONLY seeded dummies; the sweep's pool is fenced so it never even
+    // sees real jobs. Default (falsy) sweeps + books real jobs only.
+    const testOnly = req.body?.testOnly === true || req.body?.testOnly === '1' || req.body?.testOnly === 'true';
+    // Book the SAME arrangement the preview proposes — use the optimiser (not the
+    // greedy sweep), so the quoteIds the UI approves actually match what gets booked.
+    const goal = readDispatchGoal();
+    const sweep = await runDispatchOptimizer(goal, { limit, maxWindowDays: 21, testOnly });
+
+    // Optional selective dispatch: if quoteIds[] is provided, only book those
+    // proposals; otherwise book every proposed assignment (default behaviour).
+    const rawIds = req.body?.quoteIds;
+    const quoteIdFilter = Array.isArray(rawIds) && rawIds.length > 0
+      ? new Set(rawIds.map((id: any) => String(id)))
+      : null;
+    const selected = quoteIdFilter
+      ? sweep.assigned.filter((p) => quoteIdFilter.has(p.quoteId))
+      : sweep.assigned;
+
+    // ── HARD WRITE GUARD (SAFETY-CRITICAL) ──────────────────────────────────────
+    // The sweep pool is already fenced by `testOnly`, but we belt-and-brace at the
+    // write boundary so a dummy can NEVER be booked from the real path, and a real
+    // job can NEVER be booked from the test path — even if a proposal slipped through:
+    //   testOnly === true  → book ONLY test ids
+    //   testOnly === false → book ONLY non-test ids (drop any seeded dummy)
+    const toBook = selected.filter((p) =>
+      testOnly ? isTestQuoteId(p.quoteId) : !isTestQuoteId(p.quoteId),
+    );
+
+    let booked = 0;
+    let guardSkipped = 0;
+    const failures: { quoteId: string; error: string }[] = [];
+
+    for (const proposal of toBook) {
+      // Per-call guard: never call assignFromPool for an id that doesn't match the
+      // active mode. Redundant with the filter above, but the booking write MUST be
+      // impossible for the wrong id class — so we re-check at the call site.
+      const idIsTest = isTestQuoteId(proposal.quoteId);
+      if (testOnly && !idIsTest) {
+        console.warn(`[DispatchBoard] dispatch-run(test): SKIP non-test id ${proposal.quoteId} — refusing to book a real job in test mode`);
+        guardSkipped++;
+        continue;
+      }
+      if (!testOnly && idIsTest) {
+        console.warn(`[DispatchBoard] dispatch-run(real): SKIP test id ${proposal.quoteId} — refusing to book a dummy in the real path`);
+        guardSkipped++;
+        continue;
+      }
+
+      const result = await assignFromPool({
+        quoteId: proposal.quoteId,
+        contractorId: proposal.contractorId,
+        date: proposal.date,
+        slot: proposal.slot,
+      });
+      if (result.success) {
+        booked++;
+      } else {
+        failures.push({ quoteId: proposal.quoteId, error: result.error || 'unknown error' });
+      }
+    }
+
+    console.log(`[DispatchBoard] dispatch-run(${testOnly ? 'test' : 'real'}): ${booked} booked, ${failures.length} failed, ${guardSkipped} guard-skipped (of ${toBook.length} to-book, ${selected.length} selected, ${sweep.assigned.length} proposed)`);
+    res.json({ booked, failures });
+  } catch (e: any) {
+    console.error('[DispatchBoard] dispatch-run error:', e);
+    res.status(500).json({ error: e?.message || 'dispatch-run failed' });
+  } finally {
+    dispatchRunInProgress = false;
+  }
+});
+
+/**
+ * GET /api/admin/daily-planner/schedule?windowDays=14
+ *
+ * Contractor-day grid for the schedule UI: for each contractor, a cell per day in
+ * the window (today+1 .. today+windowDays) with availability, AM/PM occupancy, the
+ * day's jobs (booked + proposed), and a fill %. Reuses the sweep's canonical
+ * availability model + booking loads via buildSchedule(). Read-only.
+ */
+router.get('/schedule', async (req: Request, res: Response) => {
+  try {
+    const windowDays = Math.max(1, Math.min(parseInt(req.query.windowDays as string) || 14, 21));
+    const result = await buildSchedule({ windowDays });
+    res.json(result);
+  } catch (e: any) {
+    console.error('[DispatchBoard] schedule error:', e);
+    res.status(500).json({ error: e?.message || 'schedule failed' });
+  }
+});
+
+/**
+ * GET /api/admin/daily-planner/fixed-lane
+ *
+ * The committed lane: accepted bookings (date+slot+contractor already locked) within
+ * the next 21 days, each tagged with a per-job COVERAGE STATUS (covered / at_risk /
+ * uncovered / conflict) plus a summary tally. Reuses the sweep's canonical availability
+ * model + accepted-booking loads via buildFixedLane(). Read-only.
+ */
+router.get('/fixed-lane', async (_req: Request, res: Response) => {
+  try {
+    const result = await buildFixedLane({ windowDays: 21 });
+    res.json(result);
+  } catch (e: any) {
+    console.error('[DispatchBoard] fixed-lane error:', e);
+    res.status(500).json({ error: e?.message || 'fixed-lane failed' });
   }
 });
 

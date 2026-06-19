@@ -120,6 +120,35 @@ interface LineItem {
    * fresh from the catalog when the quote actually generates.
    */
   skuMeta?: CatalogSku;
+  /**
+   * Track B — advisory SKU suggestion from the keyword matcher, carried from
+   * the parse-job response. Surfaced as a one-tap "Accept" chip on a custom
+   * line; accepting flips the line to a priced SKU line exactly like a manual
+   * pick (via handleAcceptSuggestion → handlePickSkuForLine). Pricing never
+   * reads these — only a confirmed skuCode — so a surfaced-but-unaccepted
+   * suggestion can't change a price.
+   */
+  suggestedSkuCode?: string;
+  suggestedSkuConfidence?: 'high' | 'medium' | 'low';
+  /** Full catalog row backing the suggestion, so Accept needs no extra fetch. */
+  suggestedSku?: CatalogSku;
+  /**
+   * Two-rail split — explicit per-line overrides that WIN downstream over the
+   * source default (SKU catalog value or reference-rate derivation). The rails
+   * stay independent: setting a price never touches the time, setting a time
+   * never touches the price.
+   *
+   *  - SKU line:  price/time inputs pre-fill from the catalog; typing sets the
+   *    matching override (the other rail keeps its catalog value). A one-tap
+   *    reset clears that rail's override back to the catalog default.
+   *  - Custom line: the time input writes BOTH estimatedMinutes and
+   *    timeOverrideMinutes (so the shown time always wins); the price input is
+   *    empty ("auto") and only sets priceOverridePence once typed.
+   *
+   * Sent on each request line iff defined (omitted when unset).
+   */
+  priceOverridePence?: number;
+  timeOverrideMinutes?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -440,6 +469,125 @@ function TimeInput({
             {p.label}
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TwoRailEditor — per-line independent PRICE (£) + TIME (min) rails
+//
+// Two rails that never move each other: editing the price never changes the
+// time and vice-versa. Used on every line row.
+//
+//  - SKU line:  both rails pre-fill from the catalog. Typing sets that rail's
+//    override; a subtle "edited" pill + one-tap reset clears it back to catalog.
+//  - Custom line: TIME shows the live estimate; PRICE starts empty ("auto") and
+//    only carries a value once typed.
+//
+// Bold + high-contrast by design — the owner wants the two rails legible per
+// line, not hidden behind subtle tints.
+// ---------------------------------------------------------------------------
+
+function TwoRailEditor({
+  /** £ shown in the price field. For "auto" (custom, unset) pass null. */
+  priceValuePence,
+  pricePlaceholder = 'auto',
+  priceEdited = false,
+  onPriceChange,
+  onPriceReset,
+  /** Minutes shown in the time field. */
+  timeValueMinutes,
+  timeEdited = false,
+  onTimeChange,
+  onTimeReset,
+}: {
+  priceValuePence: number | null;
+  pricePlaceholder?: string;
+  priceEdited?: boolean;
+  onPriceChange: (poundsStr: string) => void;
+  onPriceReset?: () => void;
+  timeValueMinutes: number;
+  timeEdited?: boolean;
+  onTimeChange: (minutes: number) => void;
+  onTimeReset?: () => void;
+}) {
+  const step = getStep(timeValueMinutes);
+  const priceStr = priceValuePence != null ? String(Math.round(priceValuePence / 100)) : '';
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {/* ── PRICE rail ────────────────────────────────────────────────── */}
+      <div className="rounded-lg border-2 border-handy-navy/15 bg-white px-2.5 py-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-handy-navy/60">
+            Price
+          </span>
+          {priceEdited && (
+            <button
+              type="button"
+              onClick={onPriceReset}
+              title="Reset to catalog price"
+              className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-handy-yellow hover:text-handy-navy transition-colors"
+            >
+              <RefreshCw className="w-2.5 h-2.5" /> edited
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-1 mt-0.5">
+          <span className="text-lg font-bold text-handy-navy leading-none">£</span>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            inputMode="numeric"
+            value={priceStr}
+            placeholder={pricePlaceholder}
+            onChange={(e) => onPriceChange(e.target.value)}
+            className="w-full bg-transparent border-0 p-0 text-lg font-bold text-handy-navy tabular-nums leading-none focus:outline-none focus:ring-0 placeholder:text-handy-muted/50 placeholder:font-medium placeholder:text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            aria-label="Line price in pounds"
+          />
+        </div>
+      </div>
+
+      {/* ── TIME rail ─────────────────────────────────────────────────── */}
+      <div className="rounded-lg border-2 border-handy-navy/15 bg-white px-2.5 py-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-handy-navy/60 flex items-center gap-1">
+            <Clock className="w-2.5 h-2.5" /> Time
+          </span>
+          {timeEdited && (
+            <button
+              type="button"
+              onClick={onTimeReset}
+              title="Reset to catalog time"
+              className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-handy-yellow hover:text-handy-navy transition-colors"
+            >
+              <RefreshCw className="w-2.5 h-2.5" /> edited
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-1 mt-0.5">
+          <button
+            type="button"
+            onClick={() => onTimeChange(Math.max(15, timeValueMinutes - step))}
+            className="h-7 w-7 rounded-md border border-handy-grid bg-white text-sm font-bold text-handy-navy hover:bg-handy-navy/5 active:scale-95 transition-transform flex items-center justify-center shrink-0"
+            aria-label="Decrease time"
+          >
+            −
+          </button>
+          <div className="flex-1 text-center text-base font-bold text-handy-navy tabular-nums leading-none whitespace-nowrap">
+            {formatTimeLabel(timeValueMinutes)}
+          </div>
+          <button
+            type="button"
+            onClick={() => onTimeChange(timeValueMinutes + step)}
+            className="h-7 w-7 rounded-md border border-handy-grid bg-white text-sm font-bold text-handy-navy hover:bg-handy-navy/5 active:scale-95 transition-transform flex items-center justify-center shrink-0"
+            aria-label="Increase time"
+          >
+            +
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1144,6 +1292,9 @@ export default function GenerateContextualQuote() {
             ...(li.skuCode ? { skuCode: li.skuCode } : {}),
             ...(li.unitCount !== undefined ? { unitCount: li.unitCount } : {}),
             ...(li.selectedTier ? { selectedTier: li.selectedTier } : {}),
+            // Two-rail overrides — only when set; each wins independently.
+            ...(li.priceOverridePence !== undefined ? { priceOverridePence: li.priceOverridePence } : {}),
+            ...(li.timeOverrideMinutes !== undefined ? { timeOverrideMinutes: li.timeOverrideMinutes } : {}),
           })),
           signals: {
             urgency: sigs.urgency,
@@ -1361,6 +1512,12 @@ export default function GenerateContextualQuote() {
         estimatedMinutes: line.timeEstimateMinutes,
         materialsCostPounds: 0,
         source: 'custom' as const,
+        // Track B — carry the advisory SKU suggestion through so the line's
+        // review row can offer one-tap Accept. The full row arrives as the
+        // server's catalog shape; the client reads only CatalogSku fields.
+        suggestedSkuCode: line.suggestedSkuCode,
+        suggestedSkuConfidence: line.suggestedSkuConfidence,
+        suggestedSku: line.suggestedSku as CatalogSku | undefined,
       }));
       setLineItems(newItems);
 
@@ -1415,6 +1572,10 @@ export default function GenerateContextualQuote() {
             ...(li.skuCode ? { skuCode: li.skuCode } : {}),
             ...(li.unitCount !== undefined ? { unitCount: li.unitCount } : {}),
             ...(li.selectedTier ? { selectedTier: li.selectedTier } : {}),
+            // Two-rail overrides — only when set; each wins independently over
+            // the catalog/reference default downstream.
+            ...(li.priceOverridePence !== undefined ? { priceOverridePence: li.priceOverridePence } : {}),
+            ...(li.timeOverrideMinutes !== undefined ? { timeOverrideMinutes: li.timeOverrideMinutes } : {}),
           })),
           signals: {
             urgency: signals.urgency,
@@ -1828,6 +1989,9 @@ export default function GenerateContextualQuote() {
           skuMeta: undefined,
           description: '',
           estimatedMinutes: 30,
+          // Drop any two-rail overrides — the line is back to a blank custom row.
+          priceOverridePence: undefined,
+          timeOverrideMinutes: undefined,
         };
       }),
     );
@@ -1879,12 +2043,58 @@ export default function GenerateContextualQuote() {
           description: result.sku.name,
           category: (result.sku.category as JobCategory) || li.category,
           estimatedMinutes: result.derivedScheduleMinutes,
+          // A fresh pick starts at the catalog default — no overrides yet. The
+          // two-rail inputs show the catalog price/time until nudged.
+          priceOverridePence: undefined,
+          timeOverrideMinutes: undefined,
         };
       }),
     );
   }, []);
 
-  /** Update the per-unit count for a SKU line; recompute derived schedule. */
+  /**
+   * Track B — accept the advisory SKU suggestion on a custom line. Builds the
+   * same `SkuPickResult` the inline autocomplete / modal would emit on a fresh
+   * pick (default unit count = minimumUnits, default tier = first tier) and
+   * routes it through `handlePickSkuForLine`, so the resulting line is
+   * indistinguishable from a manual pick — the Phase 25 catalog pricing/time
+   * engages identically. No-op if the suggestion has no resolved row.
+   */
+  const handleAcceptSuggestion = useCallback(
+    (lineId: string) => {
+      const line = lineItems.find((li) => li.id === lineId);
+      const sku = line?.suggestedSku;
+      if (!sku) return;
+      // Mirror SkuPicker.commitPick's defaulting for the shape inputs.
+      const unitCount =
+        sku.shape === 'per_unit' ? Math.max(1, sku.minimumUnits ?? 1) : undefined;
+      const selectedTier =
+        sku.shape === 'tiered' ? sku.tiers?.[0]?.label : undefined;
+      const derived = getEffectiveSkuPriceAndMinutes(sku, unitCount, selectedTier);
+      // Same fire-and-forget pick telemetry a manual pick records.
+      void fetch(`/api/admin/sku-catalog/${encodeURIComponent(sku.skuCode)}/pick`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders() },
+      }).catch(() => {
+        /* telemetry is non-critical */
+      });
+      handlePickSkuForLine(lineId, {
+        sku,
+        derivedPricePence: derived.pricePence,
+        derivedScheduleMinutes: derived.scheduleMinutes,
+        unitCount,
+        selectedTier,
+      });
+    },
+    [lineItems, handlePickSkuForLine],
+  );
+
+  /**
+   * Update the per-unit count for a SKU line; recompute derived schedule.
+   * Changing the count re-bases the line to a fresh catalog default, so any
+   * two-rail overrides (price/time) are cleared — the inputs re-sync to the
+   * new catalog price/minutes for the new count.
+   */
   const handleUpdateSkuUnitCount = useCallback((lineId: string, nextCount: number) => {
     setLineItems((prev) =>
       prev.map((li) => {
@@ -1895,12 +2105,18 @@ export default function GenerateContextualQuote() {
           ...li,
           unitCount: nextCount,
           estimatedMinutes: derived.scheduleMinutes,
+          priceOverridePence: undefined,
+          timeOverrideMinutes: undefined,
         };
       }),
     );
   }, []);
 
-  /** Update the tier for a tiered SKU line; recompute derived schedule. */
+  /**
+   * Update the tier for a tiered SKU line; recompute derived schedule.
+   * Same re-base rule as unit-count: clears two-rail overrides so the inputs
+   * follow the newly-selected tier's catalog price/minutes.
+   */
   const handleUpdateSkuTier = useCallback((lineId: string, nextTier: string) => {
     setLineItems((prev) =>
       prev.map((li) => {
@@ -1911,8 +2127,76 @@ export default function GenerateContextualQuote() {
           ...li,
           selectedTier: nextTier,
           estimatedMinutes: derived.scheduleMinutes,
+          priceOverridePence: undefined,
+          timeOverrideMinutes: undefined,
         };
       }),
+    );
+  }, []);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Two-rail (price + time) per-line override handlers
+  //
+  // Independence is the contract: a price edit never moves the time rail, a
+  // time edit never moves the price rail.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Set/clear the PRICE rail override from a £ string.
+   *  - Empty/blank/≤0 → clears priceOverridePence (custom: reverts to "auto";
+   *    SKU: reverts to the catalog price).
+   *  - Otherwise → priceOverridePence = round(£ × 100).
+   * Never touches the time rail.
+   */
+  const handleSetPriceOverride = useCallback((lineId: string, poundsStr: string) => {
+    setLineItems((prev) =>
+      prev.map((li) => {
+        if (li.id !== lineId) return li;
+        const pounds = parseFloat(poundsStr);
+        if (!poundsStr.trim() || !Number.isFinite(pounds) || pounds <= 0) {
+          return { ...li, priceOverridePence: undefined };
+        }
+        return { ...li, priceOverridePence: Math.round(pounds * 100) };
+      }),
+    );
+  }, []);
+
+  /**
+   * Set the TIME rail override (minutes).
+   *  - mirrorEstimate=true (custom lines): also write estimatedMinutes so the
+   *    shown duration stays the single source the preview/validation read.
+   *  - mirrorEstimate=false (SKU lines): only timeOverrideMinutes changes; the
+   *    catalog-derived estimatedMinutes is left intact for the price rail.
+   * Never touches the price rail.
+   */
+  const handleSetTimeOverride = useCallback(
+    (lineId: string, minutes: number, opts?: { mirrorEstimate?: boolean }) => {
+      setLineItems((prev) =>
+        prev.map((li) => {
+          if (li.id !== lineId) return li;
+          const next: LineItem = { ...li, timeOverrideMinutes: minutes };
+          if (opts?.mirrorEstimate) next.estimatedMinutes = minutes;
+          return next;
+        }),
+      );
+    },
+    [],
+  );
+
+  /**
+   * Reset one rail of a SKU line back to its catalog default by clearing that
+   * rail's override. Only the named rail is cleared — the other rail keeps its
+   * own override.
+   */
+  const handleResetSkuRail = useCallback((lineId: string, rail: 'price' | 'time') => {
+    setLineItems((prev) =>
+      prev.map((li) =>
+        li.id === lineId
+          ? rail === 'price'
+            ? { ...li, priceOverridePence: undefined }
+            : { ...li, timeOverrideMinutes: undefined }
+          : li,
+      ),
     );
   }, []);
 
@@ -2159,6 +2443,14 @@ export default function GenerateContextualQuote() {
                       // (typed, no catalog match). A picked SKU drives its own slab.
                       const showCustomConfig = !isPickedSku && customLineIds.has(item.id);
 
+                      // Two-rail defaults for a picked SKU: the catalog price +
+                      // minutes for the current unit/tier selection. The rail
+                      // inputs show the override when set, else these. "edited"
+                      // is true when an override diverges from the catalog.
+                      const skuRail = isPickedSku
+                        ? getEffectiveSkuPriceAndMinutes(item.skuMeta!, item.unitCount, item.selectedTier)
+                        : null;
+
                       return (
                         <div
                           key={item.id}
@@ -2208,6 +2500,21 @@ export default function GenerateContextualQuote() {
                                 onEdit={() => handleClearSkuLine(item.id)}
                                 onClear={() => handleClearSkuLine(item.id)}
                               />
+
+                              {/* Two-rail price + time — pre-filled from the
+                                  catalog; nudge either independently per job. */}
+                              {skuRail && (
+                                <TwoRailEditor
+                                  priceValuePence={item.priceOverridePence ?? skuRail.pricePence}
+                                  priceEdited={item.priceOverridePence !== undefined}
+                                  onPriceChange={(s) => handleSetPriceOverride(item.id, s)}
+                                  onPriceReset={() => handleResetSkuRail(item.id, 'price')}
+                                  timeValueMinutes={item.timeOverrideMinutes ?? skuRail.scheduleMinutes}
+                                  timeEdited={item.timeOverrideMinutes !== undefined}
+                                  onTimeChange={(m) => handleSetTimeOverride(item.id, m)}
+                                  onTimeReset={() => handleResetSkuRail(item.id, 'time')}
+                                />
+                              )}
 
                               {/* Detail textarea — still applies to SKU lines so admin
                                   can override the customer-facing description. */}
@@ -2272,6 +2579,54 @@ export default function GenerateContextualQuote() {
                                 onCreateCustom={() => handleLineCustomChange(item.id, true)}
                               />
 
+                              {/* Track B — suggest-and-confirm SKU chip. Shows on a
+                                  CUSTOM line when the parser advised a catalog SKU.
+                                  Human taps Accept (the safety gate) → the line flips
+                                  to a priced SKU line exactly like a manual pick, the
+                                  chip vanishes (the SKU slab renders instead). `low`
+                                  confidence is hidden (too weak to surface). */}
+                              {item.source === 'custom' &&
+                                item.suggestedSkuCode &&
+                                item.suggestedSku &&
+                                item.suggestedSkuConfidence !== 'low' && (() => {
+                                  const isHigh = item.suggestedSkuConfidence === 'high';
+                                  return (
+                                    <div
+                                      className={`flex items-center gap-2 rounded-lg px-3 py-2 border-2 ${
+                                        isHigh
+                                          ? 'bg-emerald-600 border-emerald-700 text-white'
+                                          : 'bg-amber-400 border-amber-500 text-handy-navy'
+                                      }`}
+                                    >
+                                      <Wand2 className="w-4 h-4 shrink-0" />
+                                      <div className="flex-1 min-w-0 leading-tight">
+                                        <span
+                                          className={`block text-[10px] font-bold uppercase tracking-wider ${
+                                            isHigh ? 'text-white/80' : 'text-handy-navy/70'
+                                          }`}
+                                        >
+                                          Suggested · {item.suggestedSkuConfidence}
+                                        </span>
+                                        <span className="block text-sm font-bold truncate">
+                                          {item.suggestedSku.name}
+                                        </span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAcceptSuggestion(item.id)}
+                                        className={`shrink-0 inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-bold transition-[transform,background-color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] active:scale-95 ${
+                                          isHigh
+                                            ? 'bg-white text-emerald-700 hover:bg-white/90'
+                                            : 'bg-handy-navy text-white hover:bg-handy-navy/90'
+                                        }`}
+                                      >
+                                        <Check className="w-3.5 h-3.5" />
+                                        Accept
+                                      </button>
+                                    </div>
+                                  );
+                                })()}
+
                               {/* Detail textarea — only once the line is custom, then gated on the global "Detail" toggle */}
                               {showCustomConfig && showLineDetails && (
                                 <div className="space-y-1">
@@ -2317,76 +2672,90 @@ export default function GenerateContextualQuote() {
                                 </div>
                               )}
 
-                              {/* Category + Time — revealed once the line is custom (no SKU match) */}
-                              {showCustomConfig && (
-                              <div className="flex flex-col sm:flex-row gap-2">
-                                <Select
-                                  value={item.category}
-                                  onValueChange={(val) => handleUpdateLineItem(item.id, 'category', val)}
-                                >
-                                  <SelectTrigger className="h-10 sm:h-9 text-sm sm:text-xs bg-transparent border-handy-grid w-full sm:flex-1">
-                                    <span className="flex items-center gap-1.5 truncate">
-                                      <span className="shrink-0">{icon}</span>
-                                      <span className="truncate">{categoryLabel}</span>
-                                    </span>
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {CATEGORY_OPTIONS.map((opt) => (
-                                      <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                                        <span className="flex items-center gap-1.5">
-                                          <span>{CATEGORY_ICONS[opt.value] || '📋'}</span>
-                                          {opt.label}
-                                        </span>
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <div className="w-full sm:w-auto sm:shrink-0">
-                                  {(() => {
-                                    // Phase 4d — fixed-tier categories show a tier picker
-                                    // instead of free-form minutes (e.g. waste_removal: van load size).
-                                    const cfg = getPricingConfig(item.category);
-                                    if (cfg.model === 'fixed' && cfg.fixedTiers && cfg.fixedTiers.length > 0) {
-                                      const currentTier = (item as any).fixedTier || '';
-                                      return (
-                                        <Select
-                                          value={currentTier}
-                                          onValueChange={(tierId) => {
-                                            const t = cfg.fixedTiers!.find((tt) => tt.id === tierId);
-                                            if (!t) return;
-                                            setLineItems((prev) =>
-                                              prev.map((li) =>
-                                                li.id === item.id
-                                                  ? { ...li, fixedTier: tierId, estimatedMinutes: t.scheduleMinutes }
-                                                  : li
-                                              )
-                                            );
-                                          }}
-                                        >
-                                          <SelectTrigger className="h-10 sm:h-9 text-sm sm:text-xs bg-transparent border-handy-grid w-full sm:w-44">
-                                            <SelectValue placeholder={`Pick ${cfg.unitLabel}…`} />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {cfg.fixedTiers.map((t) => (
-                                              <SelectItem key={t.id} value={t.id} className="text-xs">
-                                                {t.label} · £{(t.pricePence / 100).toFixed(0)} · {t.scheduleMinutes}min
-                                              </SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
-                                      );
-                                    }
-                                    return (
-                                      <TimeInput
-                                        minutes={item.estimatedMinutes}
-                                        onChange={(val) => handleUpdateLineItem(item.id, 'estimatedMinutes', val)}
-                                        compact
+                              {/* Category + Price/Time — revealed once the line is custom (no SKU match) */}
+                              {showCustomConfig && (() => {
+                                // Phase 4d — fixed-tier categories (e.g. waste_removal)
+                                // price + time from the chosen tier, so they keep the
+                                // tier picker and skip the free-form two-rail editor.
+                                const cfg = getPricingConfig(item.category);
+                                const isFixedTier =
+                                  cfg.model === 'fixed' && !!cfg.fixedTiers && cfg.fixedTiers.length > 0;
+                                return (
+                                  <div className="space-y-2">
+                                    <div className="flex flex-col sm:flex-row gap-2">
+                                      <Select
+                                        value={item.category}
+                                        onValueChange={(val) => handleUpdateLineItem(item.id, 'category', val)}
+                                      >
+                                        <SelectTrigger className="h-10 sm:h-9 text-sm sm:text-xs bg-transparent border-handy-grid w-full sm:flex-1">
+                                          <span className="flex items-center gap-1.5 truncate">
+                                            <span className="shrink-0">{icon}</span>
+                                            <span className="truncate">{categoryLabel}</span>
+                                          </span>
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {CATEGORY_OPTIONS.map((opt) => (
+                                            <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                                              <span className="flex items-center gap-1.5">
+                                                <span>{CATEGORY_ICONS[opt.value] || '📋'}</span>
+                                                {opt.label}
+                                              </span>
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                      {isFixedTier && (
+                                        <div className="w-full sm:w-auto sm:shrink-0">
+                                          <Select
+                                            value={(item as any).fixedTier || ''}
+                                            onValueChange={(tierId) => {
+                                              const t = cfg.fixedTiers!.find((tt) => tt.id === tierId);
+                                              if (!t) return;
+                                              setLineItems((prev) =>
+                                                prev.map((li) =>
+                                                  li.id === item.id
+                                                    ? { ...li, fixedTier: tierId, estimatedMinutes: t.scheduleMinutes }
+                                                    : li
+                                                )
+                                              );
+                                            }}
+                                          >
+                                            <SelectTrigger className="h-10 sm:h-9 text-sm sm:text-xs bg-transparent border-handy-grid w-full sm:w-44">
+                                              <SelectValue placeholder={`Pick ${cfg.unitLabel}…`} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {cfg.fixedTiers!.map((t) => (
+                                                <SelectItem key={t.id} value={t.id} className="text-xs">
+                                                  {t.label} · £{(t.pricePence / 100).toFixed(0)} · {t.scheduleMinutes}min
+                                                </SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Two-rail price + time for free-form custom work.
+                                        Time edits estimatedMinutes AND mirrors into
+                                        timeOverrideMinutes so the shown time always wins
+                                        downstream. Price starts "auto" (engine prices it)
+                                        until typed. Skipped for fixed-tier lines. */}
+                                    {!isFixedTier && (
+                                      <TwoRailEditor
+                                        priceValuePence={item.priceOverridePence ?? null}
+                                        pricePlaceholder="auto"
+                                        priceEdited={false}
+                                        onPriceChange={(s) => handleSetPriceOverride(item.id, s)}
+                                        timeValueMinutes={item.estimatedMinutes}
+                                        timeEdited={false}
+                                        onTimeChange={(m) =>
+                                          handleSetTimeOverride(item.id, m, { mirrorEstimate: true })
+                                        }
                                       />
-                                    );
-                                  })()}
-                                </div>
-                              </div>
-                              )}
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </>
                           )}
 

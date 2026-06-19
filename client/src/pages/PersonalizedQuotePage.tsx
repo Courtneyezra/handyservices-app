@@ -32,6 +32,7 @@ import { MobilePricingCard, KeyFeature } from '@/components/quote/MobilePricingC
 import { getExpertNoteText, getLineItems, getScopeOfWorks } from "@/lib/quote-helpers";
 import { generateQuotePDF } from "@/lib/quote-pdf-generator";
 import { InstantActionQuote } from '@/components/InstantActionQuote';
+import { UpsellBottomSheet } from '@/components/UpsellBottomSheet';
 import { ExpertAssessmentQuote } from '@/components/ExpertAssessmentQuote';
 import { DatePricingCalendar, SchedulingTier } from '@/components/DatePricingCalendar';
 import { TimeSlotSelector, TimeSlotType } from '@/components/TimeSlotSelector';
@@ -591,6 +592,15 @@ export interface PersonalizedQuote {
     claims: { id: number; text: string; category?: string }[];
     images: { id: number; url: string; alt?: string; context?: string }[];
   } | null;
+
+  // Post-commitment upsells ("While we're there…")
+  upsellSkus?: Array<{
+    skuCode: string;
+    name: string;
+    pricePence: number;
+    customerDescription: string;
+    shape: string;
+  }>;
 }
 
 // Client Type Skins Configuration
@@ -2252,7 +2262,7 @@ function ContextualQuoteLayout({
           totalPricePence: totalPrice,
           timeOnPageMs: trackingRef.current?.getTimeOnPage() || 0,
         });
-        setShowPaymentForm(true);
+        triggerWithUpsell(() => setShowPaymentForm(true));
       }}
     >
       {isBooking ? (
@@ -2650,6 +2660,9 @@ export default function PersonalizedQuotePage() {
   const [liaiseSignal, setLiaiseSignal] = useState(0);
   // const [isExpiredState, setIsExpiredState] = useState(false); // Removed - quotes no longer expire
   const [showPaymentForm, setShowPaymentForm] = useState(false); // Controls visibility of the payment section
+  const [showUpsellIntercept, setShowUpsellIntercept] = useState(false);
+  const [selectedContextualUpsells, setSelectedContextualUpsells] = useState<Set<string>>(new Set());
+  const postUpsellCallbackRef = useRef<(() => void) | null>(null);
 
   // Gate Stripe.js behind booking intent. The booking card's <Elements> mounts
   // immediately with stripe={null} (so UnifiedQuoteCard renders and its useStripe/
@@ -3217,6 +3230,32 @@ export default function PersonalizedQuotePage() {
     }
   };
 
+  const triggerWithUpsell = (proceed: () => void) => {
+    const upsells = quote?.upsellSkus ?? [];
+    if (upsells.length > 0) {
+      postUpsellCallbackRef.current = proceed;
+      setSelectedContextualUpsells(new Set());
+      setShowUpsellIntercept(true);
+    } else {
+      proceed();
+    }
+  };
+
+  const toggleContextualUpsell = (skuCode: string) => {
+    setSelectedContextualUpsells((prev) => {
+      const next = new Set(prev);
+      if (next.has(skuCode)) next.delete(skuCode);
+      else next.add(skuCode);
+      return next;
+    });
+  };
+
+  const confirmContextualUpsells = () => {
+    setShowUpsellIntercept(false);
+    postUpsellCallbackRef.current?.();
+    postUpsellCallbackRef.current = null;
+  };
+
   const handleBooking = async (paymentIntentId: string) => {
     if (!quote) return;
 
@@ -3310,6 +3349,7 @@ export default function PersonalizedQuotePage() {
             // [RAMANUJAM] Include BUSY_PRO productization choices
             timingChoice: quote.segment === 'BUSY_PRO' ? timingChoice : undefined,
             whileImThereBundle: quote.segment === 'BUSY_PRO' ? whileImThereBundle : undefined,
+            addedUpsells: selectedContextualUpsells.size > 0 ? [...selectedContextualUpsells] : undefined,
             // Phase 25 — flex booking window (set when customer chose "Flexible
             // booking", default ON for homeowners). Read from the ref, not state:
             // onBook sets it in the same synchronous tick this runs in, so the state
@@ -3646,6 +3686,15 @@ export default function PersonalizedQuotePage() {
       <QuoteTimerProvider quoteKey={params?.slug || 'quote'}>
       <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
 
+        <UpsellBottomSheet
+          open={showUpsellIntercept}
+          upsells={quote.upsellSkus ?? []}
+          selected={selectedContextualUpsells}
+          onToggle={toggleContextualUpsell}
+          onConfirm={confirmContextualUpsells}
+          onSkip={() => { setSelectedContextualUpsells(new Set()); confirmContextualUpsells(); }}
+        />
+
         {/* Value Sections Flow */}
         <ValueHero quote={quote} config={config} />
 
@@ -3911,16 +3960,19 @@ export default function PersonalizedQuotePage() {
                         const paidInline = config.selectedDates && config.selectedDates.length >= 3;
                         const isFlex = !!(config.flexBookingWithinDays && config.flexBookingWithinDays > 0);
                         if (!config.usedDownsell && !paidInline && !isFlex) {
-                          setShowPaymentForm(true);
-                          setTimeout(() => {
-                            document.getElementById('payment-section')?.scrollIntoView({
-                              behavior: 'smooth',
-                              block: 'start'
-                            });
-                          }, 100);
+                          triggerWithUpsell(() => {
+                            setShowPaymentForm(true);
+                            setTimeout(() => {
+                              document.getElementById('payment-section')?.scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'start'
+                              });
+                            }, 100);
+                          });
                         }
                         setIsBooking(false);
                       }}
+                      onBeforeBooking={triggerWithUpsell}
                       onPaymentSuccess={async (paymentIntentId) => {
                         // Handle successful inline payment (flexible timing)
                         await handleBooking(paymentIntentId);
@@ -4259,6 +4311,15 @@ export default function PersonalizedQuotePage() {
           </div>
         </div>
       )}
+
+      <UpsellBottomSheet
+        open={showUpsellIntercept}
+        upsells={quote.upsellSkus ?? []}
+        selected={selectedContextualUpsells}
+        onToggle={toggleContextualUpsell}
+        onConfirm={confirmContextualUpsells}
+        onSkip={() => { setSelectedContextualUpsells(new Set()); confirmContextualUpsells(); }}
+      />
 
       {/* QuoteExpiredPopup removed - quotes no longer expire */}
 
@@ -4600,12 +4661,13 @@ export default function PersonalizedQuotePage() {
                           <Button
                             className="w-full bg-[#e8b323] hover:bg-[#d19b1e] text-black font-bold text-lg py-6 shadow-lg transform active:scale-95 transition-transform"
                             onClick={() => {
-                              setHasReserved(true);
-                              setTimeout(() => {
-                                // Scroll to confirm button area logic if needed
-                                const target = document.getElementById('confirm-button');
-                                target?.scrollIntoView({ behavior: 'smooth' });
-                              }, 100);
+                              triggerWithUpsell(() => {
+                                setHasReserved(true);
+                                setTimeout(() => {
+                                  const target = document.getElementById('confirm-button');
+                                  target?.scrollIntoView({ behavior: 'smooth' });
+                                }, 100);
+                              });
                             }}
                             disabled={calculateSimpleTotal() === 0}
                             data-testid="button-book-pm-inline"
@@ -4670,13 +4732,15 @@ export default function PersonalizedQuotePage() {
                         <Button
                           className="w-full bg-[#e8b323] hover:bg-[#d19b1e] text-black font-bold text-lg py-6"
                           onClick={() => {
-                            setHasReserved(true);
-                            setTimeout(() => {
-                              const target = quote.optionalExtras && quote.optionalExtras.length > 0
-                                ? document.getElementById('optional-extras')
-                                : document.getElementById('confirm-button');
-                              target?.scrollIntoView({ behavior: 'smooth' });
-                            }, 100);
+                            triggerWithUpsell(() => {
+                              setHasReserved(true);
+                              setTimeout(() => {
+                                const target = quote.optionalExtras && quote.optionalExtras.length > 0
+                                  ? document.getElementById('optional-extras')
+                                  : document.getElementById('confirm-button');
+                                target?.scrollIntoView({ behavior: 'smooth' });
+                              }, 100);
+                            });
                           }}
                           data-testid="button-book-now-simple"
                         >

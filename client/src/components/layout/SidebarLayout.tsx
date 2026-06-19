@@ -141,6 +141,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
                                 { icon: Inbox, label: "Inbox", href: "/admin/inbox", badge: "NEW" },
                                 { icon: LayoutTemplate, label: "Dispatch Board", href: "/admin/dispatch" },
+                                { icon: Map, label: "Dispatch Console", href: "/admin/dispatch-console" },
                                 { icon: Calendar, label: "Daily Planner", href: "/admin/daily-planner" },
                                 { icon: BarChart3, label: "Reports Dashboard", href: "/admin/dashboard" },
                                 { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },

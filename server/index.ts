@@ -1,6 +1,12 @@
 import dns from "node:dns";
 dns.setDefaultResultOrder('ipv4first');
 
+// Process-level safety net: a single unhandled promise rejection (e.g. a transient Neon
+// connection timeout that escapes a middleware) must NOT take the whole server down. Log it
+// and keep serving — individual requests still fail/return errors, but the process survives.
+process.on('unhandledRejection', (reason) => {
+  console.error('[Process] Unhandled promise rejection (server kept alive):', reason);
+});
 
 import dotenv from 'dotenv';
 dotenv.config({ override: true });
@@ -83,6 +89,8 @@ import { careersRouter } from './careers-routes'; // Recruitment pipeline
 import { partnerRouter } from './partner-routes'; // Partner/area licensee enquiries
 import businessModelRouter from './business-model-routes'; // Business Model Forecast Dashboard
 import dailyPlannerRouter from './daily-planner-routes'; // Dispatch Daily Planner
+import { slotOfferAdminRouter, slotOfferPublicRouter } from './slot-offer-routes'; // Customer slot-offer confirmation
+import dispatchMapRouter from './dispatch-map-routes'; // Dispatch Map (spatial overview)
 import wtbpRateCardRouter from './wtbp-routes'; // WTBP Rate Card (contractor pay rates)
 import { payoutRouter } from './payout-routes'; // Contractor payout routes
 import { disputeRouter } from './dispute-routes'; // Dispute resolution routes
@@ -417,6 +425,9 @@ app.post('/api/join/apply', async (req, res) => {
 });
 app.use(businessModelRouter); // Business Model Forecast Dashboard
 app.use('/api/admin/daily-planner', requireAdmin, dailyPlannerRouter); // Dispatch Daily Planner
+app.use('/api/admin/daily-planner', requireAdmin, slotOfferAdminRouter); // Customer slot-offer (dispatcher-facing)
+app.use('/api/slot-offer', slotOfferPublicRouter); // Customer slot-offer (PUBLIC — token is the credential)
+app.use('/api/admin/dispatch-map', requireAdmin, dispatchMapRouter); // Dispatch Map (spatial overview)
 app.use(wtbpRateCardRouter); // WTBP Rate Card (contractor pay rates)
 app.use(payoutRouter); // Contractor payout & earnings routes
 app.use(disputeRouter); // Dispute resolution routes
@@ -1709,6 +1720,15 @@ async function startServer() {
             console.log('[V6 Switchboard] SKU cache ready');
         } catch (e) {
             console.error('[V6 Switchboard] SKU cache preload failed:', e);
+        }
+
+        // Autonomous dispatch sweep — keeps proposals fresh + surfaces urgent
+        // flexible jobs without anyone opening the console. Read-only; never books.
+        try {
+            const { startDispatchCron } = await import('./dispatch-cron');
+            startDispatchCron();
+        } catch (e) {
+            console.error('[V6 Switchboard] Dispatch cron failed to start:', e);
         }
 
         // Initialize Job Complexity Classifier (load keywords from database)

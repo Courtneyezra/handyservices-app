@@ -158,7 +158,7 @@ class OpenAIProvider implements AIProvider {
 class AnthropicProvider implements AIProvider {
     name: 'anthropic' = 'anthropic';
     private client: any;
-    private defaultModel = 'claude-sonnet-4-20250514';
+    private defaultModel = 'claude-sonnet-4-5-20250929';
 
     constructor(apiKey?: string) {
         if (!Anthropic) {

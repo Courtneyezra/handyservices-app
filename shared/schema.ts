@@ -3,6 +3,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 import * as crypto from "crypto";
+import type { SlotOffer } from "./slot-offer";
 
 // Lead Stage Enum - Formal funnel stages for Kanban view
 export const leadStageEnum = pgEnum('lead_stage', [
@@ -215,6 +216,21 @@ export const serviceCatalog = pgTable("service_catalog", {
 
     // Telemetry
     pickCount: integer("pick_count").notNull().default(0),
+
+    // Matching (populated by seed-sku-keywords.ts / seed-sku-embeddings.ts)
+    keywords: text("keywords").array(),
+    negativeKeywords: text("negative_keywords").array(),
+    aiPromptHint: text("ai_prompt_hint"),
+    embedding: vector("embedding", { dimensions: 1536 }),
+
+    // Post-commitment upsells (populated by seed-upsells.ts)
+    upsellSkuCodes: text("upsell_sku_codes").array(),
+
+    // Learned on-site time (populated by scripts/learn-catalog-times.ts from contractor
+    // actuals). When set, the dispatch TIME rail prefers this over the authored minutes —
+    // the two-rail model's "refine via actuals" loop. Null ⇒ use authored time.
+    actualMinutesPerUnit: integer("actual_minutes_per_unit"),
+    actualSampleCount: integer("actual_sample_count").notNull().default(0),
 
     // Audit
     isActive: boolean("is_active").notNull().default(true),
@@ -434,6 +450,7 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     longitude: text("longitude"),
     radiusMiles: integer("radius_miles").notNull().default(10),
     hourlyRate: integer("hourly_rate").default(50), // Standard hourly rate in pounds
+    dayRate: integer("day_rate"), // FIXED daily cost in PENCE (nullable → fall back to goal.defaultDayRatePence). True-margin economics: a contractor-day costs this in full regardless of job count.
     calendarSyncToken: text("calendar_sync_token"),
 
     // Public Profile Fields
@@ -936,6 +953,12 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     // Agent 25c/25d for the routing logic; this column is the persistence layer.
     flexBookingWithinDays: integer("flex_booking_within_days"),
 
+    // Customer slot-offer handshake (one active offer per quote). The dispatcher sends a
+    // tokenised link of dispatch-approved dates; the customer self-selects (recommended =
+    // free/keeps flex discount, others = forfeit-discount top-up via Stripe); on confirm we
+    // assign the contractor. See shared/slot-offer.ts. Null ⇒ no active offer.
+    slotOffer: jsonb("slot_offer").$type<SlotOffer>(),
+
     // Creation timestamp
     createdAt: timestamp("created_at").defaultNow(),
 
@@ -1129,6 +1152,7 @@ export const contractorBookingRequests = pgTable("contractor_booking_requests", 
     index("idx_booking_requests_status").on(table.status),
     index("idx_booking_requests_assigned").on(table.assignedContractorId),
     index("idx_booking_requests_scheduled").on(table.scheduledDate),
+    index("idx_booking_requests_quote").on(table.quoteId),
 ]);
 
 export const contractorBookingRequestsRelations = relations(contractorBookingRequests, ({ one }) => ({

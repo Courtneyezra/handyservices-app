@@ -243,6 +243,9 @@ interface UnifiedQuoteCardProps {
     tenantMobile?: string;
   }) => void;
   onPaymentSuccess?: (paymentIntentId: string) => Promise<void>;
+  /** Called when user clicks the "Book it in" gate for flex/inline payments.
+   *  Call proceed() to reveal the address + Stripe form. If omitted, reveals immediately. */
+  onBeforeBooking?: (proceed: () => void) => void;
   isBooking?: boolean;
   /** Which booking modes to display. When omitted, all default options are shown. */
   bookingModes?: QuoteBookingMode[];
@@ -379,6 +382,7 @@ export function UnifiedQuoteCard({
   optionalExtras,
   onBook,
   onPaymentSuccess,
+  onBeforeBooking,
   isBooking = false,
   bookingModes,
   pricingLineItems,
@@ -2588,10 +2592,17 @@ export function UnifiedQuoteCard({
             >
               <Button
                 onClick={() => {
-                  setBookingStarted(true);
-                  setTimeout(() => {
-                    bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  }, 350);
+                  const reveal = () => {
+                    setBookingStarted(true);
+                    setTimeout(() => {
+                      bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 350);
+                  };
+                  if (onBeforeBooking) {
+                    onBeforeBooking(reveal);
+                  } else {
+                    reveal();
+                  }
                 }}
                 className="w-full h-14 rounded-2xl font-bold text-lg bg-[#7DB00E] hover:bg-[#6da000] text-slate-900 transition-all"
               >

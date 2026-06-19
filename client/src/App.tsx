@@ -69,6 +69,10 @@ const PricingEnginePage = lazy(() => import("@/pages/admin/PricingEnginePage"));
 const LiveCallTestWizard = lazy(() => import("@/pages/admin/LiveCallTestWizard"));
 const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
 const DailyPlannerPage = lazy(() => import("@/pages/admin/DailyPlannerPage"));
+const DispatchBoardPage = lazy(() => import("@/pages/admin/DispatchBoardPage"));
+const DispatchMapPage = lazy(() => import("@/pages/admin/DispatchMapPage"));
+const DispatchSchedulePage = lazy(() => import("@/pages/admin/DispatchSchedulePage"));
+const DispatchConsolePage = lazy(() => import("@/pages/admin/DispatchConsolePage"));
 const TestDatePicker = lazy(() => import("@/pages/admin/TestDatePicker"));
 const TenantIssuesPage = lazy(() => import("@/pages/admin/TenantIssuesPage"));
 const QuotesPage = lazy(() => import("@/pages/admin/QuotesPage"));
@@ -102,6 +106,7 @@ const PersonalizedQuotePage = lazy(() => import("@/pages/PersonalizedQuotePage")
 // while the skeleton chunk itself loaded.
 import { QuoteSkeleton } from "@/components/QuoteSkeleton";
 const BookingConfirmedPage = lazy(() => import("@/pages/BookingConfirmedPage"));
+const ConfirmSlotPage = lazy(() => import("@/pages/ConfirmSlotPage"));
 const DiagnosticVisitPage = lazy(() => import("@/pages/DiagnosticVisitPage"));
 const SeasonalMenu = lazy(() => import("@/pages/SeasonalMenu"));
 const CareersPage = lazy(() => import("@/pages/CareersPage"));
@@ -321,6 +326,10 @@ function Router() {
                 </Route>
                 <Route path="/invoice/:token">
                     <InvoiceView />
+                </Route>
+                {/* Customer flexible-booking slot picker (public, token-based, no login) */}
+                <Route path="/confirm-slot/:token">
+                    <ConfirmSlotPage />
                 </Route>
                 <Route path="/contractor-job/:token">
                     <ContractorJobSheet />
@@ -619,6 +628,34 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <DailyPlannerPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/dispatch-console">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <DispatchConsolePage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/dispatch-board">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <DispatchBoardPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/dispatch-map">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <DispatchMapPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/dispatch-schedule">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <DispatchSchedulePage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

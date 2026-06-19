@@ -52,6 +52,10 @@ export interface CatalogSku {
   tiers: CatalogSkuTier[] | null;
   customerDescription: string;
   adminDescription: string | null;
+  /** Curated match phrases (enriched in the catalog rebuild). Powers searchSkus so the
+   * per-line autocomplete matches wording the SKU name doesn't contain. */
+  keywords: string[] | null;
+  negativeKeywords: string[] | null;
   flexEligible: boolean;
   offPeakWeekendPremiumPence: number;
   pickCount: number;

@@ -1,19 +1,78 @@
 import { db } from "./db";
-import { productizedServices, skuMatchLogs, type ProductizedService } from "../shared/schema";
+import { serviceCatalog, skuMatchLogs, type ServiceCatalogRow } from "../shared/schema";
 import { eq, desc, isNull, and, or, like, sql } from "drizzle-orm";
-import OpenAI from "openai";
+import { getAnthropic } from "./anthropic";
 import crypto from "crypto";
 
-// Initialize OpenAI
-if (!process.env.OPENAI_API_KEY) {
-    console.warn("OPENAI_API_KEY is not set. SKU detection will rely on keywords only.");
+// CatalogSku — lightweight view of a service_catalog row for detection use
+export interface CatalogSku {
+    id: number;
+    skuCode: string;
+    name: string;
+    category: string;
+    shape: string;
+    // Pricing (null for non-applicable shapes)
+    pricePence: number | null;
+    scheduleMinutes: number | null;
+    pricePerUnitPence: number | null;
+    minimumUnits: number | null;
+    unitLabel: string | null;
+    tiers: Array<{ label: string; pricePence: number; scheduleMinutes: number }> | null;
+    // Text (description is alias for customerDescription — kept for callers)
+    description: string;
+    customerDescription: string;
+    adminDescription: string | null;
+    // Matching
+    keywords: string[];
+    negativeKeywords: string[];
+    aiPromptHint: string | null;
+    // Upsells
+    upsellSkuCodes: string[];
+    // Misc
+    icon: string | null;
+    flexEligible: boolean;
+    isActive: boolean;
 }
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+function toCatalogSku(row: ServiceCatalogRow): CatalogSku {
+    return {
+        id: row.id,
+        skuCode: row.skuCode,
+        name: row.name,
+        category: row.category,
+        shape: row.shape,
+        pricePence: row.pricePence ?? null,
+        scheduleMinutes: row.scheduleMinutes ?? null,
+        pricePerUnitPence: row.pricePerUnitPence ?? null,
+        minimumUnits: row.minimumUnits ?? null,
+        unitLabel: row.unitLabel ?? null,
+        tiers: (row.tiers as CatalogSku['tiers']) ?? null,
+        customerDescription: row.customerDescription,
+        description: row.customerDescription,
+        adminDescription: row.adminDescription ?? null,
+        keywords: (row.keywords as string[] | null) ?? [],
+        negativeKeywords: (row.negativeKeywords as string[] | null) ?? [],
+        aiPromptHint: row.aiPromptHint ?? null,
+        upsellSkuCodes: (row.upsellSkuCodes as string[] | null) ?? [],
+        icon: row.icon ?? null,
+        flexEligible: row.flexEligible,
+        isActive: row.isActive,
+    };
+}
+
+// Returns a display price in pence (best guess for any shape)
+function getDisplayPricePence(sku: CatalogSku): number {
+    if (sku.shape === 'fixed' && sku.pricePence != null) return sku.pricePence;
+    if (sku.shape === 'per_unit' && sku.pricePerUnitPence != null)
+        return sku.pricePerUnitPence * (sku.minimumUnits || 1);
+    if (sku.shape === 'tiered' && sku.tiers?.length) return sku.tiers[0].pricePence;
+    return 0;
+}
 
 // Types
 export interface SkuDetectionResult {
     matched: boolean;
-    sku: ProductizedService | null;
+    sku: CatalogSku | null;
     confidence: number;
     method: 'keyword' | 'embedding' | 'gpt' | 'hybrid' | 'none' | 'heuristic';
     rationale: string;
@@ -22,7 +81,7 @@ export interface SkuDetectionResult {
     personalizedName?: string;
     trafficLight?: 'GREEN' | 'AMBER' | 'RED';
     vaAction?: 'CONFIRM' | 'REVIEW' | 'OVERRIDE';
-    candidates?: ProductizedService[];
+    candidates?: CatalogSku[];
     debug?: {
         keywordScore: number;
         embeddingScore: number;
@@ -44,7 +103,7 @@ export interface MultiTaskDetectionResult {
     results: { task: TaskItem; detection: SkuDetectionResult }[];
     matchedServices: {
         task: TaskItem;
-        sku: ProductizedService;
+        sku: CatalogSku;
         confidence: number;
         personalizedName?: string;
     }[];
@@ -75,11 +134,11 @@ interface ClarificationNeeded {
     task: TaskItem;
     itemType: string;
     options: {
-        sku: ProductizedService;
+        sku: CatalogSku;
         actionType: string;
         label: string;
     }[];
-    diagnosticSku?: ProductizedService;
+    diagnosticSku?: CatalogSku;
 }
 
 // Synonym Map
@@ -110,7 +169,7 @@ const SYNONYM_MAP: Record<string, string[]> = {
 };
 
 // Cache
-let skuCache: ProductizedService[] | null = null;
+let skuCache: CatalogSku[] | null = null;
 let lastCacheUpdate = 0;
 const CACHE_TTL = 1000 * 60 * 60; // 1 hour (B3: Increased from 5 minutes)
 
@@ -197,7 +256,7 @@ const embeddingCache = new LRUEmbeddingCache(EMBEDDING_CACHE_MAX_SIZE);
 let embeddingCacheHits = 0;
 let embeddingCacheMisses = 0;
 
-export async function loadAndCacheSkus(): Promise<ProductizedService[]> {
+export async function loadAndCacheSkus(): Promise<CatalogSku[]> {
     const now = Date.now();
     if (skuCache && (now - lastCacheUpdate < CACHE_TTL)) {
         return skuCache;
@@ -208,11 +267,11 @@ export async function loadAndCacheSkus(): Promise<ProductizedService[]> {
 
     while (attempt < MAX_RETRIES) {
         try {
-            const skus = await db.select().from(productizedServices).where(eq(productizedServices.isActive, true));
-            skuCache = skus;
+            const rows = await db.select().from(serviceCatalog).where(eq(serviceCatalog.isActive, true));
+            skuCache = rows.map(toCatalogSku);
             lastCacheUpdate = now;
-            console.log(`[SKU Detector] Loaded ${skus.length} active SKUs`);
-            return skus;
+            console.log(`[SKU Detector] Loaded ${skuCache.length} active SKUs from service_catalog`);
+            return skuCache;
         } catch (error) {
             attempt++;
             console.warn(`[SKU Detector] Failed to load SKUs (Attempt ${attempt}/${MAX_RETRIES}):`, error);
@@ -250,7 +309,7 @@ function expandWithSynonyms(text: string): string[] {
 }
 
 // 1. Keyword Match (Fast Path)
-export async function keywordMatch(inputText: string): Promise<{ sku: ProductizedService; score: number; expandedTokens: string[] }[]> {
+export async function keywordMatch(inputText: string): Promise<{ sku: CatalogSku; score: number; expandedTokens: string[] }[]> {
     const skus = await loadAndCacheSkus();
     const expandedTokens = expandWithSynonyms(inputText);
 
@@ -294,104 +353,17 @@ export async function keywordMatch(inputText: string): Promise<{ sku: Productize
         .slice(0, 5); // Top 5
 }
 
-// 2. Embedding Match (Cosine Similarity)
-// B2: Cached embedding function with LRU eviction for memory safety
-async function getEmbedding(text: string): Promise<number[] | null> {
-    const normalized = text.toLowerCase().trim();
-
-    // Check cache first (LRU cache handles hit/miss tracking internally)
-    const cached = embeddingCache.get(normalized);
-    if (cached !== undefined) {
-        // Update legacy stats for backwards compatibility
-        embeddingCacheHits = embeddingCache.getStats().hits;
-        return cached;
-    }
-
-    // Cache miss - generate new embedding
-    embeddingCacheMisses = embeddingCache.getStats().misses;
-    try {
-        const response = await openai.embeddings.create({
-            model: "text-embedding-3-small",
-            input: text,
-        });
-        const embedding = response.data[0].embedding;
-
-        // Store in cache (LRU eviction happens automatically if at capacity)
-        embeddingCache.set(normalized, embedding);
-
-        // Log if evictions are happening (indicates high cache churn)
-        const stats = embeddingCache.getStats();
-        if (stats.evictions > 0 && stats.evictions % 100 === 0) {
-            console.log(`[SKU Detector] Embedding cache stats: ${stats.size} entries, ${stats.hitRate}% hit rate, ${stats.evictions} evictions`);
-        }
-
-        return embedding;
-    } catch (e) {
-        console.error("Embedding error:", e);
-        return null;
-    }
+// 2. Embedding — requires an external embedding service (e.g. Voyage AI).
+// Claude does not expose an embeddings endpoint. These stubs return null so the
+// pgvector path is a no-op until voyage embeddings are seeded via
+// scripts/seed-sku-embeddings.ts. The keyword + Claude-classify path (below)
+// handles the full matching pipeline without embeddings.
+async function getEmbedding(_text: string): Promise<number[] | null> {
+    return null; // no embedding provider configured
 }
 
-// B14: Batch Embedding Generation (40% faster for multi-task)
-// OpenAI allows up to 2048 inputs in a single request
-// Uses LRU cache for memory-safe caching
 export async function getEmbeddingBatch(texts: string[]): Promise<(number[] | null)[]> {
-    if (texts.length === 0) return [];
-    if (texts.length === 1) {
-        const result = await getEmbedding(texts[0]);
-        return [result];
-    }
-
-    try {
-        // Check LRU cache first for all texts
-        const normalizedTexts = texts.map(t => t.toLowerCase().trim());
-        const cachedResults: (number[] | null)[] = [];
-        const uncachedIndices: number[] = [];
-        const uncachedTexts: string[] = [];
-
-        normalizedTexts.forEach((normalized, i) => {
-            const cached = embeddingCache.get(normalized);
-            if (cached !== undefined) {
-                cachedResults[i] = cached;
-            } else {
-                cachedResults[i] = null;
-                uncachedIndices.push(i);
-                uncachedTexts.push(texts[i]);
-            }
-        });
-
-        // Update legacy stats for backwards compatibility
-        const stats = embeddingCache.getStats();
-        embeddingCacheHits = stats.hits;
-        embeddingCacheMisses = stats.misses;
-
-        // If all cached, return immediately
-        if (uncachedTexts.length === 0) {
-            return cachedResults;
-        }
-
-        // Batch request for uncached texts
-        const response = await openai.embeddings.create({
-            model: "text-embedding-3-small",
-            input: uncachedTexts,
-        });
-
-        // Store in cache and merge results
-        response.data.forEach((item, i) => {
-            const originalIndex = uncachedIndices[i];
-            const normalized = normalizedTexts[originalIndex];
-            const embedding = item.embedding;
-
-            embeddingCache.set(normalized, embedding);
-            cachedResults[originalIndex] = embedding;
-        });
-
-        return cachedResults;
-    } catch (e) {
-        console.error("Batch embedding error:", e);
-        // Fallback to individual requests
-        return Promise.all(texts.map(t => getEmbedding(t)));
-    }
+    return texts.map(() => null);
 }
 
 // B12: Vector Formatting Helper
@@ -419,24 +391,29 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
 }
 
 // B11: Rewritten to use pgvector for 10x faster similarity search
-async function embeddingMatch(inputText: string): Promise<{ sku: ProductizedService; score: number }[]> {
+async function embeddingMatch(inputText: string): Promise<{ sku: CatalogSku; score: number }[]> {
     const inputVector = await getEmbedding(inputText);
     if (!inputVector) return [];
 
     try {
-        // B11: Use native pgvector similarity search with <=> operator
-        // This is 10x faster than JSON parsing + manual cosine similarity
         const vectorString = formatVectorForPostgres(inputVector);
 
         const results = await db.execute(sql`
-            SELECT 
-                id, sku_code as "skuCode", name, category, price_pence as "pricePence",
-                description, keywords, negative_keywords as "negativeKeywords",
-                ai_prompt_hint as "aiPromptHint", embedding_vector as "embeddingVector",
+            SELECT
+                id, sku_code as "skuCode", name, category, shape,
+                price_pence as "pricePence", schedule_minutes as "scheduleMinutes",
+                price_per_unit_pence as "pricePerUnitPence", minimum_units as "minimumUnits",
+                unit_label as "unitLabel", tiers,
+                customer_description as "customerDescription",
+                admin_description as "adminDescription",
+                keywords, negative_keywords as "negativeKeywords",
+                ai_prompt_hint as "aiPromptHint",
+                upsell_sku_codes as "upsellSkuCodes",
+                icon, flex_eligible as "flexEligible", is_active as "isActive",
                 1 - (embedding <=> ${vectorString}::vector) as similarity
-            FROM productized_services
-            WHERE 
-                is_active = true 
+            FROM service_catalog
+            WHERE
+                is_active = true
                 AND embedding IS NOT NULL
                 AND 1 - (embedding <=> ${vectorString}::vector) > 0.6
             ORDER BY similarity DESC
@@ -444,80 +421,61 @@ async function embeddingMatch(inputText: string): Promise<{ sku: ProductizedServ
         `);
 
         return results.rows.map((row: any) => ({
-            sku: {
-                id: row.id,
-                skuCode: row.skuCode,
-                name: row.name,
-                category: row.category,
-                pricePence: row.pricePence,
-                description: row.description,
-                keywords: row.keywords,
-                negativeKeywords: row.negativeKeywords,
-                aiPromptHint: row.aiPromptHint,
-                embeddingVector: row.embeddingVector,
-                isActive: true,
-                timeEstimateMinutes: 0 // Not needed for matching
-            } as ProductizedService,
-            score: row.similarity * 100 // Convert to 0-100 scale
+            sku: toCatalogSku({
+                ...row,
+                id: Number(row.id),
+                flexEligible: Boolean(row.flexEligible),
+                isActive: Boolean(row.isActive),
+                offPeakWeekendPremiumPence: 0,
+                pickCount: 0,
+                createdAt: null,
+                updatedAt: null,
+                minutesPerUnit: null,
+                setupMinutes: null,
+            } as ServiceCatalogRow),
+            score: Number(row.similarity) * 100,
         }));
     } catch (e) {
-        console.error("pgvector search error, falling back to legacy method:", e);
-
-        // Fallback to legacy JSON-based method if pgvector fails
-        const skus = await loadAndCacheSkus();
-        const results = skus
-            .filter(sku => sku.embeddingVector)
-            .map(sku => {
-                try {
-                    const skuVector = JSON.parse(sku.embeddingVector!);
-                    const score = cosineSimilarity(inputVector, skuVector) * 100;
-                    return { sku, score };
-                } catch (e) {
-                    return { sku, score: 0 };
-                }
-            });
-
-        return results
-            .filter(r => r.score > 60)
-            .sort((a, b) => b.score - a.score)
-            .slice(0, 5);
+        console.error("pgvector search error, skipping embedding match:", e);
+        return [];
     }
 }
 
-// 3. GPT Classify
-async function gptClassify(inputText: string, candidates: ProductizedService[]): Promise<{ matchedIndex: number | null; confidence: number; rationale: string }> {
+// 3. Claude Classify — picks the best candidate using claude-haiku-4-5
+async function gptClassify(inputText: string, candidates: CatalogSku[]): Promise<{ matchedIndex: number | null; confidence: number; rationale: string }> {
     try {
-        const prompt = `
-      User Request: "${inputText}"
-      
-      We are an odd-job service. Which of the following predefined services matches this request?
-      Candidates:
-      ${candidates.map((c, i) => `${i}. [${c.skuCode}] ${c.name} - ${c.description || ''}`).join('\n')}
-      
-      Rules:
-      - Return JSON { "matchedIndex": number | null, "confidence": number (0-100), "rationale": "string" }
-      - If "Fixing a TV on wall" matches "TV Mounting", return high confidence used index.
-      - If generic ("fix stuff"), return null.
-    `;
+        const prompt = `You are a handyman dispatch classifier. A customer described their job and you must pick the best matching service from the candidate list.
 
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [{ role: "system", content: "You are a helpful handyman dispatcher." }, { role: "user", content: prompt }],
-            response_format: { type: "json_object" },
-            max_tokens: 150,      // B1: Limit response size for speed
-            temperature: 0,       // B1: Deterministic, faster responses
-            top_p: 1              // B1: Consistency
+Customer request: "${inputText}"
+
+Candidates:
+${candidates.map((c, i) => `${i}. [${c.skuCode}] ${c.name} — ${c.customerDescription || ''}`).join('\n')}
+
+Respond with JSON only: { "matchedIndex": number | null, "confidence": number (0-100), "rationale": "string" }
+Rules:
+- matchedIndex is the list index of the best match, or null if none fit well.
+- confidence reflects how certain you are (>75 = good match, <50 = weak).
+- If the request is vague or doesn't map to any specific service, return null.`;
+
+        const anthropic = getAnthropic();
+        const response = await anthropic.messages.create({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 150,
+            temperature: 0,
+            messages: [{ role: "user", content: prompt }],
         });
 
-        const parsed = JSON.parse(response.choices[0].message.content || "{}");
+        const text = response.content[0].type === 'text' ? response.content[0].text : '{}';
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        const parsed = JSON.parse(jsonMatch?.[0] ?? '{}');
         return {
             matchedIndex: typeof parsed.matchedIndex === 'number' ? parsed.matchedIndex : null,
             confidence: parsed.confidence || 0,
-            rationale: parsed.rationale || "GPT decision"
+            rationale: parsed.rationale || "Claude classify",
         };
 
     } catch (e) {
-        console.error("GPT verify error:", e);
+        console.error("Claude classify error:", e);
         return { matchedIndex: null, confidence: 0, rationale: "Error" };
     }
 }
@@ -600,7 +558,10 @@ export async function detectWithContext(
 
     // Add suggested scripts to the standard result
     if (result.matched && result.nextRoute === 'INSTANT_PRICE') {
-        result.suggestedScript = `I can give you a fixed price of £${(result.sku!.pricePence / 100).toFixed(0)} for that job.`;
+        const displayP = getDisplayPricePence(result.sku!);
+        result.suggestedScript = displayP
+            ? `I can give you a fixed price of £${(displayP / 100).toFixed(0)} for that job.`
+            : `I can give you a fixed price for that job.`;
     } else if (result.nextRoute === 'VIDEO_QUOTE') {
         result.suggestedScript = "To be sure on the price, could you click the link I sent to upload a quick video?";
     } else {
@@ -627,6 +588,7 @@ export async function detectSku(inputText: string, options?: SkuDetectionOptions
     if (bestCandidate && bestCandidate.score >= 80) { // B6: Lowered from 85 to 80
         const elapsed = Date.now() - startTime;
         console.log(`[SKU Detector] Fast path: ${elapsed}ms (keyword match)`);
+        const displayP = getDisplayPricePence(bestCandidate.sku);
         return {
             matched: true,
             sku: bestCandidate.sku,
@@ -634,6 +596,9 @@ export async function detectSku(inputText: string, options?: SkuDetectionOptions
             method: 'keyword',
             rationale: "Strong keyword match",
             nextRoute: 'INSTANT_PRICE',
+            suggestedScript: displayP
+                ? `I can give you a fixed price of £${(displayP / 100).toFixed(0)} for that job.`
+                : `I can give you a fixed price for that job.`,
             debug: { keywordScore: bestCandidate.score, embeddingScore: 0, gptScore: 0, expandedTokens: bestCandidate.expandedTokens }
         };
     }
@@ -662,13 +627,13 @@ export async function detectSku(inputText: string, options?: SkuDetectionOptions
         embeddingResults = await embeddingMatch(inputText);
     }
 
-    const allCandidates = new Map<string, ProductizedService>();
-    keywordResults.forEach(r => allCandidates.set(r.sku.id, r.sku));
-    embeddingResults.forEach(r => allCandidates.set(r.sku.id, r.sku));
+    const allCandidates = new Map<string, CatalogSku>();
+    keywordResults.forEach(r => allCandidates.set(r.sku.skuCode, r.sku));
+    embeddingResults.forEach(r => allCandidates.set(r.sku.skuCode, r.sku));
     const candidates = Array.from(allCandidates.values());
 
     let matchFound = false;
-    let winningSku: ProductizedService | null = null;
+    let winningSku: CatalogSku | null = null;
     let matchConfidence = 0;
     let matchRationale = "";
 
@@ -773,42 +738,41 @@ export async function detectMultipleTasks(text: string): Promise<MultiTaskDetect
     // Run quick keyword match on full text WHILE task splitting is happening
     // If we get a high-confidence match, we can skip the expensive task splitting
     const [tasks, quickKeywordMatch] = await Promise.all([
-        // Task splitting (expensive GPT call)
+        // Task splitting via Claude Haiku
         (async () => {
             try {
-                const prompt = `
-                    Analyze this request: "${text}"
-                    Break it down into individual distinct physical tasks.
-                    
-                    Rules:
-                    1. ONLY extract tasks that are EXPLICITLY mentioned.
-                    2. Do NOT invent specific tasks (e.g. do not convert "lots of issues" into "fix socket").
-                    3. If the request is vague or general (e.g. "I have a mess", "lots of problems"), return it as a single task using the original text.
-                    4. Return JSON: { "tasks": [{ "description": "string", "quantity": number }] }
-                    
-                    Example 1: "Fix tap and hang 2 shelves" -> { "tasks": [{ "description": "Fix tap", "quantity": 1 }, { "description": "Hang shelves", "quantity": 2 }] }
-                    Example 2: "I have a property with lots of issues" -> { "tasks": [{ "description": "Property with lots of issues", "quantity": 1 }] }
-                `;
+                const prompt = `Split this customer request into individual distinct physical tasks.
 
-                const response = await openai.chat.completions.create({
-                    model: "gpt-4o-mini",
-                    messages: [{ role: "system", content: "You are a job parser." }, { role: "user", content: prompt }],
-                    response_format: { type: "json_object" },
-                    max_tokens: 200,      // B1: Limit response size for speed
-                    temperature: 0,       // B1: Deterministic, faster responses
-                    top_p: 1              // B1: Consistency
+Request: "${text}"
+
+Rules:
+1. Only extract tasks EXPLICITLY mentioned — never invent specifics from vague text.
+2. If the request is vague (e.g. "lots of issues"), return it as a single task verbatim.
+3. Return JSON only: { "tasks": [{ "description": "string", "quantity": number }] }
+
+Examples:
+"Fix tap and hang 2 shelves" → { "tasks": [{"description":"Fix tap","quantity":1},{"description":"Hang shelves","quantity":2}] }
+"I have a property with lots of issues" → { "tasks": [{"description":"Property with lots of issues","quantity":1}] }`;
+
+                const anthropic = getAnthropic();
+                const response = await anthropic.messages.create({
+                    model: "claude-haiku-4-5-20251001",
+                    max_tokens: 200,
+                    temperature: 0,
+                    messages: [{ role: "user", content: prompt }],
                 });
 
-                const parsed = JSON.parse(response.choices[0].message.content || "{ \"tasks\": [] }");
+                const raw = response.content[0].type === 'text' ? response.content[0].text : '';
+                const jsonMatch = raw.match(/\{[\s\S]*\}/);
+                const parsed = JSON.parse(jsonMatch?.[0] ?? '{"tasks":[]}');
                 return parsed.tasks.map((t: any, i: number) => ({
                     description: t.description,
                     quantity: t.quantity || 1,
-                    originalIndex: i
+                    originalIndex: i,
                 })) as TaskItem[];
 
             } catch (e) {
                 console.error("Task split error:", e);
-                // Fallback: Treat whole text as one task
                 return [{ description: text, quantity: 1, originalIndex: 0 }] as TaskItem[];
             }
         })(),
@@ -847,7 +811,7 @@ export async function detectMultipleTasks(text: string): Promise<MultiTaskDetect
             }],
             unmatchedTasks: [],
             flatpackTasks: [],
-            totalMatchedPrice: bestMatch.sku.pricePence,
+            totalMatchedPrice: getDisplayPricePence(bestMatch.sku),
             hasMatches: true,
             hasUnmatched: false,
             hasFlatpack: false,
@@ -893,7 +857,7 @@ export async function detectMultipleTasks(text: string): Promise<MultiTaskDetect
                 confidence: res.detection.confidence,
                 personalizedName: res.detection.sku.name
             });
-            totalMatchedPrice += (res.detection.sku.pricePence * res.task.quantity);
+            totalMatchedPrice += (getDisplayPricePence(res.detection.sku) * res.task.quantity);
         } else {
             unmatchedTasks.push(res.task);
         }

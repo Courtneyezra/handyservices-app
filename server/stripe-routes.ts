@@ -10,6 +10,7 @@ import { getPricingSettings } from './pricing-settings';
 import { insertInvoiceWithRetry } from './invoices';
 import { extendLock, confirmBooking } from './booking-engine';
 import { computeLaneBasePence, parsePricingLane } from './lane-pricing';
+import { confirmPaidPick } from './slot-offers';
 
 // Helper to get Stripe instance lazily
 const getStripe = () => {
@@ -660,6 +661,20 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             }
                         })();
 
+                        // Flexible job (no lockId) landed in the pool → auto-compute the
+                        // optimised proposal now. Fire-and-forget; never blocks the webhook,
+                        // never books (human still approves in the console).
+                        if (!lockIdMeta) {
+                            (async () => {
+                                try {
+                                    const { runAutonomousSweep } = await import('./dispatch-cron');
+                                    await runAutonomousSweep('stripe:new-flex-payment');
+                                } catch (sweepErr) {
+                                    console.error('[Stripe Webhook] dispatch sweep trigger failed (non-blocking):', sweepErr);
+                                }
+                            })();
+                        }
+
                     } else {
                         console.log('[Stripe Webhook] No quote found for quoteId:', quoteId);
                     }
@@ -818,6 +833,33 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         .where(eq(invoices.id, invoiceResults[0].id));
 
                     console.log('[Stripe Webhook] Invoice updated with payment failure');
+                }
+                break;
+            }
+
+            case 'checkout.session.completed': {
+                // Customer slot-offer premium top-up: the customer picked a NON-recommended
+                // date (forfeiting their flex discount) and paid the difference via a Stripe
+                // Checkout Session opened by /api/slot-offer/:token/pick. Finalise by assigning
+                // the staged contractor (confirmPaidPick is idempotent). Other Checkout
+                // Sessions (if any) fall through untouched.
+                const session = event.data.object as any;
+                if (session.metadata?.kind === 'slot_offer_premium' && session.metadata?.slotOfferQuoteId) {
+                    const slotOfferQuoteId = session.metadata.slotOfferQuoteId as string;
+                    try {
+                        const result = await confirmPaidPick(slotOfferQuoteId);
+                        if (result.ok) {
+                            console.log(`[Stripe Webhook] Slot-offer premium confirmed for quote ${slotOfferQuoteId} (booking ${result.bookingId ?? 'already-confirmed'})`);
+                        } else {
+                            console.warn(`[Stripe Webhook] confirmPaidPick failed for quote ${slotOfferQuoteId}: ${result.error}`);
+                        }
+                    } catch (slotErr) {
+                        // Never let a slot-offer failure 500 the webhook (Stripe would retry the
+                        // whole event); log and acknowledge so other handlers stay unaffected.
+                        console.error('[Stripe Webhook] confirmPaidPick threw:', slotErr);
+                    }
+                } else {
+                    console.log('[Stripe Webhook] checkout.session.completed — not a slot-offer premium, ignoring');
                 }
                 break;
             }
