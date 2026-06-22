@@ -1372,13 +1372,18 @@ export function UnifiedQuoteCard({
     setReserveError(null);
 
     try {
-      // Map the selectedTimeSlot from the SchedulingConfig (morning/afternoon/first/exact)
-      // to the server's slot format (am/pm/full_day)
+      // Map the selectedTimeSlot (morning/afternoon/first) to the server's slot
+      // format. Large jobs are full-day commits whose selectedTimeSlot is set to
+      // 'morning' only to satisfy the "date + time chosen" gate — do NOT downgrade
+      // them to a 4h am/pm slot, or reserveSlot can't fit the job, returns "no
+      // contractors", and the date silently clears (looks like nothing happens).
       let slotForServer: 'am' | 'pm' | 'full_day' = selectedSlotChoice;
-      if (selectedTimeSlot === 'morning' || selectedTimeSlot === 'first') {
-        slotForServer = 'am';
-      } else if (selectedTimeSlot === 'afternoon') {
-        slotForServer = 'pm';
+      if (!isLargeJob) {
+        if (selectedTimeSlot === 'morning' || selectedTimeSlot === 'first') {
+          slotForServer = 'am';
+        } else if (selectedTimeSlot === 'afternoon') {
+          slotForServer = 'pm';
+        }
       }
 
       const result = await reserveSlot({
