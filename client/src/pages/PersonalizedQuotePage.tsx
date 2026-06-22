@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRoute, useLocation } from 'wouter';
-import { useScroll, motion, AnimatePresence, useInView, useSpring, useTransform } from 'framer-motion';
+import { useScroll, motion, AnimatePresence, useInView, useSpring, useTransform, useReducedMotion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import { queryClient } from '@/lib/queryClient';
 import { Card, CardContent } from '@/components/ui/card';
@@ -1800,6 +1800,96 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
 
 
 
+      </motion.div>
+    </SectionWrapper>
+  );
+};
+
+// "Flexibility pays" — savings-led, ANIMATED explainer shown before the booking
+// section. Leads with a count-up of the £ saved by staying flexible (the set-date
+// premium you skip), then a staggered 3-step how-it-works. Both reveal on
+// scroll-into-view. Homeowner framing.
+const FlexSavingsSection = ({ quote }: { quote: PersonalizedQuote }) => {
+  // Only homeowner-type quotes carry the flex/date-premium dynamic (landlords pay +£25
+  // liaise, business gets a flat guarantee) — mirror lane-pricing.ts isLaneEligible.
+  const ctx: any = (quote as any).contextSignals || {};
+  const vaCtx = String(ctx.vaContext || '').toLowerCase();
+  const ctxType = String(ctx.customerType || '').toLowerCase();
+  const isLandlord = ctxType === 'landlord' || /landlord|rental|tenant|buy.to.let|btl|letting/.test(vaCtx);
+  const isBusiness = ctxType === 'business' || /office|business|company|commercial|shop/.test(vaCtx);
+  const laneEligible = !isLandlord && !isBusiness;
+
+  // The customer's only money lever is the premium they SKIP by staying flexible — the
+  // flexible lane is just the base price (no rebate), and picking a firm date & time adds
+  // this premium. Mirror lane-pricing.ts computeSetDatePremiumPence (£30 flat + 6%) so this
+  // £ matches the "+£X" the date-&-time lane shows in the booking card.
+  const basePence = quote.basePrice || quote.finalPricePence || 0;
+  const premiumPence = basePence > 0 ? Math.round((3000 + Math.round(basePence * 0.06)) / 100) * 100 : 0;
+  const savePounds = Math.round(premiumPence / 100);
+  const reduceMotion = useReducedMotion();
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, margin: '-100px' });
+  // Overdamped so the £ counts up briskly and NEVER overshoots — a money figure must not
+  // flash a wrong number on its way to settling.
+  const spring = useSpring(0, { stiffness: 80, damping: 20 });
+  const display = useTransform(spring, (v) => `£${Math.round(v)}`);
+  useEffect(() => { if (inView) spring.set(savePounds); }, [inView, savePounds, spring]);
+
+  if (!laneEligible || savePounds <= 0) return null;
+
+  const ticks = [
+    { t: 'Done in 7 days', d: 'guaranteed' },
+    { t: 'Exact slot confirmed', d: '2 days ahead' },
+    { t: 'Never slips', d: 'backup engineer' },
+  ];
+
+  // Strong ease-out (animations.dev) — the built-in 'easeOut' is too weak. `rise` gates
+  // vertical travel: reduced-motion users get gentle opacity fades with no movement.
+  const EASE_OUT: [number, number, number, number] = [0.23, 1, 0.32, 1];
+  const rise = reduceMotion ? 0 : 1;
+
+  return (
+    <SectionWrapper className="bg-slate-900 text-white">
+      <motion.div
+        ref={ref}
+        initial={{ opacity: 0, y: 20 * rise }}
+        animate={inView ? { opacity: 1, y: 0 } : {}}
+        transition={{ duration: 0.5, ease: EASE_OUT }}
+        className="max-w-2xl md:max-w-4xl mx-auto w-full py-12 lg:py-16"
+      >
+        <div className="text-center mb-10">
+          <p className="text-slate-400 text-xs font-bold uppercase tracking-[0.2em] mb-3">Stay flexible</p>
+          <p className="text-handy-yellow text-3xl lg:text-4xl font-extrabold uppercase tracking-wide leading-none">Save</p>
+          <h3 className="text-8xl lg:text-9xl font-extrabold leading-[0.9] tracking-tight mt-1 tabular-nums">
+            {reduceMotion ? <span>£{savePounds}</span> : <motion.span>{display}</motion.span>}
+          </h3>
+          <p className="text-slate-300 mt-4 text-lg">The premium to lock an exact day &amp; time.</p>
+        </div>
+        {/* Horizontal tick box — mirrors the "Why homeowners choose us" comparison card
+            (white panel, green ✓). The card rises in, then the three ticks stagger. */}
+        <motion.div
+          className="grid grid-cols-3 gap-2 sm:gap-4 rounded-2xl bg-white shadow-xl ring-1 ring-black/5 p-4 sm:p-6 max-w-2xl mx-auto"
+          initial="hidden"
+          animate={inView ? 'show' : 'hidden'}
+          variants={{
+            hidden: { opacity: 0, y: 16 * rise },
+            show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: EASE_OUT, delayChildren: 0.18, staggerChildren: 0.06 } },
+          }}
+        >
+          {ticks.map((t, i) => (
+            <motion.div
+              key={i}
+              className="flex flex-col items-center text-center gap-2"
+              variants={{ hidden: { opacity: 0, y: 8 * rise }, show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: EASE_OUT } } }}
+            >
+              <span className="w-8 h-8 rounded-full bg-[#7DB00E] flex items-center justify-center shadow-sm">
+                <Check className="w-4 h-4 text-white" strokeWidth={3.5} />
+              </span>
+              <p className="font-bold text-slate-800 text-xs sm:text-sm leading-tight">{t.t}</p>
+              <p className="text-slate-500 text-[11px] sm:text-xs leading-tight">{t.d}</p>
+            </motion.div>
+          ))}
+        </motion.div>
       </motion.div>
     </SectionWrapper>
   );
@@ -3703,7 +3793,9 @@ export default function PersonalizedQuotePage() {
 
         <ValueGuarantee quote={quote} config={config} />
 
-        {/* Hassle Comparison — "Without Us vs With Us" */}
+        {/* Why homeowners choose us — pain-led header + the comparison + a value tie-in.
+            Consolidated here: the standalone pain section was folded in to avoid two
+            overlapping "why us" beats and keep the high-intent quote tight + on-brand. */}
         <SectionWrapper className="bg-white">
           <div className="max-w-2xl md:max-w-3xl mx-auto w-full">
             {(() => {
@@ -3714,16 +3806,22 @@ export default function PersonalizedQuotePage() {
                 /office|business|company|commercial|shop/.test(vaCtx) ? 'businesses' :
                 /professional|busy exec|corporate/.test(vaCtx) ? 'professionals' :
                 'homeowners';
-              const hassleTitle = isContextualQuote ? `Why ${customerType} choose us.` : undefined;
               return (
                 <>
-                  {hassleTitle && <h3 className="text-2xl font-bold text-slate-800 mb-4">{hassleTitle}</h3>}
-                  <HassleComparisonCard segment={quote.segment || 'UNKNOWN'} hideTitle={!!hassleTitle} maxItems={6} />
+                  <div className="text-center mb-6">
+                    <h3 className="text-2xl lg:text-3xl font-extrabold text-slate-900 leading-tight">Everything a handyman should be — and usually isn’t.</h3>
+                    <p className="text-slate-500 mt-2.5 max-w-lg mx-auto">No-shows, cash-only, surprise bills, a stranger in your home — the usual handyman risks, designed out. It’s why {customerType} choose us.</p>
+                  </div>
+                  <HassleComparisonCard segment={quote.segment || 'UNKNOWN'} hideTitle maxItems={6} />
+                  <p className="text-center text-slate-600 mt-6 max-w-lg mx-auto font-medium">That’s what your price pays for — and <span className="text-slate-900 font-bold">if it’s not right, we come back and fix it free.</span></p>
                 </>
               );
             })()}
           </div>
         </SectionWrapper>
+
+        {/* "Flexibility pays" — savings-led animated explainer, before the booking section. */}
+        {isContextualQuote && <FlexSavingsSection quote={quote} />}
 
         {/* The Final Reveal: Quote Section */}
         <section id="packages-section" className="bg-slate-50 pt-16 pb-8 px-4 md:px-6 lg:px-8 relative overflow-visible">

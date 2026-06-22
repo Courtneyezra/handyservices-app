@@ -31,9 +31,12 @@ import {
 } from './slot-offers';
 import type { OfferSlot } from '../shared/slot-offer';
 import { isTestQuoteId } from './dispatch-test-mode';
+import { getBaseUrl } from './url-utils';
 
-// Mirror server/auth.ts so the customer link + Stripe redirect URLs match the rest of the app.
-const BASE_URL = process.env.BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:5000';
+// The customer link + Stripe redirect URLs are derived PER-REQUEST via getBaseUrl(req)
+// (server/url-utils.ts): BASE_URL env in production, else the request's forwarded/origin/host
+// headers. This keeps every redirect on whatever host the customer actually used, so local dev
+// never points at the wrong port (the old localhost:5000 default collided with macOS AirPlay).
 
 // Lazy Stripe client — same construction as server/stripe-routes.ts / live-call-actions.ts
 // (strip stray quotes, require a real sk_ secret key, else treat Stripe as unconfigured).
@@ -95,7 +98,7 @@ slotOfferAdminRouter.post('/slot-offer/send', async (req: Request, res: Response
 
     return res.json({
       token: offer.token,
-      link: `${BASE_URL}/confirm-slot/${offer.token}`,
+      link: `${getBaseUrl(req)}/confirm-slot/${offer.token}`,
       candidates: offer.candidates,
       phone,
       email,
@@ -221,8 +224,8 @@ slotOfferPublicRouter.post('/:token/pick', async (req: Request, res: Response) =
           quantity: 1,
         },
       ],
-      success_url: `${BASE_URL}/confirm-slot/${token}?paid=1`,
-      cancel_url: `${BASE_URL}/confirm-slot/${token}`,
+      success_url: `${getBaseUrl(req)}/confirm-slot/${token}?paid=1`,
+      cancel_url: `${getBaseUrl(req)}/confirm-slot/${token}`,
       metadata: {
         kind: 'slot_offer_premium',
         slotOfferQuoteId: quoteId,

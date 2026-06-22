@@ -145,10 +145,11 @@ export interface CreateOfferInput {
 }
 
 /**
- * Build + persist a fresh slot offer for a quote: recommended slot (free, keeps the flex
- * discount) + up to MAX_ALTERNATIVES feasible alternative dates (each forfeits the discount,
- * premium = computeFlexDiscountPence(basePrice)). Mints a token and sets status 'sent'.
- * Re-sending after a decline carries the prior declines forward so they're not re-offered.
+ * Build + persist a fresh slot offer for a quote: recommended slot (free) + up to
+ * MAX_ALTERNATIVES feasible alternative dates (each carries a "deviation forfeit" for
+ * pinning a non-recommended day, premium = computeFlexDiscountPence(basePrice)). Mints a
+ * token and sets status 'sent'. Re-sending after a decline carries the prior declines
+ * forward so they're not re-offered.
  */
 export async function createSlotOffer(input: CreateOfferInput): Promise<SlotOffer> {
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
@@ -161,8 +162,10 @@ export async function createSlotOffer(input: CreateOfferInput): Promise<SlotOffe
   const excludeDates = new Set<string>([input.recommended.date, ...declinedDates]);
   const alts = await computeAlternativeSlots(q, ctx, excludeDates);
 
-  // Hybrid premium: the flat forfeited flex discount (the discount they'd lose by deviating)
-  // PLUS weekend / next-day surcharges for costly dates. Recommended slot stays free.
+  // Hybrid premium: a flat "deviation forfeit" for choosing a non-recommended day (the
+  // quote's flexible price IS the recommended thin-day slot; pinning another date carries
+  // this charge) PLUS weekend / next-day surcharges for costly dates. Recommended slot
+  // stays free.
   const forfeitPence = computeFlexDiscountPence(q.basePrice);
   const tomorrow = new Date(today); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
   const tomorrowStr = ymd(tomorrow);

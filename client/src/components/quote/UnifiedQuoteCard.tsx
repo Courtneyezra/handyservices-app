@@ -218,17 +218,17 @@ interface UnifiedQuoteCardProps {
     address?: { line: string; postcode?: string; lat?: number; lng?: number };
     flexiblePeriodDays?: number; // When using downsell, how many days flexibility
     /**
-     * Phase 25 — flex booking window (days). Set when the customer ticked
-     * "Flexible booking — save 10%" and accepted that we pick a weekday
-     * within N days. Mirrors the personalized_quotes.flexBookingWithinDays
-     * column. Server-side wiring is owned by Agent 25e.
+     * Phase 25 — flex booking window (days). Set when the customer chose
+     * "I'm flexible" and accepted that we pick a weekday within N days. Mirrors
+     * the personalized_quotes.flexBookingWithinDays column. Server-side wiring is
+     * owned by Agent 25e.
      */
     flexBookingWithinDays?: number;
     /**
-     * Phase 37 — the pricing lane the customer is in ('flex' = convenience-rebate
-     * lane, 'date_time' = firm date+slot premium lane, 'liaise' = landlord
-     * tenant-liaison concierge +£25). Forwarded to /track-booking so the SERVER
-     * re-derives the lane-adjusted price from quote.basePrice. Omitted for
+     * Phase 37 — the pricing lane the customer is in ('flex' = the default
+     * base-price lane, 'date_time' = firm date+slot premium lane, 'liaise' =
+     * landlord tenant-liaison concierge +£25). Forwarded to /track-booking so the
+     * SERVER re-derives the lane-adjusted price from quote.basePrice. Omitted for
      * businesses (no price lever), firm-date landlords, and legacy/downsell flows.
      */
     pricingLane?: 'flex' | 'date_time' | 'liaise';
@@ -481,29 +481,22 @@ export function UnifiedQuoteCard({
   const PAY_FULL_DISCOUNT = (payInFullDiscountPercentProp ?? 3) / 100;
 
   // ── Phase 25 flex booking ──────────────────────────────────────────────
-  // Customer-facing knob: "Flexible booking — save 10%". When checked, the
-  // date picker collapses, we apply a 10% discount, and `flexBookingWithinDays`
-  // is sent through onBook so the server can route this booking to a thin day
-  // within the window. Defaults: 7-day window, 10% off — matches the catalog
-  // contract Agents 25a/25b agreed.
+  // Customer-facing knob: "I'm flexible" (the DEFAULT lane). When on, the date
+  // picker collapses and `flexBookingWithinDays` is sent through onBook so the
+  // server can route this booking to a thin day within the window. The flexible
+  // lane is priced at the FULL base price — there is no rebate. The only price
+  // lever is the set-date premium below (a firm date & slot costs extra).
   const FLEX_WINDOW_DAYS = 7;
-  const FLEX_DISCOUNT_PERCENT = 7;
-  // Phase 37 — the flex saving is really a near-fixed "convenience rebate":
-  // flexibility is worth roughly the same to dispatch regardless of ticket size, so
-  // we clamp the 7%-of-price figure to a floor (keeps small-job savings meaningful)
-  // and a cap (protects margin on big jobs, where 7% would over-give).
-  const FLEX_MIN_SAVING_PENCE = 1200; // £12 floor
-  const FLEX_MAX_SAVING_PENCE = 3000; // £30 cap
-  // ── "I want a date & time" premium (decoupled from the flex rebate) ─────
-  // Committing a specific date AND arrival slot is a real surcharge, anchored to
-  // the cost of taking time off work to wait in (a half-day off ≈ £65). The flat
-  // WTP sits just under that so it's an obvious trade; the % keeps it scaling with
-  // bigger jobs while still reading as a small slice of the total.
+  // ── "I want a date & time" premium — the ONLY price lever ───────────────
+  // Flexible is the base price; committing a specific date AND arrival slot is a
+  // real surcharge, anchored to the cost of taking time off work to wait in (a
+  // half-day off ≈ £65). The flat WTP sits just under that so it's an obvious
+  // trade; the % keeps it scaling with bigger jobs while reading as a small slice.
   const SET_DATE_WTP_PENCE = 3000;   // £30 flat WTP anchor (≈ just under a half-day off work)
   const SET_DATE_PCT = 0.06;         // + 6% of the quote price
-  // Flat premium for the landlord tenant-liaison concierge (pence). It's the
-  // inverse of the flex discount: flex saves us effort (thin-day routing), liaise
-  // costs us effort (chasing the tenant, arranging access), so it's a charge.
+  // Flat premium for the landlord tenant-liaison concierge (pence). The flexible
+  // lane saves us effort (thin-day routing) at no extra charge; liaise COSTS us
+  // effort (chasing the tenant, arranging access), so it carries a charge.
   const LIAISE_PREMIUM_PENCE = 2500;
   const [useFlexBooking, setUseFlexBooking] = useState(false);
   // Landlord promo nudge: the page's "Add tenant liaison" CTA bumps
@@ -565,21 +558,18 @@ export function UnifiedQuoteCard({
     return skuLines.some(li => (li as any).flexEligible === true);
   }, [pricingLineItems]);
 
-  // Phase 29 — flexible booking is the DEFAULT (it lets us route to thin days
-  // and is funded by the 7% uplift baked into prices). Tick it once on load;
-  // the ref guard means a customer who unticks it (or picks a specific date) is
-  // never silently re-defaulted.
+  // Phase 29 — flexible booking is the DEFAULT (it lets us route to thin days).
+  // Tick it once on load; the ref guard means a customer who unticks it (or picks
+  // a specific date) is never silently re-defaulted.
   // NB: the flex toggle is now OFFERED to every non-landlord quote (see the
   // render gate below). This effect only controls whether it auto-defaults ON:
-  //   - Homeowners ALWAYS default ON. The flex discount is a flat 7% of
-  //     basePrice (independent of per-line flex_eligible), so it's safe to apply
-  //     to any homeowner quote, including custom/free-text ones.
-  //   - Businesses ALWAYS default ON too, but carry NO flex discount (see the
-  //     discount memo): the flexible lane is framed as a deadline guarantee, so
-  //     it's safe to default on for any business quote regardless of SKU flags.
+  //   - Homeowners ALWAYS default ON — the flexible lane is just the base price,
+  //     so it's safe to apply to any homeowner quote, including custom/free-text.
+  //   - Businesses ALWAYS default ON too: the flexible lane is framed as a
+  //     deadline guarantee, so it's safe to default on for any business quote.
   //   - Other non-landlord types default ON only when the quote is flex-eligible
-  //     (has a flex_eligible SKU line); otherwise they open on a firm date with
-  //     no silently-applied discount, but can still opt in.
+  //     (has a flex_eligible SKU line); otherwise they open on a firm date but
+  //     can still opt in.
   // Landlords do NOT auto-default into liaise: it's now a paid premium (+£25), so
   // it must be an explicit opt-in (no surprise fee). They open on the firm-date
   // grid with the liaison toggle offered above it.
@@ -944,27 +934,14 @@ export function UnifiedQuoteCard({
     return [...configAddOns, ...quoteExtras];
   }, [config.addOns, optionalExtras]);
 
-  // ── Flexible vs "date & time" price split (two independent levers) ──────
-  // flexDiscountValue: the convenience rebate that makes the FLEXIBLE lane the
-  //   headline (funds thin-day routing). Clamped £12–£30, ~7% of basePrice.
-  // setDatePremium: the surcharge for the FIRM "date & time" lane — a flat WTP
-  //   anchor + % of the quote (see constants above). Previously these were welded
-  //   to the same clamp; decoupling lets the firm premium reflect real operational
-  //   cost without dragging the flexible price down with it.
-  // Businesses (deadline-guarantee framing) and landlords (liaise flow) carry
-  // neither — both resolve to 0.
-  const flexDiscountValue = (!isLandlord && !isBusiness)
-    ? Math.min(
-        FLEX_MAX_SAVING_PENCE,
-        Math.max(FLEX_MIN_SAVING_PENCE, Math.round(basePrice * (FLEX_DISCOUNT_PERCENT / 100))),
-      )
-    : 0;
+  // ── "Date & time" premium (the single price lever) ─────────────────────
+  // The flexible lane is just basePrice — no rebate. The ONLY adjustment is the
+  // surcharge for the FIRM "date & time" lane: a flat WTP anchor + % of the quote
+  // (see constants above). Businesses (deadline-guarantee framing) and landlords
+  // (liaise flow) carry no premium — it resolves to 0.
   const setDatePremium = (!isLandlord && !isBusiness)
     ? Math.round((SET_DATE_WTP_PENCE + Math.round(basePrice * SET_DATE_PCT)) / 100) * 100
     : 0;
-  // The flexible headline = basePrice minus the rebate. Line items are rebased to
-  // sum to this; picking a date & time adds setDatePremium on top.
-  const flexBasePrice = Math.max(0, basePrice - flexDiscountValue);
 
   // The pricing lane we report to the SERVER so it can re-derive the charged price
   // from quote.basePrice (server-authoritative; the client never sends the amount).
@@ -993,28 +970,13 @@ export function UnifiedQuoteCard({
       items.push({ label: config.downsell.label, amount: -discount });
     }
 
-    // ── Phase 25 flex booking discount ─────────────────────────────────
-    // Honest line for the customer: "Flex booking 10% off". Stacks with the
-    // legacy downsell only if both are toggled (UI hides one when other is on,
-    // but the math here is defensive either way).
-    // Landlords in liaise mode also use `useFlexBooking`, but coordinating with a
-    // tenant isn't a thin-day yield play, so they don't get the flex discount.
-    // Businesses also use `useFlexBooking` (it still hands dispatch the movable
-    // window), but their flexible lane is sold as a deadline guarantee, not a
-    // price cut — so they get no flex discount either.
-    let flexDiscountApplied = 0;
-    if (useFlexBooking && !isLandlord && !isBusiness) {
-      flexDiscountApplied = flexDiscountValue;
-      amount -= flexDiscountApplied;
-      items.push({ label: 'Flexible booking', amount: -flexDiscountApplied });
-    }
-
-    // ── Date & time premium (decoupled from the flex rebate) ────────────
-    // Committing a specific date & arrival slot is a real surcharge, not the flex
-    // rebate handed back. Rebase basePrice → flexible headline (strip the baked-in
-    // flex gap) then add the WTP-anchored premium on top.
+    // ── Date & time premium (the only flex/firm price lever) ────────────
+    // Flexible is just basePrice. Committing a specific date & arrival slot is a
+    // real surcharge added on top — see the WTP-anchored constants above.
+    // Landlords (liaise flow) and businesses (deadline-guarantee framing) carry
+    // no premium, so setDatePremium is already 0 for them.
     if (!useFlexBooking && setDatePremium > 0) {
-      amount = amount - flexDiscountValue + setDatePremium;
+      amount += setDatePremium;
       items.push({ label: 'Date & time', amount: setDatePremium });
     }
 
@@ -1109,31 +1071,16 @@ export function UnifiedQuoteCard({
     const payFullSaving = adjustedAmount - payFullTotal;
 
     return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied };
-  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, isBusiness, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence, flexDiscountValue, setDatePremium]);
+  }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, isBusiness, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence, setDatePremium]);
 
-  // Display-only rebasing of the line items so the customer-facing set sums to
-  // flexBasePrice. The real lineTotal (guarded price + materials) is untouched —
-  // deposit/total math still uses it. No premium (business/landlord) → unchanged.
+  // Customer-facing line items show their true totals (guarded price + materials).
+  // The flexible lane is the base price, so there's no rebasing to do — the lines
+  // already sum to basePrice. (Deposit/total math uses the same raw lineTotal.)
   const displayLineItems = useMemo(() => {
     const lines = pricingLineItems || [];
     const raw = (li: PricingLineItem) => li.guardedPricePence + (li.materialsWithMarginPence || 0);
-    if (flexDiscountValue <= 0 || lines.length === 0) {
-      return lines.map((item) => ({ item, displayPence: raw(item) }));
-    }
-    const sum = lines.reduce((s, li) => s + raw(li), 0);
-    const factor = sum > 0 ? flexBasePrice / sum : 1;
-    let allocated = 0;
-    return lines.map((item, idx) => {
-      let displayPence: number;
-      if (idx === lines.length - 1) {
-        displayPence = Math.max(0, flexBasePrice - allocated); // last line absorbs rounding drift
-      } else {
-        displayPence = Math.round((raw(item) * factor) / 100) * 100;
-        allocated += displayPence;
-      }
-      return { item, displayPence };
-    });
-  }, [pricingLineItems, flexDiscountValue, flexBasePrice]);
+    return lines.map((item) => ({ item, displayPence: raw(item) }));
+  }, [pricingLineItems]);
 
   // All 3 buffer dates must be selected before payment unlocks
   const allDatesSelected = confirmedDates.length >= MAX_BUFFER_DATES;
@@ -2048,16 +1995,17 @@ export function UnifiedQuoteCard({
           )}
 
           {/* Phase 29 — Flexible vs Pick-exact-date (two equal boxes). Flexible
-              is the default (−7%); choosing "Pick exact date" drops the date
-              grid down below. Non-flex-eligible quotes skip this and just show
-              the grid. Hidden for landlords (they get the liaise toggle above). */}
+              is the default and is priced at the base price; choosing "Pick exact
+              date" drops the date grid below and adds the set-date premium.
+              Non-flex-eligible quotes skip this and just show the grid. Hidden for
+              landlords (they get the liaise toggle above). */}
           {/* "I'm flexible" / "I want a date & time" toggle — offered to EVERY
               non-landlord quote (it's the homeowner counterpart to the landlord
               liaise toggle), no longer gated on per-line SKU flex-eligibility.
-              The 7% saving is a flat % of basePrice (baked into prices), so it's
-              valid on any quote. `isQuoteFlexEligible` now only decides whether
-              flex auto-defaults ON (see effect above); the option itself is
-              always shown. Landlords get the liaise toggle instead. */}
+              The flexible lane is just the base price, so it's valid on any quote.
+              `isQuoteFlexEligible` now only decides whether flex auto-defaults ON
+              (see effect above); the option itself is always shown. Landlords get
+              the liaise toggle instead. */}
           {!isLandlord && (
             <div className="mb-4">
               <div className="space-y-2">

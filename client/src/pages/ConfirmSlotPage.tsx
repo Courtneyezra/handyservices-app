@@ -37,7 +37,7 @@ import { Card } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import type { SlotOffer, SlotCandidate, OfferSlot } from '@shared/slot-offer';
-import handyServicesLogo from '../assets/handy-logo.webp';
+import handyServicesLogo from '../assets/handy-logo-transparent.png';
 
 // ==========================================
 // Types — GET /api/slot-offer/:token response

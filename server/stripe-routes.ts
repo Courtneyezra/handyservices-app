@@ -154,7 +154,6 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             console.log('[Stripe] Pricing lane applied:', {
                 lane: lanePricing.lane,
                 storedBasePrice,
-                flexDiscountPence: lanePricing.flexDiscountPence,
                 setDatePremiumPence: lanePricing.setDatePremiumPence,
                 liaisePremiumPence: lanePricing.liaisePremiumPence,
                 laneBasePence: lanePricing.laneBasePence,
@@ -466,7 +465,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         );
                         let totalJobPrice = webhookLanePricing.laneBasePence;
                         if (webhookLanePricing.laneApplied) {
-                            console.log(`[Stripe Webhook] Pricing lane '${webhookLanePricing.lane}' applied for quote ${quoteId}: base ${quote.basePrice} → ${webhookLanePricing.laneBasePence} (flexDiscount ${webhookLanePricing.flexDiscountPence}, setDatePremium ${webhookLanePricing.setDatePremiumPence}, liaisePremium ${webhookLanePricing.liaisePremiumPence})`);
+                            console.log(`[Stripe Webhook] Pricing lane '${webhookLanePricing.lane}' applied for quote ${quoteId}: base ${quote.basePrice} → ${webhookLanePricing.laneBasePence} (setDatePremium ${webhookLanePricing.setDatePremiumPence}, liaisePremium ${webhookLanePricing.liaisePremiumPence})`);
                         }
 
                         // Add extras

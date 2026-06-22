@@ -10,6 +10,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from './db';
 import { personalizedQuotes, handymanProfiles, handymanSkills, users, contractorBookingRequests, leads } from '../shared/schema';
+import { JOB_CATEGORIES } from '../shared/contextual-pricing-types';
 import { eq, and, gte, lte, isNotNull, isNull, sql, desc } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { sendJobAssignmentEmail } from './email-service';
@@ -647,6 +648,68 @@ router.post('/quote/:quoteId/line/:lineId/minutes', async (req: Request, res: Re
   } catch (err: any) {
     console.error('[line-minutes] error:', err?.message || err);
     return res.status(500).json({ error: err?.message || 'Failed to set line minutes' });
+  }
+});
+
+// POST /quote/:quoteId/line/:lineId/category { category } → re-classify ONE line's trade.
+// The job's required skills = the distinct set of its line categories, so correcting a
+// mis-categorised line (e.g. a minor ceiling patch tagged 'plastering') re-matches the
+// pool against contractors who actually qualify on the next preview/sweep. Price unaffected.
+router.post('/quote/:quoteId/line/:lineId/category', async (req: Request, res: Response) => {
+  try {
+    const { quoteId, lineId } = req.params;
+    const { category } = req.body as { category: string };
+    if (!category || !JOB_CATEGORIES.includes(category as (typeof JOB_CATEGORIES)[number])) {
+      return res.status(400).json({ error: 'category must be a valid job category' });
+    }
+    const [q] = await db.select({ lines: personalizedQuotes.pricingLineItems })
+      .from(personalizedQuotes).where(eq(personalizedQuotes.id, quoteId)).limit(1);
+    if (!q) return res.status(404).json({ error: 'Quote not found' });
+    let found = false;
+    const next = ((q.lines as any[]) || []).map((li) =>
+      li.lineId === lineId ? ((found = true), { ...li, category }) : li);
+    if (!found) return res.status(404).json({ error: 'Line not found' });
+    await db.update(personalizedQuotes).set({ pricingLineItems: next }).where(eq(personalizedQuotes.id, quoteId));
+    const categories = [...new Set(next.map((li) => li.category).filter(Boolean))];
+    return res.json({ ok: true, lineId, category, categories });
+  } catch (err: any) {
+    console.error('[line-category] error:', err?.message || err);
+    return res.status(500).json({ error: err?.message || 'Failed to set line category' });
+  }
+});
+
+// ─── GET /promise-stats — flex promise-kept rate (read-only, derived) ───
+// The flex promise = "booked within flex_booking_within_days of the deposit". KEPT = a
+// contractor booking whose scheduled_date lands on/before that deadline — the date we
+// commit to the customer, measured from reliable contractor_booking_requests data (the
+// dispatcher-controllable signal). Completion-level "actually done" tracking is a later
+// layer (the new flow doesn't yet stamp personalized_quotes.completed_at). Test quotes
+// fenced out. Derives purely from existing fields — no new capture.
+router.get('/promise-stats', async (_req: Request, res: Response) => {
+  try {
+    const NOTTEST = `(pq.id NOT LIKE 'test_q_%' AND COALESCE(pq.phone,'') NOT LIKE '07700900%' AND COALESCE(pq.email,'') NOT LIKE '%@example.com' AND COALESCE(pq.customer_name,'') NOT ILIKE 'test%')`;
+    const r = await db.execute(sql.raw(`
+      WITH flex AS (
+        SELECT pq.deposit_paid_at AS paid,
+          (pq.deposit_paid_at + (pq.flex_booking_within_days || ' days')::interval) AS promised_by,
+          (SELECT MIN(c.scheduled_date) FROM contractor_booking_requests c WHERE c.quote_id = pq.id) AS sched
+        FROM personalized_quotes pq
+        WHERE pq.deposit_paid_at IS NOT NULL AND pq.flex_booking_within_days IS NOT NULL AND ${NOTTEST})
+      SELECT
+        COUNT(*)::int AS flex_total,
+        COUNT(*) FILTER (WHERE sched IS NOT NULL AND sched <= promised_by)::int AS kept,
+        COUNT(*) FILTER (WHERE sched IS NOT NULL AND sched > promised_by)::int AS booked_late,
+        COUNT(*) FILTER (WHERE sched IS NULL AND now() > promised_by)::int AS overdue_open,
+        COUNT(*) FILTER (WHERE sched IS NULL AND now() <= promised_by)::int AS in_flight,
+        ROUND(percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(epoch FROM sched - paid)/86400) FILTER (WHERE sched IS NOT NULL))::int AS median_days_to_book
+      FROM flex`));
+    const row: any = (r.rows ?? r)[0] || {};
+    const kept = Number(row.kept) || 0;
+    const resolved = kept + (Number(row.booked_late) || 0) + (Number(row.overdue_open) || 0);
+    return res.json({ ...row, resolved, keptRatePct: resolved > 0 ? Math.round((kept / resolved) * 100) : null });
+  } catch (err: any) {
+    console.error('[promise-stats] error:', err?.message || err);
+    return res.status(500).json({ error: err?.message || 'promise-stats failed' });
   }
 });
 

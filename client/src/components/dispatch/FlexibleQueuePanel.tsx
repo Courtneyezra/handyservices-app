@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useRef, useEffect } from "react";
 import {
   Loader2, AlertTriangle, CheckCircle2, UserCheck, Inbox,
-  ArrowRight, UserPlus, MapPin, Send, Copy, Clock, PauseCircle,
+  ArrowRight, UserPlus, MapPin, Send, Copy, Check, Clock, PauseCircle,
   Lock, Minus, Plus, RotateCcw,
 } from "lucide-react";
 import { SLA_DUE_SOON_DAYS } from "@shared/dispatch-sla";
@@ -13,6 +13,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useDispatchSelection } from "@/components/dispatch/useDispatchSelection";
@@ -20,6 +23,10 @@ import { SlaBadge, formatDeadline } from "@/components/dispatch/sla";
 import {
   type ActiveSlotOffer, type SlotOffer, type SlotCandidate, offerSlotLabel,
 } from "@shared/slot-offer";
+import { buildSlotOfferWhatsAppMessage } from "@/lib/whatsapp-slot-offer-message";
+import { formatPhoneForDisplay } from "@/lib/whatsapp-helper";
+import { JOB_CATEGORIES } from "@shared/contextual-pricing-types";
+import { CATEGORY_LABELS } from "@shared/categories";
 
 // ── Types (mirrored from DispatchBoardPage — the dispatch-preview contract) ──
 interface SweepProposal {
@@ -140,6 +147,35 @@ async function abandonSlotOffer(quoteId: string): Promise<{ ok: true }> {
   return res.json();
 }
 
+// Copy text to the clipboard, with a legacy <textarea>+execCommand fallback for browsers /
+// non-secure contexts where the async Clipboard API is unavailable. Returns whether it stuck —
+// callers surface real success/failure instead of pretending it always worked (this drives
+// manual WhatsApp sends, so a silent failure would have Ben pasting nothing).
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* fall through to the legacy path below */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 // One editable schedule line on a quote — its description plus the minutes the optimiser
 // budgets for it. The job's total on-site time is just the Σ of these (read-only badge).
 interface QuoteLine {
@@ -170,6 +206,22 @@ async function setLineMinutes(
     method: "POST",
     headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify({ scheduleMinutes }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+  return res.json();
+}
+
+// Re-classify ONE line's trade/category. The job's required skills are the distinct set of
+// its line categories, so fixing a mis-tagged line re-matches the pool to qualified
+// contractors on the next preview. Price stays locked; only routing changes.
+async function setLineCategory(
+  quoteId: string, lineId: string, category: string,
+): Promise<{ ok: true; categories: string[] }> {
+  const token = localStorage.getItem("adminToken");
+  const res = await fetch(`/api/admin/daily-planner/quote/${quoteId}/line/${lineId}/category`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ category }),
   });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
   return res.json();
@@ -403,6 +455,19 @@ function JobFacts({
     onError: (err: Error) => toast({ title: "Couldn't update time", description: err.message, variant: "destructive" }),
   });
 
+  // Re-classify a line's trade. Re-matches the pool to qualified contractors on the next
+  // preview (a mis-tagged line can otherwise strand a job on a skill nobody covers).
+  const editCategoryMutation = useMutation({
+    mutationFn: ({ lineId, category }: { lineId: string; category: string }) =>
+      setLineCategory(quoteId!, lineId, category),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dispatch-preview"] });
+      queryClient.invalidateQueries({ queryKey: ["job-lines", quoteId] });
+    },
+    onError: (err: Error) => toast({ title: "Couldn't update category", description: err.message, variant: "destructive" }),
+  });
+  const reoptimising = editLineMutation.isPending || editCategoryMutation.isPending;
+
   // Total + days reflect the LIVE per-line sum once lines load, so a line edit updates the
   // badge and the "~N days" flag (after its save) — not the stale proposal value. Falls back
   // to the proposal's workMinutes/daysNeeded when lines aren't loaded (non-editable usage).
@@ -458,10 +523,10 @@ function JobFacts({
       {/* Per-line on-site-time editor — each line gets its own stepper; the job total
           above is the read-only Σ that re-flows after a line edit re-optimises. */}
       {canEditLines && (
-        <div className="mt-2.5 space-y-1 border-t border-border pt-2">
+        <div className="mt-2.5 space-y-1.5 border-t border-border pt-2">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">On-site time per line</p>
-            {editLineMutation.isPending && (
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Per line — trade &amp; on-site time</p>
+            {reoptimising && (
               <span className="inline-flex items-center gap-1 text-[10px] font-medium text-sky-600">
                 <Loader2 className="h-2.5 w-2.5 animate-spin" /> Re-optimising…
               </span>
@@ -475,15 +540,36 @@ function JobFacts({
             <p className="py-0.5 text-[11px] text-muted-foreground">No schedule lines.</p>
           ) : (
             lines.map((line) => (
-              <div key={line.lineId} className="flex items-center justify-between gap-2">
-                <span className="min-w-0 flex-1 truncate text-xs text-foreground/90" title={line.description}>
+              <div key={line.lineId} className="space-y-1">
+                <span className="block truncate text-xs text-foreground/90" title={line.description}>
                   {line.description}
                 </span>
-                <WorkMinutesStepper
-                  minutes={line.scheduleMinutes}
-                  originalMinutes={line.scheduleMinutes}
-                  onEdit={(scheduleMinutes) => editLineMutation.mutate({ lineId: line.lineId, scheduleMinutes })}
-                />
+                <div className="flex items-center justify-between gap-2">
+                  <Select
+                    value={(line.category ?? "other") as string}
+                    onValueChange={(category) => editCategoryMutation.mutate({ lineId: line.lineId, category })}
+                  >
+                    <SelectTrigger
+                      className="h-7 w-[160px] text-[11px]"
+                      title="Trade/skill this line needs — re-matches the pool to qualified contractors (price stays locked)"
+                      aria-label={`Trade for ${line.description}`}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {JOB_CATEGORIES.map((slug) => (
+                        <SelectItem key={slug} value={slug} className="text-xs">
+                          {CATEGORY_LABELS[slug] ?? slug}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <WorkMinutesStepper
+                    minutes={line.scheduleMinutes}
+                    originalMinutes={line.scheduleMinutes}
+                    onEdit={(scheduleMinutes) => editLineMutation.mutate({ lineId: line.lineId, scheduleMinutes })}
+                  />
+                </div>
               </div>
             ))
           )}
@@ -610,6 +696,101 @@ function JobDetailModal({
   );
 }
 
+// One just-sent slot offer, ready for the dispatcher to paste into the customer's WhatsApp.
+interface SentMessage {
+  quoteId: string;
+  customerName: string;
+  phone: string | null;
+  message: string;
+}
+
+/**
+ * One customer's just-sent message row: who + their WhatsApp number, the full message text
+ * (selectable for a manual fallback), and a Copy button that confirms with "Copied!". The
+ * copied state is per-row so the dispatcher can track which of a multi-job bundle they've
+ * already pasted + sent.
+ */
+function SentMessageRow({ message }: { message: SentMessage }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    const ok = await copyToClipboard(message.message);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  };
+  return (
+    <div className={cn("rounded-lg border p-3", copied ? "border-green-300 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20" : "border-border")}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold">{message.customerName}</p>
+          {message.phone && (
+            <p className="text-[11px] text-muted-foreground">{formatPhoneForDisplay(message.phone)}</p>
+          )}
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className={cn("h-7 shrink-0 px-2.5 text-xs", copied && "border-green-500 text-green-700 dark:text-green-400")}
+          onClick={copy}
+        >
+          {copied
+            ? <><Check className="h-3.5 w-3.5 mr-1" /> Copied!</>
+            : <><Copy className="h-3.5 w-3.5 mr-1" /> Copy message</>}
+        </Button>
+      </div>
+      <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/50 p-2 text-[11px] leading-relaxed text-foreground/90 select-text">
+        {message.message}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "Messages to send" dialog — opens after a bundle's offers are sent. Because one
+ * contractor-bundle can carry MULTIPLE jobs (one per customer), each customer needs their
+ * OWN WhatsApp message (their name, dates and confirm link). This lists every just-sent
+ * message with a per-customer Copy button + phone number, so the dispatcher works through
+ * them one-by-one into WhatsApp — nothing relies on hunting the "Awaiting customer" list.
+ */
+function SentMessagesDialog({
+  messages, onClose,
+}: {
+  messages: SentMessage[] | null;
+  onClose: () => void;
+}) {
+  const open = messages != null && messages.length > 0;
+  const n = messages?.length ?? 0;
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-lg">
+        {messages && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Send {n} message{n === 1 ? "" : "s"} on WhatsApp</DialogTitle>
+              <DialogDescription>
+                {n === 1
+                  ? "Copy the message and paste it into the customer's WhatsApp chat."
+                  : "One message per customer — copy each and paste it into that customer's WhatsApp chat."}
+              </DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="-mr-3 max-h-[60vh] pr-3">
+              <div className="space-y-2.5">
+                {messages.map((m) => (
+                  <SentMessageRow key={m.quoteId} message={m} />
+                ))}
+              </div>
+            </ScrollArea>
+            <DialogFooter>
+              <Button size="sm" className="h-8 px-3 text-xs" onClick={onClose}>Done</Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /**
  * Job-detail modal for an UNASSIGNED job — opened by clicking a "Needs assigning"
  * card body. No contractor / margin / slot (it isn't placed yet); instead it shows
@@ -680,19 +861,29 @@ function UnassignedJobModal({
  * "Awaiting customer" card — a job whose date options have been SENT to the customer and
  * is now held out of the dispatch pool until they pick (or decline). The SLA clock keeps
  * running while we wait, so it carries the same SlaBadge as the worklist. Two actions:
- * copy the customer link (to paste into WhatsApp) and abandon (return the job to the pool).
+ * copy the ready-to-send WhatsApp message (greeting + dates + confirm link, to paste into
+ * WhatsApp manually) and abandon (return the job to the pool).
  */
 function AwaitingCustomerCard({
-  offer, onCopyLink, onAbandon, isAbandoning,
+  offer, onCopyMessage, onAbandon, isAbandoning,
 }: {
   offer: ActiveSlotOffer;
-  onCopyLink: (o: ActiveSlotOffer) => void;
+  onCopyMessage: (o: ActiveSlotOffer) => Promise<boolean>;
   onAbandon: (o: ActiveSlotOffer) => void;
   isAbandoning: boolean;
 }) {
   const o: SlotOffer = offer.offer;
   const declined = o.status === "declined_all";
   const n = o.candidates.length;
+  // Brief "Copied!" confirmation on the button after a successful copy.
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    const ok = await onCopyMessage(offer);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  };
   return (
     <Card className={cn("border-l-4", declined ? "border-l-red-500" : "border-l-sky-400")}>
       <CardContent className="p-2.5 space-y-1.5">
@@ -724,8 +915,16 @@ function AwaitingCustomerCard({
           ))}
         </ul>
         <div className="flex gap-1.5 pt-0.5">
-          <Button variant="outline" size="sm" className="h-7 flex-1 px-2.5 text-xs" onClick={() => onCopyLink(offer)}>
-            <Copy className="h-3.5 w-3.5 mr-1" /> Copy link
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn("h-7 flex-1 px-2.5 text-xs", copied && "border-green-500 text-green-700 dark:text-green-400")}
+            onClick={handleCopy}
+            title="Copy the full WhatsApp message (dates + confirm link) to paste to the customer"
+          >
+            {copied
+              ? <><Check className="h-3.5 w-3.5 mr-1" /> Copied!</>
+              : <><Copy className="h-3.5 w-3.5 mr-1" /> Copy message</>}
           </Button>
           <Button
             variant="ghost"
@@ -803,6 +1002,9 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
   const [detailGroup, setDetailGroup] = useState<ProposalGroup | null>(null);
   // The unassigned job whose detail modal is open (needs-assigning card click), or null.
   const [detailJob, setDetailJob] = useState<Unassignable | null>(null);
+  // Messages from the most recent send — one per customer in the bundle — shown in the
+  // "Messages to send" dialog so each can be copied + pasted to WhatsApp individually.
+  const [sentMessages, setSentMessages] = useState<SentMessage[] | null>(null);
 
   // Re-derive the open bundle from the LIVE preview each render (by groupId), so the modal —
   // margin, revenue, days, members — reflects re-optimisation (e.g. after a per-line time
@@ -811,15 +1013,16 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
     ? (groups.find((g) => g.groupId === detailGroup.groupId) ?? detailGroup)
     : null;
 
-  // Send date options to every customer in a bundle. Each member is a separate customer,
-  // so we POST one offer per member (its own slot, the bundle's contractor as the recommended
-  // pick). On success the jobs leave the dispatch pool (now awaiting-customer) and surface in
-  // the "Awaiting customer" section; we copy the first returned link for Ben to paste to WhatsApp.
+  // Send date options to every customer in a bundle. A bundle is ONE contractor but can carry
+  // MULTIPLE jobs — each a separate customer — so we POST one offer per member (its own slot,
+  // the bundle's contractor as the recommended pick). On success the jobs leave the dispatch
+  // pool (now awaiting-customer) and we build a ready-to-send WhatsApp message PER customer,
+  // surfaced in the "Messages to send" dialog so each can be copied + pasted individually.
   const sendOffersMutation = useMutation({
     mutationFn: (group: ProposalGroup) =>
       Promise.all(
-        group.members.map((m) =>
-          sendSlotOffer({
+        group.members.map(async (m) => {
+          const result = await sendSlotOffer({
             quoteId: m.quoteId,
             recommended: {
               date: m.date,
@@ -827,24 +1030,31 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
               contractorId: group.contractorId,
               contractorName: group.contractorName,
             },
-          }),
-        ),
+          });
+          return { result, customerName: m.customerName, quoteId: m.quoteId };
+        }),
       ),
-    onSuccess: (results: SlotOfferSendResult[]) => {
+    onSuccess: (sent) => {
       queryClient.invalidateQueries({ queryKey: ["dispatch-preview"] });
       queryClient.invalidateQueries({ queryKey: ["slot-offers"] });
       setDetailGroup(null);
-      const n = results.length;
-      const firstLink = results[0]?.link;
-      if (firstLink) void navigator.clipboard?.writeText(firstLink).catch(() => {});
-      toast({
-        title: `Sent ${n} date option${n === 1 ? "" : "s"} to customer${n === 1 ? "" : "s"}.`,
-        description: firstLink
-          ? n === 1
-            ? `Link copied — paste to the customer on WhatsApp:\n${firstLink}`
-            : `First link copied — paste to the customer on WhatsApp:\n${firstLink}`
-          : undefined,
-      });
+      // One WhatsApp message per customer in the bundle → the "Messages to send" dialog.
+      // Build the confirm link from the dispatcher's CURRENT origin (not the server's
+      // BASE_URL): in dev the app runs on a harness-assigned port, and BASE_URL's default
+      // (localhost:5000) is both the wrong port and macOS AirPlay. location.origin always
+      // matches the reachable app (and the real domain in production).
+      setSentMessages(
+        sent.map((s) => ({
+          quoteId: s.quoteId,
+          customerName: s.customerName,
+          phone: s.result.phone,
+          message: buildSlotOfferWhatsAppMessage({
+            customerName: s.customerName,
+            candidates: s.result.candidates,
+            confirmUrl: `${location.origin}/confirm-slot/${s.result.token}`,
+          }),
+        })),
+      );
     },
     onError: (err: Error) => {
       toast({ title: "Send failed", description: err.message, variant: "destructive" });
@@ -892,11 +1102,23 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
     sendOptions(group);
   };
 
-  // Copy an active offer's customer link so Ben can paste it into WhatsApp.
-  const copyOfferLink = (o: ActiveSlotOffer) => {
-    const link = `${location.origin}/confirm-slot/${o.offer.token}`;
-    void navigator.clipboard?.writeText(link).catch(() => {});
-    toast({ title: "Link copied", description: "Paste it to the customer on WhatsApp." });
+  // Copy an active offer's full WhatsApp message (greeting + offered dates + confirm link)
+  // so Ben can paste it straight into WhatsApp. Returns whether the copy stuck so the card
+  // can show a real "Copied!" confirmation (or a failure toast).
+  const copyOfferMessage = async (o: ActiveSlotOffer): Promise<boolean> => {
+    const confirmUrl = `${location.origin}/confirm-slot/${o.offer.token}`;
+    const message = buildSlotOfferWhatsAppMessage({
+      customerName: o.customerName,
+      candidates: o.offer.candidates,
+      confirmUrl,
+    });
+    const copied = await copyToClipboard(message);
+    toast(
+      copied
+        ? { title: "Message copied", description: "Paste it to the customer on WhatsApp." }
+        : { title: "Couldn't copy", description: "Clipboard blocked — try again.", variant: "destructive" },
+    );
+    return copied;
   };
 
   const handleAbandonOffer = (o: ActiveSlotOffer) => {
@@ -1074,7 +1296,7 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
                 <AwaitingCustomerCard
                   key={o.quoteId}
                   offer={o}
-                  onCopyLink={copyOfferLink}
+                  onCopyMessage={copyOfferMessage}
                   onAbandon={handleAbandonOffer}
                   isAbandoning={abandonOfferMutation.isPending && abandoningQuoteId === o.quoteId}
                 />
@@ -1199,6 +1421,11 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
         job={detailJob}
         onClose={() => setDetailJob(null)}
         onAssign={openAssign}
+      />
+
+      <SentMessagesDialog
+        messages={sentMessages}
+        onClose={() => setSentMessages(null)}
       />
     </div>
   );

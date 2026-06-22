@@ -20,6 +20,7 @@ import { generateEVEPricingQuote, EVE_SEGMENT_RATES } from '../eve-pricing-engin
 import { getAllCategories } from './reference-rates';
 import { JobCategoryValues } from '@shared/contextual-pricing-types';
 import { parseJobDescription } from './job-parser';
+import { buildQuoteMessage, defaultStyleForCustomerType, type MessageStyleId } from './quote-message';
 import { matchLineToSku } from './sku-matcher';
 import { getSkuByCode } from './sku-resolver';
 import { db } from '../db';
@@ -1032,6 +1033,12 @@ const contextualQuoteInputSchema = z.object({
     'letting_agent',
   ]).optional(),
 
+  // WhatsApp message tone for the quote send. Defaulted from customerType (see
+  // quote-message.ts) but overridable in the generator. 'delay' opens with a brief
+  // apology; delayReason is an optional one-liner woven into it.
+  messageStyle: z.enum(['friendly', 'professional', 'efficient', 'reassuring', 'delay']).optional(),
+  delayReason: z.string().max(300).optional(),
+
   // Job details
   jobDescription: z.string().optional(),
   lines: z
@@ -1058,6 +1065,14 @@ const contextualQuoteInputSchema = z.object({
         skuCode: z.string().optional(),
         unitCount: z.number().int().positive().optional(),
         selectedTier: z.string().optional(),
+        /**
+         * Two-rail manual overrides from the builder — a custom PRICE and/or TIME that WIN
+         * over engine/catalog pricing. MUST be in the schema or zod strips them on parse and
+         * the operator's custom price is silently lost on create (the line falls back to
+         * engine pricing). The engine applies them in its per-line override pass.
+         */
+        priceOverridePence: z.number().min(0).optional(),
+        timeOverrideMinutes: z.number().positive().optional(),
       }),
     )
     .min(1, 'At least one line item is required'),
@@ -1175,6 +1190,11 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         skuCode: l.skuCode,
         unitCount: l.unitCount,
         selectedTier: l.selectedTier,
+        // Forward the two-rail manual overrides so the engine applies the operator's custom
+        // price/time. Without these the custom price entered in the builder is dropped and
+        // the quote is created with engine pricing instead.
+        priceOverridePence: l.priceOverridePence,
+        timeOverrideMinutes: l.timeOverrideMinutes,
       })),
       signals,
       vaContext: input.vaContext,
@@ -1650,7 +1670,6 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
 
     // 8. Build WhatsApp message
     const firstName = input.customerName.split(' ')[0] || input.customerName;
-    const layoutTier = result.messaging.layoutTier || 'standard';
 
     // 9. Format total for display (moved before message assembly so it can be used in directPriceMessage)
     const totalPounds = result.finalPricePence / 100;
@@ -1659,29 +1678,26 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         ? `\u00A3${totalPounds.toFixed(0)}`
         : `\u00A3${totalPounds.toFixed(2)}`;
 
-    // Link label varies by job complexity — feels human, not corporate
-    const linkLabel =
-      layoutTier === 'quick'
-        ? "Here's the link:"
-        : layoutTier === 'complex'
-          ? "Got everything in the quote with a full breakdown:"
-          : "Here's the quote:";
-
     // Add batch nudge for single-job quotes — surfaces the "while we're there" opportunity
     const batchNudge = input.lines.length === 1
       ? '\n\nAnything else to sort while we\'re there? Happy to add it to the same visit.'
       : '';
 
-    const whatsappMessage = [
-      `Hey ${firstName},`,
-      '',
-      result.messaging.contextualMessage,
-      '',
-      linkLabel,
+    // Build the WhatsApp message: pre-anchors a PRICE RANGE before the link (so the on-page
+    // price confirms rather than shocks) and varies TONE — defaulted from customerType,
+    // overridable via input.messageStyle; 'delay' opens with a brief apology.
+    const messageStyleId = (input.messageStyle as MessageStyleId | undefined)
+      || defaultStyleForCustomerType(input.customerType);
+    const whatsappMessage = buildQuoteMessage({
+      styleId: messageStyleId,
+      firstName,
+      contextualMessage: result.messaging.contextualMessage,
+      whatsappClosing: result.messaging.whatsappClosing,
       quoteUrl,
-      '',
-      result.messaging.whatsappClosing,
-    ].join('\n') + batchNudge;
+      finalPricePence: result.finalPricePence,
+      batchNudge,
+      delayReason: input.delayReason,
+    });
 
     const waPhone = formatPhoneForWhatsApp(normalizedPhone || input.phone);
     const whatsappSendUrl = `https://wa.me/${waPhone}?text=${encodeURIComponent(whatsappMessage)}`;

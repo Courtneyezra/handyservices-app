@@ -1067,6 +1067,22 @@ const CUSTOMER_TYPES = [
 ] as const;
 type CustomerType = (typeof CUSTOMER_TYPES)[number]['value'];
 
+// WhatsApp message tone options (mirror server quote-message.ts). Default is derived from
+// customer type; the operator can override per quote. 'delay' opens with an apology.
+const MESSAGE_STYLE_OPTIONS = [
+  { value: 'friendly', label: 'Friendly — warm & casual' },
+  { value: 'professional', label: 'Professional — businesslike' },
+  { value: 'efficient', label: 'Hands-off — landlords/agents' },
+  { value: 'reassuring', label: 'Reassuring — no surprises' },
+  { value: 'delay', label: 'Apology for delay' },
+] as const;
+function defaultMessageStyle(ct: string): string {
+  if (ct === 'business') return 'professional';
+  if (ct === 'landlord' || ct === 'property_manager' || ct === 'letting_agent') return 'efficient';
+  if (ct === 'tenant') return 'reassuring';
+  return 'friendly';
+}
+
 const URGENCY_OPTIONS = [
   { value: 'standard' as const, label: 'Standard', helper: 'This week' },
   { value: 'priority' as const, label: 'Priority', helper: 'Next 48h' },
@@ -1181,6 +1197,9 @@ export default function GenerateContextualQuote() {
   // (see `buildStructuredVaContext` below) so similar customers across
   // similar jobs produce comparable AI output.
   const [customerType, setCustomerType] = useState<CustomerType | ''>('');
+  // WhatsApp message tone. '' = auto (derive from customer type server-side). 'delay' reveals a reason field.
+  const [messageStyle, setMessageStyle] = useState<string>('');
+  const [delayReason, setDelayReason] = useState('');
 
   // ── Property context (Phase 4b — drives scheduling math, not pricing) ──
   const [floorNumber, setFloorNumber] = useState<number | null>(null);
@@ -1595,6 +1614,8 @@ export default function GenerateContextualQuote() {
           // UI (landlord banner, tenant consent disclaimer, trade-quote variant)
           // and auto-pick of relevant extras. Persisted into contextSignals.
           customerType: customerType || undefined,
+          messageStyle: messageStyle || undefined,
+          delayReason: messageStyle === 'delay' ? (delayReason.trim() || undefined) : undefined,
           sourceCallId: selectedCallerId || undefined,
           contractorId: selectedContractorId || undefined,
           createdBy: adminUser?.id || undefined,
@@ -2329,6 +2350,30 @@ export default function GenerateContextualQuote() {
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Message style</Label>
+                    <Select value={messageStyle || '__auto__'} onValueChange={(v) => setMessageStyle(v === '__auto__' ? '' : v)}>
+                      <SelectTrigger className="mt-1 h-10">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__auto__" className="text-sm">
+                          Auto{customerType ? ` — ${MESSAGE_STYLE_OPTIONS.find((o) => o.value === defaultMessageStyle(customerType))?.label.split(' — ')[0]}` : ' (from customer type)'}
+                        </SelectItem>
+                        {MESSAGE_STYLE_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value} className="text-sm">{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {messageStyle === 'delay' && (
+                      <Input
+                        className="mt-2 h-9 text-sm"
+                        placeholder="Reason for the delay (optional — woven in)"
+                        value={delayReason}
+                        onChange={(e) => setDelayReason(e.target.value)}
+                      />
+                    )}
                   </div>
                   <div>
                     <Label className="text-xs text-muted-foreground">Urgency</Label>

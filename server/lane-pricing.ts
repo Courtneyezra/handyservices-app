@@ -4,16 +4,18 @@
  * The customer-facing quote card (client/src/components/quote/UnifiedQuoteCard.tsx)
  * offers eligible quotes two booking lanes, each with its own price:
  *
- *   • FLEXIBLE  ("we pick a day within ~7 days")  → basePrice − flexDiscount
- *   • DATE & TIME ("I want a firm date + slot")    → basePrice − flexDiscount + setDatePremium
+ *   • FLEXIBLE  ("we pick a day within ~7 days")  → basePrice (no rebate — the default)
+ *   • DATE & TIME ("I want a firm date + slot")    → basePrice + setDatePremium
  *
- * Until now these adjustments lived ONLY in the browser: the server ignored them
+ * Originally these adjustments lived ONLY in the browser: the server ignored them
  * and charged / recorded `quote.basePrice` flat. That meant the set-date premium
- * was never collected (revenue leak) and the flex discount was never honoured
- * (flex customers were charged MORE than the page showed). This module ports the
- * exact client formula so `/create-payment-intent`, the Stripe webhook, and
- * `/track-booking` can all re-derive the lane-adjusted price from the stored
- * `basePrice` themselves.
+ * was never collected (revenue leak). This module ports the exact client formula
+ * so `/create-payment-intent`, the Stripe webhook, and `/track-booking` can all
+ * re-derive the lane-adjusted price from the stored `basePrice` themselves.
+ *
+ * The flexible lane (the default) is priced at the FULL base price — there is NO
+ * rebate. The only lane adjustment is the set-date premium for the firm
+ * date & time lane (plus the landlord-only liaise concierge premium).
  *
  * IMPORTANT — the client only ever names the LANE ('flex' | 'date_time'); it never
  * dictates the amount. The pence figures are computed here, server-side, from the
@@ -23,11 +25,16 @@
  * with a premium.
  *
  * The constants and rounding below MUST stay in lock-step with UnifiedQuoteCard's
- * FLEX_ and SET_DATE_ constants and the discount/premium memo, or the server will
- * charge a different figure than the customer saw.
+ * SET_DATE_ constants and the premium memo, or the server will charge a different
+ * figure than the customer saw.
  */
 
-// ── Flexible-lane "convenience rebate" — clamped 7%-of-price ──────────────────
+// ── Slot-offer deviation forfeit — clamped 7%-of-price ───────────────────────
+// NOTE: the customer-facing FLEXIBLE lane is NO LONGER discounted (it's priced at
+// the full base — see computeLaneBasePence). These constants survive only as the
+// magnitude of the slot-offer "deviation forfeit" (server/slot-offers.ts): when a
+// customer picks an alternative date instead of our recommended thin-day slot, the
+// forfeit is this clamped 7%-of-price figure plus any weekend/next-day surcharge.
 export const FLEX_DISCOUNT_PERCENT = 7;
 export const FLEX_MIN_SAVING_PENCE = 1200; // £12 floor
 export const FLEX_MAX_SAVING_PENCE = 3000; // £30 cap
@@ -37,7 +44,7 @@ export const SET_DATE_WTP_PENCE = 3000; // £30 flat WTP anchor
 export const SET_DATE_PCT = 0.06; // + 6% of the quote price
 
 // ── Landlord tenant-liaison concierge — flat premium ──────────────────────────
-// The inverse of the flex rebate: flex saves us effort (thin-day routing), liaise
+// The flexible lane saves us effort (thin-day routing) at no extra charge; liaise
 // COSTS us effort (chasing the tenant, arranging access), so it's a charge. Flat,
 // landlord-only, applied when the landlord books in "liaise with my tenant" mode.
 export const LIAISE_PREMIUM_PENCE = 2500; // £25 flat
@@ -97,17 +104,21 @@ export function isLandlordQuote(contextSignals: unknown): boolean {
 }
 
 /**
- * Whether the flex/set-date lane maths apply to this quote. Mirrors the client
+ * Whether the set-date lane maths apply to this quote. Mirrors the client
  * gate `(!isLandlord && !isBusiness)`:
  *   • landlords carry the +£25 liaise concierge instead (handled elsewhere), and
- *   • businesses get the flexible lane framed as a deadline guarantee, no rebate.
- * Both resolve to a flat base price with no flex discount or set-date premium.
+ *   • businesses get the flexible lane framed as a deadline guarantee, no premium.
+ * Both resolve to a flat base price with no set-date premium.
  */
 export function isLaneEligible(contextSignals: unknown): boolean {
   return !isLandlordQuote(contextSignals) && deriveCustomerType(contextSignals) !== 'business';
 }
 
-/** Clamped 7%-of-price flexible rebate (pence). Mirrors `flexDiscountValue`. */
+/**
+ * Clamped 7%-of-price figure (pence). No longer a customer rebate — the flexible
+ * lane is the full base price. Retained as the slot-offer deviation-forfeit
+ * magnitude (server/slot-offers.ts).
+ */
 export function computeFlexDiscountPence(basePence: number): number {
   return Math.min(
     FLEX_MAX_SAVING_PENCE,
@@ -125,7 +136,6 @@ export interface LanePricing {
   laneApplied: boolean;
   /** The lane that was applied, or null when none. */
   lane: PricingLane | null;
-  flexDiscountPence: number;
   setDatePremiumPence: number;
   liaisePremiumPence: number;
   /** The base price AFTER the lane adjustment — feed this into totals/extras/deposit. */
@@ -136,9 +146,9 @@ export interface LanePricing {
  * Re-derive the lane-adjusted base price (BEFORE optional extras) from the trusted
  * stored base price and the lane the client selected.
  *
- *   flex      → basePence − flexDiscount
- *   date_time → basePence − flexDiscount + setDatePremium
- *   liaise    → basePence + liaisePremium   (landlord-only concierge charge)
+ *   flex      → basePence                   (default lane — the full base, no rebate)
+ *   date_time → basePence + setDatePremium
+ *   liaise    → basePence + liaisePremium    (landlord-only concierge charge)
  *   (none / ineligible) → basePence unchanged
  *
  * @param basePence  The trusted quote base price in pence (quote.basePrice).
@@ -158,7 +168,6 @@ export function computeLaneBasePence(
       return {
         laneApplied: false,
         lane: null,
-        flexDiscountPence: 0,
         setDatePremiumPence: 0,
         liaisePremiumPence: 0,
         laneBasePence: basePence,
@@ -167,7 +176,6 @@ export function computeLaneBasePence(
     return {
       laneApplied: true,
       lane: 'liaise',
-      flexDiscountPence: 0,
       setDatePremiumPence: 0,
       liaisePremiumPence: LIAISE_PREMIUM_PENCE,
       laneBasePence: Math.max(0, basePence + LIAISE_PREMIUM_PENCE),
@@ -182,25 +190,24 @@ export function computeLaneBasePence(
     return {
       laneApplied: false,
       lane: null,
-      flexDiscountPence: 0,
       setDatePremiumPence: 0,
       liaisePremiumPence: 0,
       laneBasePence: basePence,
     };
   }
 
-  const flexDiscountPence = computeFlexDiscountPence(basePence);
+  // Flexible (the default) is the full base price; only the firm date & time lane
+  // carries a premium.
   const setDatePremiumPence = computeSetDatePremiumPence(basePence);
 
   const laneBasePence =
     lane === 'flex'
-      ? Math.max(0, basePence - flexDiscountPence)
-      : Math.max(0, basePence - flexDiscountPence + setDatePremiumPence);
+      ? basePence
+      : Math.max(0, basePence + setDatePremiumPence);
 
   return {
     laneApplied: true,
     lane,
-    flexDiscountPence,
     setDatePremiumPence,
     liaisePremiumPence: 0,
     laneBasePence,
