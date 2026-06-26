@@ -2795,8 +2795,7 @@ export default function PersonalizedQuotePage() {
   const [showCinematicIntro, setShowCinematicIntro] = useState(false);
   const [introDismissed, setIntroDismissed] = useState(false);
 
-  // Phase 4: Scroll Phase Logic for Sticky CTA
-  const [scrollPhase, setScrollPhase] = useState<'early' | 'mid' | 'late'>('early');
+  // Phase 4: Scroll latch for the sticky CTA (reveals once packages are seen)
   const [hasViewedPackages, setHasViewedPackages] = useState(false);
   const { scrollY } = useScroll();
 
@@ -2820,10 +2819,6 @@ export default function PersonalizedQuotePage() {
       if (latest > triggerPoint && latest > 100 && !hasViewedPackages) {
         setHasViewedPackages(true);
       }
-
-      if (latest < triggerPoint) setScrollPhase('early');
-      else if (latest < triggerPoint + 600) setScrollPhase('mid');
-      else setScrollPhase('late');
     });
   }, [scrollY, hasViewedPackages]);
 
@@ -4586,30 +4581,8 @@ export default function PersonalizedQuotePage() {
         </div>
 
 
-        {/* Floating Social Proof Badge - Only show in early phase to avoid clutter/overlap */}
-        {
-          scrollPhase === 'early' && !showPaymentForm && (
-            <div className="fixed bottom-4 right-4 z-40">
-              <div className="bg-white border border-slate-200 text-slate-900 rounded-lg shadow-lg p-3 flex items-center gap-3 animate-in slide-in-from-bottom-5">
-                <div className="flex flex-col">
-                  <div className="flex gap-0.5 text-[#7DB00E]">
-                    <Star className="w-3 h-3 fill-current" />
-                    <Star className="w-3 h-3 fill-current" />
-                    <Star className="w-3 h-3 fill-current" />
-                    <Star className="w-3 h-3 fill-current" />
-                    <Star className="w-3 h-3 fill-current" />
-                  </div>
-                  <span className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">{pricingSettings?.googleRating ?? "4.9"}/5 RATED</span>
-                </div>
-                <div className="h-6 w-px bg-white/10"></div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-[#7DB00E] animate-pulse"></div>
-                  <span className="text-xs font-bold">Verified</span>
-                </div>
-              </div>
-            </div>
-          )
-        }
+        {/* Floating social-proof badge removed — it overlapped the quote card on
+            load (bottom-right). Trust signals live in the card's trust strip. */}
       </div >
       </QuoteTimerProvider>
     );
