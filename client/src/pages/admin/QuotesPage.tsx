@@ -223,6 +223,7 @@ export default function QuotesPage() {
             postcode: quote.postcode ?? null,
             basePrice: quote.basePrice ?? null,
             pricingLineItems: (quote as any).pricingLineItems ?? null,
+            pricingLayerBreakdown: (quote as any).pricingLayerBreakdown ?? null,
             availableDates: (quote as any).availableDates ?? null,
         });
         setPreviewOpen(true);

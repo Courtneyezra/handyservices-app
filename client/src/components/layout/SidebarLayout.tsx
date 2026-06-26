@@ -191,6 +191,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: LayoutTemplate, label: "Marketing", href: "/admin/marketing" },
                                 { icon: Settings, label: "Settings", href: "/admin/settings" },
                                 { icon: SlidersHorizontal, label: "Pricing Settings", href: "/admin/pricing-settings" },
+                                { icon: Megaphone, label: "Quote Offers", href: "/admin/quote-offers" },
                                 { icon: GraduationCap, label: "Onboarding", href: "/admin/onboarding" },
                                 { icon: BookOpen, label: "VA Resources", href: "/admin/resources" },
                             ]

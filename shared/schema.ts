@@ -2427,6 +2427,34 @@ export const quoteSectionEvents = pgTable("quote_section_events", {
 ]);
 
 // ---------------------------------------------------------------------------
+// Irresistible-Offer Events
+// One row per interaction with the offer interstitial (?v=offer flow):
+//   - 'impression' when the offer screen is shown
+//   - 'accept'     when the customer takes the offer
+//   - 'decline'    when they decline it
+// Joined back to personalized_quotes (by quote_id) for downstream booking /
+// revenue attribution per offer + per template.
+// ---------------------------------------------------------------------------
+export const quoteOfferEvents = pgTable("quote_offer_events", {
+  id: serial("id").primaryKey(),
+  quoteId: varchar("quote_id", { length: 255 }).notNull(),
+  shortSlug: varchar("short_slug", { length: 50 }),
+  offerId: varchar("offer_id", { length: 100 }).notNull(),
+  offerType: varchar("offer_type", { length: 50 }),
+  template: varchar("template", { length: 50 }),
+  customerType: varchar("customer_type", { length: 30 }), // homeowner | landlord | property_manager | tenant | business | letting_agent
+  event: varchar("event", { length: 20 }).notNull(), // impression | accept | decline
+  deviceType: varchar("device_type", { length: 20 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_offer_events_quote").on(table.quoteId),
+  index("idx_offer_events_offer").on(table.offerId),
+  index("idx_offer_events_event").on(table.event),
+  index("idx_offer_events_ctype").on(table.customerType),
+  index("idx_offer_events_created").on(table.createdAt),
+]);
+
+// ---------------------------------------------------------------------------
 // Quote Platform — Image Library
 // ---------------------------------------------------------------------------
 export const quotePlatformImages = pgTable("quote_platform_images", {

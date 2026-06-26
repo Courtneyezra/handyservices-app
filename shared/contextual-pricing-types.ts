@@ -469,6 +469,50 @@ export interface MultiLineRequest {
   historicalWinRate?: number;
   /** Phase 4b — property context that drives scheduling math (not pricing). */
   propertyContext?: QuotePropertyContext;
+  /**
+   * Decomposed pricing — number of separate site visits this job needs. Drives
+   * the per-visit attendance bucket (attendanceFee × visitCount). Defaults to 1.
+   * Quote-level (not per-line): a job either needs one trip or several.
+   */
+  visitCount?: number;
+  /**
+   * Decomposed pricing — road distance from base in miles, used to pick the
+   * travel-cost band. When omitted the travel bucket is 0 (no charge), so this
+   * is safe to leave unset. Quote-level: one travel leg per job.
+   */
+  travelDistanceMiles?: number;
+}
+
+/**
+ * Decomposed pricing — the additive structural-cost buckets that sit ON TOP of
+ * per-line labour + materials. Restores the fixed costs the EVE labour layer
+ * omits (a per-visit call-out, a travel leg, a materials-collection trip).
+ *
+ * Present on a result ONLY when `decomposedPricingEnabled` is true; absent (and
+ * persisted nowhere) when the flag is off, so every downstream reader can treat
+ * "no priceBuckets" as the legacy path and render nothing extra.
+ */
+export interface PriceBuckets {
+  /** Per-visit attendance / call-out total: attendanceFee × visitCount (pence) */
+  attendancePence: number;
+  /** Number of visits the attendance bucket was multiplied by */
+  visitCount: number;
+  /** Travel-band charge for the job's distance (pence; 0 inside the free radius) */
+  travelPence: number;
+  /** Distance (miles) used to pick the travel band, for transparency */
+  travelDistanceMiles: number;
+  /** One-off materials-collection trip charge (pence; 0 when no line needs it) */
+  materialCollectionPence: number;
+  /** Sum of all additive cost buckets (attendance + travel + collection) */
+  totalBucketsPence: number;
+  /**
+   * Soft market-bracket governor (review-only — never clamps the price).
+   * `ceilingPence` is `multiplier × Σ(category high × hours)`; `exceeded` is true
+   * when the final total sits above it, flagging the quote for human review.
+   * Both 0/false when the governor is disabled (multiplier 0).
+   */
+  bracketCeilingPence: number;
+  bracketCeilingExceeded: boolean;
 }
 
 /** Price result for a single line item */
@@ -503,6 +547,17 @@ export interface LineItemResult {
   fixedTier?: string | null;
   /** Phase 11 — line needs a materials collection trip. Composer dedupes across all lines (+30min once per quote). Schedule-only — not customer-facing. */
   requiresMaterialCollection?: boolean;
+  /**
+   * Decomposed pricing — this line's allocated share of the JOB-WHOLE structural
+   * buckets (call-out × visits + travel + collection), in pence. Folded into the
+   * DISPLAYED line price so the customer sees one blended figure per line and no
+   * separate "call-out" section. `guardedPricePence` stays PURE labour (so price
+   * overrides + margin math are unaffected); display price = guardedPricePence +
+   * materialsWithMarginPence + structuralSharePence. Shares across all lines sum
+   * EXACTLY to `priceBuckets.totalBucketsPence`. Present only when
+   * `decomposedPricingEnabled`; absent (⇒ treat as 0) on the legacy/flag-off path.
+   */
+  structuralSharePence?: number;
 }
 
 /** Batch discount applied when multiple lines are quoted together */
@@ -552,6 +607,14 @@ export interface MultiLineResult {
   guardrails: GuardrailResult;
   /** LLM-generated customer-facing messaging */
   messaging: QuoteMessaging;
+  /**
+   * Decomposed pricing — structural cost buckets folded into finalPricePence.
+   * Present ONLY when `decomposedPricingEnabled` is true; absent on the legacy
+   * path. When present, `finalPricePence` already includes `totalBucketsPence`,
+   * so downstream readers must render these as extra line rows to reconcile the
+   * itemised breakdown back to the total.
+   */
+  priceBuckets?: PriceBuckets;
 }
 
 // ---------------------------------------------------------------------------

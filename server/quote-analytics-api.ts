@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import { db } from './db';
-import { personalizedQuotes, quoteSectionEvents } from '@shared/schema';
+import { personalizedQuotes, quoteSectionEvents, quoteOfferEvents } from '@shared/schema';
 import { sql, and, gte, lte, isNotNull, count, avg, sum, desc } from 'drizzle-orm';
 
 const router = Router();
@@ -436,6 +436,122 @@ router.get('/api/analytics/quotes/section-conversion', async (req, res) => {
   } catch (error) {
     console.error('[Analytics] Section conversion error:', error);
     return res.status(500).json({ error: 'Failed to fetch section conversion data' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/analytics/quotes/offer-event
+// Beacon for the irresistible-offer interstitial. Fired on impression / accept
+// / decline so we can measure each offer + template's funnel and (joined to
+// personalized_quotes) its downstream booking + revenue.
+// ---------------------------------------------------------------------------
+router.post('/api/analytics/quotes/offer-event', async (req, res) => {
+  try {
+    const { quoteId, shortSlug, offerId, offerType, template, customerType, event, deviceType } = req.body;
+    if (!quoteId || !offerId || !event) {
+      return res.status(400).json({ error: 'quoteId, offerId and event required' });
+    }
+    if (!['impression', 'accept', 'decline'].includes(event)) {
+      return res.status(400).json({ error: "event must be impression | accept | decline" });
+    }
+    await db.insert(quoteOfferEvents).values({
+      quoteId,
+      shortSlug: shortSlug || null,
+      offerId,
+      offerType: offerType || null,
+      template: template || null,
+      customerType: customerType || null,
+      event,
+      deviceType: deviceType || null,
+    });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('[Analytics] Offer event error:', error);
+    return res.status(500).json({ error: 'Failed to store offer event' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/analytics/quotes/offer-performance
+// Per-offer (and per-template) funnel + revenue. For each offer that was shown
+// in the window: distinct-quote impressions, accepts, declines, accept-rate,
+// and — joined to personalized_quotes — how many of those quotes paid a deposit
+// and the £ booked. The CTE collapses to one row per (offer, quote) first so
+// counts/sums are per distinct quote, not per raw event.
+// ---------------------------------------------------------------------------
+router.get('/api/analytics/quotes/offer-performance', async (req, res) => {
+  try {
+    const daysBack = parseInt(req.query.days as string) || 30;
+    const since = new Date();
+    since.setDate(since.getDate() - daysBack);
+
+    const result = await db.execute(sql`
+      WITH offer_quotes AS (
+        SELECT
+          oe.offer_id,
+          oe.quote_id,
+          MAX(oe.offer_type)            AS offer_type,
+          MAX(oe.template)              AS template,
+          COALESCE(MAX(oe.customer_type), 'unknown') AS customer_type,
+          BOOL_OR(oe.event = 'impression') AS had_impression,
+          BOOL_OR(oe.event = 'accept')     AS accepted,
+          BOOL_OR(oe.event = 'decline')    AS declined
+        FROM quote_offer_events oe
+        WHERE oe.created_at >= ${since}
+        GROUP BY oe.offer_id, oe.quote_id
+      )
+      SELECT
+        oq.offer_id,
+        oq.customer_type,
+        MAX(oq.offer_type) AS offer_type,
+        MAX(oq.template)   AS template,
+        COUNT(*) FILTER (WHERE oq.had_impression) AS impressions,
+        COUNT(*) FILTER (WHERE oq.accepted)       AS accepts,
+        COUNT(*) FILTER (WHERE oq.declined)       AS declines,
+        COUNT(*) FILTER (WHERE pq.deposit_paid_at IS NOT NULL) AS paid,
+        COALESCE(SUM(pq.base_price) FILTER (WHERE pq.deposit_paid_at IS NOT NULL), 0) AS revenue_pence
+      FROM offer_quotes oq
+      LEFT JOIN personalized_quotes pq ON oq.quote_id = pq.id
+      GROUP BY oq.offer_id, oq.customer_type
+      ORDER BY impressions DESC
+    `);
+
+    const offers = (result.rows as Array<{
+      offer_id: string;
+      customer_type: string | null;
+      offer_type: string | null;
+      template: string | null;
+      impressions: string;
+      accepts: string;
+      declines: string;
+      paid: string;
+      revenue_pence: string;
+    }>).map(row => {
+      const impressions = Number(row.impressions) || 0;
+      const accepts = Number(row.accepts) || 0;
+      const declines = Number(row.declines) || 0;
+      const paid = Number(row.paid) || 0;
+      const revenuePence = Number(row.revenue_pence) || 0;
+      return {
+        offerId: row.offer_id,
+        customerType: row.customer_type,
+        offerType: row.offer_type,
+        template: row.template,
+        impressions,
+        accepts,
+        declines,
+        acceptRatePercent: impressions ? Number(((accepts / impressions) * 100).toFixed(1)) : 0,
+        paid,
+        bookingRatePercent: impressions ? Number(((paid / impressions) * 100).toFixed(1)) : 0,
+        revenuePence,
+        revenuePerImpressionPence: impressions ? Math.round(revenuePence / impressions) : 0,
+      };
+    });
+
+    return res.json({ period: { days: daysBack, since: since.toISOString() }, offers });
+  } catch (error) {
+    console.error('[Analytics] Offer performance error:', error);
+    return res.status(500).json({ error: 'Failed to fetch offer performance' });
   }
 });
 

@@ -65,6 +65,7 @@ const QuoteFlowDiagram = lazy(() => import("@/pages/admin/QuoteFlowDiagram"));
 const ContentLibrary = lazy(() => import("@/pages/admin/ContentLibrary"));
 const QuotePlatformPage = lazy(() => import("@/pages/admin/QuotePlatformPage"));
 const PricingSettingsPage = lazy(() => import("@/pages/admin/PricingSettingsPage"));
+const QuoteOffersPage = lazy(() => import("@/pages/admin/QuoteOffersPage"));
 const PricingEnginePage = lazy(() => import("@/pages/admin/PricingEnginePage"));
 const LiveCallTestWizard = lazy(() => import("@/pages/admin/LiveCallTestWizard"));
 const DispatchPage = lazy(() => import("@/pages/admin/DispatchPage"));
@@ -101,10 +102,10 @@ import SmartBanner from "@/components/SmartBanner";
 const VideoQuote = lazy(() => import("@/pages/VideoQuote"));
 const VideoReview = lazy(() => import("@/pages/VideoReview"));
 const PersonalizedQuotePage = lazy(() => import("@/pages/PersonalizedQuotePage"));
-// Skeleton is eagerly imported (NOT lazy) so it can be the Suspense fallback
-// for PersonalizedQuotePage. If both were lazy we'd flash the wrench spinner
-// while the skeleton chunk itself loaded.
-import { QuoteSkeleton } from "@/components/QuoteSkeleton";
+// Preparing screen is eagerly imported (NOT lazy) so it can be the Suspense
+// fallback for PersonalizedQuotePage. If both were lazy we'd flash the wrench
+// spinner while the fallback chunk itself loaded.
+import { QuotePreparingScreen } from "@/components/quote/QuotePreparingScreen";
 const BookingConfirmedPage = lazy(() => import("@/pages/BookingConfirmedPage"));
 const ConfirmSlotPage = lazy(() => import("@/pages/ConfirmSlotPage"));
 const DiagnosticVisitPage = lazy(() => import("@/pages/DiagnosticVisitPage"));
@@ -165,6 +166,7 @@ const InstantPricePage = lazy(() => import("@/pages/InstantPricePage"));
 
 // Labs — self-contained, frontend-only sandbox pages (no backend)
 const BookingTwoLaneLab = lazy(() => import("@/pages/labs/BookingTwoLaneLab"));
+const OfferPreviewLab = lazy(() => import("@/pages/labs/OfferPreviewLab"));
 
 // Pitch/Sales Pages
 const PitchIndex = lazy(() => import("@/pages/pitch/PitchIndex"));
@@ -282,23 +284,24 @@ function Router() {
 
                 {/* Customer-facing quote views - /quote is the canonical URL.
                   *
-                  * Each route has its own inner <Suspense fallback={QuoteSkeleton}>
-                  * so the skeleton catches the lazy-chunk suspension instead of
-                  * the outer LoadingFallback (the spinning wrench). Customers go
-                  * straight from URL → skeleton → real quote, no spinner flash. */}
+                  * Each route has its own inner <Suspense fallback={QuotePreparingScreen}>
+                  * so the preparing screen catches the lazy-chunk suspension instead
+                  * of the outer LoadingFallback (the spinning wrench). Customers go
+                  * straight from URL → preparing screen → real quote: no spinner
+                  * flash and no price-lock skeleton/timer. */}
                 <Route path="/quote/:slug">
-                    <Suspense fallback={<QuoteSkeleton />}>
+                    <Suspense fallback={<QuotePreparingScreen ready={false} onComplete={() => {}} />}>
                         <PersonalizedQuotePage />
                     </Suspense>
                 </Route>
                 {/* Legacy routes for backward compatibility */}
                 <Route path="/quote-link/:slug">
-                    <Suspense fallback={<QuoteSkeleton />}>
+                    <Suspense fallback={<QuotePreparingScreen ready={false} onComplete={() => {}} />}>
                         <PersonalizedQuotePage />
                     </Suspense>
                 </Route>
                 <Route path="/q/:slug">
-                    <Suspense fallback={<QuoteSkeleton />}>
+                    <Suspense fallback={<QuotePreparingScreen ready={false} onComplete={() => {}} />}>
                         <PersonalizedQuotePage />
                     </Suspense>
                 </Route>
@@ -349,6 +352,13 @@ function Router() {
                   * Flip customer type to see homeowner vs landlord lanes. */}
                 <Route path="/labs/booking">
                     <BookingTwoLaneLab />
+                </Route>
+                {/* Irresistible-offer interstitial preview — frontend-only, no
+                  * backend. Renders the real dispatcher with the seed offers so
+                  * the offer-templates/ designs can be iterated with hot-reload.
+                  * Defaults to the homeowner 'at_home' flex-save design. */}
+                <Route path="/labs/offer-preview">
+                    <OfferPreviewLab />
                 </Route>
                 <Route path="/review/:token">
                     <LeaveReview />
@@ -553,6 +563,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <PricingSettingsPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/quote-offers">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <QuoteOffersPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

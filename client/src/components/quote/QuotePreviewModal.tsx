@@ -29,7 +29,7 @@ import {
   ChevronRight,
   AlertTriangle,
 } from 'lucide-react';
-import type { LineItemResult, JobCategory } from '@shared/contextual-pricing-types';
+import type { LineItemResult, JobCategory, PriceBuckets } from '@shared/contextual-pricing-types';
 import { JOB_CATEGORIES } from '@shared/contextual-pricing-types';
 
 // ---------------------------------------------------------------------------
@@ -48,6 +48,14 @@ export interface PreviewQuote {
   pricingLineItems?: LineItemResult[] | null;
   batchDiscountPercent?: number | null;
   availableDates?: string[] | null;   // ["2026-03-30", "2026-04-01"]
+  /**
+   * Full engine result (personalized_quotes.pricingLayerBreakdown JSONB). Only
+   * `priceBuckets` is read here — the decomposed-pricing structural cost buckets
+   * (attendance / travel / materials-collection) that are folded into basePrice
+   * but live OUTSIDE the per-line labour+materials sum. Absent on legacy/flag-off
+   * quotes ⇒ no-op (recompute and itemisation behave exactly as before).
+   */
+  pricingLayerBreakdown?: { priceBuckets?: PriceBuckets | null } | null;
 }
 
 interface QuotePreviewModalProps {
@@ -168,6 +176,16 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
     setEditOpen(true);
   }, [quote]);
 
+  // Decomposed pricing — structural cost buckets (attendance / travel /
+  // materials-collection) live OUTSIDE the per-line labour+materials sum but
+  // ARE part of basePrice. They're quote-level and DON'T move when a line price
+  // is edited, so carry them through the optimistic recompute instead of
+  // dropping them (which would understate the total the moment an admin edits a
+  // line). Mirrors the server PATCH handler's `bucketsTotal` (routes.ts).
+  // Absent on legacy/flag-off quotes ⇒ 0 ⇒ unchanged behaviour.
+  const priceBuckets = quote?.pricingLayerBreakdown?.priceBuckets ?? null;
+  const bucketsTotalPence = Number(priceBuckets?.totalBucketsPence) || 0;
+
   // Computed totals from line items
   const labourPence = lineItems.reduce((sum, li) => {
     const val = parseFloat(li.pricePounds);
@@ -177,7 +195,7 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
     const val = parseFloat(li.materialsPounds);
     return sum + (isNaN(val) ? 0 : Math.round(val * 100));
   }, 0);
-  const totalPence = labourPence + materialsPence;
+  const totalPence = labourPence + materialsPence + bucketsTotalPence;
 
   // Line item helpers
   function updateLineItem(lineId: string, field: 'description' | 'pricePounds' | 'materialsPounds' | 'category' | 'timeMinutes', value: string) {
@@ -529,6 +547,30 @@ export function QuotePreviewModal({ quote: quoteProp, open, onClose, onSaved }: 
                           <div className="flex justify-between items-center">
                             <span className="text-[10px] text-slate-500">Materials</span>
                             <span className="text-xs text-slate-400">£{penceToGBP(materialsPence)}</span>
+                          </div>
+                        )}
+                        {/* Decomposed pricing — neutral structural-cost rows so the
+                            itemisation reconciles back to the total. One row per
+                            POSITIVE bucket (zeros skipped). bracketCeiling* is
+                            review-only and never displayed. */}
+                        {priceBuckets && priceBuckets.attendancePence > 0 && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] text-slate-500">
+                              Call-out &amp; first hour{priceBuckets.visitCount > 1 ? ` (${priceBuckets.visitCount} visits)` : ''}
+                            </span>
+                            <span className="text-xs text-slate-400">£{penceToGBP(priceBuckets.attendancePence)}</span>
+                          </div>
+                        )}
+                        {priceBuckets && priceBuckets.travelPence > 0 && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] text-slate-500">Travel</span>
+                            <span className="text-xs text-slate-400">£{penceToGBP(priceBuckets.travelPence)}</span>
+                          </div>
+                        )}
+                        {priceBuckets && priceBuckets.materialCollectionPence > 0 && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] text-slate-500">Materials collection</span>
+                            <span className="text-xs text-slate-400">£{penceToGBP(priceBuckets.materialCollectionPence)}</span>
                           </div>
                         )}
                         <div className="flex justify-between items-center">

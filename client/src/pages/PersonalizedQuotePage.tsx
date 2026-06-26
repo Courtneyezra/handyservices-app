@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRoute, useLocation } from 'wouter';
 import { useScroll, motion, AnimatePresence, useInView, useSpring, useTransform, useReducedMotion } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
@@ -15,7 +15,6 @@ import { SiGoogle, SiVisa, SiMastercard, SiAmericanexpress, SiApplepay, SiStripe
 import { FaWhatsapp, FaPaypal } from 'react-icons/fa';
 import { useToast } from '@/hooks/use-toast';
 import { PaymentForm } from '@/components/PaymentForm';
-import { QuoteSkeleton } from '@/components/QuoteSkeleton';
 import { Elements } from '@stripe/react-stripe-js';
 import { getStripe, isStripeConfigured } from '@/lib/stripe';
 // import handymanPhoto from '@assets/Untitled design (27)_1762913661129.png';
@@ -43,6 +42,12 @@ import { SingleProductQuote } from '@/components/quote/SingleProductQuote';
 import { HassleComparisonCard } from '@/components/quote/HassleComparisonCard';
 import { BudgetQuoteInline } from '@/components/quote/BudgetQuoteInline';
 import { UnifiedQuoteCard } from '@/components/quote/UnifiedQuoteCard';
+import { QuotePreparingScreen } from '@/components/quote/QuotePreparingScreen';
+import { IrresistibleOfferScreen } from '@/components/quote/IrresistibleOfferScreen';
+import { pickQuoteOffer, deriveOfferCustomerType } from '@/lib/quote-offers';
+import { isLaneEligible } from '@/lib/lane-pricing';
+import { AdmiralPriceHero, AdmiralSection } from '@/components/quote/AdmiralQuoteChrome';
+import type { QuoteOffersConfig } from '@shared/pricing-settings';
 import { WistiaFacade } from '@/components/quote/WistiaFacade';
 import { AmendedQuoteCard } from '@/components/quote/AmendedQuoteCard';
 import { BookingConfirmation } from '@/components/quote/BookingConfirmation';
@@ -1280,7 +1285,7 @@ const GoogleReviewCard = ({ postcode, variant = 'light' }: { postcode?: string |
 };
 
 // Quick Social Proof for Warm Leads (Cialdini 1984)
-const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote; pricingSettings?: { googleRating?: string; reviewCount?: number; propertiesServed?: string; jobsCompleted?: string } }) => {
+const ValueSocialProof = ({ quote, pricingSettings, hideReviewEyebrow }: { quote: PersonalizedQuote; pricingSettings?: { googleRating?: string; reviewCount?: number; propertiesServed?: string; jobsCompleted?: string }; hideReviewEyebrow?: boolean }) => {
   const segmentKey = quote.segment && SEGMENT_CONTENT_MAP[quote.segment] ? quote.segment : 'BUSY_PRO';
   const rawContent = SEGMENT_CONTENT_MAP[segmentKey].proof;
 
@@ -1343,11 +1348,14 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
       >
         {/* Header to fill whitespace */}
         <div className="text-center mb-12">
-          {/* Eyebrow: live credibility anchor above the headline */}
-          <div className="flex items-center justify-center gap-1.5 mb-4 text-[13px] font-semibold uppercase tracking-wider text-slate-500">
-            <Star className="w-4 h-4 fill-[#7DB00E] text-[#7DB00E]" />
-            <span><span className="text-[#1D2D3D]">{pricingSettings?.googleRating ?? '4.9'}</span> · {pricingSettings?.reviewCount ?? 127} Google reviews</span>
-          </div>
+          {/* Eyebrow: live credibility anchor above the headline.
+              Hidden in the ?v=admiral variant — the hero already shows the rating. */}
+          {!hideReviewEyebrow && (
+            <div className="flex items-center justify-center gap-1.5 mb-4 text-[13px] font-semibold uppercase tracking-wider text-slate-500">
+              <Star className="w-4 h-4 fill-[#7DB00E] text-[#7DB00E]" />
+              <span><span className="text-[#1D2D3D]">{pricingSettings?.googleRating ?? '4.9'}</span> · 300+ Google reviews</span>
+            </div>
+          )}
           <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold text-[#1D2D3D] tracking-tight leading-[1.08] mb-4">
             Trusted by {locationName} <span className="text-[#7DB00E]">{customerType}</span>
           </h2>
@@ -1366,6 +1374,7 @@ const ValueSocialProof = ({ quote, pricingSettings }: { quote: PersonalizedQuote
               mediaId="z6vtl8u04e"
               aspect="1.3333333333333333"
               posterUrl="https://embed-ssl.wistia.com/deliveries/925b06d85de10fd26fe76b778fdf4fa5.jpg?image_crop_resized=1280x720"
+              previewVideoUrl="https://embed-ssl.wistia.com/deliveries/cd008e0d9fb4b1c9bcd105067c3433b0bac32310.mp4"
             />
           </div>
 
@@ -1684,7 +1693,25 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
     } else if (isProfessional) {
       content.mainTitle = 'Zero hassle. 90-day guarantee.';
     } else {
-      content.mainTitle = <span className="font-bold block leading-tight">Not right?<br />We return and fix it free.</span>;
+      content.mainTitle = (
+        <span className="font-bold block leading-tight">
+          Not right?<br />We return and fix it{' '}
+          <span
+            className="whitespace-nowrap"
+            style={{
+              backgroundImage:
+                "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='12' viewBox='0 0 120 12'><path d='M2 8 C 30 2, 70 2, 118 7' stroke='%237DB00E' stroke-width='5' fill='none' stroke-linecap='round'/></svg>\")",
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'bottom left',
+              backgroundSize: '100% 0.5em',
+              paddingBottom: '0.12em',
+            }}
+          >
+            free
+          </span>
+          .
+        </span>
+      );
     }
   }
 
@@ -1743,8 +1770,6 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
         <h2 className="text-[#7DB00E] text-xs font-bold uppercase tracking-[0.2em] mb-4">{content.title}</h2>
         <h3 className="text-4xl md:text-5xl lg:text-6xl font-light mb-8 text-white">{content.mainTitle}</h3>
 
-        <p className="text-slate-300 text-sm md:text-base mb-6">{content.description}</p>
-
         {/* Certainty Items — BUSY_PRO & OLDER_WOMAN (Kahneman & Tversky, 1979) */}
         {(isBusyPro || isOlderWoman) && content.guaranteeItems && (
           <div className="space-y-4 mb-10">
@@ -1772,27 +1797,6 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
           </div>
         )}
 
-        {/* Signed founder promise — a personal guarantee, not a generic callout box */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-white/[0.08] to-white/[0.02] border border-white/10 rounded-2xl p-6 md:p-7 mb-8 text-center">
-          <ShieldCheck className="absolute -right-6 -top-6 w-32 h-32 text-[#7DB00E]/10 rotate-12 pointer-events-none" aria-hidden="true" />
-          <p className="relative text-lg md:text-2xl font-medium leading-snug text-white mb-6">
-            <span className="text-[#7DB00E] text-2xl leading-none align-top mr-0.5">&ldquo;</span>
-            If it&rsquo;s not right, we make it right &mdash; no questions, no extra cost.
-            <span className="text-[#7DB00E] text-2xl leading-none align-top ml-0.5">&rdquo;</span>
-          </p>
-          <div className="relative flex items-center justify-center gap-3">
-            <img
-              src="/assets/quote-images/ben-estimator.webp"
-              alt="Ben from HandyServices"
-              className="w-12 h-12 rounded-full object-cover ring-2 ring-[#7DB00E]/50 shadow-md"
-              loading="lazy"
-            />
-            <div className="text-left leading-tight">
-              <div className="text-white text-base font-bold">Ben</div>
-              <div className="text-[11px] text-slate-400 uppercase tracking-wider">The HandyServices Team</div>
-            </div>
-          </div>
-        </div>
         </div>
         </div>
 
@@ -2888,6 +2892,43 @@ export default function PersonalizedQuotePage() {
   //                      if assets are still loading (better to show a
   //                      half-painted page than a stuck skeleton).
   const [assetsReady, setAssetsReady] = useState(false);
+
+  // ── 3-step offer flow (preparing → irresistible offer → quote) ─────────────
+  // The branded preparing screen is now the SOLE loader for every quote (it
+  // replaces the old price-lock skeleton). Once the quote + assets resolve it
+  // hands off via onComplete: to the irresistible offer for HOMEOWNER contextual
+  // quotes by default (or ANY type when ?v=offer is set), otherwise straight to
+  // the quote. The homeowner at_home offer is price-free — it presents the
+  // flexibility choice without revealing £, so no price is anchored before the
+  // quote. `v` is a comma-separated list so test variants stack, e.g.
+  // ?v=offer,admiral runs the offer flow AND lands on the Admiral page.
+  const [offerVariant] = useState(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get('v') || '';
+      return v.split(',').map((s) => s.trim()).includes('offer');
+    }
+    catch { return false; }
+  });
+  // Always start on the branded preparing screen — it is the SOLE loader now
+  // (replaces the old price-lock skeleton). onComplete (below) decides where to
+  // hand off: the offer (homeowner default / any type via ?v=offer) or the quote.
+  const [flowPhase, setFlowPhase] = useState<'preparing' | 'offer' | 'quote'>('preparing');
+  // Records the flex-offer choice: true = accepted (flexible lane, base price);
+  // false = declined (firm date & time, base + premium); null = no offer shown.
+  const [acceptedFlexOffer, setAcceptedFlexOffer] = useState<boolean | null>(null);
+
+  // ── Admiral-style quote-page variant (?v=admiral) ──────────────────────────
+  // Standalone test layout that reuses the contextual pieces but leads with the
+  // price (Admiral pattern): bold price hero → booking card → value/proof. Runs
+  // alongside the live page; the live (no-?v=) render is unchanged.
+  const [admiralVariant] = useState(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get('v') || '';
+      return v.split(',').map((s) => s.trim()).includes('admiral');
+    }
+    catch { return false; }
+  });
+
   const skeletonStartRef = useRef<number>(Date.now());
   useEffect(() => {
     if (isLoading || !quote) return;
@@ -2968,6 +3009,7 @@ export default function PersonalizedQuotePage() {
     depositPercent?: number;
     payInFullDiscountPercent?: number;
     flexibleDiscountPercent?: number;
+    quoteOffers?: QuoteOffersConfig;
   }>({
     queryKey: ['pricing-settings-public'],
     queryFn: async () => {
@@ -2977,6 +3019,61 @@ export default function PersonalizedQuotePage() {
     },
     staleTime: 300_000, // 5 min cache
   });
+
+  // The offer chosen for this quote's interstitial (null = no offer, skip it).
+  // Decoupled from ?v=offer so it resolves for ANY contextual quote whose
+  // customer-type group has a configured, lane-eligible offer — that's what lets
+  // the homeowner flow be default-on (see the auto-trigger effect below) while
+  // ?v=offer still forces it on for testing any type. Only contextual quotes get
+  // an offer, and flex_date is gated on lane-eligibility (non-landlord,
+  // non-business) — the only quotes where staying flexible has a real £ saving.
+  // Keyed on the slug so a quote always lands in the same A/B bucket. Selection
+  // needs no price, so it's safe up here.
+  const selectedOffer = useMemo(() => {
+    if (!quote) return null;
+    const isContextual =
+      quote.segment === 'CONTEXTUAL' || !!((quote as any).layoutTier && (quote as any).valueBullets);
+    if (!isContextual) return null;
+    const seed = (quote as any).shortSlug || params?.slug || quote.id || 'quote';
+    // Offers are configured per customer type — pick from this quote's group.
+    const offerCustomerType = deriveOfferCustomerType((quote as any).contextSignals);
+    const offer = pickQuoteOffer(pricingSettings?.quoteOffers, seed, offerCustomerType);
+    if (!offer) return null;
+    if (offer.type === 'flex_date' && !isLaneEligible((quote as any).contextSignals)) return null;
+    return offer;
+  }, [quote, pricingSettings, params?.slug]);
+
+  // ── Offer analytics (fire-and-forget beacon) ───────────────────────────────
+  // impression when the interstitial is shown, accept/decline on the choice.
+  // Joined server-side to bookings/revenue per offer + template.
+  const trackOfferEvent = useCallback((event: 'impression' | 'accept' | 'decline') => {
+    if (!quote || !selectedOffer) return;
+    fetch('/api/analytics/quotes/offer-event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        quoteId: quote.id,
+        shortSlug: (quote as any).shortSlug,
+        offerId: selectedOffer.id,
+        offerType: selectedOffer.type,
+        template: selectedOffer.template ?? 'dark_hero',
+        customerType: deriveOfferCustomerType((quote as any).contextSignals),
+        event,
+        deviceType: window.innerWidth < 768 ? 'mobile' : window.innerWidth < 1024 ? 'tablet' : 'desktop',
+      }),
+    }).catch(() => {});
+  }, [quote, selectedOffer]);
+
+  // Fire the impression once when we land on the offer phase (ref-guarded so a
+  // re-render or stable-identity change can't double-count).
+  const offerImpressionFiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (flowPhase === 'offer' && selectedOffer && quote
+        && offerImpressionFiredRef.current !== selectedOffer.id) {
+      offerImpressionFiredRef.current = selectedOffer.id;
+      trackOfferEvent('impression');
+    }
+  }, [flowPhase, selectedOffer, quote, trackOfferEvent]);
 
   // Fetch invoice data for confirmation screen
   const { data: invoiceData } = useQuery<{ invoiceNumber: string }>({
@@ -3511,10 +3608,23 @@ export default function PersonalizedQuotePage() {
     window.location.href = `/booking-confirmed/${quote.id}`;
   };
 
-  // Keep the skeleton up while we wait for either the API or the assets
-  // (fonts + above-the-fold images). Real content swaps in as one piece.
-  if (isLoading || !assetsReady) {
-    return <QuoteSkeleton quoteKey={params?.slug || 'quote'} />;
+  // Offer flow, step 1 — the branded preparing screen is the SOLE loader (it
+  // replaces the old price-lock skeleton). It shows while the quote is loading
+  // OR once we have one, plays its checklist, and only advances once the quote +
+  // above-the-fold assets are ready. A failed load (not loading, no quote) falls
+  // through to the "not found" card below instead of spinning here. onComplete
+  // hands off to the offer for homeowner (or any type via ?v=offer), else quote.
+  if (flowPhase === 'preparing' && (isLoading || quote)) {
+    return (
+      <QuotePreparingScreen
+        ready={!isLoading && assetsReady && !!quote}
+        pricingSettings={pricingSettings}
+        onComplete={() => {
+          const homeowner = deriveOfferCustomerType((quote as any)?.contextSignals) === 'homeowner';
+          setFlowPhase(selectedOffer && (offerVariant || homeowner) ? 'offer' : 'quote');
+        }}
+      />
+    );
   }
 
   // Quote expiration check removed - quotes no longer expire
@@ -3570,23 +3680,9 @@ export default function PersonalizedQuotePage() {
   // booking-card behaviour (e.g. homeowners default to "I'm flexible"). This is
   // distinct from isLandlordQuote, which is a narrower literal-word match that
   // gates the landlord booking flow / tenant-liaison promo.
-  const customerType: 'homeowner' | 'landlord' | 'property_manager' | 'tenant' | 'business' | 'letting_agent' = (() => {
-    const stored = (quote as any).contextSignals?.customerType;
-    if (
-      stored === 'homeowner' || stored === 'landlord' || stored === 'property_manager' ||
-      stored === 'tenant' || stored === 'business' || stored === 'letting_agent'
-    ) {
-      return stored;
-    }
-    // Legacy fallback: no persisted customerType, so infer from free-text.
-    const v = ((quote as any).contextSignals?.vaContext || '').toLowerCase();
-    if (/letting agent/.test(v)) return 'letting_agent';
-    if (/landlord|buy.to.let|\bbtl\b/.test(v)) return 'landlord';
-    if (/property manager|portfolio|prop mgr|managing agent/.test(v)) return 'property_manager';
-    if (/\btenant\b/.test(v)) return 'tenant';
-    if (/office|business|company|commercial|shop/.test(v)) return 'business';
-    return 'homeowner';
-  })();
+  // Shared helper (see quote-offers.ts) keeps this in lock-step with the offer
+  // selection logic — prefers the persisted enum, falls back to VA free-text.
+  const customerType = deriveOfferCustomerType((quote as any).contextSignals);
 
   // [DEBUG] Log all conditions for BUSY_PRO feature overrides
   console.log('[QUOTE DEBUG] =====================================');
@@ -3603,6 +3699,22 @@ export default function PersonalizedQuotePage() {
   // EVE single price — used directly by UnifiedQuoteCard
   // For contextual quotes, prefer finalPricePence from the contextual pricing engine
   const quotePrice = (isContextualQuote ? quote.finalPricePence : undefined) || quote.basePrice || quote.enhancedPrice || 0;
+
+  // Offer flow, step 2: the irresistible offer interstitial, shown before the
+  // price. Accept → flexible lane (base price); decline → firm date & time
+  // (base + premium). The choice is threaded into UnifiedQuoteCard via
+  // initialUseFlexBooking, which performs the server-safe re-price.
+  if (flowPhase === 'offer' && selectedOffer) {
+    return (
+      <IrresistibleOfferScreen
+        offer={selectedOffer}
+        basePricePence={quotePrice}
+        customerName={quote.customerName}
+        onAccept={() => { trackOfferEvent('accept'); setAcceptedFlexOffer(true); setFlowPhase('quote'); }}
+        onDecline={() => { trackOfferEvent('decline'); setAcceptedFlexOffer(false); setFlowPhase('quote'); }}
+      />
+    );
+  }
 
   // Sort line items by total descending — anchors the breakdown high (primacy + descending-price effect).
   const sortedPricingLineItems = quote.pricingLineItems
@@ -3626,9 +3738,16 @@ export default function PersonalizedQuotePage() {
         if (SPLIT_LINE_IDS.has(item.lineId)) {
           const halfGuarded = Math.round((item.guardedPricePence || 0) / 2);
           const halfMaterials = Math.round((item.materialsWithMarginPence || 0) / 2);
+          // Split the folded structural share too, else the {...item} spread would
+          // copy the FULL share into both halves and double-count it (decomposed-
+          // pricing reconciliation). p1 takes the rounding remainder so the two
+          // halves still sum to the original share.
+          const share = item.structuralSharePence || 0;
+          const halfShareP1 = Math.round(share / 2);
+          const halfShareP2 = share - halfShareP1;
           return [
-            { ...item, lineId: `${item.lineId}_p1`, guardedPricePence: halfGuarded, materialsWithMarginPence: halfMaterials, propertyTag: 'P1' },
-            { ...item, lineId: `${item.lineId}_p2`, guardedPricePence: halfGuarded, materialsWithMarginPence: halfMaterials, propertyTag: 'P2' },
+            { ...item, lineId: `${item.lineId}_p1`, guardedPricePence: halfGuarded, materialsWithMarginPence: halfMaterials, structuralSharePence: halfShareP1, propertyTag: 'P1' },
+            { ...item, lineId: `${item.lineId}_p2`, guardedPricePence: halfGuarded, materialsWithMarginPence: halfMaterials, structuralSharePence: halfShareP2, propertyTag: 'P2' },
           ];
         }
         return [{ ...item, propertyTag: PROPERTY_1_LINE_IDS.has(item.lineId) ? 'P1' : 'P2' }];
@@ -3768,197 +3887,10 @@ export default function PersonalizedQuotePage() {
 
   // --- RENDER LOGIC ---
 
-  // Weighted Scroll Layout (for proposalModeEnabled OR contextual quotes)
-  // Contextual quotes use the same rich flow: ScarcityBanner → ValueHero →
-  // ValueSocialProof → ValueGuarantee → HassleComparisonCard → Packages → Payment
-  if (quote.proposalModeEnabled || isContextualQuote) {
-    return (
-      <QuoteTimerProvider quoteKey={params?.slug || 'quote'}>
-      <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
-
-        <UpsellBottomSheet
-          open={showUpsellIntercept}
-          upsells={quote.upsellSkus ?? []}
-          selected={selectedContextualUpsells}
-          onToggle={toggleContextualUpsell}
-          onConfirm={confirmContextualUpsells}
-          onSkip={() => { setSelectedContextualUpsells(new Set()); confirmContextualUpsells(); }}
-        />
-
-        {/* Value Sections Flow */}
-        <ValueHero quote={quote} config={config} />
-
-        {/* Unified Social Proof Section */}
-        <ValueSocialProof quote={quote} pricingSettings={pricingSettings ?? undefined} />
-
-        <ValueGuarantee quote={quote} config={config} />
-
-        {/* Why homeowners choose us — pain-led header + the comparison + a value tie-in.
-            Consolidated here: the standalone pain section was folded in to avoid two
-            overlapping "why us" beats and keep the high-intent quote tight + on-brand. */}
-        <SectionWrapper className="bg-white">
-          <div className="max-w-2xl md:max-w-3xl mx-auto w-full">
-            {(() => {
-              const vaCtx = ((quote as any).contextSignals?.vaContext || '').toLowerCase();
-              const customerType =
-                /landlord|rental|tenant|buy.to.let|btl|letting/.test(vaCtx) ? 'landlords' :
-                /property manager|portfolio|prop mgr|managing agent/.test(vaCtx) ? 'property managers' :
-                /office|business|company|commercial|shop/.test(vaCtx) ? 'businesses' :
-                /professional|busy exec|corporate/.test(vaCtx) ? 'professionals' :
-                'homeowners';
-              return (
-                <>
-                  <div className="text-center mb-6">
-                    <h3 className="text-2xl lg:text-3xl font-extrabold text-slate-900 leading-tight">Everything a handyman should be — and usually isn’t.</h3>
-                    <p className="text-slate-500 mt-2.5 max-w-lg mx-auto">No-shows, cash-only, surprise bills, a stranger in your home — the usual handyman risks, designed out. It’s why {customerType} choose us.</p>
-                  </div>
-                  <HassleComparisonCard segment={quote.segment || 'UNKNOWN'} hideTitle maxItems={6} />
-                  <p className="text-center text-slate-600 mt-6 max-w-lg mx-auto font-medium">That’s what your price pays for — and <span className="text-slate-900 font-bold">if it’s not right, we come back and fix it free.</span></p>
-                </>
-              );
-            })()}
-          </div>
-        </SectionWrapper>
-
-        {/* "Flexibility pays" — savings-led animated explainer, before the booking section. */}
-        {isContextualQuote && <FlexSavingsSection quote={quote} />}
-
-        {/* The Final Reveal: Quote Section */}
-        <section id="packages-section" className="bg-slate-50 pt-16 pb-8 px-4 md:px-6 lg:px-8 relative overflow-visible">
-          <div className="w-full max-w-2xl md:max-w-5xl mx-auto">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4 }}
-              viewport={{ once: true, margin: "50px" }}
-              className="space-y-12"
-            >
-              <div className="text-center space-y-4">
-
-                {/* Landlord-only: promote the +£25 tenant-liaison concierge. The CTA
-                    nudges (scrolls to + pulses) the liaise toggle in the booking card
-                    below rather than toggling it for them — the choice still happens
-                    there, where the tenant's contact is captured. */}
-                {isLandlordQuote && (
-                  <div className="max-w-lg md:max-w-4xl mx-auto rounded-2xl border border-[#7DB00E]/30 bg-[#7DB00E]/[0.06] p-6 sm:p-7 text-left">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-5">
-                      <span className="shrink-0 w-12 h-12 rounded-full bg-[#7DB00E] flex items-center justify-center">
-                        <MessageCircle className="w-6 h-6 text-[#1D2D3D]" strokeWidth={2.5} />
-                      </span>
-                      <div className="flex-1">
-                        <p className="text-[11px] font-bold uppercase tracking-wider text-[#5a8000] mb-1">Hands-off access</p>
-                        <h3 className="text-lg sm:text-xl font-bold text-[#1D2D3D] leading-tight">Can't be there? We'll handle your tenant.</h3>
-                        <p className="text-sm text-slate-600 mt-1.5 leading-snug">We text your tenant, agree a time, sort access, and confirm it back to you. You don't lift a finger.</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setLiaiseSignal(n => n + 1)}
-                        className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-[#7DB00E] px-5 py-3 text-sm font-bold text-[#1D2D3D] transition-[background-color,transform] duration-150 ease-out hover:bg-[#8cc40f] active:scale-[0.97]"
-                      >
-                        Add tenant liaison
-                        <span className="text-[11px] bg-[#1D2D3D] text-white px-2 py-0.5 rounded-full">+£25</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* What to expect — Book → Do → Guaranteed timeline */}
-                <div className="max-w-lg md:max-w-4xl mx-auto rounded-2xl bg-[#1D2D3D] text-white text-left p-6 sm:p-8 shadow-lg">
-                  <div className="rounded-xl overflow-hidden mb-6 ring-1 ring-white/10 h-44">
-                    <img src={payIn3PromoImage} alt="HandyServices at your door" className="w-full h-full object-cover object-[15%_30%] scale-[1.75]" loading="lazy" />
-                  </div>
-                  <h3 className="text-2xl font-bold text-center text-white mb-1">What to expect</h3>
-                  <p className="text-slate-400 text-sm text-center mb-8">From quote to done — three simple steps</p>
-                  <ol className="relative space-y-7 md:space-y-0 md:grid md:grid-cols-3 md:gap-8">
-                    <span className="absolute left-[17px] top-3 bottom-3 w-0.5 bg-white/15 md:hidden" aria-hidden="true" />
-                    {[
-                      { title: 'Pick your date', sub: 'A small deposit books your slot · pay the rest after' },
-                      { title: 'We arrive & do it right', sub: 'Vetted pro · fixed price · full cleanup' },
-                      { title: 'Done & guaranteed', sub: 'Photo report + 30-day guarantee' },
-                    ].map((s, i) => (
-                      <li key={i} className="relative flex gap-4">
-                        <span className="relative z-10 w-9 h-9 shrink-0 rounded-full bg-[#7DB00E] text-[#1D2D3D] text-sm font-extrabold flex items-center justify-center ring-4 ring-[#1D2D3D]">{i + 1}</span>
-                        <div className="pt-1">
-                          <div className="font-bold text-white leading-tight">{s.title}</div>
-                          <div className="text-slate-300 text-sm mt-1">{s.sub}</div>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-
-
-              </div>
-
-              {/* Stacked: job summary (full width) then booking card (full width).
-                  Each is wide and uses an internal 2-column desktop layout. */}
-              <div className="space-y-12">
-              {/* Scope of Works — standalone block, centred & readable */}
-              <ScopeOfWorks
-                className="md:max-w-4xl md:mx-auto w-full"
-                text={getScopeOfWorks(quote as any)}
-                summary={(quote.jobs as any)?.[0]?.summary}
-                proposalSummary={isContextualQuote ? (quote as any).proposalSummary : undefined}
-                pricingLineItems={isContextualQuote ? taggedPricingLineItems : undefined}
-                estimatorPhotoUrl={mikeProfilePhoto}
-              />
-
-              {/* Amended notice + price/booking card */}
-              <div className="space-y-12">
-              {(() => {
-                const tierPrice = quote.selectedTierPricePence ?? 0;
-                const currentTotal = quote.basePrice ?? 0;
-                const deposit = quote.depositAmountPence ?? 0;
-                const serverAcceptedAt = quote.feedbackJson?.revisionAcceptedAt;
-                const acceptedFromPrice = quote.feedbackJson?.revisionAcceptedFromPricePence ?? 0;
-                const isAccepted = !!serverAcceptedAt || revisionAcceptedLocally;
-                // After acceptance the server syncs selectedTierPricePence to basePrice, so
-                // the pre-rescope total has to come from feedbackJson.
-                const previousTotal = isAccepted && acceptedFromPrice > 0
-                  ? acceptedFromPrice
-                  : tierPrice;
-                const isRescoped =
-                  !!quote.depositPaidAt &&
-                  currentTotal > 0 &&
-                  ((previousTotal > 0 && currentTotal > previousTotal) || isAccepted);
-                if (!isRescoped) return null;
-                const balance = Math.max(0, currentTotal - deposit);
-                return (
-                  <div className="max-w-xl mx-auto" data-testid="amended-card-wrapper">
-                    <AmendedQuoteCard
-                      customerName={quote.customerName}
-                      previousTotalPence={previousTotal}
-                      currentTotalPence={currentTotal}
-                      depositPaidPence={deposit}
-                      balanceDuePence={balance}
-                      pricingLineItems={taggedPricingLineItems as any}
-                      explanation={`Hi ${quote.customerName?.split(' ')[0] || 'there'} — we visited and inspected the doors. The original quote assumed the frames were already rebated for intumescent strips, but they aren't, so the doors need planing and routering. Your deposit is credited in full against the new total.`}
-                      isAccepted={isAccepted}
-                      isAccepting={isAcceptingRevision}
-                      onAccept={async () => {
-                        setIsAcceptingRevision(true);
-                        try {
-                          const resp = await fetch(`/api/personalized-quotes/${quote.id}/accept-revision`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                          });
-                          if (!resp.ok) throw new Error('Failed to accept revision');
-                          setRevisionAcceptedLocally(true);
-                          queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes', params?.slug] });
-                        } catch (err) {
-                          console.error('[accept-revision]', err);
-                          alert('Failed to accept revision. Please try again or contact us.');
-                        } finally {
-                          setIsAcceptingRevision(false);
-                        }
-                      }}
-                    />
-                  </div>
-                );
-              })()}
-
-              {/* Price Card + Booking Flow */}
-              {quotePrice > 0 && !hasBooked && (
+  // Shared booking + payment nodes — built once and reused by BOTH the live
+  // contextual layout and the ?v=admiral variant, so the booking/payment wiring
+  // (onBook, Stripe Elements, deposit math) has a single source of truth.
+  const bookingBlockNode = quotePrice > 0 && !hasBooked ? (
                 <QuoteTimer>
                   <div ref={bookingSentinelRef} aria-hidden="true" />
                   <Elements
@@ -3974,6 +3906,7 @@ export default function PersonalizedQuotePage() {
                       bookingModes={isContextualQuote && quote.bookingModes ? quote.bookingModes : undefined}
                       batchDiscount={isContextualQuote && quote.batchDiscount ? quote.batchDiscount : undefined}
                       pricingLineItems={taggedPricingLineItems || undefined}
+                      priceBuckets={isContextualQuote ? (quote as any).pricingLayerBreakdown?.priceBuckets : undefined}
                       contextualBullets={isContextualQuote && quote.valueBullets ? quote.valueBullets : undefined}
                       allowedDates={(quote as any).availableDates ?? null}
                       quoteId={quote.id}
@@ -3984,6 +3917,7 @@ export default function PersonalizedQuotePage() {
                       depositPercent={pricingSettings?.depositPercent}
                       payInFullDiscountPercent={pricingSettings?.payInFullDiscountPercent}
                       flexibleDiscountPercent={pricingSettings?.flexibleDiscountPercent}
+                      initialUseFlexBooking={acceptedFlexOffer ?? undefined}
                       contractor={null}
                       isLandlord={isLandlordQuote}
                       customerType={customerType}
@@ -4078,20 +4012,6 @@ export default function PersonalizedQuotePage() {
                     />
                   </Elements>
 
-                  {/* Payment trust — directly under the booking CTA */}
-                  <div className="flex flex-col items-center gap-2 mt-4">
-                    <div className="flex items-center gap-3 opacity-90">
-                      <SiVisa className="w-7 h-7 text-[#1434CB]" />
-                      <SiMastercard className="w-7 h-7 text-[#EB001B]" />
-                      <SiAmericanexpress className="w-7 h-7 text-[#2E77BC]" />
-                      <SiApplepay className="w-7 h-7 text-white" />
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
-                      <Lock className="w-3 h-3" />
-                      Secure payments via Stripe · 256-bit SSL
-                    </div>
-                  </div>
-
                   {/* PDF Download — subtle link */}
                   <button
                     onClick={() => {
@@ -4121,14 +4041,9 @@ export default function PersonalizedQuotePage() {
                     <span>Download quote for your records</span>
                   </button>
                 </QuoteTimer>
-              )}
-              </div>
-              </div>
+  ) : null;
 
-            </motion.div>
-
-            {/* Payment Section — shows after user books via UnifiedQuoteCard */}
-            {selectedEEEPackage && hasApprovedProduct && (
+  const afterBookingPaymentNode = selectedEEEPackage && hasApprovedProduct ? (
               <motion.div
                 id="payment-section"
                 initial={{ opacity: 0, y: 20 }}
@@ -4283,7 +4198,381 @@ export default function PersonalizedQuotePage() {
 
                 {/* Booking Confirmation - Handled by BookingConfirmation component in footer section */}
               </motion.div>
-            )}
+  ) : null;
+
+  // ── ?v=admiral — price-first test layout (reuses the contextual pieces) ──────
+  // Same quote data + the SAME shared booking/payment nodes as the live page, just
+  // re-ordered Admiral-style: bold price hero → booking → value → proof. Gated by
+  // ?v=admiral and intercepts BEFORE the live contextual branch below, so the live
+  // (no-?v=) render is left completely untouched (A/B-safe).
+  if (admiralVariant && (quote.proposalModeEnabled || isContextualQuote)) {
+    const admiralDepositPence = Math.round(quotePrice * ((pricingSettings?.depositPercent ?? 30) / 100));
+    // Short product-style label, used only as a headline fallback (the PDF's
+    // "Car Insurance"). Derived from the job description (first task + count).
+    const admiralJobTitle = (() => {
+      const raw = (quote.jobDescription || '').trim();
+      if (!raw) return undefined;
+      const parts = raw.split(/\s*(?:,|;|&|\band\b|\bplus\b)\s*/i).map((p) => p.trim()).filter(Boolean);
+      const shorten = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s);
+      if (parts.length <= 1) return shorten(parts[0] || raw, 44);
+      return `${shorten(parts[0], 30)} + ${parts.length - 1} more`;
+    })();
+    // Admiral meta-row "valid until" — prefer the real expiry, else created + 48h.
+    const admiralValidUntil = (() => {
+      const base = quote.expiresAt
+        ? new Date(quote.expiresAt)
+        : quote.createdAt
+          ? new Date(new Date(quote.createdAt).getTime() + 48 * 60 * 60 * 1000)
+          : null;
+      if (!base || isNaN(base.getTime())) return undefined;
+      return base.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    })();
+    const admiralQuoteRef = quote.shortSlug ? quote.shortSlug.toUpperCase() : undefined;
+    // Hero headline = the AI-generated contextual headline (same source ValueHero
+    // uses), falling back to an Admiral-style "Here's your quote for {job}" label.
+    const admiralHeadline =
+      quote.contextualHeadline?.trim() ||
+      (admiralJobTitle ? `Here's your quote for ${admiralJobTitle}` : "Here's your quote");
+    return (
+      <QuoteTimerProvider quoteKey={params?.slug || 'quote'}>
+        <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
+
+          <UpsellBottomSheet
+            open={showUpsellIntercept}
+            upsells={quote.upsellSkus ?? []}
+            selected={selectedContextualUpsells}
+            onToggle={toggleContextualUpsell}
+            onConfirm={confirmContextualUpsells}
+            onSkip={() => { setSelectedContextualUpsells(new Set()); confirmContextualUpsells(); }}
+          />
+
+          {/* 1 ─ Price-first hero (Admiral pattern): greeting → AI headline → £ */}
+          <AdmiralPriceHero
+            customerName={quote.customerName || undefined}
+            headline={admiralHeadline}
+            heroImage={payIn3PromoImage}
+            totalPence={quotePrice}
+            depositPence={admiralDepositPence}
+            validUntil={admiralValidUntil}
+            quoteRef={admiralQuoteRef}
+            rating={pricingSettings?.googleRating ?? '4.9'}
+            reviews={pricingSettings?.reviewCount ?? 127}
+          />
+
+          {/* 2 ─ Social proof — reviews/testimonials, shown before the booking card.
+                 Eyebrow rating hidden here — the hero already shows 4.9 · 127 reviews. */}
+          <ValueSocialProof quote={quote} pricingSettings={pricingSettings ?? undefined} hideReviewEyebrow />
+
+          {/* 3 ─ Booking: job scope + the shared price/booking card. "When suits you?"
+                 and "Included as standard" both live INSIDE UnifiedQuoteCard. */}
+          <AdmiralSection id="admiral-book" bare>
+            <div className="space-y-8">
+              {/* Award/rating line — mirrors the PDF's "Best Insurer" badge above payment */}
+              <div className="flex items-center justify-center gap-2 text-sm font-semibold text-[#0b2a52]">
+                <Award className="w-4 h-4 text-[#7DB00E]" strokeWidth={2.5} />
+                Rated {pricingSettings?.googleRating ?? '4.9'}/5 &middot; Nottingham&rsquo;s best-reviewed handyman
+              </div>
+              {bookingBlockNode}
+            </div>
+          </AdmiralSection>
+
+          {/* 4 ─ Guarantee */}
+          <ValueGuarantee quote={quote} config={config} />
+
+          {/* 5 ─ vs. a normal handyman */}
+          <AdmiralSection eyebrow="The difference" title="vs. a normal handyman">
+            <HassleComparisonCard segment={quote.segment || 'UNKNOWN'} hideTitle maxItems={6} />
+            <p className="text-center text-slate-600 mt-6 max-w-lg mx-auto font-medium">
+              That&rsquo;s what your price pays for &mdash; and <span className="text-slate-900 font-bold">if it&rsquo;s not right, we come back and fix it free.</span>
+            </p>
+          </AdmiralSection>
+
+          {/* 6 ─ What to expect — Book → Do → Guaranteed timeline */}
+          <AdmiralSection bare>
+            <div className="rounded-2xl bg-[#1D2D3D] text-white text-left p-6 sm:p-8 shadow-lg">
+              <div className="rounded-xl overflow-hidden mb-6 ring-1 ring-white/10 h-44">
+                <img src={payIn3PromoImage} alt="HandyServices at your door" className="w-full h-full object-cover object-[15%_30%] scale-[1.75]" loading="lazy" />
+              </div>
+              <h3 className="text-2xl font-bold text-center text-white mb-1">What to expect</h3>
+              <p className="text-slate-400 text-sm text-center mb-8">From quote to done &mdash; three simple steps</p>
+              <ol className="relative space-y-7 md:space-y-0 md:grid md:grid-cols-3 md:gap-8">
+                <span className="absolute left-[17px] top-3 bottom-3 w-0.5 bg-white/15 md:hidden" aria-hidden="true" />
+                {[
+                  { title: 'Pick your date', sub: 'A small deposit books your slot · pay the rest after' },
+                  { title: 'We arrive & do it right', sub: 'Vetted pro · fixed price · full cleanup' },
+                  { title: 'Done & guaranteed', sub: 'Photo report + 30-day guarantee' },
+                ].map((s, i) => (
+                  <li key={i} className="relative flex gap-4">
+                    <span className="relative z-10 w-9 h-9 shrink-0 rounded-full bg-[#7DB00E] text-[#1D2D3D] text-sm font-extrabold flex items-center justify-center ring-4 ring-[#1D2D3D]">{i + 1}</span>
+                    <div className="pt-1">
+                      <div className="font-bold text-white leading-tight">{s.title}</div>
+                      <div className="text-slate-300 text-sm mt-1">{s.sub}</div>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </AdmiralSection>
+
+          {/* After-booking payment — the fixed-date path in UnifiedQuoteCard scrolls
+              to #payment-section, so this shared node must be present here too. */}
+          <AdmiralSection bare>{afterBookingPaymentNode}</AdmiralSection>
+
+          {/* Compact trust footer */}
+          <div className="bg-slate-50 py-5 px-6 border-t border-slate-200 relative">
+            <div className="max-w-lg mx-auto flex flex-col items-center gap-3">
+              <p className="text-[10px] text-slate-400">
+                &copy; {new Date().getFullYear()} HandyServices. All rights reserved.
+              </p>
+            </div>
+          </div>
+        </div>
+      </QuoteTimerProvider>
+    );
+  }
+
+  // Weighted Scroll Layout (for proposalModeEnabled OR contextual quotes)
+  // Contextual quotes use the same rich flow: ScarcityBanner → ValueHero →
+  // ValueSocialProof → ValueGuarantee → HassleComparisonCard → Packages → Payment
+  if (quote.proposalModeEnabled || isContextualQuote) {
+    return (
+      <QuoteTimerProvider quoteKey={params?.slug || 'quote'}>
+      <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
+
+        {/* Sticky instant-contact header — always-visible bold navy bar pinning
+            Ben's face + name and the two WhatsApp actions to the top of every
+            screen, so the customer can reach a real person at any scroll depth.
+            The face is the trust cue; the in-card "Still have questions?" copy is
+            intentionally dropped here to keep the bar slim. Same wa.me / WhatsApp-
+            voice links (quote slug pre-filled) as the in-card contact block.
+            z-50 sits above the floating social-proof badge (z-40); the booking
+            CTA owns the bottom edge, so the two sticky chromes never collide. */}
+        <div className="sticky top-0 z-50 w-full bg-[#0f172a]/95 backdrop-blur-md border-b border-white/10 shadow-lg">
+          <div className="max-w-2xl md:max-w-3xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="relative shrink-0">
+                <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-[#7DB00E]">
+                  <img src="/assets/quote-images/ben-estimator.webp" alt="Ben" className="w-full h-full object-cover" />
+                </div>
+                <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[#7DB00E] ring-2 ring-[#0f172a]" aria-hidden="true" />
+              </div>
+              <div className="min-w-0 leading-tight">
+                <p className="text-white text-sm font-bold leading-none truncate">Ben</p>
+                <p className="text-[11px] text-slate-400 leading-none mt-1 truncate">Questions? Tap to chat</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <a
+                href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I have a question about my quote${quote.shortSlug ? ` (${quote.shortSlug})` : ''}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Message Ben on WhatsApp"
+                className="w-9 h-9 rounded-full bg-[#7DB00E] text-white flex items-center justify-center shadow-sm transition-colors hover:bg-[#6a9a0c]"
+              >
+                <MessageCircle className="w-4 h-4" />
+              </a>
+              <a
+                href="https://call.whatsapp.com/voice/2yJRisb6ailWZArVFCDqVm"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Call Ben on WhatsApp"
+                className="w-9 h-9 rounded-full bg-white/10 text-[#a3d65f] flex items-center justify-center transition-colors hover:bg-white/20"
+              >
+                <Phone className="w-4 h-4" />
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <UpsellBottomSheet
+          open={showUpsellIntercept}
+          upsells={quote.upsellSkus ?? []}
+          selected={selectedContextualUpsells}
+          onToggle={toggleContextualUpsell}
+          onConfirm={confirmContextualUpsells}
+          onSkip={() => { setSelectedContextualUpsells(new Set()); confirmContextualUpsells(); }}
+        />
+
+        {/* Value Sections Flow */}
+        <ValueHero quote={quote} config={config} />
+
+        {/* Price card lifted to STRADDLE the hero→next-section seam — pulled up with a
+            negative margin so it bridges the dark hero and the white band below, on a
+            higher z-layer (its own shadow + animated PRICE LOCKED seal amplify the lift).
+            Relocated here from the final-reveal section per design. */}
+        {bookingBlockNode && (
+          <div className="relative z-30 -mt-20 md:-mt-28 mb-4 px-4">
+            <div className="w-full max-w-2xl md:max-w-5xl mx-auto">
+              {bookingBlockNode}
+            </div>
+          </div>
+        )}
+
+        {/* Cost of the wrong choice — established before any price. Quiet editorial
+            beat (type + whitespace, no coloured band). Contextual quotes only. */}
+        {isContextualQuote && (
+          <SectionWrapper className="bg-white">
+            <div className="max-w-2xl md:max-w-3xl mx-auto w-full py-8 md:py-14">
+              <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">
+                Buy cheap, buy twice.
+              </h2>
+              <p className="text-slate-500 mt-5 text-base md:text-lg max-w-xl mx-auto leading-relaxed">
+                The wrong handyman turns a small job into a big bill. We do it once &mdash; <span className="text-slate-900 font-semibold">properly.</span>
+              </p>
+
+              {/* Proof for the claim above: a customer who paid cheap, then paid
+                  again — the exact "buy twice" failure. PLACEHOLDER copy. Swap for
+                  a REAL verified Google review before launch (genuine name, area
+                  and wording); do not ship an invented testimonial. */}
+              <figure className="mt-6 max-w-xl mx-auto text-left rounded-xl bg-slate-50 ring-1 ring-slate-200 p-5">
+                <blockquote className="text-slate-800 text-sm md:text-base leading-snug">
+                  &ldquo;Saved £60 on a cheaper guy &mdash; it failed in weeks. <span className="font-semibold text-slate-900">Should&rsquo;ve called Handy first.</span>&rdquo;
+                </blockquote>
+                <figcaption className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
+                  <span className="flex items-center gap-0.5" aria-label="Rated 5 out of 5 stars">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                    ))}
+                  </span>
+                  <span className="font-semibold text-slate-900">Mark D., West Bridgford</span>
+                  <span className="inline-flex items-center gap-1 text-[#5a8209] font-medium">
+                    <ShieldCheck className="w-3.5 h-3.5" /> Verified
+                  </span>
+                </figcaption>
+              </figure>
+            </div>
+          </SectionWrapper>
+        )}
+
+        <ValueGuarantee quote={quote} config={config} />
+
+        {/* Social proof lands right after the guarantee — proof of the promise —
+            and ahead of the "everything a handyman should be" comparison. */}
+        <ValueSocialProof quote={quote} pricingSettings={pricingSettings ?? undefined} />
+
+        {/* Why homeowners choose us — pain-led header + the comparison + a value tie-in.
+            Consolidated here: the standalone pain section was folded in to avoid two
+            overlapping "why us" beats and keep the high-intent quote tight + on-brand. */}
+        <SectionWrapper className="bg-white">
+          <div className="max-w-2xl md:max-w-3xl mx-auto w-full">
+            <div className="text-center mb-8">
+              <h3 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">Everything a handyman <span className="text-[#5a8209]">should be</span> — and usually isn’t.</h3>
+            </div>
+            <HassleComparisonCard segment={quote.segment || 'UNKNOWN'} hideTitle maxItems={6} />
+            <p className="text-center text-slate-600 mt-6 max-w-lg mx-auto font-medium">That’s what your price pays for — and <span className="text-slate-900 font-bold">if it’s not right, we come back and fix it free.</span></p>
+          </div>
+        </SectionWrapper>
+
+        {/* Plumbing section — the price/booking card now lives up under the hero, so
+            this only houses conditional pieces: the landlord tenant-liaison upsell, the
+            rescope "amended quote" notice, and the post-booking payment node (which owns
+            the #payment-section scroll target). Collapses to zero height when none apply,
+            so there's no empty slate-50 gap above the footer. */}
+        <section id="packages-section" className={`bg-slate-50 px-4 md:px-6 lg:px-8 relative overflow-visible ${(isLandlordQuote || quote.depositPaidAt || (selectedEEEPackage && hasApprovedProduct)) ? 'pt-16 pb-8' : ''}`}>
+          <div className="w-full max-w-2xl md:max-w-5xl mx-auto">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+              viewport={{ once: true, margin: "50px" }}
+              className="space-y-12"
+            >
+              <div className="text-center space-y-4">
+
+                {/* Landlord-only: promote the +£25 tenant-liaison concierge. The CTA
+                    nudges (scrolls to + pulses) the liaise toggle in the booking card
+                    below rather than toggling it for them — the choice still happens
+                    there, where the tenant's contact is captured. */}
+                {isLandlordQuote && (
+                  <div className="max-w-lg md:max-w-4xl mx-auto rounded-2xl border border-[#7DB00E]/30 bg-[#7DB00E]/[0.06] p-6 sm:p-7 text-left">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-5">
+                      <span className="shrink-0 w-12 h-12 rounded-full bg-[#7DB00E] flex items-center justify-center">
+                        <MessageCircle className="w-6 h-6 text-[#1D2D3D]" strokeWidth={2.5} />
+                      </span>
+                      <div className="flex-1">
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-[#5a8000] mb-1">Hands-off access</p>
+                        <h3 className="text-lg sm:text-xl font-bold text-[#1D2D3D] leading-tight">Can't be there? We'll handle your tenant.</h3>
+                        <p className="text-sm text-slate-600 mt-1.5 leading-snug">We text your tenant, agree a time, sort access, and confirm it back to you. You don't lift a finger.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setLiaiseSignal(n => n + 1)}
+                        className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-[#7DB00E] px-5 py-3 text-sm font-bold text-[#1D2D3D] transition-[background-color,transform] duration-150 ease-out hover:bg-[#8cc40f] active:scale-[0.97]"
+                      >
+                        Add tenant liaison
+                        <span className="text-[11px] bg-[#1D2D3D] text-white px-2 py-0.5 rounded-full">+£25</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+
+              {/* Stacked: job summary (full width) then booking card (full width).
+                  Each is wide and uses an internal 2-column desktop layout. */}
+              <div className="space-y-12">
+              {/* Amended notice + price/booking card */}
+              <div className="space-y-12">
+              {(() => {
+                const tierPrice = quote.selectedTierPricePence ?? 0;
+                const currentTotal = quote.basePrice ?? 0;
+                const deposit = quote.depositAmountPence ?? 0;
+                const serverAcceptedAt = quote.feedbackJson?.revisionAcceptedAt;
+                const acceptedFromPrice = quote.feedbackJson?.revisionAcceptedFromPricePence ?? 0;
+                const isAccepted = !!serverAcceptedAt || revisionAcceptedLocally;
+                // After acceptance the server syncs selectedTierPricePence to basePrice, so
+                // the pre-rescope total has to come from feedbackJson.
+                const previousTotal = isAccepted && acceptedFromPrice > 0
+                  ? acceptedFromPrice
+                  : tierPrice;
+                const isRescoped =
+                  !!quote.depositPaidAt &&
+                  currentTotal > 0 &&
+                  ((previousTotal > 0 && currentTotal > previousTotal) || isAccepted);
+                if (!isRescoped) return null;
+                const balance = Math.max(0, currentTotal - deposit);
+                return (
+                  <div className="max-w-xl mx-auto" data-testid="amended-card-wrapper">
+                    <AmendedQuoteCard
+                      customerName={quote.customerName}
+                      previousTotalPence={previousTotal}
+                      currentTotalPence={currentTotal}
+                      depositPaidPence={deposit}
+                      balanceDuePence={balance}
+                      pricingLineItems={taggedPricingLineItems as any}
+                      priceBuckets={(quote as any).pricingLayerBreakdown?.priceBuckets}
+                      explanation={`Hi ${quote.customerName?.split(' ')[0] || 'there'} — we visited and inspected the doors. The original quote assumed the frames were already rebated for intumescent strips, but they aren't, so the doors need planing and routering. Your deposit is credited in full against the new total.`}
+                      isAccepted={isAccepted}
+                      isAccepting={isAcceptingRevision}
+                      onAccept={async () => {
+                        setIsAcceptingRevision(true);
+                        try {
+                          const resp = await fetch(`/api/personalized-quotes/${quote.id}/accept-revision`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                          });
+                          if (!resp.ok) throw new Error('Failed to accept revision');
+                          setRevisionAcceptedLocally(true);
+                          queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes', params?.slug] });
+                        } catch (err) {
+                          console.error('[accept-revision]', err);
+                          alert('Failed to accept revision. Please try again or contact us.');
+                        } finally {
+                          setIsAcceptingRevision(false);
+                        }
+                      }}
+                    />
+                  </div>
+                );
+              })()}
+
+              </div>
+              </div>
+
+            </motion.div>
+
+            {/* Payment Section — shared node (also used by ?v=admiral) */}
+            {afterBookingPaymentNode}
           </div>
         </section >
 

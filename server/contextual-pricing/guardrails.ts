@@ -118,9 +118,14 @@ export function applyGuardrails(
     price = minimumChargePence;
   }
 
-  // 3. Ceiling check — price <= multiplier x reference x time
+  // 3. Ceiling check — price <= multiplier x the FLOORED reference.
+  // Anchor to the floored reference (reference×time OR the minimum charge, whichever
+  // is higher), NOT raw reference×time. A pure time-based ceiling collapses on short
+  // jobs and can fall below the minimum charge, capping the price below the floor
+  // enforced above. Anchoring to the floored reference keeps the ceiling ≥ the floor.
   const ceilingMultiplier = getCeilingMultiplier(context.urgency);
-  const ceilingPence = Math.round(referencePricePence * hours * ceilingMultiplier);
+  const referenceForCeiling = Math.max(floorPence, minimumChargePence);
+  const ceilingPence = Math.round(referenceForCeiling * ceilingMultiplier);
 
   if (price > ceilingPence) {
     adjustments.push({

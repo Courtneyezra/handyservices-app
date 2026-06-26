@@ -517,6 +517,7 @@ END:VCALENDAR`;
             proposalSummary={quote.proposalSummary}
             valueBullets={quote.valueBullets!}
             pricingLineItems={quote.pricingLineItems}
+            priceBuckets={(quote as any).pricingLayerBreakdown?.priceBuckets}
             batchDiscountPercent={quote.batchDiscountPercent}
             layoutTier={quote.layoutTier}
             onAction={handleAction}

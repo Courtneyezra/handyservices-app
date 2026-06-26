@@ -217,23 +217,32 @@ const CATEGORY_RATES: Record<JobCategory, CategoryRate> = {
 export function getReferencePrice(
   category: JobCategory,
   timeEstimateMinutes: number,
+  contingencyPercent: number = 0,
 ): ReferenceRateResult {
   const rate = CATEGORY_RATES[category] ?? CATEGORY_RATES.other;
   const effectiveCategory = CATEGORY_RATES[category] ? category : 'other';
 
+  // EVE contingency buffer — a uniform uplift baked into the reference anchor
+  // (hourly + minimum charge). Because this reference both anchors the LLM's
+  // value pricing AND sets the per-line floor, the buffer flows into every quote
+  // without padding TIME — `timeEstimateMinutes` stays an honest dispatch metric.
+  // It absorbs a small extra task or minor overrun so no re-quote is needed.
+  // 0 = exact no-op. The customer-facing market range is left raw (it reflects
+  // what a generic handyman charges, not our buffered anchor).
+  const contingency = 1 + Math.max(0, contingencyPercent) / 100;
+  const hourlyPence = Math.round(rate.hourly * contingency);
+  const minChargePence = Math.round(rate.min * contingency);
+
   // Calculate time-based price: hourly rate pro-rated to minutes
-  const timeBasedPricePence = Math.round(
-    (rate.hourly / 60) * timeEstimateMinutes,
-  );
+  const timeBasedPricePence = Math.round((hourlyPence / 60) * timeEstimateMinutes);
 
   // Enforce minimum charge — every job has a callout cost
-  const minimumApplied = timeBasedPricePence < rate.min;
-  const pricePence = Math.max(timeBasedPricePence, rate.min);
+  const pricePence = Math.max(timeBasedPricePence, minChargePence);
 
   return {
     category: effectiveCategory,
-    hourlyRatePence: rate.hourly,
-    minimumChargePence: rate.min,
+    hourlyRatePence: hourlyPence,
+    minimumChargePence: minChargePence,
     calculatedReferencePence: pricePence,
     marketRange: { lowPence: rate.low, highPence: rate.high },
     source: rate.source,

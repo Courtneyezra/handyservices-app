@@ -1,15 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Play } from 'lucide-react';
 
 /**
  * Click-to-play facade for a Wistia video.
  *
- * Renders a lightweight poster image with a play-button overlay. The heavy
- * Wistia player JS (~1 MB: publicApi.js, hls_video.js, player.js, captions,
- * fonts, HLS segments) is NOT loaded until the visitor actually clicks play.
- * Most visitors never play the video, so this saves ~1 MB on the common path.
+ * Renders a lightweight preview with a play-button overlay. The heavy Wistia
+ * player JS (~1 MB: publicApi.js, hls_video.js, player.js, captions, fonts, HLS
+ * segments) is NOT loaded until the visitor actually clicks play.
  *
- * Layout shift (CLS) is preserved at zero: the poster and the eventual player
+ * The preview is EITHER a static poster image or — when `previewVideoUrl` is
+ * supplied — a muted, looping, autoplaying clip so the thumbnail visibly MOVES,
+ * which draws the eye and lifts play-through. The clip is a small (~300p) MP4 and
+ * only starts loading once the box scrolls near the viewport, so a visitor who
+ * never scrolls to it pays nothing. The full-res interactive player (sound +
+ * controls) still only loads on click.
+ *
+ * Layout shift (CLS) is preserved at zero: the preview and the eventual player
  * both sit inside the same aspect-ratio box supplied by the parent wrapper, so
  * the swap never changes the box's dimensions.
  */
@@ -17,18 +23,68 @@ export const WistiaFacade = ({
   mediaId,
   aspect = '1.3333333333333333',
   posterUrl,
+  previewVideoUrl,
 }: {
   mediaId: string;
   /** Wistia aspect attribute (width / height). */
   aspect?: string;
   /** Optional explicit poster URL; falls back to Wistia's swatch thumbnail. */
   posterUrl?: string;
+  /** Optional muted/looping clip shown (and autoplayed) in place of the static
+   *  poster, to make the thumbnail move and encourage plays. */
+  previewVideoUrl?: string;
 }) => {
   const [activated, setActivated] = useState(false);
+  // Gate the preview clip on viewport entry so we never pull the MP4 for a
+  // visitor who doesn't scroll down to it.
+  const [previewInView, setPreviewInView] = useState(false);
+  const wrapRef = useRef<HTMLButtonElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   // Reliable Wistia thumbnail. The `swatch` endpoint always resolves for a
   // public media; `posterUrl` lets callers pass the exact high-res still.
   const poster = posterUrl ?? `https://fast.wistia.com/embed/medias/${mediaId}/swatch`;
+
+  // Lazy-load the moving preview only as it nears the viewport.
+  useEffect(() => {
+    if (!previewVideoUrl || activated) return;
+    const el = wrapRef.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setPreviewInView(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setPreviewInView(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [previewVideoUrl, activated]);
+
+  // Start the moving preview once it scrolls into view. Two gotchas handled:
+  //  1) Setting `src` via React state can leave the element stuck — it never
+  //     fetches (networkState=LOADING, nothing buffered) — so we call load() to
+  //     force the fetch.
+  //  2) Calling play() *immediately* after load() aborts (AbortError): load()
+  //     asynchronously resets the element, so the play is cancelled and the clip
+  //     stays paused. So we start playback on the first `canplay` instead.
+  // We also force `muted` (React doesn't always reflect it to the DOM property,
+  // which autoplay policies require for a muted autoplay).
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!previewInView || !v) return;
+    v.muted = true;
+    const play = () => { v.play().catch(() => {}); };
+    v.addEventListener('canplay', play, { once: true });
+    v.load();
+    return () => v.removeEventListener('canplay', play);
+  }, [previewInView]);
 
   const activate = () => {
     if (activated) return;
@@ -68,22 +124,41 @@ export const WistiaFacade = ({
 
   return (
     <button
+      ref={wrapRef}
       type="button"
       onClick={activate}
       aria-label="Play video"
       className="group absolute inset-0 h-full w-full cursor-pointer overflow-hidden"
       data-testid="wistia-facade-play"
     >
-      {/* Poster: object-cover so a 4:3 still fills the 16:9 box with no bars,
-          and no intrinsic-size dependency that could shift layout. */}
-      <img
-        src={poster}
-        alt="Watch our customer story"
-        loading="lazy"
-        decoding="async"
-        className="absolute inset-0 h-full w-full object-cover"
-        draggable={false}
-      />
+      {/* Preview: a muted looping clip when provided (moving thumbnail), else the
+          static poster. Both use object-cover so a 4:3 still/clip fills the 16:9
+          box with no bars and no intrinsic-size dependency that could shift
+          layout. The poster doubles as the <video>'s instant first paint. */}
+      {previewVideoUrl ? (
+        <video
+          ref={videoRef}
+          src={previewInView ? previewVideoUrl : undefined}
+          poster={poster}
+          muted
+          loop
+          playsInline
+          autoPlay
+          preload={previewInView ? 'auto' : 'none'}
+          aria-hidden="true"
+          tabIndex={-1}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : (
+        <img
+          src={poster}
+          alt="Watch our customer story"
+          loading="lazy"
+          decoding="async"
+          className="absolute inset-0 h-full w-full object-cover"
+          draggable={false}
+        />
+      )}
       {/* Subtle scrim for contrast behind the play button. */}
       <div className="absolute inset-0 bg-slate-900/25 transition-colors duration-200 group-hover:bg-slate-900/15" />
       {/* Play button overlay. */}

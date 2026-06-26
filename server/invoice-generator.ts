@@ -137,6 +137,54 @@ export async function generateBalanceInvoice(jobId: string): Promise<BalanceInvo
         }
     }
 
+    // c2. Decomposed pricing — when the contextual engine ran with
+    // `decomposedPricingEnabled`, the quote's basePrice / finalPricePence already
+    // include quote-level structural cost buckets (per-visit attendance, travel,
+    // materials collection) that are NOT carried on any pricingLineItems row.
+    // Emit a neutral line per positive bucket so the invoice itemisation
+    // reconciles with the bucket-inclusive total. Absent on legacy / flag-off
+    // quotes (priceBuckets undefined) ⇒ this whole block is skipped ⇒ no-op.
+    const priceBuckets = (quote.pricingLayerBreakdown as any)?.priceBuckets;
+    if (priceBuckets) {
+        const attendancePence = Number(priceBuckets.attendancePence) || 0;
+        const visitCount = Number(priceBuckets.visitCount) || 0;
+        const travelPence = Number(priceBuckets.travelPence) || 0;
+        const materialCollectionPence = Number(priceBuckets.materialCollectionPence) || 0;
+
+        if (attendancePence > 0) {
+            const label = visitCount > 1
+                ? `Call-out & first hour (${visitCount} visits)`
+                : 'Call-out & first hour';
+            lineItems.push({
+                description: label,
+                quantity: 1,
+                unitPricePence: attendancePence,
+                totalPence: attendancePence,
+            });
+            subtotalPence += attendancePence;
+        }
+
+        if (travelPence > 0) {
+            lineItems.push({
+                description: 'Travel',
+                quantity: 1,
+                unitPricePence: travelPence,
+                totalPence: travelPence,
+            });
+            subtotalPence += travelPence;
+        }
+
+        if (materialCollectionPence > 0) {
+            lineItems.push({
+                description: 'Materials collection',
+                quantity: 1,
+                unitPricePence: materialCollectionPence,
+                totalPence: materialCollectionPence,
+            });
+            subtotalPence += materialCollectionPence;
+        }
+    }
+
     // d. Add approved variation orders as additional line items
     const approvedVariations = await db.select()
         .from(variationOrders)
@@ -330,17 +378,21 @@ function buildInvoiceHtml(invoice: any, lineItems: InvoiceLineItem[]): string {
         return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
     };
 
-    const lineItemRows = lineItems.map((item) => `
+    const lineItemRows = lineItems.map((item: any) => {
+        const unit = item.unitPricePence ?? item.unitPrice ?? 0;
+        const total = item.totalPence ?? item.total ?? 0;
+        return `
         <tr>
             <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0;">${item.description}</td>
             <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: center;">${item.quantity}</td>
-            <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: right;">${formatPence(item.unitPricePence)}</td>
-            <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: right;">${formatPence(item.totalPence)}</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: right;">${formatPence(unit)}</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; text-align: right;">${formatPence(total)}</td>
         </tr>
-    `).join('');
+    `;
+    }).join('');
 
     const baseUrl = process.env.BASE_URL || 'https://handyservices.uk';
-    const paymentLink = `${baseUrl}/invoice/${invoice.id}/pay`;
+    const paymentLink = `${baseUrl}/invoice/${invoice.id}`;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -392,7 +444,7 @@ function buildInvoiceHtml(invoice: any, lineItems: InvoiceLineItem[]): string {
                 <div class="company-details">
                     Nottingham, UK<br>
                     hello@handyservices.uk<br>
-                    07XXX XXXXXX
+                    07449 501762
                 </div>
             </div>
             <div>
@@ -457,17 +509,18 @@ function buildInvoiceHtml(invoice: any, lineItems: InvoiceLineItem[]): string {
             <p>Please pay within 14 days of the invoice date.</p>
             <a href="${paymentLink}" class="payment-link">Pay Online - ${formatPence(invoice.balanceDue)}</a>
             <div class="bank-details">
-                <p><strong>Bank Transfer:</strong></p>
-                <p>Sort Code: XX-XX-XX | Account: XXXXXXXX</p>
-                <p>Reference: ${invoice.invoiceNumber}</p>
+                <p><strong>Bank Transfer (BACS):</strong></p>
+                <p>Account Name: <strong>Handyman Nottingham</strong></p>
+                <p>Sort Code: <strong>04-00-04</strong> &nbsp;|&nbsp; Account: <strong>39473040</strong></p>
+                <p>Reference: <strong>${invoice.invoiceNumber}</strong></p>
             </div>
         </div>
         ` : ''}
 
-        ${invoice.notes ? `<p style="font-size: 13px; color: #64748b; margin-bottom: 16px;"><em>${invoice.notes}</em></p>` : ''}
+        ${invoice.customerNotes ? `<p style="font-size: 13px; color: #64748b; margin-bottom: 16px;"><em>${invoice.customerNotes}</em></p>` : ''}
 
         <div class="footer">
-            <p>Handy Services Ltd | Company No. XXXXXXXX | VAT No. XXXXXXXXX</p>
+            <p>Handy Services | Nottingham | handyservices.uk | 07449 501762</p>
             <p>Thank you for your business.</p>
         </div>
     </div>

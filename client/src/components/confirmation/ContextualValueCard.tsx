@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, Receipt, Percent } from 'lucide-react';
+import type { PriceBuckets } from '@shared/contextual-pricing-types';
 
 interface PricingLineItem {
   description: string;
@@ -9,6 +10,12 @@ interface PricingLineItem {
   timeEstimateMinutes?: number;
   materialsCostPence?: number;
   materialsWithMarginPence?: number;
+  /**
+   * Decomposed pricing — this line's allocated share of the job-whole structural
+   * buckets (call-out + travel + collection), folded into the displayed price so
+   * the customer sees one blended figure per line. 0/absent on flag-off quotes.
+   */
+  structuralSharePence?: number;
 }
 
 interface ContextualValueCardProps {
@@ -17,6 +24,13 @@ interface ContextualValueCardProps {
   proposalSummary?: string;
   valueBullets: string[];
   pricingLineItems?: PricingLineItem[];
+  /**
+   * Decomposed-pricing structural cost buckets (attendance/travel/collection).
+   * Accepted for reference but no longer rendered as separate rows: the buckets
+   * are now folded into each line's price via per-line `structuralSharePence`.
+   * Absent on legacy/flag-off quotes.
+   */
+  priceBuckets?: PriceBuckets | null;
   batchDiscountPercent?: number;
   layoutTier?: string;
   onAction: (action: string) => void;
@@ -73,7 +87,13 @@ export function ContextualValueCard({
               </div>
               <div className="space-y-2">
                 {pricingLineItems!.map((item, index) => {
-                  const itemTotal = item.guardedPricePence + (item.materialsWithMarginPence ?? 0);
+                  // Folded line price: labour + materials + this line's allocated
+                  // share of the job-whole structural buckets (call-out/travel/
+                  // collection). The share is 0 on flag-off quotes ⇒ unchanged.
+                  const itemTotal =
+                    item.guardedPricePence +
+                    (item.materialsWithMarginPence ?? 0) +
+                    (item.structuralSharePence ?? 0);
                   return (
                     <motion.div
                       key={index}
@@ -89,6 +109,11 @@ export function ContextualValueCard({
                     </motion.div>
                   );
                 })}
+
+                {/* Decomposed pricing — the job-whole structural costs (call-out,
+                    travel, materials collection) are now FOLDED into each line's
+                    price above (per-line `structuralSharePence`), so there are no
+                    separate fee rows. Customer sees clean blended per-job prices. */}
 
                 {/* Batch discount row */}
                 {hasBatchDiscount && (

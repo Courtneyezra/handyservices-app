@@ -8,6 +8,7 @@ import {
   Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle, User,
   PencilRuler, MapPin, Receipt
 } from 'lucide-react';
+import { SiVisa, SiMastercard, SiAmericanexpress, SiApplepay } from 'react-icons/si';
 import { SkuIcon } from '@/lib/sku-icons';
 import { QuoteAddressInput } from '@/components/quote/QuoteAddressInput';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ import { CardNumberElement, CardExpiryElement, CardCvcElement, ExpressCheckoutEl
 import type { StripeExpressCheckoutElementConfirmEvent } from '@stripe/stripe-js';
 import { isStripeConfigured } from '@/lib/stripe';
 import { getHassleComparisons } from '@shared/hassle-comparisons';
+import type { PriceBuckets } from '@shared/contextual-pricing-types';
 import { trackBookingModeInteraction } from '@/lib/quote-analytics';
 import {
   BASE_SCHEDULING_RULES,
@@ -51,6 +53,13 @@ export interface PricingLineItem {
   guardedPricePence: number;
   /** Material cost with margin (what customer pays). 0 if no materials. */
   materialsWithMarginPence?: number;
+  /**
+   * Decomposed pricing — this line's allocated share of the job-whole structural
+   * buckets (call-out + travel + collection), folded into the displayed price so
+   * the customer sees one blended figure per line (no separate call-out row).
+   * 0/absent on legacy/flag-off quotes ⇒ unchanged.
+   */
+  structuralSharePence?: number;
   // ── Phase 25 SKU-aware fields (spread by the engine when source === 'sku') ──
   // All optional + read defensively so legacy lines without these still render.
   /** 'sku' or 'custom'. Legacy lines may be undefined → treat as 'custom'. */
@@ -251,6 +260,15 @@ interface UnifiedQuoteCardProps {
   bookingModes?: QuoteBookingMode[];
   /** Contextual pricing line item breakdown. When provided, shown above the total. */
   pricingLineItems?: PricingLineItem[];
+  /**
+   * Decomposed-pricing structural cost buckets (attendance/travel/collection).
+   * Present ONLY when `decomposedPricingEnabled` is on AND the quote was priced
+   * with it; `basePrice` already includes `totalBucketsPence`. When omitted the
+   * card renders exactly as before — the buckets are an additive, off-by-default
+   * layer. We surface the positive buckets as neutral rows so the itemised lines
+   * reconcile with the (bucket-inclusive) total. bracketCeiling* is ops-only.
+   */
+  priceBuckets?: PriceBuckets;
   /** Multi-job batch discount. When applied, shown as a discount line. */
   batchDiscount?: QuoteBatchDiscount;
   /** Override the default segment-driven feature bullets with contextual value bullets. */
@@ -295,6 +313,13 @@ interface UnifiedQuoteCardProps {
    * window. Distinct from isLandlord, which gates the whole landlord booking flow.
    */
   customerType?: CustomerType;
+  /**
+   * Explicit initial flex-booking state from the ?v=offer interstitial. When set,
+   * it seeds `useFlexBooking` AND suppresses the per-type auto-default so the
+   * customer's offer choice wins: true (accepted) = flexible lane / base price,
+   * false (declined) = firm date & time. Undefined = legacy behaviour (auto-default).
+   */
+  initialUseFlexBooking?: boolean;
 }
 
 /**
@@ -397,6 +422,7 @@ export function UnifiedQuoteCard({
   isLandlord = false,
   highlightLiaiseSignal = 0,
   customerType = 'homeowner',
+  initialUseFlexBooking,
 }: UnifiedQuoteCardProps) {
   // Booking mode flags — when bookingModes is provided, only show those options
   const showStandardDate = !bookingModes || bookingModes.includes('standard_date');
@@ -498,7 +524,7 @@ export function UnifiedQuoteCard({
   // lane saves us effort (thin-day routing) at no extra charge; liaise COSTS us
   // effort (chasing the tenant, arranging access), so it carries a charge.
   const LIAISE_PREMIUM_PENCE = 2500;
-  const [useFlexBooking, setUseFlexBooking] = useState(false);
+  const [useFlexBooking, setUseFlexBooking] = useState(initialUseFlexBooking ?? false);
   // Landlord promo nudge: the page's "Add tenant liaison" CTA bumps
   // highlightLiaiseSignal; we scroll the toggle into view and pulse a ring once.
   const liaiseToggleRef = useRef<HTMLButtonElement>(null);
@@ -573,7 +599,11 @@ export function UnifiedQuoteCard({
   // Landlords do NOT auto-default into liaise: it's now a paid premium (+£25), so
   // it must be an explicit opt-in (no surprise fee). They open on the firm-date
   // grid with the liaison toggle offered above it.
-  const flexDefaultedRef = useRef(false);
+  // When the ?v=offer interstitial passed an explicit choice, treat the default
+  // as already applied so this effect never overrides it — critical for DECLINE
+  // (false), where the per-type auto-default would otherwise flip a homeowner
+  // back to flex and silently undo the customer's "I need a specific day".
+  const flexDefaultedRef = useRef(initialUseFlexBooking !== undefined);
   useEffect(() => {
     if (!isLandlord && (customerType === 'homeowner' || customerType === 'business' || isQuoteFlexEligible) && !flexDefaultedRef.current) {
       flexDefaultedRef.current = true;
@@ -1073,12 +1103,16 @@ export function UnifiedQuoteCard({
     return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied };
   }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, isBusiness, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence, setDatePremium]);
 
-  // Customer-facing line items show their true totals (guarded price + materials).
-  // The flexible lane is the base price, so there's no rebasing to do — the lines
-  // already sum to basePrice. (Deposit/total math uses the same raw lineTotal.)
+  // Customer-facing line items show their true totals: pure labour + materials +
+  // this line's allocated share of the job-whole structural buckets (call-out ×
+  // visits + travel + collection). The share is 0 on flag-off quotes, so legacy
+  // lines are unchanged; when decomposed pricing is on, the folded shares sum
+  // exactly to the buckets total, so the lines still reconcile to basePrice with
+  // no separate fee section. (Deposit/total math uses the same raw lineTotal.)
   const displayLineItems = useMemo(() => {
     const lines = pricingLineItems || [];
-    const raw = (li: PricingLineItem) => li.guardedPricePence + (li.materialsWithMarginPence || 0);
+    const raw = (li: PricingLineItem) =>
+      li.guardedPricePence + (li.materialsWithMarginPence || 0) + (li.structuralSharePence || 0);
     return lines.map((item) => ({ item, displayPence: raw(item) }));
   }, [pricingLineItems]);
 
@@ -1614,6 +1648,12 @@ export function UnifiedQuoteCard({
                   <QuoteLineRow key={item.lineId} item={item} isDarkTheme={isDarkTheme} displayPricePence={displayPence} />
                 ))}
               </div>
+              {/* Decomposed structural costs (call-out × visits / travel /
+                  collection) are FOLDED into each line's displayed price via the
+                  per-line structuralSharePence (allocated in the engine, summing
+                  exactly to the buckets total). No separate fee rows — the
+                  customer sees clean blended per-job prices that reconcile to the
+                  total. No-op on legacy/flag-off quotes (share = 0). */}
               {/* Optional extras (ticked add-ons below line items) */}
               {(optionalExtras?.length ?? 0) > 0 && (
                 <div className={`mt-3 pt-3 border-t space-y-2 ${isDarkTheme ? 'border-white/10' : 'border-slate-100'}`}>
@@ -1881,7 +1921,7 @@ export function UnifiedQuoteCard({
 
         {/* Step 1: 3-Date Buffer — split-button flow: tap date → button splits into AM/PM → tap half to confirm */}
         {!useDownsell && showStandardDate && (
-        <div ref={dateSectionRef}>
+        <div ref={dateSectionRef} className="scroll-mt-24">
           <h4 className={`text-3xl font-extrabold tracking-tight mb-3 flex items-center justify-center gap-2.5 text-center ${isDarkTheme ? 'text-white' : 'text-slate-800'}`}>
             <Calendar className="w-7 h-7 text-[#7DB00E]" />
             {isContextual ? 'When suits you?' : 'Secure your slot'}
@@ -2456,7 +2496,7 @@ export function UnifiedQuoteCard({
               <h4 className={`text-sm font-bold ${config.addOnsLabel ? '' : 'uppercase'} tracking-wide mb-3 flex items-center gap-2 ${isDarkTheme ? 'text-white' : 'text-slate-700'}`}>
                 <Tag className="w-4 h-4 text-[#7DB00E]" />
                 {config.addOnsLabel
-                  ? config.addOnsLabel.replace('{location}', location || 'local')
+                  ? config.addOnsLabel.replace('{location}', location ? location.toUpperCase() : 'local')
                   : 'Add extras (optional)'}
               </h4>
               <div className="space-y-2">
@@ -2514,24 +2554,38 @@ export function UnifiedQuoteCard({
         {/* Phase 30 — the duplicate price-recap box was removed here; the total
             is reaffirmed as a slim line right above the pay CTA instead. */}
 
-        {/* Trust strip — near payment for maximum conversion impact */}
-        <div className="flex flex-nowrap items-center justify-center gap-1.5">
-          {(isContextual ? ['DBS checked', 'Fully insured', BRAND.homesBadge] : ['DBS Checked', '£2M Insured', '4.9★ Google']).map((label) => (
-            <span
-              key={label}
-              className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
-                isDarkTheme
-                  ? 'bg-[#7DB00E]/10 text-[#7DB00E] border border-[#7DB00E]/20'
-                  : 'bg-[#7DB00E]/10 text-[#5a8a00] border border-[#7DB00E]/20'
-              }`}
-            >
-              {label}
-            </span>
-          ))}
-        </div>
+        {/* Trust strip — near payment for maximum conversion impact. Contextual
+            shows the accepted-card brands (payment reassurance right above the
+            commit CTA); other segments keep the trust pills. */}
+        {isContextual ? (
+          <div className="flex flex-nowrap items-center justify-center gap-3 opacity-90">
+            <SiVisa className="w-7 h-7 text-[#1434CB]" />
+            <SiMastercard className="w-7 h-7 text-[#EB001B]" />
+            <SiAmericanexpress className="w-7 h-7 text-[#2E77BC]" />
+            <SiApplepay className={`w-7 h-7 ${isDarkTheme ? 'text-white' : 'text-slate-900'}`} />
+          </div>
+        ) : (
+          <div className="flex flex-nowrap items-center justify-center gap-1.5">
+            {['DBS Checked', '£2M Insured', '4.9★ Google'].map((label) => (
+              <span
+                key={label}
+                className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                  isDarkTheme
+                    ? 'bg-[#7DB00E]/10 text-[#7DB00E] border border-[#7DB00E]/20'
+                    : 'bg-[#7DB00E]/10 text-[#5a8a00] border border-[#7DB00E]/20'
+                }`}
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Payment/Book Section */}
-        <div ref={bookSectionRef}>
+        {/* scroll-mt clears the sticky top header (~57px) so when the sticky
+            "Book now" scrolls here with block:'start', the "Book it in" CTA lands
+            fully visible below the header instead of tucked behind it. */}
+        <div ref={bookSectionRef} className="scroll-mt-24">
         {showInlinePayment && stripe ? (
           !bookingStarted ? (
             /* Reveal-on-commit gate — the customer commits to their slot here.
@@ -2548,7 +2602,12 @@ export function UnifiedQuoteCard({
                   const reveal = () => {
                     setBookingStarted(true);
                     setTimeout(() => {
-                      bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      // Contextual: send them up to "When suits you?" to pick a slot
+                      // first. The payment form stays revealed below and self-gates
+                      // ("Select date & time to book") until a date+time is chosen, so
+                      // booking can't dead-end. Other variants jump to the form.
+                      const target = isContextual ? dateSectionRef : bookSectionRef;
+                      target.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }, 350);
                   };
                   if (onBeforeBooking) {
@@ -2560,7 +2619,7 @@ export function UnifiedQuoteCard({
                 className="w-full h-14 rounded-2xl font-bold text-lg bg-[#7DB00E] hover:bg-[#6da000] text-slate-900 transition-all"
               >
                 <span className="flex items-center gap-2">
-                  {isContextual ? 'Book it in' : 'Book my slot'}
+                  {isContextual ? 'Approve and pay' : 'Book my slot'}
                   <ChevronRight className="w-5 h-5" />
                 </span>
               </Button>
@@ -2589,7 +2648,7 @@ export function UnifiedQuoteCard({
                   {postcode && (
                     <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${isDarkTheme ? 'bg-white/5 border border-white/10' : 'bg-white border border-slate-200'}`}>
                       <MapPin className="w-4 h-4 text-[#7DB00E] shrink-0" />
-                      <span className={`font-semibold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>{postcode}</span>
+                      <span className={`font-semibold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>{postcode.toUpperCase()}</span>
                       <span className={`text-[11px] whitespace-nowrap ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>— already on file</span>
                     </div>
                   )}
@@ -2866,7 +2925,12 @@ export function UnifiedQuoteCard({
                     }}
                     className="flex-1 max-w-[220px] bg-[#7DB00E] hover:bg-[#6a9a0c] active:scale-[0.98] text-white font-bold py-3 px-5 rounded-xl text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#7DB00E]/25"
                   >
-                    {useFlexBooking ? (
+                    {isContextual ? (
+                      <>
+                        <CreditCard className="w-4 h-4" />
+                        Approve and pay
+                      </>
+                    ) : useFlexBooking ? (
                       <>
                         <CreditCard className="w-4 h-4" />
                         Book now

@@ -1,10 +1,17 @@
 import { Check } from 'lucide-react';
+import type { PriceBuckets } from '../../../../shared/contextual-pricing-types';
 
 interface AmendedQuoteLineItem {
   lineId?: string;
   description: string;
   guardedPricePence?: number;
   materialsWithMarginPence?: number;
+  /**
+   * Decomposed pricing — this line's allocated share of the job-whole structural
+   * buckets (call-out × visits + travel + collection), folded into the displayed
+   * line price. 0/absent on legacy/flag-off quotes.
+   */
+  structuralSharePence?: number;
 }
 
 export interface AmendedQuoteCardProps {
@@ -14,6 +21,12 @@ export interface AmendedQuoteCardProps {
   depositPaidPence: number;
   balanceDuePence: number;
   pricingLineItems?: AmendedQuoteLineItem[] | null;
+  /**
+   * Decomposed pricing — structural cost buckets. Accepted for reference but no
+   * longer rendered as separate rows: the buckets are folded into each line's
+   * displayed price via per-line `structuralSharePence`. Absent on legacy quotes.
+   */
+  priceBuckets?: PriceBuckets | null;
   explanation?: string;
   isAccepted?: boolean;
   isAccepting?: boolean;
@@ -67,7 +80,13 @@ export function AmendedQuoteCard({
             </h5>
             <div className="space-y-2.5">
               {pricingLineItems.map((item, idx) => {
-                const totalPence = (item.guardedPricePence ?? 0) + (item.materialsWithMarginPence ?? 0);
+                // Folded line total: pure labour + materials + this line's share of
+                // the job-whole structural buckets (call-out × visits / travel /
+                // collection). Share is 0 on legacy/flag-off quotes ⇒ unchanged.
+                const totalPence =
+                  (item.guardedPricePence ?? 0) +
+                  (item.materialsWithMarginPence ?? 0) +
+                  (item.structuralSharePence ?? 0);
                 return (
                   <div
                     key={item.lineId ?? idx}
@@ -80,6 +99,8 @@ export function AmendedQuoteCard({
                   </div>
                 );
               })}
+              {/* Structural buckets are FOLDED into each line above (per-line
+                  structuralSharePence) — no separate fee rows. */}
             </div>
           </div>
         )}

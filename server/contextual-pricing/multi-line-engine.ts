@@ -30,10 +30,13 @@ import type {
   QuoteMessaging,
   BookingMode,
   ContextualSignals,
+  PriceBuckets,
 } from '@shared/contextual-pricing-types';
 import { getPricingSettings } from '../pricing-settings';
+import type { PricingSettings } from '../../shared/pricing-settings';
 import { getPricingConfig } from '@shared/pricing-models';
 import { resolveLineItemFromSku, type ResolvedSkuLine } from './sku-resolver';
+import { computeStructuralBuckets, evaluateBracketCeiling, allocateBucketsToLines } from './cost-buckets';
 
 // ---------------------------------------------------------------------------
 // Constants (fallback defaults — overridden by DB-backed pricing settings)
@@ -151,7 +154,7 @@ function roundToWholePounds(priceInPence: number): number {
  * Apply per-line guardrails: floor, ceiling, margin.
  * NO psychological pricing per line — that's applied to the final total only.
  */
-function applyPerLineGuardrails(
+export function applyPerLineGuardrails(
   suggestedPricePence: number,
   referencePricePence: number,
   hourlyRatePence: number,
@@ -181,9 +184,15 @@ function applyPerLineGuardrails(
     price = minimumChargePence;
   }
 
-  // 3. Ceiling check — max 3x reference (4x for emergency)
+  // 3. Ceiling check — max 3x the reference (4x for emergency).
+  // Anchor to the FLOORED reference (time-based floor OR the minimum charge,
+  // whichever is higher), NOT raw hourly×time. A pure time-based ceiling collapses
+  // on short jobs and can fall below the minimum charge — capping the price below
+  // the floor enforced above (e.g. a 15-min door: £90 → £26). Anchoring to the
+  // floored reference guarantees the ceiling is always ≥ the floor.
   const ceilingMultiplier = urgency === 'emergency' ? 4.0 : 3.0;
-  const ceilingPence = Math.round(hourlyRatePence * hours * ceilingMultiplier);
+  const referenceForCeiling = Math.max(floorPence, minimumChargePence);
+  const ceilingPence = Math.round(referenceForCeiling * ceilingMultiplier);
   if (price > ceilingPence) {
     adjustments.push(
       `Ceiling: ${formatPence(price)} capped to ${formatPence(ceilingPence)} (${ceilingMultiplier}x)`,
@@ -221,9 +230,13 @@ function applyPerLineGuardrails(
 export async function generateMultiLinePrice(
   request: MultiLineRequest,
   approvedClaims?: string[],
+  settingsOverride?: Partial<PricingSettings>,
 ): Promise<MultiLineResult> {
-  // Load configurable pricing settings (falls back to defaults on error)
-  const settings = await getPricingSettings();
+  // Load configurable pricing settings (falls back to defaults on error).
+  // `settingsOverride` lets a single call opt into different settings (e.g. an
+  // admin "preview decomposed pricing" run flips `decomposedPricingEnabled` on
+  // for that one quote without touching the global, live-facing setting).
+  const settings = { ...(await getPricingSettings()), ...(settingsOverride ?? {}) };
   const materialsMargin = settings.materialsMarginPercent / 100;
   const maxBatchDiscountPercent = settings.maxBatchDiscountPercent;
   const minMarginPencePerHour = settings.minMarginPencePerHour;
@@ -288,7 +301,7 @@ export async function generateMultiLinePrice(
   // a reference number so the layer-1 breakdown isn't lying, but the engine
   // ignores it for pricing.
   const lineReferences: LineReference[] = request.lines.map((line) => {
-    const ref = getReferencePrice(line.category, line.timeEstimateMinutes);
+    const ref = getReferencePrice(line.category, line.timeEstimateMinutes, settings.referenceContingencyPercent);
     return {
       lineId: line.id,
       category: line.category,
@@ -416,7 +429,7 @@ export async function generateMultiLinePrice(
       ? llmLine.suggestedPricePence
       : Math.round(ref.referencePricePence * 1.3);
 
-    const refRate = getReferencePrice(line.category, line.timeEstimateMinutes);
+    const refRate = getReferencePrice(line.category, line.timeEstimateMinutes, settings.referenceContingencyPercent);
     const { guardedPricePence, adjustments } = applyPerLineGuardrails(
       llmSuggestedPricePence,
       ref.referencePricePence,
@@ -511,6 +524,56 @@ export async function generateMultiLinePrice(
   );
   let finalPrice = (subtotalPence - discountSavingsPence) + totalMaterialsWithMarginPence;
 
+  // Labour − discount + materials, BEFORE any structural buckets. The decomposed
+  // fold (further down, AFTER the returning-customer cap + whole-pound rounding)
+  // allocates exactly (finalPrice − priceBeforeBuckets) across the lines, so the
+  // folded customer line totals reconcile to the FINAL displayed total with no
+  // penny drift — the cap/rounding adjustment is absorbed into the shares.
+  const priceBeforeBuckets = finalPrice;
+
+  // ── Decomposed pricing — structural cost buckets (flag-gated) ──────────────
+  // Restores the fixed costs the per-line labour layer omits: a per-visit
+  // attendance / call-out, a travel leg, and a one-off materials-collection
+  // trip. Added ON TOP of (labour − discount) + materials, and BEFORE the
+  // returning-customer cap + rounding so those govern the bucket-inclusive
+  // total. When `decomposedPricingEnabled` is false this whole block is skipped
+  // and `priceBuckets` stays undefined — pricing is byte-for-byte unchanged.
+  let priceBuckets: PriceBuckets | undefined;
+  if (settings.decomposedPricingEnabled) {
+    const structural = computeStructuralBuckets(
+      {
+        attendanceFeePence: settings.attendanceFeePence,
+        materialCollectionFeePence: settings.materialCollectionFeePence,
+        travelBands: settings.travelBands,
+        bracketCeilingMultiplier: settings.bracketCeilingMultiplier,
+      },
+      {
+        visitCount: request.visitCount ?? 1,
+        travelDistanceMiles: request.travelDistanceMiles ?? 0,
+        anyLineNeedsCollection: lineItems.some((li) => !!li.requiresMaterialCollection),
+      },
+    );
+    finalPrice += structural.totalBucketsPence;
+
+    // NB: the per-line fold (structuralSharePence) is NOT done here — it happens
+    // after the returning-customer cap + whole-pound rounding so the folded line
+    // totals reconcile to the FINAL total. See the fold block below.
+    if (structural.totalBucketsPence > 0) {
+      allGuardrailAdjustments.push(
+        `Decomposed buckets: +${formatPence(structural.totalBucketsPence)} ` +
+        `(attendance ${formatPence(structural.attendancePence)} for ${structural.visitCount} visit(s), ` +
+        `travel ${formatPence(structural.travelPence)} @ ${structural.travelDistanceMiles}mi, ` +
+        `collection ${formatPence(structural.materialCollectionPence)}) ` +
+        `folded into ${lineItems.length} line(s)`,
+      );
+    }
+    priceBuckets = {
+      ...structural,
+      bracketCeilingPence: 0,
+      bracketCeilingExceeded: false,
+    };
+  }
+
   const batchDiscount: BatchDiscount = {
     applied: effectiveDiscountPercent > 0,
     discountPercent: effectiveDiscountPercent,
@@ -556,6 +619,70 @@ export async function generateMultiLinePrice(
     allGuardrailAdjustments.push(
       `Whole-pounds rounding: ${formatPence(preRoundPrice)} → ${formatPence(finalPrice)}`,
     );
+  }
+
+  // ── Decomposed pricing — fold the structural buckets into per-line DISPLAY ──
+  // Done HERE, after the returning-customer cap + whole-pound rounding, so the
+  // folded customer line totals reconcile EXACTLY to the FINAL displayed total:
+  // allocate the actual (finalPrice − priceBeforeBuckets) delta across the lines
+  // proportional to labour (largest-remainder ⇒ Σ shares === delta). The
+  // cap/rounding adjustment is thereby absorbed into the shares rather than left
+  // as a reconciliation gap. `guardedPricePence` stays PURE labour; the share is a
+  // display-only addition, and a single line carries the whole call-out ("priced
+  // accordingly"). No-op off-flag (priceBuckets undefined) or delta ≤ 0.
+  //
+  // Allocate in whole-POUND units: labour, materials, the discount, the cap and the
+  // final total are all `roundToWholePounds`, so the delta is a whole-pound amount.
+  // Whole-pound shares keep each line's folded display value (guarded + materials +
+  // share — all whole pounds) an EXACT pound, so the customer's itemisation sums to
+  // the Total with zero rounding drift (lines are rendered `Math.round(£/100)`).
+  // Any sub-pound residue (0 in practice, given the whole-pound inputs above) is
+  // parked on the largest-labour line so Σ shares === delta EXACTLY regardless —
+  // a future non-whole price can't silently break the reconciliation.
+  if (priceBuckets) {
+    const foldDeltaPence = Math.max(0, finalPrice - priceBeforeBuckets);
+    const foldDeltaPounds = Math.floor(foldDeltaPence / 100);
+    const shares = allocateBucketsToLines(
+      foldDeltaPounds,
+      lineItems.map((li) => li.guardedPricePence),
+    ).map((s) => s * 100);
+    const residuePence = foldDeltaPence - foldDeltaPounds * 100;
+    if (residuePence > 0 && shares.length > 0) {
+      let maxIdx = 0;
+      for (let i = 1; i < lineItems.length; i++) {
+        if (lineItems[i].guardedPricePence > lineItems[maxIdx].guardedPricePence) maxIdx = i;
+      }
+      shares[maxIdx] += residuePence;
+    }
+    lineItems.forEach((li, i) => {
+      li.structuralSharePence = shares[i];
+    });
+  }
+
+  // Soft market-bracket governor — flags (never clamps) a total that tops the
+  // customer's generic-handyman bracket. Only meaningful in the decomposed path
+  // and when the operator has set a non-zero multiplier.
+  if (priceBuckets && settings.bracketCeilingMultiplier > 0) {
+    const lineBrackets = request.lines.map((line) => {
+      const r = lineReferences.find((lr) => lr.lineId === line.id);
+      return {
+        highPencePerHour: r ? r.marketRange.highPence : 0,
+        hours: line.timeEstimateMinutes / 60,
+      };
+    });
+    const ceiling = evaluateBracketCeiling(
+      finalPrice,
+      settings.bracketCeilingMultiplier,
+      lineBrackets,
+    );
+    priceBuckets.bracketCeilingPence = ceiling.bracketCeilingPence;
+    priceBuckets.bracketCeilingExceeded = ceiling.bracketCeilingExceeded;
+    if (ceiling.bracketCeilingExceeded) {
+      allGuardrailAdjustments.push(
+        `Soft bracket flag: total ${formatPence(finalPrice)} exceeds market bracket ` +
+        `${formatPence(ceiling.bracketCeilingPence)} — flagged for review, NOT clamped`,
+      );
+    }
   }
 
   // Layer breakdowns
@@ -631,6 +758,7 @@ export async function generateMultiLinePrice(
     jobTopLine: llmResult.jobTopLine || finalMessaging.jobTopLine || '',
     guardrails,
     messaging: finalMessaging,
+    ...(priceBuckets ? { priceBuckets } : {}),
   };
 
   return result;

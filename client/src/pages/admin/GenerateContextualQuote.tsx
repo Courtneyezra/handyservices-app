@@ -61,6 +61,7 @@ import type {
   BookingMode,
   MultiLineResult,
   MarginPreview,
+  PriceBuckets,
 } from '@shared/contextual-pricing-types';
 import { getCategoryLabel } from '@shared/categories';
 import { getPricingConfig } from '@shared/pricing-models';
@@ -206,6 +207,7 @@ interface QuoteResult {
     totalFormatted: string;
     lineItems: LineItemResult[];
     batchDiscount: BatchDiscount;
+    priceBuckets?: PriceBuckets | null;
   };
   messaging: {
     headline: string;
@@ -493,6 +495,11 @@ function TwoRailEditor({
   /** £ shown in the price field. For "auto" (custom, unset) pass null. */
   priceValuePence,
   pricePlaceholder = 'auto',
+  /** Live engine-derived "auto" price. When no manual price is set this is shown
+   *  as a muted ghost in the Price box and tracks the time rail in real time.
+   *  Display-only — it never becomes the input value, so a typed price still wins
+   *  and the two-rail contract (price edit ⇎ time edit) is preserved. */
+  ghostPricePence = null,
   priceEdited = false,
   onPriceChange,
   onPriceReset,
@@ -504,6 +511,7 @@ function TwoRailEditor({
 }: {
   priceValuePence: number | null;
   pricePlaceholder?: string;
+  ghostPricePence?: number | null;
   priceEdited?: boolean;
   onPriceChange: (poundsStr: string) => void;
   onPriceReset?: () => void;
@@ -514,6 +522,13 @@ function TwoRailEditor({
 }) {
   const step = getStep(timeValueMinutes);
   const priceStr = priceValuePence != null ? String(Math.round(priceValuePence / 100)) : '';
+  // Ghost = the live "auto" price (engine-derived), shown only while the quoter
+  // hasn't typed a manual price. It updates as the time rail moves so the price
+  // box reacts to time live — but it stays a placeholder, never the value.
+  const showGhost = priceValuePence == null && ghostPricePence != null && ghostPricePence > 0;
+  const effectivePlaceholder = showGhost
+    ? String(Math.round(ghostPricePence / 100))
+    : pricePlaceholder;
 
   return (
     <div className="grid grid-cols-2 gap-2">
@@ -523,7 +538,7 @@ function TwoRailEditor({
           <span className="text-[10px] font-bold uppercase tracking-widest text-handy-navy/60">
             Price
           </span>
-          {priceEdited && (
+          {priceEdited ? (
             <button
               type="button"
               onClick={onPriceReset}
@@ -532,7 +547,14 @@ function TwoRailEditor({
             >
               <RefreshCw className="w-2.5 h-2.5" /> edited
             </button>
-          )}
+          ) : showGhost ? (
+            <span
+              title="Auto-calculated from the time estimate — updates live as you change the time. Type to override."
+              className="text-[9px] font-bold uppercase tracking-wide text-handy-navy/35"
+            >
+              auto
+            </span>
+          ) : null}
         </div>
         <div className="flex items-center gap-1 mt-0.5">
           <span className="text-lg font-bold text-handy-navy leading-none">£</span>
@@ -542,7 +564,7 @@ function TwoRailEditor({
             step={1}
             inputMode="numeric"
             value={priceStr}
-            placeholder={pricePlaceholder}
+            placeholder={effectivePlaceholder}
             onChange={(e) => onPriceChange(e.target.value)}
             className="w-full bg-transparent border-0 p-0 text-lg font-bold text-handy-navy tabular-nums leading-none focus:outline-none focus:ring-0 placeholder:text-handy-muted/50 placeholder:font-medium placeholder:text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             aria-label="Line price in pounds"
@@ -878,6 +900,17 @@ function estimateLineItemPence(item: LineItem): number {
   const labour = Math.max(timeBased, rate.min);
   const materials = Math.round((item.materialsCostPounds || 0) * 100);
   return labour + materials;
+}
+
+// Labour-only estimate (reference rate × time, floored at the category minimum).
+// Mirrors the engine's guardedPricePence semantics — what a manual price override
+// would replace — so it's the right instant fallback for the per-line "auto" ghost
+// before the first live preview resolves. (Excludes contingency, which the client
+// can't see; the buffered engine number replaces it the moment the preview lands.)
+function estimateLineLabourPence(item: LineItem): number {
+  const rate = CATEGORY_RATES[item.category] || CATEGORY_RATES.other;
+  const timeBased = Math.round((rate.hourly / 60) * item.estimatedMinutes);
+  return Math.max(timeBased, rate.min);
 }
 
 function generateId(): string {
@@ -1246,6 +1279,13 @@ export default function GenerateContextualQuote() {
   const [customLineIds, setCustomLineIds] = useState<Set<string>>(new Set());
   const categoryGuessedIds = useRef<Set<string>>(new Set());
 
+  // ── Decomposed pricing (admin eval/preview) ──
+  // Per-quote switch to compute the structural cost buckets (attendance / travel
+  // / collection) even while the global setting is off. Does NOT change live
+  // customer pricing — only this one generated quote.
+  const [previewDecomposed, setPreviewDecomposed] = useState(false);
+  const [previewTravelMiles, setPreviewTravelMiles] = useState('');
+
   // ── Result ──
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -1273,9 +1313,22 @@ export default function GenerateContextualQuote() {
     if (totalMin <= 0) return 1;
     return Math.max(1, Math.ceil(totalMin / 480));
   }, [lineItems]);
+
+  // Live engine labour price per line, keyed by lineId — feeds the per-line "auto"
+  // ghost in each Price box so it tracks the time rail in real time. We key on
+  // guardedPricePence (labour) because that's exactly what a manual price override
+  // replaces, so the ghost shows the apples-to-apples auto price the customer would
+  // pay for that line's labour (already includes any reference contingency).
+  const livePriceByLineId = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const li of livePreview?.lineItems ?? []) {
+      if (typeof li.guardedPricePence === 'number') m.set(li.lineId, li.guardedPricePence);
+    }
+    return m;
+  }, [livePreview]);
   const livePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchLivePreview = useCallback(async (items: LineItem[], sigs: ContextSignals, enrichedContext?: string) => {
+  const fetchLivePreview = useCallback(async (items: LineItem[], sigs: ContextSignals, enrichedContext?: string, decomposed?: boolean, travelMiles?: number) => {
     // Cancel any in-flight request
     livePreviewAbortRef.current?.abort();
 
@@ -1324,6 +1377,13 @@ export default function GenerateContextualQuote() {
             previousAvgPricePence: sigs.previousAvgPricePence,
           },
           vaContext: enrichedContext,
+          // Decomposed-pricing draft preview (admin eval) — mirrors the toggle.
+          ...(decomposed
+            ? {
+                previewDecomposed: true,
+                ...(travelMiles && travelMiles > 0 ? { travelDistanceMiles: travelMiles } : {}),
+              }
+            : {}),
         }),
         signal: controller.signal,
       });
@@ -1363,12 +1423,12 @@ export default function GenerateContextualQuote() {
   useEffect(() => {
     if (livePreviewTimerRef.current) clearTimeout(livePreviewTimerRef.current);
     livePreviewTimerRef.current = setTimeout(() => {
-      fetchLivePreview(lineItems, signals, buildStructuredVaContext());
+      fetchLivePreview(lineItems, signals, buildStructuredVaContext(), previewDecomposed, Number(previewTravelMiles) || 0);
     }, 600);
     return () => {
       if (livePreviewTimerRef.current) clearTimeout(livePreviewTimerRef.current);
     };
-  }, [lineItems, signals, buildStructuredVaContext, fetchLivePreview]);
+  }, [lineItems, signals, buildStructuredVaContext, fetchLivePreview, previewDecomposed, previewTravelMiles]);
 
   // ── AI extras suggestions: fired when lineItems / vaContext stabilise ──
   // Phase 16 — catalog-driven suggested extras (replaces the LLM call).
@@ -1621,6 +1681,15 @@ export default function GenerateContextualQuote() {
           createdBy: adminUser?.id || undefined,
           createdByName: adminUser?.name || adminUser?.email || undefined,
           availableDates,
+          // Decomposed-pricing preview (admin eval) — only when toggled on.
+          ...(previewDecomposed
+            ? {
+                previewDecomposed: true,
+                ...(previewTravelMiles && Number(previewTravelMiles) > 0
+                  ? { travelDistanceMiles: Number(previewTravelMiles) }
+                  : {}),
+              }
+            : {}),
           optionalExtras: optionalExtras.length
             ? optionalExtras.map((e) => ({
                 label: e.label,
@@ -2789,6 +2858,7 @@ export default function GenerateContextualQuote() {
                                       <TwoRailEditor
                                         priceValuePence={item.priceOverridePence ?? null}
                                         pricePlaceholder="auto"
+                                        ghostPricePence={livePriceByLineId.get(item.id) ?? estimateLineLabourPence(item)}
                                         priceEdited={false}
                                         onPriceChange={(s) => handleSetPriceOverride(item.id, s)}
                                         timeValueMinutes={item.estimatedMinutes}
@@ -2940,6 +3010,21 @@ export default function GenerateContextualQuote() {
                             <div className="flex items-center justify-between text-muted-foreground">
                               <span>Materials (incl. 27% margin)</span>
                               <span className="tabular-nums">£{(livePreview.totalMaterialsWithMarginPence / 100).toFixed(0)}</span>
+                            </div>
+                          )}
+                          {/* Decomposed pricing — structural buckets (call-out × visits
+                              + travel + collection). Shown as its own admin subtotal so
+                              this engine-diagnostic itemisation reconciles to the
+                              Engine Total below; on the CUSTOMER quote the same total is
+                              folded silently into each line's price. No-op when off. */}
+                          {livePreview.priceBuckets && livePreview.priceBuckets.totalBucketsPence > 0 && (
+                            <div className="flex items-center justify-between text-muted-foreground">
+                              <span>
+                                Structural (call-out{livePreview.priceBuckets.visitCount > 1 ? ` ×${livePreview.priceBuckets.visitCount}` : ''}
+                                {livePreview.priceBuckets.travelPence > 0 ? ' + travel' : ''}
+                                {livePreview.priceBuckets.materialCollectionPence > 0 ? ' + collection' : ''})
+                              </span>
+                              <span className="tabular-nums">£{(livePreview.priceBuckets.totalBucketsPence / 100).toFixed(0)}</span>
                             </div>
                           )}
                           {livePreview.batchDiscount.applied && (
@@ -3321,6 +3406,43 @@ export default function GenerateContextualQuote() {
             />
 
 
+            {/* ─── Decomposed pricing (admin eval) — per-quote only, never live ─── */}
+            <div className="rounded-lg border border-dashed border-amber-400/60 bg-amber-50/60 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <Label htmlFor="preview-decomposed" className="text-sm font-semibold text-amber-900 cursor-pointer">
+                    Apply decomposed pricing (preview)
+                  </Label>
+                  <p className="text-xs text-amber-800/80 mt-0.5">
+                    Adds £25 call-out + travel + collection to this quote only. Live pricing unchanged.
+                  </p>
+                </div>
+                <Switch
+                  id="preview-decomposed"
+                  checked={previewDecomposed}
+                  onCheckedChange={setPreviewDecomposed}
+                />
+              </div>
+              {previewDecomposed && (
+                <div className="flex items-center gap-2 mt-3 pt-3 border-t border-amber-300/50">
+                  <Label htmlFor="preview-travel-miles" className="text-xs text-amber-900 whitespace-nowrap">
+                    Travel distance (mi)
+                  </Label>
+                  <Input
+                    id="preview-travel-miles"
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    placeholder="0"
+                    value={previewTravelMiles}
+                    onChange={(e) => setPreviewTravelMiles(e.target.value)}
+                    className="h-8 w-24 bg-white"
+                  />
+                  <span className="text-xs text-amber-800/70">free under 8mi · £20 per 6mi band</span>
+                </div>
+              )}
+            </div>
+
             {/* ─── Section 6: Preview + Generate (brand CTAs — preview outline-navy, generate navy-primary) ─── */}
             {/* Stack full-width on mobile (the two labels can't fit one row < 380px); side-by-side on sm+. */}
             <div className="flex flex-col sm:flex-row gap-3">
@@ -3540,6 +3662,9 @@ export default function GenerateContextualQuote() {
             basePrice: quoteResult.pricing.totalPence,
             pricingLineItems: quoteResult.pricing.lineItems as any,
             availableDates: availableDates.length > 0 ? availableDates : null,
+            pricingLayerBreakdown: quoteResult.pricing.priceBuckets
+              ? { priceBuckets: quoteResult.pricing.priceBuckets }
+              : null,
           } satisfies PreviewQuote}
         />
       )}
@@ -3588,12 +3713,31 @@ export default function GenerateContextualQuote() {
                         </div>
                       </div>
                       <div className="text-sm font-semibold whitespace-nowrap">
-                        £{((li.guardedPricePence + (li.materialsWithMarginPence || 0)) / 100).toFixed(0)}
+                        £{((li.guardedPricePence + (li.materialsWithMarginPence || 0) + (li.structuralSharePence || 0)) / 100).toFixed(0)}
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
+
+              {/* Decomposed structural buckets are FOLDED into the per-line prices
+                  above (so this preview matches exactly what the customer sees — no
+                  separate fee section). This single dashed caption is ADMIN-ONLY: it
+                  states how much structural cost was folded in, for transparency to
+                  whoever is generating the quote. The job-whole inputs (visits /
+                  travel / collection) live in the form controls, not here. */}
+              {livePreview.priceBuckets &&
+                livePreview.priceBuckets.totalBucketsPence > 0 && (
+                  <div className="rounded-lg border border-dashed border-amber-400/60 bg-amber-50/60 px-3 py-2 text-[11px] text-amber-900">
+                    <span className="font-semibold">Admin note:</span> includes £
+                    {(livePreview.priceBuckets.totalBucketsPence / 100).toFixed(0)} structural
+                    cost folded into line prices — call-out covers setup &amp; the first hour
+                    {livePreview.priceBuckets.visitCount > 1 ? ` ×${livePreview.priceBuckets.visitCount} visits` : ''}
+                    {livePreview.priceBuckets.travelPence > 0 ? ` · travel £${(livePreview.priceBuckets.travelPence / 100).toFixed(0)}` : ''}
+                    {livePreview.priceBuckets.materialCollectionPence > 0 ? ' · materials collection' : ''}
+                    . This first-hour buffer absorbs minor extras without a re-quote; customer sees one blended price per line.
+                  </div>
+                )}
 
               {/* Total — navy hero block */}
               <div className="rounded-lg bg-handy-navy p-3 flex items-center justify-between shadow-inner">

@@ -694,6 +694,10 @@ router.get('/api/pricing/scenarios', (_req, res) => {
 router.post('/api/pricing/multi-quote', async (req, res) => {
   try {
     const request = req.body as MultiLineRequest;
+    // Admin draft-preview switch — compute decomposed buckets for this preview
+    // only, leaving the global live setting untouched. `travelDistanceMiles` /
+    // `visitCount` already ride along on the MultiLineRequest body.
+    const previewDecomposed = (req.body as { previewDecomposed?: boolean })?.previewDecomposed === true;
 
     // Validate lines array
     if (!Array.isArray(request.lines) || request.lines.length === 0) {
@@ -731,7 +735,11 @@ router.post('/api/pricing/multi-quote', async (req, res) => {
       return res.status(400).json({ error: 'signals object is required' });
     }
 
-    const result = await generateMultiLinePrice(request);
+    const result = await generateMultiLinePrice(
+      request,
+      undefined,
+      previewDecomposed ? { decomposedPricingEnabled: true } : undefined,
+    );
 
     // Calculate margin preview using revenue share model (non-blocking)
     // Uses POST-discount prices so contractor + platform = engine total
@@ -1109,6 +1117,17 @@ const contextualQuoteInputSchema = z.object({
   parkingDistanceCategory: z.enum(['on_drive', 'street_outside', 'street_within_50m', '50m_plus']).optional(),
   customerPresent: z.boolean().optional(),
 
+  // Decomposed pricing — quote-level inputs. Only consumed when the
+  // `decomposedPricingEnabled` setting is on; otherwise ignored. MUST be in the
+  // schema or zod strips them on parse and the buckets never reach the engine.
+  visitCount: z.number().int().min(1).max(20).optional(),
+  travelDistanceMiles: z.number().min(0).max(500).optional(),
+  // Admin-only preview/eval switch: compute the decomposed structural buckets
+  // for THIS quote even when the global `decomposedPricingEnabled` setting is
+  // off. Lets ops eyeball/compare the new pricing per-quote without changing
+  // live customer-facing pricing. Ignored by every non-admin flow.
+  previewDecomposed: z.boolean().optional(),
+
   // Source tracking
   sourceCallId: z.string().optional(),
   sourceLeadId: z.string().optional(),
@@ -1204,6 +1223,9 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         parkingDistanceCategory: input.parkingDistanceCategory ?? null,
         customerPresent: input.customerPresent ?? null,
       },
+      // Decomposed pricing — quote-level inputs (no-op unless the flag is on)
+      visitCount: input.visitCount,
+      travelDistanceMiles: input.travelDistanceMiles,
     };
 
     // 3. Select content from the content library based on job categories + signals
@@ -1283,8 +1305,14 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
     // Attach win rate to the request so the LLM can calibrate confidence
     multiLineRequest.historicalWinRate = historicalWinRate;
 
-    // 4. Call multi-line pricing engine (with content-library claims if available)
-    const result = await generateMultiLinePrice(multiLineRequest, approvedClaimTexts);
+    // 4. Call multi-line pricing engine (with content-library claims if available).
+    // `previewDecomposed` flips the structural buckets on for this one quote only
+    // (admin eval) — the global live setting is untouched.
+    const result = await generateMultiLinePrice(
+      multiLineRequest,
+      approvedClaimTexts,
+      input.previewDecomposed ? { decomposedPricingEnabled: true } : undefined,
+    );
 
     // 4a-i. Map any admin-provided per-line `details` from the input onto the
     // matching engine output line (by lineId). The engine doesn't know about
@@ -1738,6 +1766,9 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         totalFormatted,
         lineItems: result.lineItems,
         batchDiscount: result.batchDiscount,
+        // Decomposed structural buckets — present only when the flag (global or
+        // per-request preview) is on; lets the admin preview itemise them.
+        ...(result.priceBuckets ? { priceBuckets: result.priceBuckets } : {}),
       },
       jobTopLine: result.jobTopLine || '',
       messaging: {
@@ -1954,20 +1985,27 @@ router.patch('/api/pricing/quotes/:id', async (req, res) => {
       const items = Array.isArray(pricingLineItems) ? pricingLineItems : [];
       const labourTotal = items.reduce((s: number, li: any) => s + (Number(li.guardedPricePence) || 0), 0);
       const materialsTotal = items.reduce((s: number, li: any) => s + (Number(li.materialsWithMarginPence) || 0), 0);
-      const finalPrice = labourTotal + materialsTotal;
+
+      // Decomposed pricing — the structural cost buckets (attendance / travel /
+      // collection) are quote-level and DON'T move when a line price is edited,
+      // but they ARE part of basePrice. Carry them through from the stored
+      // breakdown so an admin line edit doesn't silently drop them from the
+      // total. Absent on legacy/flag-off quotes ⇒ 0 ⇒ unchanged behaviour.
+      const existingBreakdown = (existing.pricingLayerBreakdown as Record<string, any>) || {};
+      const bucketsTotal = Number(existingBreakdown?.priceBuckets?.totalBucketsPence) || 0;
+      const finalPrice = labourTotal + materialsTotal + bucketsTotal;
 
       updates.basePrice = finalPrice;
       updates.materialsCostWithMarkupPence = materialsTotal;
 
       // Patch pricingLayerBreakdown in JS (not raw SQL) so Drizzle serializes correctly
-      const existingBreakdown = (existing.pricingLayerBreakdown as Record<string, any>) || {};
       updates.pricingLayerBreakdown = {
         ...existingBreakdown,
         finalPricePence: finalPrice,
         subtotalPence: labourTotal,
       };
 
-      console.log(`[quote-patch] Recalculated: labour=${labourTotal} materials=${materialsTotal} final=${finalPrice}`);
+      console.log(`[quote-patch] Recalculated: labour=${labourTotal} materials=${materialsTotal} buckets=${bucketsTotal} final=${finalPrice}`);
     }
 
     if (Object.keys(updates).length === 0) {

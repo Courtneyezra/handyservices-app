@@ -474,6 +474,10 @@ router.get('/pricing/public', async (req, res) => {
             reviewCount: settings.reviewCount,
             propertiesServed: settings.propertiesServed,
             jobsCompleted: settings.jobsCompleted,
+            // Irresistible-offer interstitial config (customer-facing marketing
+            // copy + which offer is live). Safe to expose: no pricing internals,
+            // and the £ saving is re-derived client-side from the quote's base.
+            quoteOffers: settings.quoteOffers,
         });
     } catch (error) {
         console.error('[Settings] Failed to fetch public pricing settings:', error);
@@ -509,6 +513,7 @@ router.put('/pricing', requireAdmin, async (req, res) => {
             'materialsMarginPercent',
             'depositPercent',
             'payInFullDiscountPercent',
+            'referenceContingencyPercent',
             'flexibleDiscountPercent',
             'urgentPremiumPercent',
             'maxBatchDiscountPercent',
@@ -551,6 +556,15 @@ router.put('/pricing', requireAdmin, async (req, res) => {
         if ('reviewCount' in incoming) {
             if (typeof incoming.reviewCount !== 'number' || incoming.reviewCount < 0) {
                 errors.push('reviewCount must be a positive number');
+            }
+        }
+
+        // quoteOffers (irresistible-offer interstitial) — light shape guard only;
+        // the offer copy itself is free-form marketing text.
+        if ('quoteOffers' in incoming) {
+            const qo = incoming.quoteOffers as any;
+            if (!qo || typeof qo !== 'object' || !Array.isArray(qo.items)) {
+                errors.push('quoteOffers must be an object with an items array');
             }
         }
 

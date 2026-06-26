@@ -38,3 +38,18 @@ council/
 
 # WhatsApp chat exports (customer PII — never commit)
 whatsapp-export/
+
+# WhatsApp Web.js media cache (regenerated at runtime)
+.wwebjs_cache/
+
+# WhatsApp triage / cross-ref reports (customer PII — never commit)
+WhatsApp_*.md
+WhatsApp_*.docx
+whatsapp-triage-report-*.md
+
+# Uploaded files & contractor media (customer/contractor PII — never commit)
+uploads/
+server/storage/media/
+
+# Ops scripts that read/push credentials (never commit)
+*-creds.sh
