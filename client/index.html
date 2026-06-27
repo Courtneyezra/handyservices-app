@@ -26,6 +26,27 @@
     href="https://fonts.googleapis.com/css2?family=Kalam:wght@300;400;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
     onload="this.onload=null;this.rel='stylesheet'">
   <noscript><link href="https://fonts.googleapis.com/css2?family=Kalam:wght@300;400;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"></noscript>
+  <!-- Ben's avatar is the first face on the quote loading screen and is the SAME
+       file on every quote (unlike the job-dependent hero below). On a cold start
+       the <img> isn't discovered until the JS bundle parses and React mounts
+       QuotePreparingScreen, so the avatar pops in late. This parse-time hint
+       (scoped to the public quote routes — /quote, /quote-link, /q — so admin and
+       landing pages don't fetch it, avoiding wasted bandwidth + unused-preload
+       warnings) fires the ~15KB request in parallel with the bundle, landing it
+       in cache before the loading screen renders. -->
+  <script>
+    (function () {
+      if (/^\/(quote|quote-link|q)\//.test(location.pathname)) {
+        var l = document.createElement('link');
+        l.rel = 'preload';
+        l.as = 'image';
+        l.href = '/assets/quote-images/ben-estimator.webp';
+        l.type = 'image/webp';
+        l.setAttribute('fetchpriority', 'high');
+        document.head.appendChild(l);
+      }
+    })();
+  </script>
   <!-- Hero image is job-dependent and unknown at HTML-parse time (plumbing,
        painting, landlord/elderly, default each use a different .webp). The
        asset-readiness gate in PersonalizedQuotePage warms the correct hero

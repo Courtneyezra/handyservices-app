@@ -152,8 +152,16 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence }: { item: PricingL
             />
           </div>
         ) : (
+          // Custom (made-to-order) line: no SKU, but the pricing engine still
+          // tags every line with a JobCategory. Resolve the icon from that
+          // category via the shared registry (same path SKU lines use) so each
+          // service shows its own glyph instead of one repeated wrench. Kept in
+          // neutral slate to preserve the SKU(green)-vs-tailored(neutral) read.
           <div className={`shrink-0 w-8 h-8 rounded-md flex items-center justify-center ${isDarkTheme ? 'bg-[#7DB00E]/[0.18] ring-1 ring-[#7DB00E]/30' : 'bg-[#7DB00E]/[0.12] ring-1 ring-[#7DB00E]/20'}`}>
-            <PencilRuler className="w-4 h-4 text-slate-400" />
+            <SkuIcon
+              sku={{ icon: null, category: item.category }}
+              className="w-4 h-4 text-slate-400"
+            />
           </div>
         )}
 
@@ -164,6 +172,11 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence }: { item: PricingL
               <span className={`shrink-0 text-[10.5px] font-semibold ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>{qualifier}</span>
             )}
           </div>
+          {/* Materials-included reassurance, surfaced on the collapsed row (not
+              just inside the dropdown) so the price reads as all-in at a glance. */}
+          {hasMaterials && (
+            <span className={`block text-[10px] leading-tight mt-0.5 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>inc. materials</span>
+          )}
         </div>
 
         <span className={`shrink-0 text-[14px] font-bold tabular-nums ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}>£{Math.round((displayPricePence ?? lineTotal) / 100)}</span>
@@ -184,7 +197,6 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence }: { item: PricingL
                 </span>
               )}
               {unitEach && <span className={`text-[10px] ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>{unitEach}</span>}
-              {hasMaterials && <span className={`text-[10px] ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>inc. materials</span>}
               {anyItem.propertyTag && (
                 <span className={`text-[10px] font-medium rounded-full px-1.5 py-0.5 ${isDarkTheme ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>{anyItem.propertyTag}</span>
               )}
