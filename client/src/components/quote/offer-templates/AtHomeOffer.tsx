@@ -40,6 +40,15 @@ export function AtHomeOffer({ offer, render, customerName, onAccept, onDecline }
   const hlEmphasis = m ? render(m[2]) : '';
   const hlAfter = m ? render(m[3]) : '';
 
+  // Subhead emphasis: a **double-starred** span renders bold (the punchy payoff).
+  // Same token resolution as the headline, but distinct from the single-* underline.
+  // Falls back to plain text when no ** markup is present.
+  const sh = offer.subhead ?? '';
+  const sm = sh.match(/^([\s\S]*?)\*\*([\s\S]+?)\*\*([\s\S]*)$/);
+  const shBefore = render(sm ? sm[1] : sh);
+  const shBold = sm ? render(sm[2]) : '';
+  const shAfter = sm ? render(sm[3]) : '';
+
   return (
     <div
       className="min-h-screen bg-slate-50 flex flex-col items-center px-6 py-10 font-sans antialiased"
@@ -82,7 +91,9 @@ export function AtHomeOffer({ offer, render, customerName, onAccept, onDecline }
 
         {offer.subhead && (
           <p className="mt-5 text-[15px] leading-relaxed hs-ah-rise hs-ah-d2" style={{ color: navy(0.7) }}>
-            {render(offer.subhead)}
+            {shBefore}
+            {shBold && <strong className="font-extrabold" style={{ color: HS_NAVY }}>{shBold}</strong>}
+            {shAfter}
           </p>
         )}
 

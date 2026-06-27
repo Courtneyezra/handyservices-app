@@ -3614,6 +3614,7 @@ export default function PersonalizedQuotePage() {
       <QuotePreparingScreen
         ready={!isLoading && assetsReady && !!quote}
         pricingSettings={pricingSettings}
+        customerName={quote?.customerName}
         onComplete={() => {
           const homeowner = deriveOfferCustomerType((quote as any)?.contextSignals) === 'homeowner';
           setFlowPhase(selectedOffer && (offerVariant || homeowner) ? 'offer' : 'quote');

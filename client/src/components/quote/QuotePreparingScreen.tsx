@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Loader2, ShieldCheck, Star, Wrench, MapPin, Lock, Sparkles } from 'lucide-react';
-import handyLogo from '@/assets/handy-logo-transparent.png';
 
 /**
- * Admiral-style branded "preparing your quote" waiting screen — step 1 of the
- * 3-step ?v=offer test flow (waiting → irresistible offer → quote).
+ * "Preparing your quote" waiting screen — step 1 of the 3-step flow
+ * (waiting → irresistible offer → quote). Led by Ben — same avatar, green ring
+ * and online dot as the quote page's chat header — so it reads as a continuation
+ * of the conversation the customer just had with him, not a foreign system page.
  *
  * Replaces the gray QuoteSkeleton for the test variant: instead of placeholder
  * blocks it shows a confident progress checklist that ticks through sequentially
@@ -16,10 +17,10 @@ import handyLogo from '@/assets/handy-logo-transparent.png';
  */
 
 const STEPS: { icon: typeof Wrench; label: string }[] = [
-  { icon: Wrench, label: 'Matching a vetted specialist' },
-  { icon: MapPin, label: 'Checking availability near you' },
+  { icon: Wrench, label: 'Matching you with our best handyman' },
+  { icon: MapPin, label: "Checking who's free near you" },
   { icon: Lock, label: 'Locking in your fixed price' },
-  { icon: Sparkles, label: 'Personalising your quote' },
+  { icon: Sparkles, label: 'Adding the finishing touches' },
 ];
 
 const STEP_MS = 1050; // per-step dwell; ~4.2s total across 4 steps
@@ -29,6 +30,9 @@ interface QuotePreparingScreenProps {
   ready: boolean;
   /** Fired once the checklist finished AND `ready` is true. Called at most once. */
   onComplete: () => void;
+  /** Customer's name — the first name greets them ("One moment, Sarah."), tying
+   *  the loading beat to the chat. Optional: omitted in the Suspense fallback. */
+  customerName?: string;
   pricingSettings?: {
     googleRating?: string;
     reviewCount?: number;
@@ -36,7 +40,8 @@ interface QuotePreparingScreenProps {
   } | null;
 }
 
-export function QuotePreparingScreen({ ready, onComplete, pricingSettings }: QuotePreparingScreenProps) {
+export function QuotePreparingScreen({ ready, onComplete, customerName, pricingSettings }: QuotePreparingScreenProps) {
+  const firstName = customerName?.trim().split(/\s+/)[0] ?? '';
   // activeStep = the index currently "in progress". Steps below it are done.
   // When it reaches STEPS.length the checklist animation is complete.
   const [activeStep, setActiveStep] = useState(0);
@@ -76,22 +81,22 @@ export function QuotePreparingScreen({ ready, onComplete, pricingSettings }: Quo
         .hs-prep-d4 { animation-delay: .32s; }
       `}</style>
 
-      {/* Brand wordmark */}
-      <div className="flex items-center gap-2 mb-8 hs-prep-rise hs-prep-d0">
-        <img src={handyLogo} alt="HandyServices" className="w-9 h-9 object-contain" />
-        <span className="text-xl font-extrabold tracking-tight text-slate-900">
-          Handy<span className="text-[#7DB00E]">Services</span>
-        </span>
-      </div>
-
       <div className="w-full max-w-md">
-        {/* Headline */}
-        <div className="text-center mb-7 hs-prep-rise hs-prep-d1">
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            Building your quote.
+        {/* Ben — same face + green ring + online dot as the quote page's chat
+            header, so this beat reads as a continuation of the conversation the
+            customer just had with him, not a foreign system page. */}
+        <div className="flex flex-col items-center text-center mb-7 hs-prep-rise hs-prep-d0">
+          <div className="relative">
+            <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-[#7DB00E] shadow-lg">
+              <img src="/assets/quote-images/ben-estimator.webp" alt="Ben" className="w-full h-full object-cover" />
+            </div>
+            <span className="absolute bottom-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-[#7DB00E] ring-2 ring-slate-50" aria-hidden="true" />
+          </div>
+          <h1 className="mt-4 text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+            {firstName ? `One moment, ${firstName}.` : 'One moment.'}
           </h1>
           <p className="text-slate-500 mt-2 text-sm">
-            Putting your fixed price together — one moment.
+            Ben is putting your quote together…
           </p>
         </div>
 

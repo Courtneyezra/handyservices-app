@@ -285,7 +285,7 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
             // the hand-drawn underline. The full fixed price lands on the quote.
             eyebrow: "one quick choice",
             headline: "Let us pick the day — *you save {savings}*.",
-            subhead: "When you let us pick the day, we slot you into a route we're already running nearby — and pass that {savings} saving straight to you.",
+            subhead: "Flexible on the day? **That's {savings} straight back to you.**",
             benefits: [
               { icon: "check", text: "Sorted within {days} days, hands-free" },
               { icon: "check", text: "Same fixed price & guarantee" },

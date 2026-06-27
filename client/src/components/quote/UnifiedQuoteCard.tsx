@@ -987,7 +987,7 @@ export function UnifiedQuoteCard({
         : (useFlexBooking ? 'flex' : 'date_time');
 
   // Calculate total price
-  const { total, breakdown, savingsPercent, wasPrice, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied } = useMemo(() => {
+  const { total, breakdown, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied } = useMemo(() => {
     let amount = basePrice;
     const items: { label: string; amount: number }[] = [
       { label: config.priceLabel, amount: basePrice },
@@ -1070,22 +1070,6 @@ export function UnifiedQuoteCard({
     // Prices are already whole pounds from the engine — no client-side adjustment needed
     const adjustedAmount = amount;
 
-    // "Was" price = current total + the savings actually itemized below
-    // (multi-job batch only). The strikethrough then reads as exactly those green
-    // discount lines rather than an arbitrary markup. The flexible/set-date split is
-    // a premium frame now (a date & time costs +£X), not a discount, so it never anchors
-    // here. No real saving → no anchor (the strikethrough is gated on savings > 0).
-    const itemizedSavings = batchDiscount?.applied ? batchDiscount.savingsPence : 0;
-    let was: number;
-    let savings: number;
-    if (itemizedSavings > 0) {
-      was = adjustedAmount + itemizedSavings;
-      savings = Math.round((itemizedSavings / was) * 100);
-    } else {
-      was = adjustedAmount;
-      savings = 0;
-    }
-
     // Deposit model: 100% of materials upfront + 30% of labour
     const totalMaterialsPence = pricingLineItems
       ? pricingLineItems.reduce((sum, li) => sum + (li.materialsWithMarginPence || 0), 0)
@@ -1100,7 +1084,7 @@ export function UnifiedQuoteCard({
     const payFullTotal = Math.round(Math.round(adjustedAmount * (1 - PAY_FULL_DISCOUNT)) / 100) * 100;
     const payFullSaving = adjustedAmount - payFullTotal;
 
-    return { total: adjustedAmount, breakdown: items, wasPrice: was, savingsPercent: savings, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied };
+    return { total: adjustedAmount, breakdown: items, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied };
   }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, isBusiness, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence, setDatePremium]);
 
   // Customer-facing line items show their true totals: pure labour + materials +
@@ -1550,11 +1534,6 @@ export function UnifiedQuoteCard({
           </div>
 
           <div className="mb-1">
-            {config.showDiscountBadge && savingsPercent > 0 && !payFull && (
-              <span className="text-slate-400 line-through text-xl mr-3">
-                £{Math.round(wasPrice / 100)}
-              </span>
-            )}
             <AnimatePresence mode="wait">
               {payFull ? (
                 <motion.div
@@ -1589,6 +1568,10 @@ export function UnifiedQuoteCard({
                   <span className={`text-5xl font-black ${isDarkTheme ? 'text-white' : 'text-[#7DB00E]'}`}>
                     £{Math.round(total / 100)}
                   </span>
+                  <div className="text-xs mt-1 leading-snug">
+                    <span className={`font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>All-in fixed price.</span>{' '}
+                    <span className="text-[#7DB00E]">Just £{Math.round(depositAmount / 100)} to reserve today.</span>
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
