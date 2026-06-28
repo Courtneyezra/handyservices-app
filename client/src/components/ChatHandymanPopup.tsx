@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MessageCircle, X, ScanLine } from "lucide-react";
+import { MessageCircle, X, ScanLine, ShieldCheck, Star, BadgeCheck } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
 /**
@@ -179,17 +179,18 @@ export function ChatHandymanPopup({
                                 </h2>
 
                                 <p className="mt-4 text-[15px] leading-relaxed" style={{ color: navy(0.7) }}>
-                                    No forms, no commitment. Message us on WhatsApp and ask
-                                    anything — we'll point you in the right direction.
+                                    Ask us anything — no forms, no pressure.
                                 </p>
 
                                 <div className="mt-6 space-y-3">
+                                    {/* Tap-to-open — mobile only (a wa.me tap can't
+                                        reach the phone app from a desktop browser). */}
                                     <a
                                         href={waUrl}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         onClick={() => close("chat_popup_whatsapp")}
-                                        className="w-full inline-flex items-center justify-center gap-2.5 rounded-full px-6 py-4 text-base font-extrabold text-white shadow-lg transition-transform active:scale-[0.98]"
+                                        className="sm:hidden w-full inline-flex items-center justify-center gap-2.5 rounded-full px-6 py-4 text-base font-extrabold text-white shadow-lg transition-transform active:scale-[0.98]"
                                         style={{ backgroundColor: WHATSAPP_GREEN, boxShadow: "0 10px 25px -5px rgba(37,211,102,0.4)" }}
                                     >
                                         <MessageCircle className="w-5 h-5" strokeWidth={2.6} />
@@ -205,11 +206,11 @@ export function ChatHandymanPopup({
                                 </div>
                             </div>
 
-                            {/* Right — QR panel. Brand-green wash; the QR sits on a
-                                white tile for maximum scan contrast. On mobile it
-                                drops below the CTA as a slim "or scan" strip. */}
+                            {/* Right — QR panel, desktop only (you can't scan your own
+                                phone's screen). Brand-green wash; the QR sits on a
+                                white tile for maximum scan contrast. */}
                             <div
-                                className="flex flex-row sm:flex-col items-center justify-center gap-4 px-6 py-5 sm:px-8 sm:py-9 border-t sm:border-t-0 sm:border-l border-slate-200"
+                                className="hidden sm:flex sm:flex-col items-center justify-center gap-4 sm:px-8 sm:py-9 sm:border-l border-slate-200"
                                 style={{ backgroundColor: "rgba(125,176,14,0.06)" }}
                             >
                                 <div className="rounded-2xl bg-white p-3 shadow-md border border-slate-200 shrink-0">
@@ -220,7 +221,7 @@ export function ChatHandymanPopup({
                                         marginSize={0}
                                         fgColor={HS_NAVY}
                                         bgColor="#ffffff"
-                                        className="block w-[108px] h-[108px] sm:w-[132px] sm:h-[132px]"
+                                        className="block w-[132px] h-[132px]"
                                     />
                                 </div>
                                 <div className="text-left sm:text-center max-w-[180px]">
@@ -235,13 +236,22 @@ export function ChatHandymanPopup({
                             </div>
                         </div>
 
-                        {/* Trust strip — full width along the bottom */}
-                        <div className="flex items-center justify-center gap-2 text-[11px] font-semibold px-6 pb-6 sm:pb-5" style={{ color: navy(0.55) }}>
-                            <span>£2M insured</span>
-                            <span style={{ color: navy(0.25) }}>•</span>
-                            <span>4.9★ Google (127)</span>
-                            <span style={{ color: navy(0.25) }}>•</span>
-                            <span>12-mo guarantee</span>
+                        {/* Trust strip — full-width footer band with icon cues.
+                            Each item stays on a single line (whitespace-nowrap); type
+                            and spacing tighten on mobile so all three fit one row. */}
+                        <div className="flex items-center justify-center gap-3 sm:gap-6 border-t border-slate-200 bg-white/70 px-4 sm:px-6 py-3.5 text-[10px] sm:text-[11px] font-bold" style={{ color: navy(0.62) }}>
+                            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                <ShieldCheck className="w-3.5 h-3.5 shrink-0" strokeWidth={2.4} style={{ color: HS_GREEN_DARK }} />
+                                £2M insured
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                <Star className="w-3.5 h-3.5 shrink-0 fill-amber-400 text-amber-400" strokeWidth={2.4} />
+                                4.9 Google
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                <BadgeCheck className="w-3.5 h-3.5 shrink-0" strokeWidth={2.4} style={{ color: HS_GREEN_DARK }} />
+                                12-mo guarantee
+                            </span>
                         </div>
                     </motion.div>
                 </motion.div>
