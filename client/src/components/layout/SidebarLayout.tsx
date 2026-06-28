@@ -150,6 +150,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                         {
                             title: "OPERATIONS",
                             items: [
+                                { icon: Building2, label: "Clients", href: "/admin/clients", badge: "NEW" },
                                 { icon: Map, label: "Lead Tube Map", href: "/admin/tube-map", badge: "NEW" },
                                 { icon: GitBranch, label: "Pipeline Map", href: "/admin/pipeline" },
                                 { icon: Kanban, label: "Lead Kanban", href: "/admin/funnel" },
