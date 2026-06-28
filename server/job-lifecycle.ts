@@ -7,6 +7,8 @@ import {
     contractorPayouts,
     jobSheets,
     wtbpRateCard,
+    personalizedQuotes,
+    leads,
 } from '../shared/schema';
 import { eq, and, isNull } from 'drizzle-orm';
 import crypto from 'crypto';
@@ -760,6 +762,248 @@ jobLifecycleRouter.get('/api/jobs/:id/incidents', async (req, res) => {
 // JOB COMPLETION (Enhanced)
 // ==========================================
 
+/**
+ * Core job-completion logic — shared by the HTTP handler and the e2e spine proof.
+ * Assumes `job` (a contractor_booking_requests row) has already been fetched and
+ * validated (status is completable, not already completed). It: writes the CBR
+ * completion, rolls completion up the spine (quote → lead), updates job-sheet line
+ * item statuses, computes + inserts the contractor payout, and fires the balance
+ * invoice + customer notification. Behaviour is identical to the inline logic it
+ * was extracted from — extracting it makes the spine end-to-end testable.
+ */
+export async function finalizeJobCompletion(
+    job: any,
+    contractorId: string,
+    opts: {
+        completionType: 'full' | 'partial';
+        evidenceUrls?: string[];
+        completionNotes?: string;
+        lineItemStatuses?: Record<string, string> | null;
+        customerDeclinedSignature?: boolean;
+        customerDeclinedSignatureReason?: string;
+        signatureDataUrl?: string;
+    },
+): Promise<{ job: any; payout: any; summary: any }> {
+    const id = job.id;
+    const {
+        completionType,
+        evidenceUrls,
+        completionNotes,
+        lineItemStatuses,
+        customerDeclinedSignature,
+        customerDeclinedSignatureReason,
+        signatureDataUrl,
+    } = opts;
+
+    // Calculate final timer accumulated seconds
+    let finalAccumulated = job.timerAccumulatedSeconds || 0;
+    if (job.timerStartedAt && !job.timerPausedAt) {
+        // Timer is still running — add elapsed since last start
+        const elapsedMs = Date.now() - new Date(job.timerStartedAt).getTime();
+        finalAccumulated += Math.floor(elapsedMs / 1000);
+    }
+
+    // Payout scheduled 24 hours from now
+    const payoutScheduledAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    // Update the job
+    const updateData: any = {
+        dayOfStatus: 'completed',
+        status: 'completed',
+        assignmentStatus: 'completed',
+        completedAt: new Date(),
+        completionType,
+        timerAccumulatedSeconds: finalAccumulated,
+        timerPausedAt: job.timerPausedAt || (job.timerStartedAt ? new Date() : null),
+        payoutScheduledAt,
+        updatedAt: new Date(),
+    };
+
+    if (evidenceUrls && Array.isArray(evidenceUrls)) {
+        updateData.evidenceUrls = evidenceUrls;
+    }
+    if (completionNotes) {
+        updateData.completionNotes = completionNotes;
+    }
+    if (signatureDataUrl) {
+        updateData.signatureDataUrl = signatureDataUrl;
+    }
+    if (customerDeclinedSignature !== undefined) {
+        updateData.customerDeclinedSignature = customerDeclinedSignature;
+    }
+    if (customerDeclinedSignatureReason) {
+        updateData.customerDeclinedSignatureReason = customerDeclinedSignatureReason;
+    }
+    updateData.timeOnJobSeconds = finalAccumulated;
+
+    const [updatedJob] = await db.update(contractorBookingRequests)
+        .set(updateData)
+        .where(eq(contractorBookingRequests.id, id))
+        .returning();
+
+    // Propagate completion back up the spine (quote → lead). Non-fatal:
+    // the job IS completed even if this rollup write fails.
+    if (job.quoteId) {
+        try {
+            // 1. Stamp the quote as completed (guard against overwriting an
+            //    earlier completion timestamp via completed_at IS NULL).
+            await db.update(personalizedQuotes)
+                .set({ completedAt: new Date() })
+                .where(and(
+                    eq(personalizedQuotes.id, job.quoteId),
+                    isNull(personalizedQuotes.completedAt),
+                ));
+
+            // 2. Advance the linked lead to the terminal 'completed' stage.
+            const [quoteRow] = await db.select({ leadId: personalizedQuotes.leadId })
+                .from(personalizedQuotes)
+                .where(eq(personalizedQuotes.id, job.quoteId))
+                .limit(1);
+
+            if (quoteRow?.leadId) {
+                await db.update(leads)
+                    .set({ stage: 'completed', stageUpdatedAt: new Date() })
+                    .where(eq(leads.id, quoteRow.leadId));
+            }
+        } catch (rollupErr) {
+            console.error(`[Job Lifecycle] Failed to roll up completion to quote/lead for job ${id} (quote ${job.quoteId}):`, rollupErr);
+        }
+    }
+
+    // Update job sheet line item statuses if provided
+    if (lineItemStatuses && typeof lineItemStatuses === 'object') {
+        const jobSheetResults = await db.select()
+            .from(jobSheets)
+            .where(eq(jobSheets.jobId, id))
+            .limit(1);
+
+        if (jobSheetResults.length > 0) {
+            const sheet = jobSheetResults[0];
+            const lineItems = (sheet.lineItems as any[]) || [];
+
+            // Update each line item status by index
+            for (const [indexStr, newStatus] of Object.entries(lineItemStatuses)) {
+                const idx = parseInt(indexStr, 10);
+                if (idx >= 0 && idx < lineItems.length) {
+                    lineItems[idx].status = newStatus;
+                }
+            }
+
+            await db.update(jobSheets)
+                .set({ lineItems, updatedAt: new Date() })
+                .where(eq(jobSheets.id, sheet.id));
+        }
+    }
+
+    // Calculate payout amount
+    let basePayoutPence = 0;
+    let variationAmountPence = 0;
+
+    // Sum contractor rates from job sheet line items (completed items only)
+    const jobSheetResults = await db.select()
+        .from(jobSheets)
+        .where(eq(jobSheets.jobId, id))
+        .limit(1);
+
+    if (jobSheetResults.length > 0) {
+        const lineItems = (jobSheetResults[0].lineItems as any[]) || [];
+        for (const item of lineItems) {
+            const itemStatus = item.status || 'completed';
+            // A 'full' completion pays for every (non-cancelled) line — the job
+            // sheet is built with status:'pending', so requiring 'completed' here
+            // would zero-out the payout whenever the contractor didn't explicitly
+            // tick each line. A 'partial' completion pays only the lines that were
+            // explicitly marked completed.
+            const include = completionType === 'full'
+                ? itemStatus !== 'cancelled' && itemStatus !== 'skipped'
+                : itemStatus === 'completed';
+            if (include && item.contractorRatePence) {
+                basePayoutPence += item.contractorRatePence;
+            }
+        }
+    }
+
+    // If no job sheet line items found, try to look up rate from wtbp_rate_card
+    if (basePayoutPence === 0) {
+        // Fallback: query rate card for a general rate
+        const rates = await db.select()
+            .from(wtbpRateCard)
+            .where(and(
+                eq(wtbpRateCard.categorySlug, 'general'),
+                isNull(wtbpRateCard.effectiveTo),
+            ))
+            .limit(1);
+
+        if (rates.length > 0) {
+            // Use hourly rate * time worked
+            const hourlyRatePence = rates[0].ratePence;
+            const hoursWorked = finalAccumulated / 3600;
+            basePayoutPence = Math.round(hourlyRatePence * hoursWorked);
+        }
+    }
+
+    // Sum approved variation orders
+    const approvedVariations = await db.select()
+        .from(variationOrders)
+        .where(and(
+            eq(variationOrders.jobId, id),
+            eq(variationOrders.status, 'approved'),
+        ));
+
+    for (const v of approvedVariations) {
+        variationAmountPence += v.additionalPricePence;
+    }
+
+    const grossAmountPence = basePayoutPence + variationAmountPence;
+    // Platform fee: 20% of gross
+    const platformFeePence = Math.round(grossAmountPence * 0.20);
+    const netPayoutPence = grossAmountPence - platformFeePence;
+
+    // Create contractor payout record
+    let payoutRecord = null;
+    if (grossAmountPence > 0) {
+        const [payout] = await db.insert(contractorPayouts)
+            .values({
+                jobId: id,
+                contractorId: contractorId,
+                quoteId: job.quoteId || null,
+                grossAmountPence,
+                platformFeePence,
+                netPayoutPence,
+                variationAmountPence,
+                status: 'pending',
+                scheduledPayoutAt: payoutScheduledAt,
+            })
+            .returning();
+
+        payoutRecord = payout;
+    }
+
+    console.log(`[Job Lifecycle] Job ${id} completed (${completionType}). Timer: ${finalAccumulated}s. Payout: ${netPayoutPence}p scheduled for ${payoutScheduledAt.toISOString()}`);
+
+    // Generate balance invoice (async, non-blocking — fire and forget with error logging)
+    generateBalanceInvoice(id).catch((err) => {
+        console.error(`[Job Lifecycle] Failed to generate balance invoice for job ${id}:`, err);
+    });
+
+    // Notify customer (async, non-blocking)
+    notifyCustomer({ jobId: id, event: 'job_completed' }).catch(console.error);
+
+    return {
+        job: updatedJob,
+        payout: payoutRecord,
+        summary: {
+            totalTimeSeconds: finalAccumulated,
+            basePayoutPence,
+            variationAmountPence,
+            grossAmountPence,
+            platformFeePence,
+            netPayoutPence,
+            payoutScheduledAt: payoutScheduledAt.toISOString(),
+        },
+    };
+}
+
 // POST /api/jobs/:id/complete — enhanced job completion with payout calculation
 jobLifecycleRouter.post('/api/jobs/:id/complete', requireContractor, async (req, res) => {
     try {
@@ -794,178 +1038,17 @@ jobLifecycleRouter.post('/api/jobs/:id/complete', requireContractor, async (req,
             });
         }
 
-        // Calculate final timer accumulated seconds
-        let finalAccumulated = job.timerAccumulatedSeconds || 0;
-        if (job.timerStartedAt && !job.timerPausedAt) {
-            // Timer is still running — add elapsed since last start
-            const elapsedMs = Date.now() - new Date(job.timerStartedAt).getTime();
-            finalAccumulated += Math.floor(elapsedMs / 1000);
-        }
-
-        // Payout scheduled 24 hours from now
-        const payoutScheduledAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-        // Update the job
-        const updateData: any = {
-            dayOfStatus: 'completed',
-            status: 'completed',
-            assignmentStatus: 'completed',
-            completedAt: new Date(),
+        const result = await finalizeJobCompletion(job, contractorId, {
             completionType,
-            timerAccumulatedSeconds: finalAccumulated,
-            timerPausedAt: job.timerPausedAt || (job.timerStartedAt ? new Date() : null),
-            payoutScheduledAt,
-            updatedAt: new Date(),
-        };
-
-        if (evidenceUrls && Array.isArray(evidenceUrls)) {
-            updateData.evidenceUrls = evidenceUrls;
-        }
-        if (completionNotes) {
-            updateData.completionNotes = completionNotes;
-        }
-        if (signatureDataUrl) {
-            updateData.signatureDataUrl = signatureDataUrl;
-        }
-        if (customerDeclinedSignature !== undefined) {
-            updateData.customerDeclinedSignature = customerDeclinedSignature;
-        }
-        if (customerDeclinedSignatureReason) {
-            updateData.customerDeclinedSignatureReason = customerDeclinedSignatureReason;
-        }
-        updateData.timeOnJobSeconds = finalAccumulated;
-
-        const [updatedJob] = await db.update(contractorBookingRequests)
-            .set(updateData)
-            .where(eq(contractorBookingRequests.id, id))
-            .returning();
-
-        // Update job sheet line item statuses if provided
-        if (lineItemStatuses && typeof lineItemStatuses === 'object') {
-            const jobSheetResults = await db.select()
-                .from(jobSheets)
-                .where(eq(jobSheets.jobId, id))
-                .limit(1);
-
-            if (jobSheetResults.length > 0) {
-                const sheet = jobSheetResults[0];
-                const lineItems = (sheet.lineItems as any[]) || [];
-
-                // Update each line item status by index
-                for (const [indexStr, newStatus] of Object.entries(lineItemStatuses)) {
-                    const idx = parseInt(indexStr, 10);
-                    if (idx >= 0 && idx < lineItems.length) {
-                        lineItems[idx].status = newStatus;
-                    }
-                }
-
-                await db.update(jobSheets)
-                    .set({ lineItems, updatedAt: new Date() })
-                    .where(eq(jobSheets.id, sheet.id));
-            }
-        }
-
-        // Calculate payout amount
-        let basePayoutPence = 0;
-        let variationAmountPence = 0;
-
-        // Sum contractor rates from job sheet line items (completed items only)
-        const jobSheetResults = await db.select()
-            .from(jobSheets)
-            .where(eq(jobSheets.jobId, id))
-            .limit(1);
-
-        if (jobSheetResults.length > 0) {
-            const lineItems = (jobSheetResults[0].lineItems as any[]) || [];
-            for (const item of lineItems) {
-                // Include items that are completed (or all if full completion and no explicit statuses)
-                const itemStatus = item.status || 'completed';
-                if (itemStatus === 'completed' && item.contractorRatePence) {
-                    basePayoutPence += item.contractorRatePence;
-                }
-            }
-        }
-
-        // If no job sheet line items found, try to look up rate from wtbp_rate_card
-        if (basePayoutPence === 0) {
-            // Fallback: query rate card for a general rate
-            const rates = await db.select()
-                .from(wtbpRateCard)
-                .where(and(
-                    eq(wtbpRateCard.categorySlug, 'general'),
-                    isNull(wtbpRateCard.effectiveTo),
-                ))
-                .limit(1);
-
-            if (rates.length > 0) {
-                // Use hourly rate * time worked
-                const hourlyRatePence = rates[0].ratePence;
-                const hoursWorked = finalAccumulated / 3600;
-                basePayoutPence = Math.round(hourlyRatePence * hoursWorked);
-            }
-        }
-
-        // Sum approved variation orders
-        const approvedVariations = await db.select()
-            .from(variationOrders)
-            .where(and(
-                eq(variationOrders.jobId, id),
-                eq(variationOrders.status, 'approved'),
-            ));
-
-        for (const v of approvedVariations) {
-            variationAmountPence += v.additionalPricePence;
-        }
-
-        const grossAmountPence = basePayoutPence + variationAmountPence;
-        // Platform fee: 20% of gross
-        const platformFeePence = Math.round(grossAmountPence * 0.20);
-        const netPayoutPence = grossAmountPence - platformFeePence;
-
-        // Create contractor payout record
-        let payoutRecord = null;
-        if (grossAmountPence > 0) {
-            const [payout] = await db.insert(contractorPayouts)
-                .values({
-                    jobId: id,
-                    contractorId: contractorId,
-                    quoteId: job.quoteId || null,
-                    grossAmountPence,
-                    platformFeePence,
-                    netPayoutPence,
-                    variationAmountPence,
-                    status: 'pending',
-                    scheduledPayoutAt: payoutScheduledAt,
-                })
-                .returning();
-
-            payoutRecord = payout;
-        }
-
-        console.log(`[Job Lifecycle] Job ${id} completed (${completionType}). Timer: ${finalAccumulated}s. Payout: ${netPayoutPence}p scheduled for ${payoutScheduledAt.toISOString()}`);
-
-        // Generate balance invoice (async, non-blocking — fire and forget with error logging)
-        generateBalanceInvoice(id).catch((err) => {
-            console.error(`[Job Lifecycle] Failed to generate balance invoice for job ${id}:`, err);
+            evidenceUrls,
+            completionNotes,
+            lineItemStatuses,
+            customerDeclinedSignature,
+            customerDeclinedSignatureReason,
+            signatureDataUrl,
         });
 
-        // Notify customer (async, non-blocking)
-        notifyCustomer({ jobId: id, event: 'job_completed' }).catch(console.error);
-
-        res.json({
-            success: true,
-            job: updatedJob,
-            payout: payoutRecord,
-            summary: {
-                totalTimeSeconds: finalAccumulated,
-                basePayoutPence,
-                variationAmountPence,
-                grossAmountPence,
-                platformFeePence,
-                netPayoutPence,
-                payoutScheduledAt: payoutScheduledAt.toISOString(),
-            },
-        });
+        res.json({ success: true, ...result });
     } catch (error: any) {
         console.error('[Job Lifecycle] Error completing job:', error);
         res.status(500).json({ error: error.message || 'Failed to complete job' });

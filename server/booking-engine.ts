@@ -9,10 +9,13 @@ import {
     jobSheets,
     handymanProfiles,
     users,
+    wtbpRateCard,
 } from '../shared/schema';
-import { eq, and, lt, gte, lte, or, inArray } from 'drizzle-orm';
+import { eq, and, lt, gte, lte, or, inArray, isNull } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { timeRangeCoversSlot as canonicalTimeRangeCoversSlot, type SlotType as CanonicalSlotType } from '../shared/slot-times';
+import { findBestContractorForJob } from './auto-assignment-engine';
+import type { JobCategory } from '../shared/contextual-pricing-types';
 
 // ============================================================================
 // SLOT CONFLICT LOGIC
@@ -44,6 +47,78 @@ function getConflictingSlots(slot: SlotType): SlotType[] {
  * picker and the admin matrix renderer.
  */
 const timeRangeCoversSlot = canonicalTimeRangeCoversSlot;
+
+// ============================================================================
+// JOB-SHEET LINE-ITEM BUILDER
+//
+// The contextual pricing engine's line items (stored on
+// personalizedQuotes.pricingLineItems) carry a customer-facing price + category
+// + time estimate but NO contractor rate — so the naive `item.contractorRatePence
+// || 0` map ALWAYS produced 0. That left every job sheet without a real
+// contractor rate, forcing job-lifecycle's completion-time payout to silently
+// fall back to a flat 'general' hourly rate × timer seconds.
+//
+// This builder derives a per-line `contractorRatePence` from the canonical
+// wtbp_rate_card (active row, effectiveTo IS NULL) by the line's category,
+// falling back to the 'general' category rate: rate/hr × estimatedMinutes / 60.
+// If a rate genuinely can't be resolved it leaves 0 — the completion-time
+// fallback in job-lifecycle still handles that case (no behaviour regression).
+// Shared by both confirmBooking (slot-lock) and assignFromPool (no-lock) so the
+// two write paths stay in lockstep.
+// ============================================================================
+
+interface JobSheetLineItem {
+    description: string;
+    categorySlug: string | null;
+    estimatedMinutes: number | null;
+    pricePence: number;
+    contractorRatePence: number;
+    materialsRequired: any[];
+    status: 'pending';
+}
+
+async function buildJobSheetLineItems(tx: any, pricingLineItems: any[]): Promise<JobSheetLineItem[]> {
+    // Load every active rate-card row once, keyed by categorySlug, so per-line
+    // lookups are in-memory (no N queries). 'general' is the catch-all fallback.
+    const activeRates = await tx.select({
+        categorySlug: wtbpRateCard.categorySlug,
+        ratePence: wtbpRateCard.ratePence,
+    })
+        .from(wtbpRateCard)
+        .where(isNull(wtbpRateCard.effectiveTo));
+    const ratesByCategory = new Map<string, number>();
+    for (const r of activeRates) {
+        // First active row per category wins (rate card is expected to hold one
+        // active row per category; defensive against accidental dupes).
+        if (!ratesByCategory.has(r.categorySlug)) ratesByCategory.set(r.categorySlug, r.ratePence);
+    }
+    const generalRatePence = ratesByCategory.get('general');
+
+    return pricingLineItems.map((item: any) => {
+        const categorySlug: string | null = item.categorySlug || item.category || null;
+        const estimatedMinutes: number | null = item.estimatedMinutes || item.durationMins || item.timeEstimateMinutes || null;
+
+        // Prefer a rate the quote already carries; otherwise derive from the rate
+        // card (category rate, then 'general'). Leave 0 if neither resolves.
+        let contractorRatePence: number = item.contractorRatePence || 0;
+        if (!contractorRatePence) {
+            const hourlyRatePence = (categorySlug ? ratesByCategory.get(categorySlug) : undefined) ?? generalRatePence;
+            if (hourlyRatePence && estimatedMinutes) {
+                contractorRatePence = Math.round((hourlyRatePence / 60) * estimatedMinutes);
+            }
+        }
+
+        return {
+            description: item.description || item.label || 'Task',
+            categorySlug,
+            estimatedMinutes,
+            pricePence: item.pricePence || item.customerPricePence || 0,
+            contractorRatePence,
+            materialsRequired: item.materialsRequired || [],
+            status: 'pending' as const,
+        };
+    });
+}
 
 /**
  * Is this contractor genuinely AVAILABLE for the given date + slot?
@@ -556,17 +631,11 @@ export async function confirmBooking(params: {
                 })
                 .returning();
 
-            // f. Generate job sheet from quote line items
+            // f. Generate job sheet from quote line items. contractorRatePence is
+            // derived from the wtbp_rate_card when the quote line doesn't carry one
+            // (it never does for contextual quotes) — see buildJobSheetLineItems.
             const lineItems = (quote.pricingLineItems as any[]) || [];
-            const jobSheetLineItems = lineItems.map((item: any) => ({
-                description: item.description || item.label || 'Task',
-                categorySlug: item.categorySlug || item.category || null,
-                estimatedMinutes: item.estimatedMinutes || item.durationMins || null,
-                pricePence: item.pricePence || item.customerPricePence || 0,
-                contractorRatePence: item.contractorRatePence || 0,
-                materialsRequired: item.materialsRequired || [],
-                status: 'pending',
-            }));
+            const jobSheetLineItems = await buildJobSheetLineItems(tx, lineItems);
 
             const [jobSheet] = await tx.insert(jobSheets)
                 .values({
@@ -796,17 +865,10 @@ export async function assignFromPool(params: {
                 })
                 .returning();
 
-            // d. Generate the job sheet from the quote line items (mirrors confirmBooking).
+            // d. Generate the job sheet from the quote line items (mirrors confirmBooking,
+            // including the wtbp_rate_card-derived contractorRatePence).
             const lineItems = (quote.pricingLineItems as any[]) || [];
-            const jobSheetLineItems = lineItems.map((item: any) => ({
-                description: item.description || item.label || 'Task',
-                categorySlug: item.categorySlug || item.category || null,
-                estimatedMinutes: item.estimatedMinutes || item.durationMins || null,
-                pricePence: item.pricePence || item.customerPricePence || 0,
-                contractorRatePence: item.contractorRatePence || 0,
-                materialsRequired: item.materialsRequired || [],
-                status: 'pending',
-            }));
+            const jobSheetLineItems = await buildJobSheetLineItems(tx, lineItems);
 
             await tx.insert(jobSheets)
                 .values({
@@ -898,5 +960,104 @@ export async function assignFromPool(params: {
             success: false,
             error: error.message || 'Failed to assign from pool',
         };
+    }
+}
+
+// ============================================================================
+// AUTO-ASSIGN A PAID, DATED JOB  (Phase 1 — close the booking write-path leak)
+//
+// When a customer pays for a job with a chosen date+slot but DID NOT reserve a
+// slot-lock (no `lockId` in the PaymentIntent), the Stripe webhook previously
+// dropped the job into a "dispatch pool" that nobody drained — so the job never
+// got a contractorBookingRequests row and fell out of the system of record.
+//
+// This wires the existing (but uncalled) assignment engine to that gap: pick the
+// best-fit contractor for the customer's chosen date/slot, then write the
+// canonical booking via assignFromPool. Best-effort: on no-fit or any failure it
+// returns { success:false, reason } and the caller leaves the job pending so a
+// human can dispatch it — it must NEVER throw into the webhook.
+//
+// Gated by the AUTO_ASSIGN_ON_PAYMENT env flag at the call site.
+// ============================================================================
+
+export async function autoAssignPaidJob(params: {
+    quoteId: string;
+    pricingLineItems: unknown;   // quote.pricingLineItems — may carry categorySlug or category
+    date: Date;                  // the customer's chosen date
+    slot: 'am' | 'pm';           // the customer's chosen slot
+    pricePence: number;          // total job price (for margin check)
+    customerLat?: number;
+    customerLng?: number;
+    /** Predict-only: run the SAME category-derivation + fit logic but STOP before
+     *  assignFromPool (no CBR/jobSheet/quote writes). Used by the backfill reconcile
+     *  script to report "would book / would no-fit" without committing. Default false. */
+    dryRun?: boolean;
+}): Promise<{ success: boolean; bookingId?: string; reason?: string; contractorId?: string; contractorName?: string }> {
+    const { quoteId, pricingLineItems, date, slot, pricePence, customerLat, customerLng, dryRun = false } = params;
+
+    try {
+        // Derive categories robustly. In production line items carry the value in
+        // `category` (categorySlug is null), so check both. Drop non-skill pseudo
+        // rows ('materials', 'other') — no contractor opts into those, and since the
+        // matcher requires covering ALL categories, leaving them in would falsely
+        // no-fit otherwise-assignable jobs.
+        const NON_SKILL_CATEGORIES = new Set(['materials', 'other']);
+        const categories = Array.from(new Set(
+            (Array.isArray(pricingLineItems) ? pricingLineItems : [])
+                .map((it: any) => it?.categorySlug || it?.category)
+                .filter(Boolean)
+                .map((c: any) => String(c).toLowerCase()),
+        )).filter((c) => !NON_SKILL_CATEGORIES.has(c)) as JobCategory[];
+
+        if (categories.length === 0) {
+            return { success: false, reason: 'No assignable job categories on quote line items' };
+        }
+
+        const match = await findBestContractorForJob(
+            categories,
+            date,
+            slot,
+            pricePence,
+            customerLat,
+            customerLng,
+        );
+
+        if (!match.success || !match.assignedContractor) {
+            return { success: false, reason: match.reason || 'No fitting contractor found' };
+        }
+
+        const dateStr = date.toISOString().slice(0, 10);
+
+        // Predict-only path: report the fit without writing anything.
+        if (dryRun) {
+            return {
+                success: true,
+                reason: `DRY-RUN would book ${match.assignedContractor.name} on ${dateStr} ${slot}`,
+                contractorId: match.assignedContractor.contractorId,
+                contractorName: match.assignedContractor.name,
+            };
+        }
+
+        const booking = await assignFromPool({
+            quoteId,
+            contractorId: match.assignedContractor.contractorId,
+            date: dateStr,
+            slot,
+        });
+
+        if (!booking.success) {
+            return { success: false, reason: booking.error || 'assignFromPool failed' };
+        }
+
+        console.log(`[BookingEngine] autoAssignPaidJob booked quote=${quoteId} → contractor=${match.assignedContractor.contractorId} on ${dateStr} ${slot}`);
+        return {
+            success: true,
+            bookingId: booking.bookingId,
+            contractorId: match.assignedContractor.contractorId,
+            contractorName: match.assignedContractor.name,
+        };
+    } catch (error: any) {
+        console.error('[BookingEngine] autoAssignPaidJob error:', error);
+        return { success: false, reason: error?.message || 'autoAssignPaidJob threw' };
     }
 }
