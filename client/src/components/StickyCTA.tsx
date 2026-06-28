@@ -10,6 +10,8 @@ interface StickyCTAProps {
     selectedPackage?: string | null;
     selectedPrice?: number;
     scrollPhase?: 'early' | 'mid' | 'late';
+    /** Show the "Ben — Questions? Tap to chat" reassurance strip above the CTA buttons. */
+    showContactBen?: boolean;
     children?: React.ReactNode;
 }
 
@@ -20,6 +22,7 @@ export function StickyCTA({
     selectedPackage,
     selectedPrice,
     scrollPhase = 'early',
+    showContactBen = false,
     children
 }: StickyCTAProps) {
 
@@ -77,7 +80,10 @@ export function StickyCTA({
                         <div className="absolute top-2 left-3 w-1.5 h-1.5 bg-slate-700 rounded-full shadow-inner opacity-50"></div>
                         <div className="absolute top-2 right-3 w-1.5 h-1.5 bg-slate-700 rounded-full shadow-inner opacity-50"></div>
 
-                        {/* Google Reviews Tag - Integrated Tab (Seamless) */}
+                        {/* Google Reviews Tag - Integrated Tab (Seamless).
+                            When the Ben strip is active the badge moves inline into
+                            that row instead (see below), so suppress the floating tab. */}
+                        {!showContactBen && (
                         <div className="absolute top-0 right-4 z-50 transform -translate-y-full">
                             <div className="bg-slate-900 border-t border-x border-slate-700/50 rounded-t-lg px-3 py-1.5 pb-2.5 -mb-[1px] flex items-center gap-2 relative shadow-none">
                                 <div className="flex flex-col items-end leading-none">
@@ -92,6 +98,41 @@ export function StickyCTA({
                                 {/* We extend bg-slate-900 down over the line with pb-2.5 and -mb-[1px] */}
                             </div>
                         </div>
+                        )}
+
+                        {/* Ben reassurance strip — face is the trust cue; whole row
+                            taps through to WhatsApp so a real person is one tap away. */}
+                        {showContactBen && (
+                            <a
+                                href={`https://wa.me/447508744402?text=${encodeURIComponent("Hi, I have a question about your handyman service")}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={() => onConversion?.('sticky_ben_whatsapp')}
+                                aria-label="Message Ben on WhatsApp"
+                                className="flex items-center gap-2.5 px-3 pt-3 pb-2"
+                            >
+                                <div className="relative shrink-0">
+                                    <div className="w-8 h-8 rounded-full overflow-hidden border-2 border-[#7DB00E]">
+                                        <img src="/assets/quote-images/ben-estimator.webp" alt="Ben" className="w-full h-full object-cover" />
+                                    </div>
+                                    <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#7DB00E] ring-2 ring-slate-900" aria-hidden="true" />
+                                </div>
+                                <div className="min-w-0 leading-tight flex-1">
+                                    <p className="text-white text-sm font-bold leading-none truncate">Ben <span className="text-[#7DB00E] text-xs font-normal">from HandyServices</span></p>
+                                    <p className="text-[11px] text-slate-400 leading-none mt-1 truncate">Questions? Tap to chat</p>
+                                </div>
+                                {/* Google Reviews trust cue — same top-right position as the
+                                    old floating tab, now baked into the unified bar. */}
+                                <div className="flex flex-col items-end leading-none shrink-0">
+                                    <div className="flex gap-0.5 mb-1">
+                                        {[1, 2, 3, 4, 5].map(i => (
+                                            <Star key={i} className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                                        ))}
+                                    </div>
+                                    <span className="text-[10px] text-slate-300 font-bold tracking-wide">GOOGLE REVIEWS</span>
+                                </div>
+                            </a>
+                        )}
 
                         {/* Selected Package Echo */}
                         {selectedPackage && selectedPrice && (

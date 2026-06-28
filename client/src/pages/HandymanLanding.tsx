@@ -7,6 +7,7 @@ import { SocialProofSection } from "@/components/SocialProofSection";
 import { IntakeHero } from "@/components/IntakeHero";
 import { GoogleReviewsSection } from "@/components/GoogleReviewsSection";
 import { StickyCTA } from "@/components/StickyCTA";
+import { ChatHandymanPopup } from "@/components/ChatHandymanPopup";
 import { LocalTrustSection } from "@/components/AnimatedMap";
 import { SegmentSwitcher } from "@/components/SegmentSwitcher";
 import { PropertyManagerView } from "@/components/PropertyManagerView";
@@ -777,7 +778,8 @@ export default function HandymanLanding({
                 {activeSegment === 'business' && <BusinessView />}
             </div>
 
-            <StickyCTA isVisible={showSticky} onConversion={trackConversionWithEvent} />
+            <StickyCTA isVisible={showSticky} onConversion={trackConversionWithEvent} showContactBen />
+            <ChatHandymanPopup onConversion={trackConversionWithEvent} />
         </div>
     );
 }

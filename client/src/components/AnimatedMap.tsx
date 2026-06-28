@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useLayoutEffect } from "react";
 import { MapPin, Star, Truck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import derbyMapImage from "../assets/derby_map.png";
@@ -43,6 +43,27 @@ export function AnimatedMap({ location = "derby" }: AnimatedMapProps) {
     const reviews = location === "derby" ? DERBY_REVIEWS : NOTTINGHAM_REVIEWS;
     const mapImage = location === "derby" ? derbyMapImage : nottinghamMapImage;
     const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
+    const activeCardRef = useRef<HTMLDivElement | null>(null);
+
+    // Keep the active popup card inside the viewport. The map's 3D tilt projects
+    // edge popups past the screen, so flat positioning isn't enough — measure the
+    // rendered card and nudge it horizontally. The card's centre tracks its marker
+    // (scale-origin is the centre, so it's animation-stable); we shift only by the
+    // amount it overruns either edge. The arrow stays on the marker.
+    useLayoutEffect(() => {
+        const el = activeCardRef.current;
+        if (!el) return;
+        el.style.transform = "translateX(0px)";
+        const rect = el.getBoundingClientRect();
+        const center = (rect.left + rect.right) / 2;
+        const half = el.offsetWidth / 2;
+        const margin = 12;
+        const vw = window.innerWidth;
+        let dx = 0;
+        if (center + half > vw - margin) dx = (vw - margin) - (center + half);
+        else if (center - half < margin) dx = margin - (center - half);
+        if (dx) el.style.transform = `translateX(${Math.round(dx)}px)`;
+    }, [activeReviewId]);
 
     useEffect(() => {
         const cycleReviews = () => {
@@ -103,7 +124,10 @@ export function AnimatedMap({ location = "derby" }: AnimatedMapProps) {
                                 <Truck className="w-5 h-5" />
                             </div>
 
-                            {/* Review Popup */}
+                            {/* Review Popup — anchored toward screen centre so the
+                                fixed-width card never clips the viewport edge on
+                                mobile: markers near the left open rightward, markers
+                                near the right open leftward. */}
                             <AnimatePresence>
                                 {activeReviewId === review.id && (
                                     <motion.div
@@ -114,7 +138,7 @@ export function AnimatedMap({ location = "derby" }: AnimatedMapProps) {
                                         className="absolute left-1/2 -translate-x-1/2 top-full mt-2"
                                         style={{ zIndex: 30 }}
                                     >
-                                        <div className="bg-white/95 backdrop-blur-md border border-slate-200 p-3 rounded-xl shadow-xl w-48 text-left">
+                                        <div ref={activeReviewId === review.id ? activeCardRef : null} className="bg-white/95 backdrop-blur-md border border-slate-200 p-3 rounded-xl shadow-xl w-48 text-left">
                                             <div className="flex items-center gap-1 mb-1">
                                                 {[...Array(5)].map((_, i) => (
                                                     <Star
@@ -130,7 +154,7 @@ export function AnimatedMap({ location = "derby" }: AnimatedMapProps) {
                                                 {review.location}
                                             </div>
                                         </div>
-                                        {/* Popup Arrow */}
+                                        {/* Popup Arrow — stays on the marker even when the card is nudged. */}
                                         <div className="absolute left-1/2 -translate-x-1/2 -top-1 w-2 h-2 bg-white border-l border-t border-slate-200 rotate-45" />
                                     </motion.div>
                                 )}
