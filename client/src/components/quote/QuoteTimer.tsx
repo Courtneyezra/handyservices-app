@@ -25,10 +25,14 @@ export function QuoteTimer({
     timeDisplay,
   } = useQuoteTimer();
 
-  // The border is built with a conic-gradient that drains clockwise
+  // The border is a conic-gradient drain. Stops are ordered grey-then-colour so
+  // the remaining-time arc sits anchored at the top and empties clockwise (the
+  // "leading edge" sweeps right → bottom → left as time runs out). Swap the two
+  // stops to flip the rotational direction. Drives both the corner seal ring and
+  // the card border, so they always drain in lockstep.
   const borderGradient = useMemo(() => {
     const deg = progress * 360;
-    return `conic-gradient(from 0deg, ${borderColor} ${deg}deg, rgba(200,200,200,0.15) ${deg}deg)`;
+    return `conic-gradient(from 0deg, rgba(200,200,200,0.15) ${360 - deg}deg, ${borderColor} ${360 - deg}deg)`;
   }, [progress, borderColor]);
 
   return (
@@ -58,7 +62,7 @@ export function QuoteTimer({
         {/* Price-locked seal — circular corner badge */}
         {!expired && (
           <div
-            className="absolute -top-10 -right-2 z-20"
+            className="absolute -top-10 -left-2 z-20"
             style={{
               animation: `sealPulse ${pulseSpeed} ease-in-out infinite`,
             }}

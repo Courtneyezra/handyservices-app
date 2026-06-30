@@ -6,9 +6,9 @@ import {
   Check, Calendar, CalendarCheck, CalendarRange, Clock, Tag, Shield, Zap,
   ChevronRight, ChevronDown, Percent, Sparkles, Star, Plus,
   Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle, User,
-  PencilRuler, MapPin, Receipt
+  PencilRuler, MapPin, Receipt, UserCheck, BadgeCheck
 } from 'lucide-react';
-import { SiVisa, SiMastercard, SiAmericanexpress, SiApplepay } from 'react-icons/si';
+import { CardBrandStrip } from './CardBrandLogos';
 import { SkuIcon } from '@/lib/sku-icons';
 import { QuoteAddressInput } from '@/components/quote/QuoteAddressInput';
 import { Button } from '@/components/ui/button';
@@ -125,15 +125,15 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence }: { item: PricingL
     }
   }
 
-  // Highlighted line-item row: a soft green FILL (no outline) marks these as
-  // itemised content. Deliberately NOT an outlined pill — on this page a solid
-  // coloured border = a selectable choice (the payment + scheduling toggles), so
-  // an outline here reads as a button and causes confusion. The fill keeps the
-  // green highlight without competing with the CTAs; the icon tile + green price
-  // (and the expanded badge) still distinguish SKU vs tailored rows.
+  // Yellow line-item rows: a translucent yellow TINT (not a solid fill — solid
+  // read as too loud next to the green CTAs) marks these as itemised content and
+  // sets them apart from the amber premiums. Mirrors the original tinted-row
+  // treatment, swapping the green accent for brand-adjacent yellow; the tinted
+  // icon tile + yellow price (and the expanded badge) still distinguish SKU vs
+  // tailored rows. Light text on the dark card, dark text on the light one.
   const cardClass = isDarkTheme
-    ? 'bg-[#7DB00E]/[0.14]'
-    : 'bg-[#7DB00E]/[0.12]';
+    ? 'bg-[#FACC15]/[0.16]'
+    : 'bg-[#FACC15]/[0.14]';
 
   return (
     <div className={`rounded-lg overflow-hidden ${cardClass}`}>
@@ -144,7 +144,7 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence }: { item: PricingL
         className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left active:scale-[0.995] transition-transform"
       >
         {isSku ? (
-          <div className={`shrink-0 w-8 h-8 rounded-md flex items-center justify-center ${isDarkTheme ? 'bg-[#7DB00E]/20 ring-1 ring-[#7DB00E]/25' : 'bg-[#7DB00E]/12 ring-1 ring-[#7DB00E]/20'}`}>
+          <div className={`shrink-0 w-8 h-8 rounded-md flex items-center justify-center ${isDarkTheme ? 'bg-[#FACC15]/20 ring-1 ring-[#FACC15]/25' : 'bg-[#FACC15]/15 ring-1 ring-[#FACC15]/25'}`}>
             <SkuIcon
               name={anyItem.skuIcon}
               sku={{ icon: anyItem.skuIcon, category: item.category }}
@@ -152,15 +152,14 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence }: { item: PricingL
             />
           </div>
         ) : (
-          // Custom (made-to-order) line: no SKU, but the pricing engine still
-          // tags every line with a JobCategory. Resolve the icon from that
-          // category via the shared registry (same path SKU lines use) so each
-          // service shows its own glyph instead of one repeated wrench. Kept in
-          // neutral slate to preserve the SKU(green)-vs-tailored(neutral) read.
-          <div className={`shrink-0 w-8 h-8 rounded-md flex items-center justify-center ${isDarkTheme ? 'bg-[#7DB00E]/[0.18] ring-1 ring-[#7DB00E]/30' : 'bg-[#7DB00E]/[0.12] ring-1 ring-[#7DB00E]/20'}`}>
+          // Custom (made-to-order) line: no SKU, but the pricing engine still tags
+          // every line with a JobCategory, so resolve the icon from that category
+          // via the shared registry (same path SKU lines use). Kept neutral slate so
+          // SKU (yellow icon) vs tailored (neutral) still read apart.
+          <div className={`shrink-0 w-8 h-8 rounded-md flex items-center justify-center ${isDarkTheme ? 'bg-[#FACC15]/15 ring-1 ring-[#FACC15]/25' : 'bg-[#FACC15]/12 ring-1 ring-[#FACC15]/20'}`}>
             <SkuIcon
               sku={{ icon: null, category: item.category }}
-              className="w-4 h-4 text-slate-400"
+              className={`w-4 h-4 ${isDarkTheme ? 'text-slate-300' : 'text-slate-500'}`}
             />
           </div>
         )}
@@ -351,6 +350,12 @@ const BRAND = {
 interface DifferentiatorChip {
   icon: React.ReactNode;
   label: string;
+  /** Marks the "rich" homeowner set. That set renders as a one-line trust strip
+   *  directly under the price (using `short`); other sets render as the compact
+   *  below-total chip grid. (The text itself isn't shown in the strip.) */
+  sub?: string;
+  /** Short label for the one-line trust strip, where the full label is too long. */
+  short?: string;
 }
 
 /**
@@ -368,10 +373,15 @@ interface DifferentiatorChip {
  */
 const DIFFERENTIATOR_CHIPS: Record<CustomerType, DifferentiatorChip[]> = {
   homeowner: [
-    { icon: <Tag className="w-4 h-4" />, label: 'Fixed price' },
-    { icon: <Clock className="w-4 h-4" />, label: 'On time' },
-    { icon: <Sparkles className="w-4 h-4" />, label: 'Spotless' },
-    { icon: <Shield className="w-4 h-4" />, label: 'Guaranteed' },
+    // Reframed from table-stakes ("On time", "Spotless") to benefits a homeowner
+    // weighs when letting a stranger into their home. Every claim is one we already
+    // make elsewhere on the page (insured / DBS / fix-it-free / tidy-up) — nothing
+    // invented. No guarantee duration asserted; "we come back free" is the promise.
+    { icon: <Shield className="w-4 h-4" />, label: '£2M insured', short: '£2M insured', sub: "covered if anything's damaged" },
+    { icon: <UserCheck className="w-4 h-4" />, label: 'Vetted & DBS-checked', short: 'DBS-checked', sub: 'a safe pro in your home' },
+    { icon: <BadgeCheck className="w-4 h-4" />, label: 'Guaranteed', short: 'Guaranteed', sub: 'not right? we come back free' },
+    // "We tidy up" intentionally dropped from the homeowner strip — 3 items keep
+    // the trust strip on one line on mobile at a readable size (4 forced a wrap).
   ],
   landlord: [
     // Tenant liaison is a paid +£25 add-on → NOT claimed here as standard.
@@ -1197,6 +1207,13 @@ export function UnifiedQuoteCard({
             // persists flexBookingWithinDays race-free, instead of relying solely on
             // the fire-and-forget /track-booking PUT. Mirrors what onBook passes.
             flexBookingWithinDays: useFlexBooking ? FLEX_WINDOW_DAYS : undefined,
+            // Scheduling tier the customer chose at booking — carried into PI metadata
+            // so the Stripe webhook persists personalized_quotes.scheduling_tier race-free
+            // (it was previously only stamped at quote creation, so it never landed on
+            // real bookings). Flex/liaise booking → 'flexible'; a firm dated booking →
+            // 'standard' (the date&time surcharge is still a standard-tier booking; this
+            // component has no express/priority signal).
+            schedulingTier: useFlexBooking ? 'flexible' : 'standard',
             // Pricing lane → server re-derives the charged £ from quote.basePrice.
             pricingLane,
             lockId: reservation?.lockId || undefined,
@@ -1589,6 +1606,28 @@ export function UnifiedQuoteCard({
             </AnimatePresence>
           </div>
 
+          {/* Trust strip — a thin one-line band of the included-as-standard benefits
+              directly under the price, so value lands at the same moment as the
+              number without pushing the price down. Homeowner set only (the one
+              carrying sub-lines); short labels keep it to a single line. */}
+          {(() => {
+            const chips = DIFFERENTIATOR_CHIPS[chipType] ?? DIFFERENTIATOR_CHIPS.homeowner;
+            if (!chips.some((c) => c.sub)) return null;
+            return (
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-[10.5px] font-medium">
+                {chips.map((item, i) => (
+                  <span
+                    key={i}
+                    className={`inline-flex items-center gap-1 whitespace-nowrap [&>svg]:w-3.5 [&>svg]:h-3.5 [&>svg]:text-[#7DB00E] ${isDarkTheme ? 'text-slate-200' : 'text-slate-700'}`}
+                  >
+                    {item.icon}
+                    {item.short ?? item.label}
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
+
           {/* Payment mode toggle — radio cards matching the Flexible / Pick-date selector.
               Stacks to one column through the cramped 2-col-card range (768–1279px) so the
               label and price subtext each stay on a single line; side-by-side on mobile
@@ -1714,7 +1753,11 @@ export function UnifiedQuoteCard({
                         <div className="flex justify-between items-center text-[13px]">
                           <span className="flex items-center gap-1.5 text-[#7DB00E] font-medium">
                             <Tag className="w-3.5 h-3.5 shrink-0" />
-                            Multi-job saving ({batchDiscount.discountPercent}%)
+                            {/* Cash amount only — no "(X%)". The discount is a % of
+                                labour, but labour is hidden, so a bare "10%" reads as
+                                10% of the visible line total and won't match the £.
+                                The cash figure always reconciles (lines − saving = total). */}
+                            Multi-job saving
                           </span>
                           <span className="text-[#7DB00E] font-bold tabular-nums">−£{Math.round(batchDiscount.savingsPence / 100)}</span>
                         </div>
@@ -1772,30 +1815,38 @@ export function UnifiedQuoteCard({
                 <span className={isDarkTheme ? 'text-white' : 'text-slate-900'}>Total</span>
                 <span className="text-[#7DB00E] text-lg tabular-nums">£{Math.round((payFull ? payFullTotal : total) / 100)}</span>
               </div>
-              {/* What's included — trust band shown below the total, reinforcing
-                  what the price covers right at the decision point. */}
-              <div className={`mt-3 pt-3 border-t ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
-                <p className={`text-[11px] font-semibold uppercase tracking-wide mb-2 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                  Included as standard
-                </p>
-                <div className="grid grid-cols-4 gap-2">
-                  {(DIFFERENTIATOR_CHIPS[chipType] ?? DIFFERENTIATOR_CHIPS.homeowner).map((item, i) => (
-                    <div
-                      key={i}
-                      className={`flex flex-col items-center justify-center rounded-lg py-2.5 px-1 text-center ${
-                        isDarkTheme
-                          ? 'bg-white/5 border border-white/10'
-                          : 'bg-slate-50 border border-slate-200'
-                      }`}
-                    >
-                      <div className="text-[#7DB00E] mb-1">{item.icon}</div>
-                      <span className={`text-[10px] font-medium leading-tight ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
-                        {item.label}
-                      </span>
+              {/* Other customer types keep their compact "included as standard"
+                  chips here, below the total. The homeowner set (which carries
+                  sub-lines) is lifted above the price hero instead — see the top
+                  of the price column. */}
+              {(() => {
+                const chips = DIFFERENTIATOR_CHIPS[chipType] ?? DIFFERENTIATOR_CHIPS.homeowner;
+                if (chips.some((c) => c.sub)) return null; // rich set renders above the price
+                return (
+                  <div className={`mt-3 pt-3 border-t ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
+                    <p className={`text-[11px] font-semibold uppercase tracking-wide mb-2 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                      Included as standard
+                    </p>
+                    <div className="grid grid-cols-4 gap-2">
+                      {chips.map((item, i) => (
+                        <div
+                          key={i}
+                          className={`flex flex-col items-center justify-center rounded-lg py-2.5 px-1 text-center ${
+                            isDarkTheme
+                              ? 'bg-white/5 border border-white/10'
+                              : 'bg-slate-50 border border-slate-200'
+                          }`}
+                        >
+                          <div className="text-[#7DB00E] mb-1">{item.icon}</div>
+                          <span className={`text-[10px] font-medium leading-tight ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
+                            {item.label}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -2317,7 +2368,11 @@ export function UnifiedQuoteCard({
                   </div>
                 )}
                 <div className="text-xs font-medium">{format(d.date, 'EEE')}</div>
-                <div className="text-lg font-bold">{format(d.date, 'd')}</div>
+                <div className="text-lg font-bold leading-tight">{format(d.date, 'd')}</div>
+                {/* Month — dates roll across the month boundary (e.g. late June into
+                    July), so without it "1" vs "30" is ambiguous. Muted so the day
+                    number stays the hero. */}
+                <div className="text-[10px] font-medium opacity-75">{format(d.date, 'MMM')}</div>
                 {d.isBlocked ? (
                   // Unavailable, not an error — recede in muted neutral so the one
                   // available (green) date is the clear hero, instead of a wall of red.
@@ -2553,12 +2608,7 @@ export function UnifiedQuoteCard({
             shows the accepted-card brands (payment reassurance right above the
             commit CTA); other segments keep the trust pills. */}
         {isContextual ? (
-          <div className="flex flex-nowrap items-center justify-center gap-3 opacity-90">
-            <SiVisa className="w-7 h-7 text-[#1434CB]" />
-            <SiMastercard className="w-7 h-7 text-[#EB001B]" />
-            <SiAmericanexpress className="w-7 h-7 text-[#2E77BC]" />
-            <SiApplepay className={`w-7 h-7 ${isDarkTheme ? 'text-white' : 'text-slate-900'}`} />
-          </div>
+          <CardBrandStrip className="opacity-95" />
         ) : (
           <div className="flex flex-nowrap items-center justify-center gap-1.5">
             {['DBS Checked', '£2M Insured', '4.9★ Google'].map((label) => (
