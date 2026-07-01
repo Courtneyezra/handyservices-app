@@ -26,6 +26,7 @@ import { setupTwilioSocket } from "./twilio-realtime";
 import { twilioClient } from "./twilio-client";
 import { createCall, findCallByTwilioSid, updateCall, finalizeCall } from './call-logger';
 import { notifyIncomingCall, notifyVoicemail } from './pushover';
+import { resolveCallerName } from './caller-lookup';
 import { determineCallRouting, CallRoutingSettings, AgentMode, FallbackAction } from "./call-routing-engine";
 import { shutdownPostHog } from "./posthog";
 import { quotesRouter } from "./quotes";
@@ -714,11 +715,12 @@ app.post('/api/twilio/voice', async (req, res) => {
             });
             console.log(`[Twilio] Initial call logged for ${req.body.CallSid}`);
 
-            // Fire phone push alert (Pushover) — fire-and-forget, never blocks call handling
-            notifyIncomingCall({
-                callerName: req.body.CallerName,
-                phoneNumber: req.body.From,
-            }).catch((e) => console.warn('[Twilio] notifyIncomingCall failed:', e));
+            // Fire phone push alert (Pushover) — fire-and-forget, never blocks call handling.
+            // Resolve the caller against our saved records when Twilio has no CallerName.
+            (async () => {
+                const callerName = req.body.CallerName?.trim() || await resolveCallerName(req.body.From);
+                await notifyIncomingCall({ callerName, phoneNumber: req.body.From });
+            })().catch((e) => console.warn('[Twilio] notifyIncomingCall failed:', e));
 
             // Robustness: Start Twilio Recording
             try {
@@ -1176,11 +1178,14 @@ app.post('/api/twilio/status-callback', async (req, res) => {
 
             // Phone push alert (Pushover) — the call wasn't answered
             if (CallStatus === 'busy' || CallStatus === 'no-answer') {
-                notifyVoicemail({
-                    callerName: req.body.CallerName,
-                    phoneNumber: req.body.From,
-                    reason: CallStatus === 'busy' ? 'Line was busy' : 'No answer',
-                }).catch((e) => console.warn('[Twilio] notifyVoicemail failed:', e));
+                (async () => {
+                    const callerName = req.body.CallerName?.trim() || await resolveCallerName(req.body.From);
+                    await notifyVoicemail({
+                        callerName,
+                        phoneNumber: req.body.From,
+                        reason: CallStatus === 'busy' ? 'Line was busy' : 'No answer',
+                    });
+                })().catch((e) => console.warn('[Twilio] notifyVoicemail failed:', e));
             }
         } else {
             console.log(`[Twilio] No call record found for ${CallSid} in status callback`);
