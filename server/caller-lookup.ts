@@ -1,8 +1,7 @@
 import { db } from './db';
 import { eq, inArray } from 'drizzle-orm';
-import { serviceClients, leads, personalizedQuotes, conversations } from '../shared/schema';
+import { leads, personalizedQuotes, conversations } from '../shared/schema';
 import { normalizePhoneNumber } from './phone-utils';
-import { canonicalUkPhone } from './clients';
 
 // Placeholder names that carry no real identity — treat as "unknown".
 const BAD_NAMES = new Set([
@@ -16,31 +15,35 @@ function clean(name?: string | null): string | null {
     return n;
 }
 
+/** Convert a phone to UK national form (0…). Self-contained (no WIP deps). */
+function toNationalUk(phone?: string | null): string | null {
+    if (!phone) return null;
+    let d = phone.replace(/\D/g, '');
+    if (!d) return null;
+    if (d.startsWith('44')) d = d.slice(2);
+    else if (d.startsWith('0')) d = d.slice(1);
+    // d is now the national significant number (e.g. 7700900123)
+    return d.length >= 9 ? `0${d}` : null;
+}
+
 /**
- * Look up a caller's saved name by inbound phone number, across the client
- * spine (serviceClients), leads, conversations, and quotes — in priority order.
+ * Look up a caller's saved name by inbound phone number, across leads,
+ * conversations, and quotes — in priority order. Phones are stored in different
+ * formats per table, so we normalise the inbound number several ways and match
+ * against each. Returns null if the number isn't tied to a known record.
+ * Never throws — a lookup failure just yields null.
  *
- * Phones are stored in different formats per table (leads = E.164,
- * serviceClients = national), so we normalise the inbound number both ways and
- * match against each table's stored form. Returns null if the number isn't tied
- * to a known record. Never throws — a lookup failure just yields null.
+ * Note: the serviceClients spine is intentionally not queried here because it's
+ * not yet in the deployed schema; add it once the client-spine work ships.
  */
 export async function resolveCallerName(inboundPhone?: string | null): Promise<string | null> {
     if (!inboundPhone) return null;
     try {
         const e164 = normalizePhoneNumber(inboundPhone);   // +44…
-        const national = canonicalUkPhone(inboundPhone);   // 0…
+        const national = toNationalUk(inboundPhone);        // 0…
         if (!e164 && !national) return null;
 
-        // 1) serviceClients — canonical identity spine (national form)
-        if (national) {
-            const [c] = await db.select({ n: serviceClients.displayName })
-                .from(serviceClients).where(eq(serviceClients.primaryPhone, national)).limit(1);
-            const name = clean(c?.n);
-            if (name) return name;
-        }
-
-        // 2) leads — indexed, most recent inbound contact (E.164)
+        // 1) leads — indexed, most recent inbound contact (E.164)
         if (e164) {
             const [l] = await db.select({ n: leads.customerName })
                 .from(leads).where(eq(leads.phone, e164)).limit(1);
@@ -48,7 +51,7 @@ export async function resolveCallerName(inboundPhone?: string | null): Promise<s
             if (name) return name;
         }
 
-        // 3) conversations — WhatsApp/SMS threads (format varies; try known forms)
+        // 2) conversations — WhatsApp/SMS threads (format varies; try known forms)
         const forms = Array.from(new Set([e164, national, inboundPhone].filter(Boolean))) as string[];
         if (forms.length) {
             const [cv] = await db.select({ n: conversations.contactName })
@@ -57,7 +60,7 @@ export async function resolveCallerName(inboundPhone?: string | null): Promise<s
             if (name) return name;
         }
 
-        // 4) personalizedQuotes — historical quote activity (E.164)
+        // 3) personalizedQuotes — historical quote activity (E.164)
         if (e164) {
             const [q] = await db.select({ n: personalizedQuotes.customerName })
                 .from(personalizedQuotes).where(eq(personalizedQuotes.phone, e164)).limit(1);
