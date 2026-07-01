@@ -40,6 +40,38 @@ pushRouter.post('/api/push/subscribe', async (req, res) => {
     }
 });
 
+// Status: how many browsers are subscribed + whether VAPID is configured
+pushRouter.get('/api/push/status', async (_req, res) => {
+    try {
+        const subs = await db.select().from(pushSubscriptions);
+        res.json({
+            configured: Boolean(process.env.VAPID_PUBLIC_KEY),
+            subscriptionCount: subs.length,
+        });
+    } catch (err) {
+        console.error('[Web Push] Status error:', err);
+        res.status(500).json({ error: 'Failed to read status' });
+    }
+});
+
+// Send a test browser push to all subscribed devices
+pushRouter.post('/api/push/test', async (_req, res) => {
+    if (!process.env.VAPID_PUBLIC_KEY) {
+        return res.status(400).json({ error: 'No VAPID keys set in the server environment.' });
+    }
+    try {
+        await sendPushNotifications({
+            title: '🔔 Test browser notification',
+            body: 'If you can see this, browser push works.',
+            url: '/admin/notifications',
+        });
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('[Web Push] Test error:', err);
+        res.status(500).json({ error: 'Failed to send test' });
+    }
+});
+
 // Send push to all subscriptions
 export async function sendPushNotifications(payload: { title: string; body: string; url?: string }) {
     if (!process.env.VAPID_PUBLIC_KEY) return;

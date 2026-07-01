@@ -1,116 +1,150 @@
 /**
  * Pushover push notifications — alerts phones for operational events.
  *
- * Currently pushes:
- *   • Incoming calls    (notifyIncomingCall)  — emergency priority, repeats until acked
- *   • Webform leads     (notifyWebformLead)   — high priority, one loud alert
+ * Config (recipients, per-event priority/sound, link type, quiet hours) lives in
+ * the DB and is edited via the admin Notifications tab — see pushover-config.ts.
+ * Only the APP TOKEN is read from env (PUSHOVER_APP_TOKEN); it's a secret.
  *
- * Setup:
- *   1. Create an app at https://pushover.net/apps/build to get an API token.
- *   2. Set env vars:
- *        PUSHOVER_APP_TOKEN   – the app's API token
- *        PUSHOVER_USER_KEYS   – comma-separated recipient user keys (e.g. Ben's key)
- *   3. Optional overrides:
- *        PUSHOVER_PRIORITY          – incoming-call priority (default 2 = emergency)
- *        PUSHOVER_SOUND             – incoming-call sound (default "persistent")
- *        PUSHOVER_RETRY / _EXPIRE   – emergency repeat interval / give-up window
- *        PUSHOVER_WEBFORM_PRIORITY  – webform-lead priority (default 1 = high)
- *        PUSHOVER_WEBFORM_SOUND     – webform-lead sound (default "cashregister")
- *
- * When PUSHOVER_APP_TOKEN or PUSHOVER_USER_KEYS is unset every function here is a
- * no-op, so the call sites are safe to leave in place before credentials exist.
+ * Every function here is a no-op when there's no app token or no enabled
+ * recipient, so call sites are safe to leave in place at all times.
  */
+
+import {
+    getPushoverConfig,
+    isPushoverReady,
+    isWithinQuietHours,
+} from './pushover-config';
+import {
+    PushoverConfig,
+    PushoverEventKey,
+    PushoverPriority,
+} from '../shared/pushover-settings';
 
 const PUSHOVER_URL = 'https://api.pushover.net/1/messages.json';
 
-function getRecipients(): string[] {
-    return (process.env.PUSHOVER_USER_KEYS || '')
-        .split(',')
-        .map((k) => k.trim())
-        .filter(Boolean);
-}
-
-export function isPushoverConfigured(): boolean {
-    return Boolean(process.env.PUSHOVER_APP_TOKEN) && getRecipients().length > 0;
-}
-
-interface PushoverMessage {
-    title: string;
-    message: string;
-    priority: number;
-    sound: string;
-    /** retry/expire only used when priority === 2 (emergency) */
-    retry?: number;
-    expire?: number;
-    /** Optional tappable supplementary link (e.g. a wa.me WhatsApp deep-link). */
-    url?: string;
-    url_title?: string;
-}
-
 /**
- * Normalise a phone number to full international digits for a wa.me link.
- * Defaults local UK numbers (0…) to +44. Returns null if unusable.
- * Override the default country code with PUSHOVER_DEFAULT_CC (e.g. "1", "353").
+ * Normalise a phone number to full international digits for a wa.me / tel link.
+ * Local numbers starting 0 get the given country code (default UK 44).
+ * Returns null if unusable.
  */
-export function toWhatsAppNumber(phone?: string | null): string | null {
+export function toWhatsAppNumber(phone?: string | null, countryCode = '44'): string | null {
     if (!phone) return null;
-    const cc = (process.env.PUSHOVER_DEFAULT_CC || '44').replace(/\D/g, '');
+    const cc = (countryCode || '44').replace(/\D/g, '');
     let digits = phone.replace(/[^\d+]/g, '');
     if (digits.startsWith('+')) digits = digits.slice(1);
     else if (digits.startsWith('00')) digits = digits.slice(2);
-    else if (digits.startsWith('0')) digits = cc + digits.slice(1); // UK local -> international
+    else if (digits.startsWith('0')) digits = cc + digits.slice(1);
     digits = digits.replace(/\D/g, '');
-    // Sanity: a real international number is ~8–15 digits.
     return digits.length >= 8 && digits.length <= 15 ? digits : null;
 }
 
+interface DispatchOptions {
+    event: PushoverEventKey;
+    title: string;
+    message: string;
+    /** Raw phone number to build the tappable WhatsApp/tel link from. */
+    linkPhone?: string | null;
+    linkName?: string;
+    /** Override recipient targeting (used by the "send test" button). */
+    onlyUserKey?: string;
+    /** Force delivery even if the event is toggled off (used by test sends). */
+    force?: boolean;
+}
+
 /**
- * Send one Pushover message to every configured recipient.
- * Never throws — logs and returns on any failure so it can't break request handling.
+ * Core dispatcher: resolves config, applies quiet hours + per-recipient
+ * targeting, builds the link, and POSTs to Pushover for each recipient.
+ * Never throws.
  */
-async function send(msg: PushoverMessage): Promise<void> {
-    if (!isPushoverConfigured()) return;
+async function dispatch(opts: DispatchOptions): Promise<{ sent: number; skipped: string | null }> {
+    let config: PushoverConfig;
+    try {
+        config = await getPushoverConfig();
+    } catch (e) {
+        console.warn('[Pushover] config load failed:', e);
+        return { sent: 0, skipped: 'config-error' };
+    }
 
-    const token = process.env.PUSHOVER_APP_TOKEN as string;
+    if (!process.env.PUSHOVER_APP_TOKEN) return { sent: 0, skipped: 'no-token' };
+    if (!opts.force && !config.enabled) return { sent: 0, skipped: 'disabled' };
+
+    const eventCfg = config.events[opts.event];
+    if (!opts.force && !eventCfg.enabled) return { sent: 0, skipped: 'event-disabled' };
+
+    // Quiet hours: mute (skip) or downgrade to normal priority.
+    let priority: PushoverPriority = eventCfg.priority;
+    if (!opts.force && isWithinQuietHours(config)) {
+        if (config.quietHours.mode === 'mute') return { sent: 0, skipped: 'quiet-hours-mute' };
+        priority = 0;
+    }
+
+    // Resolve recipients: enabled, subscribed to this event (or explicit test target).
+    let recipients = config.recipients.filter((r) => r.enabled && r.events[opts.event]);
+    if (opts.onlyUserKey) recipients = config.recipients.filter((r) => r.userKey === opts.onlyUserKey);
+    if (!recipients.length) return { sent: 0, skipped: 'no-recipients' };
+
+    // Build the tappable link.
+    const wa = toWhatsAppNumber(opts.linkPhone, config.defaultCountryCode);
+    let url: string | undefined;
+    let urlTitle: string | undefined;
+    if (wa) {
+        const who = opts.linkName || 'contact';
+        if (config.linkType === 'tel') {
+            url = `tel:+${wa}`;
+            urlTitle = `📞 Call ${who}`;
+        } else {
+            url = `https://wa.me/${wa}`;
+            urlTitle = `💬 WhatsApp / call ${who}`;
+        }
+    }
+
     const baseBody: Record<string, string | number> = {
-        token,
-        title: msg.title,
-        message: msg.message,
-        priority: msg.priority,
-        sound: msg.sound,
+        token: process.env.PUSHOVER_APP_TOKEN,
+        title: opts.title,
+        message: opts.message,
+        priority,
+        sound: eventCfg.sound,
     };
-
-    // Emergency priority (2) requires retry + expire so it repeats until acked.
-    if (msg.priority === 2) {
-        baseBody.retry = msg.retry ?? 30;
-        baseBody.expire = msg.expire ?? 300;
+    if (priority === 2) {
+        baseBody.retry = 30;
+        baseBody.expire = 300;
+    }
+    if (url) {
+        baseBody.url = url;
+        if (urlTitle) baseBody.url_title = urlTitle;
     }
 
-    // Optional tappable link (e.g. WhatsApp deep-link on the caller's number).
-    if (msg.url) {
-        baseBody.url = msg.url;
-        if (msg.url_title) baseBody.url_title = msg.url_title;
-    }
-
+    let sent = 0;
     await Promise.all(
-        getRecipients().map(async (userKey) => {
+        recipients.map(async (r) => {
             try {
                 const res = await fetch(PUSHOVER_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ...baseBody, user: userKey }),
+                    body: JSON.stringify({ ...baseBody, user: r.userKey }),
                 });
-                if (!res.ok) {
-                    const text = await res.text().catch(() => '');
-                    console.warn(`[Pushover] Send failed (${res.status}) for ${userKey.slice(0, 6)}…: ${text}`);
+                if (res.ok) {
+                    sent++;
+                    console.log(`[Pushover] "${opts.title}" → ${r.name}`);
                 } else {
-                    console.log(`[Pushover] "${msg.title}" sent to ${userKey.slice(0, 6)}…`);
+                    const text = await res.text().catch(() => '');
+                    console.warn(`[Pushover] send failed (${res.status}) → ${r.name}: ${text}`);
                 }
             } catch (e) {
-                console.warn(`[Pushover] Send error for ${userKey.slice(0, 6)}…:`, e);
+                console.warn(`[Pushover] send error → ${r.name}:`, e);
             }
         }),
     );
+    return { sent, skipped: null };
+}
+
+/** True if the service can currently deliver (token + ≥1 enabled recipient). */
+export async function isPushoverConfigured(): Promise<boolean> {
+    try {
+        return isPushoverReady(await getPushoverConfig());
+    } catch {
+        return false;
+    }
 }
 
 interface IncomingCallAlert {
@@ -118,19 +152,16 @@ interface IncomingCallAlert {
     phoneNumber?: string | null;
 }
 
-/** Fire an "incoming call" push alert (emergency priority — repeats until acked). */
+/** Fire an "incoming call" push alert. */
 export async function notifyIncomingCall(alert: IncomingCallAlert): Promise<void> {
     const name = alert.callerName?.trim() || 'Unknown caller';
     const number = alert.phoneNumber?.trim() || 'no number';
-    const wa = toWhatsAppNumber(alert.phoneNumber);
-    await send({
+    await dispatch({
+        event: 'call',
         title: '📞 Incoming call',
         message: `${name} — ${number}`,
-        priority: Number(process.env.PUSHOVER_PRIORITY ?? '2'),
-        sound: process.env.PUSHOVER_SOUND || 'persistent',
-        retry: Number(process.env.PUSHOVER_RETRY ?? '30'),
-        expire: Number(process.env.PUSHOVER_EXPIRE ?? '300'),
-        ...(wa ? { url: `https://wa.me/${wa}`, url_title: `💬 WhatsApp / call ${name}` } : {}),
+        linkPhone: alert.phoneNumber,
+        linkName: name,
     });
 }
 
@@ -142,7 +173,7 @@ interface WebformLeadAlert {
     source?: string;
 }
 
-/** Fire a "new webform lead" push alert (high priority — one loud alert, no repeat). */
+/** Fire a "new lead" push alert. */
 export async function notifyWebformLead(alert: WebformLeadAlert): Promise<void> {
     const name = alert.name?.trim() || 'New lead';
     const number = alert.phoneNumber?.trim() || 'no number';
@@ -152,12 +183,29 @@ export async function notifyWebformLead(alert: WebformLeadAlert): Promise<void> 
     const lines = [`${name} — ${number}`];
     if (details) lines.push(details.length > 200 ? `${details.slice(0, 197)}…` : details);
 
-    const wa = toWhatsAppNumber(alert.phoneNumber);
-    await send({
+    await dispatch({
+        event: 'lead',
         title: `📝 New lead · ${source}`,
         message: lines.join('\n'),
-        priority: Number(process.env.PUSHOVER_WEBFORM_PRIORITY ?? '1'),
-        sound: process.env.PUSHOVER_WEBFORM_SOUND || 'cashregister',
-        ...(wa ? { url: `https://wa.me/${wa}`, url_title: `💬 WhatsApp / call ${name}` } : {}),
+        linkPhone: alert.phoneNumber,
+        linkName: name,
     });
+}
+
+/**
+ * Send a test alert — to one recipient (by user key) or the whole event audience.
+ * Bypasses enabled/quiet-hours gating so the tester always gets it.
+ * Returns how many were delivered.
+ */
+export async function sendTestAlert(event: PushoverEventKey, onlyUserKey?: string): Promise<number> {
+    const res = await dispatch({
+        event,
+        title: event === 'call' ? '📞 Test — incoming call' : '📝 Test — new lead',
+        message: 'Test alert from the Notifications settings. If you can see this, delivery works. ✅',
+        linkPhone: '+447700900123',
+        linkName: 'Test contact',
+        onlyUserKey,
+        force: true,
+    });
+    return res.sent;
 }

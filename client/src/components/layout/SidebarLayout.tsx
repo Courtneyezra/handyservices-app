@@ -191,6 +191,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Calendar, label: "Availability", href: "/admin/availability" },
                                 { icon: LayoutTemplate, label: "Marketing", href: "/admin/marketing" },
                                 { icon: Settings, label: "Settings", href: "/admin/settings" },
+                                { icon: Bell, label: "Notifications", href: "/admin/notifications" },
                                 { icon: SlidersHorizontal, label: "Pricing Settings", href: "/admin/pricing-settings" },
                                 { icon: Megaphone, label: "Quote Offers", href: "/admin/quote-offers" },
                                 { icon: GraduationCap, label: "Onboarding", href: "/admin/onboarding" },

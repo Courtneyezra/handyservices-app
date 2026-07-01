@@ -885,7 +885,7 @@ app.post('/api/twilio/voice', async (req, res) => {
 //   curl -X POST https://<host>/api/twilio/test-push -d 'type=lead'  -> webform-lead alert
 app.post('/api/twilio/test-push', async (req, res) => {
     const { isPushoverConfigured, notifyWebformLead } = await import('./pushover');
-    if (!isPushoverConfigured()) {
+    if (!(await isPushoverConfigured())) {
         return res.status(400).json({
             ok: false,
             error: 'Pushover not configured — set PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEYS.',

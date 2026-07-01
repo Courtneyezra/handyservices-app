@@ -10,6 +10,9 @@ import fs from 'fs';
 import { requireAdmin } from './auth';
 import { getPricingSettings, invalidatePricingSettingsCache } from './pricing-settings';
 import { DEFAULT_PRICING_SETTINGS, PricingSettings } from '../shared/pricing-settings';
+import { getPushoverConfig, savePushoverConfig } from './pushover-config';
+import { PushoverConfig, PushoverEventKey } from '../shared/pushover-settings';
+import { sendTestAlert } from './pushover';
 
 console.log('[Settings] Module loading...');
 const router = Router();
@@ -601,6 +604,80 @@ router.put('/pricing', requireAdmin, async (req, res) => {
     } catch (error) {
         console.error('[Settings] Failed to update pricing settings:', error);
         res.status(500).json({ error: 'Failed to update pricing settings' });
+    }
+});
+
+// ============================================
+// PUSHOVER NOTIFICATIONS SETTINGS
+// ============================================
+
+// Whether an app token is present in env (secret; not editable via UI).
+router.get('/pushover', requireAdmin, async (_req, res) => {
+    try {
+        const config = await getPushoverConfig();
+        res.json({ config, tokenConfigured: Boolean(process.env.PUSHOVER_APP_TOKEN) });
+    } catch (error) {
+        console.error('[Settings] Failed to fetch pushover config:', error);
+        res.status(500).json({ error: 'Failed to fetch pushover config' });
+    }
+});
+
+router.put('/pushover', requireAdmin, async (req, res) => {
+    try {
+        const incoming = req.body as Partial<PushoverConfig>;
+        if (!incoming || typeof incoming !== 'object') {
+            return res.status(400).json({ error: 'Request body must be a pushover config object' });
+        }
+
+        // Merge over current so partial saves are safe.
+        const current = await getPushoverConfig();
+        const merged: PushoverConfig = {
+            ...current,
+            ...incoming,
+            events: { ...current.events, ...(incoming.events || {}) },
+            quietHours: { ...current.quietHours, ...(incoming.quietHours || {}) },
+            recipients: Array.isArray(incoming.recipients) ? incoming.recipients : current.recipients,
+        };
+
+        // Light validation
+        const errors: string[] = [];
+        if (!['whatsapp', 'tel'].includes(merged.linkType)) errors.push('linkType must be whatsapp or tel');
+        if (!/^\d{1,4}$/.test(String(merged.defaultCountryCode))) errors.push('defaultCountryCode must be 1–4 digits');
+        for (const r of merged.recipients) {
+            if (!r.userKey || typeof r.userKey !== 'string') errors.push(`recipient "${r.name || r.id}" is missing a user key`);
+        }
+        for (const key of ['call', 'lead'] as PushoverEventKey[]) {
+            const p = merged.events[key]?.priority;
+            if (![-1, 0, 1, 2].includes(p)) errors.push(`${key} priority must be -1, 0, 1 or 2`);
+        }
+        if (merged.quietHours.enabled) {
+            for (const t of [merged.quietHours.start, merged.quietHours.end]) {
+                if (!/^\d{2}:\d{2}$/.test(t)) errors.push(`quiet-hours time "${t}" must be HH:MM`);
+            }
+        }
+        if (errors.length) return res.status(400).json({ error: 'Validation failed', details: errors });
+
+        const saved = await savePushoverConfig(merged);
+        res.json({ success: true, config: saved });
+    } catch (error) {
+        console.error('[Settings] Failed to update pushover config:', error);
+        res.status(500).json({ error: 'Failed to update pushover config' });
+    }
+});
+
+// Send a test alert — optionally to a single recipient (userKey) for a given event.
+router.post('/pushover/test', requireAdmin, async (req, res) => {
+    try {
+        const event = (req.body?.event === 'lead' ? 'lead' : 'call') as PushoverEventKey;
+        const userKey = typeof req.body?.userKey === 'string' ? req.body.userKey : undefined;
+        if (!process.env.PUSHOVER_APP_TOKEN) {
+            return res.status(400).json({ error: 'No PUSHOVER_APP_TOKEN set in the server environment.' });
+        }
+        const sent = await sendTestAlert(event, userKey);
+        res.json({ success: sent > 0, sent });
+    } catch (error) {
+        console.error('[Settings] Pushover test send failed:', error);
+        res.status(500).json({ error: 'Failed to send test alert' });
     }
 });
 
