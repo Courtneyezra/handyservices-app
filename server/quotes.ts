@@ -780,6 +780,7 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
             notifyQuoteViewed({
                 customerName: quote.customerName,
                 phoneNumber: quote.phone,
+                jobSummary: quote.jobDescription,
                 valuePence: (quote as any).basePrice || null,
             }).catch((e) => console.warn('[Quotes] notifyQuoteViewed failed:', e));
         }

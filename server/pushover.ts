@@ -282,7 +282,7 @@ export async function notifyVoicemail(alert: VoicemailAlert): Promise<void> {
 interface QuoteViewedAlert {
     customerName?: string | null;
     phoneNumber?: string | null;
-    quoteRef?: string | null;
+    jobSummary?: string | null;
     valuePence?: number | null;
 }
 
@@ -291,10 +291,13 @@ export async function notifyQuoteViewed(alert: QuoteViewedAlert): Promise<void> 
     const name = alert.customerName?.trim() || 'A customer';
     const number = alert.phoneNumber?.trim() || 'no number';
     const value = gbp(alert.valuePence);
+    const lines = [`${name} — ${number}`];
+    if (alert.jobSummary?.trim()) lines.push(truncate(alert.jobSummary.trim(), 140));
+    lines.push(`👀 Opened their quote${value ? ` · ${value}` : ''}`);
     await dispatch({
         event: 'quote_viewed',
         title: '👀 Quote viewed',
-        message: `${name} just opened their quote${value ? ` (${value})` : ''} — ${number}`,
+        message: lines.join('\n'),
         linkPhone: alert.phoneNumber,
         linkName: name,
     });
