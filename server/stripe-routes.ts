@@ -3,7 +3,7 @@ import Stripe from 'stripe';
 import crypto from 'crypto';
 import { db } from './db';
 import { personalizedQuotes, invoices, leads } from '../shared/schema';
-import { notifyQuoteAccepted, notifyInvoicePaid } from './pushover';
+import { notifyQuoteAccepted, notifyInvoicePaid, describeSchedule, summarizeLineItems } from './pushover';
 import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { updateLeadStage } from './lead-stage-engine';
@@ -457,7 +457,15 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         notifyQuoteAccepted({
                             customerName: quote.customerName,
                             phoneNumber: quote.phone,
-                            depositPence: depositAmount,
+                            jobSummary: quote.jobDescription,
+                            schedule: describeSchedule({
+                                selectedDate: quote.selectedDate,
+                                timeSlotType: quote.timeSlotType,
+                                flexBookingWithinDays: quote.flexBookingWithinDays ?? (isNaN(metadataFlexDays) ? null : metadataFlexDays),
+                                schedulingTier: quote.schedulingTier,
+                            }),
+                            amountPaidPence: paymentIntent.amount,
+                            paymentType: metadataPaymentType === 'full' ? 'full' : 'deposit',
                         }).catch((e) => console.warn('[Stripe Webhook] notifyQuoteAccepted failed:', e));
 
                         // 2. Calculate total job price (single price model)
@@ -713,13 +721,24 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
 
                         console.log(`[Stripe Webhook] Invoice ${paidInvoice.invoiceNumber} balance paid via Stripe`);
 
-                        // Phone push alert (Pushover) — final payment received
-                        notifyInvoicePaid({
-                            customerName: paidInvoice.customerName,
-                            phoneNumber: paidInvoice.customerPhone,
-                            amountPence: paidInvoice.totalAmount,
-                            invoiceNumber: paidInvoice.invoiceNumber,
-                        }).catch((e) => console.warn('[Stripe Webhook] notifyInvoicePaid failed:', e));
+                        // Phone push alert (Pushover) — final payment received.
+                        // Best-effort: pull the schedule from the linked quote (not on the invoice).
+                        (async () => {
+                            let schedule: string | null = null;
+                            if (paidInvoice.quoteId) {
+                                const [q] = await db.select().from(personalizedQuotes)
+                                    .where(eq(personalizedQuotes.id, paidInvoice.quoteId)).limit(1);
+                                if (q) schedule = describeSchedule(q);
+                            }
+                            await notifyInvoicePaid({
+                                customerName: paidInvoice.customerName,
+                                phoneNumber: paidInvoice.customerPhone,
+                                jobSummary: summarizeLineItems(paidInvoice.lineItems),
+                                schedule,
+                                amountPence: paidInvoice.totalAmount,
+                                invoiceNumber: paidInvoice.invoiceNumber,
+                            });
+                        })().catch((e) => console.warn('[Stripe Webhook] notifyInvoicePaid failed:', e));
 
                         // If this is a consolidated invoice, mark all child invoices as paid too
                         try {

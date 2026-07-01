@@ -27,6 +27,43 @@ function gbp(pence?: number | null): string {
     return `£${(pence / 100).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
+function truncate(s: string, max: number): string {
+    return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+/**
+ * Describe a booking's timing for an alert line: a chosen date, a flexible
+ * window, or a scheduling tier. Returns null if nothing is known.
+ */
+export function describeSchedule(q: {
+    selectedDate?: Date | string | null;
+    timeSlotType?: string | null;
+    flexBookingWithinDays?: number | null;
+    schedulingTier?: string | null;
+}): string | null {
+    if (q.selectedDate) {
+        try {
+            const d = new Date(q.selectedDate);
+            if (!isNaN(d.getTime())) {
+                const day = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Europe/London' });
+                const slot = q.timeSlotType === 'am' ? ' AM' : q.timeSlotType === 'pm' ? ' PM'
+                    : q.timeSlotType === 'out_of_hours' ? ' (out of hours)' : '';
+                return `📅 ${day}${slot}`;
+            }
+        } catch { /* fall through to flex/tier */ }
+    }
+    if (q.flexBookingWithinDays && q.flexBookingWithinDays > 0) return `🗓 Flexible — within ${q.flexBookingWithinDays} days`;
+    if (q.schedulingTier) return `🗓 ${q.schedulingTier}`;
+    return null;
+}
+
+/** Join invoice/quote line-item descriptions into a short job summary. */
+export function summarizeLineItems(lineItems: unknown): string | null {
+    if (!Array.isArray(lineItems)) return null;
+    const descs = lineItems.map((li: any) => (li && typeof li.description === 'string' ? li.description.trim() : '')).filter(Boolean);
+    return descs.length ? truncate(descs.join(', '), 140) : null;
+}
+
 const PUSHOVER_URL = 'https://api.pushover.net/1/messages.json';
 
 /**
@@ -211,7 +248,7 @@ export async function notifyIncomingSms(alert: InboundMessageAlert): Promise<voi
     const number = alert.phoneNumber?.trim() || 'no number';
     const body = alert.body?.trim();
     const lines = [`${name} — ${number}`];
-    if (body) lines.push(body.length > 200 ? `${body.slice(0, 197)}…` : body);
+    if (body) lines.push(`“${truncate(body, 450)}”`);
     await dispatch({
         event: 'sms',
         title: '💬 New SMS',
@@ -266,18 +303,26 @@ export async function notifyQuoteViewed(alert: QuoteViewedAlert): Promise<void> 
 interface QuoteAcceptedAlert {
     customerName?: string | null;
     phoneNumber?: string | null;
-    depositPence?: number | null;
+    jobSummary?: string | null;
+    /** Pre-formatted schedule line (see describeSchedule). */
+    schedule?: string | null;
+    amountPaidPence?: number | null;
+    paymentType?: 'full' | 'deposit' | null;
 }
 
 /** Fire a "quote accepted / deposit paid" push alert. */
 export async function notifyQuoteAccepted(alert: QuoteAcceptedAlert): Promise<void> {
     const name = alert.customerName?.trim() || 'A customer';
     const number = alert.phoneNumber?.trim() || 'no number';
-    const dep = gbp(alert.depositPence);
+    const lines = [`${name} — ${number}`];
+    if (alert.jobSummary?.trim()) lines.push(truncate(alert.jobSummary.trim(), 140));
+    if (alert.schedule?.trim()) lines.push(alert.schedule.trim());
+    const amt = gbp(alert.amountPaidPence);
+    if (amt) lines.push(`💷 ${amt} paid${alert.paymentType === 'full' ? ' in full' : alert.paymentType === 'deposit' ? ' (deposit)' : ''}`);
     await dispatch({
         event: 'quote_accepted',
         title: '🎉 Quote accepted',
-        message: `${name} accepted & paid${dep ? ` ${dep} deposit` : ''} — ${number}`,
+        message: lines.join('\n'),
         linkPhone: alert.phoneNumber,
         linkName: name,
     });
@@ -286,6 +331,9 @@ export async function notifyQuoteAccepted(alert: QuoteAcceptedAlert): Promise<vo
 interface InvoicePaidAlert {
     customerName?: string | null;
     phoneNumber?: string | null;
+    jobSummary?: string | null;
+    /** Pre-formatted schedule line (see describeSchedule). */
+    schedule?: string | null;
     amountPence?: number | null;
     invoiceNumber?: string | null;
 }
@@ -293,12 +341,17 @@ interface InvoicePaidAlert {
 /** Fire a "final payment / invoice paid" push alert. */
 export async function notifyInvoicePaid(alert: InvoicePaidAlert): Promise<void> {
     const name = alert.customerName?.trim() || 'A customer';
+    const number = alert.phoneNumber?.trim() || 'no number';
     const amount = gbp(alert.amountPence);
     const inv = alert.invoiceNumber?.trim();
+    const lines = [`${name}${inv ? ` · ${inv}` : ''} — ${number}`];
+    if (alert.jobSummary?.trim()) lines.push(truncate(alert.jobSummary.trim(), 140));
+    if (alert.schedule?.trim()) lines.push(alert.schedule.trim());
+    if (amount) lines.push(`💷 ${amount} paid`);
     await dispatch({
         event: 'payment',
         title: '💷 Invoice paid',
-        message: `${name} paid${amount ? ` ${amount}` : ''}${inv ? ` · ${inv}` : ''}`,
+        message: lines.join('\n'),
         linkPhone: alert.phoneNumber,
         linkName: name,
     });
