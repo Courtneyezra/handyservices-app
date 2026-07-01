@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db } from "./db";
+import { notifyQuoteViewed } from "./pushover";
 import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, serviceCatalog, segmentEnum, invoices, invoiceTokens, contractorJobs, contentClaims, contentGuarantees, contentTestimonials, contentHassleItems, contentImages, jobDispatches, dispatchBonds, users } from "@shared/schema";
 import { eq, desc, inArray, or } from "drizzle-orm";
 import crypto from 'crypto';
@@ -773,6 +774,15 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
 
         // Return updated stats
         quote.viewCount = (quote.viewCount || 0) + 1;
+
+        // Phone push alert (Pushover) — customer opened their quote (first view only)
+        if (isFirstView) {
+            notifyQuoteViewed({
+                customerName: quote.customerName,
+                phoneNumber: quote.phone,
+                valuePence: (quote as any).basePrice || null,
+            }).catch((e) => console.warn('[Quotes] notifyQuoteViewed failed:', e));
+        }
 
         // PostHog: Server-side quote view (reliable — immune to ad-blockers)
         const viewDistinctId = quote.phone || quote.id;

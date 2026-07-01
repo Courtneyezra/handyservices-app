@@ -5,8 +5,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { toZonedTime } from 'date-fns-tz';
 import {
     DEFAULT_PUSHOVER_CONFIG,
+    DEFAULT_PUSHOVER_EVENTS,
+    PUSHOVER_EVENT_DEFS,
+    defaultRecipientEvents,
     PushoverConfig,
     PushoverEventConfig,
+    PushoverEventKey,
 } from '../shared/pushover-settings';
 
 const SETTINGS_KEY = 'pushover_config';
@@ -31,38 +35,37 @@ function seedFromEnv(): PushoverConfig {
         name: i === 0 ? 'Ben' : `Recipient ${i + 1}`,
         userKey,
         enabled: true,
-        events: { call: true, lead: true },
+        events: defaultRecipientEvents(),
     }));
+
+    // Start from defaults, then apply the legacy call/lead env overrides.
+    const events = { ...DEFAULT_PUSHOVER_EVENTS };
+    events.call = { ...events.call, priority: Number(process.env.PUSHOVER_PRIORITY ?? '2') as PushoverEventConfig['priority'], sound: process.env.PUSHOVER_SOUND || events.call.sound };
+    events.lead = { ...events.lead, priority: Number(process.env.PUSHOVER_WEBFORM_PRIORITY ?? '1') as PushoverEventConfig['priority'], sound: process.env.PUSHOVER_WEBFORM_SOUND || events.lead.sound };
 
     return {
         ...DEFAULT_PUSHOVER_CONFIG,
         defaultCountryCode: process.env.PUSHOVER_DEFAULT_CC || DEFAULT_PUSHOVER_CONFIG.defaultCountryCode,
         recipients,
-        events: {
-            call: {
-                enabled: true,
-                priority: Number(process.env.PUSHOVER_PRIORITY ?? '2') as PushoverEventConfig['priority'],
-                sound: process.env.PUSHOVER_SOUND || 'persistent',
-            },
-            lead: {
-                enabled: true,
-                priority: Number(process.env.PUSHOVER_WEBFORM_PRIORITY ?? '1') as PushoverEventConfig['priority'],
-                sound: process.env.PUSHOVER_WEBFORM_SOUND || 'cashregister',
-            },
-        },
+        events,
     };
 }
 
-/** Deep-merge stored config over defaults so new fields always have a value. */
+/** Deep-merge stored config over defaults so new fields (and new event types) always have a value. */
 function normalize(stored: Partial<PushoverConfig> | null | undefined): PushoverConfig {
     const base = stored && Object.keys(stored).length ? stored : seedFromEnv();
+
+    // Backfill every known event key so configs saved before a new event was
+    // added still get sensible defaults (enabled, default priority/sound).
+    const events = {} as Record<PushoverEventKey, PushoverEventConfig>;
+    for (const def of PUSHOVER_EVENT_DEFS) {
+        events[def.key] = { ...DEFAULT_PUSHOVER_EVENTS[def.key], ...(base.events?.[def.key] || {}) };
+    }
+
     return {
         ...DEFAULT_PUSHOVER_CONFIG,
         ...base,
-        events: {
-            call: { ...DEFAULT_PUSHOVER_CONFIG.events.call, ...(base.events?.call || {}) },
-            lead: { ...DEFAULT_PUSHOVER_CONFIG.events.lead, ...(base.events?.lead || {}) },
-        },
+        events,
         quietHours: { ...DEFAULT_PUSHOVER_CONFIG.quietHours, ...(base.quietHours || {}) },
         recipients: Array.isArray(base.recipients) ? base.recipients : [],
     };

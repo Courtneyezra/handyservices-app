@@ -25,7 +25,7 @@ import { detectSku, detectMultipleTasks, loadAndCacheSkus } from "./skuDetector"
 import { setupTwilioSocket } from "./twilio-realtime";
 import { twilioClient } from "./twilio-client";
 import { createCall, findCallByTwilioSid, updateCall, finalizeCall } from './call-logger';
-import { notifyIncomingCall } from './pushover';
+import { notifyIncomingCall, notifyVoicemail } from './pushover';
 import { determineCallRouting, CallRoutingSettings, AgentMode, FallbackAction } from "./call-routing-engine";
 import { shutdownPostHog } from "./posthog";
 import { quotesRouter } from "./quotes";
@@ -1173,6 +1173,15 @@ app.post('/api/twilio/status-callback', async (req, res) => {
                 outcome: (CallStatus === 'busy' || CallStatus === 'no-answer') ? 'MISSED_CALL' : undefined
             });
             console.log(`[Twilio] Finalized call ${callRecordId} via StatusCallback`);
+
+            // Phone push alert (Pushover) — the call wasn't answered
+            if (CallStatus === 'busy' || CallStatus === 'no-answer') {
+                notifyVoicemail({
+                    callerName: req.body.CallerName,
+                    phoneNumber: req.body.From,
+                    reason: CallStatus === 'busy' ? 'Line was busy' : 'No answer',
+                }).catch((e) => console.warn('[Twilio] notifyVoicemail failed:', e));
+            }
         } else {
             console.log(`[Twilio] No call record found for ${CallSid} in status callback`);
         }

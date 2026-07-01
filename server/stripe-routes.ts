@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import crypto from 'crypto';
 import { db } from './db';
 import { personalizedQuotes, invoices, leads } from '../shared/schema';
+import { notifyQuoteAccepted, notifyInvoicePaid } from './pushover';
 import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { updateLeadStage } from './lead-stage-engine';
@@ -452,6 +453,13 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
 
                         console.log(`[Stripe Webhook] Quote ${quoteId} marked as paid. Deposit: £${(depositAmount / 100).toFixed(2)}`);
 
+                        // Phone push alert (Pushover) — quote accepted / deposit paid
+                        notifyQuoteAccepted({
+                            customerName: quote.customerName,
+                            phoneNumber: quote.phone,
+                            depositPence: depositAmount,
+                        }).catch((e) => console.warn('[Stripe Webhook] notifyQuoteAccepted failed:', e));
+
                         // 2. Calculate total job price (single price model)
                         // Re-derive the SAME lane-adjusted base the charge used, from THIS
                         // PI's own metadata (authoritative + race-free). pricingLane was
@@ -704,6 +712,14 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             .where(eq(invoices.id, invoiceId));
 
                         console.log(`[Stripe Webhook] Invoice ${paidInvoice.invoiceNumber} balance paid via Stripe`);
+
+                        // Phone push alert (Pushover) — final payment received
+                        notifyInvoicePaid({
+                            customerName: paidInvoice.customerName,
+                            phoneNumber: paidInvoice.customerPhone,
+                            amountPence: paidInvoice.totalAmount,
+                            invoiceNumber: paidInvoice.invoiceNumber,
+                        }).catch((e) => console.warn('[Stripe Webhook] notifyInvoicePaid failed:', e));
 
                         // If this is a consolidated invoice, mark all child invoices as paid too
                         try {

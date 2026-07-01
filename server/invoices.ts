@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import Stripe from 'stripe';
 import { db } from './db';
+import { notifyInvoicePaid } from './pushover';
 import { invoices, contractorBookingRequests, personalizedQuotes, leads } from '../shared/schema';
 import type { Invoice, InsertInvoice } from '../shared/schema';
 import { eq, sql, inArray } from 'drizzle-orm';
@@ -440,6 +441,14 @@ invoiceRouter.post('/api/invoices/:id/mark-paid', async (req, res) => {
         if (!updated) {
             return res.status(404).json({ error: 'Invoice not found' });
         }
+
+        // Phone push alert (Pushover) — final payment received
+        notifyInvoicePaid({
+            customerName: updated.customerName,
+            phoneNumber: updated.customerPhone,
+            amountPence: updated.totalAmount,
+            invoiceNumber: updated.invoiceNumber,
+        }).catch((e) => console.warn('[Invoices] notifyInvoicePaid failed:', e));
 
         res.json({ success: true, invoice: updated });
     } catch (error: any) {

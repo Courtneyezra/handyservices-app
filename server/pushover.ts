@@ -18,7 +18,14 @@ import {
     PushoverConfig,
     PushoverEventKey,
     PushoverPriority,
+    PUSHOVER_EVENT_DEFS,
 } from '../shared/pushover-settings';
+
+/** Format pence as £ for alert bodies. */
+function gbp(pence?: number | null): string {
+    if (pence == null || isNaN(pence)) return '';
+    return `£${(pence / 100).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+}
 
 const PUSHOVER_URL = 'https://api.pushover.net/1/messages.json';
 
@@ -78,8 +85,8 @@ async function dispatch(opts: DispatchOptions): Promise<{ sent: number; skipped:
         priority = 0;
     }
 
-    // Resolve recipients: enabled, subscribed to this event (or explicit test target).
-    let recipients = config.recipients.filter((r) => r.enabled && r.events[opts.event]);
+    // Resolve recipients: enabled, subscribed to this event (missing key = subscribed).
+    let recipients = config.recipients.filter((r) => r.enabled && r.events[opts.event] !== false);
     if (opts.onlyUserKey) recipients = config.recipients.filter((r) => r.userKey === opts.onlyUserKey);
     if (!recipients.length) return { sent: 0, skipped: 'no-recipients' };
 
@@ -192,15 +199,140 @@ export async function notifyWebformLead(alert: WebformLeadAlert): Promise<void> 
     });
 }
 
+interface InboundMessageAlert {
+    senderName?: string | null;
+    phoneNumber?: string | null;
+    body?: string | null;
+}
+
+/** Fire an "incoming SMS" push alert. */
+export async function notifyIncomingSms(alert: InboundMessageAlert): Promise<void> {
+    const name = alert.senderName?.trim() || 'Unknown';
+    const number = alert.phoneNumber?.trim() || 'no number';
+    const body = alert.body?.trim();
+    const lines = [`${name} — ${number}`];
+    if (body) lines.push(body.length > 200 ? `${body.slice(0, 197)}…` : body);
+    await dispatch({
+        event: 'sms',
+        title: '💬 New SMS',
+        message: lines.join('\n'),
+        linkPhone: alert.phoneNumber,
+        linkName: name,
+    });
+}
+
+interface VoicemailAlert {
+    callerName?: string | null;
+    phoneNumber?: string | null;
+    /** e.g. "voicemail left", "no answer", "busy". */
+    reason?: string | null;
+}
+
+/** Fire a "voicemail / missed call" push alert. */
+export async function notifyVoicemail(alert: VoicemailAlert): Promise<void> {
+    const name = alert.callerName?.trim() || 'Unknown caller';
+    const number = alert.phoneNumber?.trim() || 'no number';
+    const reason = alert.reason?.trim();
+    await dispatch({
+        event: 'voicemail',
+        title: '📵 Missed call',
+        message: reason ? `${name} — ${number}\n${reason}` : `${name} — ${number}`,
+        linkPhone: alert.phoneNumber,
+        linkName: name,
+    });
+}
+
+interface QuoteViewedAlert {
+    customerName?: string | null;
+    phoneNumber?: string | null;
+    quoteRef?: string | null;
+    valuePence?: number | null;
+}
+
+/** Fire a "quote viewed" push alert (buying signal). */
+export async function notifyQuoteViewed(alert: QuoteViewedAlert): Promise<void> {
+    const name = alert.customerName?.trim() || 'A customer';
+    const number = alert.phoneNumber?.trim() || 'no number';
+    const value = gbp(alert.valuePence);
+    await dispatch({
+        event: 'quote_viewed',
+        title: '👀 Quote viewed',
+        message: `${name} just opened their quote${value ? ` (${value})` : ''} — ${number}`,
+        linkPhone: alert.phoneNumber,
+        linkName: name,
+    });
+}
+
+interface QuoteAcceptedAlert {
+    customerName?: string | null;
+    phoneNumber?: string | null;
+    depositPence?: number | null;
+}
+
+/** Fire a "quote accepted / deposit paid" push alert. */
+export async function notifyQuoteAccepted(alert: QuoteAcceptedAlert): Promise<void> {
+    const name = alert.customerName?.trim() || 'A customer';
+    const number = alert.phoneNumber?.trim() || 'no number';
+    const dep = gbp(alert.depositPence);
+    await dispatch({
+        event: 'quote_accepted',
+        title: '🎉 Quote accepted',
+        message: `${name} accepted & paid${dep ? ` ${dep} deposit` : ''} — ${number}`,
+        linkPhone: alert.phoneNumber,
+        linkName: name,
+    });
+}
+
+interface InvoicePaidAlert {
+    customerName?: string | null;
+    phoneNumber?: string | null;
+    amountPence?: number | null;
+    invoiceNumber?: string | null;
+}
+
+/** Fire a "final payment / invoice paid" push alert. */
+export async function notifyInvoicePaid(alert: InvoicePaidAlert): Promise<void> {
+    const name = alert.customerName?.trim() || 'A customer';
+    const amount = gbp(alert.amountPence);
+    const inv = alert.invoiceNumber?.trim();
+    await dispatch({
+        event: 'payment',
+        title: '💷 Invoice paid',
+        message: `${name} paid${amount ? ` ${amount}` : ''}${inv ? ` · ${inv}` : ''}`,
+        linkPhone: alert.phoneNumber,
+        linkName: name,
+    });
+}
+
+interface NoContractorAlert {
+    customerName?: string | null;
+    phoneNumber?: string | null;
+    reason?: string | null;
+}
+
+/** Fire a "no contractor available — manual dispatch needed" push alert. */
+export async function notifyNoContractor(alert: NoContractorAlert): Promise<void> {
+    const name = alert.customerName?.trim() || 'A paid job';
+    const reason = alert.reason?.trim() || 'No contractor could be auto-assigned';
+    await dispatch({
+        event: 'no_contractor',
+        title: '⚠️ Needs dispatch',
+        message: `${name} — ${reason}. Assign someone now.`,
+        linkPhone: alert.phoneNumber,
+        linkName: name,
+    });
+}
+
 /**
  * Send a test alert — to one recipient (by user key) or the whole event audience.
  * Bypasses enabled/quiet-hours gating so the tester always gets it.
  * Returns how many were delivered.
  */
 export async function sendTestAlert(event: PushoverEventKey, onlyUserKey?: string): Promise<number> {
+    const label = PUSHOVER_EVENT_DEFS.find((e) => e.key === event)?.label || event;
     const res = await dispatch({
         event,
-        title: event === 'call' ? '📞 Test — incoming call' : '📝 Test — new lead',
+        title: `🔔 Test — ${label}`,
         message: 'Test alert from the Notifications settings. If you can see this, delivery works. ✅',
         linkPhone: '+447700900123',
         linkName: 'Test contact',

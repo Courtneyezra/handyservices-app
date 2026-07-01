@@ -11,7 +11,7 @@ import { requireAdmin } from './auth';
 import { getPricingSettings, invalidatePricingSettingsCache } from './pricing-settings';
 import { DEFAULT_PRICING_SETTINGS, PricingSettings } from '../shared/pricing-settings';
 import { getPushoverConfig, savePushoverConfig } from './pushover-config';
-import { PushoverConfig, PushoverEventKey } from '../shared/pushover-settings';
+import { PushoverConfig, PushoverEventKey, PUSHOVER_EVENT_KEYS } from '../shared/pushover-settings';
 import { sendTestAlert } from './pushover';
 
 console.log('[Settings] Module loading...');
@@ -646,9 +646,9 @@ router.put('/pushover', requireAdmin, async (req, res) => {
         for (const r of merged.recipients) {
             if (!r.userKey || typeof r.userKey !== 'string') errors.push(`recipient "${r.name || r.id}" is missing a user key`);
         }
-        for (const key of ['call', 'lead'] as PushoverEventKey[]) {
+        for (const key of PUSHOVER_EVENT_KEYS) {
             const p = merged.events[key]?.priority;
-            if (![-1, 0, 1, 2].includes(p)) errors.push(`${key} priority must be -1, 0, 1 or 2`);
+            if (p !== undefined && ![-1, 0, 1, 2].includes(p)) errors.push(`${key} priority must be -1, 0, 1 or 2`);
         }
         if (merged.quietHours.enabled) {
             for (const t of [merged.quietHours.start, merged.quietHours.end]) {
@@ -668,7 +668,7 @@ router.put('/pushover', requireAdmin, async (req, res) => {
 // Send a test alert — optionally to a single recipient (userKey) for a given event.
 router.post('/pushover/test', requireAdmin, async (req, res) => {
     try {
-        const event = (req.body?.event === 'lead' ? 'lead' : 'call') as PushoverEventKey;
+        const event = (PUSHOVER_EVENT_KEYS.includes(req.body?.event) ? req.body.event : 'call') as PushoverEventKey;
         const userKey = typeof req.body?.userKey === 'string' ? req.body.userKey : undefined;
         if (!process.env.PUSHOVER_APP_TOKEN) {
             return res.status(400).json({ error: 'No PUSHOVER_APP_TOKEN set in the server environment.' });

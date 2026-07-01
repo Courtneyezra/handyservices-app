@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { conversationEngine } from "./conversation-engine";
 import { sendWhatsAppMessage } from "./meta-whatsapp";
+import { notifyIncomingSms } from "./pushover";
 
 export const whatsappRouter = Router();
 
@@ -16,6 +17,15 @@ whatsappRouter.post('/incoming', async (req, res) => {
 
         // Extract phone number (remove whatsapp: prefix)
         const phone = From?.replace('whatsapp:', '') || '';
+
+        // Phone push alert (Pushover) — inbound SMS only (WhatsApp carries the whatsapp: prefix)
+        if (!(From || '').startsWith('whatsapp:')) {
+            notifyIncomingSms({
+                senderName: ProfileName,
+                phoneNumber: phone,
+                body: Body,
+            }).catch((e) => console.warn('[WhatsApp API] notifyIncomingSms failed:', e));
+        }
 
         // --- TENANT CHAT AI LAYER ---
         try {

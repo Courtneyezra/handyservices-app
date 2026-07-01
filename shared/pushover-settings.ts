@@ -9,8 +9,41 @@
 // -1 low · 0 normal · 1 high · 2 emergency (repeat until acknowledged)
 export type PushoverPriority = -1 | 0 | 1 | 2;
 
-// The two event categories the app can alert on.
-export type PushoverEventKey = 'call' | 'lead';
+// The event categories the app can alert on.
+export type PushoverEventKey =
+    | 'call'
+    | 'sms'
+    | 'lead'
+    | 'voicemail'
+    | 'quote_viewed'
+    | 'quote_accepted'
+    | 'payment'
+    | 'no_contractor';
+
+export interface PushoverEventDef {
+    key: PushoverEventKey;
+    label: string;
+    /** Compact label for per-recipient toggle chips. */
+    short: string;
+    /** Grouping shown in the UI. */
+    group: 'Inbound' | 'Money' | 'Dispatch';
+    defaultPriority: PushoverPriority;
+    defaultSound: string;
+}
+
+/** Single source of truth for every alertable event. */
+export const PUSHOVER_EVENT_DEFS: PushoverEventDef[] = [
+    { key: 'call', label: 'Incoming call', short: 'Calls', group: 'Inbound', defaultPriority: 2, defaultSound: 'persistent' },
+    { key: 'sms', label: 'Incoming SMS', short: 'SMS', group: 'Inbound', defaultPriority: 1, defaultSound: 'pushover' },
+    { key: 'lead', label: 'New lead (web form / video / booking)', short: 'Leads', group: 'Inbound', defaultPriority: 1, defaultSound: 'cashregister' },
+    { key: 'voicemail', label: 'Voicemail / missed call', short: 'Missed', group: 'Inbound', defaultPriority: 1, defaultSound: 'pushover' },
+    { key: 'quote_viewed', label: 'Quote viewed by customer', short: 'Viewed', group: 'Money', defaultPriority: 0, defaultSound: 'incoming' },
+    { key: 'quote_accepted', label: 'Quote accepted / deposit paid', short: 'Accepted', group: 'Money', defaultPriority: 1, defaultSound: 'cashregister' },
+    { key: 'payment', label: 'Final payment / invoice paid', short: 'Paid', group: 'Money', defaultPriority: 1, defaultSound: 'cashregister' },
+    { key: 'no_contractor', label: 'No contractor available', short: 'Dispatch', group: 'Dispatch', defaultPriority: 2, defaultSound: 'siren' },
+];
+
+export const PUSHOVER_EVENT_KEYS: PushoverEventKey[] = PUSHOVER_EVENT_DEFS.map((e) => e.key);
 
 export type LinkType = 'whatsapp' | 'tel';
 
@@ -22,8 +55,8 @@ export interface PushoverRecipient {
     name: string;
     userKey: string;
     enabled: boolean;
-    /** Which event categories this person receives. */
-    events: Record<PushoverEventKey, boolean>;
+    /** Which event categories this person receives. Missing key = subscribed (true). */
+    events: Partial<Record<PushoverEventKey, boolean>>;
 }
 
 export interface PushoverEventConfig {
@@ -49,15 +82,23 @@ export interface PushoverConfig {
     quietHours: PushoverQuietHours;
 }
 
+/** Default per-event config, derived from the event definitions. */
+export const DEFAULT_PUSHOVER_EVENTS: Record<PushoverEventKey, PushoverEventConfig> =
+    Object.fromEntries(
+        PUSHOVER_EVENT_DEFS.map((e) => [e.key, { enabled: true, priority: e.defaultPriority, sound: e.defaultSound }]),
+    ) as Record<PushoverEventKey, PushoverEventConfig>;
+
+/** Default recipient subscription map — subscribed to everything. */
+export function defaultRecipientEvents(): Record<PushoverEventKey, boolean> {
+    return Object.fromEntries(PUSHOVER_EVENT_KEYS.map((k) => [k, true])) as Record<PushoverEventKey, boolean>;
+}
+
 export const DEFAULT_PUSHOVER_CONFIG: PushoverConfig = {
     enabled: true,
     linkType: 'whatsapp',
     defaultCountryCode: '44',
     recipients: [],
-    events: {
-        call: { enabled: true, priority: 2, sound: 'persistent' },
-        lead: { enabled: true, priority: 1, sound: 'cashregister' },
-    },
+    events: DEFAULT_PUSHOVER_EVENTS,
     quietHours: {
         enabled: false,
         start: '22:00',
@@ -65,12 +106,6 @@ export const DEFAULT_PUSHOVER_CONFIG: PushoverConfig = {
         timezone: 'Europe/London',
         mode: 'downgrade',
     },
-};
-
-/** Human labels for the two event categories (UI). */
-export const PUSHOVER_EVENT_LABELS: Record<PushoverEventKey, string> = {
-    call: 'Incoming call',
-    lead: 'New lead (web form / video review / booking)',
 };
 
 /** Priority options for the UI selectors. */

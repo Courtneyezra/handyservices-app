@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
-    DEFAULT_PUSHOVER_CONFIG, PUSHOVER_SOUNDS, PUSHOVER_PRIORITY_OPTIONS,
+    DEFAULT_PUSHOVER_CONFIG, PUSHOVER_SOUNDS, PUSHOVER_PRIORITY_OPTIONS, PUSHOVER_EVENT_DEFS,
     type PushoverConfig, type PushoverEventKey, type PushoverPriority, type PushoverRecipient,
 } from "@shared/pushover-settings";
 
@@ -34,10 +34,7 @@ interface WebPushStatus {
     subscriptionCount: number;
 }
 
-const EVENTS: { key: PushoverEventKey; label: string; icon: typeof Phone }[] = [
-    { key: "call", label: "Incoming call", icon: Phone },
-    { key: "lead", label: "New lead (web form / video / booking)", icon: FileText },
-];
+const GROUP_ORDER = ["Inbound", "Money", "Dispatch"] as const;
 
 export default function NotificationsPage() {
     const { toast } = useToast();
@@ -162,7 +159,7 @@ export default function NotificationsPage() {
         setForm((p) => ({
             ...p,
             recipients: [...p.recipients, {
-                id: crypto.randomUUID(), name: "", userKey: "", enabled: true, events: { call: true, lead: true },
+                id: crypto.randomUUID(), name: "", userKey: "", enabled: true, events: {},
             }],
         }));
     }
@@ -225,14 +222,27 @@ export default function NotificationsPage() {
                                 <Input className="flex-1" placeholder="Name (e.g. Ben)" value={r.name} onChange={(e) => updateRecipient(r.id, { name: e.target.value })} />
                                 <Button variant="ghost" size="icon" onClick={() => removeRecipient(r.id)} title="Remove"><Trash2 className="h-4 w-4 text-destructive" /></Button>
                             </div>
-                            <Input placeholder="Pushover user key" value={r.userKey} onChange={(e) => updateRecipient(r.id, { userKey: e.target.value.trim() })} />
-                            <div className="flex flex-wrap items-center gap-4">
-                                <label className="flex items-center gap-2 text-sm"><Switch checked={r.events.call} onCheckedChange={(v) => updateRecipient(r.id, { events: { ...r.events, call: v } })} /> Calls</label>
-                                <label className="flex items-center gap-2 text-sm"><Switch checked={r.events.lead} onCheckedChange={(v) => updateRecipient(r.id, { events: { ...r.events, lead: v } })} /> Leads</label>
-                                <div className="ml-auto flex gap-2">
-                                    <Button variant="outline" size="sm" disabled={!r.userKey} onClick={() => sendTest("call", r.userKey)}><Send className="h-3 w-3 mr-1" /> Test call</Button>
-                                    <Button variant="outline" size="sm" disabled={!r.userKey} onClick={() => sendTest("lead", r.userKey)}><Send className="h-3 w-3 mr-1" /> Test lead</Button>
+                            <Input placeholder="Pushover user key (or delivery group key)" value={r.userKey} onChange={(e) => updateRecipient(r.id, { userKey: e.target.value.trim() })} />
+                            <div>
+                                <div className="text-xs text-muted-foreground mb-2">Receives:</div>
+                                <div className="flex flex-wrap gap-2">
+                                    {PUSHOVER_EVENT_DEFS.map((def) => {
+                                        const on = r.events[def.key] !== false;
+                                        return (
+                                            <button
+                                                key={def.key}
+                                                type="button"
+                                                onClick={() => updateRecipient(r.id, { events: { ...r.events, [def.key]: !on } })}
+                                                className={`text-xs rounded-full px-3 py-1 border transition-colors ${on ? "bg-primary/10 border-primary/40 text-foreground" : "bg-transparent border-border text-muted-foreground"}`}
+                                            >
+                                                {def.short}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
+                            </div>
+                            <div className="flex justify-end">
+                                <Button variant="outline" size="sm" disabled={!r.userKey} onClick={() => sendTest("call", r.userKey)}><Send className="h-3 w-3 mr-1" /> Send test</Button>
                             </div>
                         </div>
                     ))}
@@ -247,38 +257,45 @@ export default function NotificationsPage() {
                     <CardDescription>Turn each event on/off and set how insistent it is.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                    {EVENTS.map(({ key, label, icon: Icon }) => {
-                        const ev = form.events[key];
-                        return (
-                            <div key={key} className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <Label className="flex items-center gap-2 text-base"><Icon className="h-4 w-4" /> {label}</Label>
-                                    <Switch checked={ev.enabled} onCheckedChange={(v) => updateEvent(key, { enabled: v })} />
-                                </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-6">
-                                    <div>
-                                        <Label className="text-xs text-muted-foreground">Priority</Label>
-                                        <Select value={String(ev.priority)} onValueChange={(v) => updateEvent(key, { priority: Number(v) as PushoverPriority })}>
-                                            <SelectTrigger><SelectValue /></SelectTrigger>
-                                            <SelectContent>
-                                                {PUSHOVER_PRIORITY_OPTIONS.map((o) => <SelectItem key={o.value} value={String(o.value)}>{o.label}</SelectItem>)}
-                                            </SelectContent>
-                                        </Select>
+                    {GROUP_ORDER.map((group) => (
+                        <div key={group} className="space-y-4">
+                            <div className="text-xs uppercase tracking-wide text-muted-foreground">{group}</div>
+                            {PUSHOVER_EVENT_DEFS.filter((d) => d.group === group).map((def) => {
+                                const ev = form.events[def.key] ?? { enabled: true, priority: def.defaultPriority, sound: def.defaultSound };
+                                return (
+                                    <div key={def.key} className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <Label className="text-base">{def.label}</Label>
+                                            <Switch checked={ev.enabled} onCheckedChange={(v) => updateEvent(def.key, { enabled: v })} />
+                                        </div>
+                                        {ev.enabled && (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-2">
+                                                <div>
+                                                    <Label className="text-xs text-muted-foreground">Priority</Label>
+                                                    <Select value={String(ev.priority)} onValueChange={(v) => updateEvent(def.key, { priority: Number(v) as PushoverPriority })}>
+                                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                                        <SelectContent>
+                                                            {PUSHOVER_PRIORITY_OPTIONS.map((o) => <SelectItem key={o.value} value={String(o.value)}>{o.label}</SelectItem>)}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div>
+                                                    <Label className="text-xs text-muted-foreground">Sound</Label>
+                                                    <Select value={ev.sound} onValueChange={(v) => updateEvent(def.key, { sound: v })}>
+                                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                                        <SelectContent>
+                                                            {PUSHOVER_SOUNDS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
-                                    <div>
-                                        <Label className="text-xs text-muted-foreground">Sound</Label>
-                                        <Select value={ev.sound} onValueChange={(v) => updateEvent(key, { sound: v })}>
-                                            <SelectTrigger><SelectValue /></SelectTrigger>
-                                            <SelectContent>
-                                                {PUSHOVER_SOUNDS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </div>
-                                {key !== EVENTS[EVENTS.length - 1].key && <Separator />}
-                            </div>
-                        );
-                    })}
+                                );
+                            })}
+                            {group !== GROUP_ORDER[GROUP_ORDER.length - 1] && <Separator />}
+                        </div>
+                    ))}
                 </CardContent>
             </Card>
 
