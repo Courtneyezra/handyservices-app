@@ -42,6 +42,26 @@ interface PushoverMessage {
     /** retry/expire only used when priority === 2 (emergency) */
     retry?: number;
     expire?: number;
+    /** Optional tappable supplementary link (e.g. a wa.me WhatsApp deep-link). */
+    url?: string;
+    url_title?: string;
+}
+
+/**
+ * Normalise a phone number to full international digits for a wa.me link.
+ * Defaults local UK numbers (0…) to +44. Returns null if unusable.
+ * Override the default country code with PUSHOVER_DEFAULT_CC (e.g. "1", "353").
+ */
+export function toWhatsAppNumber(phone?: string | null): string | null {
+    if (!phone) return null;
+    const cc = (process.env.PUSHOVER_DEFAULT_CC || '44').replace(/\D/g, '');
+    let digits = phone.replace(/[^\d+]/g, '');
+    if (digits.startsWith('+')) digits = digits.slice(1);
+    else if (digits.startsWith('00')) digits = digits.slice(2);
+    else if (digits.startsWith('0')) digits = cc + digits.slice(1); // UK local -> international
+    digits = digits.replace(/\D/g, '');
+    // Sanity: a real international number is ~8–15 digits.
+    return digits.length >= 8 && digits.length <= 15 ? digits : null;
 }
 
 /**
@@ -64,6 +84,12 @@ async function send(msg: PushoverMessage): Promise<void> {
     if (msg.priority === 2) {
         baseBody.retry = msg.retry ?? 30;
         baseBody.expire = msg.expire ?? 300;
+    }
+
+    // Optional tappable link (e.g. WhatsApp deep-link on the caller's number).
+    if (msg.url) {
+        baseBody.url = msg.url;
+        if (msg.url_title) baseBody.url_title = msg.url_title;
     }
 
     await Promise.all(
@@ -96,6 +122,7 @@ interface IncomingCallAlert {
 export async function notifyIncomingCall(alert: IncomingCallAlert): Promise<void> {
     const name = alert.callerName?.trim() || 'Unknown caller';
     const number = alert.phoneNumber?.trim() || 'no number';
+    const wa = toWhatsAppNumber(alert.phoneNumber);
     await send({
         title: '📞 Incoming call',
         message: `${name} — ${number}`,
@@ -103,6 +130,7 @@ export async function notifyIncomingCall(alert: IncomingCallAlert): Promise<void
         sound: process.env.PUSHOVER_SOUND || 'persistent',
         retry: Number(process.env.PUSHOVER_RETRY ?? '30'),
         expire: Number(process.env.PUSHOVER_EXPIRE ?? '300'),
+        ...(wa ? { url: `https://wa.me/${wa}`, url_title: `💬 WhatsApp / call ${name}` } : {}),
     });
 }
 
@@ -124,10 +152,12 @@ export async function notifyWebformLead(alert: WebformLeadAlert): Promise<void> 
     const lines = [`${name} — ${number}`];
     if (details) lines.push(details.length > 200 ? `${details.slice(0, 197)}…` : details);
 
+    const wa = toWhatsAppNumber(alert.phoneNumber);
     await send({
         title: `📝 New lead · ${source}`,
         message: lines.join('\n'),
         priority: Number(process.env.PUSHOVER_WEBFORM_PRIORITY ?? '1'),
         sound: process.env.PUSHOVER_WEBFORM_SOUND || 'cashregister',
+        ...(wa ? { url: `https://wa.me/${wa}`, url_title: `💬 WhatsApp / call ${name}` } : {}),
     });
 }
