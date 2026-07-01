@@ -16,6 +16,7 @@ import {
     STAGE_SLA_HOURS,
 } from "./lead-stage-engine";
 import { processWebFormLead } from "./services/webform-chase-service";
+import { notifyWebformLead } from "./pushover";
 
 export const leadsRouter = Router();
 
@@ -74,6 +75,14 @@ leadsRouter.post('/api/leads', async (req, res) => {
         } catch (broadcastErr) {
             console.warn('[Leads] Broadcast failed (non-critical):', broadcastErr);
         }
+
+        // Phone push alert (Pushover) — fire-and-forget, never blocks lead capture
+        notifyWebformLead({
+            name: newLead.customerName,
+            phoneNumber: newLead.phone,
+            details: newLead.jobDescription,
+            source: 'Web form',
+        }).catch((e) => console.warn('[Leads] notifyWebformLead failed:', e));
 
         // --- AGENTIC WORKFLOW: ONE-CLICK ACTION ---
         // Just like calls, we run the agent on the job description to get a plan
@@ -167,6 +176,14 @@ leadsRouter.post('/api/leads/quick-capture', async (req, res) => {
             transcriptJson: videoAnalysis || {},
             status: 'new'
         });
+
+        // Phone push alert (Pushover) — fire-and-forget
+        notifyWebformLead({
+            name,
+            phoneNumber: phone,
+            details: videoAnalysis?.summary || 'Video review lead',
+            source: 'Video review',
+        }).catch((e) => console.warn('[Leads] notifyWebformLead (quick-capture) failed:', e));
 
         res.json({ success: true, leadId });
 

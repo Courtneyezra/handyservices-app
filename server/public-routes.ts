@@ -16,6 +16,7 @@ import {
 import { eq, and, gte, lte, or, inArray } from 'drizzle-orm';
 import { toZonedTime, format as formatTz } from 'date-fns-tz';
 import { addDays, getDay, startOfDay, startOfMonth, endOfMonth, parseISO, isBefore } from 'date-fns';
+import { notifyWebformLead } from './pushover';
 
 const UK_TIMEZONE = 'Europe/London';
 
@@ -392,6 +393,14 @@ router.post('/contractor/:slug/book', async (req: Request, res: Response) => {
             description: description || '',
             status: 'pending'
         });
+
+        // Phone push alert (Pushover) — fire-and-forget
+        notifyWebformLead({
+            name,
+            phoneNumber: phone,
+            details: `Booking request: ${date} ${slot}${description ? ` — ${description}` : ''}`,
+            source: 'Booking request',
+        }).catch((e) => console.warn('[PublicAPI] notifyWebformLead failed:', e));
 
         res.json({ success: true });
 

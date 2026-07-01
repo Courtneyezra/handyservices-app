@@ -25,6 +25,7 @@ import { detectSku, detectMultipleTasks, loadAndCacheSkus } from "./skuDetector"
 import { setupTwilioSocket } from "./twilio-realtime";
 import { twilioClient } from "./twilio-client";
 import { createCall, findCallByTwilioSid, updateCall, finalizeCall } from './call-logger';
+import { notifyIncomingCall } from './pushover';
 import { determineCallRouting, CallRoutingSettings, AgentMode, FallbackAction } from "./call-routing-engine";
 import { shutdownPostHog } from "./posthog";
 import { quotesRouter } from "./quotes";
@@ -713,6 +714,12 @@ app.post('/api/twilio/voice', async (req, res) => {
             });
             console.log(`[Twilio] Initial call logged for ${req.body.CallSid}`);
 
+            // Fire phone push alert (Pushover) — fire-and-forget, never blocks call handling
+            notifyIncomingCall({
+                callerName: req.body.CallerName,
+                phoneNumber: req.body.From,
+            }).catch((e) => console.warn('[Twilio] notifyIncomingCall failed:', e));
+
             // Robustness: Start Twilio Recording
             try {
                 await twilioClient.calls(req.body.CallSid).recordings.create({
@@ -871,6 +878,38 @@ app.post('/api/twilio/voice', async (req, res) => {
 
     res.type('text/xml');
     res.send(twiml);
+});
+
+// Test Pushover alert — fire a fake push to all configured recipients.
+//   curl -X POST https://<host>/api/twilio/test-push                 -> call alert
+//   curl -X POST https://<host>/api/twilio/test-push -d 'type=lead'  -> webform-lead alert
+app.post('/api/twilio/test-push', async (req, res) => {
+    const { isPushoverConfigured, notifyWebformLead } = await import('./pushover');
+    if (!isPushoverConfigured()) {
+        return res.status(400).json({
+            ok: false,
+            error: 'Pushover not configured — set PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEYS.',
+        });
+    }
+    try {
+        if (req.body?.type === 'lead') {
+            await notifyWebformLead({
+                name: (req.body?.name as string) || 'Test lead',
+                phoneNumber: (req.body?.phoneNumber as string) || '+441234567890',
+                details: (req.body?.details as string) || 'Kitchen tap replacement, NG1 area',
+                source: 'Test webform',
+            });
+        } else {
+            await notifyIncomingCall({
+                callerName: (req.body?.callerName as string) || 'Test caller',
+                phoneNumber: (req.body?.phoneNumber as string) || '+441234567890',
+            });
+        }
+        res.json({ ok: true, message: 'Test alert sent to all configured recipients.' });
+    } catch (e) {
+        console.error('[Twilio] test-push failed:', e);
+        res.status(500).json({ ok: false, error: String(e) });
+    }
 });
 
 // Eleven Labs Register Call - Uses official Eleven Labs API
