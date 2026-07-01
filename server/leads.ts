@@ -16,6 +16,7 @@ import {
     STAGE_SLA_HOURS,
 } from "./lead-stage-engine";
 import { processWebFormLead } from "./services/webform-chase-service";
+import { resolveOrCreateClient } from "./clients";
 import { notifyWebformLead } from "./pushover";
 
 export const leadsRouter = Router();
@@ -53,8 +54,17 @@ leadsRouter.post('/api/leads', async (req, res) => {
         // Validate final object
         const newLead = insertLeadSchema.parse(leadData);
 
+        // Resolve the client (WHO) so the lead joins the same client spine as its
+        // future quote/job/invoice. Best-effort: never block lead capture on this.
+        const leadClientId = await resolveOrCreateClient(db, {
+            phone: newLead.phone,
+            email: newLead.email,
+            displayName: newLead.customerName,
+            billingAddress: newLead.address,
+        }).catch(() => null);
+
         // Insert into DB
-        await db.insert(leads).values(newLead);
+        await db.insert(leads).values({ ...newLead, ...(leadClientId ? { clientId: leadClientId } : {}) });
 
         // Broadcast to contractor inbox for real-time notification
         try {
@@ -167,6 +177,10 @@ leadsRouter.post('/api/leads/quick-capture', async (req, res) => {
 
         const leadId = `lead_${nanoid()}`;
 
+        const qcClientId = await resolveOrCreateClient(db, {
+            phone, displayName: name,
+        }).catch(() => null);
+
         await db.insert(leads).values({
             id: leadId,
             customerName: name,
@@ -174,7 +188,8 @@ leadsRouter.post('/api/leads/quick-capture', async (req, res) => {
             source: 'video_review',
             jobDescription: videoAnalysis?.summary || 'Video Review Lead',
             transcriptJson: videoAnalysis || {},
-            status: 'new'
+            status: 'new',
+            ...(qcClientId ? { clientId: qcClientId } : {}),
         });
 
         // Phone push alert (Pushover) — fire-and-forget
@@ -225,8 +240,12 @@ leadsRouter.post('/api/eleven-labs/lead', async (req, res) => {
         const validatedLead = insertLeadSchema.parse(leadData);
         console.log('[ElevenLabs] Validated object keys:', Object.keys(validatedLead));
 
+        const elClientId = await resolveOrCreateClient(db, {
+            phone: validatedLead.phone, displayName: validatedLead.customerName,
+        }).catch(() => null);
+
         try {
-            await db.insert(leads).values(validatedLead);
+            await db.insert(leads).values({ ...validatedLead, ...(elClientId ? { clientId: elClientId } : {}) });
         } catch (dbError: any) {
             console.error('[ElevenLabs] DB Insert Failed!');
             console.error('[ElevenLabs] Error details:', dbError.message);

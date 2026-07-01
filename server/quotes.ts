@@ -19,6 +19,8 @@ import { optionalAuth } from "./auth";
 import { getShortQuoteUrl, getBookVisitUrl } from "./url-utils";
 import { normalizeQuoteImageUrls } from "./quote-image-utils";
 import { computeLaneBasePence, parsePricingLane } from "./lane-pricing";
+import { resolveOrCreateProperty } from "./properties";
+import { resolveOrCreateClient } from "./clients";
 
 // Define input schema for value pricing
 const valuePricingInputSchema = z.object({
@@ -421,11 +423,29 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
             ...aiTierDeliverables.hassleFree,
         ]));
 
+        // Resolve the spine entities up front so the quote is linked to its
+        // property (WHERE) and client (WHO) from creation — not just at booking.
+        const resolvedPropertyId = await resolveOrCreateProperty(db, {
+            address: input.address,
+            coordinates,
+            postcode: input.postcode,
+            phone: input.phone,
+            email: input.email,
+        });
+        const resolvedClientId = await resolveOrCreateClient(db, {
+            phone: input.phone,
+            email: input.email,
+            displayName: input.customerName,
+            billingAddress: input.address,
+        });
+
         // Prepare quote data
         const quoteInsertData = {
             id,
             shortSlug,
             leadId: linkedLeadId, // Link to lead (fixes orphaned quotes)
+            propertyId: resolvedPropertyId ?? undefined, // Spine property (WHERE)
+            clientId: resolvedClientId ?? undefined,     // Spine client (WHO)
             contractorId: input.contractorId || null, // Capture contractor ID
             customerName: input.customerName,
             phone: input.phone,
@@ -1409,6 +1429,25 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/quick-book', async (req, r
         const calculatedDeposit = materialsCost + Math.round(laborCost * 0.30);
         const finalDeposit = depositAmountPence ?? calculatedDeposit;
 
+        // Resolve the service property (WHERE work happens) so the quote, its job
+        // and its invoice all resolve to one property row — see server/properties.ts.
+        const propertyId = (quote as any).propertyId
+            ?? await resolveOrCreateProperty(db, {
+                address: quote.address,
+                coordinates: (quote as any).coordinates,
+                postcode: (quote as any).postcode,
+                phone: quote.phone,
+                email: quote.email,
+            });
+        // Resolve the client (WHO pays) — same shared identity as the spine.
+        const clientId = (quote as any).clientId
+            ?? await resolveOrCreateClient(db, {
+                phone: quote.phone,
+                email: quote.email,
+                displayName: quote.customerName,
+                billingAddress: quote.address,
+            });
+
         // Update quote as booked
         await db.update(personalizedQuotes)
             .set({
@@ -1418,6 +1457,8 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/quick-book', async (req, r
                 depositPaidAt: new Date(),
                 bookedAt: new Date(),
                 paymentType: 'full', // Manual bookings are treated as full payment pending
+                ...((quote as any).propertyId ? {} : { propertyId: propertyId ?? undefined }),
+                ...((quote as any).clientId ? {} : { clientId: clientId ?? undefined }),
             })
             .where(eq(personalizedQuotes.id, id));
 
@@ -1431,6 +1472,8 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/quick-book', async (req, r
             id: invoiceId,
             invoiceNumber,
             quoteId: id,
+            propertyId: propertyId ?? undefined,
+            clientId: clientId ?? undefined,
             customerName: quote.customerName,
             customerEmail: quote.email || null,
             customerPhone: quote.phone,

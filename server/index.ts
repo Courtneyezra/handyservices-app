@@ -68,6 +68,8 @@ import invoiceRouter from './invoices'; // B2: Invoice management
 import jobAssignmentRouter from './job-assignment'; // B5: Job assignment/dispatch
 import jobLifecycleRouter from './job-lifecycle'; // Day-of job lifecycle (en-route, timer, completion)
 import clientAggregationRouter from './client-aggregation'; // Read-only Jobber-style client engagement view
+import propertyRouter from './property-routes'; // Property edit/merge (Jobber Property entity)
+import clientRouter from './client-routes'; // Client edit/merge/archive (Jobber Client entity)
 import contractorDispatchRouter from './contractor-dispatch'; // Tokenised contractor job-sheet dispatch
 import reviewsRouter from "./reviews-routes";
 import { leadTubeMapRouter } from './lead-tube-map'; // Lead Tube Map API
@@ -367,6 +369,8 @@ app.use(invoiceRouter); // B2: Invoice management
 app.use(jobAssignmentRouter); // B5: Job assignment/dispatch
 app.use(jobLifecycleRouter); // Day-of job lifecycle
 app.use(clientAggregationRouter); // Read-only Jobber-style client engagement view
+app.use(propertyRouter); // Property edit/merge
+app.use(clientRouter); // Client edit/merge/archive
 app.use(contractorDispatchRouter); // Tokenised contractor job-sheet dispatch (broadcast/accept/decline/variation/complete)
 app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
 

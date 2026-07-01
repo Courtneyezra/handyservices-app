@@ -256,6 +256,7 @@ export const skuMatchLogs = pgTable("sku_match_logs", {
 // Leads table - The destination for "The Switchboard" logs
 export const leads = pgTable("leads", {
     id: varchar("id").primaryKey().notNull(),
+    clientId: varchar("client_id").references(() => serviceClients.id), // Spine client (who pays)
     customerName: varchar("customer_name").notNull(),
     phone: varchar("phone").notNull(),
     email: varchar("email"),
@@ -740,6 +741,8 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     postcode: varchar("postcode"),
     address: text("address"), // Full Google Maps address
     coordinates: jsonb("coordinates"), // { lat: number, lng: number }
+    propertyId: varchar("property_id").references(() => serviceProperties.id), // Spine property (where the work happens)
+    clientId: varchar("client_id").references(() => serviceClients.id), // Spine client (who pays)
 
     // Job Details
     jobDescription: text("job_description").notNull(),
@@ -1046,6 +1049,8 @@ export const invoices = pgTable("invoices", {
     customerEmail: varchar("customer_email"),
     customerPhone: varchar("customer_phone"),
     customerAddress: text("customer_address"),
+    propertyId: varchar("property_id").references(() => serviceProperties.id), // Spine property (where the work happened)
+    clientId: varchar("client_id").references(() => serviceClients.id), // Spine client (who pays)
 
     // Financial Details (all in pence)
     totalAmount: integer("total_amount").notNull(), // Total job cost
@@ -1104,6 +1109,8 @@ export const contractorBookingRequests = pgTable("contractor_booking_requests", 
 
     // B4: Job Assignment & Dispatch Fields
     quoteId: varchar("quote_id").references(() => personalizedQuotes.id), // Link to quote if job came from quote
+    propertyId: varchar("property_id").references(() => serviceProperties.id), // Spine property (where the work happens)
+    clientId: varchar("client_id").references(() => serviceClients.id), // Spine client (who pays)
     assignedContractorId: varchar("assigned_contractor_id").references(() => handymanProfiles.id), // Who is assigned (may differ from initial contractor)
     scheduledDate: timestamp("scheduled_date"), // When the job is scheduled
     scheduledStartTime: varchar("scheduled_start_time", { length: 10 }), // e.g., "09:00"
@@ -1894,6 +1901,75 @@ export const PropertyTypeValues = ["flat", "house", "hmo", "commercial", "mixed_
 export type PropertyType = typeof PropertyTypeValues[number];
 
 // Properties Table - Rental properties linked to landlords
+// ============================================================================
+// SERVICE PROPERTIES — the physical locations where we do work.
+//
+// Jobber-style "Property": a first-class location entity sitting between the
+// (derived) client and the job spine. One client can own many properties
+// (landlords, property managers). Quotes, jobs (contractor_booking_requests)
+// and invoices each carry a nullable property_id pointing here.
+//
+// NOTE: distinct from the landlord-portal `properties` table below, which is
+// scoped to a landlord lead + tenants/tenant-issues. THIS table is the spine
+// property used across quote → job → invoice. (The two can be unified later.)
+//
+// Identity: deduped on Google place_id when present, else a normalized
+// "postcode|addressline" key (dedupeKey, unique). client_key is the same
+// phone:/email: heuristic the client-aggregation read model uses, so
+// Client → Properties nests cleanly.
+// ============================================================================
+// ============================================================================
+// CLIENTS — first-class customer record (Jobber's Client: WHO pays / is billed).
+// Until now "clients" were derived at read-time from contact details on the
+// spine. This promotes them to a real, editable, mergeable entity. One client
+// owns many service_properties (landlords / property managers). Identity is the
+// canonical contact key (see server/clients.ts) — phone preferred, else email,
+// with UK phone canonicalization so "07766…" and "7766…" resolve to ONE client.
+// ============================================================================
+// NOTE: table is "service_clients" (not "clients") — a legacy orphan `clients`
+// table already exists with an unrelated shape, exactly like the landlord
+// `properties` vs spine `service_properties` split. This is the spine client.
+export const serviceClients = pgTable("service_clients", {
+    id: varchar("id").primaryKey().notNull().$defaultFn(() => crypto.randomUUID()),
+    dedupeKey: varchar("dedupe_key").notNull(),   // canonical identity: "phone:<canon>" | "email:<lower>"
+    displayName: text("display_name"),
+    primaryPhone: varchar("primary_phone"),       // canonical UK form
+    primaryEmail: varchar("primary_email"),
+    phones: jsonb("phones"),                       // string[] — all known phone forms
+    emails: jsonb("emails"),                        // string[] — all known emails
+    billingAddress: text("billing_address"),
+    notes: text("notes"),
+    tags: jsonb("tags"),                            // string[]
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    archivedAt: timestamp("archived_at"),
+}, (table) => [
+    uniqueIndex("uq_service_clients_dedupe").on(table.dedupeKey),
+    index("idx_service_clients_primary_phone").on(table.primaryPhone),
+    index("idx_service_clients_primary_email").on(table.primaryEmail),
+]);
+
+export const serviceProperties = pgTable("service_properties", {
+    id: varchar("id").primaryKey().notNull().$defaultFn(() => crypto.randomUUID()),
+    clientKey: varchar("client_key"),            // derived owner key: "phone:<digits>" | "email:<lower>" (legacy heuristic)
+    clientId: varchar("client_id").references(() => serviceClients.id), // FK to the first-class client record (who pays)
+    placeId: varchar("place_id"),                // Google Place ID — canonical address identity
+    dedupeKey: varchar("dedupe_key").notNull(),  // placeId or normalized "postcode|addressline"
+    address: text("address"),                    // best canonical/raw address string
+    postcode: varchar("postcode", { length: 10 }),
+    coordinates: jsonb("coordinates"),           // { lat, lng }
+    nickname: text("nickname"),                  // optional human label, e.g. "Mrs Smith's BTL"
+    notes: text("notes"),                        // free-form property notes (admin)
+    accessNotes: text("access_notes"),           // gate code, parking, key safe, "dog in garden" — flows onto every job sheet at this address
+    addressManual: boolean("address_manual").default(false).notNull(), // true once address/postcode hand-edited; keeps resolve-enrich from drift
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_service_properties_client").on(table.clientKey),
+    index("idx_service_properties_place").on(table.placeId),
+    uniqueIndex("uq_service_properties_dedupe").on(table.dedupeKey),
+]);
+
 export const properties = pgTable("properties", {
     id: text("id").primaryKey().notNull().$defaultFn(() => crypto.randomUUID()),
     landlordLeadId: text("landlord_lead_id").references(() => leads.id).notNull(),

@@ -240,6 +240,8 @@ export async function generateBalanceInvoice(jobId: string): Promise<BalanceInvo
                 id: invoiceId,
                 invoiceNumber,
                 quoteId: quote.id,
+                propertyId: (job as any).propertyId || (quote as any).propertyId || undefined,
+                clientId: (job as any).clientId || (quote as any).clientId || undefined,
                 contractorId: job.assignedContractorId || job.contractorId,
                 customerName: job.customerName,
                 customerEmail: job.customerEmail || quote.email || '',
