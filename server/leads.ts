@@ -66,37 +66,44 @@ leadsRouter.post('/api/leads', async (req, res) => {
         // Insert into DB
         await db.insert(leads).values({ ...newLead, ...(leadClientId ? { clientId: leadClientId } : {}) });
 
-        // Broadcast to contractor inbox for real-time notification
-        try {
-            const { broadcastToClients } = await import('./index');
-            broadcastToClients({
-                type: 'inbox:new_item',
-                data: {
-                    id: newLead.id,
-                    itemType: 'lead',
-                    customerName: newLead.customerName,
-                    phone: newLead.phone,
-                    summary: newLead.jobDescription,
-                    source: 'Web Form',
-                    urgency: 3,
-                    timestamp: new Date().toISOString(),
-                }
-            });
-        } catch (broadcastErr) {
-            console.warn('[Leads] Broadcast failed (non-critical):', broadcastErr);
-        }
+        // A lead posted AFTER a successful payment (quote-page booking tracking) is not a
+        // new enquiry — the payment flow already fires its own "quote accepted" alert, so
+        // skip the new-lead notifications and analysis for it.
+        const isPostPaymentRecord = newLead.source === 'personalized_quote' || Boolean(inputData.stripePaymentId);
 
-        // Phone push alert (Pushover) — fire-and-forget, never blocks lead capture
-        notifyWebformLead({
-            name: newLead.customerName,
-            phoneNumber: newLead.phone,
-            details: newLead.jobDescription,
-            source: 'Web form',
-        }).catch((e) => console.warn('[Leads] notifyWebformLead failed:', e));
+        // Broadcast to contractor inbox for real-time notification
+        if (!isPostPaymentRecord) {
+            try {
+                const { broadcastToClients } = await import('./index');
+                broadcastToClients({
+                    type: 'inbox:new_item',
+                    data: {
+                        id: newLead.id,
+                        itemType: 'lead',
+                        customerName: newLead.customerName,
+                        phone: newLead.phone,
+                        summary: newLead.jobDescription,
+                        source: 'Web Form',
+                        urgency: 3,
+                        timestamp: new Date().toISOString(),
+                    }
+                });
+            } catch (broadcastErr) {
+                console.warn('[Leads] Broadcast failed (non-critical):', broadcastErr);
+            }
+
+            // Phone push alert (Pushover) — fire-and-forget, never blocks lead capture
+            notifyWebformLead({
+                name: newLead.customerName,
+                phoneNumber: newLead.phone,
+                details: newLead.jobDescription,
+                source: 'Web form',
+            }).catch((e) => console.warn('[Leads] notifyWebformLead failed:', e));
+        }
 
         // --- AGENTIC WORKFLOW: ONE-CLICK ACTION ---
         // Just like calls, we run the agent on the job description to get a plan
-        if (newLead.jobDescription && newLead.jobDescription.length > 10) {
+        if (!isPostPaymentRecord && newLead.jobDescription && newLead.jobDescription.length > 10) {
             (async () => {
                 try {
                     const { analyzeLeadActionPlan } = await import("./services/agentic-service");
