@@ -83,7 +83,7 @@ export function QuoteTimer({
                 <div className="flex items-center gap-1">
                   <Lock className="w-2.5 h-2.5 text-white" />
                   <span className="text-[9px] font-bold tracking-[0.15em] text-white leading-none">
-                    PRICE
+                    DATES
                   </span>
                 </div>
                 <span className="text-[11px] font-black tracking-[0.12em] text-white leading-none">
