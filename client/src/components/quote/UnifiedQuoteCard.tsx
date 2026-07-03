@@ -189,11 +189,6 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = fals
               <span className={`shrink-0 text-[10.5px] font-semibold ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>{qualifier}</span>
             )}
           </div>
-          {/* Materials-included reassurance, surfaced on the collapsed row (not
-              just inside the dropdown) so the price reads as all-in at a glance. */}
-          {hasMaterials && (
-            <span className={`block text-[10px] leading-tight mt-0.5 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>inc. materials</span>
-          )}
         </div>
 
         <span className={`shrink-0 text-[14px] font-bold tabular-nums ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}>£{Math.round((displayPricePence ?? lineTotal) / 100)}</span>
