@@ -1842,6 +1842,14 @@ async function startServer() {
         } catch (e) {
             console.error('[V6 Switchboard] Failed to start automations scheduler:', e);
         }
+
+        // Start quote follow-up alert sweep (internal Pushover chase nudges)
+        try {
+            const { startQuoteFollowupSweep } = await import('./quote-followup-alerts');
+            startQuoteFollowupSweep();
+        } catch (e) {
+            console.error('[V6 Switchboard] Failed to start quote follow-up sweep:', e);
+        }
     });
 }
 

@@ -16,6 +16,7 @@ export type PushoverEventKey =
     | 'lead'
     | 'voicemail'
     | 'quote_viewed'
+    | 'quote_followup'
     | 'quote_accepted'
     | 'payment'
     | 'no_contractor';
@@ -38,6 +39,7 @@ export const PUSHOVER_EVENT_DEFS: PushoverEventDef[] = [
     { key: 'lead', label: 'New lead (web form / video / booking)', short: 'Leads', group: 'Inbound', defaultPriority: 1, defaultSound: 'cashregister' },
     { key: 'voicemail', label: 'Voicemail / missed call', short: 'Missed', group: 'Inbound', defaultPriority: 1, defaultSound: 'pushover' },
     { key: 'quote_viewed', label: 'Quote viewed by customer', short: 'Viewed', group: 'Money', defaultPriority: 0, defaultSound: 'incoming' },
+    { key: 'quote_followup', label: 'Quote not accepted — follow up', short: 'Chase', group: 'Money', defaultPriority: 1, defaultSound: 'intermission' },
     { key: 'quote_accepted', label: 'Quote accepted / deposit paid', short: 'Accepted', group: 'Money', defaultPriority: 1, defaultSound: 'cashregister' },
     { key: 'payment', label: 'Final payment / invoice paid', short: 'Paid', group: 'Money', defaultPriority: 1, defaultSound: 'cashregister' },
     { key: 'no_contractor', label: 'No contractor available', short: 'Dispatch', group: 'Dispatch', defaultPriority: 2, defaultSound: 'siren' },

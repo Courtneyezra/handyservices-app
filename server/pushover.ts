@@ -303,6 +303,36 @@ export async function notifyQuoteViewed(alert: QuoteViewedAlert): Promise<void> 
     });
 }
 
+interface QuoteFollowupAlert {
+    customerName?: string | null;
+    phoneNumber?: string | null;
+    jobSummary?: string | null;
+    valuePence?: number | null;
+    /** Hours since the quote was sent. */
+    hoursSinceSent?: number | null;
+    viewedAt?: Date | null;
+}
+
+/** Fire a "quote not accepted — follow up" push alert (manual close nudge). */
+export async function notifyQuoteFollowup(alert: QuoteFollowupAlert): Promise<void> {
+    const name = alert.customerName?.trim() || 'A customer';
+    const number = alert.phoneNumber?.trim() || 'no number';
+    const value = gbp(alert.valuePence);
+    const lines = [`${name} — ${number}`];
+    if (alert.jobSummary?.trim()) lines.push(truncate(alert.jobSummary.trim(), 140));
+    const age = alert.hoursSinceSent != null
+        ? alert.hoursSinceSent >= 48 ? `${Math.round(alert.hoursSinceSent / 24)}d` : `${Math.round(alert.hoursSinceSent)}h`
+        : null;
+    lines.push(`⏳ Viewed but not accepted${value ? ` · ${value}` : ''}${age ? ` · sent ${age} ago` : ''}`);
+    await dispatch({
+        event: 'quote_followup',
+        title: '⏳ Quote needs a follow-up',
+        message: lines.join('\n'),
+        linkPhone: alert.phoneNumber,
+        linkName: name,
+    });
+}
+
 interface QuoteAcceptedAlert {
     customerName?: string | null;
     phoneNumber?: string | null;
