@@ -6,7 +6,7 @@ import {
   Check, Calendar, CalendarCheck, CalendarRange, Clock, Tag, Shield, Zap,
   ChevronRight, ChevronDown, Percent, Sparkles, Star, Plus,
   Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle, User,
-  PencilRuler, MapPin, Receipt, UserCheck, BadgeCheck
+  PencilRuler, MapPin, Receipt, UserCheck, BadgeCheck, Share2
 } from 'lucide-react';
 import { CardBrandStrip } from './CardBrandLogos';
 import { SkuIcon } from '@/lib/sku-icons';
@@ -96,20 +96,32 @@ export interface QuoteBatchDiscount {
 }
 
 /**
- * One line on the customer quote — a compact, tappable row optimised for
- * mobile. Collapsed by default (icon + name + price + chevron); tapping
- * reveals the "Fixed price"/"Tailored" badge + description via a grid-rows
- * reveal. SKU lines read as solid product tiles (green icon), custom lines as
- * a dashed "made-to-order" outline (neutral icon).
+ * One line on the customer quote. On typical quotes (≤4 lines) the row is
+ * STATIC — badge, labour/materials split, and scope description are simply
+ * shown, because the description is the price justification and no customer
+ * gains from hiding it (or bothers to). On long quotes (5+ lines, collapsible
+ * prop) the row falls back to the tap-to-expand accordion so the page stays
+ * scannable. SKU lines read as solid product tiles (green icon), custom lines
+ * as a "made-to-order" neutral icon.
  */
-function QuoteLineRow({ item, isDarkTheme, displayPricePence }: { item: PricingLineItem; isDarkTheme: boolean; displayPricePence?: number }) {
-  const [open, setOpen] = useState(false);
+function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = false }: { item: PricingLineItem; isDarkTheme: boolean; displayPricePence?: number; collapsible?: boolean }) {
   const anyItem = item as any;
   const isSku = anyItem.source === 'sku';
   const title = anyItem.skuName || item.description;
   const customerDesc: string | null = anyItem.skuCustomerDescription || anyItem.customerDescription || anyItem.details || null;
+  // Structured scope steps beat the prose paragraph: each step is a scannable
+  // "that's included" hit. Paragraph remains the fallback for older quotes.
+  const scopeSteps: string[] | null =
+    Array.isArray(anyItem.scopeSteps) && anyItem.scopeSteps.length > 0 ? anyItem.scopeSteps : null;
+  const [expanded, setExpanded] = useState(false);
+  const open = collapsible ? expanded : true;
   const hasMaterials = (item.materialsWithMarginPence || 0) > 0;
   const lineTotal = item.guardedPricePence + (item.materialsWithMarginPence || 0);
+  // Labour/materials split shown in the expanded row. Labour is derived from the
+  // DISPLAYED total (which may include structural share) minus the customer
+  // materials price, so the two figures always sum to the price on the row.
+  const materialsDisplayPence = item.materialsWithMarginPence || 0;
+  const labourDisplayPence = (displayPricePence ?? lineTotal) - materialsDisplayPence;
 
   let qualifier: string | null = null;
   let unitEach: string | null = null;
@@ -135,13 +147,19 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence }: { item: PricingL
     ? 'bg-[#FACC15]/[0.16]'
     : 'bg-[#FACC15]/[0.14]';
 
+  // Static rows with nothing beyond the badge to show (no description, no
+  // materials split) skip the content block entirely — a lone badge under a
+  // bare title is chrome, not information.
+  const hasContent = Boolean(customerDesc) || Boolean(scopeSteps) || (hasMaterials && labourDisplayPence > 0);
+  const HeaderTag = (collapsible ? 'button' : 'div') as 'button';
+
   return (
     <div className={`rounded-lg overflow-hidden ${cardClass}`}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left active:scale-[0.995] transition-transform"
+      <HeaderTag
+        {...(collapsible
+          ? { type: 'button' as const, onClick: () => setExpanded((o) => !o), 'aria-expanded': open }
+          : {})}
+        className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-left ${collapsible ? 'active:scale-[0.995] transition-transform' : ''}`}
       >
         {isSku ? (
           <div className={`shrink-0 w-8 h-8 rounded-md flex items-center justify-center ${isDarkTheme ? 'bg-[#FACC15]/20 ring-1 ring-[#FACC15]/25' : 'bg-[#FACC15]/15 ring-1 ring-[#FACC15]/25'}`}>
@@ -179,20 +197,22 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence }: { item: PricingL
         </div>
 
         <span className={`shrink-0 text-[14px] font-bold tabular-nums ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}>£{Math.round((displayPricePence ?? lineTotal) / 100)}</span>
-        <ChevronDown className={`shrink-0 w-4 h-4 transition-transform duration-300 ${open ? 'rotate-180' : ''} ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} />
-      </button>
+        {collapsible && (
+          <ChevronDown className={`shrink-0 w-4 h-4 transition-transform duration-300 ${open ? 'rotate-180' : ''} ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} />
+        )}
+      </HeaderTag>
 
+      {(collapsible || hasContent) && (
       <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
         <div className="overflow-hidden">
           <div className="px-2.5 pb-2.5 flex flex-col gap-1.5">
+            {/* Badge row — "Tailored to your job" was dropped: it added chrome
+                without information. SKU lines keep the Fixed price trust badge. */}
+            {(isSku || unitEach || anyItem.propertyTag) && (
             <div className="flex flex-wrap items-center gap-1.5">
-              {isSku ? (
+              {isSku && (
                 <span className={`inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${isDarkTheme ? 'bg-[#7DB00E]/15 text-[#a3d65f]' : 'bg-[#7DB00E]/12 text-[#4d7a09]'}`}>
                   <Tag className="w-2.5 h-2.5" /> Fixed price
-                </span>
-              ) : (
-                <span className={`inline-flex items-center gap-1 text-[10px] font-medium rounded-full px-1.5 py-0.5 ${isDarkTheme ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
-                  <PencilRuler className="w-2.5 h-2.5" /> Tailored to your job
                 </span>
               )}
               {unitEach && <span className={`text-[10px] ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>{unitEach}</span>}
@@ -200,18 +220,49 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence }: { item: PricingL
                 <span className={`text-[10px] font-medium rounded-full px-1.5 py-0.5 ${isDarkTheme ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>{anyItem.propertyTag}</span>
               )}
             </div>
-            {customerDesc && (
-              <p className={`text-[11.5px] leading-relaxed ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>{customerDesc}</p>
             )}
+            {hasMaterials && labourDisplayPence > 0 && (
+              <p className={`text-[11px] font-medium tabular-nums ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
+                Labour £{Math.round(labourDisplayPence / 100)} · Materials £{Math.round(materialsDisplayPence / 100)}
+              </p>
+            )}
+            {scopeSteps ? (
+              <ul className="flex flex-col gap-1.5 mt-0.5">
+                {scopeSteps.map((step, i) => {
+                  // "Head — detail" format: bold value-word lead, muted expansion.
+                  // Steps without an em-dash render whole at head weight.
+                  const dashIdx = step.indexOf(' — ');
+                  const head = dashIdx > 0 ? step.slice(0, dashIdx) : step;
+                  const detail = dashIdx > 0 ? step.slice(dashIdx + 3) : null;
+                  return (
+                    <li key={i} className="flex items-start gap-2 text-[12.5px] leading-snug">
+                      <span className={`shrink-0 mt-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center ${isDarkTheme ? 'bg-[#7DB00E]/25' : 'bg-[#7DB00E]/15'}`}>
+                        <Check className={`w-2.5 h-2.5 ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`} strokeWidth={3.5} />
+                      </span>
+                      <span>
+                        <span className={`font-semibold ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>{head}</span>
+                        {detail && <span className={isDarkTheme ? 'text-slate-400' : 'text-slate-500'}> — {detail}</span>}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : customerDesc ? (
+              <p className={`text-[12.5px] leading-relaxed border-l-2 border-[#FACC15]/50 pl-2.5 ${isDarkTheme ? 'text-slate-200' : 'text-slate-700'}`}>
+                {customerDesc}
+              </p>
+            ) : null}
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
 
-/** The six canonical customer types (mirrors contextSignals.customerType). */
-type CustomerType = 'homeowner' | 'landlord' | 'property_manager' | 'tenant' | 'business' | 'letting_agent';
+/** The canonical customer types (mirrors contextSignals.customerType). oap_homeowner
+ *  is a homeowner variant that adds a cash-on-the-day payment option. */
+type CustomerType = 'homeowner' | 'oap_homeowner' | 'landlord' | 'property_manager' | 'tenant' | 'business' | 'letting_agent';
 
 interface UnifiedQuoteCardProps {
   segment: string;
@@ -232,7 +283,7 @@ interface UnifiedQuoteCardProps {
     totalPrice: number;
     chargeNowPence: number; // Amount to charge today (deposit or full discounted price)
     balanceOnCompletionPence: number; // Remaining balance due on job completion
-    paymentMode: 'deposit' | 'full';
+    paymentMode: 'deposit' | 'full' | 'cash';
     usedDownsell: boolean;
     /** Phase 30 — address captured at the quote so dispatch has it (no later chase). */
     address?: { line: string; postcode?: string; lat?: number; lng?: number };
@@ -383,6 +434,13 @@ const DIFFERENTIATOR_CHIPS: Record<CustomerType, DifferentiatorChip[]> = {
     // "We tidy up" intentionally dropped from the homeowner strip — 3 items keep
     // the trust strip on one line on mobile at a readable size (4 forced a wrap).
   ],
+  // OAP homeowner: a faithful duplicate of homeowner (same reassurance set). It
+  // differs only in payment options (cash on the day), handled in the toggle below.
+  oap_homeowner: [
+    { icon: <Shield className="w-4 h-4" />, label: '£2M insured', short: '£2M insured', sub: "covered if anything's damaged" },
+    { icon: <UserCheck className="w-4 h-4" />, label: 'Vetted & DBS-checked', short: 'DBS-checked', sub: 'a safe pro in your home' },
+    { icon: <BadgeCheck className="w-4 h-4" />, label: 'Guaranteed', short: 'Guaranteed', sub: 'not right? we come back free' },
+  ],
   landlord: [
     // Tenant liaison is a paid +£25 add-on → NOT claimed here as standard.
     { icon: <Tag className="w-4 h-4" />, label: 'Fixed price' },
@@ -505,6 +563,34 @@ export function UnifiedQuoteCard({
   const [showAllDates, setShowAllDates] = useState(false);
   const queryClient = useQueryClient();
   const [payFull, setPayFull] = useState(false);
+  // Share affordance — big-ticket buyers almost always need to show someone else
+  // (spouse, landlord). Native share sheet on mobile; clipboard fallback on desktop.
+  const [shareCopied, setShareCopied] = useState(false);
+  const handleShareQuote = async () => {
+    const url = window.location.href;
+    const firstName = customerName.split(' ')[0];
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({ title: `Handy Services quote for ${firstName}`, url });
+        return;
+      } catch {
+        // User dismissed the sheet or share failed — fall through to copy.
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable — nothing sensible to do.
+    }
+  };
+  // Cash-on-the-day, offered only to OAP homeowners. When chosen no online payment
+  // is taken: the job books and the contractor collects cash on the day. Gated on
+  // cashEligible so it can never activate for any other customer type.
+  const cashEligible = customerType === 'oap_homeowner';
+  const [payCash, setPayCash] = useState(false);
+  const isCash = payCash && cashEligible;
 
   // Smart slot selection state (AM/PM/FULL_DAY for quote-specific availability)
   type SlotChoice = 'am' | 'pm' | 'full_day';
@@ -627,7 +713,7 @@ export function UnifiedQuoteCard({
   // back to flex and silently undo the customer's "I need a specific day".
   const flexDefaultedRef = useRef(initialUseFlexBooking !== undefined);
   useEffect(() => {
-    if (!isLandlord && (customerType === 'homeowner' || customerType === 'business' || isQuoteFlexEligible) && !flexDefaultedRef.current) {
+    if (!isLandlord && (customerType === 'homeowner' || customerType === 'oap_homeowner' || customerType === 'business' || isQuoteFlexEligible) && !flexDefaultedRef.current) {
       flexDefaultedRef.current = true;
       setUseFlexBooking(true);
     }
@@ -1009,7 +1095,7 @@ export function UnifiedQuoteCard({
         : (useFlexBooking ? 'flex' : 'date_time');
 
   // Calculate total price
-  const { total, breakdown, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied } = useMemo(() => {
+  const { total, breakdown, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied, totalMaterialsPence } = useMemo(() => {
     let amount = basePrice;
     const items: { label: string; amount: number }[] = [
       { label: config.priceLabel, amount: basePrice },
@@ -1106,7 +1192,7 @@ export function UnifiedQuoteCard({
     const payFullTotal = Math.round(Math.round(adjustedAmount * (1 - PAY_FULL_DISCOUNT)) / 100) * 100;
     const payFullSaving = adjustedAmount - payFullTotal;
 
-    return { total: adjustedAmount, breakdown: items, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied };
+    return { total: adjustedAmount, breakdown: items, depositAmount, balanceOnCompletion, payFullTotal, payFullSaving, saturdayPremiumApplied, liaisePremiumApplied, totalMaterialsPence };
   }, [basePrice, selectedDate, selectedTimeSlot, selectedAddOns, useDownsell, useFlexBooking, isLandlord, isBusiness, availableDates, allAddOns, config, batchDiscount, pricingLineItems, totalSaturdayPremiumPence, setDatePremium]);
 
   // Customer-facing line items show their true totals: pure labour + materials +
@@ -1175,7 +1261,7 @@ export function UnifiedQuoteCard({
 
   // Create payment intent when inline payment should be shown
   useEffect(() => {
-    if (!showInlinePayment || !quoteId || !stripe || !effectiveEmail || !detailsConfirmed) {
+    if (!showInlinePayment || isCash || !quoteId || !stripe || !effectiveEmail || !detailsConfirmed) {
       setClientSecret(null);
       setPaymentIntentId(null);
       return;
@@ -1477,9 +1563,9 @@ export function UnifiedQuoteCard({
   }, [selectedDate, selectedTimeSlot, quoteId, confirmedDates.length, useFlexBooking]);
 
   const handleBook = () => {
-    const chargeNow = payFull ? payFullTotal : depositAmount;
-    const balance = payFull ? 0 : balanceOnCompletion;
-    const mode = payFull ? 'full' as const : 'deposit' as const;
+    const chargeNow = isCash ? 0 : payFull ? payFullTotal : depositAmount;
+    const balance = isCash ? total : payFull ? 0 : balanceOnCompletion;
+    const mode = isCash ? 'cash' as const : payFull ? 'full' as const : 'deposit' as const;
 
     // If using Phase 25 flex booking, no date/time — dispatcher picks within window.
     // Landlord liaise mode rides the same branch but carries the tenant contact so
@@ -1564,7 +1650,24 @@ export function UnifiedQuoteCard({
 
           <div className="mb-1">
             <AnimatePresence mode="wait">
-              {payFull ? (
+              {isCash ? (
+                <motion.div
+                  key="cash"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                  className="inline-block"
+                >
+                  <span className={`text-5xl font-black ${isDarkTheme ? 'text-white' : 'text-[#7DB00E]'}`}>
+                    £{Math.round(total / 100)}
+                  </span>
+                  <div className="text-xs mt-1 leading-snug">
+                    <span className={`font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>All-in fixed price.</span>{' '}
+                    <span className="text-[#7DB00E]">Pay cash on the day. Nothing now.</span>
+                  </div>
+                </motion.div>
+              ) : payFull ? (
                 <motion.div
                   key="full"
                   initial={{ opacity: 0, y: 8 }}
@@ -1635,16 +1738,16 @@ export function UnifiedQuoteCard({
           <div className="mt-4 grid grid-cols-2 md:grid-cols-1 xl:grid-cols-2 gap-2 text-left">
             <button
               type="button"
-              onClick={() => setPayFull(false)}
+              onClick={() => { setPayFull(false); setPayCash(false); }}
               className={`rounded-xl p-3 transition-colors active:scale-[0.99] ${
-                !payFull
+                !payFull && !isCash
                   ? 'bg-[#7DB00E]/10 border-2 border-[#7DB00E]'
                   : isDarkTheme ? 'bg-white/[0.04] border-2 border-white/10' : 'bg-slate-50 border-2 border-slate-200'
               }`}
             >
               <div className="flex items-center gap-2">
-                <span className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${!payFull ? 'bg-[#7DB00E] border-[#7DB00E]' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
-                  {!payFull && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                <span className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${!payFull && !isCash ? 'bg-[#7DB00E] border-[#7DB00E]' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
+                  {!payFull && !isCash && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
                 </span>
                 <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I'll reserve it</span>
               </div>
@@ -1655,16 +1758,16 @@ export function UnifiedQuoteCard({
 
             <button
               type="button"
-              onClick={() => setPayFull(true)}
+              onClick={() => { setPayFull(true); setPayCash(false); }}
               className={`rounded-xl p-3 transition-colors active:scale-[0.99] ${
-                payFull
+                payFull && !isCash
                   ? 'bg-[#7DB00E]/10 border-2 border-[#7DB00E]'
                   : isDarkTheme ? 'bg-white/[0.04] border-2 border-white/10' : 'bg-slate-50 border-2 border-slate-200'
               }`}
             >
               <div className="flex items-center gap-2">
-                <span className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${payFull ? 'bg-[#7DB00E] border-[#7DB00E]' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
-                  {payFull && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                <span className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${payFull && !isCash ? 'bg-[#7DB00E] border-[#7DB00E]' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
+                  {payFull && !isCash && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
                 </span>
                 <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I'll pay in full</span>
               </div>
@@ -1674,12 +1777,52 @@ export function UnifiedQuoteCard({
             </button>
           </div>
 
+          {/* Deposit framing — on materials-heavy jobs the deposit can exceed half
+              the total (100% materials + 30% labour), so say what it buys: the
+              customer's own materials, not an arbitrary upfront grab. */}
+          {!payFull && !isCash && totalMaterialsPence > 0 && (
+            <p className={`mt-2 text-[11px] text-center leading-snug ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+              Your deposit covers your materials in full, plus 30% of labour.
+            </p>
+          )}
+
+          {/* Cash on the day — OAP homeowners only. Full-width below the card
+              options; selecting it takes no online payment (the contractor
+              collects cash when the job is done). */}
+          {cashEligible && (
+            <button
+              type="button"
+              onClick={() => setPayCash(true)}
+              className={`mt-2 w-full rounded-xl p-3 text-left transition-colors active:scale-[0.99] ${
+                isCash
+                  ? 'bg-[#7DB00E]/10 border-2 border-[#7DB00E]'
+                  : isDarkTheme ? 'bg-white/[0.04] border-2 border-white/10' : 'bg-slate-50 border-2 border-slate-200'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${isCash ? 'bg-[#7DB00E] border-[#7DB00E]' : isDarkTheme ? 'border-white/40' : 'border-slate-400'}`}>
+                  {isCash && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                </span>
+                <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I'll pay cash on the day</span>
+              </div>
+              <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                Nothing to pay now · £{Math.round(total / 100)} cash when the job's done
+              </p>
+            </button>
+          )}
+
           {/* Inline Price Breakdown (always visible) */}
           {pricingLineItems && pricingLineItems.length > 0 && (
             <div className={`mt-3 pt-3 border-t text-left ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
               <div className="space-y-1.5">
                 {displayLineItems.map(({ item, displayPence }) => (
-                  <QuoteLineRow key={item.lineId} item={item} isDarkTheme={isDarkTheme} displayPricePence={displayPence} />
+                  <QuoteLineRow
+                    key={item.lineId}
+                    item={item}
+                    isDarkTheme={isDarkTheme}
+                    displayPricePence={displayPence}
+                    collapsible={displayLineItems.length >= 5}
+                  />
                 ))}
               </div>
               {/* Decomposed structural costs (call-out × visits / travel /
@@ -1849,6 +1992,19 @@ export function UnifiedQuoteCard({
               })()}
             </div>
           )}
+
+          {/* Share — big-ticket decisions rarely happen alone; let the customer
+              forward the quote to whoever signs it off (spouse, landlord) without
+              Ben needing an email on file. Quiet text button so it never competes
+              with the booking CTA. */}
+          <button
+            type="button"
+            onClick={handleShareQuote}
+            className={`mt-3 mx-auto flex items-center gap-1.5 text-[12px] font-medium transition-colors ${isDarkTheme ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-800'}`}
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            {shareCopied ? 'Link copied' : 'Share this quote'}
+          </button>
 
           {/* Contact card — chat or call Ben directly (reduces decision anxiety).
               Uses the same translucent dark fill as the "included as standard" tiles
@@ -2664,14 +2820,16 @@ export function UnifiedQuoteCard({
                 className="w-full h-14 rounded-2xl font-bold text-lg bg-[#7DB00E] hover:bg-[#6da000] text-slate-900 transition-all"
               >
                 <span className="flex items-center gap-2">
-                  {isContextual ? 'Approve and pay' : 'Book my slot'}
+                  {isCash ? 'Book — pay cash on the day' : isContextual ? 'Approve and pay' : 'Book my slot'}
                   <ChevronRight className="w-5 h-5" />
                 </span>
               </Button>
               <p className={`text-xs text-center ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
-                {payFull
+                {isCash
+                  ? `Nothing to pay now · £${Math.round(total / 100)} cash when it's done`
+                  : payFull
                   ? `£${Math.round(payFullTotal / 100)} · secure payment by Stripe`
-                  : `Just £${Math.round(depositAmount / 100)} to secure it · £${Math.round(balanceOnCompletion / 100)} on completion`}
+                  : `Just £${Math.round(depositAmount / 100)} to secure it · £${Math.round(balanceOnCompletion / 100)} on completion${totalMaterialsPence > 0 ? ' · covers your materials in full, plus 30% of labour' : ''}`}
               </p>
             </motion.div>
           ) : (
@@ -2754,7 +2912,7 @@ export function UnifiedQuoteCard({
                         : isDarkTheme ? 'bg-white/5 text-slate-600 cursor-not-allowed' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                     }`}
                   >
-                    Continue to payment
+                    {isCash ? 'Continue' : 'Continue to payment'}
                   </button>
                 </div>
               ) : isLoadingPaymentIntent ? (
@@ -2763,6 +2921,36 @@ export function UnifiedQuoteCard({
                   <span className={`ml-2 text-sm ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                     Setting up secure payment...
                   </span>
+                </div>
+              ) : isCash ? (
+                /* Cash on the day (OAP): no card form — the address is captured
+                   above, then this confirms. handleBook fires onBook with
+                   paymentMode 'cash', £0 now and the full balance due in cash. */
+                <div className="space-y-3">
+                  <div className={`flex items-center justify-between gap-2 pt-1 ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                    <div>
+                      <p className={`text-xs uppercase tracking-wide ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Total</p>
+                      <p className="text-lg font-bold">£{Math.round(total / 100)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-base font-bold ${isDarkTheme ? 'text-[#7DB00E]' : 'text-[#5a8a0a]'}`}>£0 now</p>
+                      <p className={`text-[11px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>£{Math.round(total / 100)} cash on the day</p>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={handleBook}
+                    disabled={isBooking}
+                    className="w-full h-14 rounded-2xl font-bold text-lg bg-[#7DB00E] hover:bg-[#6da000] text-slate-900 transition-all"
+                  >
+                    {isBooking ? (
+                      <span className="flex items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" /> Booking…</span>
+                    ) : (
+                      <span className="flex items-center gap-2">Confirm booking <ChevronRight className="w-5 h-5" /></span>
+                    )}
+                  </Button>
+                  <p className={`text-xs text-center ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
+                    No payment now. Pay £{Math.round(total / 100)} in cash when the job's done.
+                  </p>
                 </div>
               ) : paymentError && !clientSecret ? (
                 <Alert variant="destructive" className="bg-red-50 border-red-200">
@@ -2859,6 +3047,9 @@ export function UnifiedQuoteCard({
                       <div className="text-right">
                         <p className={`text-base font-bold ${isDarkTheme ? 'text-[#7DB00E]' : 'text-[#5a8a0a]'}`}>£{Math.round(depositAmount / 100)} today</p>
                         <p className={`text-[11px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>£{Math.round(balanceOnCompletion / 100)} on completion</p>
+                        {totalMaterialsPence > 0 && (
+                          <p className={`text-[10px] ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>covers materials in full + 30% labour</p>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2888,7 +3079,9 @@ export function UnifiedQuoteCard({
               )}
 
               <p className={`text-xs text-center mt-3 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
-                {payFull
+                {isCash
+                  ? null
+                  : payFull
                   ? 'Secure payment powered by Stripe'
                   : `£${Math.round(balanceOnCompletion / 100)} remaining on completion · Secure payment by Stripe`
                 }

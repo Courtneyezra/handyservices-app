@@ -897,6 +897,10 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
       bookingRuleId?: number | null;
     }>(),
 
+    // Customer-supplied job photos (uploaded during contextual quote generation,
+    // shown on the customer quote page as "your job, as you sent it")
+    customerPhotoUrls: jsonb("customer_photo_urls").$type<string[]>(),
+
     // Note: contextSignals field already exists above (line 664) — reused for raw context signals for analytics/retraining
 
     // Margin Engine — Cost vs Price tracking

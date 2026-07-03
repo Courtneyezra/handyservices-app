@@ -581,6 +581,8 @@ export interface PersonalizedQuote {
   subtotalPence?: number;
   /** Dead zone framing note (shown near price when quote lands in £100-£200 band) */
   deadZoneFraming?: string;
+  /** Customer-supplied job photos (uploaded during quote generation) */
+  customerPhotoUrls?: string[];
 
   // Context signals (Phase 5b)
   contextSignals?: {
@@ -1443,6 +1445,60 @@ function getHeroImage(quote: PersonalizedQuote): string {
   if (isPainting) return '/assets/quote-images/painting.webp';
   return '/assets/quote-images/door-greeting.webp';
 }
+
+/** Customer-supplied job photos — "your job, as you sent it". Placed directly
+    under the price/booking card so the photos anchor the price to THEIR exact
+    job before any generic value messaging. Renders nothing when no photos. */
+const CustomerJobPhotos = ({ photos }: { photos?: string[] | null }) => {
+  if (!photos || photos.length === 0) return null;
+  return (
+    <SectionWrapper className="bg-white">
+      <div className="max-w-2xl md:max-w-3xl mx-auto w-full py-8 md:py-12">
+        <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">
+          Your job. <span className="text-[#5a8209]">As you sent it.</span>
+        </h2>
+        <p className="text-slate-500 mt-4 text-base md:text-lg max-w-xl mx-auto leading-relaxed">
+          We priced this from your photos — <span className="text-slate-900 font-semibold">the price covers exactly what&rsquo;s shown here.</span>
+        </p>
+        {(() => {
+          // Odd counts (3, 5, 7…) leave the last cell stranded in an even grid,
+          // so promote the FIRST photo to a full-width hero and grid the even
+          // remainder. Even counts fill the grid exactly; 3-col only when the
+          // grid count divides by 3 so no row is ever left with a hole.
+          const isOdd = photos.length > 1 && photos.length % 2 === 1;
+          const hero = photos.length === 1 ? photos[0] : isOdd ? photos[0] : null;
+          const gridPhotos = hero ? photos.slice(1) : photos;
+          const gridCols = gridPhotos.length % 3 === 0 ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2';
+          const photoTile = (url: string, i: number, aspect: string) => (
+            <a
+              key={url}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`block rounded-xl overflow-hidden ring-1 ring-slate-200 shadow-sm bg-slate-100 ${aspect}`}
+            >
+              <img src={url} alt={`Your job photo ${i + 1}`} className="w-full h-full object-cover" loading="lazy" />
+            </a>
+          );
+          return (
+            <div className="mt-8 space-y-3">
+              {hero && (
+                <div className={photos.length === 1 ? 'max-w-md mx-auto' : ''}>
+                  {photoTile(hero, 0, 'aspect-[4/3]')}
+                </div>
+              )}
+              {gridPhotos.length > 0 && (
+                <div className={`grid gap-3 ${gridCols}`}>
+                  {gridPhotos.map((url, i) => photoTile(url, i + (hero ? 1 : 0), 'aspect-square'))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </div>
+    </SectionWrapper>
+  );
+};
 
 const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any }) => {
   // Get segment content
@@ -4255,6 +4311,10 @@ export default function PersonalizedQuotePage() {
             reviews={pricingSettings?.reviewCount ?? 127}
           />
 
+          {/* 1b ─ Customer's own job photos — right after the price hero so the
+                 price is anchored to THEIR exact job. */}
+          <CustomerJobPhotos photos={quote.customerPhotoUrls} />
+
           {/* 2 ─ Social proof — reviews/testimonials, shown before the booking card.
                  Eyebrow rating hidden here — the hero already shows 4.9 · 127 reviews. */}
           <ValueSocialProof quote={quote} pricingSettings={pricingSettings ?? undefined} hideReviewEyebrow />
@@ -4403,6 +4463,10 @@ export default function PersonalizedQuotePage() {
             </div>
           </div>
         )}
+
+        {/* Customer's own job photos — anchors the price to THEIR exact job,
+            straight after the price card and before any generic messaging. */}
+        <CustomerJobPhotos photos={quote.customerPhotoUrls} />
 
         {/* Cost of the wrong choice — established before any price. Quiet editorial
             beat (type + whitespace, no coloured band). Contextual quotes only. */}
