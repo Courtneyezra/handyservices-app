@@ -1571,11 +1571,15 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
         <img
           src={getHeroImage(quote)}
           alt="Friendly Plumber"
-          className="w-full h-full object-cover opacity-60 contrast-110"
+          className="w-full h-full object-cover opacity-75 contrast-110"
           style={{ objectPosition: 'center 30%' }}
         />
-        {/* Uniform scrim guarantees heading contrast wherever it lands vertically */}
-        <div className={`absolute inset-0 bg-slate-900/60`} />
+        {/* Backlit scrim: radial — light in the centre so the photo glows through
+            behind the heading, darkening toward the edges for framing/contrast. */}
+        <div
+          className="absolute inset-0"
+          style={{ background: 'radial-gradient(ellipse 70% 55% at 50% 42%, rgba(15,23,42,0.30) 0%, rgba(15,23,42,0.52) 55%, rgba(15,23,42,0.72) 100%)' }}
+        />
         {/* Depth: darker at the very top (scarcity banner) and bottom (timer bar) */}
         <div className="absolute inset-0 bg-gradient-to-b from-slate-900/70 via-transparent to-slate-900" />
       </div>
