@@ -849,9 +849,13 @@ app.post('/api/twilio/voice', async (req, res) => {
     if (routing.destination === 'va-forward') {
         // Forward to VA with hold music
         const holdMusicUrl = settings.holdMusicUrl || `${httpProtocol}://${host}/assets/hold-music.mp3`;
+        const forwardTarget = (settings.forwardNumber || '').trim();
+        const isSipTarget = forwardTarget.toLowerCase().startsWith('sip:');
+        // SIP endpoints (Groundwire) can be shown the real caller ID; PSTN forwards must present our Twilio number
+        const dialCallerId = isSipTarget ? req.body.From : (req.body.To || req.body.Called);
         twiml += `
-      <Dial timeout="${settings.maxWaitSeconds || 30}" action="${httpProtocol}://${host}/api/twilio/dial-status" method="POST" answerOnBridge="false" ringTone="uk" callerId="${req.body.To || req.body.Called}">
-        <Number>${settings.forwardNumber}</Number>
+      <Dial timeout="${settings.maxWaitSeconds || 30}" action="${httpProtocol}://${host}/api/twilio/dial-status" method="POST" answerOnBridge="false" ringTone="uk" callerId="${dialCallerId}">
+        ${isSipTarget ? `<Sip>${forwardTarget}</Sip>` : `<Number>${forwardTarget}</Number>`}
       </Dial>`;
     } else if (routing.destination === 'eleven-labs' || routing.destination === 'busy-agent') {
         // Redirect to Eleven Labs Register Call endpoint (DIRECT MODE)
@@ -916,6 +920,36 @@ app.post('/api/twilio/test-push', async (req, res) => {
         console.error('[Twilio] test-push failed:', e);
         res.status(500).json({ ok: false, error: String(e) });
     }
+});
+
+// Outbound calls dialled FROM the Groundwire SIP client (Twilio SIP Domain voice webhook).
+// Twilio sends To as "sip:<dialled>@<domain>.sip.twilio.com" — extract the dialled number
+// and bridge to the PSTN presenting our Twilio number as caller ID.
+app.post('/api/twilio/sip-outbound', async (req, res) => {
+    const settings = await getTwilioSettings();
+    const callerId = settings.twilioPhoneNumber || process.env.TWILIO_PHONE_NUMBER;
+    const rawTo = (req.body.To || '') as string;
+    const match = rawTo.match(/^sip:([^@;]+)@/i);
+    let dialled = match ? decodeURIComponent(match[1]).replace(/[\s\-().]/g, '') : '';
+
+    // Normalise UK national format (07700900123 -> +447700900123)
+    if (/^0\d{9,10}$/.test(dialled)) dialled = `+44${dialled.slice(1)}`;
+
+    if (!callerId || !/^\+\d{7,15}$/.test(dialled)) {
+        console.warn(`[SIP-Outbound] Rejected dial attempt: To=${rawTo}`);
+        res.type('text/xml');
+        return res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response><Say voice="Polly.Amy">Sorry, that number could not be dialled.</Say><Hangup/></Response>`);
+    }
+
+    console.log(`[SIP-Outbound] ${req.body.From} -> ${dialled}`);
+    res.type('text/xml');
+    res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial callerId="${callerId}" answerOnBridge="true">
+    <Number>${dialled}</Number>
+  </Dial>
+</Response>`);
 });
 
 // Eleven Labs Register Call - Uses official Eleven Labs API
