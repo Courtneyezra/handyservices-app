@@ -229,13 +229,17 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = fals
                   const dashIdx = step.indexOf(' — ');
                   const head = dashIdx > 0 ? step.slice(0, dashIdx) : step;
                   const detail = dashIdx > 0 ? step.slice(dashIdx + 3) : null;
+                  // The final step is the OUTCOME (what the customer is left
+                  // with) — solid green disc + brand-green head make it the
+                  // visual payoff of the checklist, not just another tick.
+                  const isOutcome = i === scopeSteps.length - 1 && scopeSteps.length > 1;
                   return (
                     <li key={i} className="flex items-start gap-2 text-[12.5px] leading-snug">
-                      <span className={`shrink-0 mt-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center ${isDarkTheme ? 'bg-[#7DB00E]/25' : 'bg-[#7DB00E]/15'}`}>
-                        <Check className={`w-2.5 h-2.5 ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`} strokeWidth={3.5} />
+                      <span className={`shrink-0 mt-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center ${isOutcome ? 'bg-[#7DB00E]' : isDarkTheme ? 'bg-[#7DB00E]/25' : 'bg-[#7DB00E]/15'}`}>
+                        <Check className={`w-2.5 h-2.5 ${isOutcome ? 'text-white' : isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`} strokeWidth={3.5} />
                       </span>
                       <span>
-                        <span className={`font-semibold ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>{head}</span>
+                        <span className={`font-semibold ${isOutcome ? (isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]') : isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>{head}</span>
                         {detail && <span className={isDarkTheme ? 'text-slate-400' : 'text-slate-500'}> — {detail}</span>}
                       </span>
                     </li>
