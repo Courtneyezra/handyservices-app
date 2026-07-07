@@ -1727,16 +1727,28 @@ export default function GenerateContextualQuote() {
         // true re-price, not a re-parse that could restructure/halve the quote).
         const storedLines = Array.isArray(quote.pricingLineItems) ? quote.pricingLineItems : [];
         if (storedLines.length > 0) {
-          const hydrated: LineItem[] = storedLines.map((pli: any) => ({
-            id: pli.lineId || pli.id || generateId(),
-            description: pli.description || '',
-            category: pli.category,
-            estimatedMinutes: pli.timeEstimateMinutes ?? pli.scheduleMinutes ?? 30,
-            materialsCostPounds: (pli.materialsCostPence ?? 0) / 100,
-            source: (pli.source === 'sku' || pli.source === 'catalog') ? pli.source : 'custom' as const,
-            ...(Array.isArray(pli.scopeSteps) ? { scopeSteps: pli.scopeSteps } : {}),
-            ...(pli.fixedTier ? { fixedTier: pli.fixedTier } : {}),
-          }));
+          const hydrated: LineItem[] = storedLines.map((pli: any) => {
+            const skuCode = pli.skuCode || pli.sku_code;
+            // A SKU line MUST carry its code or the engine can't price it and the
+            // whole live preview collapses. Keep 'sku' only when we have the code;
+            // otherwise fall back to 'custom' (priced from description/category).
+            const isSku = pli.source === 'sku' && !!skuCode;
+            return {
+              id: pli.lineId || pli.id || generateId(),
+              description: pli.description || '',
+              category: pli.category,
+              estimatedMinutes: pli.timeEstimateMinutes ?? pli.scheduleMinutes ?? 30,
+              materialsCostPounds: (pli.materialsCostPence ?? 0) / 100,
+              source: (isSku ? 'sku' : 'custom') as 'sku' | 'custom',
+              ...(isSku ? { skuCode } : {}),
+              ...(pli.unitCount !== undefined ? { unitCount: pli.unitCount } : {}),
+              ...(pli.selectedTier ? { selectedTier: pli.selectedTier } : {}),
+              ...(Array.isArray(pli.scopeSteps) ? { scopeSteps: pli.scopeSteps } : {}),
+              ...(pli.fixedTier ? { fixedTier: pli.fixedTier } : {}),
+              ...(pli.priceOverridePence !== undefined ? { priceOverridePence: pli.priceOverridePence } : {}),
+              ...(pli.timeOverrideMinutes !== undefined ? { timeOverrideMinutes: pli.timeOverrideMinutes } : {}),
+            };
+          });
           setLineItems(hydrated);
         } else if (quote.jobDescription && quote.jobDescription.trim().length > 5) {
           // Legacy quote with no stored line items — fall back to a re-parse.
