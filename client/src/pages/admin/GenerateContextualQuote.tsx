@@ -1293,7 +1293,14 @@ function guessCategoryFromText(text: string): string | null {
   return null;
 }
 
-export default function GenerateContextualQuote() {
+interface GenerateContextualQuoteProps {
+  /** Modal edit: edit this quote's slug without a route change (opened from Pipeline). */
+  editSlug?: string;
+  /** Called to close the modal (e.g. after save, or the × button). */
+  onClose?: () => void;
+}
+
+export default function GenerateContextualQuote({ editSlug: editSlugProp, onClose }: GenerateContextualQuoteProps = {}) {
   const { toast } = useToast();
   const [, navigate] = useLocation();
 
@@ -1304,7 +1311,9 @@ export default function GenerateContextualQuote() {
   // updates in place (preserving slug/id/view stats). Absent an editSlug this is
   // the normal create flow — editQuoteId stays null and nothing changes.
   const [editMatch, editParams] = useRoute('/admin/quotes/:slug/edit');
-  const editSlug = editMatch ? editParams?.slug : undefined;
+  // editSlug can come from the route (full-page edit) OR a prop (modal edit
+  // opened from the Pipeline). Either drives the same hydrate + save-in-place.
+  const editSlug = editSlugProp ?? (editMatch ? editParams?.slug : undefined);
   const [editQuoteId, setEditQuoteId] = useState<string | null>(null);
   const [editCustomerLabel, setEditCustomerLabel] = useState('');
   const editHydratedRef = useRef(false);
@@ -2982,15 +2991,27 @@ export default function GenerateContextualQuote() {
 
             {/* Edit-mode banner — makes clear this reuses the generator to edit an
                 existing quote and that saving re-prices + keeps the same link. */}
-            {editQuoteId && (
-              <div className="rounded-lg border-2 border-handy-navy bg-handy-navy px-4 py-3 text-white shadow-sm">
-                <p className="text-sm font-semibold">
-                  Editing {editCustomerLabel || 'this'}
-                  {editCustomerLabel ? "'s" : ''} quote
-                </p>
-                <p className="text-xs text-white/80 mt-0.5">
-                  Saving re-prices and updates the existing link — the URL stays the same.
-                </p>
+            {(editSlug || editQuoteId) && (
+              <div className="rounded-lg border-2 border-handy-navy bg-handy-navy px-4 py-3 text-white shadow-sm flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">
+                    Editing {editCustomerLabel || 'this'}
+                    {editCustomerLabel ? "'s" : ''} quote
+                  </p>
+                  <p className="text-xs text-white/80 mt-0.5">
+                    Saving re-prices and updates the existing link — the URL stays the same.
+                  </p>
+                </div>
+                {onClose && (
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    title="Close"
+                    className="shrink-0 -mr-1 -mt-1 p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
               </div>
             )}
 

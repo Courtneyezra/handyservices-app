@@ -13,7 +13,7 @@
  * Route: /admin/work — reachable by owner (admin) and Ben (va).
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, lazy, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import { format } from "date-fns";
@@ -23,6 +23,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+
+// The quote editor is the full generator in edit mode — opened here as a
+// modal so Ben stays on the Pipeline (close returns to the list). Lazy so it
+// doesn't bloat the Pipeline chunk.
+const GenerateContextualQuote = lazy(() => import("@/pages/admin/GenerateContextualQuote"));
 
 // ─── Row shapes ──────────────────────────────────────────────────────────
 
@@ -126,6 +131,7 @@ function StatusPill({ label, cls }: { label: string; cls: string }) {
 function QuotesTab() {
     const [, navigate] = useLocation();
     const [search, setSearch] = useState("");
+    const [editSlug, setEditSlug] = useState<string | null>(null);
 
     const { data: quotes = [], isLoading } = useQuery<QuoteRow[]>({
         queryKey: ["/api/personalized-quotes"],
@@ -185,7 +191,7 @@ function QuotesTab() {
                                 <div className="flex items-center gap-1.5 flex-shrink-0">
                                     <button
                                         title="Edit quote"
-                                        onClick={() => navigate(`/admin/quotes/${q.shortSlug}/edit`)}
+                                        onClick={() => setEditSlug(q.shortSlug)}
                                         className="p-1.5 rounded-lg bg-muted text-zinc-500 border hover:text-zinc-800"
                                     >
                                         <Pencil className="w-4 h-4" />
@@ -203,6 +209,22 @@ function QuotesTab() {
                             </div>
                         );
                     })}
+                </div>
+            )}
+
+            {/* Edit modal — the full generator in edit mode, over the Pipeline.
+                Close (× in its banner, or backdrop) returns to this list. On save
+                it re-prices in place; refresh the list so statuses update. */}
+            {editSlug && (
+                <div
+                    className="fixed inset-0 z-50 bg-black/50 flex sm:items-center sm:justify-center"
+                    onClick={(e) => { if (e.target === e.currentTarget) setEditSlug(null); }}
+                >
+                    <div className="w-full sm:max-w-3xl h-full sm:h-[92vh] bg-background sm:rounded-2xl overflow-y-auto shadow-2xl">
+                        <Suspense fallback={<div className="flex justify-center py-24"><Loader2 className="w-6 h-6 animate-spin text-zinc-400" /></div>}>
+                            <GenerateContextualQuote editSlug={editSlug} onClose={() => setEditSlug(null)} />
+                        </Suspense>
+                    </div>
                 </div>
             )}
         </div>
