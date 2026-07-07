@@ -3501,7 +3501,7 @@ export default function GenerateContextualQuote() {
 
                           {/* Materials — shown for SKU lines; for custom lines only once revealed */}
                           {(isPickedSku || showCustomConfig) && (
-                          <div className="flex items-center gap-3">
+                          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                             <button
                               type="button"
                               onClick={() => {
@@ -3525,7 +3525,7 @@ export default function GenerateContextualQuote() {
                               {materialsOpen ? '🧱 Materials' : '+ Materials'}
                             </button>
                             {materialsOpen && (
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 shrink-0">
                                 <span className="text-sm sm:text-xs text-muted-foreground">£</span>
                                 <MaterialsCostInput
                                   value={item.materialsCostPounds || 0}
