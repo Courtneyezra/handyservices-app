@@ -12,7 +12,7 @@ export interface CallScoreDimension {
 }
 
 export interface CallScorecard {
-    version: 3;
+    version: 5;
     overall: number; // 0-100, weighted composite
     dimensions: {
         discovery: CallScoreDimension & {
@@ -34,6 +34,8 @@ export interface CallScorecard {
     };
     flags: string[];
     coachingNote: string;
+    callerName: string; // caller's name as stated on the call, "" if not given (NEVER the agent's name)
+    mediaRequestPhrase: string; // short noun phrase for "send us a video showing us ___", "" if unclear
 }
 
 export interface ScorableCall {
@@ -108,6 +110,10 @@ FLAGS: include only flags that clearly apply, from exactly this list:
 
 COACHING NOTE: 1-2 sentences, constructive, addressed directly to the call handler ("you"). If the call was handled by the AI agent, phrase it as feedback for tuning the agent's behaviour rather than personal coaching.
 
+CALLER NAME: extract the CALLER's own name if they state it (from [Caller]: turns — e.g. "my name is Mark", "it's Sarah calling", "this is Mrs Ward"). Return their first name, plus surname if given. CRITICAL: this is the CUSTOMER's name, never the call handler's. The handler/agent is called "Ben" (and may introduce themselves as "Ben", "Ben from Handy Services", or "Courtnee") — NEVER return "Ben" or "Courtnee" as the caller name. If the caller never gives their name, return an empty string "".
+
+MEDIA REQUEST PHRASE: write a SHORT noun phrase naming the job, designed to drop seamlessly into the sentence "please send us a video showing us ___". Use "your"/"the" naturally, lowercase start, no trailing punctuation, max ~8 words. Examples: "the leaking tap under your kitchen sink", "your garden fence and the broken panels", "the cracked bathroom tiles". If the job is too vague to name specifically, return an empty string "".
+
 The same rubric applies to both human VA calls and AI-agent calls. Be fair: short calls where the customer got what they needed quickly can still score well. Score each dimension independently on 0-100.
 
 Respond ONLY with JSON.`;
@@ -171,8 +177,10 @@ const SCORECARD_JSON_SCHEMA = {
             accuracy: dimensionSchema(),
             flags: { type: "array", items: { type: "string", enum: [...ALLOWED_FLAGS] } },
             coachingNote: { type: "string" },
+            callerName: { type: "string" },
+            mediaRequestPhrase: { type: "string" },
         },
-        required: ["discovery", "conversionBehaviour", "rapport", "accuracy", "flags", "coachingNote"],
+        required: ["discovery", "conversionBehaviour", "rapport", "accuracy", "flags", "coachingNote", "callerName", "mediaRequestPhrase"],
     },
 } as const;
 
@@ -316,10 +324,102 @@ export async function scoreCall(call: ScorableCall): Promise<CallScorecard | nul
         : [];
 
     return {
-        version: 3,
+        version: 5,
         overall,
         dimensions,
         flags,
         coachingNote: String(parsed.coachingNote ?? ""),
+        callerName: sanitizeCallerName(parsed.callerName),
+        mediaRequestPhrase: sanitizeMediaPhrase(parsed.mediaRequestPhrase),
     };
+}
+
+// Normalise the media-request phrase to slot into "video showing us ___".
+export function sanitizeMediaPhrase(raw: unknown): string {
+    let p = String(raw ?? "").trim().replace(/[.!?,;:\s]+$/, "");
+    if (!p || p.length > 90) return "";
+    p = p.charAt(0).toLowerCase() + p.slice(1); // mid-sentence, lowercase start
+    return p;
+}
+
+/**
+ * Cheap standalone media-phrase extraction — used to backfill the WhatsApp
+ * video-request phrase on already-scored calls. Returns "" if the job is too
+ * vague to name specifically.
+ */
+export async function extractMediaPhrase(transcription: string): Promise<string> {
+    if (!transcription || transcription.length < 40) return "";
+    const response = await getAnthropic().messages.create({
+        model: "claude-opus-4-8",
+        max_tokens: 200,
+        system: `From this UK handyman-company call transcript ([Caller]: = customer, [Agent]: = handler), write a SHORT noun phrase naming the job to drop into "please send us a video showing us ___". Use "your"/"the" naturally, lowercase start, no trailing punctuation, max ~8 words (e.g. "the leaking tap under your kitchen sink", "your garden fence and the broken panels"). If too vague to name specifically, return "". Respond with JSON: {"mediaRequestPhrase": "..."}.`,
+        messages: [{ role: "user", content: transcription.slice(0, 24000) }],
+        output_config: {
+            format: {
+                type: "json_schema",
+                schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: { mediaRequestPhrase: { type: "string" } },
+                    required: ["mediaRequestPhrase"],
+                },
+            },
+        },
+    });
+    if (response.stop_reason === "refusal") return "";
+    const textBlock = response.content.find(
+        (b): b is Extract<typeof response.content[number], { type: "text" }> => b.type === "text",
+    );
+    if (!textBlock?.text) return "";
+    try {
+        return sanitizeMediaPhrase(JSON.parse(textBlock.text).mediaRequestPhrase);
+    } catch {
+        return "";
+    }
+}
+
+// Guard: never let the agent's own name land as the caller name.
+const AGENT_NAMES = /^(ben|courtnee|courtney|handy services|handy)$/i;
+function sanitizeCallerName(raw: unknown): string {
+    const name = String(raw ?? "").trim();
+    if (!name || name.length > 60) return "";
+    if (AGENT_NAMES.test(name)) return "";
+    if (AGENT_NAMES.test(name.split(/\s+/)[0])) return "";
+    return name;
+}
+
+/**
+ * Cheap standalone name-only extraction from a full transcript — used to
+ * backfill customerName where the live pipeline missed it. Returns "" if the
+ * caller never states their name (or only the agent's name appears).
+ */
+export async function extractCallerName(transcription: string): Promise<string> {
+    if (!transcription || transcription.length < 40) return "";
+    const response = await getAnthropic().messages.create({
+        model: "claude-opus-4-8",
+        max_tokens: 200,
+        system: `Extract the CALLER's own name from this UK handyman-company call transcript ([Caller]: = customer, [Agent]: = the handler). Return ONLY the caller's name (first name, plus surname if given). The handler is called "Ben" (may say "it's Ben" / "Ben from Handy Services") or "Courtnee" — NEVER return "Ben" or "Courtnee". If the caller never gives their own name, return an empty string. Respond with JSON: {"callerName": "..."}.`,
+        messages: [{ role: "user", content: transcription.slice(0, 24000) }],
+        output_config: {
+            format: {
+                type: "json_schema",
+                schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: { callerName: { type: "string" } },
+                    required: ["callerName"],
+                },
+            },
+        },
+    });
+    if (response.stop_reason === "refusal") return "";
+    const textBlock = response.content.find(
+        (b): b is Extract<typeof response.content[number], { type: "text" }> => b.type === "text",
+    );
+    if (!textBlock?.text) return "";
+    try {
+        return sanitizeCallerName(JSON.parse(textBlock.text).callerName);
+    } catch {
+        return "";
+    }
 }

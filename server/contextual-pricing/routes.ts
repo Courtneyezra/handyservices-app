@@ -1331,6 +1331,11 @@ const contextualQuoteInputSchema = z.object({
   // live customer-facing pricing. Ignored by every non-admin flow.
   previewDecomposed: z.boolean().optional(),
 
+  // Edit-in-place: when present, UPDATE this existing quote (re-priced through the
+  // same engine) instead of creating a new one. Preserves id, slug, view stats,
+  // call link, and created date. This is how quote editing reuses the generator.
+  quoteId: z.string().optional(),
+
   // Source tracking
   sourceCallId: z.string().optional(),
   // Quote origin channel. Defaults to 'call' when sourceCallId is present.
@@ -1598,9 +1603,19 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       }
     }
 
-    // 5. Generate short slug (with uniqueness check)
-    const shortSlug = await generateUniqueSlug();
-    const id = `quote_${nanoid()}`;
+    // 5. Slug + id. When editing in place, reuse the existing quote's id & slug
+    // (so the customer link and all stats stay put); otherwise mint new ones.
+    let editingQuote: typeof personalizedQuotes.$inferSelect | null = null;
+    if (input.quoteId) {
+      const [existing] = await db.select().from(personalizedQuotes)
+        .where(eq(personalizedQuotes.id, input.quoteId)).limit(1);
+      if (!existing) {
+        return res.status(404).json({ error: 'Quote to edit not found' });
+      }
+      editingQuote = existing;
+    }
+    const shortSlug = editingQuote?.shortSlug ?? await generateUniqueSlug();
+    const id = editingQuote?.id ?? `quote_${nanoid()}`;
 
     // 6. Find or create lead
     let linkedLeadId: string | null = input.sourceLeadId || null;
@@ -1909,8 +1924,23 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       expiresAt: new Date(Date.now() + QUOTE_VALIDITY_MS),
     };
 
-    await db.insert(personalizedQuotes).values(quoteInsertData);
-    console.log(`[ContextualQuote] Created quote ${shortSlug} (${id}), price: ${result.finalPricePence}p`);
+    if (editingQuote) {
+      // Edit in place — re-priced through the same engine. Preserve the fields
+      // that identify and track the original: id/slug (unchanged), created date,
+      // original creator, and the source-call link. View stats, deposit, and
+      // booking timestamps aren't in quoteInsertData, so they're untouched.
+      const {
+        id: _id, createdAt: _createdAt, createdBy: _cb, createdByName: _cbn,
+        sourceCallId: _scid, sourceChannel: _sch, ...editableFields
+      } = quoteInsertData;
+      await db.update(personalizedQuotes)
+        .set({ ...editableFields, updatedAt: new Date() })
+        .where(eq(personalizedQuotes.id, id));
+      console.log(`[ContextualQuote] Edited quote ${shortSlug} (${id}) in place, price: ${result.finalPricePence}p`);
+    } else {
+      await db.insert(personalizedQuotes).values(quoteInsertData);
+      console.log(`[ContextualQuote] Created quote ${shortSlug} (${id}), price: ${result.finalPricePence}p`);
+    }
 
     // 7a. Bump the catalog pick-count for any extras that were chosen — fire-and-forget.
     // Don't block the response if telemetry fails.

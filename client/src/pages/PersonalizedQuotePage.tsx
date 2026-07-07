@@ -2739,7 +2739,11 @@ export default function PersonalizedQuotePage() {
   const [, canonicalParams] = useRoute('/quote/:slug');
   const [, longParams] = useRoute('/quote-link/:slug');
   const [, shortParams] = useRoute('/q/:slug');
-  const params = canonicalParams || longParams || shortParams; // Support /quote/:slug, /quote-link/:slug, and /q/:slug
+  // Internal admin preview: same quote page, but the fetch carries ?preview=1
+  // (no view logged) and the preparing-screen loader is skipped. Admin-gated route.
+  const [previewMatch, previewParams] = useRoute('/admin/quotes/:slug/preview');
+  const isPreview = !!previewMatch;
+  const params = canonicalParams || longParams || shortParams || previewParams;
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
@@ -2919,9 +2923,9 @@ export default function PersonalizedQuotePage() {
 
   // Fetch personalized quote data
   const { data: quote, isLoading, error } = useQuery<PersonalizedQuote>({
-    queryKey: ['/api/personalized-quotes', params?.slug],
+    queryKey: ['/api/personalized-quotes', params?.slug, isPreview],
     queryFn: async () => {
-      const response = await fetch(`/api/personalized-quotes/${params?.slug}`);
+      const response = await fetch(`/api/personalized-quotes/${params?.slug}${isPreview ? '?preview=1' : ''}`);
 
       // 410 handling removed - quotes no longer expire
 
@@ -3024,7 +3028,8 @@ export default function PersonalizedQuotePage() {
   // Always start on the branded preparing screen — it is the SOLE loader now
   // (replaces the old price-lock skeleton). onComplete (below) decides where to
   // hand off: the offer (homeowner default / any type via ?v=offer) or the quote.
-  const [flowPhase, setFlowPhase] = useState<'preparing' | 'offer' | 'quote'>('preparing');
+  // Admin preview jumps straight to the quote — no preparing-screen theatre.
+  const [flowPhase, setFlowPhase] = useState<'preparing' | 'offer' | 'quote'>(isPreview ? 'quote' : 'preparing');
   // Records the flex-offer choice: true = accepted (flexible lane, base price);
   // false = declined (firm date & time, base + premium); null = no offer shown.
   const [acceptedFlexOffer, setAcceptedFlexOffer] = useState<boolean | null>(null);

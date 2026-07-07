@@ -29,6 +29,7 @@ import {
   KeyRound,
   Archive,
   GitMerge,
+  CheckCircle2,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -409,6 +410,27 @@ export default function ClientDetailPage() {
     onSuccess: invalidate,
   });
 
+  // Admin marks a job complete for work done outside the contractor field-app
+  // flow. Same server spine as the contractor "complete" action, so it rolls up
+  // to the quote (job-hub "Job complete" + Pay balance), fires the balance
+  // invoice, and notifies the customer.
+  const completeJob = useMutation({
+    mutationFn: async (jobId: string) => {
+      const res = await fetch(`/api/admin/jobs/${jobId}/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('adminToken') || ''}`,
+        },
+        body: JSON.stringify({ completionType: 'full' }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'Failed to complete job');
+      return res.json();
+    },
+    onSuccess: invalidate,
+    onError: (err) => window.alert((err as Error).message || 'Failed to complete job'),
+  });
+
   return (
     <div className="p-4 lg:p-6 max-w-6xl mx-auto space-y-6">
       <Link
@@ -584,19 +606,42 @@ export default function ClientDetailPage() {
           {/* Jobs */}
           <Section icon={Wrench} title="Jobs" count={data.counts.jobs}>
             <div className="space-y-2">
-              {data.jobs.map((j) => (
-                <div key={j.id} className="flex items-center justify-between border-b border-border py-2 last:border-0">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{j.description || 'Job'}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {j.scheduledDate ? `scheduled ${fmtDate(j.scheduledDate)}` : fmtDate(j.createdAt)}
-                      {j.scheduledSlot ? ` · ${j.scheduledSlot}` : ''}
-                      {j.completedAt ? ` · completed ${fmtDate(j.completedAt)}` : ''}
-                    </p>
+              {data.jobs.map((j) => {
+                const isDone = !!j.completedAt || j.dayOfStatus === 'completed' || j.status === 'completed';
+                const completing = completeJob.isPending && completeJob.variables === j.id;
+                return (
+                  <div key={j.id} className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{j.description || 'Job'}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {j.scheduledDate ? `scheduled ${fmtDate(j.scheduledDate)}` : fmtDate(j.createdAt)}
+                        {j.scheduledSlot ? ` · ${j.scheduledSlot}` : ''}
+                        {j.completedAt ? ` · completed ${fmtDate(j.completedAt)}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {!isDone && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={completing}
+                          onClick={() => {
+                            if (window.confirm('Mark this job complete? This generates the balance invoice and notifies the customer their job is done.')) {
+                              completeJob.mutate(j.id);
+                            }
+                          }}
+                        >
+                          {completing
+                            ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                            : <CheckCircle2 className="h-3.5 w-3.5 mr-1" />}
+                          Mark complete
+                        </Button>
+                      )}
+                      <StatusBadge value={j.dayOfStatus || j.status} />
+                    </div>
                   </div>
-                  <StatusBadge value={j.dayOfStatus || j.status} />
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Section>
 

@@ -12,7 +12,7 @@ import {
 } from '../shared/schema';
 import { eq, and, isNull } from 'drizzle-orm';
 import crypto from 'crypto';
-import { requireContractor } from './auth';
+import { requireContractor, requireAdmin } from './auth';
 import { notifyCustomer } from './customer-notifications';
 import { generateBalanceInvoice } from './invoice-generator';
 
@@ -959,9 +959,12 @@ export async function finalizeJobCompletion(
     const platformFeePence = Math.round(grossAmountPence * 0.20);
     const netPayoutPence = grossAmountPence - platformFeePence;
 
-    // Create contractor payout record
+    // Create contractor payout record. Guard on contractorId too: an admin
+    // completing a job that was never dispatched to anyone (done outside the
+    // field-app flow) has no contractor to pay — skip the payout rather than
+    // violating the notNull contractorId FK.
     let payoutRecord = null;
-    if (grossAmountPence > 0) {
+    if (grossAmountPence > 0 && contractorId) {
         const [payout] = await db.insert(contractorPayouts)
             .values({
                 jobId: id,
@@ -1051,6 +1054,61 @@ jobLifecycleRouter.post('/api/jobs/:id/complete', requireContractor, async (req,
         res.json({ success: true, ...result });
     } catch (error: any) {
         console.error('[Job Lifecycle] Error completing job:', error);
+        res.status(500).json({ error: error.message || 'Failed to complete job' });
+    }
+});
+
+// POST /api/admin/jobs/:id/complete — admin marks a job complete on behalf of a
+// contractor for jobs finished OUTSIDE the field-app flow (e.g. the contractor
+// never tapped through en-route → arrived → complete). Reuses the exact same
+// finalizeJobCompletion spine as the contractor route, so completion still rolls
+// up to the quote (completedAt → job-hub "Job complete" state), generates the
+// balance invoice, and notifies the customer. Differences vs the contractor
+// route: no ownership check, and the in_progress status guard is relaxed since
+// an out-of-app job may still sit at 'scheduled'/'confirmed'.
+jobLifecycleRouter.post('/api/admin/jobs/:id/complete', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            evidenceUrls,
+            completionNotes,
+            completionType = 'full',
+            lineItemStatuses,
+        } = req.body || {};
+
+        if (completionType !== 'full' && completionType !== 'partial') {
+            return res.status(400).json({ error: "completionType must be 'full' or 'partial'" });
+        }
+
+        const results = await db.select()
+            .from(contractorBookingRequests)
+            .where(eq(contractorBookingRequests.id, id))
+            .limit(1);
+
+        const job = results[0];
+        if (!job) {
+            return res.status(404).json({ error: 'Job not found' });
+        }
+        if (job.dayOfStatus === 'completed' || job.status === 'completed') {
+            return res.status(400).json({ error: 'Job is already completed' });
+        }
+
+        // Attribute the payout to whoever the job was assigned to (may be null for
+        // a job that was never dispatched — finalizeJobCompletion skips the payout
+        // in that case rather than failing).
+        const contractorId = job.assignedContractorId || '';
+
+        const adminName = (req as any).user?.name || (req as any).user?.email || 'admin';
+        const result = await finalizeJobCompletion(job, contractorId, {
+            completionType,
+            evidenceUrls,
+            completionNotes: completionNotes || `Marked complete by ${adminName} (out-of-app job)`,
+            lineItemStatuses,
+        });
+
+        res.json({ success: true, ...result });
+    } catch (error: any) {
+        console.error('[Job Lifecycle] Admin error completing job:', error);
         res.status(500).json({ error: error.message || 'Failed to complete job' });
     }
 });

@@ -40,6 +40,7 @@ import {
   X,
 } from 'lucide-react';
 import { format as formatDate, getDaysInMonth, getDay, startOfMonth } from 'date-fns';
+import { useRoute, useLocation } from 'wouter';
 import { QuotePreviewModal } from '@/components/quote/QuotePreviewModal';
 import type { PreviewQuote } from '@/components/quote/QuotePreviewModal';
 import { LinkedCallChip, type LinkedCallSummary } from '@/components/quote/LinkedCallChip';
@@ -1294,6 +1295,19 @@ function guessCategoryFromText(text: string): string | null {
 
 export default function GenerateContextualQuote() {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
+
+  // ── Edit mode ──
+  // Route /admin/quotes/:slug/edit reuses this generator as the quote editor
+  // ("one component, two modes"). When editing, we hydrate builder state from
+  // the existing quote and send its id back on save so the server re-prices and
+  // updates in place (preserving slug/id/view stats). Absent an editSlug this is
+  // the normal create flow — editQuoteId stays null and nothing changes.
+  const [editMatch, editParams] = useRoute('/admin/quotes/:slug/edit');
+  const editSlug = editMatch ? editParams?.slug : undefined;
+  const [editQuoteId, setEditQuoteId] = useState<string | null>(null);
+  const [editCustomerLabel, setEditCustomerLabel] = useState('');
+  const editHydratedRef = useRef(false);
 
   // ── Customer fields ──
   const [customerName, setCustomerName] = useState('');
@@ -1633,6 +1647,9 @@ export default function GenerateContextualQuote() {
   // handoff): ?fromCallId=<id>&phone=<raw>&name=<name>&job=<summary>. Runs once
   // on mount; the chip is enriched with time/duration by the lookup below.
   useEffect(() => {
+    // Edit mode owns hydration — the call-handoff prefill and edit hydration are
+    // mutually exclusive. Skip the ?fromCallId prefill when editing a quote.
+    if (editSlug) return;
     const params = new URLSearchParams(window.location.search);
     const fromCallId = params.get('fromCallId');
     const qpPhone = params.get('phone');
@@ -1650,6 +1667,91 @@ export default function GenerateContextualQuote() {
       setLinkedCall({ id: fromCallId, customerName: qpName, jobSummary: qpJob });
     }
   }, []);
+
+  // Edit hydration — runs once when landing on /admin/quotes/:slug/edit. Fetches
+  // the existing quote (?preview=1 so we don't log a view) and populates builder
+  // state, then re-parses the job description to regenerate priced line items at
+  // current engine pricing (the RE-PRICE — identical to generation). On save,
+  // editQuoteId is sent so the server updates in place.
+  useEffect(() => {
+    if (!editSlug || editHydratedRef.current) return;
+    editHydratedRef.current = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/personalized-quotes/${editSlug}?preview=1`, {
+          headers: getAuthHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to load quote for editing');
+        const quote = await res.json();
+
+        setEditQuoteId(quote.id);
+        setEditCustomerLabel(quote.customerName || '');
+
+        // Customer fields
+        if (quote.customerName) setCustomerName(quote.customerName);
+        if (quote.phone) setPhone(normalizePhoneInput(quote.phone));
+        if (quote.email) setEmail(quote.email);
+        if (quote.address) setAddress(quote.address);
+        if (quote.postcode) setPostcode(quote.postcode);
+        if (quote.coordinates && typeof quote.coordinates.lat === 'number') {
+          setCoordinates(quote.coordinates);
+          setAddressValidated(true);
+        }
+
+        // customerType lives in contextSignals JSONB (Phase 21), not a top-level
+        // column. Only set it when it's one of the Select's known values —
+        // otherwise leave '' so Ben re-picks rather than seeing a wrong value.
+        const cs = quote.contextSignals || {};
+        const storedType = cs.customerType;
+        if (storedType && CUSTOMER_TYPES.some((t) => t.value === storedType)) {
+          setCustomerType(storedType as CustomerType);
+        }
+
+        // Signals — urgency (and materials/time if present) come from
+        // contextSignals, which stored the generator's ContextSignals shape.
+        setSignals((prev) => ({
+          ...prev,
+          urgency: cs.urgency || prev.urgency,
+          ...(cs.materialsSupply ? { materialsSupply: cs.materialsSupply } : {}),
+          ...(cs.timeOfService ? { timeOfService: cs.timeOfService } : {}),
+        }));
+
+        // Available dates + customer photos carry through unchanged.
+        if (Array.isArray(quote.availableDates)) setAvailableDates(quote.availableDates);
+        if (Array.isArray(quote.customerPhotoUrls)) setCustomerPhotos(quote.customerPhotoUrls);
+
+        if (quote.jobDescription) setJobDescription(quote.jobDescription);
+
+        // Load the ACTUAL saved line items — preserve structure and any per-line
+        // overrides. The pricing engine re-prices these exact lines on save (a
+        // true re-price, not a re-parse that could restructure/halve the quote).
+        const storedLines = Array.isArray(quote.pricingLineItems) ? quote.pricingLineItems : [];
+        if (storedLines.length > 0) {
+          const hydrated: LineItem[] = storedLines.map((pli: any) => ({
+            id: pli.lineId || pli.id || generateId(),
+            description: pli.description || '',
+            category: pli.category,
+            estimatedMinutes: pli.timeEstimateMinutes ?? pli.scheduleMinutes ?? 30,
+            materialsCostPounds: (pli.materialsCostPence ?? 0) / 100,
+            source: (pli.source === 'sku' || pli.source === 'catalog') ? pli.source : 'custom' as const,
+            ...(Array.isArray(pli.scopeSteps) ? { scopeSteps: pli.scopeSteps } : {}),
+            ...(pli.fixedTier ? { fixedTier: pli.fixedTier } : {}),
+          }));
+          setLineItems(hydrated);
+        } else if (quote.jobDescription && quote.jobDescription.trim().length > 5) {
+          // Legacy quote with no stored line items — fall back to a re-parse.
+          parseJobMutation.mutate(quote.jobDescription.trim());
+        }
+      } catch (err) {
+        toast({
+          title: 'Could not load quote',
+          description: err instanceof Error ? err.message : 'Failed to load quote for editing',
+          variant: 'destructive',
+        });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editSlug]);
 
   // Debounce the phone field 600ms before hitting the recent-calls lookup.
   useEffect(() => {
@@ -1820,6 +1922,9 @@ export default function GenerateContextualQuote() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
+          // Edit mode: server updates this quote in place (re-priced through the
+          // same engine, preserving id/slug/view stats). Absent → creates new.
+          quoteId: editQuoteId || undefined,
           customerName,
           phone: normalizePhoneInput(phone),
           email: email || undefined,
@@ -1907,7 +2012,11 @@ export default function GenerateContextualQuote() {
     onSuccess: (result) => {
       setQuoteResult(result);
       setSendMode('full');
-      toast({ title: 'Quote Created!', description: 'Ready to send via WhatsApp.' });
+      if (editQuoteId) {
+        toast({ title: 'Quote Updated!', description: 'Same link, re-priced. Ready to re-send.' });
+      } else {
+        toast({ title: 'Quote Created!', description: 'Ready to send via WhatsApp.' });
+      }
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -2858,6 +2967,20 @@ export default function GenerateContextualQuote() {
         {/* Only show form when no result yet */}
         {!quoteResult && (
           <>
+
+            {/* Edit-mode banner — makes clear this reuses the generator to edit an
+                existing quote and that saving re-prices + keeps the same link. */}
+            {editQuoteId && (
+              <div className="rounded-lg border-2 border-handy-navy bg-handy-navy px-4 py-3 text-white shadow-sm">
+                <p className="text-sm font-semibold">
+                  Editing {editCustomerLabel || 'this'}
+                  {editCustomerLabel ? "'s" : ''} quote
+                </p>
+                <p className="text-xs text-white/80 mt-0.5">
+                  Saving re-prices and updates the existing link — the URL stays the same.
+                </p>
+              </div>
+            )}
 
             {/* ─── Section 2: Customer Details ─── */}
             <Card className="overflow-hidden border-handy-grid shadow-sm">
@@ -4020,11 +4143,11 @@ export default function GenerateContextualQuote() {
                 {createQuoteMutation.isPending || preflightChecking ? (
                   <>
                     <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                    {preflightChecking ? 'Checking quote…' : 'Generating Quote...'}
+                    {preflightChecking ? 'Checking quote…' : editQuoteId ? 'Saving changes...' : 'Generating Quote...'}
                   </>
                 ) : (
                   <>
-                    Generate Quote
+                    {editQuoteId ? 'Save changes' : 'Generate Quote'}
                     <span className="ml-2 inline-block h-2 w-2 rounded-full bg-handy-yellow" aria-hidden />
                   </>
                 )}

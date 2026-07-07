@@ -241,7 +241,9 @@ const PERIODS: Array<{ id: Period; label: string }> = [
     { id: "all", label: "All time" },
 ];
 
-export default function CallPerformancePage() {
+// Insights tab body of the Calls hub. (Formerly the standalone
+// CallPerformancePage; /admin/call-performance now redirects into the hub.)
+export function CallInsights() {
     const [period, setPeriod] = useState<Period>("month");
     const [expandedNote, setExpandedNote] = useState<string | null>(null);
 
@@ -286,14 +288,11 @@ export default function CallPerformancePage() {
 
     return (
         <div className="max-w-6xl mx-auto space-y-4">
-            {/* ─── Header + period selector ─── */}
+            {/* ─── Period selector (hub owns the page title) ─── */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                    <h1 className="text-xl font-bold text-foreground">Call Performance</h1>
-                    <p className="text-xs text-zinc-500 mt-0.5">
-                        Every call has one goal: get photos or video on WhatsApp. Here's how we're doing.
-                    </p>
-                </div>
+                <p className="text-xs text-zinc-500">
+                    Every call has one goal: get photos or video on WhatsApp. Here's how we're doing.
+                </p>
                 <div className="flex items-center gap-1 bg-muted border rounded-lg p-1 self-start">
                     {PERIODS.map((p) => (
                         <button

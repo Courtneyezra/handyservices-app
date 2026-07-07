@@ -31,7 +31,6 @@ import HandymanDashboard from "@/pages/HandymanDashboard"; // Legacy
 import { ThemeProvider } from "@/components/theme-provider";
 import ContractorFleetDashboard from "@/pages/ContractorFleetDashboard";
 import MainDashboard from "@/pages/MainDashboard";
-import CallsPage from "@/pages/CallsPage";
 import TestLab from "./pages/TestLab";
 import TrainingCenter from "./pages/TrainingCenter";
 import SettingsPage from "./pages/SettingsPage";
@@ -81,7 +80,6 @@ const TestDatePicker = lazy(() => import("@/pages/admin/TestDatePicker"));
 const TenantIssuesPage = lazy(() => import("@/pages/admin/TenantIssuesPage"));
 const QuotesPage = lazy(() => import("@/pages/admin/QuotesPage"));
 const ExtrasCatalogPage = lazy(() => import("@/pages/admin/ExtrasCatalogPage"));
-const EditQuotePage = lazy(() => import("@/pages/admin/EditQuotePage"));
 const BookingVisitsPage = lazy(() => import("@/pages/admin/BookingVisitsPage"));
 const V2BookingsPage = lazy(() => import("@/pages/admin/V2BookingsPage"));
 const MasterAvailabilityPage = lazy(() => import("@/pages/admin/MasterAvailabilityPage"));
@@ -95,7 +93,8 @@ const DashboardPage = lazy(() => import("@/pages/admin/DashboardPage"));
 const OnboardingSlideDeck = lazy(() => import("@/pages/admin/OnboardingSlideDeck"));
 const VAResourcesPage = lazy(() => import("@/pages/admin/VAResourcesPage"));
 const VAPerformancePage = lazy(() => import("@/pages/admin/VAPerformancePage"));
-const CallPerformancePage = lazy(() => import("@/pages/admin/CallPerformancePage"));
+const CallsHubPage = lazy(() => import("@/pages/admin/CallsHubPage"));
+const PipelinePage = lazy(() => import("@/pages/admin/PipelinePage"));
 const VATrainingCenter = lazy(() => import("@/pages/admin/VATrainingCenter"));
 const CareersAdmin = lazy(() => import("@/pages/admin/CareersAdmin"));
 const BusinessModelDashboard = lazy(() => import("@/pages/admin/BusinessModelDashboard"));
@@ -632,8 +631,13 @@ function Router() {
                 <Route path="/admin/quotes/:slug/edit">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
-                            <EditQuotePage />
+                            <GenerateContextualQuote />
                         </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/quotes/:slug/preview">
+                    <ProtectedRoute role="admin">
+                        <PersonalizedQuotePage />
                     </ProtectedRoute>
                 </Route>
                 <Route path="/admin/quotes">
@@ -803,7 +807,14 @@ function Router() {
                 <Route path="/admin/calls">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
-                            <CallsPage />
+                            <CallsHubPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/work">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <PipelinePage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
@@ -887,11 +898,7 @@ function Router() {
                     </ProtectedRoute>
                 </Route>
                 <Route path="/admin/call-performance">
-                    <ProtectedRoute role="admin">
-                        <SidebarLayout>
-                            <CallPerformancePage />
-                        </SidebarLayout>
-                    </ProtectedRoute>
+                    <Redirect to="/admin/calls?tab=insights" />
                 </Route>
                 <Route path="/admin/training-center">
                     <ProtectedRoute role="admin">

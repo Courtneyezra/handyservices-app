@@ -806,19 +806,26 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
             return res.status(404).json({ error: "Quote not found" });
         }
 
+        // Internal admin preview (?preview=1) shows the quote WITHOUT logging a
+        // view — no count bump, no viewedAt, no first-view side-effects. Lets Ben
+        // check/QA quotes freely without polluting conversion stats.
+        const isPreview = req.query.preview === '1';
+
         // Track view statistics
         const now = new Date();
-        const isFirstView = !quote.viewedAt;
-        await db.update(personalizedQuotes)
-            .set({
-                viewedAt: quote.viewedAt || now, // Keep original first view time
-                lastViewedAt: now,
-                viewCount: (quote.viewCount || 0) + 1
-            })
-            .where(eq(personalizedQuotes.id, quote.id));
+        const isFirstView = !quote.viewedAt && !isPreview;
+        if (!isPreview) {
+            await db.update(personalizedQuotes)
+                .set({
+                    viewedAt: quote.viewedAt || now, // Keep original first view time
+                    lastViewedAt: now,
+                    viewCount: (quote.viewCount || 0) + 1
+                })
+                .where(eq(personalizedQuotes.id, quote.id));
 
-        // Return updated stats
-        quote.viewCount = (quote.viewCount || 0) + 1;
+            // Return updated stats
+            quote.viewCount = (quote.viewCount || 0) + 1;
+        }
 
         // Phone push alert (Pushover) — customer opened their quote (first view only)
         if (isFirstView) {
@@ -832,7 +839,7 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
 
         // PostHog: Server-side quote view (reliable — immune to ad-blockers)
         const viewDistinctId = quote.phone || quote.id;
-        captureServerEvent(viewDistinctId, 'cq_server_quote_viewed', {
+        if (!isPreview) captureServerEvent(viewDistinctId, 'cq_server_quote_viewed', {
             quote_id: quote.id,
             short_slug: quote.shortSlug,
             segment: (quote as any).segment || 'UNKNOWN',

@@ -28,6 +28,8 @@ export interface AiScoreJson {
     };
     flags?: string[];
     coachingNote?: string;
+    callerName?: string;
+    mediaRequestPhrase?: string;
 }
 
 /** Safely parse aiScoreJson which may arrive as an object or a JSON string. */

@@ -256,10 +256,18 @@ export async function finalizeCall(
     })()
         .then(async (scorecard) => {
             if (!scorecard) return;
-            await db.update(calls)
-                .set({ aiScoreJson: scorecard, aiScoredAt: new Date() })
-                .where(eq(calls.id, callRecordId));
-            console.log(`[CallScoring] Scored call ${callRecordId} (overall: ${scorecard.overall})`);
+            // If the live pipeline left a placeholder name but the scorer read
+            // the caller's name off the full transcript, adopt it. Only ever
+            // overwrites a generic placeholder — never a real captured name.
+            const [current] = await db.select({ name: calls.customerName }).from(calls).where(eq(calls.id, callRecordId));
+            const isGeneric = /^(voice caller|unknown caller|unknown|caller)?$/i.test((current?.name ?? "").trim());
+            const patch: { aiScoreJson: typeof scorecard; aiScoredAt: Date; customerName?: string } = {
+                aiScoreJson: scorecard,
+                aiScoredAt: new Date(),
+            };
+            if (isGeneric && scorecard.callerName) patch.customerName = scorecard.callerName;
+            await db.update(calls).set(patch).where(eq(calls.id, callRecordId));
+            console.log(`[CallScoring] Scored call ${callRecordId} (overall: ${scorecard.overall}${patch.customerName ? `, name: ${patch.customerName}` : ""})`);
         })
         .catch((err) => console.error(`[CallScoring] Failed to score call ${callRecordId}:`, err));
 

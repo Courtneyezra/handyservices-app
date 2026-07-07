@@ -232,6 +232,11 @@ router.get("/", async (req: Request, res: Response) => {
                 missedReason: call.missedReason,
                 recordingUrl: finalRecordingUrl,
                 transcription: call.transcription,
+                // VA performance fields (Calls hub — lane badge, score chip, ring time)
+                handledBy: call.handledBy,
+                ringSeconds: call.ringSeconds,
+                durationSeconds: call.duration,
+                aiScoreJson: call.aiScoreJson,
                 // Expose full AI context for frontend "Smart Actions"
                 detectedSkusJson: call.detectedSkusJson,
                 metadataJson: call.metadataJson || call.detectedSkusJson, // Fallback mapping for frontend compatibility

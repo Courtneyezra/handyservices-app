@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling, Library, Send, Stethoscope } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling, Library, Send, Stethoscope, ClipboardList } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import InstallPrompt from "@/components/InstallPrompt";
@@ -122,8 +122,9 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Sparkles, label: "New Quote", href: "/admin/generate-contextual-quote" },
                                 { icon: DollarSign, label: "Quote Generator (Classic)", href: "/admin/generate-quote" },
                                 { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
+                                { icon: ClipboardList, label: "Pipeline", href: "/admin/work" },
                                 { icon: BarChart3, label: "My Stats", href: "/admin/va-stats" },
-                                { icon: PhoneCall, label: "Call Performance", href: "/admin/call-performance" },
+                                { icon: PhoneCall, label: "Calls", href: "/admin/calls" },
                             ]
                         },
                         {
@@ -146,7 +147,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Map, label: "Dispatch Console", href: "/admin/dispatch-console" },
                                 { icon: Calendar, label: "Daily Planner", href: "/admin/daily-planner" },
                                 { icon: BarChart3, label: "Reports Dashboard", href: "/admin/dashboard" },
-                                { icon: PhoneCall, label: "Call Performance", href: "/admin/call-performance" },
+                                { icon: PhoneCall, label: "Calls", href: "/admin/calls" },
                                 { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
                             ]
                         },
@@ -250,7 +251,6 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                     {!isCollapsed && !isVA && (
                         <div className="mt-4 px-4 pt-4 border-t border-border/50">
                             <p className="text-[10px] text-muted-foreground mb-2 font-mono uppercase">LEGACY VIEWS</p>
-                            <Link href="/admin/calls" className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground mb-2"><PhoneCall className="w-3 h-3" /> Call Logs</Link>
                             <Link href="/admin/whatsapp-intake" className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"><MessageSquare className="w-3 h-3" /> WhatsApp CRM</Link>
                         </div>
                     )}
@@ -360,27 +360,6 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
 
                 {/* Content Area */}
                 <div className={cn("flex-1 overflow-auto p-4 lg:p-8", isVA && "pb-20")}>
-                    {/* Live Call Notification Banner */}
-                    {isLive && location !== '/admin/live-call' && (
-                        <Link href="/admin/live-call">
-                            <div className="mb-6 bg-red-600 text-white p-3 rounded-xl flex items-center justify-between shadow-lg shadow-red-900/30 cursor-pointer animate-in slide-in-from-top duration-300">
-                                <div className="flex items-center gap-3">
-                                    <div className="bg-white/20 p-2 rounded-lg animate-pulse">
-                                        <Mic className="w-5 h-5" />
-                                    </div>
-                                    <div>
-                                        <p className="font-bold text-sm">
-                                            Active Voice Call in Progress
-                                        </p>
-                                        <p className="text-xs text-white/80">Transcription and analysis happening live...</p>
-                                    </div>
-                                </div>
-                                <button className="bg-white text-red-600 px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-red-50 transition-colors">
-                                    View Call
-                                </button>
-                            </div>
-                        </Link>
-                    )}
                     {children}
                 </div>
             </main>
@@ -407,6 +386,21 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                             )}
                                         </div>
                                         <span className={cn("text-[10px] font-semibold", isActive && "text-primary")}>Follow-Ups</span>
+                                        {isActive && <div className="absolute bottom-1 w-6 h-0.5 rounded-full bg-primary" />}
+                                    </Link>
+                                );
+                            })()}
+
+                            {/* Tab 1b: Pipeline — Ben's work-first quotes/jobs/invoices hub */}
+                            {(() => {
+                                const isActive = location === "/admin/work";
+                                return (
+                                    <Link href="/admin/work" className={cn(
+                                        "flex flex-col items-center justify-center gap-0.5 flex-1 px-2 transition-colors relative",
+                                        isActive ? "text-primary" : "text-muted-foreground"
+                                    )}>
+                                        <ClipboardList className={cn("w-5 h-5", isActive && "text-primary")} />
+                                        <span className={cn("text-[10px] font-semibold", isActive && "text-primary")}>Pipeline</span>
                                         {isActive && <div className="absolute bottom-1 w-6 h-0.5 rounded-full bg-primary" />}
                                     </Link>
                                 );
