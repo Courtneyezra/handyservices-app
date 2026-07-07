@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Lock } from "lucide-react";
-import { lockSecondsLeft, formatMMSS } from "./quote/quoteLockClock";
+import { lockSecondsLeft, formatLockTime } from "./quote/quoteLockClock";
 
 /**
  * Live tick for the price-lock seal on the loading screen. Reads the shared
- * lock anchor (set here on first render) every 250ms so the swap to the real
+ * lock anchor (the quote's real 48h expiry, persisted from a previous visit;
+ * full window until one is known) every 250ms so the swap to the real
  * QuoteTimer seal hands off mid-second without a visible jump.
  */
 function useLockCountdown(quoteKey: string): number {
@@ -332,15 +333,15 @@ export function QuoteSkeleton({ quoteKey = "quote" }: { quoteKey?: string }) {
                         }
                     `}</style>
 
-                    {/* Price-lock seal — primes the 15-minute price hold before the
-                        quote even paints. Mirrors the live QuoteTimer seal at full
-                        time (amber #F59E0B / 15:00) so the swap to the real ticking
-                        seal reads as continuous, not a new element appearing. */}
+                    {/* Price-lock seal — primes the 48-hour price hold before the
+                        quote even paints. Mirrors the live QuoteTimer seal (amber
+                        #F59E0B) so the swap to the real ticking seal reads as
+                        continuous, not a new element appearing. */}
                     <div
                         className="relative inline-flex items-center justify-center mb-4 h-20 w-20 mx-auto"
                         style={{ animation: "seal-breathe 2s ease-in-out infinite", transformOrigin: "center" }}
                         role="img"
-                        aria-label="Price locked for 15 minutes"
+                        aria-label="Price locked for 48 hours"
                     >
                         {/* Soft pulsing halo */}
                         <span
@@ -364,8 +365,8 @@ export function QuoteSkeleton({ quoteKey = "quote" }: { quoteKey?: string }) {
                                 <span className="text-[11px] font-black tracking-[0.12em] text-white leading-none">
                                     LOCKED
                                 </span>
-                                <span className="text-[14px] font-black tabular-nums leading-none mt-0.5 text-[#F59E0B]">
-                                    {formatMMSS(lockSecs)}
+                                <span className="text-[13px] font-black tabular-nums leading-none mt-0.5 whitespace-nowrap text-[#F59E0B]">
+                                    {formatLockTime(lockSecs)}
                                 </span>
                             </div>
                         </div>

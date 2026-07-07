@@ -1,34 +1,69 @@
 /**
- * Shared 15-minute "price lock" clock.
+ * Shared "price lock" clock — anchored to the quote's REAL 48-hour validity
+ * window (server `expiresAt`), not an arbitrary in-browser countdown.
  *
- * The countdown must read as ONE continuous timer from the moment the loading
- * skeleton's price-lock seal first appears, all the way through to the live
- * QuoteTimer seal on the loaded page. Both surfaces derive `secondsLeft` from a
- * single start-anchor captured here (keyed by quote slug) so the skeleton →
- * page swap never resets the clock back to 15:00.
+ * Customers open a quote link a median of 7 times before paying. The old
+ * 15-minute clock restarted at 15:00 on every open, which read as fake.
+ * This clock instead counts down to the server-issued expiry, so it is the
+ * same honest number on every device, tab, refresh, and revisit.
  *
- * In-memory only: a hard refresh reloads this module, so the lock starts fresh
- * at 15:00 (matches prior behaviour). Keyed by slug so SPA-navigating to a
- * different quote starts that quote's lock fresh rather than inheriting the
- * previous one's elapsed time.
+ * The expiry anchor is seeded from the GET /api/personalized-quotes/:slug
+ * response (via QuoteTimerProvider) and mirrored to localStorage so loading
+ * surfaces that render BEFORE the quote data arrives (skeleton/preparing
+ * screens) can show the real remaining time on revisits. Until an anchor is
+ * known (very first paint of the very first visit), `lockSecondsLeft` reports
+ * the full window so the skeleton → page swap only ever ticks downward.
  */
 
-export const TOTAL_LOCK_SECONDS = 15 * 60;
+/** Real quote validity — matches the PDF's "Valid 48 hours" and server expiresAt. */
+export const TOTAL_LOCK_SECONDS = 48 * 60 * 60;
 
-let current: { key: string; startMs: number } | null = null;
+// In-memory cache of expiry anchors, keyed by quote slug.
+const expiryByKey = new Map<string, number>();
 
-/** Timestamp (ms) the lock began for this quote — set lazily on first call. */
-export function getLockStartMs(key: string): number {
-  if (!current || current.key !== key) {
-    current = { key, startMs: Date.now() };
-  }
-  return current.startMs;
+function storageKey(key: string): string {
+  return `hs-quote-lock-expiry:${key}`;
 }
 
-/** Whole seconds remaining on the lock for this quote, clamped to >= 0. */
+/** Anchor the lock to the server expiry for this quote (idempotent). */
+export function setLockExpiry(key: string, expiresAtMs: number): void {
+  if (!Number.isFinite(expiresAtMs)) return;
+  if (expiryByKey.get(key) === expiresAtMs) return;
+  expiryByKey.set(key, expiresAtMs);
+  try {
+    localStorage.setItem(storageKey(key), String(expiresAtMs));
+  } catch {
+    // Private mode / storage full — in-memory anchor still works for this tab.
+  }
+}
+
+/** Expiry timestamp (ms) for this quote, or null if not yet known. */
+export function getLockExpiryMs(key: string): number | null {
+  const cached = expiryByKey.get(key);
+  if (cached != null) return cached;
+  try {
+    const stored = localStorage.getItem(storageKey(key));
+    if (stored) {
+      const ms = Number(stored);
+      if (Number.isFinite(ms)) {
+        expiryByKey.set(key, ms);
+        return ms;
+      }
+    }
+  } catch {
+    // Ignore — fall through to null.
+  }
+  return null;
+}
+
+/**
+ * Whole seconds remaining on the lock for this quote, clamped to >= 0.
+ * Falls back to the full window when no expiry anchor is known yet.
+ */
 export function lockSecondsLeft(key: string, total: number = TOTAL_LOCK_SECONDS): number {
-  const elapsed = (Date.now() - getLockStartMs(key)) / 1000;
-  return Math.max(0, Math.ceil(total - elapsed));
+  const expiryMs = getLockExpiryMs(key);
+  if (expiryMs == null) return total;
+  return Math.max(0, Math.ceil((expiryMs - Date.now()) / 1000));
 }
 
 /** mm:ss for a seconds value. */
@@ -36,4 +71,14 @@ export function formatMMSS(secs: number): string {
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+/** "36h 12m" when >= 1 hour remains, mm:ss below that (the anxious last hour). */
+export function formatLockTime(secs: number): string {
+  if (secs >= 3600) {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    return `${h}h ${m}m`;
+  }
+  return formatMMSS(secs);
 }

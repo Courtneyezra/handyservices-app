@@ -151,7 +151,9 @@ function buildMessage(
 ): string {
     const { contractorName, customerName, address, job } = details;
     const baseUrl = getBaseUrlFromEnv();
-    const portalLink = job.quoteId ? `${baseUrl}/booking-confirmed/${job.quoteId}` : baseUrl;
+    // The quote link doubles as the post-payment job hub (/q/:slug renders the
+    // confirmed state once depositPaidAt is set; UUID ids resolve too).
+    const portalLink = job.quoteId ? `${baseUrl}/q/${job.quoteId}` : baseUrl;
 
     switch (event) {
         case 'booking_confirmed': {

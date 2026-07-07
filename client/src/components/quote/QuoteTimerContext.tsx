@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
-import { lockSecondsLeft, TOTAL_LOCK_SECONDS } from './quoteLockClock';
+import { lockSecondsLeft, setLockExpiry, formatLockTime, TOTAL_LOCK_SECONDS } from './quoteLockClock';
 
 const TOTAL_SECONDS = TOTAL_LOCK_SECONDS;
 
@@ -8,6 +8,10 @@ interface QuoteTimerState {
   durationSeconds: number;
   progress: number; // 1 = full, 0 = empty
   expired: boolean;
+  /** Returning visitor (viewCount > 1) — render the seal calm, no pulse/countdown anxiety. */
+  calm: boolean;
+  /** Absolute expiry, e.g. "Thu 8pm" — used by the calm returning-visitor seal. */
+  expiryLabel: string | null;
   borderColor: string;
   glowColor: string;
   pulseSpeed: string;
@@ -46,59 +50,106 @@ export function StickyTimerProgress() {
   );
 }
 
+/** Seconds remaining: prefer the server expiry, else the shared lock anchor. */
+function computeSecondsLeft(
+  expiryMs: number | null,
+  quoteKey: string | undefined,
+  durationSeconds: number,
+): number {
+  if (expiryMs != null) return Math.max(0, Math.ceil((expiryMs - Date.now()) / 1000));
+  return quoteKey ? lockSecondsLeft(quoteKey, durationSeconds) : durationSeconds;
+}
+
+/** "Thu 8pm" / "Thu 8:30pm" — compact absolute expiry for the calm seal. */
+function formatExpiryLabel(expiryMs: number): string {
+  const d = new Date(expiryMs);
+  const day = d.toLocaleDateString('en-GB', { weekday: 'short' });
+  const mins = d.getMinutes();
+  const mer = d.getHours() >= 12 ? 'pm' : 'am';
+  const h = d.getHours() % 12 || 12;
+  return `${day} ${h}${mins ? `:${mins.toString().padStart(2, '0')}` : ''}${mer}`;
+}
+
 export function QuoteTimerProvider({
   children,
   durationSeconds = TOTAL_SECONDS,
   quoteKey,
+  expiresAt,
+  viewCount,
 }: {
   children: React.ReactNode;
   durationSeconds?: number;
   /**
-   * When provided, the countdown is derived from the shared lock anchor for
-   * this quote (set the moment the loading skeleton's seal first rendered),
-   * so the timer continues seamlessly across the skeleton → page swap instead
-   * of restarting at 15:00. Omit to fall back to a fresh local countdown.
+   * Shared lock-anchor key (quote slug). Keeps the countdown continuous across
+   * the loading-screen → page swap, and lets the anchor persist to
+   * localStorage so revisits resume from the real remaining time.
    */
   quoteKey?: string;
+  /**
+   * The quote's REAL server-issued expiry (48h validity window). When set, the
+   * countdown derives from it — same honest number on every open/refresh.
+   * Omitted → falls back to the shared lock anchor / a fresh local countdown.
+   */
+  expiresAt?: Date | string | null;
+  /**
+   * Server view count for this quote. First view (<= 1) keeps the urgent
+   * pulsing treatment; returning visitors get the calm "PRICE LOCKED" seal.
+   */
+  viewCount?: number;
 }) {
+  const expiryMs = useMemo(() => {
+    if (!expiresAt) return null;
+    const ms = new Date(expiresAt).getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }, [expiresAt]);
+
+  // Seed the shared clock synchronously (idempotent) so the initial
+  // secondsLeft — and any skeleton still ticking — read the real expiry.
+  if (quoteKey && expiryMs != null) {
+    setLockExpiry(quoteKey, expiryMs);
+  }
+
   const [secondsLeft, setSecondsLeft] = useState(() =>
-    quoteKey ? lockSecondsLeft(quoteKey, durationSeconds) : durationSeconds,
+    computeSecondsLeft(expiryMs, quoteKey, durationSeconds),
   );
   const expired = secondsLeft <= 0;
+  const calm = (viewCount ?? 0) > 1;
 
   useEffect(() => {
     if (expired) return;
-    const interval = setInterval(() => {
-      setSecondsLeft((s) =>
-        quoteKey ? lockSecondsLeft(quoteKey, durationSeconds) : Math.max(0, s - 1),
-      );
-    }, 1000);
+    const interval = setInterval(
+      () => setSecondsLeft(computeSecondsLeft(expiryMs, quoteKey, durationSeconds)),
+      1000,
+    );
     return () => clearInterval(interval);
-  }, [expired, quoteKey, durationSeconds]);
+  }, [expired, quoteKey, expiryMs, durationSeconds]);
 
-  const timeDisplay = useMemo(() => {
-    const m = Math.floor(secondsLeft / 60);
-    const s = secondsLeft % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  }, [secondsLeft]);
+  const timeDisplay = useMemo(() => formatLockTime(secondsLeft), [secondsLeft]);
 
-  const progress = secondsLeft / durationSeconds;
+  const expiryLabel = useMemo(
+    () => (expiryMs != null ? formatExpiryLabel(expiryMs) : null),
+    [expiryMs],
+  );
 
+  const progress = Math.min(1, secondsLeft / durationSeconds);
+
+  // Colour thresholds scaled to the 48h window: amber for most of the life of
+  // the quote, orange inside the final ~6h, red inside the final hour.
   const borderColor = useMemo(() => {
-    if (secondsLeft <= 60) return '#EF4444';
-    if (secondsLeft <= 300) return '#EA580C';
+    if (secondsLeft <= 60 * 60) return '#EF4444';
+    if (secondsLeft <= 6 * 60 * 60) return '#EA580C';
     return '#F59E0B';
   }, [secondsLeft]);
 
   const glowColor = useMemo(() => {
-    if (secondsLeft <= 60) return 'rgba(239, 68, 68, 0.6)';
-    if (secondsLeft <= 300) return 'rgba(234, 88, 12, 0.5)';
+    if (secondsLeft <= 60 * 60) return 'rgba(239, 68, 68, 0.6)';
+    if (secondsLeft <= 6 * 60 * 60) return 'rgba(234, 88, 12, 0.5)';
     return 'rgba(245, 158, 11, 0.4)';
   }, [secondsLeft]);
 
   const pulseSpeed = useMemo(() => {
-    if (secondsLeft <= 60) return '0.8s';
-    if (secondsLeft <= 300) return '1.5s';
+    if (secondsLeft <= 60 * 60) return '0.8s';
+    if (secondsLeft <= 6 * 60 * 60) return '1.5s';
     return '3s';
   }, [secondsLeft]);
 
@@ -107,6 +158,8 @@ export function QuoteTimerProvider({
     durationSeconds,
     progress,
     expired,
+    calm,
+    expiryLabel,
     borderColor,
     glowColor,
     pulseSpeed,

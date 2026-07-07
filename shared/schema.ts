@@ -256,6 +256,7 @@ export const skuMatchLogs = pgTable("sku_match_logs", {
 // Leads table - The destination for "The Switchboard" logs
 export const leads = pgTable("leads", {
     id: varchar("id").primaryKey().notNull(),
+    clientId: varchar("client_id").references(() => serviceClients.id), // Spine client (who pays)
     customerName: varchar("customer_name").notNull(),
     phone: varchar("phone").notNull(),
     email: varchar("email"),
@@ -393,6 +394,13 @@ export const calls = pgTable("calls", {
     actionTakenAt: timestamp("action_taken_at"), // When VA took action (Book Now, Request Video, Site Visit)
     bookingLinkSent: boolean("booking_link_sent").default(false), // Whether booking link was sent
     videoRequestSentAt: timestamp("video_request_sent_at"), // When video request was sent via WhatsApp
+
+    // VA Performance Tracking (call dashboard)
+    ringSeconds: integer("ring_seconds"), // time-to-answer for forwarded calls (derived in dial-status webhook)
+    handledBy: varchar("handled_by", { length: 20 }), // 'va' | 'ai_agent' | 'missed' | 'voicemail'
+    handledByUserId: varchar("handled_by_user_id"), // user id when handledBy = 'va'
+    aiScoreJson: jsonb("ai_score_json"), // structured scorecard from the call-scoring rubric
+    aiScoredAt: timestamp("ai_scored_at"), // when the scorecard was generated (null = unscored)
 
     createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
@@ -740,6 +748,8 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     postcode: varchar("postcode"),
     address: text("address"), // Full Google Maps address
     coordinates: jsonb("coordinates"), // { lat: number, lng: number }
+    propertyId: varchar("property_id").references(() => serviceProperties.id), // Spine property (where the work happens)
+    clientId: varchar("client_id").references(() => serviceClients.id), // Spine client (who pays)
 
     // Job Details
     jobDescription: text("job_description").notNull(),
@@ -826,7 +836,7 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     rejectionReason: text("rejection_reason"),
     feedbackJson: jsonb("feedback_json"),
     leadId: varchar("lead_id"), // Links to leads table when lead submits
-    expiresAt: timestamp("expires_at"), // When the quote expires (15 minutes from creation)
+    expiresAt: timestamp("expires_at"), // When the quote expires (48 hours from creation — QUOTE_VALIDITY_MS)
 
     // Regeneration Tracking
     regeneratedFromId: varchar("regenerated_from_id"), // ID of original quote if this was regenerated from an expired quote
@@ -863,10 +873,15 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     reminderSentAt: timestamp("reminder_sent_at"), // Quote reminder automation sent
     followupSentAt: timestamp("followup_sent_at"), // Quote viewed follow-up automation sent
     viewNudgeSentAt: timestamp("view_nudge_sent_at"), // Nudge sent after 3rd view (dedup)
+    followupAlertSentAt: timestamp("followup_alert_sent_at"), // Internal Pushover "chase this quote" alert sent (dedup)
 
     // Quote Attribution (who created this quote — for VA commission tracking)
     createdBy: varchar("created_by"), // User ID of the admin/VA who created this quote
     createdByName: varchar("created_by_name", { length: 100 }), // Display name for quick reference (avoids JOIN)
+
+    // Quote Origin (ties call metrics to quotes/conversions)
+    sourceCallId: varchar("source_call_id"), // calls.id this quote originated from (auto-matched or picked)
+    sourceChannel: varchar("source_channel", { length: 20 }), // 'call' | 'whatsapp' | 'web' | 'other'
 
     // Contextual Pricing Engine (Phase 3)
     contextualHeadline: varchar("contextual_headline", { length: 100 }), // LLM-generated headline (e.g. "Your Kitchen Sorted")
@@ -892,6 +907,10 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
       imageIds?: number[];
       bookingRuleId?: number | null;
     }>(),
+
+    // Customer-supplied job photos (uploaded during contextual quote generation,
+    // shown on the customer quote page as "your job, as you sent it")
+    customerPhotoUrls: jsonb("customer_photo_urls").$type<string[]>(),
 
     // Note: contextSignals field already exists above (line 664) — reused for raw context signals for analytics/retraining
 
@@ -1046,6 +1065,8 @@ export const invoices = pgTable("invoices", {
     customerEmail: varchar("customer_email"),
     customerPhone: varchar("customer_phone"),
     customerAddress: text("customer_address"),
+    propertyId: varchar("property_id").references(() => serviceProperties.id), // Spine property (where the work happened)
+    clientId: varchar("client_id").references(() => serviceClients.id), // Spine client (who pays)
 
     // Financial Details (all in pence)
     totalAmount: integer("total_amount").notNull(), // Total job cost
@@ -1104,6 +1125,8 @@ export const contractorBookingRequests = pgTable("contractor_booking_requests", 
 
     // B4: Job Assignment & Dispatch Fields
     quoteId: varchar("quote_id").references(() => personalizedQuotes.id), // Link to quote if job came from quote
+    propertyId: varchar("property_id").references(() => serviceProperties.id), // Spine property (where the work happens)
+    clientId: varchar("client_id").references(() => serviceClients.id), // Spine client (who pays)
     assignedContractorId: varchar("assigned_contractor_id").references(() => handymanProfiles.id), // Who is assigned (may differ from initial contractor)
     scheduledDate: timestamp("scheduled_date"), // When the job is scheduled
     scheduledStartTime: varchar("scheduled_start_time", { length: 10 }), // e.g., "09:00"
@@ -1894,6 +1917,75 @@ export const PropertyTypeValues = ["flat", "house", "hmo", "commercial", "mixed_
 export type PropertyType = typeof PropertyTypeValues[number];
 
 // Properties Table - Rental properties linked to landlords
+// ============================================================================
+// SERVICE PROPERTIES — the physical locations where we do work.
+//
+// Jobber-style "Property": a first-class location entity sitting between the
+// (derived) client and the job spine. One client can own many properties
+// (landlords, property managers). Quotes, jobs (contractor_booking_requests)
+// and invoices each carry a nullable property_id pointing here.
+//
+// NOTE: distinct from the landlord-portal `properties` table below, which is
+// scoped to a landlord lead + tenants/tenant-issues. THIS table is the spine
+// property used across quote → job → invoice. (The two can be unified later.)
+//
+// Identity: deduped on Google place_id when present, else a normalized
+// "postcode|addressline" key (dedupeKey, unique). client_key is the same
+// phone:/email: heuristic the client-aggregation read model uses, so
+// Client → Properties nests cleanly.
+// ============================================================================
+// ============================================================================
+// CLIENTS — first-class customer record (Jobber's Client: WHO pays / is billed).
+// Until now "clients" were derived at read-time from contact details on the
+// spine. This promotes them to a real, editable, mergeable entity. One client
+// owns many service_properties (landlords / property managers). Identity is the
+// canonical contact key (see server/clients.ts) — phone preferred, else email,
+// with UK phone canonicalization so "07766…" and "7766…" resolve to ONE client.
+// ============================================================================
+// NOTE: table is "service_clients" (not "clients") — a legacy orphan `clients`
+// table already exists with an unrelated shape, exactly like the landlord
+// `properties` vs spine `service_properties` split. This is the spine client.
+export const serviceClients = pgTable("service_clients", {
+    id: varchar("id").primaryKey().notNull().$defaultFn(() => crypto.randomUUID()),
+    dedupeKey: varchar("dedupe_key").notNull(),   // canonical identity: "phone:<canon>" | "email:<lower>"
+    displayName: text("display_name"),
+    primaryPhone: varchar("primary_phone"),       // canonical UK form
+    primaryEmail: varchar("primary_email"),
+    phones: jsonb("phones"),                       // string[] — all known phone forms
+    emails: jsonb("emails"),                        // string[] — all known emails
+    billingAddress: text("billing_address"),
+    notes: text("notes"),
+    tags: jsonb("tags"),                            // string[]
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    archivedAt: timestamp("archived_at"),
+}, (table) => [
+    uniqueIndex("uq_service_clients_dedupe").on(table.dedupeKey),
+    index("idx_service_clients_primary_phone").on(table.primaryPhone),
+    index("idx_service_clients_primary_email").on(table.primaryEmail),
+]);
+
+export const serviceProperties = pgTable("service_properties", {
+    id: varchar("id").primaryKey().notNull().$defaultFn(() => crypto.randomUUID()),
+    clientKey: varchar("client_key"),            // derived owner key: "phone:<digits>" | "email:<lower>" (legacy heuristic)
+    clientId: varchar("client_id").references(() => serviceClients.id), // FK to the first-class client record (who pays)
+    placeId: varchar("place_id"),                // Google Place ID — canonical address identity
+    dedupeKey: varchar("dedupe_key").notNull(),  // placeId or normalized "postcode|addressline"
+    address: text("address"),                    // best canonical/raw address string
+    postcode: varchar("postcode", { length: 10 }),
+    coordinates: jsonb("coordinates"),           // { lat, lng }
+    nickname: text("nickname"),                  // optional human label, e.g. "Mrs Smith's BTL"
+    notes: text("notes"),                        // free-form property notes (admin)
+    accessNotes: text("access_notes"),           // gate code, parking, key safe, "dog in garden" — flows onto every job sheet at this address
+    addressManual: boolean("address_manual").default(false).notNull(), // true once address/postcode hand-edited; keeps resolve-enrich from drift
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_service_properties_client").on(table.clientKey),
+    index("idx_service_properties_place").on(table.placeId),
+    uniqueIndex("uq_service_properties_dedupe").on(table.dedupeKey),
+]);
+
 export const properties = pgTable("properties", {
     id: text("id").primaryKey().notNull().$defaultFn(() => crypto.randomUUID()),
     landlordLeadId: text("landlord_lead_id").references(() => leads.id).notNull(),

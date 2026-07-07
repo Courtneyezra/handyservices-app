@@ -12,6 +12,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
+import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
 import { eq, gte, and, sql, desc } from 'drizzle-orm';
 import { getAnthropic } from '../anthropic';
 import { generateContextualPrice } from './engine';
@@ -24,14 +27,16 @@ import { buildQuoteMessage, defaultStyleForCustomerType, type MessageStyleId } f
 import { matchLineToSku } from './sku-matcher';
 import { getSkuByCode } from './sku-resolver';
 import { db } from '../db';
-import { personalizedQuotes, leads, quotePlatformImages, quotePlatformHeadlines, handymanProfiles, handymanSkills, users } from '@shared/schema';
+import { personalizedQuotes, leads, calls, quotePlatformImages, quotePlatformHeadlines, handymanProfiles, handymanSkills, users } from '@shared/schema';
 import { normalizePhoneNumber } from '../phone-utils';
 import { selectContentForQuote } from '../content-library/selector';
 import { trackQuoteCreated } from '../posthog';
 import { calculateMultiLineCost, checkMargin, calculateCostFromWTBP } from '../margin-engine';
 import { incrementExtrasPickCount } from '../quote-extras-catalog';
+import { QUOTE_VALIDITY_MS } from '../quotes';
 import { findCandidateContractors } from '../contractor-matcher';
 import { normalizeQuoteImageUrl } from '../quote-image-utils';
+import { uploadQuotePhotoToS3, isS3Configured } from '../s3-media';
 import { geocodePostcode } from '../lib/geocode';
 import type {
   PricingContext,
@@ -45,6 +50,82 @@ import type {
 } from '@shared/contextual-pricing-types';
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// POST /api/pricing/quote-photos
+// Customer-supplied job photos, uploaded by the admin/VA while building a
+// contextual quote. Stored on S3 when configured (survives redeploys),
+// otherwise falls back to local /uploads for dev.
+// ---------------------------------------------------------------------------
+
+const quotePhotoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024, files: 10 }, // 15MB per photo
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Only image files are allowed'));
+  },
+});
+
+router.post('/api/pricing/quote-photos', quotePhotoUpload.array('files', 10), async (req, res) => {
+  try {
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
+
+    // Local-disk store (dev fallback) — served via the /uploads static mount
+    const saveLocal = async (buffer: Buffer, ext: string): Promise<string> => {
+      const uploadDir = path.join(process.cwd(), 'uploads');
+      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+      const filename = `quote-photo-${nanoid()}${ext}`;
+      await fs.promises.writeFile(path.join(uploadDir, filename), buffer);
+      return `/uploads/${filename}`;
+    };
+
+    const urls: string[] = [];
+    for (const file of files) {
+      // Compress before storing: phone photos run 2-6MB and the quote page
+      // shows several in a grid — cap at 1600px and re-encode as webp q80
+      // (~100-300KB). EXIF rotation is baked in so portrait shots stay upright.
+      let buffer = file.buffer;
+      let mime = file.mimetype;
+      let ext = path.extname(file.originalname) || '.jpg';
+      try {
+        const { default: sharp } = await import('sharp');
+        buffer = await sharp(file.buffer)
+          .rotate()
+          .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+          .webp({ quality: 80 })
+          .toBuffer();
+        mime = 'image/webp';
+        ext = '.webp';
+      } catch (compressError) {
+        // Unparseable image (or sharp missing native binding) — store as-is.
+        console.warn('[QuotePhotos] Compression failed, storing original:', compressError instanceof Error ? compressError.message : compressError);
+      }
+
+      if (isS3Configured()) {
+        try {
+          urls.push(await uploadQuotePhotoToS3(buffer, mime));
+        } catch (s3Error) {
+          // Stale/invalid AWS creds shouldn't block quote building — keep the
+          // photo locally and carry on (fine in dev; prod creds are valid).
+          console.warn('[QuotePhotos] S3 upload failed, falling back to local disk:', s3Error instanceof Error ? s3Error.message : s3Error);
+          urls.push(await saveLocal(buffer, ext));
+        }
+      } else {
+        urls.push(await saveLocal(buffer, ext));
+      }
+    }
+
+    console.log(`[QuotePhotos] Uploaded ${urls.length} photo(s)`);
+    res.json({ success: true, urls });
+  } catch (error) {
+    console.error('[QuotePhotos] Upload failed:', error);
+    res.status(500).json({ error: 'Photo upload failed' });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // POST /api/pricing/compare
@@ -217,11 +298,11 @@ router.post('/api/pricing/polish-description', async (req, res) => {
 Output STRICT JSON only — an object: {"polished": "...", "estimatedMinutes": 60, "suggestedCategory": "flooring"}
 
 Rules for "polished":
-- Max 6-8 words. Customers see this on their quote.
+- Aim for 4-10 words; go longer ONLY when the input carries scope detail that must be kept. Customers see this on their quote.
 - Start with a verb: Fix, Mount, Install, Replace, Repair, Assemble, Paint, Hang, etc.
-- Generic enough to apply to ANY similar job in this category — think "menu of services" not "this specific situation".
 - UK English (metre, colour, sealant).
 - If already clean, return unchanged.
+- HIGHEST RULE — the admin typed this deliberately. NEVER drop scope facts they included: dimensions, lengths/areas (m, m²), counts, "both sides", sub-items ("incl. posts", "and gate"), substrate, material/finish. Tidy the wording AROUND those facts; every scope fact in must be in the output. When unsure whether something is scope or noise, KEEP it.
 
 DROP these (they're customer-specific noise, not scope):
 - Brand names (Bristan, Yale, Bosch, Sony, B&Q)
@@ -245,6 +326,8 @@ Polish examples (input → output):
 - "Install 56 square metres herringbone laminate" → "Install 56m² herringbone laminate"
 - "Fix wonky kitchen cupboard door" → "Realign cupboard door"
 - "Build 3 IKEA pax wardrobes from flatpack" → "Assemble 3 flat-pack wardrobes"
+- "stain 20m slatted fence both sides incl posts" → "Stain 20m slatted fence, both sides incl. posts"
+- "paint external render front + side elevation 2 coats" → "Paint external render, front + side, 2 coats"
 
 Rules for "estimatedMinutes":
 - Integer minutes for a competent handyman to do this work end-to-end.
@@ -319,10 +402,61 @@ Return ONLY the JSON object. No code fences, no commentary.`,
 // admin form leave the field empty.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// GET /api/pricing/duplicate-quote-check?phone=...
+// Pre-flight guard for the quote builder: does this customer already have a
+// live (unpaid, recent) quote? Phones are stored raw — some carry invisible
+// Unicode direction marks from iOS copy-paste — so match on the normalized
+// form in JS over the last 30 days of quotes (small table, cheap scan).
+// ---------------------------------------------------------------------------
+router.get('/api/pricing/duplicate-quote-check', async (req, res) => {
+  try {
+    const rawPhone = typeof req.query.phone === 'string' ? req.query.phone : '';
+    const target = normalizePhoneNumber(rawPhone);
+    if (!target) return res.json({ duplicates: [] });
+
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const recent = await db
+      .select({
+        id: personalizedQuotes.id,
+        shortSlug: personalizedQuotes.shortSlug,
+        customerName: personalizedQuotes.customerName,
+        phone: personalizedQuotes.phone,
+        basePrice: personalizedQuotes.basePrice,
+        createdAt: personalizedQuotes.createdAt,
+        depositPaidAt: personalizedQuotes.depositPaidAt,
+        revokedAt: personalizedQuotes.revokedAt,
+        viewedAt: personalizedQuotes.viewedAt,
+      })
+      .from(personalizedQuotes)
+      .where(gte(personalizedQuotes.createdAt, since))
+      .orderBy(desc(personalizedQuotes.createdAt));
+
+    const duplicates = recent
+      .filter((q) => !q.depositPaidAt && !q.revokedAt && normalizePhoneNumber(q.phone) === target)
+      .slice(0, 5)
+      .map((q) => ({
+        shortSlug: q.shortSlug,
+        customerName: q.customerName,
+        basePricePence: q.basePrice,
+        createdAt: q.createdAt,
+        viewed: !!q.viewedAt,
+      }));
+
+    return res.json({ duplicates });
+  } catch (error: any) {
+    console.error('[pricing/duplicate-quote-check] Error:', error?.message || error);
+    // Non-blocking — the builder treats a failed check as "no duplicates"
+    return res.json({ duplicates: [] });
+  }
+});
+
 router.post('/api/pricing/draft-line-detail', async (req, res) => {
   try {
-    const { lineDescription, category, vaContext } = req.body as {
+    const { lineDescription, originalDescription, category, vaContext } = req.body as {
       lineDescription?: string;
+      /** The admin's raw pre-polish input — richer scope than the condensed title. */
+      originalDescription?: string;
       category?: string;
       vaContext?: string;
     };
@@ -336,7 +470,17 @@ router.post('/api/pricing/draft-line-detail', async (req, res) => {
     }
 
     const claude = getAnthropic();
-    const userPayloadParts: string[] = [`Line: ${trimmed}`];
+    const userPayloadParts: string[] = [`Line title: ${trimmed}`];
+    // The polished title is condensed by design — the raw input the admin typed
+    // is the scope source of truth for the steps, so pass it when it differs.
+    if (
+      originalDescription &&
+      typeof originalDescription === 'string' &&
+      originalDescription.trim() &&
+      originalDescription.trim() !== trimmed
+    ) {
+      userPayloadParts.push(`Admin's raw input (scope source of truth): ${originalDescription.trim().slice(0, 400)}`);
+    }
     if (category && typeof category === 'string' && category.trim()) {
       userPayloadParts.push(`Category: ${category.trim()}`);
     }
@@ -347,22 +491,34 @@ router.post('/api/pricing/draft-line-detail', async (req, res) => {
 
     const message = await claude.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 150,
+      max_tokens: 300,
       temperature: 0.3,
-      system: `You draft short customer-facing detail lines for a UK handyman quote.
+      system: `You draft customer-facing scope steps for a single line on a UK handyman quote.
 
-Given a single quote line (the scope), write a 1-2 sentence detail describing what's actually included on this line — the work performed and what the customer ends up with.
+Given a quote line (the scope), write 3-5 short steps describing what's actually included on this line — the work performed and what the customer ends up with.
 
-CRITICAL: Write the detail GENERICALLY so it would apply to ANY similar job in this category. Think "service-menu description" — the same phrasing should fit a different customer's identical job. NO customer-specific colour, brand, location, or situation.
+FORMAT — every step MUST be "Head — detail":
+- A 1-4 word bold-worthy head, then " — " (space, em dash, space), then a short expansion of no more than ~8 words.
+- Example step: "Full prep — timber cleaned and ready for stain"
+
+ORDER — cover, where applicable and in this order:
+1. Preparation
+2. The core work
+3. Materials included
+4. OUTCOME — the FINAL step must describe the end state the customer is left with (what they get), NOT a work activity. Heads like "Left looking new", "Ready to use", "Fully protected", "Watertight finish". Cleanup/checks can fold into its detail.
+
+GROUNDING: When "Admin's raw input" is provided, it is the scope source of truth — the title is a condensed version of it. Your steps must cover EVERY scope fact in the raw input (sides, counts, sub-items like posts/gates, areas) and must NOT invent scope beyond it.
+
+CRITICAL: Write the steps GENERICALLY so they would apply to ANY similar job in this category. Think "service-menu description" — the same phrasing should fit a different customer's identical job. NO customer-specific colour, brand, location, or situation.
 
 Rules:
-- 1-2 short sentences. No more.
+- 3-5 steps. No more.
 - Plain English. Reassuring but matter-of-fact tone.
 - No hype words ("amazing", "perfect", "expert"), no emoji, no exclamation marks.
 - UK English spelling (colour, metre, sealant).
 - Do NOT restate the line title verbatim. Add useful colour: method, materials, what's left at the end.
 
-DROP these (they personalise the detail):
+DROP these (they personalise the steps):
 - Customer possessives ("your", "their")
 - Specific brand names (Bosch, Yale, Bristan)
 - Specific room references ("the en-suite", "the kitchen") — say "the room" or just describe the work
@@ -377,16 +533,17 @@ KEEP these (they're generic-but-useful):
 - Standard checks ("tested before we leave", "leak-checked")
 
 Examples:
-Line: "Re-seal shower silicone"
-Detail: Strip the existing sealant, clean and dry the joints, then apply fresh flexible bathroom-grade silicone. 24-hour cure before water contact.
+Line title: "Re-seal shower silicone"
+["Strip out — old sealant removed, joints cleaned", "Re-seal — bathroom-grade flexible silicone", "Watertight finish — clean lines, ready after 24-hour cure"]
 
-Line: "Replace mixer tap"
-Detail: Isolate the supply, swap in the new tap with fresh washers, and leak-check both feeds. Existing tap removed and taken away.
+Line title: "Replace mixer tap"
+["Supply isolated — water off before any work starts", "Tap swapped — new tap fitted with fresh washers", "Leak-checked — both feeds tested under pressure", "Ready to use — old tap taken away, sink left clean"]
 
-Line: "Wall-mount TV (over 55in) on brick"
-Detail: Fit a wall bracket suitable for the screen weight, drill and plug for masonry, then hang and level the unit. Cables tucked neatly behind the bracket.
+Line title: "Stain fence, both sides incl. posts"
+Admin's raw input (scope source of truth): "stain 18m slatted fence both sides including 6 posts"
+["Full prep — timber cleaned and ready for stain", "Both sides stained — full 18m run, even coverage", "Posts included — all 6 treated to match", "Left protected — weatherproofed and looking fresh"]
 
-Return ONLY the detail text. No quotes, no labels, no preamble.`,
+Return ONLY a JSON array of strings. No quotes around the array, no labels, no preamble, no code fences.`,
       messages: [
         {
           role: 'user',
@@ -397,13 +554,56 @@ Return ONLY the detail text. No quotes, no labels, no preamble.`,
 
     const textBlock = message.content.find((b: any) => b.type === 'text');
     const raw = textBlock?.text || '';
-    // Strip exclamation marks and trim whitespace before returning
-    const detail = raw.replace(/!+/g, '.').replace(/\s+\./g, '.').trim();
-    return res.json({ detail });
+
+    // Defensive parse: the model may wrap the array in ```json fences.
+    const unfenced = raw
+      .replace(/^\s*```(?:json)?\s*/i, '')
+      .replace(/\s*```\s*$/, '')
+      .trim();
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(unfenced);
+    } catch {
+      // Last-ditch: pull out the first [...] block if the model added chatter
+      const match = unfenced.match(/\[[\s\S]*\]/);
+      if (match) {
+        try {
+          parsed = JSON.parse(match[0]);
+        } catch {
+          parsed = null;
+        }
+      }
+    }
+
+    if (!Array.isArray(parsed)) {
+      // Non-blocking — frontend leaves the field empty
+      return res.json({ detail: '', steps: [] });
+    }
+
+    const steps = parsed
+      .filter((s): s is string => typeof s === 'string')
+      .map((s) =>
+        s
+          .trim()
+          // No exclamation marks in customer-facing copy
+          .replace(/!+/g, '.')
+          .replace(/\s+\./g, '.')
+          // Normalise hyphen / en-dash separators to the em-dash convention
+          .replace(/\s[-–]\s/g, ' — ')
+          .slice(0, 120)
+          .trim(),
+      )
+      .filter((s) => s.length > 0)
+      .slice(0, 5);
+
+    // Back-compat prose string for legacy consumers of `detail`
+    const detail = steps.join('. ');
+    return res.json({ detail, steps });
   } catch (error: any) {
     console.error('[pricing/draft-line-detail] Error:', error?.message || error);
     // Non-blocking — frontend leaves the field empty
-    return res.json({ detail: '' });
+    return res.json({ detail: '', steps: [] });
   }
 });
 
@@ -1034,6 +1234,7 @@ const contextualQuoteInputSchema = z.object({
   // legacy callers (older admin tools, integrations) keep working.
   customerType: z.enum([
     'homeowner',
+    'oap_homeowner',
     'landlord',
     'property_manager',
     'tenant',
@@ -1058,6 +1259,8 @@ const contextualQuoteInputSchema = z.object({
         estimatedMinutes: z.number().positive(),
         materialsCostPence: z.number().min(0).optional().default(0),
         details: z.string().optional().nullable(),
+        /** Admin-provided "Head — detail" scope steps rendered under the line on the customer page. */
+        scopeSteps: z.array(z.string().max(160)).max(6).optional().nullable(),
         /** Phase 4d — tier id for fixed-fee tiered categories (e.g. waste_removal 'small' | 'medium' | 'full'). */
         fixedTier: z.string().optional().nullable(),
         /** Phase 11 — line needs a materials collection trip (job-level deduped to +30min once). */
@@ -1130,6 +1333,8 @@ const contextualQuoteInputSchema = z.object({
 
   // Source tracking
   sourceCallId: z.string().optional(),
+  // Quote origin channel. Defaults to 'call' when sourceCallId is present.
+  sourceChannel: z.enum(['call', 'whatsapp', 'web', 'other']).optional(),
   sourceLeadId: z.string().optional(),
   createdBy: z.string().optional(),
   createdByName: z.string().optional(),
@@ -1145,6 +1350,9 @@ const contextualQuoteInputSchema = z.object({
     .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'availableDates must be YYYY-MM-DD'))
     .optional()
     .default([]),
+
+  // Customer-supplied job photos (already uploaded via /api/pricing/quote-photos)
+  customerPhotoUrls: z.array(z.string()).max(10).optional(),
 });
 
 /**
@@ -1330,6 +1538,30 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
           const detail = detailsByLineId.get(lineItem.lineId);
           if (detail) {
             lineItem.details = detail;
+          }
+        }
+      }
+
+      // 4a-ii. Same pattern for admin-provided per-line `scopeSteps` — the
+      // "Head — detail" step strings rendered under the line on the customer
+      // page. Independent of `details`; both may be present on a line.
+      const scopeStepsByLineId = new Map<string, string[]>();
+      for (const l of input.lines) {
+        if (Array.isArray(l.scopeSteps)) {
+          const steps = l.scopeSteps
+            .filter((s): s is string => typeof s === 'string')
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
+          if (steps.length > 0) {
+            scopeStepsByLineId.set(l.id, steps);
+          }
+        }
+      }
+      if (scopeStepsByLineId.size > 0) {
+        for (const lineItem of result.lineItems) {
+          const steps = scopeStepsByLineId.get(lineItem.lineId);
+          if (steps) {
+            lineItem.scopeSteps = steps;
           }
         }
       }
@@ -1531,6 +1763,33 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       console.warn('[ContextualQuote] candidate match failed:', e instanceof Error ? e.message : e);
     }
 
+    // 6c. Quote origin — tie the quote back to the call it came from. Loose
+    // validation: an unknown sourceCallId is dropped (quote still created)
+    // rather than failing the whole request. When a call is linked and the
+    // builder didn't say otherwise, the channel defaults to 'call'.
+    let verifiedSourceCallId: string | null = null;
+    if (input.sourceCallId) {
+      try {
+        const [sourceCall] = await db
+          .select({ id: calls.id })
+          .from(calls)
+          .where(eq(calls.id, input.sourceCallId))
+          .limit(1);
+        if (sourceCall) {
+          verifiedSourceCallId = sourceCall.id;
+        } else {
+          console.warn(`[ContextualQuote] sourceCallId ${input.sourceCallId} not found — creating quote unlinked`);
+        }
+      } catch (callLookupError) {
+        console.warn(
+          '[ContextualQuote] source call lookup failed (non-blocking):',
+          callLookupError instanceof Error ? callLookupError.message : callLookupError,
+        );
+      }
+    }
+    const sourceChannel: string | null =
+      input.sourceChannel || (verifiedSourceCallId ? 'call' : null);
+
     // 7. Insert into personalizedQuotes
     const quoteInsertData = {
       id,
@@ -1618,8 +1877,18 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       createdBy: input.createdBy || null,
       createdByName: input.createdByName || null,
 
+      // Quote origin (ties call metrics to quotes/conversions)
+      sourceCallId: verifiedSourceCallId,
+      sourceChannel,
+
       // Admin-picked available dates (hard whitelist for customer date picker)
       availableDates: input.availableDates,
+
+      // Customer-supplied job photos — shown on the quote page
+      customerPhotoUrls:
+        input.customerPhotoUrls && input.customerPhotoUrls.length > 0
+          ? input.customerPhotoUrls
+          : null,
 
       // Materials cost (100% charged upfront in deposit calculation)
       materialsCostWithMarkupPence: result.lineItems.reduce(
@@ -1636,6 +1905,8 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       matchedContractorRate: null,
 
       createdAt: new Date(),
+      // Real 48h validity window — anchors the customer page's price-lock timer
+      expiresAt: new Date(Date.now() + QUOTE_VALIDITY_MS),
     };
 
     await db.insert(personalizedQuotes).values(quoteInsertData);
@@ -1998,14 +2269,34 @@ router.patch('/api/pricing/quotes/:id', async (req, res) => {
       updates.basePrice = finalPrice;
       updates.materialsCostWithMarkupPence = materialsTotal;
 
+      // The recalculated total is a plain sum of the edited line prices — the
+      // generation-time batch discount is no longer part of it. Clear the stored
+      // batchDiscount so the customer page doesn't keep rendering a "Multi-job
+      // discount −£X" row that isn't reflected in the price (worst case: a
+      // quote edited down to one line still showing a multi-job discount).
+      const staleBatchDiscount = existingBreakdown?.batchDiscount?.applied;
+
       // Patch pricingLayerBreakdown in JS (not raw SQL) so Drizzle serializes correctly
       updates.pricingLayerBreakdown = {
         ...existingBreakdown,
         finalPricePence: finalPrice,
         subtotalPence: labourTotal,
+        ...(staleBatchDiscount
+          ? {
+              batchDiscount: {
+                applied: false,
+                discountPercent: 0,
+                savingsPence: 0,
+                reasoning: 'Cleared — line items manually edited; edited prices are final.',
+              },
+            }
+          : {}),
       };
+      if (staleBatchDiscount && batchDiscountPercent === undefined) {
+        updates.batchDiscountPercent = 0;
+      }
 
-      console.log(`[quote-patch] Recalculated: labour=${labourTotal} materials=${materialsTotal} buckets=${bucketsTotal} final=${finalPrice}`);
+      console.log(`[quote-patch] Recalculated: labour=${labourTotal} materials=${materialsTotal} buckets=${bucketsTotal} final=${finalPrice}${staleBatchDiscount ? ' (stale batch discount cleared)' : ''}`);
     }
 
     if (Object.keys(updates).length === 0) {

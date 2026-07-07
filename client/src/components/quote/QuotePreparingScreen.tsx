@@ -38,31 +38,49 @@ interface QuotePreparingScreenProps {
     reviewCount?: number;
     jobsCompleted?: string;
   } | null;
+  /** Sub-headline under the greeting. Defaults to the quote-loading copy. */
+  subcopy?: string;
+  /** Override the checklist steps (e.g. for the visit flow). Defaults to STEPS. */
+  steps?: { icon: typeof Wrench; label: string }[];
+  /**
+   * Skip the checklist theatre — returning visitors (median 7 opens) and paid
+   * customers shouldn't sit through "locking in your fixed price" again. The
+   * screen then acts as a plain branded loader: onComplete fires as soon as
+   * `ready` is true. May flip true mid-show (once the quote arrives with
+   * viewCount > 1) — the checklist snaps to done and completes.
+   */
+  instant?: boolean;
 }
 
-export function QuotePreparingScreen({ ready, onComplete, customerName, pricingSettings }: QuotePreparingScreenProps) {
+export function QuotePreparingScreen({ ready, onComplete, customerName, pricingSettings, subcopy, steps, instant = false }: QuotePreparingScreenProps) {
+  const STEPS_TO_USE = steps ?? STEPS;
   const firstName = customerName?.trim().split(/\s+/)[0] ?? '';
   // activeStep = the index currently "in progress". Steps below it are done.
   // When it reaches STEPS.length the checklist animation is complete.
-  const [activeStep, setActiveStep] = useState(0);
+  // Instant mode starts (or snaps) fully ticked — no theatre on reopens.
+  const [activeStep, setActiveStep] = useState(instant ? STEPS_TO_USE.length : 0);
   const completedRef = useRef(false);
 
   // Advance one step per STEP_MS until all steps are done.
   useEffect(() => {
-    if (activeStep >= STEPS.length) return;
+    if (activeStep >= STEPS_TO_USE.length) return;
+    if (instant) {
+      setActiveStep(STEPS_TO_USE.length);
+      return;
+    }
     const t = setTimeout(() => setActiveStep((s) => s + 1), STEP_MS);
     return () => clearTimeout(t);
-  }, [activeStep]);
+  }, [activeStep, STEPS_TO_USE.length, instant]);
 
   // Fire onComplete once the animation finished AND data/assets are ready.
   useEffect(() => {
     if (completedRef.current) return;
-    if (activeStep >= STEPS.length && ready) {
+    if (activeStep >= STEPS_TO_USE.length && ready) {
       completedRef.current = true;
-      const t = setTimeout(onComplete, 450); // brief beat on the final tick
+      const t = setTimeout(onComplete, instant ? 120 : 450); // brief beat on the final tick
       return () => clearTimeout(t);
     }
-  }, [activeStep, ready, onComplete]);
+  }, [activeStep, ready, onComplete, instant]);
 
   const rating = pricingSettings?.googleRating ?? '4.9';
   const jobs = pricingSettings?.jobsCompleted ?? '500+';
@@ -96,14 +114,14 @@ export function QuotePreparingScreen({ ready, onComplete, customerName, pricingS
             {firstName ? `One moment, ${firstName}.` : 'One moment.'}
           </h1>
           <p className="text-slate-500 mt-2 text-sm">
-            Ben is putting your quote together…
+            {subcopy ?? 'Ben is putting your quote together…'}
           </p>
         </div>
 
         {/* Progress checklist card */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-lg p-5 sm:p-6 hs-prep-rise hs-prep-d2">
           <ul className="space-y-1">
-            {STEPS.map((step, i) => {
+            {STEPS_TO_USE.map((step, i) => {
               const done = i < activeStep;
               const active = i === activeStep;
               const Icon = step.icon;
@@ -148,7 +166,7 @@ export function QuotePreparingScreen({ ready, onComplete, customerName, pricingS
           <div className="mt-4 h-1.5 rounded-full bg-slate-100 overflow-hidden">
             <div
               className="h-full bg-[#7DB00E] rounded-full transition-all duration-700 ease-out"
-              style={{ width: `${Math.min(100, (activeStep / STEPS.length) * 100)}%` }}
+              style={{ width: `${Math.min(100, (activeStep / STEPS_TO_USE.length) * 100)}%` }}
             />
           </div>
         </div>

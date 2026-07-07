@@ -51,6 +51,8 @@ import type { QuoteOffersConfig } from '@shared/pricing-settings';
 import { WistiaFacade } from '@/components/quote/WistiaFacade';
 import { AmendedQuoteCard } from '@/components/quote/AmendedQuoteCard';
 import { BookingConfirmation } from '@/components/quote/BookingConfirmation';
+import { PaidBookingHero } from '@/components/quote/PaidBookingHero';
+import { WhatsNextTimeline } from '@/components/quote/WhatsNextTimeline';
 import { QuoteTimer } from '@/components/quote/QuoteTimer';
 import { QuoteTimerProvider, StickyTimerProgress } from '@/components/quote/QuoteTimerContext';
 import type { LayoutTier, BookingMode, LineItemResult, BatchDiscount } from '../../../shared/contextual-pricing-types';
@@ -524,17 +526,23 @@ export interface PersonalizedQuote {
   basePrice?: number;
   optionalExtras?: OptionalExtra[];
   viewedAt?: Date;
+  viewCount?: number;
   selectedPackage?: string;
   selectedExtras?: string[];
   selectedAt?: Date;
   bookedAt?: Date;
   depositPaidAt?: Date | string;
+  completedAt?: Date | string | null;
+  /** Flex bookings: customer gave up the exact day for a done-within-N-days guarantee. */
+  flexBookingWithinDays?: number | null;
   depositAmountPence?: number;
   selectedTierPricePence?: number;
   feedbackJson?: ({
     revisionAcceptedAt?: string;
     revisionAcceptedFromPricePence?: number;
     revisionAcceptedToPricePence?: number;
+    /** Customer-facing reason for a rescope (written by the admin rescope flow). */
+    rescopeExplanation?: string;
   } & Record<string, unknown>) | null;
   selectedDate?: Date | string | null;
   leadId?: string;
@@ -581,6 +589,8 @@ export interface PersonalizedQuote {
   subtotalPence?: number;
   /** Dead zone framing note (shown near price when quote lands in £100-£200 band) */
   deadZoneFraming?: string;
+  /** Customer-supplied job photos (uploaded during quote generation) */
+  customerPhotoUrls?: string[];
 
   // Context signals (Phase 5b)
   contextSignals?: {
@@ -1444,6 +1454,60 @@ function getHeroImage(quote: PersonalizedQuote): string {
   return '/assets/quote-images/door-greeting.webp';
 }
 
+/** Customer-supplied job photos — "your job, as you sent it". Placed directly
+    under the price/booking card so the photos anchor the price to THEIR exact
+    job before any generic value messaging. Renders nothing when no photos. */
+const CustomerJobPhotos = ({ photos }: { photos?: string[] | null }) => {
+  if (!photos || photos.length === 0) return null;
+  return (
+    <SectionWrapper className="bg-white">
+      <div className="max-w-2xl md:max-w-3xl mx-auto w-full py-8 md:py-12">
+        <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">
+          Your job. <span className="text-[#5a8209]">As you sent it.</span>
+        </h2>
+        <p className="text-slate-500 mt-4 text-base md:text-lg max-w-xl mx-auto leading-relaxed">
+          We priced this from your photos — <span className="text-slate-900 font-semibold">the price covers exactly what&rsquo;s shown here.</span>
+        </p>
+        {(() => {
+          // Odd counts (3, 5, 7…) leave the last cell stranded in an even grid,
+          // so promote the FIRST photo to a full-width hero and grid the even
+          // remainder. Even counts fill the grid exactly; 3-col only when the
+          // grid count divides by 3 so no row is ever left with a hole.
+          const isOdd = photos.length > 1 && photos.length % 2 === 1;
+          const hero = photos.length === 1 ? photos[0] : isOdd ? photos[0] : null;
+          const gridPhotos = hero ? photos.slice(1) : photos;
+          const gridCols = gridPhotos.length % 3 === 0 ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2';
+          const photoTile = (url: string, i: number, aspect: string) => (
+            <a
+              key={url}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`block rounded-xl overflow-hidden ring-1 ring-slate-200 shadow-sm bg-slate-100 ${aspect}`}
+            >
+              <img src={url} alt={`Your job photo ${i + 1}`} className="w-full h-full object-cover" loading="lazy" />
+            </a>
+          );
+          return (
+            <div className="mt-8 space-y-3">
+              {hero && (
+                <div className={photos.length === 1 ? 'max-w-md mx-auto' : ''}>
+                  {photoTile(hero, 0, 'aspect-[4/3]')}
+                </div>
+              )}
+              {gridPhotos.length > 0 && (
+                <div className={`grid gap-3 ${gridCols}`}>
+                  {gridPhotos.map((url, i) => photoTile(url, i + (hero ? 1 : 0), 'aspect-square'))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </div>
+    </SectionWrapper>
+  );
+};
+
 const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any }) => {
   // Get segment content
   const segmentKey = quote.segment && SEGMENT_CONTENT_MAP[quote.segment] ? quote.segment : 'DEFAULT';
@@ -1515,11 +1579,15 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
         <img
           src={getHeroImage(quote)}
           alt="Friendly Plumber"
-          className="w-full h-full object-cover opacity-60 contrast-110"
+          className="w-full h-full object-cover opacity-75 contrast-110"
           style={{ objectPosition: 'center 30%' }}
         />
-        {/* Uniform scrim guarantees heading contrast wherever it lands vertically */}
-        <div className={`absolute inset-0 bg-slate-900/60`} />
+        {/* Backlit scrim: radial — light in the centre so the photo glows through
+            behind the heading, darkening toward the edges for framing/contrast. */}
+        <div
+          className="absolute inset-0"
+          style={{ background: 'radial-gradient(ellipse 70% 55% at 50% 42%, rgba(15,23,42,0.30) 0%, rgba(15,23,42,0.52) 55%, rgba(15,23,42,0.72) 100%)' }}
+        />
         {/* Depth: darker at the very top (scarcity banner) and bottom (timer bar) */}
         <div className="absolute inset-0 bg-gradient-to-b from-slate-900/70 via-transparent to-slate-900" />
       </div>
@@ -2685,6 +2753,20 @@ export default function PersonalizedQuotePage() {
   const [hasBooked, setHasBooked] = useState(false);
   const [isBooking, setIsBooking] = useState(false);
   const [hasReserved, setHasReserved] = useState(false); // Track if user clicked "Book Now"
+  // ?paid=1 — set by the post-payment redirect (and Stripe's return_url). The
+  // redirect beats the webhook that writes depositPaidAt, so this flag renders
+  // the job hub optimistically while a poll below waits for the webhook.
+  const [justPaid] = useState(() => new URLSearchParams(window.location.search).get('paid') === '1');
+  // The preparing-screen checklist theatre plays on the FIRST open only.
+  // localStorage skips it instantly on this device; the server viewCount /
+  // depositPaidAt backstop (checked at render) covers other devices.
+  const [seenQuoteBefore] = useState(() => {
+    try {
+      return localStorage.getItem(`hs_quote_seen_${params?.slug}`) === '1';
+    } catch {
+      return false;
+    }
+  });
   const [isAcceptingRevision, setIsAcceptingRevision] = useState(false);
   const [revisionAcceptedLocally, setRevisionAcceptedLocally] = useState(false);
 
@@ -2873,6 +2955,41 @@ export default function PersonalizedQuotePage() {
       return failureCount < 3;
     },
   });
+
+  // Post-payment landing (?paid=1): strip the param so reloads/shares don't
+  // re-trigger the optimistic state, and poll the lightweight payment-status
+  // endpoint until the Stripe webhook writes depositPaidAt. On confirmation the
+  // cached quote is patched in place — deliberately NOT an invalidate, which
+  // would re-hit the tracked GET and inflate viewCount.
+  useEffect(() => {
+    if (!justPaid) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('paid');
+    window.history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : ''));
+  }, [justPaid]);
+
+  useEffect(() => {
+    if (!justPaid || !quote?.id || quote.depositPaidAt || !params?.slug) return;
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      if (++attempts > 20) { clearInterval(interval); return; }
+      try {
+        const r = await fetch(`/api/personalized-quotes/${params.slug}/payment-status`);
+        if (!r.ok) return;
+        const status = await r.json();
+        if (status.depositPaid) {
+          clearInterval(interval);
+          queryClient.setQueryData<PersonalizedQuote>(
+            ['/api/personalized-quotes', params.slug],
+            (old) => old ? { ...old, depositPaidAt: status.depositPaidAt || new Date().toISOString() } : old,
+          );
+        }
+      } catch {
+        // transient network error — keep polling
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [justPaid, quote?.id, quote?.depositPaidAt, params?.slug]);
 
   // Asset-readiness gate: keep the skeleton up until web fonts have settled
   // and the key above-the-fold images have been preloaded into the browser
@@ -3079,6 +3196,24 @@ export default function PersonalizedQuotePage() {
       return response.json();
     },
     enabled: !!quote?.id && !!quote?.depositPaidAt,
+  });
+
+  // Post-payment "job hub" data — invoice totals, portal token and job status
+  // for the paid-state hero on the live contextual layout. Same endpoint the
+  // standalone BookingConfirmedPage uses (it 400s pre-payment, hence the gate).
+  const { data: confirmationData } = useQuery<{
+    invoice: { invoiceNumber: string; totalAmount: number; depositPaid: number; balanceDue: number; status: string } | null;
+    portalToken: string | null;
+    job: { id: string; status: string; scheduledDate: string | null } | null;
+  }>({
+    queryKey: ['booking-confirmation', quote?.id],
+    queryFn: async () => {
+      const response = await fetch(`/api/personalized-quotes/${quote?.id}/confirmation`);
+      if (!response.ok) throw new Error('Failed to load confirmation data');
+      return response.json();
+    },
+    enabled: !!quote?.id && !!quote?.depositPaidAt,
+    retry: 1,
   });
 
   // Effect to check if cinematic intro should be shown
@@ -3599,8 +3734,11 @@ export default function PersonalizedQuotePage() {
     setHasBooked(true);
     setIsBooking(false);
 
-    // ALWAYS redirect to confirmation page - payment succeeded
-    window.location.href = `/booking-confirmed/${quote.id}`;
+    // ALWAYS redirect on success — back to the quote link itself, which is the
+    // canonical post-payment "job hub" (the same URL in their SMS thread that
+    // they'll keep reopening). ?paid=1 bridges the Stripe-webhook race so the
+    // hub renders instantly instead of flashing the sales page.
+    window.location.href = `/q/${quote.shortSlug || quote.id}?paid=1`;
   };
 
   // Offer flow, step 1 — the branded preparing screen is the SOLE loader (it
@@ -3615,9 +3753,24 @@ export default function PersonalizedQuotePage() {
         ready={!isLoading && assetsReady && !!quote}
         pricingSettings={pricingSettings}
         customerName={quote?.customerName}
+        // First open only: the checklist theatre builds anticipation once, then
+        // becomes friction (median 7 opens; paid customers watch "locking in
+        // your fixed price" for a price they already paid). viewCount arrives
+        // with the quote, so this flips mid-show for other-device reopens.
+        instant={
+          seenQuoteBefore ||
+          !!(quote && (((quote.viewCount ?? 0) > 1) || quote.depositPaidAt || quote.bookedAt))
+        }
         onComplete={() => {
+          try {
+            localStorage.setItem(`hs_quote_seen_${params?.slug}`, '1');
+          } catch { /* private mode — server viewCount backstop covers it */ }
+          // Paid/booked customers skip the offer pitch entirely — they land on
+          // the post-payment job hub, not a discount for a decision already made.
+          // justPaid covers the seconds before the Stripe webhook lands.
+          const alreadyPaid = !!(quote?.depositPaidAt || quote?.bookedAt) || justPaid;
           const homeowner = deriveOfferCustomerType((quote as any)?.contextSignals) === 'homeowner';
-          setFlowPhase(selectedOffer && (offerVariant || homeowner) ? 'offer' : 'quote');
+          setFlowPhase(!alreadyPaid && selectedOffer && (offerVariant || homeowner) ? 'offer' : 'quote');
         }}
       />
     );
@@ -4230,7 +4383,7 @@ export default function PersonalizedQuotePage() {
       quote.contextualHeadline?.trim() ||
       (admiralJobTitle ? `Here's your quote for ${admiralJobTitle}` : "Here's your quote");
     return (
-      <QuoteTimerProvider quoteKey={params?.slug || 'quote'}>
+      <QuoteTimerProvider quoteKey={params?.slug || 'quote'} expiresAt={quote.expiresAt} viewCount={quote.viewCount}>
         <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
 
           <UpsellBottomSheet
@@ -4254,6 +4407,10 @@ export default function PersonalizedQuotePage() {
             rating={pricingSettings?.googleRating ?? '4.9'}
             reviews={pricingSettings?.reviewCount ?? 127}
           />
+
+          {/* 1b ─ Customer's own job photos — right after the price hero so the
+                 price is anchored to THEIR exact job. */}
+          <CustomerJobPhotos photos={quote.customerPhotoUrls} />
 
           {/* 2 ─ Social proof — reviews/testimonials, shown before the booking card.
                  Eyebrow rating hidden here — the hero already shows 4.9 · 127 reviews. */}
@@ -4331,8 +4488,38 @@ export default function PersonalizedQuotePage() {
   // Contextual quotes use the same rich flow: ScarcityBanner → ValueHero →
   // ValueSocialProof → ValueGuarantee → HassleComparisonCard → Packages → Payment
   if (quote.proposalModeEnabled || isContextualQuote) {
+    // ── Paid "job hub" state ────────────────────────────────────────────────
+    // Customers reopen their quote link a median of 7 times, and keep opening
+    // it AFTER paying — to check the date, the balance, or how to reach us.
+    // Once the deposit is in, the first screen must be the confirmation, not
+    // the pitch, so the sales sections below are swapped for the job hub.
+    // justPaid renders the hub optimistically while the webhook race resolves
+    // (the poll above patches depositPaidAt into the cache when it lands).
+    const isPaidState = !!quote.depositPaidAt || justPaid;
+    const paidDepositPence = quote.depositAmountPence ?? confirmationData?.invoice?.depositPaid ?? 0;
+    // Same balance math as the AmendedQuoteCard below — basePrice is the live
+    // total (rescopes update it), so the balance stays honest after a rescope.
+    // Clamped to at least the deposit: extras are charged inside the deposit but
+    // not folded into basePrice, and "total £188 / paid £222" reads as an error.
+    const paidTotalPence = Math.max(
+      quote.basePrice || 0,
+      confirmationData?.invoice?.totalAmount || 0,
+      paidDepositPence,
+    );
+    const paidBalancePence = Math.max(0, paidTotalPence - paidDepositPence);
+    const paidJobCompleted = !!quote.completedAt || confirmationData?.job?.status === 'completed';
+    // Flex bookings: no selectedDate by design — the promise is "done within N
+    // days of booking". Anchor the deadline on the payment moment (falls back to
+    // now for the optimistic ?paid=1 window, where the webhook hasn't landed yet).
+    const paidFlexDeadline =
+      !quote.selectedDate && (quote.flexBookingWithinDays ?? 0) > 0
+        ? new Date(
+            new Date(quote.depositPaidAt ?? Date.now()).getTime() +
+              (quote.flexBookingWithinDays as number) * 24 * 60 * 60 * 1000,
+          )
+        : null;
     return (
-      <QuoteTimerProvider quoteKey={params?.slug || 'quote'}>
+      <QuoteTimerProvider quoteKey={params?.slug || 'quote'} expiresAt={quote.expiresAt} viewCount={quote.viewCount}>
       <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
 
         {/* Sticky instant-contact header — always-visible bold navy bar pinning
@@ -4389,6 +4576,37 @@ export default function PersonalizedQuotePage() {
           onSkip={() => { setSelectedContextualUpsells(new Set()); confirmContextualUpsells(); }}
         />
 
+        {isPaidState ? (
+          /* ── Paid job hub — confirmation-first ─────────────────────────────
+             The pitch has done its job. Every reopen after payment answers
+             "when are they coming, what do I owe, how do I reach them"
+             without scrolling past sales copy. The rescope (AmendedQuoteCard)
+             and payment sections below still render, so an amended quote
+             appears directly under the confirmed state. */
+          <div className="px-4 pt-8 pb-4">
+            <div className="w-full max-w-lg mx-auto space-y-6">
+              <PaidBookingHero
+                customerName={quote.customerName}
+                jobDescription={quote.jobDescription}
+                selectedDate={quote.selectedDate ?? null}
+                flexDeadline={paidFlexDeadline}
+                depositPaidPence={paidDepositPence}
+                balanceDuePence={paidBalancePence}
+                totalPence={paidTotalPence}
+                invoiceNumber={confirmationData?.invoice?.invoiceNumber ?? invoiceData?.invoiceNumber}
+                portalToken={confirmationData?.portalToken ?? undefined}
+                jobCompleted={paidJobCompleted}
+              />
+              <WhatsNextTimeline
+                currentStep={paidJobCompleted ? (paidBalancePence <= 0 ? 'job_done' : 'balance') : 'booked'}
+                selectedDate={quote.selectedDate}
+                flexDeadline={paidFlexDeadline}
+                balanceDuePence={paidBalancePence}
+              />
+            </div>
+          </div>
+        ) : (
+        <>
         {/* Value Sections Flow */}
         <ValueHero quote={quote} config={config} />
 
@@ -4403,6 +4621,10 @@ export default function PersonalizedQuotePage() {
             </div>
           </div>
         )}
+
+        {/* Customer's own job photos — anchors the price to THEIR exact job,
+            straight after the price card and before any generic messaging. */}
+        <CustomerJobPhotos photos={quote.customerPhotoUrls} />
 
         {/* Cost of the wrong choice — established before any price. Quiet editorial
             beat (type + whitespace, no coloured band). Contextual quotes only. */}
@@ -4458,6 +4680,8 @@ export default function PersonalizedQuotePage() {
             <p className="text-center text-slate-600 mt-6 max-w-lg mx-auto font-medium">That’s what your price pays for — and <span className="text-slate-900 font-bold">if it’s not right, we come back and fix it free.</span></p>
           </div>
         </SectionWrapper>
+        </>
+        )}
 
         {/* Plumbing section — the price/booking card now lives up under the hero, so
             this only houses conditional pieces: the landlord tenant-liaison upsell, the
@@ -4537,7 +4761,13 @@ export default function PersonalizedQuotePage() {
                       balanceDuePence={balance}
                       pricingLineItems={taggedPricingLineItems as any}
                       priceBuckets={(quote as any).pricingLayerBreakdown?.priceBuckets}
-                      explanation={`Hi ${quote.customerName?.split(' ')[0] || 'there'} — we visited and inspected the doors. The original quote assumed the frames were already rebated for intumescent strips, but they aren't, so the doors need planing and routering. Your deposit is credited in full against the new total.`}
+                      explanation={
+                        // Per-quote rescope reason written by the admin flow; the
+                        // generic fallback keeps legacy rescopes honest (this used
+                        // to be hardcoded fire-door copy shown to every customer).
+                        quote.feedbackJson?.rescopeExplanation ||
+                        `Hi ${quote.customerName?.split(' ')[0] || 'there'} — we visited and the job needed more than the original quote covered. Your deposit is credited in full against the new total.`
+                      }
                       isAccepted={isAccepted}
                       isAccepting={isAcceptingRevision}
                       onAccept={async () => {

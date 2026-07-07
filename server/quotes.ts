@@ -19,6 +19,12 @@ import { optionalAuth } from "./auth";
 import { getShortQuoteUrl, getBookVisitUrl } from "./url-utils";
 import { normalizeQuoteImageUrls } from "./quote-image-utils";
 import { computeLaneBasePence, parsePricingLane } from "./lane-pricing";
+import { resolveOrCreateProperty } from "./properties";
+import { resolveOrCreateClient } from "./clients";
+
+// Real quote validity window — drives expiresAt at creation and the customer
+// page's price-lock countdown. Matches the PDF's "Valid 48 hours".
+export const QUOTE_VALIDITY_MS = 48 * 60 * 60 * 1000;
 
 // Define input schema for value pricing
 const valuePricingInputSchema = z.object({
@@ -421,11 +427,29 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
             ...aiTierDeliverables.hassleFree,
         ]));
 
+        // Resolve the spine entities up front so the quote is linked to its
+        // property (WHERE) and client (WHO) from creation — not just at booking.
+        const resolvedPropertyId = await resolveOrCreateProperty(db, {
+            address: input.address,
+            coordinates,
+            postcode: input.postcode,
+            phone: input.phone,
+            email: input.email,
+        });
+        const resolvedClientId = await resolveOrCreateClient(db, {
+            phone: input.phone,
+            email: input.email,
+            displayName: input.customerName,
+            billingAddress: input.address,
+        });
+
         // Prepare quote data
         const quoteInsertData = {
             id,
             shortSlug,
             leadId: linkedLeadId, // Link to lead (fixes orphaned quotes)
+            propertyId: resolvedPropertyId ?? undefined, // Spine property (WHERE)
+            clientId: resolvedClientId ?? undefined,     // Spine client (WHO)
             contractorId: input.contractorId || null, // Capture contractor ID
             customerName: input.customerName,
             phone: input.phone,
@@ -487,7 +511,8 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
                 : null,
 
             createdAt: new Date(),
-            // expiresAt removed - quotes no longer expire
+            // Real 48h validity window — anchors the customer page's price-lock timer
+            expiresAt: new Date(Date.now() + QUOTE_VALIDITY_MS),
         };
 
         // Insert into DB
@@ -741,6 +766,26 @@ quotesRouter.post('/api/recalculate-optional-extra', async (req, res) => {
     } catch (error) {
         console.error("Recalculate extra error:", error);
         res.status(500).json({ error: "Recalculation failed" });
+    }
+});
+
+// Payment-status poll — the post-payment redirect to /q/:slug?paid=1 races the
+// Stripe webhook that writes depositPaidAt, so the quote page polls this until
+// the webhook lands. Deliberately separate from the GET below: this endpoint
+// must NOT touch view statistics (every hit of the main GET increments viewCount).
+quotesRouter.get('/api/personalized-quotes/:slug/payment-status', async (req, res) => {
+    try {
+        const { slug } = req.params;
+        const fields = { id: personalizedQuotes.id, depositPaidAt: personalizedQuotes.depositPaidAt };
+        let result = await db.select(fields).from(personalizedQuotes).where(eq(personalizedQuotes.shortSlug, slug)).limit(1);
+        if (result.length === 0 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slug)) {
+            result = await db.select(fields).from(personalizedQuotes).where(eq(personalizedQuotes.id, slug)).limit(1);
+        }
+        if (!result[0]) return res.status(404).json({ error: "Quote not found" });
+        return res.json({ depositPaid: !!result[0].depositPaidAt, depositPaidAt: result[0].depositPaidAt });
+    } catch (error) {
+        console.error("Payment status error:", error);
+        return res.status(500).json({ error: "Failed to fetch payment status" });
     }
 });
 
@@ -1006,8 +1051,17 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
             console.warn('[Quote] Upsell lookup failed:', upsellErr);
         }
 
+        // Effective expiry — legacy rows predate expiresAt being set at creation,
+        // so fall back to createdAt + 48h. The client price-lock timer always
+        // receives a real anchor, never null.
+        const effectiveExpiresAt = quote.expiresAt
+            ?? (quote.createdAt
+                ? new Date(new Date(quote.createdAt).getTime() + QUOTE_VALIDITY_MS)
+                : new Date(Date.now() + QUOTE_VALIDITY_MS));
+
         res.json({
             ...quote,
+            expiresAt: effectiveExpiresAt,
             segment: quoteSegment, // Use the direct field from database (B3.4)
             // Enriched Tier Objects for Frontend Display
             tierConfig: segmentConfig, // Pass the full config for ease
@@ -1231,6 +1285,9 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
         if (effectivePaymentType !== paymentType) {
             console.warn(`[track-booking] Quote ${id} — blocked paymentType downgrade '${quote.paymentType}'→'${paymentType}'; keeping '${effectivePaymentType}' (webhook authoritative)`);
         }
+        // Customer-facing cash (OAP "pay cash on the day"). No Stripe webhook will
+        // ever fire for these, so this route is the sole confirmer of the booking.
+        const isCashBooking = effectivePaymentType === 'cash';
 
         // NOTE: depositPaidAt is NOT set here - it will be set by the Stripe webhook
         // when the payment is confirmed. This prevents race conditions and false positives.
@@ -1243,6 +1300,10 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
                 paymentType: effectivePaymentType,
                 selectedTierPricePence,
                 ...depositAmountUpdate,
+                // Cash-on-the-day: no webhook will set bookedAt, so confirm here.
+                // Nothing is paid online (depositPaidAt stays null); the full balance
+                // is due in cash and is captured on the invoice created below.
+                ...(isCashBooking ? { bookedAt: new Date(), depositAmountPence: 0 } : {}),
                 // Scheduling fields
                 selectedDate: selectedDate ? new Date(selectedDate) : undefined,
                 // Store all preferred dates for the 3-date buffer model
@@ -1294,6 +1355,94 @@ quotesRouter.put('/api/personalized-quotes/:id/track-booking', async (req, res) 
                 // bookedAt is set by Stripe webhook after payment confirmation
             })
             .where(eq(personalizedQuotes.id, id));
+
+        // Cash-on-the-day confirm chain. Mirrors the admin quick-book so a customer
+        // cash booking is confirmed + dispatchable without ever touching Stripe:
+        // raise a full-balance invoice and create the job (status pending) so it
+        // enters the same dispatch pool as a paid flex booking. Guarded on the
+        // PRE-update bookedAt so a repeated fire-and-forget PUT can't double-invoice.
+        if (isCashBooking && !quote.bookedAt) {
+            try {
+                const cashTotal = selectedTierPricePence;
+                const propertyId = (quote as any).propertyId
+                    ?? await resolveOrCreateProperty(db, {
+                        address: quote.address,
+                        coordinates: (quote as any).coordinates,
+                        postcode: (quote as any).postcode,
+                        phone: quote.phone,
+                        email: quote.email,
+                    });
+                const clientId = (quote as any).clientId
+                    ?? await resolveOrCreateClient(db, {
+                        phone: quote.phone,
+                        email: quote.email,
+                        displayName: quote.customerName,
+                        billingAddress: quote.address,
+                    });
+                if (!(quote as any).propertyId || !(quote as any).clientId) {
+                    await db.update(personalizedQuotes)
+                        .set({
+                            ...((quote as any).propertyId ? {} : { propertyId: propertyId ?? undefined }),
+                            ...((quote as any).clientId ? {} : { clientId: clientId ?? undefined }),
+                        })
+                        .where(eq(personalizedQuotes.id, id));
+                }
+
+                const invoiceNumber = `INV-${Date.now().toString(36).toUpperCase()}`;
+                const invoiceId = `inv_${nanoid()}`;
+                await db.insert(invoices).values({
+                    id: invoiceId,
+                    invoiceNumber,
+                    quoteId: id,
+                    propertyId: propertyId ?? undefined,
+                    clientId: clientId ?? undefined,
+                    customerName: quote.customerName,
+                    customerEmail: quote.email || null,
+                    customerPhone: quote.phone,
+                    customerAddress: (typeof address === 'string' && address.trim()) ? address.trim() : (quote.address || null),
+                    lineItems: [{ description: quote.jobDescription, quantity: 1, unitPrice: cashTotal, total: cashTotal }] as any,
+                    totalAmount: cashTotal,
+                    depositPaid: 0,           // nothing paid online
+                    balanceDue: cashTotal,    // full amount due in cash on the day
+                    status: 'sent',
+                    paidAt: null,
+                    notes: '[CASH] Customer chose pay-cash-on-the-day (OAP)',
+                });
+
+                const jobId = `job_${nanoid()}`;
+                await db.insert(contractorJobs).values({
+                    id: jobId,
+                    quoteId: id,
+                    customerName: quote.customerName,
+                    customerPhone: quote.phone,
+                    address: quote.address || quote.postcode || '',
+                    postcode: quote.postcode || '',
+                    jobDescription: quote.jobDescription,
+                    status: 'pending',             // enters the dispatch pool
+                    totalPricePence: cashTotal,
+                });
+
+                try {
+                    const { sendBookingConfirmationWhatsApp } = await import('./email-service');
+                    await sendBookingConfirmationWhatsApp({
+                        customerName: quote.customerName,
+                        customerPhone: quote.phone,
+                        jobDescription: quote.jobDescription,
+                        depositPaid: 0,
+                        totalJobPrice: cashTotal,
+                        balanceDue: cashTotal,
+                        invoiceNumber,
+                        jobId,
+                        scheduledDate: selectedDate ? String(selectedDate) : (quote.selectedDate ? String(quote.selectedDate) : null),
+                    });
+                } catch (notifyError) {
+                    console.error('[track-booking][cash] WhatsApp confirm failed:', notifyError);
+                }
+                console.log(`[track-booking][cash] Quote ${id} booked cash-on-the-day — invoice ${invoiceNumber}, job ${jobId}, £${cashTotal / 100} due in cash`);
+            } catch (cashErr) {
+                console.error('[track-booking][cash] Failed to confirm cash booking:', cashErr);
+            }
+        }
 
         res.json({ success: true });
     } catch (error) {
@@ -1409,6 +1558,25 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/quick-book', async (req, r
         const calculatedDeposit = materialsCost + Math.round(laborCost * 0.30);
         const finalDeposit = depositAmountPence ?? calculatedDeposit;
 
+        // Resolve the service property (WHERE work happens) so the quote, its job
+        // and its invoice all resolve to one property row — see server/properties.ts.
+        const propertyId = (quote as any).propertyId
+            ?? await resolveOrCreateProperty(db, {
+                address: quote.address,
+                coordinates: (quote as any).coordinates,
+                postcode: (quote as any).postcode,
+                phone: quote.phone,
+                email: quote.email,
+            });
+        // Resolve the client (WHO pays) — same shared identity as the spine.
+        const clientId = (quote as any).clientId
+            ?? await resolveOrCreateClient(db, {
+                phone: quote.phone,
+                email: quote.email,
+                displayName: quote.customerName,
+                billingAddress: quote.address,
+            });
+
         // Update quote as booked
         await db.update(personalizedQuotes)
             .set({
@@ -1418,6 +1586,8 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/quick-book', async (req, r
                 depositPaidAt: new Date(),
                 bookedAt: new Date(),
                 paymentType: 'full', // Manual bookings are treated as full payment pending
+                ...((quote as any).propertyId ? {} : { propertyId: propertyId ?? undefined }),
+                ...((quote as any).clientId ? {} : { clientId: clientId ?? undefined }),
             })
             .where(eq(personalizedQuotes.id, id));
 
@@ -1431,15 +1601,17 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/quick-book', async (req, r
             id: invoiceId,
             invoiceNumber,
             quoteId: id,
+            propertyId: propertyId ?? undefined,
+            clientId: clientId ?? undefined,
             customerName: quote.customerName,
             customerEmail: quote.email || null,
             customerPhone: quote.phone,
-            address: quote.address || null,
-            jobDescription: quote.jobDescription,
-            totalAmountPence: selectedTierPricePence,
-            depositAmountPence: finalDeposit,
-            balanceDuePence: balanceDue,
-            status: paymentMethod === 'already_paid' ? 'paid' : 'pending',
+            customerAddress: quote.address || null,
+            lineItems: [{ description: quote.jobDescription, quantity: 1, unitPrice: selectedTierPricePence, total: selectedTierPricePence }] as any,
+            totalAmount: selectedTierPricePence,
+            depositPaid: finalDeposit,
+            balanceDue: balanceDue,
+            status: paymentMethod === 'already_paid' ? 'paid' : 'sent',
             paidAt: paymentMethod === 'already_paid' ? new Date() : null,
             notes: notes ? `[${paymentMethod.toUpperCase()}] ${notes}` : `[${paymentMethod.toUpperCase()}] Manual booking via admin`,
         });
@@ -2265,6 +2437,8 @@ quotesRouter.post('/api/quotes/instant', optionalAuth, async (req, res) => {
                 ? `${(req as any).user.firstName || ''} ${(req as any).user.lastName || ''}`.trim() || null
                 : null,
             createdAt: new Date(),
+            // Real 48h validity window — anchors the customer page's price-lock timer
+            expiresAt: new Date(Date.now() + QUOTE_VALIDITY_MS),
         };
 
         await db.insert(personalizedQuotes).values(quoteData);

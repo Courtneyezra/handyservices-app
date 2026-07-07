@@ -16,9 +16,10 @@ export function QuoteTimer({
   whatsappUrl = 'https://wa.me/447508744402',
 }: QuoteTimerProps) {
   const {
-    secondsLeft,
     progress,
     expired,
+    calm,
+    expiryLabel,
     borderColor,
     glowColor,
     pulseSpeed,
@@ -49,13 +50,16 @@ export function QuoteTimer({
         }
       `}</style>
 
-      {/* Timer border wrapper */}
+      {/* Timer border wrapper. First view keeps the urgent pulsing treatment
+          (43% of payers pay within the first hour); returning visitors (calm)
+          get the same draining border but no pulse — the price lock is a
+          reassurance, not a threat, by the 4th open. */}
       <div
         className="relative rounded-3xl transition-all duration-1000"
         style={{
           padding: '5px',
           background: expired ? 'transparent' : borderGradient,
-          animation: expired ? 'none' : `quoteTimerPulse ${pulseSpeed} ease-in-out infinite`,
+          animation: expired || calm ? 'none' : `quoteTimerPulse ${pulseSpeed} ease-in-out infinite`,
           '--timer-glow': glowColor,
         } as React.CSSProperties}
       >
@@ -64,7 +68,7 @@ export function QuoteTimer({
           <div
             className="absolute -top-10 -left-2 z-20"
             style={{
-              animation: `sealPulse ${pulseSpeed} ease-in-out infinite`,
+              animation: calm ? 'none' : `sealPulse ${pulseSpeed} ease-in-out infinite`,
             }}
           >
             {/* Draining conic ring (mirrors the card border) */}
@@ -75,7 +79,7 @@ export function QuoteTimer({
                 height: 76,
                 padding: 3,
                 background: borderGradient,
-                boxShadow: `0 6px 18px ${glowColor}`,
+                boxShadow: calm ? '0 4px 12px rgba(15, 23, 42, 0.25)' : `0 6px 18px ${glowColor}`,
               }}
             >
               {/* Inner disc */}
@@ -89,12 +93,28 @@ export function QuoteTimer({
                 <span className="text-[11px] font-black tracking-[0.12em] text-white leading-none">
                   LOCKED
                 </span>
-                <span
-                  className="text-[14px] font-black tabular-nums leading-none mt-0.5"
-                  style={{ color: borderColor }}
-                >
-                  {timeDisplay}
-                </span>
+                {calm && expiryLabel ? (
+                  <>
+                    {/* Calm state: absolute expiry, not an anxious countdown.
+                        Day rides the UNTIL line so the time fits the 76px disc. */}
+                    <span className="text-[7px] font-bold tracking-[0.15em] text-slate-400 leading-none mt-1 uppercase">
+                      UNTIL {expiryLabel.split(' ')[0]}
+                    </span>
+                    <span
+                      className="text-[10px] font-black leading-none mt-0.5 whitespace-nowrap"
+                      style={{ color: borderColor }}
+                    >
+                      {expiryLabel.split(' ').slice(1).join(' ') || expiryLabel}
+                    </span>
+                  </>
+                ) : (
+                  <span
+                    className="text-[13px] font-black tabular-nums leading-none mt-0.5 whitespace-nowrap"
+                    style={{ color: borderColor }}
+                  >
+                    {timeDisplay}
+                  </span>
+                )}
               </div>
             </div>
           </div>
