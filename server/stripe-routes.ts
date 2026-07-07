@@ -3,13 +3,13 @@ import Stripe from 'stripe';
 import crypto from 'crypto';
 import { db } from './db';
 import { personalizedQuotes, invoices, leads } from '../shared/schema';
-import { notifyQuoteAccepted, notifyInvoicePaid, describeSchedule, summarizeLineItems } from './pushover';
+import { notifyQuoteAccepted, notifyNoContractor, notifyInvoicePaid, describeSchedule, summarizeLineItems } from './pushover';
 import { eq, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { updateLeadStage } from './lead-stage-engine';
 import { getPricingSettings } from './pricing-settings';
 import { insertInvoiceWithRetry } from './invoices';
-import { extendLock, confirmBooking } from './booking-engine';
+import { extendLock, confirmBooking, autoAssignPaidJob } from './booking-engine';
 import { computeLaneBasePence, parsePricingLane } from './lane-pricing';
 import { confirmPaidPick } from './slot-offers';
 
@@ -98,6 +98,10 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             // Phase 25 flex — carried into PI metadata so the webhook persists it
             // race-free, instead of relying solely on the fire-and-forget /track-booking PUT.
             flexBookingWithinDays,
+            // Customer's scheduling choice ('express'|'priority'|'standard'|'flexible').
+            // Carried into PI metadata so the webhook persists personalized_quotes.scheduling_tier
+            // race-free — previously only set at quote creation, so it never landed on bookings.
+            schedulingTier,
             // Pricing lane the customer chose in UnifiedQuoteCard ('flex' | 'date_time').
             // The SERVER re-derives the £ adjustment from quote.basePrice — the client
             // only names the lane, never the amount. Legacy callers (PaymentForm,
@@ -244,6 +248,12 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         // (exact-date) bookings never carry a misleading flex tag into the webhook.
         if (typeof flexBookingWithinDays === 'number' && flexBookingWithinDays > 0) {
             bookingMetadata.flexBookingWithinDays = String(flexBookingWithinDays);
+        }
+        // Customer's scheduling tier — only stamp a recognised value so the webhook
+        // never writes a garbage tier onto personalized_quotes.scheduling_tier.
+        if (typeof schedulingTier === 'string' &&
+            ['express', 'priority', 'standard', 'flexible'].includes(schedulingTier)) {
+            bookingMetadata.schedulingTier = schedulingTier;
         }
         // Carry the chosen pricing lane so the webhook re-derives the SAME
         // lane-adjusted total when it builds the invoice + dispatch record.
@@ -447,6 +457,17 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             console.log(`[Stripe Webhook] Persisted flexBookingWithinDays=${metadataFlexDays} from metadata for quote ${quoteId}`);
                         }
 
+                        // Persist the customer's scheduling tier from this PI's own metadata
+                        // (authoritative + race-free). Previously only stamped at quote
+                        // creation, so it never landed on real bookings. Guarded to the same
+                        // recognised set the create-payment-intent handler validates.
+                        const metadataSchedulingTier = paymentIntent.metadata?.schedulingTier;
+                        if (metadataSchedulingTier &&
+                            ['express', 'priority', 'standard', 'flexible'].includes(metadataSchedulingTier)) {
+                            updateFields.schedulingTier = metadataSchedulingTier;
+                            console.log(`[Stripe Webhook] Persisted schedulingTier=${metadataSchedulingTier} from metadata for quote ${quoteId}`);
+                        }
+
                         await db.update(personalizedQuotes)
                             .set(updateFields)
                             .where(eq(personalizedQuotes.id, quoteId));
@@ -462,7 +483,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                 selectedDate: quote.selectedDate,
                                 timeSlotType: quote.timeSlotType,
                                 flexBookingWithinDays: quote.flexBookingWithinDays ?? (isNaN(metadataFlexDays) ? null : metadataFlexDays),
-                                schedulingTier: quote.schedulingTier,
+                                schedulingTier: quote.schedulingTier ?? metadataSchedulingTier,
                             }),
                             amountPaidPence: paymentIntent.amount,
                             paymentType: metadataPaymentType === 'full' ? 'full' : 'deposit',
@@ -521,7 +542,77 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                 }
                             }
                         } else {
-                            console.log(`[Stripe Webhook] No lockId in PI metadata — quote ${quoteId} goes to dispatch pool for manual assignment`);
+                            // ── No slot-lock ────────────────────────────────────────────
+                            // The customer paid without pre-reserving a slot. Previously this
+                            // job silently fell into a "dispatch pool" that nobody drained, so
+                            // it never got a contractorBookingRequests row (the booking
+                            // write-path leak — ~86% of paid jobs, see dispatch SOT §3a).
+                            //
+                            // Phase 1 fix: if the customer chose a concrete date + AM/PM slot,
+                            // wire the (previously uncalled) auto-assignment engine to commit a
+                            // best-fit contractor now. Gated behind AUTO_ASSIGN_ON_PAYMENT
+                            // (default off) and fully best-effort — any failure or no-fit leaves
+                            // the job pending for human dispatch, exactly as before. Flexible
+                            // (no-date) jobs are intentionally left pending (nothing to commit
+                            // until a date is chosen).
+                            const autoAssignEnabled = process.env.AUTO_ASSIGN_ON_PAYMENT === 'true';
+                            // Note: production stores slots as 'morning'/'afternoon' (not the
+                            // 'am'/'pm' the schema comment claims). Map both spellings; leave
+                            // 'exact'/'out_of_hours'/null as unsupported → pending for dispatch.
+                            const rawSlot = (quote.timeSlotType || '').toLowerCase();
+                            const datedSlot: 'am' | 'pm' | null =
+                                rawSlot === 'am' || rawSlot === 'morning' ? 'am'
+                                : rawSlot === 'pm' || rawSlot === 'afternoon' ? 'pm'
+                                : null;
+
+                            if (autoAssignEnabled && quote.selectedDate && datedSlot) {
+                                try {
+                                    // Coordinates: prefer this PI's metadata (race-free), else the quote.
+                                    let lat: number | undefined;
+                                    let lng: number | undefined;
+                                    const mLat = parseFloat(paymentIntent.metadata?.addressLat || '');
+                                    const mLng = parseFloat(paymentIntent.metadata?.addressLng || '');
+                                    if (!isNaN(mLat) && !isNaN(mLng)) {
+                                        lat = mLat; lng = mLng;
+                                    } else if (quote.coordinates && typeof quote.coordinates === 'object') {
+                                        const c = quote.coordinates as any;
+                                        if (typeof c.lat === 'number' && typeof c.lng === 'number') {
+                                            lat = c.lat; lng = c.lng;
+                                        }
+                                    }
+
+                                    const assign = await autoAssignPaidJob({
+                                        quoteId,
+                                        pricingLineItems: quote.pricingLineItems,
+                                        date: new Date(quote.selectedDate),
+                                        slot: datedSlot,
+                                        pricePence: totalJobPrice,
+                                        customerLat: lat,
+                                        customerLng: lng,
+                                    });
+
+                                    if (assign.success && assign.bookingId) {
+                                        jobId = assign.bookingId;
+                                        console.log(`[Stripe Webhook] Auto-assigned dated job: quote=${quoteId}, booking=${jobId}`);
+                                    } else {
+                                        console.warn(`[Stripe Webhook] Auto-assign skipped for quote ${quoteId}: ${assign.reason}. Left pending for dispatch.`);
+                                        // Phone push alert (Pushover) — a paid job needs manual dispatch
+                                        notifyNoContractor({
+                                            customerName: quote.customerName,
+                                            phoneNumber: quote.phone,
+                                            reason: assign.reason,
+                                        }).catch((e) => console.warn('[Stripe Webhook] notifyNoContractor failed:', e));
+                                    }
+                                } catch (assignErr) {
+                                    // Never let auto-assignment block the webhook.
+                                    console.error('[Stripe Webhook] autoAssignPaidJob threw:', assignErr);
+                                }
+                            } else {
+                                const why = !autoAssignEnabled ? 'AUTO_ASSIGN_ON_PAYMENT off'
+                                    : !quote.selectedDate ? 'no chosen date (flexible lane)'
+                                    : `unsupported slot '${quote.timeSlotType}'`;
+                                console.log(`[Stripe Webhook] No lockId — quote ${quoteId} left pending for dispatch (${why})`);
+                            }
                         }
 
                         // 4. Generate Invoice (MAX+1 numbering with retry on collisions)
@@ -930,10 +1021,29 @@ stripeRouter.post('/api/create-visit-payment-intent', async (req, res) => {
             quoteId,
             tierId, // 'standard' | 'priority' | 'emergency'
             slot, // { date, slot }
+            lockId, // soft-hold reservation id (from /booking/reserve-slot)
+            pricingLane, // 'flex' | 'date_time' — exact slot carries a small premium
+            flexBookingWithinDays, // flex lane: window we commit to visit within
         } = req.body;
 
         if (!quoteId || !tierId) {
             return res.status(400).json({ message: 'Missing required fields' });
+        }
+
+        // Visit-specific set-date premium. Deliberately a small flat fee — the
+        // job-side computeSetDatePremiumPence (£30 + 6%) is calibrated for
+        // job-sized prices and would dwarf a ~£45 assessment fee. Flexible lane
+        // pays the flat fee; locking an exact morning/afternoon adds this.
+        const VISIT_SET_DATE_PREMIUM_PENCE = 1000; // £10
+
+        // Keep the soft-hold alive through checkout — give the webhook plenty of
+        // time to arrive and promote it into a confirmed booking.
+        if (lockId && typeof lockId === 'number') {
+            try {
+                await extendLock(lockId, 60 * 60 * 1000);
+            } catch (e) {
+                console.warn('[Stripe] Failed to extend visit slot lock:', e);
+            }
         }
 
         // Fetch the quote to determine client type
@@ -972,7 +1082,15 @@ stripeRouter.post('/api/create-visit-payment-intent', async (req, res) => {
             pricePence = quote.basePrice;
         }
 
-        console.log(`[Stripe] Creating visit intent for ${tierId} (${isCommercial ? 'Commercial' : 'Residential'}): ${pricePence / 100}`);
+        // Server-authoritative lane pricing: the exact-slot lane adds the flat
+        // premium; the flexible lane stays at the base fee. Never trust a
+        // client-sent amount — we re-derive here from the stored base.
+        const isDateLane = pricingLane === 'date_time';
+        if (isDateLane) {
+            pricePence += VISIT_SET_DATE_PREMIUM_PENCE;
+        }
+
+        console.log(`[Stripe] Creating visit intent for ${tierId} (${isCommercial ? 'Commercial' : 'Residential'}), lane=${pricingLane || 'n/a'}: ${pricePence / 100}`);
 
         // Create payment intent
         const paymentIntent = await stripe.paymentIntents.create({
@@ -987,7 +1105,18 @@ stripeRouter.post('/api/create-visit-payment-intent', async (req, res) => {
                 tierId,
                 type: 'diagnostic_visit',
                 bookingDate: slot?.date,
-                bookingSlot: slot?.slot
+                bookingSlot: slot?.slot,
+                // When present, the webhook's confirmBooking chain promotes this
+                // soft-hold into a real booking on the dispatch schedule.
+                ...(lockId !== undefined && lockId !== null ? { lockId: String(lockId) } : {}),
+                ...(slot?.date ? { scheduledDate: String(slot.date) } : {}),
+                ...(slot?.slot ? { scheduledSlot: String(slot.slot) } : {}),
+                ...(pricingLane ? { pricingLane: String(pricingLane) } : {}),
+                // Flex lane: persist the window so the webhook + dispatch know we
+                // committed to visiting within N days (no fixed slot was reserved).
+                ...(!isDateLane && flexBookingWithinDays
+                    ? { flexBookingWithinDays: String(flexBookingWithinDays) }
+                    : {}),
             },
             receipt_email: customerEmail || undefined,
             description: `Diagnostic Visit - ${tierId.charAt(0).toUpperCase() + tierId.slice(1)}`

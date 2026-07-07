@@ -61,6 +61,7 @@ type GroupShape = Pick<QuoteOfferGroup, "selectionMode" | "activeOfferId" | "ite
 const TYPE_LABELS: Record<TypeKey, string> = {
     default: "Default",
     homeowner: "Homeowner",
+    oap_homeowner: "OAP Homeowner",
     landlord: "Landlord",
     property_manager: "Property Manager",
     tenant: "Tenant",

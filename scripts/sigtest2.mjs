@@ -1,0 +1,10 @@
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import fs from 'fs';
+const env = fs.readFileSync('/Users/courtneebonnick/v6-switchboard/.env', 'utf8');
+const akey = env.match(/^S3_ACCESS_KEY=(.+)$/m)[1].replace(/^["']|["']$/g, '');
+const skey = env.match(/^S3_SECRET_KEY=(.+)$/m)[1].replace(/^["']|["']$/g, '');
+const s3 = new S3Client({ region: 'eu-west-2', credentials: { accessKeyId: akey, secretAccessKey: skey } });
+const url = await getSignedUrl(s3, new GetObjectCommand({ Bucket: 'handyuploaduk', Key: 'dispatch/disp_55889be0-13ac-4ccb-9520-9a9d610951a4/overview/b88caae357d143ba.jpeg' }), { expiresIn: 60 });
+const r = await fetch(url, { method: 'GET' });
+console.log('GET →', r.status, r.statusText, '| bytes:', (await r.bytes()).length);

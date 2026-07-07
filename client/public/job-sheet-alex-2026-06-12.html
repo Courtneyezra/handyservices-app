@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Job Sheet · Alex · 12 Jun 2026</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: #f5f6fa; color: #1a2238; line-height: 1.5; }
+  .wrap { max-width: 760px; margin: 0 auto; background: white; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+  .header { background: #1a2238; color: white; padding: 18px 28px; display: flex; align-items: center; justify-content: space-between; }
+  .header .logo { display: flex; align-items: center; gap: 12px; }
+  .header .logo-icon { width: 40px; height: 40px; border-radius: 50%; background: white; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+  .header .brand { font-size: 22px; font-weight: 700; }
+  .header .reviews { font-size: 13px; color: #c8cbd6; }
+  .header .phone { font-weight: 700; font-size: 16px; }
+  .ribbon { background: #f6a623; color: #1a2238; padding: 10px 28px; font-weight: 700; text-align: center; letter-spacing: 0.5px; font-size: 13px; }
+  .body { padding: 28px; }
+  h1 { margin: 0 0 4px 0; font-size: 32px; }
+  .meta { color: #6c7592; font-size: 14px; margin-bottom: 20px; }
+  .badges { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin-bottom: 28px; border-radius: 6px; overflow: hidden; }
+  .badge { background: #1a2238; color: white; padding: 12px; text-align: center; font-weight: 700; font-size: 13px; border-right: 1px solid #2a3458; }
+  .badge:last-child { border-right: none; }
+
+  /* Stop block */
+  .stop { border: 2px solid #e8ebf4; border-radius: 8px; margin-bottom: 32px; overflow: hidden; }
+  .stop-header { background: #1a2238; color: white; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; }
+  .stop-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #c8cbd6; }
+  .stop-address { font-size: 16px; font-weight: 700; }
+  .stop-customer { font-size: 13px; color: #c8cbd6; margin-top: 2px; }
+  .stop-time-badge { background: #f6a623; color: #1a2238; font-weight: 700; font-size: 14px; padding: 8px 14px; border-radius: 6px; white-space: nowrap; }
+  .stop-body { padding: 20px; }
+
+  .task { margin-top: 14px; border-left: 3px solid #f6a623; padding-left: 14px; }
+  .task:first-child { margin-top: 0; }
+  .task-title { font-weight: 700; font-size: 15px; }
+  .task-meta { font-size: 13px; color: #6c7592; margin-bottom: 2px; }
+  .task-desc { color: #3a4262; font-size: 14px; }
+  .task-warn { background: #fff8ec; border-left: 3px solid #f6a623; padding: 8px 12px; margin-top: 8px; font-size: 13px; }
+
+  /* Summary table */
+  h2 { font-size: 20px; margin: 32px 0 0 0; padding-bottom: 8px; border-bottom: 2px solid #f6a623; }
+  table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+  th { background: #1a2238; color: white; text-align: left; padding: 10px 12px; font-size: 14px; }
+  th.right { text-align: right; }
+  td { padding: 10px 12px; border-bottom: 1px solid #eef0f5; font-size: 14px; }
+  td.right { text-align: right; }
+  tr:nth-child(even) td { background: #f9fafd; }
+  tr.total td { background: #fff8ec; font-weight: 700; font-size: 15px; border-bottom: none; }
+  tr.subtotal td { background: #f0f2f8; font-weight: 700; font-size: 13px; font-style: italic; }
+
+  /* Materials */
+  .mat-section { margin-top: 8px; }
+  .mat-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 0; margin-top: 6px; border-radius: 6px; overflow: hidden; border: 1px solid #e8ebf4; }
+  .mat-grid .mat-head { background: #1a2238; color: white; font-weight: 700; font-size: 13px; padding: 8px 12px; }
+  .mat-grid .mat-cell { font-size: 13px; padding: 8px 12px; }
+  .mat-row:nth-child(even) .mat-cell { background: #f9fafd; }
+  .mat-row:nth-child(odd) .mat-cell { background: #f0f2f8; }
+  .mat-row { display: contents; }
+  .mat-total-row .mat-cell { background: #fff8ec !important; font-weight: 700; font-size: 14px; }
+
+  .note-box { background: #f0f2f8; border-radius: 6px; padding: 14px 18px; margin-top: 24px; font-size: 14px; }
+  .note-box strong { display: block; margin-bottom: 4px; }
+  @media print { body { background: white; } .wrap { box-shadow: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="logo">
+      <div class="logo-icon">🤚</div>
+      <div>
+        <div class="brand">Handy Services</div>
+        <div class="reviews">4.9 from 300+ Reviews</div>
+      </div>
+    </div>
+    <div class="phone">07449 501 762</div>
+  </div>
+  <div class="ribbon">CONTRACTOR JOB SHEET · INTERNAL · ALEX</div>
+  <div class="body">
+    <h1>Job Sheet</h1>
+    <div class="meta">Contractor: Alex &nbsp;·&nbsp; Date: 12 Jun 2026 &nbsp;·&nbsp; 2 stops &nbsp;·&nbsp; ~9.75 hrs total</div>
+
+    <div class="badges">
+      <div class="badge">£2M Public Liability</div>
+      <div class="badge">4.9 Google (300+ reviews)</div>
+      <div class="badge">DBS Checked</div>
+      <div class="badge">Photo on Completion</div>
+    </div>
+
+    <!-- STOP 1 -->
+    <div class="stop">
+      <div class="stop-header">
+        <div>
+          <div class="stop-label">Stop 1</div>
+          <div class="stop-address">13 Bowers Ave, Nottingham NG3 4JR</div>
+          <div class="stop-customer">Customer: Shaun</div>
+        </div>
+        <div class="stop-time-badge">~8.25 hrs</div>
+      </div>
+      <div class="stop-body">
+
+        <div class="task">
+          <div class="task-meta">Task 1 &nbsp;·&nbsp; Est. 3 hrs</div>
+          <div class="task-title">Repair brickwork and repoint mortar joints</div>
+          <div class="task-desc">Rake out loose/crumbling mortar joints, clean back, and repoint with fresh mortar mix. Apply neatly and tool off flush.</div>
+          <div class="task-warn"><strong>⚠ On arrival:</strong> Check extent of loose joints — flag to ops if the area is larger than expected before starting.</div>
+        </div>
+
+        <div class="task">
+          <div class="task-meta">Task 2 &nbsp;·&nbsp; Est. 45 min</div>
+          <div class="task-title">Install wall vent</div>
+          <div class="task-desc">Fit wall vent unit into opening. Secure with appropriate fixings. Check airflow is clear. Seal perimeter with appropriate filler/mortar if any gaps.</div>
+          <div class="task-warn"><strong>⚠ Check:</strong> Confirm vent size matches opening on arrival. Bring 9" × 3" (230 × 75mm) as standard.</div>
+        </div>
+
+        <div class="task">
+          <div class="task-meta">Task 3 &nbsp;·&nbsp; Est. 30 min</div>
+          <div class="task-title">Fill hole around tap</div>
+          <div class="task-desc">Inspect gap around tap entry point. Apply waterproof silicone sealant or external filler as appropriate. Tool to a clean finish.</div>
+        </div>
+
+        <div class="task">
+          <div class="task-meta">Task 4 &nbsp;·&nbsp; Est. 4 hrs</div>
+          <div class="task-title">Assemble flat-pack table</div>
+          <div class="task-desc">Fully assemble flat-pack table per manufacturer instructions. Check all fixings are tight. Place in position as directed by customer.</div>
+          <div class="task-warn"><strong>⚠ Note:</strong> Large assembly estimated at 4 hrs. If instructions are unclear, photograph all parts first.</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- STOP 2 -->
+    <div class="stop">
+      <div class="stop-header">
+        <div>
+          <div class="stop-label">Stop 2</div>
+          <div class="stop-address">12A Redbourne Dr, Nottingham NG8 3LR</div>
+          <div class="stop-customer">Customer: Christopher</div>
+        </div>
+        <div class="stop-time-badge">~1.5 hrs</div>
+      </div>
+      <div class="stop-body">
+
+        <div class="task">
+          <div class="task-meta">Task 1 &nbsp;·&nbsp; Est. 1.5 hrs</div>
+          <div class="task-title">TV wall mount — plasterboard wall</div>
+          <div class="task-desc">Mount TV bracket onto plasterboard wall using appropriate toggle/cavity fixings. Hang TV, level, tighten. Tidy cables. Test that bracket is solid before leaving.</div>
+          <div class="task-warn"><strong>⚠ On arrival:</strong> Confirm stud locations with detector. Use toggle bolts if mounting between studs — do NOT use standard wall plugs in bare board. Photo the completed mount before leaving.</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Job Summary -->
+    <h2>Job Summary</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Job</th>
+          <th>Address</th>
+          <th class="right">Est. Time</th>
+          <th class="right">Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Repair brickwork &amp; repoint</td><td>Shaun · NG3 4JR</td><td class="right">3 hrs</td><td class="right">£90</td></tr>
+        <tr><td>Install wall vent</td><td>Shaun · NG3 4JR</td><td class="right">45 min</td><td class="right">£55</td></tr>
+        <tr><td>Fill hole around tap</td><td>Shaun · NG3 4JR</td><td class="right">30 min</td><td class="right">£45</td></tr>
+        <tr><td>Assemble flat-pack table</td><td>Shaun · NG3 4JR</td><td class="right">4 hrs</td><td class="right">£112</td></tr>
+        <tr class="subtotal"><td colspan="2">Stop 1 subtotal</td><td class="right">8 hrs 15 min</td><td class="right">£302</td></tr>
+        <tr><td>TV wall mount (plasterboard)</td><td>Christopher · NG8 3LR</td><td class="right">1.5 hrs</td><td class="right">£80</td></tr>
+        <tr class="subtotal"><td colspan="2">Stop 2 subtotal</td><td class="right">1 hr 30 min</td><td class="right">£80</td></tr>
+        <tr class="total"><td colspan="2"><strong>TOTAL</strong></td><td class="right"><strong>9 hrs 45 min</strong></td><td class="right"><strong>£382</strong></td></tr>
+      </tbody>
+    </table>
+
+    <!-- Materials List -->
+    <h2>Screwfix Materials List</h2>
+    <div class="mat-section">
+      <div class="mat-grid">
+        <div class="mat-head">Item</div>
+        <div class="mat-head">Qty</div>
+        <div class="mat-head">Notes</div>
+
+        <div class="mat-row">
+          <div class="mat-cell">Everbuild Ready Mixed Pointing Mortar 5kg</div>
+          <div class="mat-cell">1 tub</div>
+          <div class="mat-cell">For brickwork repoint — Stop 1</div>
+        </div>
+        <div class="mat-row">
+          <div class="mat-cell">Pointing / Raking Tool</div>
+          <div class="mat-cell">1</div>
+          <div class="mat-cell">If not already in van kit</div>
+        </div>
+        <div class="mat-row">
+          <div class="mat-cell">Hit &amp; Miss Wall Vent 9" × 3" (230 × 75mm)</div>
+          <div class="mat-cell">1</div>
+          <div class="mat-cell">Wall vent install — Stop 1, Task 2</div>
+        </div>
+        <div class="mat-row">
+          <div class="mat-cell">Everbuild Sanitary Silicone Sealant White 300ml</div>
+          <div class="mat-cell">1 tube</div>
+          <div class="mat-cell">Hole around tap + vent edges — Stop 1</div>
+        </div>
+        <div class="mat-row">
+          <div class="mat-cell">SnapToggle / Plasterboard Toggle Fixings M6 (pack)</div>
+          <div class="mat-cell">1 pack</div>
+          <div class="mat-cell">TV mount on plasterboard — Stop 2</div>
+        </div>
+        <div class="mat-row">
+          <div class="mat-cell">Stud &amp; Pipe Detector</div>
+          <div class="mat-cell">—</div>
+          <div class="mat-cell">Van kit — essential for Stop 2</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note-box">
+      <strong>Before You Go</strong>
+      Confirm the flat-pack table brand/model with Shaun before arriving — large or unusual flat-packs can take longer. If you expect to overrun on Stop 1, text ops so Christopher can be updated.
+    </div>
+
+    <div class="note-box" style="margin-top: 12px;">
+      <strong>Photo Checklist</strong>
+      Stop 1: brickwork before/after · vent installed · tap hole sealed · table assembled<br>
+      Stop 2: wall before · bracket on wall · TV mounted and level
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

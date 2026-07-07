@@ -8,7 +8,7 @@ export type {
 } from '@shared/pricing-settings';
 
 const OFFER_CUSTOMER_TYPES: readonly QuoteOfferCustomerType[] = [
-  'homeowner', 'landlord', 'property_manager', 'tenant', 'business', 'letting_agent',
+  'homeowner', 'oap_homeowner', 'landlord', 'property_manager', 'tenant', 'business', 'letting_agent',
 ];
 
 /**
@@ -28,6 +28,7 @@ export function deriveOfferCustomerType(contextSignals: any): QuoteOfferCustomer
   if (/property manager|portfolio|prop mgr|managing agent/.test(v)) return 'property_manager';
   if (/\btenant\b/.test(v)) return 'tenant';
   if (/office|business|company|commercial|shop/.test(v)) return 'business';
+  if (/\boap\b|elderly|pensioner|\bretired\b|\bsenior\b/.test(v)) return 'oap_homeowner';
   return 'homeowner';
 }
 
@@ -58,7 +59,13 @@ function resolveOfferGroup(
   config: QuoteOffersConfig,
   customerType?: QuoteOfferCustomerType,
 ): QuoteOfferGroup | null {
-  const group = customerType ? config.perCustomerType?.[customerType] : undefined;
+  // OAP homeowner inherits the homeowner offer group when it has none of its own,
+  // so it mirrors homeowner without needing separate admin config.
+  const effectiveType =
+    customerType === 'oap_homeowner' && !config.perCustomerType?.oap_homeowner
+      ? 'homeowner'
+      : customerType;
+  const group = effectiveType ? config.perCustomerType?.[effectiveType] : undefined;
   if (group) {
     if (group.enabled === false) return null;
     if (Array.isArray(group.items) && group.items.some((o) => o && o.enabled)) {

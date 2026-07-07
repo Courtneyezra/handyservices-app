@@ -205,6 +205,34 @@ export async function uploadMultipleMediaToS3(
 }
 
 /**
+ * Upload a customer-supplied quote photo (raw buffer from an admin upload)
+ * to S3 under quote-photos/. Returns the public S3 URL.
+ */
+export async function uploadQuotePhotoToS3(
+    buffer: Buffer,
+    mimeType: string
+): Promise<string> {
+    const client = getS3Client();
+
+    const extension = getExtensionFromMimeType(mimeType, 'image');
+    const key = `quote-photos/${nanoid()}.${extension}`;
+
+    const command = new PutObjectCommand({
+        Bucket: AWS_S3_BUCKET,
+        Key: key,
+        Body: buffer,
+        ContentType: mimeType,
+        ACL: ObjectCannedACL.public_read,
+    });
+
+    await client.send(command);
+
+    const s3Url = `https://${AWS_S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}`;
+    console.log(`[S3Media] Quote photo uploaded: ${s3Url}`);
+    return s3Url;
+}
+
+/**
  * Check if S3 is properly configured
  */
 export function isS3Configured(): boolean {

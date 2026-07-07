@@ -1,7 +1,19 @@
+import { useState } from 'react';
 import { useRoute, Link } from 'wouter';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import {
   ArrowLeft,
   Loader2,
@@ -12,6 +24,11 @@ import {
   Banknote,
   Phone,
   Mail,
+  MapPin,
+  Pencil,
+  KeyRound,
+  Archive,
+  GitMerge,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -22,10 +39,14 @@ import {
 
 interface ClientEngagement {
   clientKey: string;
+  // First-class service_clients record (id + editable fields) when one exists.
+  client: any | null;
+  clientId: string | null;
   displayName: string | null;
   phone: string | null;
   email: string | null;
-  counts: { leads: number; quotes: number; jobs: number; invoices: number; payouts: number };
+  counts: { leads: number; quotes: number; jobs: number; invoices: number; payouts: number; properties?: number };
+  properties?: any[];
   leads: any[];
   quotes: any[];
   jobs: any[];
@@ -97,9 +118,267 @@ function Section({
   );
 }
 
+// Property edit dialog. Edits the safe, human-owned fields only — nickname,
+// notes, accessNotes, and display address/postcode. The server leaves the
+// derived dedupe_key untouched so history keeps resolving to this property.
+function PropertyEditDialog({
+  property,
+  onClose,
+  onSaved,
+}: {
+  property: any | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    nickname: property?.nickname ?? '',
+    address: property?.address ?? '',
+    postcode: property?.postcode ?? '',
+    notes: property?.notes ?? '',
+    accessNotes: property?.accessNotes ?? '',
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/properties/${property.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'Failed to save property');
+      return res.json();
+    },
+    onSuccess: () => {
+      onSaved();
+      onClose();
+    },
+  });
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  return (
+    <Dialog open={!!property} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit property</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="p-nickname">Nickname</Label>
+            <Input id="p-nickname" value={form.nickname} onChange={set('nickname')} placeholder="e.g. Mrs Smith's BTL — Flat 2B" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="p-address">Address</Label>
+              <Input id="p-address" value={form.address} onChange={set('address')} placeholder="Display address" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="p-postcode">Postcode</Label>
+              <Input id="p-postcode" value={form.postcode} onChange={set('postcode')} maxLength={10} />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="p-access" className="flex items-center gap-1.5">
+              <KeyRound className="h-3.5 w-3.5 text-amber-600" />
+              Access notes
+            </Label>
+            <Textarea
+              id="p-access"
+              value={form.accessNotes}
+              onChange={set('accessNotes')}
+              rows={2}
+              placeholder="Key safe code, parking, gate code, dog in garden… (shown on every job sheet at this address)"
+            />
+            <p className="text-xs text-muted-foreground">Carried onto every future job sheet at this property.</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="p-notes">Notes</Label>
+            <Textarea id="p-notes" value={form.notes} onChange={set('notes')} rows={2} placeholder="General property notes" />
+          </div>
+          {save.isError && (
+            <p className="text-sm text-destructive">{(save.error as Error).message}</p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={save.isPending}>Cancel</Button>
+          <Button onClick={() => save.mutate()} disabled={save.isPending}>
+            {save.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Client edit dialog. Edits the safe, human-owned fields only — display name,
+// primary phone/email, billing address, notes. The server folds new phone/email
+// into the contact arrays and leaves the derived dedupe_key untouched so history
+// keeps resolving to this client.
+function ClientEditDialog({
+  client,
+  onClose,
+  onSaved,
+}: {
+  client: any;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    displayName: client?.display_name ?? client?.displayName ?? '',
+    primaryPhone: client?.primary_phone ?? client?.primaryPhone ?? '',
+    primaryEmail: client?.primary_email ?? client?.primaryEmail ?? '',
+    billingAddress: client?.billing_address ?? client?.billingAddress ?? '',
+    notes: client?.notes ?? '',
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'Failed to save client');
+      return res.json();
+    },
+    onSuccess: () => {
+      onSaved();
+      onClose();
+    },
+  });
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit client</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="c-name">Name</Label>
+            <Input id="c-name" value={form.displayName} onChange={set('displayName')} placeholder="Client name" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="c-phone">Phone</Label>
+              <Input id="c-phone" value={form.primaryPhone} onChange={set('primaryPhone')} placeholder="07…" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="c-email">Email</Label>
+              <Input id="c-email" value={form.primaryEmail} onChange={set('primaryEmail')} placeholder="name@example.com" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="c-billing">Billing address</Label>
+            <Textarea id="c-billing" value={form.billingAddress} onChange={set('billingAddress')} rows={2} placeholder="Where invoices are addressed" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="c-notes">Notes</Label>
+            <Textarea id="c-notes" value={form.notes} onChange={set('notes')} rows={2} placeholder="Internal notes about this client" />
+          </div>
+          {save.isError && <p className="text-sm text-destructive">{(save.error as Error).message}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={save.isPending}>Cancel</Button>
+          <Button onClick={() => save.mutate()} disabled={save.isPending}>
+            {save.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Client merge dialog. Folds a DUPLICATE client (entered by its phone/email)
+// INTO this one — the duplicate's leads/quotes/jobs/invoices/properties get
+// repointed here and the duplicate row is deleted. This survives; the URL stays
+// valid. Used to clean up the old raw-digits phone-key splits.
+function ClientMergeDialog({
+  client,
+  onClose,
+  onMerged,
+}: {
+  client: any;
+  onClose: () => void;
+  onMerged: () => void;
+}) {
+  const [contact, setContact] = useState('');
+  const [info, setInfo] = useState<string | null>(null);
+
+  const merge = useMutation({
+    mutationFn: async () => {
+      const raw = contact.trim();
+      if (!raw) throw new Error('Enter the duplicate client’s phone or email');
+      // Build the duplicate's clientKey the same way the aggregation does.
+      const digits = raw.replace(/\D/g, '');
+      const key = digits.length >= 7 ? `phone:${digits}` : `email:${raw.toLowerCase()}`;
+      // Resolve the duplicate to a real client id via the aggregation detail.
+      const lookup = await fetch(`/api/clients/${encodeURIComponent(key)}`);
+      if (!lookup.ok) throw new Error('No client found for that contact');
+      const dup = await lookup.json();
+      const dupId: string | null = dup?.clientId ?? dup?.client?.id ?? null;
+      if (!dupId) throw new Error('That contact has no client record to merge');
+      if (dupId === client.id) throw new Error('That is this same client');
+      // Fold the duplicate INTO this client (this one survives).
+      const res = await fetch(`/api/clients/${dupId}/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ intoId: client.id }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'Merge failed');
+      return res.json();
+    },
+    onSuccess: (r) => {
+      const rp = r?.repointed ?? {};
+      setInfo(`Merged. Moved ${rp.leads ?? 0} leads, ${rp.quotes ?? 0} quotes, ${rp.jobs ?? 0} jobs, ${rp.invoices ?? 0} invoices, ${rp.properties ?? 0} properties.`);
+      onMerged();
+    },
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Merge a duplicate into this client</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <p className="text-sm text-muted-foreground">
+            Enter the duplicate client’s phone or email. Their entire history moves here and the duplicate record is deleted. This client survives.
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="m-contact">Duplicate’s phone or email</Label>
+            <Input id="m-contact" value={contact} onChange={(e) => setContact(e.target.value)} placeholder="07… or name@example.com" />
+          </div>
+          {merge.isError && <p className="text-sm text-destructive">{(merge.error as Error).message}</p>}
+          {info && <p className="text-sm text-green-700">{info}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={merge.isPending}>{info ? 'Close' : 'Cancel'}</Button>
+          {!info && (
+            <Button onClick={() => merge.mutate()} disabled={merge.isPending}>
+              {merge.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Merge
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function ClientDetailPage() {
   const [, params] = useRoute('/admin/clients/:clientKey');
   const clientKey = params?.clientKey ? decodeURIComponent(params.clientKey) : '';
+  const queryClient = useQueryClient();
+  const [editingProperty, setEditingProperty] = useState<any | null>(null);
+  const [editingClient, setEditingClient] = useState(false);
+  const [mergingClient, setMergingClient] = useState(false);
 
   const { data, isLoading, error } = useQuery<ClientEngagement>({
     queryKey: ['admin-client', clientKey],
@@ -110,6 +389,24 @@ export default function ClientDetailPage() {
       return res.json();
     },
     enabled: !!clientKey,
+  });
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['admin-client', clientKey] });
+
+  const client = data?.client ?? null;
+  const isArchived = !!(client?.archived_at ?? client?.archivedAt);
+
+  const archive = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/clients/${client.id}/archive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived: !isArchived }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'Failed to update client');
+      return res.json();
+    },
+    onSuccess: invalidate,
   });
 
   return (
@@ -141,29 +438,57 @@ export default function ClientDetailPage() {
         <>
           {/* Header */}
           <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-3">
-              <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-                <User className="h-6 w-6 text-primary" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold">
-                  {data.displayName || <span className="italic text-muted-foreground">Unnamed client</span>}
-                </h1>
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                  {data.phone && (
-                    <span className="flex items-center gap-1">
-                      <Phone className="h-3.5 w-3.5" />
-                      {data.phone}
-                    </span>
-                  )}
-                  {data.email && (
-                    <span className="flex items-center gap-1">
-                      <Mail className="h-3.5 w-3.5" />
-                      {data.email}
-                    </span>
-                  )}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <User className="h-6 w-6 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="text-2xl font-bold flex items-center gap-2">
+                    {data.displayName || <span className="italic text-muted-foreground">Unnamed client</span>}
+                    {isArchived && <Badge variant="outline" className="bg-muted text-muted-foreground">Archived</Badge>}
+                  </h1>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                    {data.phone && (
+                      <span className="flex items-center gap-1">
+                        <Phone className="h-3.5 w-3.5" />
+                        {data.phone}
+                      </span>
+                    )}
+                    {data.email && (
+                      <span className="flex items-center gap-1">
+                        <Mail className="h-3.5 w-3.5" />
+                        {data.email}
+                      </span>
+                    )}
+                    {(client?.billing_address ?? client?.billingAddress) && (
+                      <span className="flex items-center gap-1">
+                        <MapPin className="h-3.5 w-3.5" />
+                        {client.billing_address ?? client.billingAddress}
+                      </span>
+                    )}
+                  </div>
+                  {client?.notes && <p className="text-xs text-muted-foreground mt-1">{client.notes}</p>}
                 </div>
               </div>
+
+              {/* Client actions — only when a first-class client record exists. */}
+              {client?.id && (
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button variant="outline" size="sm" onClick={() => setEditingClient(true)}>
+                    <Pencil className="h-3.5 w-3.5 mr-1" />
+                    Edit
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setMergingClient(true)}>
+                    <GitMerge className="h-3.5 w-3.5 mr-1" />
+                    Merge
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => archive.mutate()} disabled={archive.isPending}>
+                    {archive.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Archive className="h-3.5 w-3.5 mr-1" />}
+                    {isArchived ? 'Unarchive' : 'Archive'}
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -185,6 +510,43 @@ export default function ClientDetailPage() {
               </Card>
             ))}
           </div>
+
+          {/* Properties — WHERE the work happened. One client can own several
+              (landlords / property managers); each property groups its own work. */}
+          <Section icon={MapPin} title="Properties" count={data.properties?.length ?? 0}>
+            <div className="space-y-2">
+              {(data.properties ?? []).map((p) => (
+                <div key={p.id} className="flex items-start justify-between border-b border-border py-2 last:border-0 gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {p.nickname || p.address || p.postcode || 'Property'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {p.address && p.nickname ? `${p.address} · ` : ''}
+                      {p.postcode ? `${p.postcode} · ` : ''}
+                      {p.counts?.quotes ?? 0} quotes · {p.counts?.jobs ?? 0} jobs · {p.counts?.invoices ?? 0} invoices
+                    </p>
+                    {p.accessNotes && (
+                      <p className="text-xs text-amber-700 flex items-start gap-1 mt-1">
+                        <KeyRound className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                        <span className="truncate">{p.accessNotes}</span>
+                      </p>
+                    )}
+                    {p.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{p.notes}</p>}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0 h-7 px-2"
+                    onClick={() => setEditingProperty(p)}
+                  >
+                    <Pencil className="h-3.5 w-3.5 mr-1" />
+                    Edit
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </Section>
 
           {/* Leads */}
           <Section icon={User} title="Leads" count={data.counts.leads}>
@@ -274,6 +636,33 @@ export default function ClientDetailPage() {
             </div>
           </Section>
         </>
+      )}
+
+      {editingProperty && (
+        <PropertyEditDialog
+          key={editingProperty.id}
+          property={editingProperty}
+          onClose={() => setEditingProperty(null)}
+          onSaved={invalidate}
+        />
+      )}
+
+      {editingClient && client?.id && (
+        <ClientEditDialog
+          key={client.id}
+          client={client}
+          onClose={() => setEditingClient(false)}
+          onSaved={invalidate}
+        />
+      )}
+
+      {mergingClient && client?.id && (
+        <ClientMergeDialog
+          key={client.id}
+          client={client}
+          onClose={() => setMergingClient(false)}
+          onMerged={invalidate}
+        />
       )}
     </div>
   );

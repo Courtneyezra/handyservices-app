@@ -58,6 +58,7 @@ const SKUSimulatorPage = lazy(() => import("@/pages/admin/SKUSimulatorPage"));
 const PricingComparePage = lazy(() => import("@/pages/admin/PricingComparePage"));
 const PricingLabV2 = lazy(() => import("@/pages/admin/PricingLabV2"));
 const GenerateContextualQuote = lazy(() => import("@/pages/admin/GenerateContextualQuote"));
+const SendPage = lazy(() => import("@/pages/admin/SendPage"));
 const SkuLibraryPage = lazy(() => import("@/pages/admin/SkuLibraryPage"));
 const QuoteAnalyticsPage = lazy(() => import("@/pages/admin/QuoteAnalyticsPage"));
 const QuoteTestLab = lazy(() => import("@/pages/admin/QuoteTestLab"));
@@ -75,6 +76,7 @@ const DispatchBoardPage = lazy(() => import("@/pages/admin/DispatchBoardPage"));
 const DispatchMapPage = lazy(() => import("@/pages/admin/DispatchMapPage"));
 const DispatchSchedulePage = lazy(() => import("@/pages/admin/DispatchSchedulePage"));
 const DispatchConsolePage = lazy(() => import("@/pages/admin/DispatchConsolePage"));
+const DispatchFullBoardPage = lazy(() => import("@/pages/admin/DispatchFullBoardPage"));
 const TestDatePicker = lazy(() => import("@/pages/admin/TestDatePicker"));
 const TenantIssuesPage = lazy(() => import("@/pages/admin/TenantIssuesPage"));
 const QuotesPage = lazy(() => import("@/pages/admin/QuotesPage"));
@@ -93,6 +95,7 @@ const DashboardPage = lazy(() => import("@/pages/admin/DashboardPage"));
 const OnboardingSlideDeck = lazy(() => import("@/pages/admin/OnboardingSlideDeck"));
 const VAResourcesPage = lazy(() => import("@/pages/admin/VAResourcesPage"));
 const VAPerformancePage = lazy(() => import("@/pages/admin/VAPerformancePage"));
+const CallPerformancePage = lazy(() => import("@/pages/admin/CallPerformancePage"));
 const VATrainingCenter = lazy(() => import("@/pages/admin/VATrainingCenter"));
 const CareersAdmin = lazy(() => import("@/pages/admin/CareersAdmin"));
 const BusinessModelDashboard = lazy(() => import("@/pages/admin/BusinessModelDashboard"));
@@ -318,7 +321,10 @@ function Router() {
                     <VideoReview />
                 </Route>
 
-                {/* Paid Diagnostic Visit */}
+                {/* Paid Diagnostic Visit (canonical + legacy alias) */}
+                <Route path="/visit/:slug">
+                    <DiagnosticVisitPage />
+                </Route>
                 <Route path="/visit-link/:slug">
                     <DiagnosticVisitPage />
                 </Route>
@@ -504,6 +510,13 @@ function Router() {
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
+                <Route path="/admin/send">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <SendPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
                 <Route path="/admin/dispatch/new">
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
@@ -655,6 +668,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <DailyPlannerPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/dispatch-console/full">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <DispatchFullBoardPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
@@ -863,6 +883,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <VAPerformancePage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/call-performance">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <CallPerformancePage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

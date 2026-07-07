@@ -543,6 +543,13 @@ export interface LineItemResult {
    * Populated via the admin description-toggle flow (or manually for bespoke high-ticket jobs).
    */
   details?: string | null;
+  /**
+   * Optional structured scope steps (3-5 short lines: prep → work → materials →
+   * cleanup). When present the quote page renders a check-list instead of the
+   * `details` paragraph — each step is a scannable value carrier. `details`
+   * remains the fallback for lines (and older quotes) without steps.
+   */
+  scopeSteps?: string[] | null;
   /** Phase 4d — chosen tier id for fixed-fee tiered categories (e.g. waste_removal 'small' | 'medium' | 'full'). */
   fixedTier?: string | null;
   /** Phase 11 — line needs a materials collection trip. Composer dedupes across all lines (+30min once per quote). Schedule-only — not customer-facing. */

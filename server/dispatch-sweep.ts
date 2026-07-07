@@ -41,7 +41,11 @@ function testModeFilter(testOnly: boolean | undefined): SQL {
 
 export interface SweepProposal {
   quoteId: string; customerName: string; categories: string[];
-  date: string; slot: 'am' | 'pm'; contractorId: string; contractorName: string;
+  date: string; slot: 'am' | 'pm' | 'full_day'; contractorId: string; contractorName: string;
+  /** True for a COMMITTED anchor member (an already-accepted booking shown so flexible jobs
+   *  can be bundled onto its contractor-day). Read-only — never reassigned by the optimiser.
+   *  Falsy/undefined for a normal optimiser-proposed pool job. */
+  fixed?: boolean;
   distanceMiles: number | null;
   valuePence: number;
   slackDays: number;
@@ -65,7 +69,10 @@ export interface SweepProposal {
 export interface ProposalGroup {
   groupId: string;          // `${contractorId}|${date}`
   contractorId: string; contractorName: string; date: string;
-  members: SweepProposal[];
+  members: SweepProposal[]; // committed (fixed:true) members FIRST, then bundled pool jobs
+  /** How many of `members` are committed anchors (fixed:true). >0 ⇒ this card is anchored
+   *  on already-booked work; the rest are flexible jobs bundled onto that contractor-day. */
+  committedCount?: number;
   totalValue: number;       // pence, sum of members' valuePence
   rationale: string;        // ONE deterministic line, e.g. "3 jobs · plumbing, painting · 2.1mi spread · Tue 18 Jun"
   // ── Map / covers-most additions (optimiser only) ──
@@ -227,8 +234,14 @@ export interface DispatchContext {
   bookedSlots: Set<string>;
   /** Round-robin fairness load by contractor (accepted bookings count). */
   loadByCon: Map<string, number>;
-  /** Accepted bookings mapped to their quote, for the schedule grid. */
-  bookings: { cid: string; d: string; slot: string; quoteId: string | null; customerName: string | null }[];
+  /** Accepted bookings mapped to their quote, for the schedule grid AND as committed
+   *  route anchors. lat/lng/value/categories come from the joined quote so the optimiser
+   *  can route-bundle pool jobs around a committed job's REAL location (not the home base)
+   *  and surface the committed job as a card. */
+  bookings: {
+    cid: string; d: string; slot: string; quoteId: string | null; customerName: string | null;
+    lat: number | null; lng: number | null; valuePence: number; categories: string[];
+  }[];
   hasAnyAvailability: boolean;
 }
 
@@ -255,8 +268,11 @@ export async function loadDispatchContext(maxWindowDays: number): Promise<Dispat
     db.execute(sql`
       SELECT COALESCE(cbr.assigned_contractor_id, cbr.contractor_id) AS cid,
              to_char(cbr.scheduled_date::date,'YYYY-MM-DD') AS d, cbr.scheduled_slot AS slot,
-             cbr.quote_id AS quote_id, cbr.customer_name AS customer_name
+             cbr.quote_id AS quote_id, cbr.customer_name AS customer_name,
+             pq.coordinates AS coordinates, pq.base_price AS base_price,
+             pq.pricing_line_items AS pricing_line_items
       FROM contractor_booking_requests cbr
+      LEFT JOIN personalized_quotes pq ON pq.id = cbr.quote_id
       WHERE cbr.status = 'accepted' AND cbr.scheduled_date >= now()::date;`),
   ]);
 
@@ -303,7 +319,19 @@ export async function loadDispatchContext(maxWindowDays: number): Promise<Dispat
     if (!b.cid) continue;
     loadByCon.set(b.cid, (loadByCon.get(b.cid) || 0) + 1);
     for (const s of (b.slot === 'full_day' ? ['am', 'pm'] : [b.slot])) bookedSlots.add(`${b.cid}|${b.d}|${s}`);
-    bookings.push({ cid: b.cid, d: b.d, slot: b.slot, quoteId: b.quote_id ?? null, customerName: b.customer_name ?? null });
+    const bCoords = (b.coordinates || null) as { lat?: number; lng?: number } | null;
+    const bLat = bCoords?.lat != null && Number.isFinite(Number(bCoords.lat)) ? Number(bCoords.lat) : null;
+    const bLng = bCoords?.lng != null && Number.isFinite(Number(bCoords.lng)) ? Number(bCoords.lng) : null;
+    const bLines = Array.isArray(b.pricing_line_items) ? b.pricing_line_items : [];
+    const bCats = [...new Set(
+      bLines.map((li: any) => (typeof li?.category === 'string' ? li.category : null)).filter(Boolean),
+    )] as string[];
+    bookings.push({
+      cid: b.cid, d: b.d, slot: b.slot, quoteId: b.quote_id ?? null, customerName: b.customer_name ?? null,
+      lat: bLat, lng: bLng,
+      valuePence: jobValuePence({ base_price: b.base_price, pricing_line_items: bLines }),
+      categories: bCats,
+    });
   }
 
   // SOFT-HOLD customer slot-offers: while an offer is 'sent' (awaiting the customer's pick),

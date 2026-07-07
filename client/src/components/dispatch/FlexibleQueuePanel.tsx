@@ -4,8 +4,9 @@ import { useState, useRef, useEffect } from "react";
 import {
   Loader2, AlertTriangle, CheckCircle2, UserCheck, Inbox,
   ArrowRight, UserPlus, MapPin, Send, Copy, Check, Clock, PauseCircle,
-  Lock, Minus, Plus, RotateCcw,
+  Lock, Minus, Plus, RotateCcw, GripVertical,
 } from "lucide-react";
+import { useDraggable } from "@dnd-kit/core";
 import { SLA_DUE_SOON_DAYS } from "@shared/dispatch-sla";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,9 @@ import { CATEGORY_LABELS } from "@shared/categories";
 interface SweepProposal {
   quoteId: string; customerName: string; categories: string[];
   date: string; slot: string; slackDays: number;
+  // True for a committed anchor member (already-booked job shown so flexible jobs can be
+  // bundled onto its contractor-day). Read-only — never re-offered.
+  fixed?: boolean;
   flexDeadline?: string;
   uncoveredCategories?: string[];
   // Job-detail fields (optimiser members carry these; surfaced in the job-detail modal).
@@ -46,6 +50,8 @@ interface SweepProposal {
 interface ProposalGroup {
   groupId: string; contractorId: string; contractorName: string; date: string;
   members: SweepProposal[]; totalValue: number; rationale: string;
+  // How many of `members` are committed anchors (fixed:true), rendered first.
+  committedCount?: number;
   goalScore: number;
   marginPence?: number;
   coversDayRate?: boolean;
@@ -271,6 +277,88 @@ function formatSkills(members: SweepProposal[]): string {
   const pretty = cats.slice(0, 3).map(prettyCat);
   return pretty.join(", ") + (cats.length > 3 ? ` +${cats.length - 3}` : "");
 }
+// A bundle's FLEXIBLE jobs — the optimiser-placed pool jobs the dispatcher can still send
+// options for. Committed anchors (fixed:true) are already booked: they show as context on
+// the card but are never re-offered or counted as actionable.
+function flexMembers(group: ProposalGroup) {
+  return group.members.filter((m) => !m.fixed);
+}
+function committedMembers(group: ProposalGroup) {
+  return group.members.filter((m) => m.fixed);
+}
+
+// Drag handle that turns a job card into a drag SOURCE for the schedule grid.
+// The grip is the only draggable surface, so the card's own click / buttons keep
+// working. `data` is the JobDragData payload read in DispatchConsolePage onDragEnd.
+function JobDragHandle({
+  quoteId, customerName, slot,
+}: {
+  quoteId: string;
+  customerName: string;
+  slot: "am" | "pm" | "full_day";
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `job-${quoteId}`,
+    data: { type: "job", quoteId, customerName, slot },
+  });
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      {...listeners}
+      {...attributes}
+      onClick={(e) => e.stopPropagation()}
+      title="Drag onto a contractor's day to stage this job"
+      className={cn(
+        "shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground active:cursor-grabbing focus:outline-none focus-visible:ring-1 focus-visible:ring-sky-400",
+        isDragging && "cursor-grabbing opacity-50",
+      )}
+    >
+      <GripVertical className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+// A visible, fully-draggable job card shown INSIDE a contractor-day pack — so every
+// job is laid out on the card (name + slot + price + trade) instead of hidden behind a
+// click-to-open modal. The whole card is the drag surface; grab it and drop on a grid
+// cell to hand-place that one job. onClick stops propagation so dragging a job never
+// opens the pack's detail modal.
+function BundledJobCard({ member }: { member: SweepProposal }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `job-${member.quoteId}`,
+    data: {
+      type: "job",
+      quoteId: member.quoteId,
+      customerName: member.customerName,
+      slot: (member.slot as "am" | "pm" | "full_day") || "am",
+    },
+  });
+  const cat = [...new Set(member.categories)].slice(0, 2).map(prettyCat).join(", ");
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      onClick={(e) => e.stopPropagation()}
+      title="Drag onto a contractor's day to stage this job"
+      className={cn(
+        "flex cursor-grab touch-none items-center gap-1.5 rounded-md border border-border bg-background px-1.5 py-1 text-[11px] shadow-sm transition-colors hover:border-sky-400 hover:bg-sky-50/50 active:cursor-grabbing dark:hover:bg-sky-950/30",
+        isDragging && "cursor-grabbing opacity-50",
+      )}
+    >
+      <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate font-semibold">{member.customerName}</span>
+      {cat && <span className="hidden shrink-0 truncate text-muted-foreground sm:inline">{cat}</span>}
+      {member.slot && (
+        <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide">{member.slot}</span>
+      )}
+      {member.valuePence != null && (
+        <span className="shrink-0 font-semibold text-foreground">{formatPence(member.valuePence)}</span>
+      )}
+    </div>
+  );
+}
 // Distinct uncovered categories for a bundle (empty array → no flag).
 function bundleUncovered(group: ProposalGroup): string[] {
   const all = [
@@ -294,11 +382,12 @@ function bundleUncovered(group: ProposalGroup): string[] {
 function fireSignal(group: ProposalGroup): { hold: boolean; reason: string } {
   // A bundle within this of a full day (480min) has no room to pair another job → send it.
   const DAY_NEARLY_FULL_MIN = 420;
-  const minSlack = group.members.reduce((m, x) => Math.min(m, x.slackDays ?? Infinity), Infinity);
-  const totalMin = group.members.reduce((s, x) => s + (x.workMinutes ?? 0), 0);
+  const flex = flexMembers(group);
+  const minSlack = flex.reduce((m, x) => Math.min(m, x.slackDays ?? Infinity), Infinity);
+  const totalMin = flex.reduce((s, x) => s + (x.workMinutes ?? 0), 0);
   const isLoss = group.coversDayRate === false;
-  const isSolo = group.members.length === 1;
-  const multiDay = group.members.some((x) => typeof x.daysNeeded === "number" && x.daysNeeded > 1);
+  const isSolo = flex.length === 1;
+  const multiDay = flex.some((x) => typeof x.daysNeeded === "number" && x.daysNeeded > 1);
   const hasRoomToPair = totalMin > 0 && totalMin < DAY_NEARLY_FULL_MIN;
   if (minSlack <= SLA_DUE_SOON_DAYS) return { hold: false, reason: "slack low" };
   if (multiDay) return { hold: false, reason: "needs its own days" };
@@ -601,9 +690,11 @@ function JobDetailModal({
   isSending: boolean;
 }) {
   const isLoss = group?.coversDayRate === false;
-  const n = group?.members.length ?? 0;
-  // How many members are scheduled past their 7-day promise (one summary line, not per-member).
-  const lateCount = group?.members.filter((m) => m.flexDeadline && m.date > m.flexDeadline).length ?? 0;
+  const flex = group ? flexMembers(group) : [];
+  const committed = group ? committedMembers(group) : [];
+  const n = flex.length;            // flexible jobs we can send options for
+  // How many FLEXIBLE members are scheduled past their 7-day promise (one summary line).
+  const lateCount = flex.filter((m) => m.flexDeadline && m.date > m.flexDeadline).length;
   return (
     <Dialog open={group != null} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-lg">
@@ -615,7 +706,15 @@ function JobDetailModal({
                 <span className="text-xs font-normal text-muted-foreground whitespace-nowrap">{formatDate(group.date)}</span>
               </DialogTitle>
               <DialogDescription>
-                {n} job{n === 1 ? "" : "s"} on this run — review before sending date options.
+                {committed.length > 0 && (
+                  <span className="font-medium text-indigo-600 dark:text-indigo-400">
+                    {committed.length} committed
+                  </span>
+                )}
+                {committed.length > 0 && (n > 0 ? " + " : " · ")}
+                {n > 0
+                  ? `${n} flexible job${n === 1 ? "" : "s"} to send`
+                  : committed.length > 0 ? "no flexible jobs bundled yet" : "review before sending date options."}
               </DialogDescription>
             </DialogHeader>
 
@@ -659,23 +758,29 @@ function JobDetailModal({
             <ScrollArea className="-mr-3 max-h-[44vh] pr-3">
               <div className="space-y-2.5">
                 {group.members.map((m) => (
-                  <JobFacts
-                    key={m.quoteId}
-                    customerName={m.customerName}
-                    slot={m.slot}
-                    valuePence={m.valuePence}
-                    address={m.address}
-                    postcode={m.postcode}
-                    categories={m.categories}
-                    jobDescription={m.jobDescription}
-                    uncoveredCategories={m.uncoveredCategories}
-                    slackDays={m.slackDays}
-                    deadline={m.flexDeadline}
-                    workMinutes={m.workMinutes}
-                    daysNeeded={m.daysNeeded}
-                    quoteId={m.quoteId}
-                    editable
-                  />
+                  <div key={m.quoteId} className={cn(m.fixed && "rounded-lg border border-indigo-200 bg-indigo-50/40 p-2 dark:border-indigo-900 dark:bg-indigo-950/20")}>
+                    {m.fixed && (
+                      <span className="mb-1 inline-flex items-center gap-1 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
+                        <Lock className="h-2.5 w-2.5 shrink-0" /> Committed booking
+                      </span>
+                    )}
+                    <JobFacts
+                      customerName={m.customerName}
+                      slot={m.slot}
+                      valuePence={m.valuePence}
+                      address={m.address}
+                      postcode={m.postcode}
+                      categories={m.categories}
+                      jobDescription={m.jobDescription}
+                      uncoveredCategories={m.uncoveredCategories}
+                      slackDays={m.slackDays}
+                      deadline={m.flexDeadline}
+                      workMinutes={m.workMinutes}
+                      daysNeeded={m.daysNeeded}
+                      quoteId={m.quoteId}
+                      editable={!m.fixed}
+                    />
+                  </div>
                 ))}
               </div>
             </ScrollArea>
@@ -684,7 +789,7 @@ function JobDetailModal({
               <Button variant="ghost" size="sm" className="h-8 px-3 text-xs" onClick={onClose} disabled={isSending}>
                 Close
               </Button>
-              <Button size="sm" className="h-8 px-3 text-xs" onClick={() => onSend(group)} disabled={isSending}>
+              <Button size="sm" className="h-8 px-3 text-xs" onClick={() => onSend(group)} disabled={isSending || n === 0}>
                 {isSending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-1" />}
                 Send options ({n})
               </Button>
@@ -1021,7 +1126,7 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
   const sendOffersMutation = useMutation({
     mutationFn: (group: ProposalGroup) =>
       Promise.all(
-        group.members.map(async (m) => {
+        flexMembers(group).map(async (m) => {
           const result = await sendSlotOffer({
             quoteId: m.quoteId,
             recommended: {
@@ -1097,7 +1202,8 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
   };
 
   const handleSendOptions = (group: ProposalGroup) => {
-    const n = group.members.length;
+    const n = flexMembers(group).length;
+    if (n === 0) return; // anchor-only card — nothing flexible to offer
     if (!window.confirm(`Send date options to ${n} customer${n === 1 ? "" : "s"} for ${group.contractorName} on ${group.date}?`)) return;
     sendOptions(group);
   };
@@ -1161,17 +1267,20 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
 
         {/* READY — bundles the optimiser can auto-place; sending offers the slots to customers */}
         {groups.map((group) => {
-          const n = group.members.length;
+          const flex = flexMembers(group);
+          const committed = committedMembers(group);
+          const n = flex.length;            // flexible jobs the dispatcher can still send
+          const anchorOnly = n === 0;       // committed work only — nothing to bundle yet
           const isPending = sendOffersMutation.isPending && pendingGroupId === group.groupId;
           const isLoss = group.coversDayRate === false;
-          const cats = formatSkills(group.members);
+          const cats = formatSkills(flex.length ? flex : group.members);
           const uncovered = bundleUncovered(group);
-          // Any member scheduled PAST its 7-day promise → flag the whole bundle as late
-          // so the dispatcher sees it before sending (honoured bundles stay unbadged).
-          const lateMember = group.members.find((m) => m.flexDeadline && m.date > m.flexDeadline);
+          // Any FLEXIBLE member scheduled PAST its 7-day promise → flag the whole bundle as
+          // late so the dispatcher sees it before sending (honoured bundles stay unbadged).
+          const lateMember = flex.find((m) => m.flexDeadline && m.date > m.flexDeadline);
           const fire = fireSignal(group);
-          // A member that needs more than one day can't be delivered as a single slot.
-          const multiDayMember = group.members.find((m) => typeof m.daysNeeded === "number" && m.daysNeeded > 1);
+          // A flexible member that needs more than one day can't be delivered as a single slot.
+          const multiDayMember = flex.find((m) => typeof m.daysNeeded === "number" && m.daysNeeded > 1);
           const isHovered = hoveredGroupId === group.groupId;
           const isFaded =
             selectedContractorId !== null && group.contractorId !== selectedContractorId;
@@ -1189,7 +1298,9 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
               onMouseLeave={() => setHoveredGroupId(null)}
               className={cn(
                 "border-l-4 transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400",
-                isLoss ? "border-l-red-500" : "border-l-green-500",
+                // Anchored on committed work → indigo accent; pure-flexible bundles keep the
+                // green/red margin signal.
+                committed.length > 0 ? "border-l-indigo-500" : isLoss ? "border-l-red-500" : "border-l-green-500",
                 isHovered && "ring-2 ring-sky-400 shadow-md -translate-y-px",
                 isFaded && "opacity-40 hover:opacity-100",
               )}
@@ -1210,10 +1321,37 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
                   </button>
                   <span className="text-[11px] text-muted-foreground whitespace-nowrap">{formatDate(group.date)}</span>
                 </div>
+                {/* committed anchor(s) on this day — already booked, shown for context */}
+                {committed.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    {committed.map((c) => (
+                      <span
+                        key={c.quoteId}
+                        className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300"
+                        title="Committed booking — flexible jobs can be bundled onto this day"
+                      >
+                        <Lock className="h-2.5 w-2.5 shrink-0" />
+                        {c.customerName}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {/* what */}
                 <p className="text-[11px] text-muted-foreground truncate">
-                  {n} job{n === 1 ? "" : "s"}{cats ? ` · ${cats}` : ""}
+                  {anchorOnly
+                    ? "No flexible jobs bundled yet"
+                    : `${n} flexible job${n === 1 ? "" : "s"}${cats ? ` · ${cats}` : ""}`}
                 </p>
+                {/* Every flexible job laid out as its own draggable card — grab one and
+                    drop it on a contractor's day on the grid to hand-place it (overriding
+                    the optimiser). No need to open the card to see or move a job. */}
+                {flex.length > 0 && (
+                  <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
+                    {flex.map((m) => (
+                      <BundledJobCard key={m.quoteId} member={m} />
+                    ))}
+                  </div>
+                )}
                 {multiDayMember && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-950/60 dark:text-red-300">
                     <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
@@ -1231,8 +1369,9 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
                     {uncovered.map(prettyCat).join(", ")} — needs 2nd trade
                   </span>
                 )}
-                {/* Hold-vs-send signal (slack governor): HOLD prominent (amber), send quiet. */}
-                {fire.hold ? (
+                {/* Hold-vs-send signal (slack governor): HOLD prominent (amber), send quiet.
+                    Suppressed on anchor-only cards — there's nothing flexible to send yet. */}
+                {!anchorOnly && (fire.hold ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
                     <PauseCircle className="h-2.5 w-2.5 shrink-0" /> Hold · {fire.reason}
                   </span>
@@ -1240,7 +1379,7 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
                   <span className="inline-flex items-center gap-1 text-[10px] font-medium text-green-700 dark:text-green-400">
                     <Send className="h-2.5 w-2.5 shrink-0" /> Send now · {fire.reason}
                   </span>
-                )}
+                ))}
                 {/* economics (hero) + action */}
                 <div className="flex items-end justify-between gap-2 pt-0.5">
                   <div className="min-w-0">
@@ -1265,18 +1404,24 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
                       </div>
                     )}
                   </div>
-                  <Button
-                    size="sm"
-                    variant={fire.hold ? "outline" : "default"}
-                    className="h-8 px-3 text-xs shrink-0"
-                    onClick={(e) => { e.stopPropagation(); handleSendOptions(group); }}
-                    disabled={sendOffersMutation.isPending}
-                  >
-                    {isPending
-                      ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                      : <Send className="h-3.5 w-3.5 mr-1" />}
-                    Send options ({n})
-                  </Button>
+                  {anchorOnly ? (
+                    <span className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-300">
+                      <Lock className="h-3.5 w-3.5" /> Committed
+                    </span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant={fire.hold ? "outline" : "default"}
+                      className="h-8 px-3 text-xs shrink-0"
+                      onClick={(e) => { e.stopPropagation(); handleSendOptions(group); }}
+                      disabled={sendOffersMutation.isPending}
+                    >
+                      {isPending
+                        ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                        : <Send className="h-3.5 w-3.5 mr-1" />}
+                      Send options ({n})
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1334,7 +1479,10 @@ export default function FlexibleQueuePanel({ testOnly = false }: { testOnly?: bo
                   >
                     <CardContent className="p-2.5 space-y-1.5">
                       <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-sm font-semibold truncate">{job.customerName}</span>
+                        <div className="flex min-w-0 items-center gap-1">
+                          <JobDragHandle quoteId={job.quoteId} customerName={job.customerName} slot="am" />
+                          <span className="text-sm font-semibold truncate">{job.customerName}</span>
+                        </div>
                         <SlaBadge slackDays={job.slackDays} deadline={job.flexDeadline} />
                       </div>
                       {cats && <p className="truncate text-[11px] text-muted-foreground">{cats}</p>}

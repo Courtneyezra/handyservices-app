@@ -56,6 +56,11 @@ export interface UpdateCallData {
     missedReason?: string;
     tags?: string[];
     leadId?: string;
+
+    // VA performance tracking (call dashboard)
+    ringSeconds?: number;       // time-to-answer in seconds (derived in dial-status webhook)
+    handledBy?: string;         // 'va' | 'ai_agent' | 'missed' | 'voicemail'
+    handledByUserId?: string;   // user id when handledBy = 'va'
 }
 
 /**
@@ -233,6 +238,30 @@ export async function finalizeCall(
     });
 
     console.log(`[CallLogger] Finalized call record ${callRecordId}`);
+
+    // --- AI CALL SCORING (fire-and-forget; must never block or fail finalization) ---
+    (async () => {
+        const { scoreCall } = await import("./call-scoring");
+        const [call] = await db.select().from(calls).where(eq(calls.id, callRecordId));
+        if (!call) return null;
+        return scoreCall({
+            transcription: call.transcription,
+            duration: call.duration,
+            ringSeconds: call.ringSeconds,
+            handledBy: call.handledBy,
+            outcome: call.outcome,
+            jobSummary: call.jobSummary,
+            detectedSkusJson: call.detectedSkusJson,
+        });
+    })()
+        .then(async (scorecard) => {
+            if (!scorecard) return;
+            await db.update(calls)
+                .set({ aiScoreJson: scorecard, aiScoredAt: new Date() })
+                .where(eq(calls.id, callRecordId));
+            console.log(`[CallScoring] Scored call ${callRecordId} (overall: ${scorecard.overall})`);
+        })
+        .catch((err) => console.error(`[CallScoring] Failed to score call ${callRecordId}:`, err));
 
     // --- AGENTIC WORKFLOW: ONE-CLICK ACTION ---
     if (data.transcription && data.transcription.length > 50) {

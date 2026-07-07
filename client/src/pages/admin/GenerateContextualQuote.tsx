@@ -23,6 +23,7 @@ import {
   Plus,
   Trash2,
   Wand2,
+  Undo2,
   Loader2,
   Copy,
   Check,
@@ -35,10 +36,13 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCw,
+  Camera,
+  X,
 } from 'lucide-react';
 import { format as formatDate, getDaysInMonth, getDay, startOfMonth } from 'date-fns';
 import { QuotePreviewModal } from '@/components/quote/QuotePreviewModal';
 import type { PreviewQuote } from '@/components/quote/QuotePreviewModal';
+import { LinkedCallChip, type LinkedCallSummary } from '@/components/quote/LinkedCallChip';
 import { FaWhatsapp } from 'react-icons/fa';
 import { formatDistanceToNow } from 'date-fns';
 import { buildContextualQuoteWhatsAppMessage } from '@/lib/whatsapp-quote-message';
@@ -97,6 +101,8 @@ interface LineItem {
   estimatedMinutes: number;
   materialsCostPounds: number; // in pounds for easier input, converted to pence on submit
   details?: string;
+  /** Customer-page checklist per line — each string follows "Head — detail" (em dash). Takes precedence over `details` on the customer page. */
+  scopeSteps?: string[];
   /** Phase 4d — for fixed-fee categories with tiers (e.g. waste_removal: small/medium/full van load) */
   fixedTier?: string | null;
   /** Phase 11 — line needs a materials collection trip. Composer dedupes across all lines; +30min ONCE per quote when any line is flagged. */
@@ -490,6 +496,55 @@ function TimeInput({
 // Bold + high-contrast by design — the owner wants the two rails legible per
 // line, not hidden behind subtle tints.
 // ---------------------------------------------------------------------------
+
+// Materials £ input holding the raw typed string locally. Round-tripping every
+// keystroke through parseFloat snaps the field back mid-edit (clearing it, or
+// typing "12." on a phone, re-renders as 0/"") — the draft only syncs back to
+// the committed number when the field isn't focused.
+function MaterialsCostInput({
+  value,
+  onCommit,
+  onFocus,
+  autoFocus,
+}: {
+  value: number;
+  onCommit: (pounds: number) => void;
+  onFocus?: () => void;
+  autoFocus?: boolean;
+}) {
+  const [draft, setDraft] = useState<string>(value > 0 ? String(value) : '');
+  const focusedRef = useRef(false);
+
+  // Sync external changes (draft restore, SKU pick, toggle-off) while idle.
+  useEffect(() => {
+    if (!focusedRef.current) setDraft(value > 0 ? String(value) : '');
+  }, [value]);
+
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      placeholder="0"
+      autoFocus={autoFocus}
+      value={draft}
+      onFocus={() => {
+        focusedRef.current = true;
+        onFocus?.();
+      }}
+      onBlur={() => {
+        focusedRef.current = false;
+        setDraft(value > 0 ? String(value) : '');
+      }}
+      onChange={(e) => {
+        const raw = e.target.value.replace(/[^0-9.]/g, '');
+        setDraft(raw);
+        const parsed = parseFloat(raw);
+        onCommit(Number.isFinite(parsed) && parsed >= 0 ? parsed : 0);
+      }}
+      className="w-24 sm:w-20 h-10 sm:h-8 text-center text-base sm:text-sm bg-transparent border-handy-grid"
+    />
+  );
+}
 
 function TwoRailEditor({
   /** £ shown in the price field. For "auto" (custom, unset) pass null. */
@@ -931,6 +986,52 @@ function formatPhoneForWhatsApp(phone: string): string {
   return cleaned;
 }
 
+// Normalize a phone number for storage. Numbers copy-pasted from iOS arrive
+// wrapped in invisible Unicode direction marks (U+202A…U+202C) with non-breaking
+// spaces — they look fine on screen but break SMS/WhatsApp matching downstream.
+// Strips all invisible characters and whitespace, then converts UK national
+// format (07…) to E.164 (+447…).
+function normalizePhoneInput(raw: string): string {
+  let cleaned = raw
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+    .replace(/[\s\-().]/g, '');
+  if (cleaned.startsWith('00')) cleaned = `+${cleaned.slice(2)}`;
+  if (/^07\d{9}$/.test(cleaned)) cleaned = `+44${cleaned.slice(1)}`;
+  if (/^447\d{9}$/.test(cleaned)) cleaned = `+${cleaned}`;
+  // "+44 (0)7878…" — UK numbers never carry the trunk 0 after the country code.
+  cleaned = cleaned.replace(/^\+440/, '+44');
+  return cleaned;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pre-flight checks — guardrails that intercept Generate when the quote has
+// quality gaps Ben would otherwise have to remember to check. High-ticket
+// quotes close at a fraction of the rate of small ones; thin line items are a
+// known driver, so the system catches them at the moment of generation.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A line at/above this (labour + materials) should carry a customer-facing detail. */
+const HIGH_TICKET_LINE_PENCE = 25_000;
+/** A quote at/above this is high-ticket: all lines should carry details + photos expected. */
+const HIGH_TICKET_TOTAL_PENCE = 50_000;
+/** Effective labour rate sanity band. Below floor = likely mispriced time/price rail. */
+const RATE_FLOOR_PENCE_PER_HOUR = 3_500;
+const RATE_CEILING_PENCE_PER_HOUR = 12_000;
+
+interface DuplicateQuoteSummary {
+  shortSlug: string;
+  customerName: string;
+  basePricePence: number | null;
+  createdAt: string | null;
+  viewed: boolean;
+}
+
+type PreflightIssue =
+  | { kind: 'details'; lineIds: string[] }
+  | { kind: 'photos' }
+  | { kind: 'rate'; lines: { lineId: string; description: string; ratePerHourPence: number; direction: 'low' | 'high' }[] }
+  | { kind: 'duplicate'; duplicates: DuplicateQuoteSummary[] };
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1092,6 +1193,7 @@ function ContractorFitPanel({
 
 const CUSTOMER_TYPES = [
   { value: 'homeowner', label: 'Homeowner', emoji: '🏠' },
+  { value: 'oap_homeowner', label: 'OAP Homeowner (Elderly)', emoji: '👴' },
   { value: 'landlord', label: 'Landlord', emoji: '🔑' },
   { value: 'property_manager', label: 'Property Manager', emoji: '🏢' },
   { value: 'tenant', label: 'Tenant', emoji: '👤' },
@@ -1112,7 +1214,7 @@ const MESSAGE_STYLE_OPTIONS = [
 function defaultMessageStyle(ct: string): string {
   if (ct === 'business') return 'professional';
   if (ct === 'landlord' || ct === 'property_manager' || ct === 'letting_agent') return 'efficient';
-  if (ct === 'tenant') return 'reassuring';
+  if (ct === 'tenant' || ct === 'oap_homeowner') return 'reassuring';
   return 'friendly';
 }
 
@@ -1240,6 +1342,10 @@ export default function GenerateContextualQuote() {
   const [parkingDistance, setParkingDistance] = useState<'on_drive' | 'street_outside' | 'street_within_50m' | '50m_plus' | null>(null);
   const [customerPresent, setCustomerPresent] = useState<boolean | null>(null);
 
+  // ── Customer-supplied job photos (shown on the customer quote page) ──
+  const [customerPhotos, setCustomerPhotos] = useState<string[]>([]);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
+
   // ── Manual available dates (admin-picked whitelist for customer date picker) ──
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [datePickerMonth, setDatePickerMonth] = useState(new Date());
@@ -1266,6 +1372,18 @@ export default function GenerateContextualQuote() {
   // ── Call card selection ──
   const [selectedCallerId, setSelectedCallerId] = useState<string | null>(null);
 
+  // ── Source-call linking (quote → originating call attribution) ──
+  // linkedCall drives the chip next to the phone field and the sourceCallId
+  // sent on create. Set three ways: ?fromCallId= handoff from CallReviewPage,
+  // recent-caller card click, or the phone-number auto-match below.
+  const [linkedCall, setLinkedCall] = useState<LinkedCallSummary | null>(null);
+  // Normalized phone the admin explicitly unlinked via the chip's [×] —
+  // suppresses auto-match for that number and marks the quote as
+  // sourceChannel='whatsapp' on submit (no call behind it).
+  const [unlinkedPhone, setUnlinkedPhone] = useState<string | null>(null);
+  // Phone field debounced 600ms for the recent-calls lookup.
+  const [debouncedPhone, setDebouncedPhone] = useState('');
+
   // ── Phase 25d — inline SKU autocomplete ──
   // The line description doubles as a catalog search box. We only track the
   // most-recently-added line id so its inline input autofocuses; there is no
@@ -1277,6 +1395,10 @@ export default function GenerateContextualQuote() {
   // Category / Time / Materials. Tracked per line id; the ref guards one-time
   // category inference so we never clobber an admin's manual category choice.
   const [customLineIds, setCustomLineIds] = useState<Set<string>>(new Set());
+  // Lines whose materials £ field is open. Visibility used to be inferred from
+  // cost > 0, which unmounted the input (and dismissed the mobile keyboard)
+  // the instant the admin cleared the field to type a multi-digit amount.
+  const [materialsOpenIds, setMaterialsOpenIds] = useState<Set<string>>(new Set());
   const categoryGuessedIds = useRef<Set<string>>(new Set());
 
   // ── Decomposed pricing (admin eval/preview) ──
@@ -1504,6 +1626,73 @@ export default function GenerateContextualQuote() {
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // Source-call linking — prefill handoff + phone auto-match
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Prefill from query params (CallReviewPage / Call Performance "Build quote"
+  // handoff): ?fromCallId=<id>&phone=<raw>&name=<name>&job=<summary>. Runs once
+  // on mount; the chip is enriched with time/duration by the lookup below.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fromCallId = params.get('fromCallId');
+    const qpPhone = params.get('phone');
+    const qpName = params.get('name');
+    const qpJob = params.get('job');
+    if (qpName) setCustomerName(qpName);
+    if (qpPhone) setPhone(normalizePhoneInput(qpPhone));
+    if (qpJob) {
+      setJobDescription(qpJob);
+      // Mirror the recent-caller card flow: parse the call's job summary into
+      // line items so the handoff lands ready to price, not just annotated.
+      if (qpJob.trim().length > 5) parseJobMutation.mutate(qpJob.trim());
+    }
+    if (fromCallId) {
+      setLinkedCall({ id: fromCallId, customerName: qpName, jobSummary: qpJob });
+    }
+  }, []);
+
+  // Debounce the phone field 600ms before hitting the recent-calls lookup.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedPhone(normalizePhoneInput(phone)), 600);
+    return () => clearTimeout(t);
+  }, [phone]);
+
+  // Recent calls for this number (14-day window, newest first). Enabled for
+  // any plausible number — even when already linked — so the chip's switcher
+  // can list alternative calls.
+  const debouncedPhoneDigits = debouncedPhone.replace(/\D/g, '');
+  const { data: recentCallMatches } = useQuery<LinkedCallSummary[]>({
+    queryKey: ['recent-calls-by-phone', debouncedPhone],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/calls/recent-by-phone?phone=${encodeURIComponent(debouncedPhone)}&days=14`,
+        { headers: getAuthHeaders() },
+      );
+      if (!res.ok) throw new Error('Failed to fetch recent calls');
+      const data = await res.json();
+      return data?.calls ?? [];
+    },
+    enabled: debouncedPhoneDigits.length >= 10,
+    staleTime: 30_000,
+  });
+
+  // Auto-link the newest matching call (WhatsApp-lead safety net) — unless a
+  // call is already linked or the admin explicitly unlinked this number.
+  useEffect(() => {
+    if (!recentCallMatches || recentCallMatches.length === 0) return;
+    if (linkedCall) {
+      // Linked via ?fromCallId= (no startTime yet) — enrich from the lookup.
+      if (!linkedCall.startTime) {
+        const found = recentCallMatches.find((c) => c.id === linkedCall.id);
+        if (found) setLinkedCall(found);
+      }
+      return;
+    }
+    if (unlinkedPhone === debouncedPhone) return;
+    setLinkedCall(recentCallMatches[0]);
+  }, [recentCallMatches, linkedCall, unlinkedPhone, debouncedPhone]);
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // API: Fetch contractors for assignment dropdown
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1623,26 +1812,29 @@ export default function GenerateContextualQuote() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   const createQuoteMutation = useMutation({
-    mutationFn: async (enrichedVaContext?: string): Promise<QuoteResult> => {
+    // items is passed explicitly (not read from state) so the pre-flight modal
+    // can generate with just-approved line details without a stale-closure race.
+    mutationFn: async ({ enrichedVaContext, items }: { enrichedVaContext?: string; items: LineItem[] }): Promise<QuoteResult> => {
       const adminUser = JSON.parse(localStorage.getItem('adminUser') || '{}');
       const res = await fetch('/api/pricing/create-contextual-quote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           customerName,
-          phone,
+          phone: normalizePhoneInput(phone),
           email: email || undefined,
           address: address || undefined,
           postcode: postcode || undefined,
           coordinates: coordinates || undefined,
-          jobDescription: jobDescription || lineItems.map(li => li.description).filter(Boolean).join(', ') || undefined,
-          lines: lineItems.map((li) => ({
+          jobDescription: jobDescription || items.map(li => li.description).filter(Boolean).join(', ') || undefined,
+          lines: items.map((li) => ({
             id: li.id,
             description: li.description,
             category: li.category,
             estimatedMinutes: li.estimatedMinutes,
             materialsCostPence: Math.round(li.materialsCostPounds * 100) || 0,
             details: li.details ?? null,
+            scopeSteps: (li.scopeSteps && li.scopeSteps.filter(s => s.trim()).length > 0) ? li.scopeSteps.filter(s => s.trim()) : null,
             fixedTier: li.fixedTier ?? null,
             requiresMaterialCollection: !!li.requiresMaterialCollection,
             // Phase 25c — SKU fields persist through to the server's
@@ -1676,11 +1868,17 @@ export default function GenerateContextualQuote() {
           customerType: customerType || undefined,
           messageStyle: messageStyle || undefined,
           delayReason: messageStyle === 'delay' ? (delayReason.trim() || undefined) : undefined,
-          sourceCallId: selectedCallerId || undefined,
+          sourceCallId: linkedCall?.id || selectedCallerId || undefined,
+          // Only claim 'whatsapp' when the admin explicitly unlinked a matched
+          // call — otherwise omit and let the server/backfill decide.
+          ...(!linkedCall && !selectedCallerId && unlinkedPhone
+            ? { sourceChannel: 'whatsapp' as const }
+            : {}),
           contractorId: selectedContractorId || undefined,
           createdBy: adminUser?.id || undefined,
           createdByName: adminUser?.name || adminUser?.email || undefined,
           availableDates,
+          customerPhotoUrls: customerPhotos.length > 0 ? customerPhotos : undefined,
           // Decomposed-pricing preview (admin eval) — only when toggled on.
           ...(previewDecomposed
             ? {
@@ -1720,10 +1918,49 @@ export default function GenerateContextualQuote() {
   // Handlers
   // ═══════════════════════════════════════════════════════════════════════════
 
+  const handlePhotoUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const remaining = 10 - customerPhotos.length;
+    if (remaining <= 0) {
+      toast({ title: 'Photo limit reached', description: 'Max 10 photos per quote.', variant: 'destructive' });
+      return;
+    }
+    const selected = Array.from(files).slice(0, remaining);
+    setUploadingPhotos(true);
+    try {
+      const formData = new FormData();
+      selected.forEach((f) => formData.append('files', f));
+      const res = await fetch('/api/pricing/quote-photos', {
+        method: 'POST',
+        headers: { ...getAuthHeaders() },
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+        throw new Error(err.error || 'Upload failed');
+      }
+      const data = await res.json();
+      setCustomerPhotos((prev) => [...prev, ...data.urls]);
+    } catch (e) {
+      toast({ title: 'Photo upload failed', description: e instanceof Error ? e.message : 'Try again.', variant: 'destructive' });
+    } finally {
+      setUploadingPhotos(false);
+    }
+  };
+
   const handleSelectCaller = (caller: RecentCaller, mode: 'all' | 'customer') => {
     setSelectedCallerId(caller.id);
+    // Picking a caller card IS an explicit link — sync the chip and clear any
+    // earlier unlink so the auto-match doesn't fight the selection.
+    setLinkedCall({
+      id: caller.id,
+      startTime: caller.calledAt,
+      customerName: caller.customerName,
+      jobSummary: caller.jobSummary,
+    });
+    setUnlinkedPhone(null);
     setCustomerName(caller.customerName || '');
-    setPhone(caller.phone || '');
+    setPhone(normalizePhoneInput(caller.phone || ''));
     setAddress(caller.address || '');
     setPostcode(caller.postcode || '');
     setCoordinates(null);
@@ -1782,8 +2019,18 @@ export default function GenerateContextualQuote() {
     );
   };
 
+  // Scope steps are a string[] so they don't fit handleUpdateLineItem's
+  // string|number signature — dedicated setter keeps the call sites tidy.
+  const handleUpdateLineScopeSteps = (id: string, steps: string[]) => {
+    setLineItems((prev) => prev.map((li) => (li.id === id ? { ...li, scopeSteps: steps } : li)));
+  };
+
   // Track which items are being polished + their original text (before polish)
   const [polishingIds, setPolishingIds] = useState<Set<string>>(new Set());
+  // Override for aggressive polish: when a polish rewrites a title we keep the
+  // admin's original so a one-tap "Keep what I typed" can restore it. `kept`
+  // flips after restore so the row offers re-polish instead.
+  const [polishReverts, setPolishReverts] = useState<Record<string, { original: string; polished: string; kept: boolean }>>({});
   const [polishingDetailIds, setPolishingDetailIds] = useState<Set<string>>(new Set());
   const [draftingDetailIds, setDraftingDetailIds] = useState<Set<string>>(new Set());
   // Global toggle: when on, every line shows a detail textarea that auto-drafts
@@ -1811,22 +2058,32 @@ export default function GenerateContextualQuote() {
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           lineDescription: polishedTitle,
+          // The raw pre-polish input is the scope source of truth — the drafter
+          // grounds the steps in it so condensed titles don't lose scope facts.
+          originalDescription: originalDescriptions.current.get(id) || undefined,
           category,
           vaContext: currentVaContext || undefined,
         }),
       });
       if (!res.ok) return;
-      const { detail } = await res.json();
-      if (typeof detail === 'string' && detail.trim().length > 0) {
-        // Only populate if the user hasn't typed anything in the meantime
-        setLineItems((prev) =>
-          prev.map((li) => {
-            if (li.id !== id) return li;
-            if (li.details && li.details.trim().length > 0) return li;
-            return { ...li, details: detail };
-          }),
-        );
-      }
+      const { detail, steps } = await res.json();
+      const draftedSteps: string[] = Array.isArray(steps)
+        ? steps.filter((s: unknown): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 6)
+        : [];
+      // Only populate if the user hasn't typed anything in the meantime —
+      // never overwrite existing steps or manually-typed details.
+      setLineItems((prev) =>
+        prev.map((li) => {
+          if (li.id !== id) return li;
+          if (li.scopeSteps?.some((s) => s.trim())) return li;
+          if (li.details && li.details.trim().length > 0) return li;
+          if (draftedSteps.length > 0) return { ...li, scopeSteps: draftedSteps };
+          // Fallback — endpoint may return steps: [] on failure; keep the old
+          // single-detail behaviour so the line still gets something.
+          if (typeof detail === 'string' && detail.trim().length > 0) return { ...li, details: detail };
+          return li;
+        }),
+      );
     } catch {
       // Silently fail — auto-draft is non-critical
     } finally {
@@ -1838,13 +2095,19 @@ export default function GenerateContextualQuote() {
     }
   }, []);
 
-  const handlePolishDescription = useCallback(async (id: string, description: string) => {
+  const handlePolishDescription = useCallback(async (id: string, description: string, force = false) => {
     const trimmed = description.trim();
     if (trimmed.length < 5) return; // Too short to polish
 
-    // Don't re-polish if text hasn't changed since last blur
+    // Polish ONCE per line automatically. After that, whatever the admin types
+    // is authoritative — silently rewriting a deliberate edit was losing scope
+    // detail. A manual "polish" action passes force=true to re-run on demand.
+    if (!force && originalDescriptions.current.has(id)) return;
+
+    // Don't re-polish if text hasn't changed since last blur (unless forced —
+    // the manual "Polish title" action re-runs on the restored original).
     const lastOriginal = originalDescriptions.current.get(id);
-    if (lastOriginal === trimmed) return;
+    if (!force && lastOriginal === trimmed) return;
 
     setPolishingIds((prev) => new Set(prev).add(id));
     let polishedFinal: string | null = null;
@@ -1862,6 +2125,7 @@ export default function GenerateContextualQuote() {
         originalDescriptions.current.set(id, trimmed);
         handleUpdateLineItem(id, 'description', polished);
         polishedFinal = polished;
+        setPolishReverts((prev) => ({ ...prev, [id]: { original: trimmed, polished, kept: false } }));
       } else {
         // Even if unchanged, record it so we don't re-call
         originalDescriptions.current.set(id, trimmed);
@@ -1902,7 +2166,9 @@ export default function GenerateContextualQuote() {
     // We clear the once-per-line guard before calling so a title edit re-drafts.
     if (polishedFinal && showLineDetails) {
       const line = lineItems.find((li) => li.id === id);
-      const hasManualDetail = line?.details && line.details.trim().length > 0;
+      const hasManualDetail =
+        (line?.details && line.details.trim().length > 0) ||
+        line?.scopeSteps?.some((s) => s.trim());
       if (!hasManualDetail) {
         const currentCategory = (line?.category ?? 'general_fixing') as JobCategory;
         draftedDetailIds.current.delete(id);
@@ -1945,6 +2211,92 @@ export default function GenerateContextualQuote() {
     }
   }, [handleUpdateLineItem]);
 
+  // ── Per-line scope-steps editor ──
+  // Shared between the SKU-line and custom-line render sites. One <Input> per
+  // step (raw "Head — detail" string), ✕ to remove, "+ Add step" (max 6), and
+  // a ✨ Draft button that fills steps from the drafter ONLY when empty.
+  // Legacy `details` text (no steps yet) keeps its textarea below so nothing
+  // is lost — steps take precedence on the customer page.
+  const renderScopeStepsEditor = (item: LineItem) => {
+    const steps = item.scopeSteps ?? [];
+    const hasSteps = steps.some((s) => s.trim());
+    const isBusy = draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id);
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <Label className="text-[10px] text-muted-foreground/70">Scope steps</Label>
+          <div className="flex items-center gap-2">
+            {isBusy && (
+              <span className="flex items-center gap-1 text-[10px] text-handy-yellow animate-pulse">
+                <Wand2 className="w-2.5 h-2.5" />
+                {draftingDetailIds.has(item.id) ? 'drafting...' : 'polishing...'}
+              </span>
+            )}
+            <button
+              type="button"
+              title="Draft scope steps from the title"
+              aria-label="Draft scope steps"
+              disabled={isBusy || hasSteps || !item.description?.trim()}
+              onClick={() => {
+                draftedDetailIds.current.delete(item.id);
+                autoDraftLineDetail(item.id, item.description, item.category, buildStructuredVaContext());
+              }}
+              className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground/60 hover:text-handy-yellow disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <Wand2 className={`w-3 h-3 ${draftingDetailIds.has(item.id) ? 'animate-pulse' : ''}`} />
+              Draft
+            </button>
+          </div>
+        </div>
+        <div className="space-y-1">
+          {steps.map((step, stepIdx) => (
+            <div key={stepIdx} className="flex items-center gap-1">
+              <Input
+                value={step}
+                placeholder="Head — short detail"
+                onChange={(e) => {
+                  const next = [...steps];
+                  next[stepIdx] = e.target.value;
+                  handleUpdateLineScopeSteps(item.id, next);
+                }}
+                className={`h-7 text-xs bg-transparent border-handy-grid focus:border-handy-yellow transition-colors ${isBusy ? 'opacity-60' : ''}`}
+              />
+              <button
+                type="button"
+                aria-label="Remove step"
+                onClick={() => handleUpdateLineScopeSteps(item.id, steps.filter((_, i) => i !== stepIdx))}
+                className="shrink-0 text-muted-foreground/50 hover:text-red-500 transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+          {steps.length < 6 && (
+            <button
+              type="button"
+              onClick={() => handleUpdateLineScopeSteps(item.id, [...steps, ''])}
+              className="flex items-center gap-1 text-[11px] text-muted-foreground/70 hover:text-handy-navy transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+              Add step
+            </button>
+          )}
+        </div>
+        {!hasSteps && item.details?.trim() ? (
+          <Textarea
+            id={`line-detail-${item.id}`}
+            placeholder="What's included in this line — auto-drafted, edit if needed."
+            value={item.details ?? ''}
+            onChange={(e) => handleUpdateLineItem(item.id, 'details', e.target.value)}
+            onBlur={() => handlePolishDetail(item.id, item.details ?? '')}
+            rows={3}
+            className={`text-xs bg-transparent border-handy-grid focus:border-handy-yellow resize-none transition-colors ${isBusy ? 'opacity-60' : ''}`}
+          />
+        ) : null}
+      </div>
+    );
+  };
+
   const handleParseJob = () => {
     if (!jobDescription.trim()) {
       toast({ title: 'No description', description: 'Enter a job description first.', variant: 'destructive' });
@@ -1958,7 +2310,139 @@ export default function GenerateContextualQuote() {
   // textarea to transcribe into. The /api/transcribe endpoint still exists
   // but is no longer called from this page.
 
-  const handleGenerate = () => {
+  // ── Pre-flight modal state ──
+  const [preflightOpen, setPreflightOpen] = useState(false);
+  const [preflightIssues, setPreflightIssues] = useState<PreflightIssue[]>([]);
+  const [preflightChecking, setPreflightChecking] = useState(false);
+  // AI-drafted scope steps awaiting Ben's approval, keyed by line id. Never applied
+  // to the quote until he clicks "Approve & generate" — the human stays in the loop.
+  const [preflightDrafts, setPreflightDrafts] = useState<Record<string, string[]>>({});
+  const [preflightDrafting, setPreflightDrafting] = useState(false);
+
+  // The actual create call — everything upstream of this is guardrails.
+  const proceedGenerate = useCallback((items?: LineItem[]) => {
+    const finalItems = items ?? lineItems;
+    // Auto-set materialsSupply when any line has materials
+    const hasMaterials = finalItems.some((li) => li.materialsCostPounds > 0);
+    if (hasMaterials && signals.materialsSupply === 'labor_only') {
+      setSignals((prev) => ({ ...prev, materialsSupply: 'we_supply' }));
+    }
+    // Phase 20 — vaContext is now built deterministically from structured fields.
+    createQuoteMutation.mutate({ enrichedVaContext: buildStructuredVaContext(), items: finalItems });
+  }, [lineItems, signals.materialsSupply, createQuoteMutation, buildStructuredVaContext]);
+
+  const runPreflightChecks = useCallback(async (): Promise<PreflightIssue[]> => {
+    const issues: PreflightIssue[] = [];
+
+    // Customer-facing price per line from the live engine preview (labour +
+    // materials-with-margin). No preview yet → thresholds simply don't fire.
+    const priceByLine = new Map<string, number>();
+    for (const li of livePreview?.lineItems ?? []) {
+      priceByLine.set(li.lineId, (li.guardedPricePence || 0) + (li.materialsWithMarginPence || 0));
+    }
+    const totalPence = livePreview
+      ? (livePreview.subtotalPence || 0)
+        + (livePreview.totalMaterialsWithMarginPence || 0)
+        + (livePreview.priceBuckets?.totalBucketsPence || 0)
+      : 0;
+    const highTicketQuote = totalPence >= HIGH_TICKET_TOTAL_PENCE;
+
+    // 1. High-ticket lines with no customer-facing scope steps (and no legacy
+    //    details). On a high-ticket quote every line should justify itself; on
+    //    a smaller quote only individually expensive lines are flagged.
+    const missingDetailIds = lineItems
+      .filter((li) => {
+        if (!li.description.trim()) return false;
+        if (li.scopeSteps?.some((s) => s.trim()) || li.details?.trim()) return false;
+        return highTicketQuote || (priceByLine.get(li.id) ?? 0) >= HIGH_TICKET_LINE_PENCE;
+      })
+      .map((li) => li.id);
+    if (missingDetailIds.length > 0) {
+      issues.push({ kind: 'details', lineIds: missingDetailIds });
+    }
+
+    // 2. No photos on a high-ticket quote — photos of the actual job prove we
+    //    understood the scope, exactly where trust matters most.
+    const anyHighTicketLine = lineItems.some((li) => (priceByLine.get(li.id) ?? 0) >= HIGH_TICKET_LINE_PENCE);
+    if ((highTicketQuote || anyHighTicketLine) && customerPhotos.length === 0) {
+      issues.push({ kind: 'photos' });
+    }
+
+    // 3. Price sanity — effective labour £/hr per line. Catches a wrong time
+    //    estimate or price rail before the customer anchors on it. Lines under
+    //    an hour skew silly rates, so skip them.
+    const rateLines: Extract<PreflightIssue, { kind: 'rate' }>['lines'] = [];
+    for (const li of livePreview?.lineItems ?? []) {
+      const mins = li.timeEstimateMinutes || 0;
+      if (mins < 60) continue;
+      const ratePerHour = Math.round((li.guardedPricePence / mins) * 60);
+      if (ratePerHour < RATE_FLOOR_PENCE_PER_HOUR) {
+        rateLines.push({ lineId: li.lineId, description: li.description, ratePerHourPence: ratePerHour, direction: 'low' });
+      } else if (ratePerHour > RATE_CEILING_PENCE_PER_HOUR) {
+        rateLines.push({ lineId: li.lineId, description: li.description, ratePerHourPence: ratePerHour, direction: 'high' });
+      }
+    }
+    if (rateLines.length > 0) {
+      issues.push({ kind: 'rate', lines: rateLines });
+    }
+
+    // 4. A live (unpaid, recent) quote already exists for this phone number.
+    try {
+      const res = await fetch(`/api/pricing/duplicate-quote-check?phone=${encodeURIComponent(normalizePhoneInput(phone))}`, {
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        const { duplicates } = await res.json();
+        if (Array.isArray(duplicates) && duplicates.length > 0) {
+          issues.push({ kind: 'duplicate', duplicates });
+        }
+      }
+    } catch {
+      // Check is best-effort — a failed lookup never blocks quote generation.
+    }
+
+    return issues;
+  }, [lineItems, livePreview, customerPhotos.length, phone]);
+
+  // Draft customer-facing scope steps for the flagged lines, in parallel. Drafts
+  // land in the modal's step inputs for Ben to edit/approve — never straight onto
+  // the quote. Won't overwrite anything he has already typed in the modal.
+  const draftPreflightDetails = useCallback(async (lineIds: string[]) => {
+    setPreflightDrafting(true);
+    try {
+      await Promise.all(lineIds.map(async (id) => {
+        const line = lineItems.find((li) => li.id === id);
+        if (!line) return;
+        try {
+          const res = await fetch('/api/pricing/draft-line-detail', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            body: JSON.stringify({
+              lineDescription: line.description,
+              originalDescription: originalDescriptions.current.get(id) || undefined,
+              category: line.category,
+              vaContext: buildStructuredVaContext(),
+            }),
+          });
+          if (!res.ok) return;
+          const { steps } = await res.json();
+          const draftedSteps: string[] = Array.isArray(steps)
+            ? steps.filter((s: unknown): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 6)
+            : [];
+          if (draftedSteps.length > 0) {
+            // Don't overwrite steps Ben has already typed into the modal.
+            setPreflightDrafts((prev) => (prev[id]?.some((s) => s.trim()) ? prev : { ...prev, [id]: draftedSteps }));
+          }
+        } catch {
+          // Non-critical — Ben can type the steps himself in the modal.
+        }
+      }));
+    } finally {
+      setPreflightDrafting(false);
+    }
+  }, [lineItems, buildStructuredVaContext]);
+
+  const handleGenerate = async () => {
     if (!customerName.trim()) {
       toast({ title: 'Missing name', description: 'Customer name is required.', variant: 'destructive' });
       return;
@@ -1979,14 +2463,47 @@ export default function GenerateContextualQuote() {
     }
     // Phase 12 — availableDates whitelist no longer required (live contractor availability
     // drives the customer's date picker). System auto-assigns contractor at reserve time.
-    // Auto-set materialsSupply when any line has materials
-    const hasMaterials = lineItems.some((li) => li.materialsCostPounds > 0);
-    if (hasMaterials && signals.materialsSupply === 'labor_only') {
-      setSignals((prev) => ({ ...prev, materialsSupply: 'we_supply' }));
+
+    // Soft guardrails — quality gaps open the pre-flight modal instead of generating.
+    setPreflightChecking(true);
+    let issues: PreflightIssue[] = [];
+    try {
+      issues = await runPreflightChecks();
+    } finally {
+      setPreflightChecking(false);
+    }
+    if (issues.length > 0) {
+      setPreflightIssues(issues);
+      setPreflightDrafts({});
+      setPreflightOpen(true);
+      trackEvent('cq_preflight_flagged', { kinds: issues.map((i) => i.kind) });
+      const detailsIssue = issues.find((i): i is Extract<PreflightIssue, { kind: 'details' }> => i.kind === 'details');
+      if (detailsIssue) void draftPreflightDetails(detailsIssue.lineIds);
+      return;
     }
 
-    // Phase 20 — vaContext is now built deterministically from structured fields.
-    createQuoteMutation.mutate(buildStructuredVaContext());
+    proceedGenerate();
+  };
+
+  // Modal: apply approved/edited drafted steps onto the flagged lines, then generate.
+  const handlePreflightApprove = () => {
+    const updated = lineItems.map((li) => {
+      const draftSteps = (preflightDrafts[li.id] ?? []).map((s) => s.trim()).filter(Boolean);
+      const hasSteps = li.scopeSteps?.some((s) => s.trim());
+      return draftSteps.length > 0 && !hasSteps ? { ...li, scopeSteps: draftSteps } : li;
+    });
+    setLineItems(updated);
+    setPreflightOpen(false);
+    trackEvent('cq_preflight_approved', { kinds: preflightIssues.map((i) => i.kind) });
+    proceedGenerate(updated);
+  };
+
+  // Modal: Ben consciously ships it as-is. Logged so we can measure whether
+  // overridden quotes convert worse.
+  const handlePreflightOverride = () => {
+    trackEvent('cq_preflight_overridden', { kinds: preflightIssues.map((i) => i.kind) });
+    setPreflightOpen(false);
+    proceedGenerate();
   };
 
   const handleCopyMessage = () => {
@@ -2040,6 +2557,8 @@ export default function GenerateContextualQuote() {
     setJobDescription('');
     setLineItems([]);
     setSelectedCallerId(null);
+    setLinkedCall(null);
+    setUnlinkedPhone(null);
     setSelectedContractorId(null);
     setCustomerType('');
     setAvailableDates([]);
@@ -2367,8 +2886,25 @@ export default function GenerateContextualQuote() {
                       placeholder="07700 900123"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
+                      onBlur={() => setPhone((p) => normalizePhoneInput(p))}
                       className="mt-1"
                     />
+                    {/* Source-call attribution chip — click body to switch call, [×] to unlink */}
+                    {linkedCall && (
+                      <LinkedCallChip
+                        call={linkedCall}
+                        matches={recentCallMatches ?? []}
+                        onSelect={(c) => {
+                          setLinkedCall(c);
+                          setUnlinkedPhone(null);
+                        }}
+                        onUnlink={() => {
+                          setLinkedCall(null);
+                          setSelectedCallerId(null);
+                          setUnlinkedPhone(normalizePhoneInput(phone));
+                        }}
+                      />
+                    )}
                   </div>
                   <div>
                     <Label className="text-xs text-muted-foreground">Postcode</Label>
@@ -2502,17 +3038,17 @@ export default function GenerateContextualQuote() {
                       className="flex items-center gap-2 text-[11px] font-normal text-white/70 cursor-pointer select-none"
                     >
                       <Wand2 className="w-3 h-3 text-handy-yellow" />
-                      Detail
+                      Line scope steps
                       <Switch
                         id="show-line-details"
                         checked={showLineDetails}
                         onCheckedChange={(checked) => {
                           setShowLineDetails(checked);
                           if (checked) {
-                            // Auto-draft details for every existing line that doesn't have one yet.
+                            // Auto-draft scope steps for every existing line that doesn't have any yet.
                             // Clear the once-per-line guard so re-toggling triggers fresh drafts.
                             for (const li of lineItems) {
-                              if (!li.details && li.description.trim().length >= 5) {
+                              if (!li.details && !li.scopeSteps?.some((s) => s.trim()) && li.description.trim().length >= 5) {
                                 draftedDetailIds.current.delete(li.id);
                                 autoDraftLineDetail(li.id, li.description, li.category, buildStructuredVaContext());
                               }
@@ -2546,7 +3082,7 @@ export default function GenerateContextualQuote() {
                     {lineItems.map((item, index) => {
                       const icon = CATEGORY_ICONS[item.category] || '🔨';
                       const categoryLabel = CATEGORY_LABELS[item.category] || 'General';
-                      const hasMaterials = item.materialsCostPounds > 0;
+                      const materialsOpen = materialsOpenIds.has(item.id) || item.materialsCostPounds > 0;
                       const isPolishing = polishingIds.has(item.id);
                       // Phase 25d — a line is a SKU line iff it was picked from
                       // the inline autocomplete (source==='sku' && skuCode).
@@ -2630,50 +3166,9 @@ export default function GenerateContextualQuote() {
                                 />
                               )}
 
-                              {/* Detail textarea — still applies to SKU lines so admin
-                                  can override the customer-facing description. */}
-                              {showLineDetails && item.skuCode && (
-                                <div className="space-y-1">
-                                  <div className="flex items-center justify-between">
-                                    <Label htmlFor={`line-detail-${item.id}`} className="text-[10px] text-muted-foreground/70">
-                                      Detail
-                                    </Label>
-                                    <div className="flex items-center gap-2">
-                                      {(draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id)) && (
-                                        <span className="flex items-center gap-1 text-[10px] text-handy-yellow animate-pulse">
-                                          <Wand2 className="w-2.5 h-2.5" />
-                                          {draftingDetailIds.has(item.id) ? 'drafting...' : 'polishing...'}
-                                        </span>
-                                      )}
-                                      <button
-                                        type="button"
-                                        title="Regenerate detail from the SKU"
-                                        aria-label="Regenerate detail"
-                                        disabled={draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) || !item.description?.trim()}
-                                        onClick={() => {
-                                          draftedDetailIds.current.delete(item.id);
-                                          handleUpdateLineItem(item.id, 'details', '');
-                                          autoDraftLineDetail(item.id, item.description, item.category, buildStructuredVaContext());
-                                        }}
-                                        className="text-muted-foreground/60 hover:text-handy-yellow disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                                      >
-                                        <RefreshCw className={`w-3 h-3 ${draftingDetailIds.has(item.id) ? 'animate-spin' : ''}`} />
-                                      </button>
-                                    </div>
-                                  </div>
-                                  <Textarea
-                                    id={`line-detail-${item.id}`}
-                                    placeholder="What's included in this line — auto-drafted from SKU, edit if needed."
-                                    value={item.details ?? ''}
-                                    onChange={(e) => handleUpdateLineItem(item.id, 'details', e.target.value)}
-                                    onBlur={() => handlePolishDetail(item.id, item.details ?? '')}
-                                    rows={3}
-                                    className={`text-xs bg-transparent border-handy-grid focus:border-handy-yellow resize-none transition-colors ${
-                                      draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) ? 'opacity-60' : ''
-                                    }`}
-                                  />
-                                </div>
-                              )}
+                              {/* Scope-steps editor — still applies to SKU lines so admin
+                                  can override the customer-facing checklist. */}
+                              {showLineDetails && item.skuCode && renderScopeStepsEditor(item)}
                             </>
                           ) : (
                             // ─── Inline autocomplete (custom / not-yet-picked) ───
@@ -2692,6 +3187,43 @@ export default function GenerateContextualQuote() {
                                 onCustomChange={(c) => handleLineCustomChange(item.id, c)}
                                 onCreateCustom={() => handleLineCustomChange(item.id, true)}
                               />
+
+                              {/* Polish override — the AI tidy can strip scope detail the
+                                  admin typed on purpose. After a rewrite, offer a one-tap
+                                  restore of the original; after restoring, offer re-polish.
+                                  Row hides once the title is edited to anything else. */}
+                              {(() => {
+                                const rev = polishReverts[item.id];
+                                if (!rev) return null;
+                                if (!rev.kept && item.description === rev.polished) {
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        handleUpdateLineItem(item.id, 'description', rev.original);
+                                        setPolishReverts((prev) => ({ ...prev, [item.id]: { ...rev, kept: true } }));
+                                      }}
+                                      className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-handy-navy transition-colors max-w-full"
+                                    >
+                                      <Undo2 className="w-3 h-3 shrink-0" />
+                                      <span className="truncate">Keep what I typed: “{rev.original}”</span>
+                                    </button>
+                                  );
+                                }
+                                if (rev.kept && item.description === rev.original) {
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => handlePolishDescription(item.id, item.description, true)}
+                                      className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-handy-navy transition-colors"
+                                    >
+                                      <Wand2 className="w-3 h-3 shrink-0" />
+                                      Polish title
+                                    </button>
+                                  );
+                                }
+                                return null;
+                              })()}
 
                               {/* Track B — suggest-and-confirm SKU chip. Shows on a
                                   CUSTOM line when the parser advised a catalog SKU.
@@ -2741,50 +3273,8 @@ export default function GenerateContextualQuote() {
                                   );
                                 })()}
 
-                              {/* Detail textarea — only once the line is custom, then gated on the global "Detail" toggle */}
-                              {showCustomConfig && showLineDetails && (
-                                <div className="space-y-1">
-                                  <div className="flex items-center justify-between">
-                                    <Label htmlFor={`line-detail-${item.id}`} className="text-[10px] text-muted-foreground/70">
-                                      Detail
-                                    </Label>
-                                    <div className="flex items-center gap-2">
-                                      {(draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id)) && (
-                                        <span className="flex items-center gap-1 text-[10px] text-handy-yellow animate-pulse">
-                                          <Wand2 className="w-2.5 h-2.5" />
-                                          {draftingDetailIds.has(item.id) ? 'drafting...' : 'polishing...'}
-                                        </span>
-                                      )}
-                                      <button
-                                        type="button"
-                                        title="Regenerate detail from the title"
-                                        aria-label="Regenerate detail"
-                                        disabled={draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) || !item.description?.trim()}
-                                        onClick={() => {
-                                          // Clear the once-per-line guard + the current detail, then re-draft
-                                          draftedDetailIds.current.delete(item.id);
-                                          handleUpdateLineItem(item.id, 'details', '');
-                                          autoDraftLineDetail(item.id, item.description, item.category, buildStructuredVaContext());
-                                        }}
-                                        className="text-muted-foreground/60 hover:text-handy-yellow disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                                      >
-                                        <RefreshCw className={`w-3 h-3 ${draftingDetailIds.has(item.id) ? 'animate-spin' : ''}`} />
-                                      </button>
-                                    </div>
-                                  </div>
-                                  <Textarea
-                                    id={`line-detail-${item.id}`}
-                                    placeholder="What's included in this line — auto-drafted, edit if needed."
-                                    value={item.details ?? ''}
-                                    onChange={(e) => handleUpdateLineItem(item.id, 'details', e.target.value)}
-                                    onBlur={() => handlePolishDetail(item.id, item.details ?? '')}
-                                    rows={3}
-                                    className={`text-xs bg-transparent border-handy-grid focus:border-handy-yellow resize-none transition-colors ${
-                                      draftingDetailIds.has(item.id) || polishingDetailIds.has(item.id) ? 'opacity-60' : ''
-                                    }`}
-                                  />
-                                </div>
-                              )}
+                              {/* Scope-steps editor — only once the line is custom, then gated on the global "Line scope steps" toggle */}
+                              {showCustomConfig && showLineDetails && renderScopeStepsEditor(item)}
 
                               {/* Category + Price/Time — revealed once the line is custom (no SKU match) */}
                               {showCustomConfig && (() => {
@@ -2879,26 +3369,34 @@ export default function GenerateContextualQuote() {
                           <div className="flex items-center gap-3">
                             <button
                               type="button"
-                              onClick={() => handleUpdateLineItem(item.id, 'materialsCostPounds', hasMaterials ? 0 : 1)}
+                              onClick={() => {
+                                if (materialsOpen) {
+                                  setMaterialsOpenIds((prev) => {
+                                    const next = new Set(prev);
+                                    next.delete(item.id);
+                                    return next;
+                                  });
+                                  handleUpdateLineItem(item.id, 'materialsCostPounds', 0);
+                                } else {
+                                  setMaterialsOpenIds((prev) => new Set(prev).add(item.id));
+                                }
+                              }}
                               className={`text-sm sm:text-xs px-3 sm:px-2.5 py-1.5 sm:py-1 rounded-full border transition-colors ${
-                                hasMaterials
+                                materialsOpen
                                   ? 'border-handy-yellow bg-handy-yellow/15 text-handy-navy font-semibold'
                                   : 'border-handy-grid text-muted-foreground/50 hover:border-handy-navy/30'
                               }`}
                             >
-                              {hasMaterials ? '🧱 Materials' : '+ Materials'}
+                              {materialsOpen ? '🧱 Materials' : '+ Materials'}
                             </button>
-                            {hasMaterials && (
+                            {materialsOpen && (
                               <div className="flex items-center gap-1.5">
                                 <span className="text-sm sm:text-xs text-muted-foreground">£</span>
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  step={1}
-                                  placeholder="0"
-                                  value={item.materialsCostPounds || ''}
-                                  onChange={(e) => handleUpdateLineItem(item.id, 'materialsCostPounds', parseFloat(e.target.value) || 0)}
-                                  className="w-24 sm:w-20 h-10 sm:h-8 text-center text-base sm:text-sm bg-transparent border-handy-grid"
+                                <MaterialsCostInput
+                                  value={item.materialsCostPounds || 0}
+                                  autoFocus={item.materialsCostPounds === 0}
+                                  onFocus={() => setMaterialsOpenIds((prev) => (prev.has(item.id) ? prev : new Set(prev).add(item.id)))}
+                                  onCommit={(pounds) => handleUpdateLineItem(item.id, 'materialsCostPounds', pounds)}
                                 />
                               </div>
                             )}
@@ -3398,6 +3896,62 @@ export default function GenerateContextualQuote() {
             </Card>
 
 
+            {/* ─── Section 4d: Customer Photos (shown on the quote page under the price card) ─── */}
+            <Card id="cq-photos-section" className="overflow-hidden border-handy-grid shadow-sm">
+              <CardHeader className="bg-handy-navy text-white px-4 sm:px-6 py-3 border-b-4 border-handy-yellow mb-3">
+                <CardTitle className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                  <Camera className="w-4 h-4 text-handy-yellow" />
+                  Customer Photos
+                </CardTitle>
+                <p className="text-xs text-white/70 mt-1">
+                  Photos the customer sent of the job (WhatsApp/SMS). Shown on their quote page — "your job, as you sent it".
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {customerPhotos.length > 0 && (
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                    {customerPhotos.map((url, i) => (
+                      <div key={url} className="relative group aspect-square rounded-lg overflow-hidden border border-border bg-muted">
+                        <img src={url} alt={`Customer photo ${i + 1}`} className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          aria-label="Remove photo"
+                          onClick={() => setCustomerPhotos((prev) => prev.filter((u) => u !== url))}
+                          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-red-600 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <label className={`flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-handy-navy/25 py-4 text-sm font-medium text-handy-navy/80 hover:border-handy-yellow hover:bg-handy-cream cursor-pointer transition-colors ${uploadingPhotos ? 'opacity-60 pointer-events-none' : ''}`}>
+                  {uploadingPhotos ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Uploading…
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      {customerPhotos.length > 0 ? 'Add more photos' : 'Add photos'}
+                      <span className="text-xs text-muted-foreground font-normal">(max 10)</span>
+                    </>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      void handlePhotoUpload(e.target.files);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </CardContent>
+            </Card>
+
             {/* ─── Section 5a: Contractor fit (informational only — system auto-assigns at reserve time) ─── */}
             <ContractorFitPanel
               categorySlugs={lineItems.map(li => li.category)}
@@ -3461,12 +4015,12 @@ export default function GenerateContextualQuote() {
                 size="lg"
                 className="w-full sm:flex-1 h-12 text-base font-semibold bg-handy-navy hover:bg-handy-navy/90 text-white shadow-sm hover:shadow disabled:bg-handy-navy/40"
                 onClick={handleGenerate}
-                disabled={!canGenerate || createQuoteMutation.isPending}
+                disabled={!canGenerate || createQuoteMutation.isPending || preflightChecking}
               >
-                {createQuoteMutation.isPending ? (
+                {createQuoteMutation.isPending || preflightChecking ? (
                   <>
                     <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                    Generating Quote...
+                    {preflightChecking ? 'Checking quote…' : 'Generating Quote...'}
                   </>
                 ) : (
                   <>
@@ -3668,6 +4222,194 @@ export default function GenerateContextualQuote() {
           } satisfies PreviewQuote}
         />
       )}
+
+      {/* Pre-flight check modal — soft guardrails that intercept Generate.
+          Clean quotes never see this; flagged quotes show each issue with an
+          inline fix. AI-drafted details are editable here and only land on the
+          quote when Ben approves — the human stays in the loop. "Generate
+          anyway" is always available (never block mid-call) but is tracked. */}
+      <Dialog open={preflightOpen} onOpenChange={setPreflightOpen}>
+        <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-handy-yellow" />
+              Before this quote goes out
+            </DialogTitle>
+            <DialogDescription>
+              A few things worth fixing — high-ticket quotes convert far better with them.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {preflightIssues.map((issue) => {
+              if (issue.kind === 'details') {
+                return (
+                  <div key="details" className="rounded-lg border border-border p-3 space-y-3">
+                    <div>
+                      <p className="text-sm font-semibold">Line items missing scope steps</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {issue.lineIds.length} line{issue.lineIds.length > 1 ? 's' : ''} on this quote {issue.lineIds.length > 1 ? 'have' : 'has'} no
+                        customer-facing scope steps. {preflightDrafting ? 'Drafting suggestions…' : 'Review the drafted steps below — edit anything, then approve.'}
+                      </p>
+                    </div>
+                    {issue.lineIds.map((id) => {
+                      const line = lineItems.find((li) => li.id === id);
+                      if (!line) return null;
+                      const draftSteps = preflightDrafts[id] ?? [];
+                      // Always show at least one input so Ben can type steps
+                      // himself if the drafter returned nothing.
+                      const rows = draftSteps.length > 0 ? draftSteps : [''];
+                      return (
+                        <div key={id} className="space-y-1">
+                          <p className="text-xs font-medium truncate">{line.description}</p>
+                          {preflightDrafting && draftSteps.length === 0 ? (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Drafting…
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              {rows.map((step, stepIdx) => (
+                                <div key={stepIdx} className="flex items-center gap-1">
+                                  <Input
+                                    value={step}
+                                    placeholder="Head — short detail"
+                                    onChange={(e) => {
+                                      const next = [...rows];
+                                      next[stepIdx] = e.target.value;
+                                      setPreflightDrafts((prev) => ({ ...prev, [id]: next }));
+                                    }}
+                                    className="h-7 text-xs"
+                                  />
+                                  <button
+                                    type="button"
+                                    aria-label="Remove step"
+                                    onClick={() => setPreflightDrafts((prev) => ({ ...prev, [id]: rows.filter((_, i) => i !== stepIdx) }))}
+                                    className="shrink-0 text-muted-foreground/50 hover:text-red-500 transition-colors"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ))}
+                              {rows.length < 6 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setPreflightDrafts((prev) => ({ ...prev, [id]: [...rows, ''] }))}
+                                  className="flex items-center gap-1 text-[11px] text-muted-foreground/70 hover:text-handy-navy transition-colors"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  Add step
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+              if (issue.kind === 'photos') {
+                return (
+                  <div key="photos" className="rounded-lg border border-border p-3 flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">No job photos attached</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        On a big job, photos of the actual work build trust and prove we understood the scope.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => {
+                        setPreflightOpen(false);
+                        document.getElementById('cq-photos-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }}
+                    >
+                      <Camera className="w-3.5 h-3.5 mr-1.5" /> Add photos
+                    </Button>
+                  </div>
+                );
+              }
+              if (issue.kind === 'rate') {
+                return (
+                  <div key="rate" className="rounded-lg border border-border p-3 space-y-2">
+                    <p className="text-sm font-semibold">Price sanity check</p>
+                    {issue.lines.map((l) => (
+                      <p key={l.lineId} className="text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground">{l.description}</span>{' '}
+                        works out at <span className={`font-semibold ${l.direction === 'low' ? 'text-red-600' : 'text-amber-600'}`}>£{Math.round(l.ratePerHourPence / 100)}/hr</span>{' '}
+                        labour — {l.direction === 'low' ? 'below the usual floor. Is the time estimate or price wrong?' : 'unusually high. Double-check before sending.'}
+                      </p>
+                    ))}
+                  </div>
+                );
+              }
+              // duplicate
+              return (
+                <div key="duplicate" className="rounded-lg border border-border p-3 space-y-2">
+                  <p className="text-sm font-semibold">This customer already has a live quote</p>
+                  {issue.duplicates.map((d) => (
+                    <div key={d.shortSlug} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="text-muted-foreground truncate">
+                        {d.customerName} · {typeof d.basePricePence === 'number' ? `£${Math.round(d.basePricePence / 100)}` : '—'} ·{' '}
+                        {d.createdAt ? new Date(d.createdAt).toLocaleDateString('en-GB') : ''} {d.viewed ? '· viewed' : '· not viewed'}
+                      </span>
+                      <a
+                        href={`/quote-link/${d.shortSlug}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 inline-flex items-center gap-1 text-handy-navy underline"
+                      >
+                        Open <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  ))}
+                  <p className="text-xs text-muted-foreground">
+                    Two competing links confuse customers — consider editing the existing quote instead.
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center justify-between gap-2 pt-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={handlePreflightOverride}
+              disabled={createQuoteMutation.isPending}
+            >
+              Generate anyway
+            </Button>
+            {preflightIssues.some((i) => i.kind === 'details') ? (
+              <Button
+                type="button"
+                className="bg-handy-navy hover:bg-handy-navy/90 text-white"
+                onClick={handlePreflightApprove}
+                disabled={preflightDrafting || createQuoteMutation.isPending}
+              >
+                {preflightDrafting ? (
+                  <span className="flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Drafting…</span>
+                ) : (
+                  'Approve steps & generate'
+                )}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                className="bg-handy-navy hover:bg-handy-navy/90 text-white"
+                onClick={() => setPreflightOpen(false)}
+              >
+                Go back & fix
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Phase 15 — Draft Preview Dialog (renders from live pricing — no DB write) */}
       <Dialog open={draftPreviewOpen} onOpenChange={setDraftPreviewOpen}>

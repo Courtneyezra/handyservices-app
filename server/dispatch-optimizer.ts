@@ -138,8 +138,15 @@ export interface OptimizeResult {
 
 // ── Goal scoring ─────────────────────────────────────────────────────────────────
 
-/** A committed-anchor "job" for a contractor-day: occupies a slot + carries coords. */
-interface AnchorJob { lat: number | null; lng: number | null; }
+/** A committed-anchor "job" for a contractor-day: occupies a slot + carries coords and the
+ *  identity of the committed booking (so it can also be surfaced as a fixed card). A full-day
+ *  booking pushes TWO anchors (am+pm) sharing the same quoteId/coords — dedupe by quoteId
+ *  before emitting members. */
+interface AnchorJob {
+  lat: number | null; lng: number | null;
+  quoteId: string | null; customerName: string | null;
+  valuePence: number; categories: string[]; slot: string;
+}
 
 /**
  * Nearest-neighbour route miles through a set of stop coords, starting from `base`
@@ -832,7 +839,11 @@ export async function runDispatchOptimizer(goal: DispatchGoal, opts: { limit?: n
     const slots = b.slot === 'full_day' ? ['am', 'pm'] : [b.slot];
     const key = `${b.cid}|${b.d}`;
     if (!anchorsByConDay.has(key)) anchorsByConDay.set(key, []);
-    for (const _ of slots) anchorsByConDay.get(key)!.push({ lat: null, lng: null });
+    for (const _ of slots) anchorsByConDay.get(key)!.push({
+      lat: b.lat, lng: b.lng,
+      quoteId: b.quoteId, customerName: b.customerName,
+      valuePence: b.valuePence, categories: b.categories, slot: b.slot,
+    });
   }
 
   const plans = buildJobPlans(goal, ctx, pool, maxWindowDays);
@@ -868,16 +879,59 @@ export async function runDispatchOptimizer(goal: DispatchGoal, opts: { limit?: n
   }
 
   // ── Build groups with goalScore + rationale ──
-  const byKey = new Map<string, { con: ContractorCtx; date: string; jobs: PoolJobCtx[]; members: SweepProposal[]; earliestIdx: number }>();
+  // A group is one contractor-day card. `jobs`/`poolMembers` are the optimiser-placed
+  // flexible jobs (kept in lockstep for routing + metrics). `fixedMembers` are already-
+  // committed bookings on that day, surfaced read-only so flexible jobs can be SEEN to
+  // bundle onto them. A committed day with nothing bundled yet still becomes a card.
+  type Grp = {
+    con: ContractorCtx; date: string;
+    jobs: PoolJobCtx[];             // pool jobs only — aligned 1:1 with poolMembers
+    poolMembers: SweepProposal[];   // aligned 1:1 with jobs (drives metrics + objective)
+    fixedMembers: SweepProposal[];  // committed anchors (read-only display)
+    fixedCoords: { lat: number | null; lng: number | null }[]; // aligned with fixedMembers
+    earliestIdx: number;
+  };
+  const byKey = new Map<string, Grp>();
   const planByQuote = new Map(plans.map((pl) => [pl.job.quoteId, pl]));
+
+  // Seed every committed contractor-day inside the planning window as an anchor group.
+  const cutoffDate = new Date(ctx.today); cutoffDate.setUTCDate(cutoffDate.getUTCDate() + maxWindowDays);
+  const windowCutoff = ymd(cutoffDate);
+  const todayStr = ymd(ctx.today);
+  for (const [key, anchors] of anchorsByConDay) {
+    const [cid, date] = key.split('|');
+    if (date < todayStr || date > windowCutoff) continue;
+    const con = conById.get(cid);
+    if (!con) continue;
+    if (!byKey.has(key)) byKey.set(key, { con, date, jobs: [], poolMembers: [], fixedMembers: [], fixedCoords: [], earliestIdx: Number.MAX_SAFE_INTEGER });
+    const g = byKey.get(key)!;
+    // One fixed member per committed quote (a full_day booking pushes two anchors that
+    // share a quoteId — dedupe so it shows as a single card, not two).
+    const seen = new Set<string>();
+    for (const a of anchors) {
+      if (!a.quoteId || seen.has(a.quoteId)) continue;
+      seen.add(a.quoteId);
+      const dist = (a.lat != null && a.lng != null && con.lat != null && con.lng != null)
+        ? Math.round(haversine(a.lat, a.lng, con.lat, con.lng) * 10) / 10 : null;
+      g.fixedMembers.push({
+        quoteId: a.quoteId, customerName: a.customerName ?? 'Customer', categories: a.categories,
+        date, slot: (a.slot === 'full_day' ? 'full_day' : a.slot) as 'am' | 'pm' | 'full_day',
+        fixed: true, contractorId: cid, contractorName: con.name,
+        distanceMiles: dist, valuePence: a.valuePence, slackDays: 0, flexDeadline: date,
+        coveredCategories: a.categories, uncoveredCategories: [],
+      });
+      g.fixedCoords.push({ lat: a.lat, lng: a.lng });
+    }
+  }
+
   for (const m of assigned) {
     const key = `${m.contractorId}|${m.date}`;
     const pl = planByQuote.get(m.quoteId)!;
     const placement = assignment.get(m.quoteId)!;
-    if (!byKey.has(key)) byKey.set(key, { con: conById.get(m.contractorId)!, date: m.date, jobs: [], members: [], earliestIdx: placement.dayIndex });
+    if (!byKey.has(key)) byKey.set(key, { con: conById.get(m.contractorId)!, date: m.date, jobs: [], poolMembers: [], fixedMembers: [], fixedCoords: [], earliestIdx: placement.dayIndex });
     const g = byKey.get(key)!;
     g.jobs.push(pl.job);
-    g.members.push(m);
+    g.poolMembers.push(m);
     g.earliestIdx = Math.min(g.earliestIdx, placement.dayIndex);
   }
 
@@ -886,33 +940,47 @@ export async function runDispatchOptimizer(goal: DispatchGoal, opts: { limit?: n
   const groups: ProposalGroup[] = [];
   for (const [groupId, g] of byKey) {
     const anchors = anchorsByConDay.get(groupId) ?? [];
-    const { rationale, metrics, margin } = buildRationale(goal, g.con, g.date, g.jobs, anchors, g.earliestIdx);
-    // Per-group goalScore = this bundle's contribution to the active objective
-    // (higher = better; speed is negated so later days score lower).
+    const { rationale, metrics, margin } = buildRationale(
+      goal, g.con, g.date, g.jobs, anchors,
+      g.earliestIdx === Number.MAX_SAFE_INTEGER ? 0 : g.earliestIdx,
+    );
+    // Per-group goalScore = this bundle's contribution to the active objective (higher =
+    // better; speed is negated so later days score lower). POOL jobs only — committed
+    // anchors are already booked and don't move the objective.
     let goalScore: number;
     switch (goal.objective) {
       case 'contractor_hourly': goalScore = Math.round(metrics.effectiveHourly * 100) / 100; break;
-      case 'customer_speed':    goalScore = -g.members.reduce((s, m) => s + assignment.get(m.quoteId)!.dayIndex, 0); break;
-      case 'throughput':        goalScore = g.members.length; break;
-      case 'even_load':         goalScore = g.members.length; break;
+      case 'customer_speed':    goalScore = -g.poolMembers.reduce((s, m) => s + assignment.get(m.quoteId)!.dayIndex, 0); break;
+      case 'throughput':        goalScore = g.poolMembers.length; break;
+      case 'even_load':         goalScore = g.poolMembers.length; break;
       case 'day_margin':        goalScore = margin.marginPence; break; // pence; higher = better
       default:                  goalScore = 0;
     }
     totalGoalScore += goalScore;
     totalTravelMiles += metrics.routeMi;
-    const totalValue = g.members.reduce((s, m) => s + (m.valuePence || 0), 0);
-    // Route order: nearest-neighbour visiting sequence over members (base → job → …),
-    // mapped to member quoteIds so the map can draw the day's route. Coords come from
-    // g.jobs (PoolJobCtx carries lat/lng; SweepProposal does not) — g.jobs[i] and
-    // g.members[i] are pushed in lockstep, so the index alignment holds.
-    const orderIdx = routeOrderIndices(g.con, g.jobs.map((j) => ({ lat: j.lat, lng: j.lng })));
-    const routeOrder = orderIdx.map((i) => g.members[i].quoteId);
-    // Group-level uncovered = distinct union across members (categories no chosen
+
+    // Committed anchors render FIRST, then the flexible jobs bundled onto the day.
+    const members = [...g.fixedMembers, ...g.poolMembers];
+    const totalValue = members.reduce((s, m) => s + (m.valuePence || 0), 0);
+    // Route order over the FULL day: committed anchors + pool jobs (both now carry coords).
+    // routeStops[i] aligns with members[i] (fixedMembers first, then jobs in lockstep).
+    const routeStops = [
+      ...g.fixedCoords,
+      ...g.jobs.map((j) => ({ lat: j.lat, lng: j.lng })),
+    ];
+    const orderIdx = routeOrderIndices(g.con, routeStops);
+    const routeOrder = orderIdx.map((i) => members[i].quoteId);
+    // Group-level uncovered = distinct union across POOL members (categories no chosen
     // contractor on this day covers — flagged for follow-up, never blocking).
-    const groupUncovered = [...new Set(g.members.flatMap((m) => m.uncoveredCategories ?? []))];
+    const groupUncovered = [...new Set(g.poolMembers.flatMap((m) => m.uncoveredCategories ?? []))];
+    // Anchor-only day (committed work, nothing bundled yet) gets a plain committed label
+    // instead of the £/hr rationale (which would read £0/hr with no flexible revenue).
+    const finalRationale = g.poolMembers.length === 0
+      ? `Committed — ${g.fixedMembers.length} job${g.fixedMembers.length === 1 ? '' : 's'} booked · no flexible jobs bundled yet`
+      : rationale;
     const group: ProposalGroup & { goalScore: number } = {
       groupId, contractorId: g.con.id, contractorName: g.con.name, date: g.date,
-      members: g.members, totalValue, rationale, goalScore,
+      members, committedCount: g.fixedMembers.length, totalValue, rationale: finalRationale, goalScore,
       routeOrder,
       uncoveredCategories: groupUncovered,
       // TRUE-MARGIN economics (additive — write-path untouched).

@@ -54,6 +54,7 @@ export type PricingLane = 'flex' | 'date_time' | 'liaise';
 /** The structured customer types the quote builder may persist. */
 export type CustomerKind =
   | 'homeowner'
+  | 'oap_homeowner'
   | 'landlord'
   | 'property_manager'
   | 'tenant'
@@ -77,8 +78,9 @@ export function deriveCustomerType(contextSignals: unknown): CustomerKind {
   const cs = (contextSignals || {}) as ContextSignalsLike;
   const stored = cs.customerType;
   if (
-    stored === 'homeowner' || stored === 'landlord' || stored === 'property_manager' ||
-    stored === 'tenant' || stored === 'business' || stored === 'letting_agent'
+    stored === 'homeowner' || stored === 'oap_homeowner' || stored === 'landlord' ||
+    stored === 'property_manager' || stored === 'tenant' || stored === 'business' ||
+    stored === 'letting_agent'
   ) {
     return stored;
   }
@@ -89,6 +91,9 @@ export function deriveCustomerType(contextSignals: unknown): CustomerKind {
   if (/property manager|portfolio|prop mgr|managing agent/.test(v)) return 'property_manager';
   if (/\btenant\b/.test(v)) return 'tenant';
   if (/office|business|company|commercial|shop/.test(v)) return 'business';
+  // Elderly-homeowner variant. Checked after the above so an elderly landlord
+  // still resolves to landlord; the primary path is explicit admin selection.
+  if (/\boap\b|elderly|pensioner|\bretired\b|\bsenior\b/.test(v)) return 'oap_homeowner';
   return 'homeowner';
 }
 

@@ -1,0 +1,8 @@
+{
+  "objective": "contractor_hourly",
+  "packMode": "dense",
+  "maxJobsPerDay": 4,
+  "maxTravelMilesPerJob": 8,
+  "fuelPencePerMile": 45,
+  "defaultDayRatePence": 15000
+}

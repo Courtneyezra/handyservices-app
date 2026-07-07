@@ -4,6 +4,7 @@ import {
   Loader2, AlertTriangle, CalendarRange, Inbox, ClipboardList,
   Sparkles, TrendingUp, TrendingDown,
 } from "lucide-react";
+import { useDroppable } from "@dnd-kit/core";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -67,7 +68,14 @@ function slotLabel(slot: ScheduleJob["slot"]): string {
 //   fillPct >= 100                  → green (full)
 // Proposed (sweep WANTS to place) renders dashed/lighter vs solid booked.
 
-function ScheduleGridCell({ cell, highlighted = false }: { cell: ScheduleCell; highlighted?: boolean }) {
+function ScheduleGridCell({
+  cell, highlighted = false, isDropTarget = false, stagedCount = 0,
+}: {
+  cell: ScheduleCell;
+  highlighted?: boolean;
+  isDropTarget?: boolean;
+  stagedCount?: number;
+}) {
   const { available, fillPct, jobs } = cell;
   const hasProposed = jobs.some((j) => j.source === "proposed");
   const hasBooked = jobs.some((j) => j.source === "booked");
@@ -101,6 +109,10 @@ function ScheduleGridCell({ cell, highlighted = false }: { cell: ScheduleCell; h
         stateClass,
         available && "cursor-default hover:brightness-95",
         highlighted && "ring-2 ring-sky-400 ring-offset-1 shadow-sm z-10",
+        // Active drop target while a job is dragged over this cell.
+        isDropTarget && "ring-2 ring-sky-500 ring-offset-1 shadow-md scale-[1.04] z-20",
+        // Cell holds one or more manually-staged (not-yet-confirmed) jobs.
+        stagedCount > 0 && !isDropTarget && "ring-2 ring-sky-500",
       )}
     >
       <div className="flex items-center justify-between">
@@ -143,6 +155,13 @@ function ScheduleGridCell({ cell, highlighted = false }: { cell: ScheduleCell; h
       {hasProposed && (
         <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-violet-500 ring-1 ring-white dark:ring-slate-900" />
       )}
+
+      {/* manually-staged job count (sky) — distinct from optimiser 'proposed' (violet). */}
+      {stagedCount > 0 && (
+        <span className="absolute -right-1.5 -top-1.5 z-30 flex h-4 min-w-4 items-center justify-center rounded-full bg-sky-500 px-1 text-[9px] font-bold leading-none text-white ring-1 ring-white dark:ring-slate-900">
+          +{stagedCount}
+        </span>
+      )}
     </div>
   );
 
@@ -176,6 +195,65 @@ function ScheduleGridCell({ cell, highlighted = false }: { cell: ScheduleCell; h
         </div>
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+// ─── Droppable cell ────────────────────────────────────────────────────────────
+// Wraps a grid cell as a drag-and-drop target. Dropping a job here stages it onto
+// this contractor + day (handled in DispatchConsolePage onDragEnd). Only available
+// cells accept drops. Reads staged placements from the shared context so the cell
+// can show how many jobs are queued onto it.
+
+function DroppableScheduleCell({
+  contractorId, contractorName, iso, cell, highlighted, isWeekend,
+}: {
+  contractorId: string;
+  contractorName: string;
+  iso: string;
+  cell: ScheduleCell | undefined;
+  highlighted: boolean;
+  isWeekend: boolean;
+}) {
+  const { stagedPlacements } = useDispatchSelection();
+  const available = cell?.available ?? false;
+
+  const stagedCount = useMemo(
+    () =>
+      Object.values(stagedPlacements).filter(
+        (p) => p.contractorId === contractorId && p.date === iso,
+      ).length,
+    [stagedPlacements, contractorId, iso],
+  );
+
+  const { setNodeRef, isOver } = useDroppable({
+    id: `cell-${contractorId}|${iso}`,
+    disabled: !available,
+    data: {
+      type: "cell",
+      contractorId,
+      contractorName,
+      date: iso,
+      amBooked: cell?.amBooked ?? false,
+      pmBooked: cell?.pmBooked ?? false,
+    },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`w-[72px] shrink-0 px-1 py-1.5 ${isWeekend ? "bg-muted/40" : ""}`}
+    >
+      {cell ? (
+        <ScheduleGridCell
+          cell={cell}
+          highlighted={highlighted}
+          isDropTarget={isOver}
+          stagedCount={stagedCount}
+        />
+      ) : (
+        <div className="h-12 w-full rounded-md border border-dashed border-border/50" />
+      )}
+    </div>
   );
 }
 
@@ -410,16 +488,15 @@ export default function DispatchSchedulePage({ embedded = false }: { embedded?: 
                       // This cell maps to the optimiser bundle `${contractorId}|${date}`.
                       const highlighted = hoveredGroupId === `${c.id}|${iso}`;
                       return (
-                        <div
+                        <DroppableScheduleCell
                           key={iso}
-                          className={`w-[72px] shrink-0 px-1 py-1.5 ${isWeekend ? "bg-muted/40" : ""}`}
-                        >
-                          {cell ? (
-                            <ScheduleGridCell cell={cell} highlighted={highlighted} />
-                          ) : (
-                            <div className="h-12 w-full rounded-md border border-dashed border-border/50" />
-                          )}
-                        </div>
+                          contractorId={c.id}
+                          contractorName={c.name}
+                          iso={iso}
+                          cell={cell}
+                          highlighted={highlighted}
+                          isWeekend={isWeekend}
+                        />
                       );
                     })}
                   </div>

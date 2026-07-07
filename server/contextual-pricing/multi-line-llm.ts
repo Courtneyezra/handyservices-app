@@ -682,69 +682,83 @@ function extractJSON(text: string): string {
   return text.trim();
 }
 
+// The fallback (reference × 1.3, 0% batch discount, low confidence) silently
+// degrades a live customer quote, so a transient API error, truncated
+// response, or one-off validation miss is worth one more attempt before
+// giving up.
+const PRICING_ATTEMPTS = 2;
+const PRICING_RETRY_DELAY_MS = 1500;
+
 /**
  * Call Claude (Anthropic) with all job lines and contextual signals in a
  * SINGLE LLM call. Returns per-line prices, batch discount, and
  * customer-facing messaging.
  *
- * If the Anthropic call fails or returns unparseable JSON, a fallback
- * result is returned at reference rate x 1.3 per line with 0% batch
- * discount.
+ * If all attempts fail (API error or unparseable JSON), a fallback result
+ * is returned at reference rate x 1.3 per line with 0% batch discount.
  */
 export async function generateMultiLineLLMPrice(
   request: MultiLineRequest,
   lineReferences: LineReference[],
   approvedClaims?: string[],
 ): Promise<MultiLineLLMResult> {
-  try {
-    const client = getAnthropic();
-    const expectedLineIds = request.lines.map((l) => l.id);
+  const expectedLineIds = request.lines.map((l) => l.id);
 
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      temperature: 0.1,
-      max_tokens: 8192,
-      system: buildSystemPrompt(request, lineReferences, approvedClaims),
-      messages: [
-        {
-          role: 'user',
-          content: buildUserPrompt(request),
-        },
-      ],
-    });
+  for (let attempt = 1; attempt <= PRICING_ATTEMPTS; attempt++) {
+    try {
+      const client = getAnthropic();
 
-    const textBlock = response.content.find((block) => block.type === 'text');
-    let raw = textBlock && textBlock.type === 'text' ? textBlock.text : '{}';
-    raw = extractJSON(raw);
-    const parsed = JSON.parse(raw);
-    const result = validateLLMResponse(parsed, expectedLineIds, approvedClaims);
+      const response = await client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        temperature: 0.1,
+        max_tokens: 8192,
+        system: buildSystemPrompt(request, lineReferences, approvedClaims),
+        messages: [
+          {
+            role: 'user',
+            content: buildUserPrompt(request),
+          },
+        ],
+      });
 
-    // If proposalSummary is generic, retry with a focused LLM call
-    if (isGenericSummary(result.messaging.proposalSummary)) {
-      console.log('[multi-line-llm] proposalSummary is generic, retrying...');
-      const retrySummary = await retryProposalSummary(request);
-      if (retrySummary) {
-        result.messaging.proposalSummary = retrySummary;
-      } else {
-        // Last resort: build from line descriptions
-        result.messaging.proposalSummary = buildFallbackSummary(request);
+      const textBlock = response.content.find((block) => block.type === 'text');
+      let raw = textBlock && textBlock.type === 'text' ? textBlock.text : '{}';
+      raw = extractJSON(raw);
+      const parsed = JSON.parse(raw);
+      const result = validateLLMResponse(parsed, expectedLineIds, approvedClaims);
+
+      // If proposalSummary is generic, retry with a focused LLM call
+      if (isGenericSummary(result.messaging.proposalSummary)) {
+        console.log('[multi-line-llm] proposalSummary is generic, retrying...');
+        const retrySummary = await retryProposalSummary(request);
+        if (retrySummary) {
+          result.messaging.proposalSummary = retrySummary;
+        } else {
+          // Last resort: build from line descriptions
+          result.messaging.proposalSummary = buildFallbackSummary(request);
+        }
+      }
+
+      return result;
+    } catch (error) {
+      console.error(
+        `[multi-line-llm] Pricing attempt ${attempt}/${PRICING_ATTEMPTS} failed:`,
+        error instanceof Error ? error.message : error,
+      );
+      if (attempt < PRICING_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, PRICING_RETRY_DELAY_MS));
       }
     }
-
-    return result;
-  } catch (error) {
-    console.error(
-      '[multi-line-llm] Anthropic call failed, returning fallback:',
-      error instanceof Error ? error.message : error,
-    );
-    const fallback = buildFallbackResult(request, lineReferences);
-    // Even in fallback, try to get a real proposalSummary
-    const retrySummary = await retryProposalSummary(request).catch(() => null);
-    if (retrySummary) {
-      fallback.messaging.proposalSummary = retrySummary;
-    } else {
-      fallback.messaging.proposalSummary = buildFallbackSummary(request);
-    }
-    return fallback;
   }
+
+  console.error('[multi-line-llm] All pricing attempts failed, returning fallback');
+  const fallback = buildFallbackResult(request, lineReferences);
+  // Even in fallback, try to get a real proposalSummary
+  const retrySummary = await retryProposalSummary(request).catch(() => null);
+  if (retrySummary) {
+    fallback.messaging.proposalSummary = retrySummary;
+  } else {
+    fallback.messaging.proposalSummary = buildFallbackSummary(request);
+  }
+  return fallback;
 }

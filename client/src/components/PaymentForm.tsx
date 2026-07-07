@@ -18,6 +18,9 @@ interface PaymentFormProps {
   paymentType?: 'full' | 'installments'; // Payment mode: full or 3 monthly payments
   mode?: 'deposit' | 'visit'; // NEW: Switch between deposit calculation and full visit payment
   slot?: { date: string, slot: string }; // Optional slot info for visit mode
+  lockId?: number; // Soft-hold reservation id — promoted to a booking by the webhook
+  pricingLane?: 'flex' | 'date_time'; // visit mode: exact slot adds a premium server-side
+  flexBookingWithinDays?: number; // visit flex lane: window we commit to
   onSuccess: (paymentIntentId: string) => Promise<void>;
   onError?: (error: string) => void;
 }
@@ -33,6 +36,9 @@ export function PaymentForm({
   paymentType = 'full',
   mode = 'deposit',
   slot,
+  lockId,
+  pricingLane,
+  flexBookingWithinDays,
   onSuccess,
   onError
 }: PaymentFormProps) {
@@ -43,6 +49,12 @@ export function PaymentForm({
   const [email, setEmail] = useState(customerEmail || '');
   const [emailError, setEmailError] = useState<string | null>(null);
   const [emailTouched, setEmailTouched] = useState(false);
+  // Gate progression on an explicit "Continue" click rather than auto-advancing
+  // the moment the email regex passes. Pre-filled valid emails skip the step.
+  const [emailConfirmed, setEmailConfirmed] = useState(() => {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return !!customerEmail && re.test(customerEmail);
+  });
   const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null);
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -97,8 +109,8 @@ export function PaymentForm({
   // Fetch payment intent when tier, extras, or email change (re-calculate deposit)
   // Deferred until a valid email is available (required by server)
   useEffect(() => {
-    // Don't create payment intent without a valid email
-    if (!hasValidEmail) {
+    // Don't create the payment intent until the customer has confirmed a valid email.
+    if (!emailConfirmed || !hasValidEmail) {
       setIsLoadingIntent(false);
       return;
     }
@@ -133,7 +145,10 @@ export function PaymentForm({
             customerEmail: effectiveEmail,
             quoteId,
             tierId: selectedTier,
-            slot: slot ? { date: slot.date, slot: slot.slot } : undefined
+            slot: slot ? { date: slot.date, slot: slot.slot } : undefined,
+            lockId, // promoted into a confirmed booking by the Stripe webhook
+            pricingLane, // 'flex' | 'date_time' — server adds the premium for date_time
+            flexBookingWithinDays, // flex lane window
           };
         }
 
@@ -207,7 +222,7 @@ export function PaymentForm({
       abortController.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerName, effectiveEmail, hasValidEmail, quoteId, selectedTier, selectedTierPrice, extrasKey, paymentType, mode]);
+  }, [customerName, effectiveEmail, hasValidEmail, emailConfirmed, quoteId, selectedTier, selectedTierPrice, extrasKey, paymentType, mode, lockId, pricingLane, flexBookingWithinDays]);
 
   const handleExpressCheckoutConfirm = async (event: StripeExpressCheckoutElementConfirmEvent) => {
     if (!stripe || !elements || !clientSecret || !paymentIntentId) return;
@@ -326,8 +341,16 @@ export function PaymentForm({
     }
   };
 
-  // If no valid email yet, show email-first form so user can enter it
-  if (!hasValidEmail) {
+  // Email-first step: collect + confirm the email behind an explicit Continue
+  // button (no auto-advance on regex match).
+  const confirmEmail = () => {
+    const err = validateEmail(email);
+    setEmailError(err);
+    setEmailTouched(true);
+    if (!err) setEmailConfirmed(true);
+  };
+
+  if (!emailConfirmed) {
     return (
       <div className="space-y-4">
         {/* Email Input Field */}
@@ -341,6 +364,7 @@ export function PaymentForm({
             value={email}
             onChange={handleEmailChange}
             onBlur={handleEmailBlur}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); confirmEmail(); } }}
             placeholder="your@email.com"
             className={`bg-gray-800/80 border-gray-600 text-white placeholder:text-gray-400 focus:border-[#e8b323] focus:ring-1 focus:ring-[#e8b323] ${
               emailError && emailTouched ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''
@@ -350,8 +374,18 @@ export function PaymentForm({
           {emailError && emailTouched && (
             <p className="text-xs text-red-400">{emailError}</p>
           )}
-          <p className="text-xs text-gray-400">Enter your email to continue to payment</p>
+          <p className="text-xs text-gray-400">We'll send your booking confirmation and receipt here.</p>
         </div>
+        <Button
+          type="button"
+          onClick={confirmEmail}
+          disabled={!isEmailValid}
+          className="w-full bg-[#e8b323] hover:bg-[#d1a01f] text-gray-900 font-bold text-lg py-6 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          size="lg"
+          data-testid="button-email-continue"
+        >
+          Continue to payment
+        </Button>
       </div>
     );
   }

@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Compensation Proposal — Ben</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+
+  :root {
+    --navy:   #1B2A4A;
+    --yellow: #F5A623;
+    --green:  #7DB00E;
+    --bg:     #F7F8FC;
+    --text:   #111827;
+    --muted:  #6B7280;
+    --border: #D0D5E3;
+    --white:  #FFFFFF;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 10.5pt;
+    color: var(--text);
+    line-height: 1.5;
+    background: var(--white);
+  }
+
+  .page-break { page-break-before: always; }
+
+  header.hero {
+    background: var(--navy);
+    color: var(--white);
+    padding: 22px 28px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .hero-left .eyebrow {
+    color: var(--yellow);
+    font-weight: 700;
+    letter-spacing: 2px;
+    font-size: 9pt;
+    text-transform: uppercase;
+  }
+  .hero-left h1 {
+    margin: 6px 0 2px;
+    font-size: 22pt;
+    font-weight: 800;
+    line-height: 1.1;
+  }
+  .hero-left .subtitle {
+    color: #D0D5E3;
+    font-size: 10pt;
+    font-weight: 500;
+  }
+  .hero-right {
+    text-align: right;
+    font-size: 9pt;
+    color: #D0D5E3;
+  }
+  .hero-right .brand {
+    color: var(--yellow);
+    font-weight: 700;
+    font-size: 11pt;
+    letter-spacing: 1px;
+  }
+
+  .intro {
+    background: var(--bg);
+    border-left: 4px solid var(--yellow);
+    padding: 14px 18px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+  }
+  .intro p { margin: 0 0 6px; }
+  .intro p:last-child { margin-bottom: 0; }
+
+  h2 {
+    color: var(--navy);
+    font-size: 14pt;
+    margin: 24px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--yellow);
+    font-weight: 800;
+  }
+
+  h3 {
+    color: var(--navy);
+    font-size: 11.5pt;
+    margin: 14px 0 6px;
+    font-weight: 700;
+  }
+
+  p { margin: 0 0 10px; }
+
+  .formula {
+    background: var(--navy);
+    color: var(--white);
+    padding: 14px 18px;
+    border-radius: 8px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 10pt;
+    line-height: 1.55;
+    margin: 12px 0 16px;
+  }
+  .formula .plus { color: var(--yellow); font-weight: 700; }
+  .formula .label { color: var(--yellow); }
+
+  .phase {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    background: var(--white);
+    page-break-inside: avoid;
+  }
+  .phase .phase-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .phase .dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .phase.p1 .dot { background: var(--green); }
+  .phase.p2 .dot { background: var(--yellow); }
+  .phase.p3 .dot { background: var(--navy); }
+  .phase h3 { margin: 0; flex: 1; }
+  .phase .when {
+    font-size: 9pt;
+    color: var(--muted);
+    font-weight: 500;
+    background: var(--bg);
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+  .phase .role-summary {
+    font-size: 10.5pt;
+    color: var(--navy);
+    font-weight: 600;
+    margin: 6px 0 10px;
+  }
+
+  .twocol {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin: 10px 0;
+  }
+  .twocol .panel {
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .twocol .panel .panel-title {
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    font-weight: 700;
+  }
+  .twocol ul { margin: 0; padding-left: 16px; }
+  .twocol li { margin-bottom: 3px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 14px;
+    font-size: 10pt;
+  }
+  thead th {
+    background: var(--navy);
+    color: var(--white);
+    text-align: left;
+    padding: 8px 10px;
+    font-size: 9pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  tbody td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr:nth-child(even) { background: var(--bg); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.hero { font-weight: 700; color: var(--green); }
+
+  .kpi-list {
+    counter-reset: kpi;
+    padding: 0;
+    list-style: none;
+    margin: 8px 0 10px;
+  }
+  .kpi-list li {
+    counter-increment: kpi;
+    padding: 6px 0 6px 30px;
+    position: relative;
+    border-bottom: 1px dashed var(--border);
+  }
+  .kpi-list li:last-child { border-bottom: none; }
+  .kpi-list li::before {
+    content: counter(kpi);
+    position: absolute;
+    left: 0;
+    top: 6px;
+    background: var(--yellow);
+    color: var(--navy);
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    font-size: 9pt;
+    font-weight: 800;
+    text-align: center;
+    line-height: 22px;
+  }
+
+  .pay-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 0 12px;
+  }
+  .pill {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 9.5pt;
+    font-weight: 500;
+  }
+  .pill strong { color: var(--navy); }
+  .pill.base { background: #FFF6E3; border-color: var(--yellow); }
+  .pill.variable { background: #EAF5D3; border-color: var(--green); }
+  .pill.bonus { background: #E6ECF7; border-color: var(--navy); }
+
+  .unlock {
+    background: #FFF6E3;
+    border: 1px solid var(--yellow);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 9.5pt;
+    margin-top: 10px;
+  }
+  .unlock strong { color: var(--navy); }
+
+  .fair-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin: 10px 0 16px;
+  }
+  .fair-card {
+    background: var(--bg);
+    border-left: 3px solid var(--green);
+    padding: 10px 14px;
+    border-radius: 6px;
+  }
+  .fair-card .t {
+    font-weight: 700;
+    color: var(--navy);
+    font-size: 10pt;
+    margin-bottom: 3px;
+  }
+  .fair-card .d {
+    font-size: 9.5pt;
+    color: var(--text);
+  }
+
+  .cta {
+    background: var(--navy);
+    color: var(--white);
+    padding: 18px 22px;
+    border-radius: 10px;
+    margin-top: 22px;
+  }
+  .cta h2 {
+    color: var(--yellow);
+    border: none;
+    margin: 0 0 10px;
+    font-size: 13pt;
+  }
+  .cta ol { margin: 8px 0 0; padding-left: 18px; }
+  .cta li { margin-bottom: 4px; }
+
+  .signoff {
+    margin-top: 22px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    font-size: 10pt;
+  }
+  .signoff .from {
+    margin-top: 4px;
+    color: var(--navy);
+    font-weight: 700;
+  }
+
+  footer {
+    margin-top: 16px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 8.5pt;
+    color: var(--muted);
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-left">
+    <div class="eyebrow">Compensation Proposal</div>
+    <h1>Ben — Senior VA to Ops Manager</h1>
+    <div class="subtitle">A three-phase pay &amp; progression plan</div>
+  </div>
+  <div class="hero-right">
+    <div class="brand">HANDY SERVICES</div>
+    <div>Prepared 16 April 2026</div>
+    <div>Private &amp; confidential</div>
+  </div>
+</header>
+
+<div class="intro">
+  <p>Hi Ben,</p>
+  <p>Your conversion work over the last month has moved the business forward and we want that reflected in a cleaner, more rewarding compensation structure. This proposal replaces the current <em>£3 per quote sent + acceptance bracket</em> model with a simple base + profit-share formula, and gives you a defined path toward a full Ops Manager role.</p>
+  <p>Read it, sleep on it, and let's talk.</p>
+</div>
+
+<h2>The Formula (simple)</h2>
+
+<div class="formula">
+  <div><span class="label">Weekly pay</span> = £150 base</div>
+  <div><span class="plus">+</span> 10% of labour profit</div>
+  <div><span class="plus">+</span> monthly milestone bonus (see phases)</div>
+  <div style="margin-top:8px; color:#A0AEC0; font-size:9pt;">Labour profit = Revenue − Materials (with markup) − Contractor cost</div>
+</div>
+
+<p>Labour profit is the money left on a job after we pay the contractor and cover materials. You earn 10% of it &mdash; the harder you work the pipeline, the more you take home. No cap.</p>
+
+<h2>Three-Phase Progression</h2>
+
+<!-- PHASE 1 -->
+<div class="phase p1">
+  <div class="phase-head">
+    <span class="dot"></span>
+    <h3>Phase 1 &mdash; Senior VA / Ops Coordinator</h3>
+    <span class="when">Starts now · backdated to 8 Apr 2026</span>
+  </div>
+  <div class="role-summary">Your job: convert leads into booked jobs (same scope as today).</div>
+
+  <div class="pay-pills">
+    <span class="pill base"><strong>£150/week</strong> base</span>
+    <span class="pill variable"><strong>10%</strong> of labour profit</span>
+    <span class="pill bonus"><strong>+£300</strong> if monthly labour profit ≥ £8,000</span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Month</th>
+        <th class="num">Labour profit</th>
+        <th class="num">Base</th>
+        <th class="num">Your 10%</th>
+        <th class="num">Bonus</th>
+        <th class="num">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Quiet</td><td class="num">£3,000</td><td class="num">£600</td><td class="num">£300</td><td class="num">—</td><td class="num">£900</td></tr>
+      <tr><td>Average</td><td class="num">£5,000</td><td class="num">£600</td><td class="num">£500</td><td class="num">—</td><td class="num">£1,100</td></tr>
+      <tr><td>Good</td><td class="num">£7,000</td><td class="num">£600</td><td class="num">£700</td><td class="num">—</td><td class="num">£1,300</td></tr>
+      <tr><td>Hero</td><td class="num">£10,000</td><td class="num">£600</td><td class="num">£1,000</td><td class="num">£300</td><td class="hero num">£1,900</td></tr>
+    </tbody>
+  </table>
+
+  <div class="twocol">
+    <div class="panel">
+      <div class="panel-title">Your KPIs (just 3)</div>
+      <ol class="kpi-list">
+        <li>Quote acceptance rate ≥ 30%</li>
+        <li>Monthly labour profit ≥ £5,000</li>
+        <li>Lead response &lt; 15 min (business hrs)</li>
+      </ol>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Scope</div>
+      <ul>
+        <li>Respond to leads fast</li>
+        <li>Send personalised quotes</li>
+        <li>Follow up at 24hr &amp; 72hr</li>
+        <li>Close the booking</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="unlock">
+    <strong>Unlock Phase 2:</strong> hit all 3 KPIs for 3 consecutive months.
+  </div>
+</div>
+
+<!-- PHASE 2 -->
+<div class="phase p2">
+  <div class="phase-head">
+    <span class="dot"></span>
+    <h3>Phase 2 &mdash; Ops Coordinator</h3>
+    <span class="when">~3 months in</span>
+  </div>
+  <div class="role-summary">Your expanded job: you start owning operations <em>after</em> the booking, not just up to it.</div>
+
+  <div class="pay-pills">
+    <span class="pill base"><strong>£175/week</strong> base <span style="color:var(--muted);">(+£25/wk)</span></span>
+    <span class="pill variable"><strong>10%</strong> of labour profit</span>
+    <span class="pill bonus"><strong>+£400</strong> if labour profit ≥ £8,000</span>
+    <span class="pill bonus"><strong>+£200</strong> if dispatch SLA met all month</span>
+  </div>
+
+  <div class="twocol">
+    <div class="panel">
+      <div class="panel-title">New responsibilities</div>
+      <ul>
+        <li>Dispatch jobs to contractors &lt; 4hr</li>
+        <li>Chase job sheets, photos, receipts</li>
+        <li>First-line customer service</li>
+        <li>Weekly ops report Mon 10am</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Added KPIs</div>
+      <ul>
+        <li>100% jobs dispatched &lt; 24hr of acceptance</li>
+        <li>Weekly ops report delivered on time</li>
+        <li>Zero escalated complaints</li>
+      </ul>
+    </div>
+  </div>
+
+  <p style="margin-top:8px;"><strong>Typical earnings:</strong> £1,100 &ndash; £1,900 / month</p>
+
+  <div class="unlock">
+    <strong>Unlock Phase 3:</strong> hit all Phase 2 KPIs for 3 consecutive months.
+  </div>
+</div>
+
+<!-- PHASE 3 -->
+<div class="phase p3">
+  <div class="phase-head">
+    <span class="dot"></span>
+    <h3>Phase 3 &mdash; Ops Manager</h3>
+    <span class="when">~9 months in</span>
+  </div>
+  <div class="role-summary">Full ownership of operations. You become the business's right hand.</div>
+
+  <div class="pay-pills">
+    <span class="pill base"><strong>£250/week</strong> base <span style="color:var(--muted);">(+£75/wk on Phase 2)</span></span>
+    <span class="pill variable"><strong>10%</strong> of labour profit</span>
+    <span class="pill bonus"><strong>+£500</strong> if labour profit ≥ £10,000</span>
+    <span class="pill bonus"><strong>+ up to £500</strong> quarterly for Google rating &amp; reviews</span>
+  </div>
+
+  <div class="twocol">
+    <div class="panel">
+      <div class="panel-title">Added responsibilities</div>
+      <ul>
+        <li>Onboard new contractors</li>
+        <li>Complaint resolution end-to-end</li>
+        <li>Own the VA playbook &amp; process docs</li>
+        <li>Contractor roster health</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Added KPIs</div>
+      <ul>
+        <li>Google rating ≥ 4.8★</li>
+        <li>95%+ job completion rate</li>
+        <li>Contractor roster health weekly</li>
+      </ul>
+    </div>
+  </div>
+
+  <p style="margin-top:8px;"><strong>Typical earnings:</strong> £1,500 &ndash; £2,500+ / month</p>
+</div>
+
+<div class="page-break"></div>
+
+<h2>Why this is fair</h2>
+<div class="fair-grid">
+  <div class="fair-card">
+    <div class="t">£600/month guaranteed floor</div>
+    <div class="d">Quiet months don't hurt you. You always take home a base.</div>
+  </div>
+  <div class="fair-card">
+    <div class="t">No cap on variable</div>
+    <div class="d">Your hero months are yours to chase — push hard, earn more.</div>
+  </div>
+  <div class="fair-card">
+    <div class="t">Clear progression</div>
+    <div class="d">Every uplift is earned against agreed KPIs, not negotiated.</div>
+  </div>
+  <div class="fair-card">
+    <div class="t">Transparent formula</div>
+    <div class="d">You can calculate your own pay any day of the week.</div>
+  </div>
+</div>
+
+<h2>Your dashboard will show</h2>
+<ul>
+  <li>This week's base + variable earned so far</li>
+  <li>This month's running labour profit</li>
+  <li>Progress toward the £8,000 bonus trigger</li>
+  <li>All-time earned, all-time paid, and what's outstanding</li>
+</ul>
+
+<h2>Old vs new model (side by side)</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Element</th>
+      <th>Current</th>
+      <th>New (Phase 1)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Base pay</td>
+      <td>None</td>
+      <td><strong>£150/week floor</strong></td>
+    </tr>
+    <tr>
+      <td>Per-quote reward</td>
+      <td>£3 per quote sent</td>
+      <td>None — tied to outcomes not volume</td>
+    </tr>
+    <tr>
+      <td>Acceptance reward</td>
+      <td>£10 / £7 / £5 / £3 degressive</td>
+      <td>10% of labour profit (scales with job size)</td>
+    </tr>
+    <tr>
+      <td>Monthly bonus</td>
+      <td>None</td>
+      <td><strong>+£300 at £8k labour profit</strong></td>
+    </tr>
+    <tr>
+      <td>Progression</td>
+      <td>None</td>
+      <td>3-phase path → Ops Manager</td>
+    </tr>
+    <tr>
+      <td>April earnings to date</td>
+      <td class="num">~£360</td>
+      <td class="num hero">~£579 (+60%)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Review cadence</h2>
+<table>
+  <thead>
+    <tr><th>Frequency</th><th>What happens</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Weekly</strong> (Monday)</td><td>Pay calculated and transferred</td></tr>
+    <tr><td><strong>Monthly</strong></td><td>15-min KPI check-in</td></tr>
+    <tr><td><strong>Quarterly</strong></td><td>Performance review &amp; phase progression check</td></tr>
+    <tr><td><strong>Annually</strong></td><td>Full comp review</td></tr>
+  </tbody>
+</table>
+
+<div class="cta">
+  <h2>What happens next</h2>
+  <ol>
+    <li>Read this proposal and sleep on it</li>
+    <li>Bring any questions to a 30-min call this week</li>
+    <li>Sign off on Phase 1</li>
+    <li>New model is <strong>backdated to Monday 8 April 2026</strong> — you'll be paid under v2 for everything since that date</li>
+  </ol>
+</div>
+
+<div class="signoff">
+  <p>Let me know what you think, Ben &mdash; this is designed with you in mind.</p>
+  <div class="from">— Courtnee<br/><span style="color:var(--muted);font-weight:500;">Founder, Handy Services</span></div>
+</div>
+
+<footer>
+  Handy Services · Compensation Proposal v2 · Backdated effective 8 April 2026 · Confidential
+</footer>
+
+</body>
+</html>

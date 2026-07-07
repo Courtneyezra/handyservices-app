@@ -35,6 +35,7 @@ export function defaultStyleForCustomerType(ct?: string | null): MessageStyleId 
     case 'letting_agent':
       return 'efficient';
     case 'tenant':
+    case 'oap_homeowner':
       return 'reassuring';
     case 'homeowner':
     default:

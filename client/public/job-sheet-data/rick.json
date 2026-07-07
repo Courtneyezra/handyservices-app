@@ -1,0 +1,69 @@
+{
+  "slug": "rick",
+  "title": "Tenant-Ready Refresh",
+  "subtitle": "5 tasks · Derby property",
+  "customerName": "Rick (DE24 3LY)",
+  "totalHours": 28,
+  "totalDays": 3.5,
+  "totalPay": 62435,
+  "customerRevenue": 127100,
+  "platformKeeps": 64665,
+  "marginPercent": 51,
+  "tasks": [
+    {
+      "num": 1,
+      "title": "Paint three rooms — walls + ceilings",
+      "tier": "general",
+      "hours": 16.0,
+      "payPence": 28800,
+      "payMethod": "floor",
+      "description": "Three rooms: 4×3m, 2×2m, 2×1.5m. Walls and ceilings only. Prep, cut in, two coats emulsion. Cover floors and furniture, full clean-up after.",
+      "warning": "Confirm room sizes on arrival. Two coats minimum on every wall/ceiling — patchy single coats will trigger a callback.",
+      "materials": ["Trade emulsion (white)", "Mist coat / primer where bare", "Roller sleeves & frames", "Brushes 2\" + cutting-in", "Dust sheets, masking tape"]
+    },
+    {
+      "num": 2,
+      "title": "Re-seal bath with new silicone",
+      "tier": "general",
+      "hours": 3.5,
+      "payPence": 6300,
+      "payMethod": "floor",
+      "description": "Strip existing silicone, clean and dry the joint, apply fresh sanitary-grade silicone around the bath. Tool to a clean bead.",
+      "warning": "Bath must be filled with water during application — empties later as silicone cures with the joint compressed.",
+      "materials": ["Sanitary silicone (white) ×1", "Silicone remover gel", "Smoothing tool / spatula", "IPA & cloths"]
+    },
+    {
+      "num": 3,
+      "title": "Gutters — clear + replace corner piece",
+      "tier": "outdoor",
+      "hours": 4.5,
+      "payPence": 8235,
+      "payMethod": "share",
+      "description": "Clear all gutters and downpipes of debris on the property. Replace the broken/leaking gutter corner piece with a new fitting. Test water flow after.",
+      "warning": "Working at height — ladder must be footed or use a tower if conditions require. Photograph downpipe outflow after clearing as proof.",
+      "materials": ["Gutter corner fitting (matching profile)", "Mastic / gutter sealant", "Trash bags for debris", "Hand scoop, hose"]
+    },
+    {
+      "num": 4,
+      "title": "Replace bathroom extractor fan (CVT2)",
+      "tier": "specialist",
+      "hours": 2.0,
+      "payPence": 11000,
+      "payMethod": "share",
+      "description": "Remove existing bathroom extractor. Install supplied CVT2 fan. Wire into existing isolator switch (no new circuit). Test for proper extraction.",
+      "warning": "Isolate at consumer unit before any wiring work. If existing wiring is unsuitable (no isolator, undersized cable) STOP and call Ben — do not bodge.",
+      "materials": ["CVT2 extractor fan (supplied by Handy Services)", "Cable clips, wire connectors", "Sealant for ducting", "Hole saw if needed"]
+    },
+    {
+      "num": 5,
+      "title": "Add 2 ventilation roof tiles",
+      "tier": "outdoor",
+      "hours": 2.0,
+      "payPence": 8100,
+      "payMethod": "share",
+      "description": "Install 2 vent tiles into existing roof to support extractor outflow. Slate-rip, slot in vent tile, weather-proof. Match existing roof material.",
+      "warning": "Working at height — full safety. Photograph slate alignment before lifting and after install. If felt underneath is damaged, flag for separate repair.",
+      "materials": ["2× ventilation roof tiles (matching profile)", "Slate ripper", "Lead flashing if required", "Roof sealant"]
+    }
+  ]
+}

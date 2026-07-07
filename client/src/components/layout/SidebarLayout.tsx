@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling, Library } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling, Library, Send, Stethoscope } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import InstallPrompt from "@/components/InstallPrompt";
@@ -118,10 +118,12 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             items: [
                                 { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
                                 { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
+                                { icon: Send, label: "Visit Link", href: "/admin/send", badge: "NEW" },
                                 { icon: Sparkles, label: "New Quote", href: "/admin/generate-contextual-quote" },
                                 { icon: DollarSign, label: "Quote Generator (Classic)", href: "/admin/generate-quote" },
                                 { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
                                 { icon: BarChart3, label: "My Stats", href: "/admin/va-stats" },
+                                { icon: PhoneCall, label: "Call Performance", href: "/admin/call-performance" },
                             ]
                         },
                         {
@@ -144,6 +146,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Map, label: "Dispatch Console", href: "/admin/dispatch-console" },
                                 { icon: Calendar, label: "Daily Planner", href: "/admin/daily-planner" },
                                 { icon: BarChart3, label: "Reports Dashboard", href: "/admin/dashboard" },
+                                { icon: PhoneCall, label: "Call Performance", href: "/admin/call-performance" },
                                 { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
                             ]
                         },
@@ -165,6 +168,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                         {
                             title: "SALES & FINANCE",
                             items: [
+                                { icon: Send, label: "Visit Link", href: "/admin/send", badge: "NEW" },
                                 { icon: Sparkles, label: "New Quote", href: "/admin/generate-contextual-quote" },
                                 { icon: BarChart3, label: "Quote Analytics", href: "/admin/quote-analytics" },
                                 { icon: LayoutTemplate, label: "Quote Platform", href: "/admin/quote-platform" },
@@ -410,8 +414,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
 
                             {/* Tab 2: QUOTES — Central, prominent, with popover submenu */}
                             {(() => {
-                                const quotePages = ["/admin/generate-quote", "/admin/generate-contextual-quote", "/admin/quotes"];
-                                const isQuoteActive = quotePages.includes(location);
+                                const sendPages = ["/admin/generate-contextual-quote", "/admin/send", "/admin/quotes"];
+                                const isSendActive = sendPages.includes(location);
                                 return (
                                     <div className="relative flex-1">
                                         <button
@@ -420,20 +424,20 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                         >
                                             <div className={cn(
                                                 "flex items-center justify-center w-10 h-10 -mt-4 rounded-full shadow-lg transition-colors",
-                                                isQuoteActive
+                                                isSendActive
                                                     ? "bg-green-500 text-white"
                                                     : "bg-green-600/80 text-white/90"
                                             )}>
-                                                <DollarSign className="w-5 h-5" />
+                                                <Send className="w-5 h-5" />
                                             </div>
-                                            <span className={cn("text-[10px] font-bold -mt-0.5", isQuoteActive ? "text-green-400" : "text-muted-foreground")}>Quotes</span>
+                                            <span className={cn("text-[10px] font-bold -mt-0.5", isSendActive ? "text-green-400" : "text-muted-foreground")}>Send</span>
                                         </button>
 
-                                        {/* Popover menu */}
+                                        {/* Popover menu: the two link types Ben can send */}
                                         {showQuoteMenu && (
                                             <>
                                                 <div className="fixed inset-0 z-40" onClick={() => setShowQuoteMenu(false)} />
-                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[160px]">
+                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 bg-card border border-border rounded-xl shadow-xl overflow-hidden min-w-[180px]">
                                                     <Link
                                                         href="/admin/generate-contextual-quote"
                                                         onClick={() => setShowQuoteMenu(false)}
@@ -445,21 +449,21 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                                         )}
                                                     >
                                                         <Sparkles className="w-4 h-4" />
-                                                        New Quote
+                                                        Quote link
                                                     </Link>
                                                     <div className="border-t border-border" />
                                                     <Link
-                                                        href="/admin/quotes"
+                                                        href="/admin/send"
                                                         onClick={() => setShowQuoteMenu(false)}
                                                         className={cn(
                                                             "flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors",
-                                                            location === "/admin/quotes"
+                                                            location === "/admin/send"
                                                                 ? "text-green-400 bg-green-500/10"
                                                                 : "text-foreground hover:bg-muted"
                                                         )}
                                                     >
-                                                        <FileText className="w-4 h-4" />
-                                                        All Quotes
+                                                        <Stethoscope className="w-4 h-4" />
+                                                        Visit link
                                                     </Link>
                                                 </div>
                                             </>

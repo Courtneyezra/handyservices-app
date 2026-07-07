@@ -46,6 +46,7 @@ import {
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { openWhatsApp, getWhatsAppErrorMessage, copyWhatsAppFallback } from '@/lib/whatsapp-helper';
+import CallScorecard, { parseAiScore } from '@/components/calls/CallScorecard';
 import { QuoteSendPopup } from '@/components/live-call/QuoteSendPopup';
 import { BookVisitPopup } from '@/components/live-call/BookVisitPopup';
 import { AvailabilityPanel } from '@/components/live-call/AvailabilityPanel';
@@ -98,6 +99,7 @@ interface CallData {
   jobSummary: string | null;
   totalPricePence: number;
   recordingUrl: string | null;
+  aiScoreJson?: any;
   detectedSkus: CallSKU[];
   manualSkus: CallSKU[];
   allSkus: CallSKU[];
@@ -369,6 +371,9 @@ export default function CallReviewPage() {
 
   // Get segment info
   const segment = SEGMENTS.find(s => s.id === selectedSegment);
+
+  // AI call-quality scorecard (may be absent on unscored calls)
+  const aiScore = useMemo(() => parseAiScore(call?.aiScoreJson), [call?.aiScoreJson]);
 
   // Handle customer info changes
   const updateInfo = (updates: Partial<CustomerInfo>) => {
@@ -928,6 +933,24 @@ export default function CallReviewPage() {
             <PenLine className="w-4 h-4" />
             Generate Quote Link
           </button>
+
+          {/* BUILD QUOTE — opens the contextual generator prefilled AND linked to this call */}
+          <button
+            onClick={() => {
+              const params = new URLSearchParams();
+              params.set('fromCallId', callId || call.id);
+              const phone = getWhatsAppNumber() || call.phoneNumber;
+              if (phone) params.set('phone', phone);
+              const name = customerInfo.name || call.customerName;
+              if (name) params.set('name', name);
+              if (call.jobSummary) params.set('job', call.jobSummary);
+              setLocation(`/admin/generate-contextual-quote?${params.toString()}`);
+            }}
+            className="mt-2 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors"
+          >
+            <FileText className="w-4 h-4" />
+            Build Quote (linked to this call)
+          </button>
         </div>
       </div>
 
@@ -1033,6 +1056,9 @@ export default function CallReviewPage() {
             <p className="text-white/30 text-xs mt-1">Postcode: {call.postcode}</p>
           )}
         </div>
+
+        {/* AI SCORECARD */}
+        {aiScore && <CallScorecard score={aiScore} />}
 
         {/* CALL METADATA */}
         <div className="mt-auto pt-4 border-t border-white/10 space-y-2">

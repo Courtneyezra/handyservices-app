@@ -10,11 +10,37 @@ import {
     handymanProfiles,
     users,
     wtbpRateCard,
+    serviceProperties,
 } from '../shared/schema';
 import { eq, and, lt, gte, lte, or, inArray, isNull } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { timeRangeCoversSlot as canonicalTimeRangeCoversSlot, type SlotType as CanonicalSlotType } from '../shared/slot-times';
 import { findBestContractorForJob } from './auto-assignment-engine';
+import { resolveOrCreateProperty } from './properties';
+import { resolveOrCreateClient } from './clients';
+
+// Combine the property's standing access notes (gate code, parking, key safe —
+// entered once on the Property) with this job's own access notes, so every
+// visit to that address inherits the site knowledge on its job sheet.
+export async function buildAccessInstructions(
+    tx: { select: any },
+    propertyId: string | null | undefined,
+    jobAccessNotes: string | null | undefined,
+): Promise<string | null> {
+    let propertyNotes: string | null = null;
+    if (propertyId) {
+        const [p] = await tx.select({ accessNotes: serviceProperties.accessNotes })
+            .from(serviceProperties)
+            .where(eq(serviceProperties.id, propertyId))
+            .limit(1);
+        propertyNotes = p?.accessNotes ?? null;
+    }
+    const parts = [
+        propertyNotes ? `Property access: ${propertyNotes}` : null,
+        jobAccessNotes || null,
+    ].filter(Boolean);
+    return parts.length ? parts.join('\n') : null;
+}
 import type { JobCategory } from '../shared/contextual-pricing-types';
 
 // ============================================================================
@@ -77,7 +103,7 @@ interface JobSheetLineItem {
     status: 'pending';
 }
 
-async function buildJobSheetLineItems(tx: any, pricingLineItems: any[]): Promise<JobSheetLineItem[]> {
+export async function buildJobSheetLineItems(tx: any, pricingLineItems: any[]): Promise<JobSheetLineItem[]> {
     // Load every active rate-card row once, keyed by categorySlug, so per-line
     // lookups are in-memory (no N queries). 'general' is the catch-all fallback.
     const activeRates = await tx.select({
@@ -604,6 +630,26 @@ export async function confirmBooking(params: {
                 return { success: false, error: 'Quote not found' };
             }
 
+            // d2. Resolve the service property (Jobber's Property — WHERE work happens).
+            // Prefer the quote's already-linked property (set at quote creation /
+            // backfill); else resolve-or-create from its address signal so the job
+            // and the quote share one property row. Carry it onto the quote too.
+            const propertyId = quote.propertyId
+                ?? await resolveOrCreateProperty(tx, {
+                    address: (quote as any).address,
+                    coordinates: (quote as any).coordinates,
+                    postcode: (quote as any).postcode,
+                    phone: quote.phone,
+                    email: quote.email,
+                });
+            const clientId = (quote as any).clientId
+                ?? await resolveOrCreateClient(tx, {
+                    phone: quote.phone,
+                    email: quote.email,
+                    displayName: quote.customerName,
+                    billingAddress: (quote as any).address,
+                });
+
             // e. Create contractorBookingRequests record with status 'accepted' (auto-accept model)
             const bookingId = uuidv4();
             const [newBooking] = await tx.insert(contractorBookingRequests)
@@ -615,6 +661,8 @@ export async function confirmBooking(params: {
                     customerEmail: quote.email || undefined,
                     customerPhone: quote.phone,
                     quoteId: quoteId,
+                    propertyId: propertyId ?? undefined,
+                    clientId: clientId ?? undefined,
                     requestedDate: lock.scheduledDate,
                     requestedSlot: lock.scheduledSlot,
                     description: quote.jobDescription || '',
@@ -637,12 +685,13 @@ export async function confirmBooking(params: {
             const lineItems = (quote.pricingLineItems as any[]) || [];
             const jobSheetLineItems = await buildJobSheetLineItems(tx, lineItems);
 
+            const accessInstructions = await buildAccessInstructions(tx, propertyId, (quote as any).customerAccessNotes);
             const [jobSheet] = await tx.insert(jobSheets)
                 .values({
                     jobId: bookingId,
                     quoteId: quoteId,
                     lineItems: jobSheetLineItems as any,
-                    accessInstructions: (quote as any).customerAccessNotes || null,
+                    accessInstructions,
                     generatedAt: new Date(),
                 })
                 .returning();
@@ -655,6 +704,8 @@ export async function confirmBooking(params: {
                     bookingLockedAt: new Date(),
                     selectedDate: lock.scheduledDate,
                     timeSlotType: lock.scheduledSlot === 'full_day' ? 'full_day' : lock.scheduledSlot,
+                    ...(quote.propertyId ? {} : { propertyId: propertyId ?? undefined }),
+                    ...((quote as any).clientId ? {} : { clientId: clientId ?? undefined }),
                 })
                 .where(eq(personalizedQuotes.id, quoteId));
 
@@ -841,6 +892,23 @@ export async function assignFromPool(params: {
                 return { success: false, error: 'Quote is already booked' };
             }
 
+            // b2. Resolve the service property + client (shared with the quote — see confirmBooking).
+            const propertyId = quote.propertyId
+                ?? await resolveOrCreateProperty(tx, {
+                    address: (quote as any).address,
+                    coordinates: (quote as any).coordinates,
+                    postcode: (quote as any).postcode,
+                    phone: quote.phone,
+                    email: quote.email,
+                });
+            const clientId = (quote as any).clientId
+                ?? await resolveOrCreateClient(tx, {
+                    phone: quote.phone,
+                    email: quote.email,
+                    displayName: quote.customerName,
+                    billingAddress: (quote as any).address,
+                });
+
             // c. Create the contractorBookingRequests record (auto-accept model).
             const bookingId = uuidv4();
             await tx.insert(contractorBookingRequests)
@@ -852,6 +920,8 @@ export async function assignFromPool(params: {
                     customerEmail: quote.email || undefined,
                     customerPhone: quote.phone,
                     quoteId: quoteId,
+                    propertyId: propertyId ?? undefined,
+                    clientId: clientId ?? undefined,
                     requestedDate: scheduledDate,
                     requestedSlot: slot,
                     description: quote.jobDescription || '',
@@ -870,12 +940,13 @@ export async function assignFromPool(params: {
             const lineItems = (quote.pricingLineItems as any[]) || [];
             const jobSheetLineItems = await buildJobSheetLineItems(tx, lineItems);
 
+            const accessInstructions = await buildAccessInstructions(tx, propertyId, (quote as any).customerAccessNotes);
             await tx.insert(jobSheets)
                 .values({
                     jobId: bookingId,
                     quoteId: quoteId,
                     lineItems: jobSheetLineItems as any,
-                    accessInstructions: (quote as any).customerAccessNotes || null,
+                    accessInstructions,
                     generatedAt: new Date(),
                 })
                 .returning();
@@ -888,6 +959,8 @@ export async function assignFromPool(params: {
                     bookingLockedAt: new Date(),
                     selectedDate: scheduledDate,
                     timeSlotType: slot,
+                    ...(quote.propertyId ? {} : { propertyId: propertyId ?? undefined }),
+                    ...((quote as any).clientId ? {} : { clientId: clientId ?? undefined }),
                 })
                 .where(eq(personalizedQuotes.id, quoteId));
 

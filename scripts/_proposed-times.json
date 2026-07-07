@@ -1,0 +1,1451 @@
+[
+  {
+    "skuCode": "BATH-BASIN-01",
+    "name": "Basin & vanity fit",
+    "shape": "fixed",
+    "currentMinutes": 180,
+    "suggestedMinutes": 150,
+    "confidence": "high",
+    "reasoning": "Fit basin + vanity unit, plumb taps/waste, seal, leak-test. A competent solo plumber/fitter does this in ~2-2.5h. 180 is slightly long; 150 is honest. Trim modest."
+  },
+  {
+    "skuCode": "BATH-SHWRPNL-01",
+    "name": "Shower wall panelling",
+    "shape": "fixed",
+    "currentMinutes": 360,
+    "suggestedMinutes": 300,
+    "confidence": "needs-owner-call",
+    "reasoning": "Waterproof PVC/acrylic shower panels over 2-3 walls: measure, cut, bond, trim, seal. Genuinely a 4.5-5.5h job. Audit's 49 is absurd. 300 honest for a standard enclosure; lean long. Depends on wall count/substrate."
+  },
+  {
+    "skuCode": "BATH-SUITE-01",
+    "name": "Bathroom suite install",
+    "shape": "tiered",
+    "currentMinutes": [240, 480, 960],
+    "suggestedMinutes": [240, 480, 960],
+    "confidence": "needs-owner-call",
+    "reasoning": "Full suite strip-out + fit (bath/shower, WC, basin, connect). Small=half day, Medium=full day, Large=2 days. These are already realistic multi-day figures; the audit flagging it at 49 min is the benchmark failing on a whole-job SKU. LEAVE as-is unless owner's crew is faster. No change."
+  },
+  {
+    "skuCode": "SHWR-SCRN-01",
+    "name": "Shower screen or enclosure fit",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 105,
+    "confidence": "high",
+    "reasoning": "Fit screen/enclosure: level, fix, seal. Bath screen ~1h, walk-in enclosure ~2h. 120 slightly long for the common case; 105 honest. Modest trim."
+  },
+  {
+    "skuCode": "BEAM-01",
+    "name": "Fit a timber beam or mantel",
+    "shape": "fixed",
+    "currentMinutes": 150,
+    "suggestedMinutes": 120,
+    "confidence": "high",
+    "reasoning": "Fix decorative timber beam/mantel over fireplace, level + solid fixings into masonry. ~2h. 150 a touch long; 120 honest."
+  },
+  {
+    "skuCode": "BOXIN-01",
+    "name": "Box in pipes or boiler",
+    "shape": "fixed",
+    "currentMinutes": 180,
+    "suggestedMinutes": 120,
+    "confidence": "high",
+    "reasoning": "Build timber/MDF boxing around pipework or boiler, ready to paint. Standard run ~2h. 180 inflated; 120 honest for a typical boxing job."
+  },
+  {
+    "skuCode": "BTHPNL-01",
+    "name": "Bath panel fit",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Cut, fit and seal a single bath panel. This is a ~45-60 min job. 120 is double; 60 honest."
+  },
+  {
+    "skuCode": "CARP-MISC-01",
+    "name": "General carpentry repair",
+    "shape": "fixed",
+    "currentMinutes": 180,
+    "suggestedMinutes": 120,
+    "confidence": "needs-owner-call",
+    "reasoning": "Bespoke catch-all. Hard to pin without scope. 180 likely padded for the typical small joinery repair; 120 a fairer default. Owner may want to keep wider for variability."
+  },
+  {
+    "skuCode": "CEILTILE-01",
+    "name": "Replace ceiling tiles",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 25, "minutesPerUnit": 25 },
+    "suggestedMinutes": { "setupMinutes": 20, "minutesPerUnit": 12 },
+    "confidence": "high",
+    "reasoning": "Swap suspended/drop ceiling tiles. After setup (access/ladder), each tile is a couple of minutes once the grid is open; 25/tile is heavily padded. 12/tile generous. Setup 20."
+  },
+  {
+    "skuCode": "DECK-01",
+    "name": "Decking install or repair",
+    "shape": "fixed",
+    "currentMinutes": 300,
+    "suggestedMinutes": 300,
+    "confidence": "needs-owner-call",
+    "reasoning": "Install or repair garden decking. A new deck is easily a full day+; a repair is far less. Single fixed SKU spans both. 300 (5h) is a reasonable midpoint and the audit's 28 min is nonsense. LEAVE; owner to split install vs repair if they want tighter."
+  },
+  {
+    "skuCode": "GATE-WOOD-01",
+    "name": "Wooden gate repair",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 90,
+    "confidence": "high",
+    "reasoning": "Repair dropped/sticking wooden gate (re-hang, brace, adjust latch). ~1-1.5h. 120 slightly long; 90 honest."
+  },
+  {
+    "skuCode": "HANDRAIL-01",
+    "name": "Fit a handrail",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 90,
+    "confidence": "high",
+    "reasoning": "Fit staircase/wall handrail on brackets, fixed into studs/masonry. ~1-1.5h. 120 a touch long; 90 honest."
+  },
+  {
+    "skuCode": "PANEL-01",
+    "name": "Wall panelling install",
+    "shape": "tiered",
+    "currentMinutes": [240, 360, 600],
+    "suggestedMinutes": [180, 300, 480],
+    "confidence": "needs-owner-call",
+    "reasoning": "Decorative panelling/beading, ready to paint. Small feature wall ~3h, medium ~5h, large ~full day. Current tiers slightly long; trimmed ~25%. Audit's 28 min is absurd for any panelling. Owner to confirm against their finish standard."
+  },
+  {
+    "skuCode": "PLINTH-01",
+    "name": "Kitchen plinth fit",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 30, "minutesPerUnit": 90 },
+    "suggestedMinutes": { "setupMinutes": 20, "minutesPerUnit": 45 },
+    "confidence": "high",
+    "reasoning": "Cut and clip kitchen plinths along a run. A standard kitchen's plinths take ~1-1.5h total, not 90 min PER run + setup. 45/run + 20 setup is honest. Per-unit was badly padded."
+  },
+  {
+    "skuCode": "SASH-01",
+    "name": "Sash window repair",
+    "shape": "fixed",
+    "currentMinutes": 210,
+    "suggestedMinutes": 150,
+    "confidence": "needs-owner-call",
+    "reasoning": "Sash repair (cords, beads, balance). A cord renewal is ~2h; fuller overhaul more. 210 long for the common cord/bead job; 150 honest. Owner to confirm typical scope."
+  },
+  {
+    "skuCode": "SKIRT-01",
+    "name": "Skirting board fitting",
+    "shape": "tiered",
+    "currentMinutes": [60, 150, 300],
+    "suggestedMinutes": [60, 120, 240],
+    "confidence": "high",
+    "reasoning": "Measure/cut/fit skirting, ready to caulk. Per prototype: ~20 setup + 8/m. Small (1 wall) ~1h is fine; medium/large tiers slightly long. 60/120/240 honest by run length."
+  },
+  {
+    "skuCode": "VANITY-TOP-01",
+    "name": "Fit a vanity top",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 75,
+    "confidence": "high",
+    "reasoning": "Cut and fit a timber vanity/worktop over a unit, seal. ~1-1.25h. 90 marginally long; 75 honest. Small trim."
+  },
+  {
+    "skuCode": "WINBOARD-01",
+    "name": "Fit window boards",
+    "shape": "fixed",
+    "currentMinutes": 180,
+    "suggestedMinutes": 90,
+    "confidence": "needs-owner-call",
+    "reasoning": "Fit internal window board(s)/sills. One board ~1h; several rooms' worth more. 180 reads as multi-board padded; 90 honest for the common single/double. Owner to confirm typical count."
+  },
+  {
+    "skuCode": "BLIND-01",
+    "name": "Fit a blind",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 50 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 25 },
+    "confidence": "high",
+    "reasoning": "Bracket + hang + level a blind. Prototype = ~10 setup + 30/blind. 50/blind is padded; first blind ~30-40 min, subsequent quicker. 25/unit + 15 setup honest."
+  },
+  {
+    "skuCode": "BLIND-BAY-01",
+    "name": "Fit blinds in a bay",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 55 },
+    "suggestedMinutes": { "setupMinutes": 20, "minutesPerUnit": 30 },
+    "confidence": "high",
+    "reasoning": "Bay blinds (min 3), each levelled/aligned. Slightly fiddlier than a single blind so 30/unit (vs 25 standard) + 20 setup. 55/unit was padded."
+  },
+  {
+    "skuCode": "CURT-RAIL-01",
+    "name": "Fit a curtain pole or rail",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 55 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 30 },
+    "confidence": "high",
+    "reasoning": "Mark, level, fix a pole/rail to take weight. Prototype ~15 setup + 30/pole. 55/window padded; 30/unit + 15 setup honest."
+  },
+  {
+    "skuCode": "CURT-REFIX-01",
+    "name": "Re-fix a fallen curtain rail",
+    "shape": "fixed",
+    "currentMinutes": 45,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Re-fix pulled-away rail with proper fixings, fill holes. ~45 min is honest. No change."
+  },
+  {
+    "skuCode": "CURT-TRACK-01",
+    "name": "Fit a bendable curtain track",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 75,
+    "confidence": "high",
+    "reasoning": "Flexible PVC track for a bay/curved window: measure, bend, fix, clip. ~1-1.25h. 120 long; 75 honest."
+  },
+  {
+    "skuCode": "DOOR-ADJ-01",
+    "name": "Ease a sticking door",
+    "shape": "fixed",
+    "currentMinutes": 75,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Plane/adjust a sticking or dropped door. Prototype adjust_door ~35 min; with re-hang/hinge work ~1h. 75 a touch long; 60 honest."
+  },
+  {
+    "skuCode": "DOOR-EXT-01",
+    "name": "External door fitting",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 30, "minutesPerUnit": 180 },
+    "suggestedMinutes": { "setupMinutes": 30, "minutesPerUnit": 150 },
+    "confidence": "needs-owner-call",
+    "reasoning": "Hang external door, weather-seal, furniture, test latch. Genuinely ~3h for one done properly (not the audit's 62 min). 180/door slightly long; 150 + 30 setup honest. Owner to confirm against frame condition."
+  },
+  {
+    "skuCode": "DOOR-FRAME-01",
+    "name": "Door frame repair",
+    "shape": "fixed",
+    "currentMinutes": 180,
+    "suggestedMinutes": 150,
+    "confidence": "needs-owner-call",
+    "reasoning": "Repair/rebuild damaged frame + rehang door. ~2.5-3h depending on damage. 180 reasonable but slightly long for a partial repair; 150 honest. Owner to weigh typical severity."
+  },
+  {
+    "skuCode": "DOOR-HINGE-01",
+    "name": "Cupboard door hinge fix",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 40 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 20 },
+    "confidence": "high",
+    "reasoning": "Realign/replace cupboard/wardrobe hinges. A concealed hinge swap/adjust is ~15-20 min each. 40/door padded; 20/unit + 15 setup honest."
+  },
+  {
+    "skuCode": "DOOR-HW-01",
+    "name": "Door handle or latch swap",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 50 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 30 },
+    "confidence": "high",
+    "reasoning": "Replace handle/latch/hinge. Prototype fit_handle ~30 min. 50/door slightly long; 30/unit + 15 setup honest."
+  },
+  {
+    "skuCode": "DOOR-INT-01",
+    "name": "Internal door hanging",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 100 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 90 },
+    "confidence": "high",
+    "reasoning": "Hang internal door: plane to fit, hinges, latch, handles. Prototype hang_door ~90 min + 15 setup, '2h if new latch+handle'. 100/door is fine-to-slightly-long; 90 + 15 honest."
+  },
+  {
+    "skuCode": "FIREDOOR-SEAL-01",
+    "name": "Fit fire door seals",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 45 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 30 },
+    "confidence": "high",
+    "reasoning": "Rout/fit intumescent smoke seals + closer to a fire door. ~30-40 min each. 45/door slightly long; 30/unit + 15 setup honest."
+  },
+  {
+    "skuCode": "GARAGE-DOOR-01",
+    "name": "Garage door repair",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 90,
+    "confidence": "needs-owner-call",
+    "reasoning": "Realign/repair up-and-over or roller mechanism/frame. ~1.5h typical. 120 a touch long; 90 honest. Owner to confirm — spring/track jobs vary."
+  },
+  {
+    "skuCode": "LETTERBOX-01",
+    "name": "Fit a letterbox",
+    "shape": "fixed",
+    "currentMinutes": 75,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Cut and fit a letterbox into a door. Prototype fit_letterbox ~45 min. 75 long; 45 honest."
+  },
+  {
+    "skuCode": "DLIGHT-01",
+    "name": "Downlight or spotlight swap",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 25, "minutesPerUnit": 20 },
+    "suggestedMinutes": { "setupMinutes": 20, "minutesPerUnit": 15 },
+    "confidence": "high",
+    "reasoning": "Swap failed downlights/spots (min 2) on existing wiring. ~10-15 min each once isolated. 20/unit slightly long; 15/unit + 20 setup honest."
+  },
+  {
+    "skuCode": "ELEC-DIAG-01",
+    "name": "Electrical fault find",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Diagnose a dead circuit/light/socket and advise. ~1h is honest diagnostic time. No change."
+  },
+  {
+    "skuCode": "FAN-01",
+    "name": "Extractor fan fit",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 75,
+    "confidence": "high",
+    "reasoning": "Replace bathroom/kitchen extractor on existing point, check venting. Prototype fix_extractor ~65 min + diagnostic risk. 90 slightly long; 75 honest."
+  },
+  {
+    "skuCode": "FAN-CORD-01",
+    "name": "Fan pull-cord swap",
+    "shape": "fixed",
+    "currentMinutes": 35,
+    "suggestedMinutes": 35,
+    "confidence": "high",
+    "reasoning": "Replace a pull-cord switch. ~30-35 min. Honest. No change (audit ratio 0.68 — already fine)."
+  },
+  {
+    "skuCode": "FLOOD-01",
+    "name": "Outdoor floodlight fit",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 75,
+    "confidence": "high",
+    "reasoning": "Fit floodlight/PIR from a suitable supply, test. ~1-1.25h if supply exists. 90 marginally long; 75 honest."
+  },
+  {
+    "skuCode": "LIGHT-SWAP-01",
+    "name": "Light fitting swap",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 75 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 30 },
+    "confidence": "high",
+    "reasoning": "Swap a ceiling/wall light on existing wiring. Prototype change_light ~40 min total. 75/light is heavily padded; 30/unit + 15 setup honest. High-impact common task."
+  },
+  {
+    "skuCode": "PENDANT-01",
+    "name": "Pendant light swap",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 50 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 25 },
+    "confidence": "high",
+    "reasoning": "Swap a pendant/hanging light, level, test. ~25-30 min on existing rose. 50/unit padded; 25/unit + 15 setup honest."
+  },
+  {
+    "skuCode": "SCKT-NEW-01",
+    "name": "Add a new socket",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 90 },
+    "suggestedMinutes": { "setupMinutes": 20, "minutesPerUnit": 60 },
+    "confidence": "needs-owner-call",
+    "reasoning": "Add a socket spurred from existing supply, chase/run, make good, test. Prototype fit_socket ~50 min but a NEW point with a cable run is more (chasing). 90/socket long for a simple spur; 60 + 20 setup honest. Owner to confirm whether chasing/making-good is included."
+  },
+  {
+    "skuCode": "SCKT-SWAP-01",
+    "name": "Socket swap",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 45 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 25 },
+    "confidence": "high",
+    "reasoning": "Replace a worn socket on existing back box, test. ~20-25 min each. 45/unit slightly long; 25/unit + 15 setup honest."
+  },
+  {
+    "skuCode": "SMOKE-01",
+    "name": "Smoke or CO alarm fit",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 40 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 25 },
+    "confidence": "high",
+    "reasoning": "Fit and test smoke/CO alarms. Battery units ~15 min; mains-interlinked more. 40/unit long for the common case; 25/unit + 15 setup honest."
+  },
+  {
+    "skuCode": "SPUR-01",
+    "name": "Fused spur fit or repair",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Fit/repair a fused spur, test. ~1h is honest. No change."
+  },
+  {
+    "skuCode": "SWCH-01",
+    "name": "Light switch swap",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 35 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 20 },
+    "confidence": "high",
+    "reasoning": "Swap a switch/dimmer on existing box, test. ~15-20 min each. 35/unit slightly long; 20/unit + 15 setup honest."
+  },
+  {
+    "skuCode": "FENCE-PANEL-01",
+    "name": "Fence panel install or repair",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 30, "minutesPerUnit": 90 },
+    "suggestedMinutes": { "setupMinutes": 30, "minutesPerUnit": 45 },
+    "confidence": "needs-owner-call",
+    "reasoning": "Replace fence panels into existing posts. A like-for-like panel swap is ~30-45 min each; if posts need work it climbs. 90/panel padded for the common swap; 45/panel + 30 setup honest. Owner to confirm whether post replacement is bundled."
+  },
+  {
+    "skuCode": "FENCE-POST-01",
+    "name": "Replace a fence post",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 30, "minutesPerUnit": 90 },
+    "suggestedMinutes": { "setupMinutes": 30, "minutesPerUnit": 75 },
+    "confidence": "needs-owner-call",
+    "reasoning": "Dig out rotten post, reset in concrete. Genuinely ~1.5h per post (dig, mix, set, hold) — more than a panel. 90/post slightly long but defensible; 75 + 30 honest. Concrete cure aside, lean long. Owner call."
+  },
+  {
+    "skuCode": "TRELLIS-01",
+    "name": "Fit trellis or screening",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 75,
+    "confidence": "high",
+    "reasoning": "Fix trellis/screening to existing fence/posts, level. ~1-1.25h. 120 long; 75 honest."
+  },
+  {
+    "skuCode": "FP-BED-01",
+    "name": "Bed assembly",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 90,
+    "confidence": "high",
+    "reasoning": "Assemble a bed frame; ottoman/storage adds time. ~1.5h common, ottoman ~2h. 120 fair-but-long for a standard frame; 90 honest. Lean slightly long for storage beds."
+  },
+  {
+    "skuCode": "FP-DESK-01",
+    "name": "Desk or table assembly",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Assemble desk/table/chair. Prototype flatpack ~60-70 min/item. 90 slightly long; 60 honest."
+  },
+  {
+    "skuCode": "FP-DRAWERS-01",
+    "name": "Drawers or cabinet assembly",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 75,
+    "confidence": "high",
+    "reasoning": "Build a chest of drawers/sideboard. ~1-1.5h. 120 slightly long; 75 honest for the common drawer unit."
+  },
+  {
+    "skuCode": "FP-MISC-01",
+    "name": "Flat-pack assembly",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 75,
+    "confidence": "needs-owner-call",
+    "reasoning": "Generic flat-pack catch-all. Prototype ~60-70 min/item. 120 padded for an average item; 75 honest. Owner may keep wider since 'flat-pack' covers a huge range."
+  },
+  {
+    "skuCode": "FP-SOFA-01",
+    "name": "Sofa or large furniture build",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 105,
+    "confidence": "high",
+    "reasoning": "Assemble sofa/corner unit/large furniture. Bulkier so ~1.5-2h. 120 fair; 105 honest. Minor trim only — these are genuinely bigger than a desk."
+  },
+  {
+    "skuCode": "FP-WARDROBE-01",
+    "name": "Wardrobe assembly",
+    "shape": "fixed",
+    "currentMinutes": 180,
+    "suggestedMinutes": 150,
+    "confidence": "high",
+    "reasoning": "Flat-pack wardrobe: assemble, level, align doors. Prototype notes 'wardrobe ~2-3x an item' = ~2-2.5h. 180 slightly long; 150 honest. Lean long for sliding-door units."
+  },
+  {
+    "skuCode": "FLOOR-CARPET-01",
+    "name": "Fit carpet",
+    "shape": "fixed",
+    "currentMinutes": 300,
+    "suggestedMinutes": 240,
+    "confidence": "needs-owner-call",
+    "reasoning": "Gripper, underlay, stretch and trim a carpet. One average room ~3-4h; whole-house far more. 300 reads for a large room/multi; 240 honest for a standard room. Audit's 48 is nonsense. Owner to confirm typical area."
+  },
+  {
+    "skuCode": "FLOOR-LAM-01",
+    "name": "Lay laminate or LVT flooring",
+    "shape": "tiered",
+    "currentMinutes": [240, 360, 480],
+    "suggestedMinutes": [240, 360, 480],
+    "confidence": "needs-owner-call",
+    "reasoning": "Lay laminate/LVT: underlay, boards, trim, beading. Small room ~half day, medium ~6h, large ~full day. These tiers are realistic; the audit's 48 min (per-m² confusion) is wrong. LEAVE as-is; owner to confirm room sizes behind Small/Medium/Large."
+  },
+  {
+    "skuCode": "FLOOR-LIFT-01",
+    "name": "Lift & remove old flooring",
+    "shape": "fixed",
+    "currentMinutes": 240,
+    "suggestedMinutes": 180,
+    "confidence": "needs-owner-call",
+    "reasoning": "Lift old flooring, dispose, prep subfloor. Tiles/glued ~hard; carpet ~quick. 240 long for the average room; 180 honest. Audit's 48 nonsense. Owner to confirm typical floor type (screwed-down boards/tile adhesive push it up)."
+  },
+  {
+    "skuCode": "FLOOR-WOOD-01",
+    "name": "Lay engineered or solid wood",
+    "shape": "fixed",
+    "currentMinutes": 600,
+    "suggestedMinutes": 600,
+    "confidence": "needs-owner-call",
+    "reasoning": "Lay engineered/solid wood incl. herringbone — a genuinely premium, slow, multi-hour-to-full-day job (herringbone especially). 600 (10h ~ 1.25 days) is realistic, NOT the audit's 48 min. LEAVE. Owner to confirm whether 600 represents one large room or splits across days."
+  },
+  {
+    "skuCode": "FURN-FIX-01",
+    "name": "Furniture repair",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 75,
+    "confidence": "high",
+    "reasoning": "Repair wobbly/broken furniture (runners, hinges, joints). ~1-1.25h typical. 90 slightly long; 75 honest."
+  },
+  {
+    "skuCode": "FURN-MOVE-01",
+    "name": "Dismantle & move furniture",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 90,
+    "confidence": "needs-owner-call",
+    "reasoning": "Dismantle, move, rebuild bulky furniture within a home. ~1.5h common. 120 fair-but-long; 90 honest. Owner to confirm — multi-item moves vary widely."
+  },
+  {
+    "skuCode": "GARDEN-TIDY-01",
+    "name": "Garden tidy & weed",
+    "shape": "tiered",
+    "currentMinutes": [150, 240, 360],
+    "suggestedMinutes": [120, 240, 360],
+    "confidence": "needs-owner-call",
+    "reasoning": "Weed, prune, cut back, clear green waste. Time-sold by definition. Small ~2h, medium ~half day, large ~full day are reasonable. Trim Small to 120; keep Medium/Large. Owner to confirm sizing as this is genuinely variable labour."
+  },
+  {
+    "skuCode": "HEDGE-01",
+    "name": "Trim a hedge",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 90,
+    "confidence": "needs-owner-call",
+    "reasoning": "Cut/shape a hedge + clear clippings. Prototype hedge ~15/m. A typical domestic hedge ~1.5h incl. clearing; large boundary hedges far more. 120 fair for a big one but long for the median; 90 honest. Owner to confirm typical hedge size."
+  },
+  {
+    "skuCode": "LAWN-MOW-01",
+    "name": "Mow & edge the lawn",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Mow + edge a domestic lawn. ~45-60 min typical. 90 long; 60 honest."
+  },
+  {
+    "skuCode": "SHED-BASE-01",
+    "name": "Lay a shed or garden base",
+    "shape": "fixed",
+    "currentMinutes": 360,
+    "suggestedMinutes": 360,
+    "confidence": "needs-owner-call",
+    "reasoning": "Lay a level slab/concrete base. Excavate, level, hardcore, slabs or pour — genuinely a ~6h / full-day job. 360 realistic, audit's 35 min nonsense. LEAVE; owner to confirm base size/material."
+  },
+  {
+    "skuCode": "SHED-INSTALL-01",
+    "name": "Shed assembly",
+    "shape": "fixed",
+    "currentMinutes": 240,
+    "suggestedMinutes": 240,
+    "confidence": "needs-owner-call",
+    "reasoning": "Build a shed from a flat-pack kit on an existing base. ~4h for a standard shed (two-person jobs faster wall-by-wall). 240 realistic; audit's 35 min nonsense. LEAVE; owner to confirm shed size."
+  },
+  {
+    "skuCode": "TURF-01",
+    "name": "Lay turf & topsoil",
+    "shape": "tiered",
+    "currentMinutes": [300, 420, 480],
+    "suggestedMinutes": [300, 420, 480],
+    "confidence": "needs-owner-call",
+    "reasoning": "Prep bed, spread topsoil, lay/roll turf. Physically heavy, area-sold. Small ~5h, medium ~7h, large ~full day are realistic. Audit's 35 min nonsense. LEAVE; owner to confirm areas behind tiers."
+  },
+  {
+    "skuCode": "WASHLINE-01",
+    "name": "Fit a rotary or washing line",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 75,
+    "confidence": "high",
+    "reasoning": "Fit a rotary dryer/line, set socket in concrete. ~1-1.25h (excl. cure). 120 long; 75 honest."
+  },
+  {
+    "skuCode": "WEED-MEMBRANE-01",
+    "name": "Lay weed membrane",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 120,
+    "confidence": "needs-owner-call",
+    "reasoning": "Lay weed membrane + bark/stone over a bed. Area-dependent; clearing/levelling first adds time. 120 reasonable for a typical bed. LEAVE; owner to confirm typical area."
+  },
+  {
+    "skuCode": "WEED-TREAT-01",
+    "name": "Weed treatment",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Spray herbicide over weeds/overgrowth. Application is quick once mixed. 90 long; 45 honest for the typical domestic spray."
+  },
+  {
+    "skuCode": "BABYGATE-01",
+    "name": "Fit a baby gate",
+    "shape": "fixed",
+    "currentMinutes": 45,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Fit a stair/doorway safety gate. ~45 min honest. No change."
+  },
+  {
+    "skuCode": "BATHACC-01",
+    "name": "Fit bathroom accessories",
+    "shape": "fixed",
+    "currentMinutes": 45,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Fix soap dishes/roll holders/hooks securely. ~45 min for a small set. Honest. No change."
+  },
+  {
+    "skuCode": "CATFLAP-01",
+    "name": "Fit or remove a cat flap",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 75,
+    "confidence": "needs-owner-call",
+    "reasoning": "Cut/fit a cat flap into a door or panel (glass is specialist/excluded). ~1-1.5h in timber/uPVC. 90 fair-but-slightly-long; 75 honest. Owner to confirm if glass cut-outs are in scope (those are much longer)."
+  },
+  {
+    "skuCode": "DRSTOP-01",
+    "name": "Fit door stops",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 12 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 10 },
+    "confidence": "high",
+    "reasoning": "Fit door stops (min 4). ~5-10 min each. Already close to honest; trim slightly to 10/unit + 15 setup. Audit ratio 0.97 — basically fine."
+  },
+  {
+    "skuCode": "EXTFIX-01",
+    "name": "External fixture fitting",
+    "shape": "fixed",
+    "currentMinutes": 45,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Fix outdoor signs/brackets/numbers/hose reels, weather-seal. ~45 min for a small fixture. Honest. No change."
+  },
+  {
+    "skuCode": "FILL-HOLE-01",
+    "name": "Fill holes & cracks",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Fill holes/cracks, sand, leave paint-ready. Prototype patch_plaster ~60 min but a few filler holes is less. 60 slightly long for the common case; 45 honest (excludes drying between coats, which isn't on-site labour)."
+  },
+  {
+    "skuCode": "FLYSCRN-01",
+    "name": "Fit fly screens",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 50 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 30 },
+    "confidence": "high",
+    "reasoning": "Fit insect screens to windows. ~25-35 min each. 50/window padded; 30/unit + 15 setup honest."
+  },
+  {
+    "skuCode": "HANG-CLK-01",
+    "name": "Hang clocks, signs & hooks",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 30 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 15 },
+    "confidence": "high",
+    "reasoning": "Fix small wall items securely. Prototype mount_fixture ~20 min total. 30/item long; 15/unit + 15 setup honest."
+  },
+  {
+    "skuCode": "HANG-MIR-01",
+    "name": "Hang a mirror",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 50 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 25 },
+    "confidence": "high",
+    "reasoning": "Mount a mirror level, weight-rated fixings. Prototype hang_mirror ~30 min total. 50/mirror padded; 25/unit + 15 setup honest. Heavy mirrors lean to the higher end."
+  },
+  {
+    "skuCode": "HANG-PIC-01",
+    "name": "Hang pictures & frames",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 25 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 15 },
+    "confidence": "high",
+    "reasoning": "Hang pictures/frames level. ~10-15 min each. 25/item slightly long; 15/unit + 15 setup honest."
+  },
+  {
+    "skuCode": "KEYSAFE-01",
+    "name": "Key safe fit",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Fix a key safe to masonry. ~45 min (drill, plug, bolt). 60 slightly long; 45 honest."
+  },
+  {
+    "skuCode": "MISC-SMALL-01",
+    "name": "Handful of small jobs",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 120,
+    "confidence": "needs-owner-call",
+    "reasoning": "A visit to clear a list of small odd jobs — sold AS a time block (~2h). Here time IS the product, so 120 is intentional, not inflation. LEAVE; this is a deliberate labour-hour SKU."
+  },
+  {
+    "skuCode": "TOWRAIL-01",
+    "name": "Fit towel rail or holder",
+    "shape": "fixed",
+    "currentMinutes": 35,
+    "suggestedMinutes": 35,
+    "confidence": "high",
+    "reasoning": "Fix a towel rail/ring firmly. ~30-35 min. Honest. No change."
+  },
+  {
+    "skuCode": "GUTTER-CLEAR-01",
+    "name": "Gutter clearing",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 75,
+    "confidence": "needs-owner-call",
+    "reasoning": "Clear gutters + flush downpipes off a ladder. A standard semi ~1-1.5h; large/3-storey more. 120 fair for a big house, long for the median; 75 honest. Owner to confirm typical property size/access."
+  },
+  {
+    "skuCode": "GUTTER-REPAIR-01",
+    "name": "Gutter or downpipe repair",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 90,
+    "confidence": "needs-owner-call",
+    "reasoning": "Fix leaking joints/brackets or swap a section. ~1.5h typical. 120 fair-but-slightly-long; 90 honest. Owner to confirm — height/access drives this."
+  },
+  {
+    "skuCode": "KIT-DOOR-01",
+    "name": "Kitchen cupboard door fix",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Refit/realign/replace a cupboard door so it closes square. ~30-45 min. 60 slightly long; 45 honest."
+  },
+  {
+    "skuCode": "KIT-DRILL-01",
+    "name": "Drill unit for appliance",
+    "shape": "fixed",
+    "currentMinutes": 75,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Drill pipe/cable holes through kitchen units for an appliance install. ~45-60 min. 75 slightly long; 60 honest."
+  },
+  {
+    "skuCode": "KIT-UNIT-01",
+    "name": "Kitchen unit fitting",
+    "shape": "tiered",
+    "currentMinutes": [90, 180, 300],
+    "suggestedMinutes": [90, 180, 300],
+    "confidence": "needs-owner-call",
+    "reasoning": "Fit kitchen units, level, secure, align doors. Prototype fit_kitchen_unit ~45 min + 20 setup PER unit. Small (1-2 units) ~1.5h, medium ~3h, large ~5h are realistic. LEAVE; owner to confirm unit counts behind the tiers."
+  },
+  {
+    "skuCode": "KIT-WORKTOP-01",
+    "name": "Fit a worktop",
+    "shape": "fixed",
+    "currentMinutes": 240,
+    "suggestedMinutes": 180,
+    "confidence": "needs-owner-call",
+    "reasoning": "Measure, cut, scribe, fit and seal a laminate worktop run. ~3-4h for a typical L-shape (more for joints/cut-outs). 240 fair for a complex run, long for a simple one; 180 honest. Owner to confirm typical run/joints (solid/stone is specialist and longer)."
+  },
+  {
+    "skuCode": "LOCK-01",
+    "name": "Change a lock",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Change a euro cylinder/like-for-like lock, test. ~30-45 min. 60 slightly long; 45 honest."
+  },
+  {
+    "skuCode": "LOCK-CABINET-01",
+    "name": "Fit a cabinet or coded lock",
+    "shape": "fixed",
+    "currentMinutes": 75,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Fit a cabinet/gate/keypad lock. ~45 min. 75 long; 45 honest."
+  },
+  {
+    "skuCode": "LOCK-DIAG-01",
+    "name": "Fix a faulty lock",
+    "shape": "fixed",
+    "currentMinutes": 45,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Free a sticking/misaligned lock. ~45 min. Honest. No change."
+  },
+  {
+    "skuCode": "LOCK-MULTI-01",
+    "name": "Fit multiple locks",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 90,
+    "confidence": "needs-owner-call",
+    "reasoning": "Fit/upgrade several locks across doors. If ~3 locks at ~25-30 min each = ~90 min. 120 slightly long; 90 honest. Owner to confirm typical lock count behind this SKU."
+  },
+  {
+    "skuCode": "AC-CLEAN-01",
+    "name": "Air-con clean & filter check",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Clean a split-unit, check filters. ~1h is honest. No change."
+  },
+  {
+    "skuCode": "DEEPCLEAN-01",
+    "name": "Deep clean (single room)",
+    "shape": "fixed",
+    "currentMinutes": 150,
+    "suggestedMinutes": 120,
+    "confidence": "needs-owner-call",
+    "reasoning": "Deep-clean one room/appliance. Time-sold cleaning labour. ~2-2.5h typical. 150 fair-but-slightly-long; 120 honest for a single room. Owner to confirm scope (kitchen/bathroom deep cleans run longer)."
+  },
+  {
+    "skuCode": "OVEN-CLEAN-01",
+    "name": "Oven & hood deep clean",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 90,
+    "confidence": "high",
+    "reasoning": "Deep-clean oven + extractor hood inside/out. ~1.5h typical (dip-tank kit speeds it). 120 slightly long; 90 honest."
+  },
+  {
+    "skuCode": "PAVE-01",
+    "name": "Paving, path or slab work",
+    "shape": "tiered",
+    "currentMinutes": [150, 240, 480],
+    "suggestedMinutes": [180, 300, 480],
+    "confidence": "needs-owner-call",
+    "reasoning": "Lay/repair paving, paths, slabs — excavate, sub-base, lay, point. Physically heavy, area-sold. Small ~3h is arguably LIGHT; bumped Small/Medium UP (180/300) and kept Large at 480 (full day). One of the few where I'd lean LONGER, not shorter. Strong owner-call — sub-base depth drives everything."
+  },
+  {
+    "skuCode": "POINTING-01",
+    "name": "Repointing & brickwork",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 120,
+    "confidence": "needs-owner-call",
+    "reasoning": "Rake out + repoint loose mortar joints. Slow, fiddly, area-dependent — a patch of repointing easily fills 2h+. 120 reasonable for a small area. LEAVE; owner to confirm typical area (large elevations are multi-hour/day)."
+  },
+  {
+    "skuCode": "ROOF-MINOR-01",
+    "name": "Minor roof repair",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 120,
+    "confidence": "needs-owner-call",
+    "reasoning": "Small roof repair (tiles, vent, sealing) at height. Access/ladder/scaffold-tower setup eats time; the work itself is short. 120 reasonable incl. access. LEAVE; owner to confirm access method (tower/roof-ladder changes it a lot)."
+  },
+  {
+    "skuCode": "VISIT-01",
+    "name": "Site visit & assessment",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 60,
+    "confidence": "needs-owner-call",
+    "reasoning": "Scope work on site, write a plan/quote. On-site assessment is typically ~30-60 min (excl. travel, which dispatch handles separately). 90 long; 60 honest. Owner to confirm how long their surveys actually take."
+  },
+  {
+    "skuCode": "MOULD-PAINT-01",
+    "name": "Mould treat & repaint ceiling",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 120,
+    "confidence": "high",
+    "reasoning": "Treat mould, seal, repaint a ceiling. ~2h on-site (treatment + two coats, blocking primer). 120 honest. No change (audit ratio 0.88 — already fine)."
+  },
+  {
+    "skuCode": "PAINT-CEIL-01",
+    "name": "Paint a ceiling",
+    "shape": "fixed",
+    "currentMinutes": 150,
+    "suggestedMinutes": 120,
+    "confidence": "high",
+    "reasoning": "Two coats emulsion on a ceiling. Prep + cut-in + two coats ~2h on-site (drying isn't labour). 150 slightly long; 120 honest."
+  },
+  {
+    "skuCode": "PAINT-DOOR-01",
+    "name": "Paint a door",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 90,
+    "confidence": "high",
+    "reasoning": "Prep + repaint a door incl. frame. Hands-on time ~1.5h (between-coat drying isn't on-site labour but a door usually needs the painter present across coats). 90 honest. No change."
+  },
+  {
+    "skuCode": "PAINT-EXT-01",
+    "name": "Paint exterior render or facade",
+    "shape": "fixed",
+    "currentMinutes": 480,
+    "suggestedMinutes": 480,
+    "confidence": "needs-owner-call",
+    "reasoning": "Prep + masonry-paint a rendered facade. Whole-facade external work is a genuine full day+ (prep, access, two coats). 480 realistic; audit's 137 nonsense. LEAVE; owner to confirm whether 480 covers one elevation or whole house, and access method."
+  },
+  {
+    "skuCode": "PAINT-FENCE-01",
+    "name": "Paint a fence or shed",
+    "shape": "fixed",
+    "currentMinutes": 240,
+    "suggestedMinutes": 180,
+    "confidence": "needs-owner-call",
+    "reasoning": "Treat/paint a fence or shed. Area-sold. A typical run of fence or one shed ~3h; long boundaries more. 240 fair for a big run, long for the median; 180 honest. Owner to confirm typical area (fence length)."
+  },
+  {
+    "skuCode": "PAINT-FRDOOR-01",
+    "name": "Paint a front door",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 120,
+    "confidence": "high",
+    "reasoning": "Rub down + repaint a front door in exterior finish. Prep + coats with the door present ~2h. 120 honest. No change (audit ratio 0.88)."
+  },
+  {
+    "skuCode": "PAINT-METAL-01",
+    "name": "Paint metalwork or pipework",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 120,
+    "confidence": "high",
+    "reasoning": "Prep + paint radiators/pipes/railings/garage door. ~2h hands-on for a typical item. 120 honest. No change."
+  },
+  {
+    "skuCode": "PAINT-ROOM-01",
+    "name": "Repaint a room",
+    "shape": "tiered",
+    "currentMinutes": [150, 240, 420],
+    "suggestedMinutes": [150, 240, 420],
+    "confidence": "needs-owner-call",
+    "reasoning": "Repaint a room: prep, fill, two coats walls (+ ceiling/woodwork by scope). Prototype paint_room = 'least certain', ~210 min walls-only + setup. Small ~2.5h, medium ~half day (incl. ceiling/woodwork), large full-ish day are realistic. LEAVE; this is the prime owner-call/actuals candidate per the prototype."
+  },
+  {
+    "skuCode": "PAINT-SILL-01",
+    "name": "Repaint window sills",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 90,
+    "confidence": "high",
+    "reasoning": "Scrape, sand, treat mould, repaint sills. A couple of sills ~1.5h hands-on. 120 slightly long; 90 honest."
+  },
+  {
+    "skuCode": "PAINT-TOUCH-01",
+    "name": "Touch-up & patch paint",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Sand, fill, blend small patches. ~1h. Honest. No change (audit ratio 0.44 — already low)."
+  },
+  {
+    "skuCode": "PAINT-WALL-01",
+    "name": "Paint a single wall",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 90,
+    "confidence": "high",
+    "reasoning": "Prep + two coats on one wall. Prototype paint_wall ~75 min + setup. 120 slightly long; 90 honest."
+  },
+  {
+    "skuCode": "PAINT-WOOD-01",
+    "name": "Paint woodwork & skirting",
+    "shape": "fixed",
+    "currentMinutes": 180,
+    "suggestedMinutes": 150,
+    "confidence": "high",
+    "reasoning": "Rub down + repaint skirting/architraves/woodwork per room. Prototype paint_woodwork ~90 min + setup, but a full room's woodwork with the tradesperson present across coats ~2.5h. 180 slightly long; 150 honest. (Audit didn't even flag this — confirms it's near-fine.)"
+  },
+  {
+    "skuCode": "STAINBLK-01",
+    "name": "Stain-block & repaint",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 75,
+    "confidence": "high",
+    "reasoning": "Treat stain, block with primer, repaint. ~1-1.5h hands-on. 90 marginally long; 75 honest."
+  },
+  {
+    "skuCode": "WALLPAPER-HANG-01",
+    "name": "Hang wallpaper",
+    "shape": "fixed",
+    "currentMinutes": 240,
+    "suggestedMinutes": 240,
+    "confidence": "needs-owner-call",
+    "reasoning": "Hang wallpaper with matched seams. A feature wall ~2-3h; a whole room ~half-to-full day (pattern repeat, prep). 240 reasonable for a room. LEAVE; owner to confirm whether this is per-wall or per-room and pattern complexity."
+  },
+  {
+    "skuCode": "WALLPAPER-STRIP-01",
+    "name": "Strip wallpaper",
+    "shape": "tiered",
+    "currentMinutes": [240, 360, 480],
+    "suggestedMinutes": [180, 300, 420],
+    "confidence": "needs-owner-call",
+    "reasoning": "Score, steam, strip, fill, sand ready to decorate. Messy and slow but Small at 4h is a touch long for a feature wall; trimmed to 180/300/420. Stubborn multi-layer/painted-over paper pushes it back up — owner-call on typical condition."
+  },
+  {
+    "skuCode": "PLAST-01",
+    "name": "Plaster patch or skim",
+    "shape": "tiered",
+    "currentMinutes": [150, 300, 480],
+    "suggestedMinutes": [150, 300, 480],
+    "confidence": "needs-owner-call",
+    "reasoning": "Patch/fill/skim to paint-ready. Skimming is a skilled, continuous job: a small patch ~2-2.5h, a wall ~half day, a room of walls ~full day (plus you must stay through coats). Tiers realistic; audit's 55 nonsense. LEAVE; owner to confirm areas behind tiers."
+  },
+  {
+    "skuCode": "PLAST-SAND-01",
+    "name": "Sand & make good walls",
+    "shape": "fixed",
+    "currentMinutes": 180,
+    "suggestedMinutes": 120,
+    "confidence": "needs-owner-call",
+    "reasoning": "Sand back, fill, prep walls smooth for paint. Dusty, area-dependent. A room ~2-3h. 180 fair for a whole room, long for a wall; 120 honest. Owner to confirm typical area."
+  },
+  {
+    "skuCode": "PLASTERBOARD-01",
+    "name": "Plasterboard a wall or ceiling",
+    "shape": "fixed",
+    "currentMinutes": 300,
+    "suggestedMinutes": 240,
+    "confidence": "needs-owner-call",
+    "reasoning": "Fit plasterboard to a wall/ceiling, tape ready for skim. Battening/noggins + boarding a wall ~half day; a ceiling overhead is slower/2-person. 300 fair for a ceiling, long for a small wall; 240 honest. Owner-call — overhead vs wall matters."
+  },
+  {
+    "skuCode": "BALLV-01",
+    "name": "Stopcock or valve swap",
+    "shape": "fixed",
+    "currentMinutes": 75,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Replace a seized stopcock/isolation valve (drain down, swap, test). ~1h. 75 slightly long; 60 honest."
+  },
+  {
+    "skuCode": "DRAIN-UNBLK-01",
+    "name": "Sink or shower drain unblock",
+    "shape": "fixed",
+    "currentMinutes": 50,
+    "suggestedMinutes": 50,
+    "confidence": "high",
+    "reasoning": "Clear a slow/blocked sink/basin/shower drain. ~45-50 min. Honest. No change."
+  },
+  {
+    "skuCode": "LEAK-FIND-01",
+    "name": "Leak find & fix",
+    "shape": "fixed",
+    "currentMinutes": 75,
+    "suggestedMinutes": 75,
+    "confidence": "high",
+    "reasoning": "Trace a leak, fix where possible, advise. ~1-1.25h is honest diagnostic+fix time. No change."
+  },
+  {
+    "skuCode": "RAD-BLEED-01",
+    "name": "Radiator bleed & balance",
+    "shape": "fixed",
+    "currentMinutes": 45,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Bleed + balance a system. ~45 min for a typical house. Honest. No change."
+  },
+  {
+    "skuCode": "RAD-SWAP-01",
+    "name": "Radiator swap",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 90,
+    "confidence": "high",
+    "reasoning": "Drain, remove old rad, fit new like-for-like, bleed/balance. ~1.5h is the textbook figure. 90 honest. No change — good baseline."
+  },
+  {
+    "skuCode": "RAD-TOWEL-01",
+    "name": "Heated towel rail fit",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 90,
+    "confidence": "high",
+    "reasoning": "Fit a heated towel rail plumbed in, test. ~1.5h (more if relocating valves). 90 honest. No change."
+  },
+  {
+    "skuCode": "SHWR-BAR-01",
+    "name": "Bar mixer & riser fit",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 90,
+    "confidence": "high",
+    "reasoning": "Fit a bar mixer + riser rail onto existing feeds, test. ~1.5h on existing pipework. 120 slightly long; 90 honest."
+  },
+  {
+    "skuCode": "SHWR-FIX-01",
+    "name": "Shower unit repair or swap",
+    "shape": "fixed",
+    "currentMinutes": 75,
+    "suggestedMinutes": 75,
+    "confidence": "high",
+    "reasoning": "Repair/replace a shower unit on existing supply, test temp/flow. ~1-1.25h. 75 honest. No change."
+  },
+  {
+    "skuCode": "SHWR-HOSE-01",
+    "name": "Shower hose or head swap",
+    "shape": "fixed",
+    "currentMinutes": 30,
+    "suggestedMinutes": 30,
+    "confidence": "high",
+    "reasoning": "Swap a hose/head. ~15-30 min. Honest (already low). No change."
+  },
+  {
+    "skuCode": "TAP-BATH-01",
+    "name": "Bathroom tap swap",
+    "shape": "fixed",
+    "currentMinutes": 50,
+    "suggestedMinutes": 50,
+    "confidence": "high",
+    "reasoning": "Swap a basin/bath tap on existing supply, test. ~45-60 min (basin taps in tight spaces can run long). 50 honest. No change."
+  },
+  {
+    "skuCode": "TAP-CART-01",
+    "name": "Tap cartridge replacement",
+    "shape": "fixed",
+    "currentMinutes": 45,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Replace a mixer cartridge. ~45 min. Honest. No change."
+  },
+  {
+    "skuCode": "TAP-KIT-01",
+    "name": "Kitchen tap swap",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Swap a kitchen tap, isolate, leak-test, remove old. ~1h (under-sink access). 60 honest. No change — matches the textbook tap-swap figure."
+  },
+  {
+    "skuCode": "TAP-OUT-01",
+    "name": "Outside tap fit",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 75,
+    "confidence": "high",
+    "reasoning": "Fit an outside tap (tee off, drill wall, fit, test). ~1-1.5h. 90 marginally long; 75 honest."
+  },
+  {
+    "skuCode": "TAP-REPAIR-01",
+    "name": "Dripping tap repair",
+    "shape": "fixed",
+    "currentMinutes": 45,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Stop a drip (washer/cartridge/ceramic). ~45 min. Honest. No change."
+  },
+  {
+    "skuCode": "TOI-REPAIR-01",
+    "name": "Toilet repair",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Fix fill valve/flush/syphon. ~1h. Honest. No change."
+  },
+  {
+    "skuCode": "TOI-SEAT-01",
+    "name": "Toilet seat fit",
+    "shape": "fixed",
+    "currentMinutes": 30,
+    "suggestedMinutes": 30,
+    "confidence": "high",
+    "reasoning": "Fit a new seat. ~20-30 min. Honest (already low). No change."
+  },
+  {
+    "skuCode": "TOI-SWAP-01",
+    "name": "Toilet replacement",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 105,
+    "confidence": "high",
+    "reasoning": "Remove old WC, fit new close-coupled, connect, seal, leak-test. ~1.5-2h. 120 fair-but-slightly-long; 105 honest."
+  },
+  {
+    "skuCode": "TOI-UNBLK-01",
+    "name": "Toilet unblocking",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Clear a blockage, confirm free flush. ~30-45 min typical. 60 slightly long; 45 honest."
+  },
+  {
+    "skuCode": "WASH-PLUMB-01",
+    "name": "Washer/dishwasher plumb-in",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Plumb in washer/dishwasher (water, waste, leak check) on existing connections. ~45-60 min. 60 honest. No change."
+  },
+  {
+    "skuCode": "WHEAT-01",
+    "name": "Water heater swap",
+    "shape": "fixed",
+    "currentMinutes": 150,
+    "suggestedMinutes": 120,
+    "confidence": "needs-owner-call",
+    "reasoning": "Replace an under-sink/point-of-use water heater, connect, test. ~2-2.5h. 150 fair-but-slightly-long; 120 honest. Owner-call — electric connection + descaling/isolation varies."
+  },
+  {
+    "skuCode": "JETWASH-01",
+    "name": "Jet-wash patio or driveway",
+    "shape": "tiered",
+    "currentMinutes": [120, 180, 240],
+    "suggestedMinutes": [90, 150, 240],
+    "confidence": "needs-owner-call",
+    "reasoning": "Pre-treat, jet-wash, rinse patio/path/drive. Area-sold (prototype ~6 min/m²). Small patio ~1.5h, medium ~2.5h, large drive ~4h. Small/Medium slightly long; trimmed to 90/150, kept Large at 240. Owner to confirm m² behind tiers."
+  },
+  {
+    "skuCode": "JETWASH-DECK-01",
+    "name": "Jet-wash decking",
+    "shape": "fixed",
+    "currentMinutes": 120,
+    "suggestedMinutes": 90,
+    "confidence": "high",
+    "reasoning": "Jet-wash decking to strip algae/grime. ~1.5h for a typical deck. 120 slightly long; 90 honest."
+  },
+  {
+    "skuCode": "JETWASH-ROOF-01",
+    "name": "Jet-wash a roof",
+    "shape": "fixed",
+    "currentMinutes": 180,
+    "suggestedMinutes": 180,
+    "confidence": "needs-owner-call",
+    "reasoning": "Clean moss/grime off a roof at height. Access setup + careful working at height makes this a genuine ~3h+ job; audit's 26 min is absurd. 180 reasonable. LEAVE; owner to confirm roof size and access (scaffold/tower)."
+  },
+  {
+    "skuCode": "SHELF-BRKT-01",
+    "name": "Put up bracket shelves",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 50 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 30 },
+    "confidence": "high",
+    "reasoning": "Find studs, level, fix bracket shelves. Prototype shelf ~30 min + 10 setup. 50/shelf slightly long; 30/unit + 15 setup honest."
+  },
+  {
+    "skuCode": "SHELF-FLOAT-01",
+    "name": "Hang floating shelves",
+    "shape": "per_unit",
+    "currentMinutes": { "setupMinutes": 20, "minutesPerUnit": 50 },
+    "suggestedMinutes": { "setupMinutes": 15, "minutesPerUnit": 35 },
+    "confidence": "high",
+    "reasoning": "Floating shelves need careful levelling/concealed fixings — slightly more than bracket shelves. 50/shelf a touch long; 35/unit + 15 setup honest."
+  },
+  {
+    "skuCode": "SHELF-UNIT-01",
+    "name": "Fix a shelving unit to wall",
+    "shape": "fixed",
+    "currentMinutes": 75,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Assemble (if needed) + secure a shelving unit/bookcase to the wall. ~1h. 75 slightly long; 60 honest."
+  },
+  {
+    "skuCode": "CAULK-01",
+    "name": "Caulk gaps & trims",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Caulk gaps around trims/skirting/splashbacks. ~1h for a typical run. 60 honest. No change."
+  },
+  {
+    "skuCode": "SIL-BATH-01",
+    "name": "Re-seal a bath",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Strip old sealant, treat mould, re-bead a bath. Prototype reseal ~50 min + setup. 60 honest. No change."
+  },
+  {
+    "skuCode": "SIL-SHWR-01",
+    "name": "Re-seal a shower",
+    "shape": "fixed",
+    "currentMinutes": 65,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Cut out failed sealant, kill mould, re-seal a shower. ~1h. 65 marginally long; 60 honest."
+  },
+  {
+    "skuCode": "SIL-SINK-01",
+    "name": "Re-seal a sink or worktop",
+    "shape": "fixed",
+    "currentMinutes": 50,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Re-seal around a sink / worktop-to-tile join. ~45 min. 50 marginally long; 45 honest."
+  },
+  {
+    "skuCode": "SIL-WIN-01",
+    "name": "Re-seal a window",
+    "shape": "fixed",
+    "currentMinutes": 50,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Strip + re-seal around a window. ~45 min. 50 marginally long; 45 honest."
+  },
+  {
+    "skuCode": "REGROUT-01",
+    "name": "Re-grout tiles",
+    "shape": "tiered",
+    "currentMinutes": [120, 240, 420],
+    "suggestedMinutes": [90, 180, 360],
+    "confidence": "needs-owner-call",
+    "reasoning": "Rake out, clean, re-grout, polish. Prototype regrout ~30 setup + 12/m². Slow but the tiers run a bit long: a splashback ~1.5h, a shower wall ~3h, a full bathroom ~6h. Trimmed to 90/180/360. Owner to confirm m² behind tiers."
+  },
+  {
+    "skuCode": "SPLASH-01",
+    "name": "Fit a splashback",
+    "shape": "fixed",
+    "currentMinutes": 150,
+    "suggestedMinutes": 120,
+    "confidence": "needs-owner-call",
+    "reasoning": "Fit a splashback (tile/glass/acrylic), cut, seal. Acrylic/glass ~1.5h; tiled ~2-3h. 150 fair for tiled, long for acrylic; 120 honest. Owner to confirm dominant material."
+  },
+  {
+    "skuCode": "TILE-01",
+    "name": "Tiling install",
+    "shape": "tiered",
+    "currentMinutes": [120, 300, 480],
+    "suggestedMinutes": [120, 300, 480],
+    "confidence": "needs-owner-call",
+    "reasoning": "Tile walls/floor: prep, set out, fix, grout, seal. Prototype retile ~30 setup + 35/m². Small splashback/area ~2h, medium ~half day, large ~full day are realistic. LEAVE; owner to confirm m² behind tiers (and note grouting often is a second visit/day)."
+  },
+  {
+    "skuCode": "TILE-REMOVE-01",
+    "name": "Remove old tiles",
+    "shape": "fixed",
+    "currentMinutes": 150,
+    "suggestedMinutes": 120,
+    "confidence": "needs-owner-call",
+    "reasoning": "Strip old tiles + prep surface. Hacking tiles off is hard graft and area-dependent; a small area ~1.5h, a full wall more. 150 fair for a wall, long for a splashback; 120 honest. Owner to confirm typical area."
+  },
+  {
+    "skuCode": "CAM-01",
+    "name": "Security camera fit",
+    "shape": "fixed",
+    "currentMinutes": 75,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Mount + set up a wireless camera. ~1h (positioning, app). 75 slightly long; 60 honest."
+  },
+  {
+    "skuCode": "DOORBELL-01",
+    "name": "Smart doorbell fit",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Fit + set up a video doorbell. ~30-45 min (wiring/app pairing). 60 slightly long; 45 honest."
+  },
+  {
+    "skuCode": "SBAR-01",
+    "name": "Mount a soundbar",
+    "shape": "fixed",
+    "currentMinutes": 45,
+    "suggestedMinutes": 45,
+    "confidence": "high",
+    "reasoning": "Mount a soundbar under a TV, level, tidy cable. ~45 min. Honest. No change."
+  },
+  {
+    "skuCode": "TV-BRICK-01",
+    "name": "TV wall mount (brick/solid)",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 75,
+    "confidence": "high",
+    "reasoning": "Mount a TV on solid/brick wall, run cables, test. Prototype tv_mount ~70 min, +30 if cables concealed. 90 fair; 75 honest for surface-cabled. Lean to 90 if concealment is standard — owner could keep 90."
+  },
+  {
+    "skuCode": "TV-CABLE-01",
+    "name": "Conceal TV cables",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Hide TV cables in trunking or behind wall. ~1h (more if chasing plaster). 60 honest for trunking. No change."
+  },
+  {
+    "skuCode": "TV-PLBD-01",
+    "name": "TV wall mount (plasterboard)",
+    "shape": "fixed",
+    "currentMinutes": 90,
+    "suggestedMinutes": 75,
+    "confidence": "high",
+    "reasoning": "Mount a TV on plasterboard (locate noggins/use fixings), cables, test. ~1-1.5h. 90 fair-but-slightly-long; 75 honest."
+  },
+  {
+    "skuCode": "SHED-REMOVE-01",
+    "name": "Dismantle & remove a shed",
+    "shape": "fixed",
+    "currentMinutes": 240,
+    "suggestedMinutes": 180,
+    "confidence": "needs-owner-call",
+    "reasoning": "Dismantle a shed + clear the waste (incl. tip run, which IS on-site/loading labour). ~3-4h for an average shed. 240 fair for a big/concrete-felted shed, long for a small one; 180 honest. Owner to confirm typical shed size + whether tip-run time sits here."
+  },
+  {
+    "skuCode": "WASTE-01",
+    "name": "Waste & rubbish removal",
+    "shape": "tiered",
+    "currentMinutes": [90, 120, 180],
+    "suggestedMinutes": [90, 120, 180],
+    "confidence": "needs-owner-call",
+    "reasoning": "Load, take away, dispose (per volume). Prototype clearance ~90 min/load incl. tip run. Small ~1.5h, medium ~2h, large ~3h (incl. loading + tip) are realistic. LEAVE; owner to confirm whether tip-run time is captured here vs travel buffer."
+  },
+  {
+    "skuCode": "WASTE-APPLI-01",
+    "name": "Remove an appliance",
+    "shape": "fixed",
+    "currentMinutes": 60,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Disconnect + remove a bulky appliance. ~45-60 min on-site (disposal/tip handled in WASTE or buffer). 60 honest. No change."
+  },
+  {
+    "skuCode": "WASTE-FURN-01",
+    "name": "Remove old furniture",
+    "shape": "fixed",
+    "currentMinutes": 75,
+    "suggestedMinutes": 60,
+    "confidence": "high",
+    "reasoning": "Remove + dispose of unwanted furniture. ~1h on-site loading. 75 slightly long; 60 honest."
+  }
+]

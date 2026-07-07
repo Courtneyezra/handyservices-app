@@ -45,10 +45,11 @@ export const QUOTE_OFFER_TEMPLATES: { id: QuoteOfferTemplate; label: string; blu
 // type can run a different offer (e.g. flex_date only has a £ lever for
 // lane-eligible homeowners/tenants; a landlord or business needs another offer).
 export type QuoteOfferCustomerType =
-  | 'homeowner' | 'landlord' | 'property_manager' | 'tenant' | 'business' | 'letting_agent';
+  | 'homeowner' | 'oap_homeowner' | 'landlord' | 'property_manager' | 'tenant' | 'business' | 'letting_agent';
 
 export const QUOTE_OFFER_CUSTOMER_TYPES: { id: QuoteOfferCustomerType; label: string }[] = [
   { id: 'homeowner', label: 'Homeowner' },
+  { id: 'oap_homeowner', label: 'OAP Homeowner' },
   { id: 'landlord', label: 'Landlord' },
   { id: 'property_manager', label: 'Property Manager' },
   { id: 'tenant', label: 'Tenant' },

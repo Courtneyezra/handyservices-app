@@ -9,9 +9,9 @@
 
 import { Router, Request, Response } from 'express';
 import { db } from './db';
-import { personalizedQuotes, handymanProfiles, handymanSkills, users, contractorBookingRequests, leads } from '../shared/schema';
+import { personalizedQuotes, handymanProfiles, handymanSkills, users, contractorBookingRequests, leads, jobSheets } from '../shared/schema';
 import { JOB_CATEGORIES } from '../shared/contextual-pricing-types';
-import { eq, and, gte, lte, isNotNull, isNull, sql, desc } from 'drizzle-orm';
+import { eq, and, or, gte, lte, lt, isNotNull, isNull, sql, desc } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { sendJobAssignmentEmail } from './email-service';
 import { sendWhatsAppMessage } from './meta-whatsapp';
@@ -24,7 +24,9 @@ import {
 import { buildSchedule, buildFixedLane } from './dispatch-sweep';
 import { runDispatchOptimizer, type DispatchGoal } from './dispatch-optimizer';
 import { readDispatchGoal, writeDispatchGoal } from './dispatch-settings';
-import { assignFromPool } from './booking-engine';
+import { assignFromPool, buildJobSheetLineItems, buildAccessInstructions } from './booking-engine';
+import { resolveOrCreateProperty } from './properties';
+import { resolveOrCreateClient } from './clients';
 import { isTestQuoteId } from './dispatch-test-mode';
 
 const router = Router();
@@ -717,7 +719,11 @@ router.get('/promise-stats', async (_req: Request, res: Response) => {
 
 router.post('/confirm-dispatch', async (req: Request, res: Response) => {
   try {
-    const { quoteId, confirmedDate, confirmedSlot, contractorId } = req.body;
+    const { quoteId, confirmedDate, confirmedSlot, contractorId, testOnly } = req.body;
+
+    // When the console is in test mode (or the quote is a seeded dummy), book the
+    // row but never message a real customer/contractor.
+    const skipNotify = testOnly === true || isTestQuoteId(quoteId);
 
     // 1. Validate inputs
     if (!quoteId || !confirmedDate || !confirmedSlot || !contractorId) {
@@ -776,29 +782,34 @@ router.post('/confirm-dispatch', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Quote has already been dispatched' });
     }
 
-    // 4–6. Transaction: update quote + create booking request + update lead
+    // 4–6. Transaction: update quote + create booking request + job sheet + lead.
+    // This mirrors booking-engine confirmBooking/assignFromPool so a console-booked
+    // job is indistinguishable from an auto-booked one — property/client linked,
+    // scheduledSlot enum set, auto-accept status, and a job sheet generated.
     const jobId = uuidv4();
     const now = new Date();
 
-    const slotMap: Record<string, string> = {
-      am: 'AM',
-      pm: 'PM',
-      full_day: 'FULL_DAY',
-    };
-    const scheduledSlotEnum = slotMap[confirmedSlot];
-
     await db.transaction(async (tx) => {
-      // Update the quote
-      await tx.update(personalizedQuotes)
-        .set({
-          selectedDate: parsedDate,
-          timeSlotType: confirmedSlot,
-          bookedAt: now,
-          matchedContractorId: contractorId,
-        })
-        .where(eq(personalizedQuotes.id, quoteId));
+      // Resolve the service property + client (shared with the quote — see confirmBooking).
+      const propertyId = (quote as any).propertyId
+        ?? await resolveOrCreateProperty(tx, {
+          address: (quote as any).address,
+          coordinates: (quote as any).coordinates,
+          postcode: (quote as any).postcode,
+          phone: quote.phone,
+          email: quote.email,
+        });
+      const clientId = (quote as any).clientId
+        ?? await resolveOrCreateClient(tx, {
+          phone: quote.phone,
+          email: quote.email,
+          displayName: quote.customerName,
+          billingAddress: (quote as any).address,
+        });
 
-      // Create contractor booking request
+      // Create contractor booking request (auto-accept model, matching the
+      // slot-lock + pool paths). scheduledSlot is the canonical enum the grid and
+      // conflict checks read; confirmedSlot is already 'am'|'pm'|'full_day'.
       await tx.insert(contractorBookingRequests)
         .values({
           id: jobId,
@@ -808,15 +819,49 @@ router.post('/confirm-dispatch', async (req: Request, res: Response) => {
           customerEmail: quote.email || undefined,
           customerPhone: quote.phone,
           quoteId: quoteId,
+          propertyId: propertyId ?? undefined,
+          clientId: clientId ?? undefined,
           scheduledDate: parsedDate,
-          requestedSlot: scheduledSlotEnum,
-          status: 'pending',
-          assignmentStatus: 'assigned',
+          requestedDate: parsedDate,
+          requestedSlot: confirmedSlot,
+          scheduledSlot: confirmedSlot as any,
+          durationDays: 1,
+          status: 'accepted',
+          assignmentStatus: 'accepted',
           assignedAt: now,
+          acceptedAt: now,
           description: quote.jobDescription,
           createdAt: now,
           updatedAt: now,
         });
+
+      // Generate the job sheet from the quote line items (mirrors confirmBooking,
+      // including the wtbp_rate_card-derived contractorRatePence) so the contractor's
+      // field app has work to act on.
+      const lineItems = ((quote as any).pricingLineItems as any[]) || [];
+      const jobSheetLineItems = await buildJobSheetLineItems(tx, lineItems);
+      const accessInstructions = await buildAccessInstructions(tx, propertyId, (quote as any).customerAccessNotes);
+      await tx.insert(jobSheets)
+        .values({
+          jobId,
+          quoteId,
+          lineItems: jobSheetLineItems as any,
+          accessInstructions,
+          generatedAt: now,
+        });
+
+      // Update the quote — book it and back-fill property/client if it had none.
+      await tx.update(personalizedQuotes)
+        .set({
+          selectedDate: parsedDate,
+          timeSlotType: confirmedSlot,
+          bookedAt: now,
+          bookingLockedAt: now,
+          matchedContractorId: contractorId,
+          ...((quote as any).propertyId ? {} : { propertyId: propertyId ?? undefined }),
+          ...((quote as any).clientId ? {} : { clientId: clientId ?? undefined }),
+        })
+        .where(eq(personalizedQuotes.id, quoteId));
 
       // Update lead stage to 'booked' if lead exists
       if (quote.leadId) {
@@ -842,7 +887,7 @@ router.post('/confirm-dispatch', async (req: Request, res: Response) => {
       year: 'numeric',
     });
 
-    try {
+    if (!skipNotify) try {
       const whatsappMessage =
         `Great news, ${quote.customerName}! Your booking is confirmed. ` +
         `${contractorName} will visit on ${formattedDate}, ${slotLabel[confirmedSlot]}. ` +
@@ -855,7 +900,7 @@ router.post('/confirm-dispatch', async (req: Request, res: Response) => {
     }
 
     // 8. Send contractor email (best-effort, non-blocking)
-    try {
+    if (!skipNotify) try {
       if (contractor.email) {
         await sendJobAssignmentEmail({
           contractorName,
@@ -886,6 +931,113 @@ router.post('/confirm-dispatch', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('[Daily Planner] Confirm & Dispatch error:', error);
     res.status(500).json({ error: error.message || 'Failed to dispatch job' });
+  }
+});
+
+// ─── POST /reassign-booking — move an ALREADY-BOOKED job to a different ──────
+// contractor (and/or day/slot), updating the existing booking IN PLACE. The
+// pack-canvas drag-to-override uses this for committed packs. confirm-dispatch
+// is first-booking only and rejects already-booked quotes, so a "move
+// contractor" drag must come here instead.
+router.post('/reassign-booking', async (req: Request, res: Response) => {
+  try {
+    const { quoteId, contractorId, date, slot } = req.body ?? {};
+    if (!quoteId || !contractorId) {
+      return res.status(400).json({ error: 'quoteId and contractorId are required' });
+    }
+    if (slot && !['am', 'pm', 'full_day'].includes(slot)) {
+      return res.status(400).json({ error: 'slot must be one of: am, pm, full_day' });
+    }
+
+    // Must already be booked — otherwise this is a first booking (use confirm-dispatch).
+    const [quote] = await db.select().from(personalizedQuotes)
+      .where(eq(personalizedQuotes.id, quoteId)).limit(1);
+    if (!quote) return res.status(404).json({ error: 'Quote not found' });
+    if (!quote.bookedAt) {
+      return res.status(400).json({ error: 'Quote is not booked yet — assign it first' });
+    }
+
+    // The booking row to move (latest active one for this quote).
+    const [booking] = await db.select().from(contractorBookingRequests)
+      .where(eq(contractorBookingRequests.quoteId, quoteId))
+      .orderBy(desc(contractorBookingRequests.createdAt))
+      .limit(1);
+    if (!booking) return res.status(404).json({ error: 'No booking found for this quote' });
+
+    // New contractor must exist.
+    const contractorRows = await db.select({
+      profileId: handymanProfiles.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+    })
+      .from(handymanProfiles)
+      .innerJoin(users, eq(handymanProfiles.userId, users.id))
+      .where(eq(handymanProfiles.id, contractorId))
+      .limit(1);
+    if (contractorRows.length === 0) return res.status(404).json({ error: 'Contractor not found' });
+    const contractorName = [contractorRows[0].firstName, contractorRows[0].lastName].filter(Boolean).join(' ') || 'Contractor';
+
+    // Target date/slot: keep the existing booking's unless the drop changed them.
+    const targetDate = date ? new Date(date) : booking.scheduledDate;
+    if (targetDate && isNaN(new Date(targetDate).getTime())) {
+      return res.status(400).json({ error: 'date is not valid' });
+    }
+    const targetSlot = (slot || booking.scheduledSlot || booking.requestedSlot || 'am') as string;
+
+    // Conflict check: does the NEW contractor already have a booking covering this
+    // date+slot (excluding the row we're moving)?
+    if (targetDate) {
+      const conflictSet = targetSlot === 'full_day'
+        ? ['am', 'pm', 'full_day']
+        : targetSlot === 'am' ? ['am', 'full_day'] : ['pm', 'full_day'];
+      const dayStart = new Date(targetDate); dayStart.setUTCHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart); dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+      const existing = await db.select({
+        id: contractorBookingRequests.id,
+        slot: contractorBookingRequests.scheduledSlot,
+      })
+        .from(contractorBookingRequests)
+        .where(and(
+          or(
+            eq(contractorBookingRequests.contractorId, contractorId),
+            eq(contractorBookingRequests.assignedContractorId, contractorId),
+          ),
+          gte(contractorBookingRequests.scheduledDate, dayStart),
+          lt(contractorBookingRequests.scheduledDate, dayEnd),
+        ));
+      const clash = existing.find((b) => b.id !== booking.id && b.slot && conflictSet.includes(b.slot as string));
+      if (clash) {
+        return res.status(409).json({ error: `${contractorName} already has a ${String(clash.slot).toUpperCase()} booking that day` });
+      }
+    }
+
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      await tx.update(contractorBookingRequests)
+        .set({
+          contractorId,
+          assignedContractorId: contractorId,
+          ...(date ? { scheduledDate: targetDate as Date, requestedDate: targetDate as Date } : {}),
+          ...(slot ? { scheduledSlot: slot as any, requestedSlot: slot } : {}),
+          updatedAt: now,
+        })
+        .where(eq(contractorBookingRequests.id, booking.id));
+
+      await tx.update(personalizedQuotes)
+        .set({
+          matchedContractorId: contractorId,
+          contractorId,
+          ...(date ? { selectedDate: targetDate as Date } : {}),
+          ...(slot ? { timeSlotType: slot } : {}),
+        })
+        .where(eq(personalizedQuotes.id, quoteId));
+    });
+
+    console.log(`[Daily Planner] Reassigned booking ${booking.id} (quote ${quoteId}) -> ${contractorName}${date ? ` on ${date}` : ''} ${targetSlot}`);
+    res.json({ success: true, bookingId: booking.id, contractorName });
+  } catch (error: any) {
+    console.error('[Daily Planner] reassign-booking error:', error);
+    res.status(500).json({ error: error.message || 'Failed to reassign booking' });
   }
 });
 

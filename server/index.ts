@@ -18,13 +18,13 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 import { db } from "./db";
-import { productizedServices, skuMatchLogs, calls, callSkus, handymanProfiles, conversations, leads, personalizedQuotes } from "../shared/schema";
+import { productizedServices, skuMatchLogs, calls, callSkus, handymanProfiles, conversations, leads, personalizedQuotes, users } from "../shared/schema";
 import { desc, eq, and, ne, or, asc, isNull, lt, gte } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 import { detectSku, detectMultipleTasks, loadAndCacheSkus } from "./skuDetector";
 import { setupTwilioSocket } from "./twilio-realtime";
 import { twilioClient } from "./twilio-client";
-import { createCall, findCallByTwilioSid, updateCall, finalizeCall } from './call-logger';
+import { createCall, findCallByTwilioSid, updateCall, finalizeCall, type UpdateCallData } from './call-logger';
 import { notifyIncomingCall, notifyVoicemail } from './pushover';
 import { resolveCallerName } from './caller-lookup';
 import { determineCallRouting, CallRoutingSettings, AgentMode, FallbackAction } from "./call-routing-engine";
@@ -44,6 +44,7 @@ import { trainingRouter } from './training-routes';
 import { pushRouter } from './web-push';
 import handymenRouter from './handymen';
 import callsRouter from './calls';
+import callPerformanceRouter from './call-performance-routes';
 import { generateWhatsAppMessage, refineWhatsAppMessage } from './openai';
 import { searchAddresses, validatePostcode } from './google-places'; // B8: Address lookup
 import { devRouter } from './dev-tools';
@@ -68,6 +69,8 @@ import invoiceRouter from './invoices'; // B2: Invoice management
 import jobAssignmentRouter from './job-assignment'; // B5: Job assignment/dispatch
 import jobLifecycleRouter from './job-lifecycle'; // Day-of job lifecycle (en-route, timer, completion)
 import clientAggregationRouter from './client-aggregation'; // Read-only Jobber-style client engagement view
+import propertyRouter from './property-routes'; // Property edit/merge (Jobber Property entity)
+import clientRouter from './client-routes'; // Client edit/merge/archive (Jobber Client entity)
 import contractorDispatchRouter from './contractor-dispatch'; // Tokenised contractor job-sheet dispatch
 import reviewsRouter from "./reviews-routes";
 import { leadTubeMapRouter } from './lead-tube-map'; // Lead Tube Map API
@@ -354,6 +357,7 @@ app.use('/api/whatsapp', whatsappExtRouter); // Chrome Extension ingest (ext-ing
 app.use('/api/dashboard', requireAdmin, dashboardRouter);
 app.use('/api/va', requireAdmin, vaStatsRouter);
 app.use('/api/handymen', handymenRouter);
+app.use('/api/calls', callPerformanceRouter); // VA Call Performance dashboard (must mount before callsRouter so /va-overview isn't swallowed by /:id)
 app.use('/api/calls', callsRouter);
 app.use('/api/calls', callsRouter);
 app.use(trainingRouter);
@@ -367,6 +371,8 @@ app.use(invoiceRouter); // B2: Invoice management
 app.use(jobAssignmentRouter); // B5: Job assignment/dispatch
 app.use(jobLifecycleRouter); // Day-of job lifecycle
 app.use(clientAggregationRouter); // Read-only Jobber-style client engagement view
+app.use(propertyRouter); // Property edit/merge
+app.use(clientRouter); // Client edit/merge/archive
 app.use(contractorDispatchRouter); // Tokenised contractor job-sheet dispatch (broadcast/accept/decline/variation/complete)
 app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
 
@@ -771,11 +777,13 @@ app.post('/api/twilio/voice', async (req, res) => {
             // Store routing context for differentiation
             // Flag ALL ElevenLabs-routed calls for Ben's follow-up inbox
             if (routing.destination === 'busy-agent') {
+                updateProps.handledBy = 'ai_agent';
                 updateProps.missedReason = 'busy_agent';
                 updateProps.actionStatus = 'pending';
                 updateProps.actionUrgency = 2; // High - VA was busy
                 updateProps.tags = ['busy_agent', 'eleven_labs', 'needs_callback'];
             } else if (routing.destination === 'eleven-labs') {
+                updateProps.handledBy = 'ai_agent';
                 updateProps.actionStatus = 'pending';
                 if (routing.elevenLabsContext === 'out-of-hours') {
                     updateProps.missedReason = 'out_of_hours';
@@ -787,6 +795,8 @@ app.post('/api/twilio/voice', async (req, res) => {
                     updateProps.actionUrgency = 3; // Normal - AI handled in-hours
                     updateProps.tags = ['in_hours_ai', 'eleven_labs', 'needs_callback'];
                 }
+            } else if (routing.destination === 'voicemail') {
+                updateProps.handledBy = 'voicemail';
             }
 
             await updateCall(callRecordId, updateProps);
@@ -845,9 +855,13 @@ app.post('/api/twilio/voice', async (req, res) => {
     if (routing.destination === 'va-forward') {
         // Forward to VA with hold music
         const holdMusicUrl = settings.holdMusicUrl || `${httpProtocol}://${host}/assets/hold-music.mp3`;
+        const forwardTarget = (settings.forwardNumber || '').trim();
+        const isSipTarget = forwardTarget.toLowerCase().startsWith('sip:');
+        // SIP endpoints (Groundwire) can be shown the real caller ID; PSTN forwards must present our Twilio number
+        const dialCallerId = isSipTarget ? req.body.From : (req.body.To || req.body.Called);
         twiml += `
-      <Dial timeout="${settings.maxWaitSeconds || 30}" action="${httpProtocol}://${host}/api/twilio/dial-status" method="POST" answerOnBridge="false" ringTone="uk" callerId="${req.body.To || req.body.Called}">
-        <Number>${settings.forwardNumber}</Number>
+      <Dial timeout="${settings.maxWaitSeconds || 30}" action="${httpProtocol}://${host}/api/twilio/dial-status" method="POST" answerOnBridge="false" ringTone="uk" callerId="${dialCallerId}">
+        ${isSipTarget ? `<Sip>${forwardTarget}</Sip>` : `<Number>${forwardTarget}</Number>`}
       </Dial>`;
     } else if (routing.destination === 'eleven-labs' || routing.destination === 'busy-agent') {
         // Redirect to Eleven Labs Register Call endpoint (DIRECT MODE)
@@ -912,6 +926,36 @@ app.post('/api/twilio/test-push', async (req, res) => {
         console.error('[Twilio] test-push failed:', e);
         res.status(500).json({ ok: false, error: String(e) });
     }
+});
+
+// Outbound calls dialled FROM the Groundwire SIP client (Twilio SIP Domain voice webhook).
+// Twilio sends To as "sip:<dialled>@<domain>.sip.twilio.com" — extract the dialled number
+// and bridge to the PSTN presenting our Twilio number as caller ID.
+app.post('/api/twilio/sip-outbound', async (req, res) => {
+    const settings = await getTwilioSettings();
+    const callerId = settings.twilioPhoneNumber || process.env.TWILIO_PHONE_NUMBER;
+    const rawTo = (req.body.To || '') as string;
+    const match = rawTo.match(/^sip:([^@;]+)@/i);
+    let dialled = match ? decodeURIComponent(match[1]).replace(/[\s\-().]/g, '') : '';
+
+    // Normalise UK national format (07700900123 -> +447700900123)
+    if (/^0\d{9,10}$/.test(dialled)) dialled = `+44${dialled.slice(1)}`;
+
+    if (!callerId || !/^\+\d{7,15}$/.test(dialled)) {
+        console.warn(`[SIP-Outbound] Rejected dial attempt: To=${rawTo}`);
+        res.type('text/xml');
+        return res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response><Say voice="Polly.Amy">Sorry, that number could not be dialled.</Say><Hangup/></Response>`);
+    }
+
+    console.log(`[SIP-Outbound] ${req.body.From} -> ${dialled}`);
+    res.type('text/xml');
+    res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial callerId="${callerId}" answerOnBridge="true">
+    <Number>${dialled}</Number>
+  </Dial>
+</Response>`);
 });
 
 // Eleven Labs Register Call - Uses official Eleven Labs API
@@ -1009,9 +1053,28 @@ app.all('/api/twilio/eleven-labs-personal', async (req, res) => {
     }
 });
 
+// Resolve the active VA user for call attribution, cached per-process.
+// There is exactly one active VA today (Ben) — a multi-VA setup would need a
+// per-forward-target mapping (SIP/number -> user) instead of this single lookup.
+let cachedVaUserId: string | null | undefined;
+async function getActiveVaUserId(): Promise<string | null> {
+    if (cachedVaUserId !== undefined) return cachedVaUserId;
+    try {
+        const [va] = await db.select({ id: users.id })
+            .from(users)
+            .where(and(eq(users.role, 'va'), eq(users.isActive, true)))
+            .limit(1);
+        cachedVaUserId = va?.id || null;
+        return cachedVaUserId;
+    } catch (e) {
+        console.warn('[Twilio] Failed to look up active VA user:', e);
+        return null; // don't cache failures — retry on the next call
+    }
+}
+
 // Twilio Dial Status Callback - Handles missed call fallback routing
 app.post('/api/twilio/dial-status', async (req, res) => {
-    const { DialCallStatus, From, CallSid } = req.body;
+    const { DialCallStatus, DialCallDuration, From, CallSid } = req.body;
     console.log(`[Twilio] Dial status for ${CallSid}: ${DialCallStatus}`);
 
     const settings = await getTwilioSettings();
@@ -1046,14 +1109,29 @@ app.post('/api/twilio/dial-status', async (req, res) => {
             // Find call record ID
             const callRecordId = await findCallByTwilioSid(CallSid);
             if (callRecordId) {
+                // Ring time = elapsed since the incoming webhook logged the call, clamped to the dial timeout
+                const [callRow] = await db.select({ startTime: calls.startTime })
+                    .from(calls)
+                    .where(eq(calls.id, callRecordId))
+                    .limit(1);
+                const dialTimeout = Number(settings.maxWaitSeconds) || 30;
+                const ringSeconds = callRow?.startTime
+                    ? Math.round(Math.min(Math.max((Date.now() - callRow.startTime.getTime()) / 1000, 0), dialTimeout))
+                    : undefined;
+
                 await updateCall(callRecordId, {
                     outcome: 'MISSED_CALL', // Explicitly mark as missed
                     actionStatus: 'pending',
                     actionUrgency: 1, // Critical - immediate callback required
                     missedReason: 'no_answer',
-                    tags: ['missed_call', 'va_no_answer']
+                    tags: ['missed_call', 'va_no_answer'],
+                    ringSeconds,
+                    // Attribution: whoever the fallback hands the caller to; plain 'missed' if the call just ends
+                    handledBy: routing.destination === 'voicemail' ? 'voicemail'
+                        : (routing.destination === 'eleven-labs' || routing.destination === 'busy-agent') ? 'ai_agent'
+                        : 'missed',
                 });
-                console.log(`[ActionCenter] Call ${callRecordId} flagged as MISSED_CALL (Critical).`);
+                console.log(`[ActionCenter] Call ${callRecordId} flagged as MISSED_CALL (Critical, rang ${ringSeconds ?? '?'}s).`);
             }
         } catch (e) {
             console.warn("[ActionCenter] Failed to flag missed call:", e);
@@ -1143,7 +1221,37 @@ app.post('/api/twilio/dial-status', async (req, res) => {
         res.type('text/xml');
         res.send(twiml);
     } else {
-        // Call was answered successfully - just end gracefully
+        // Call was answered by the VA — record time-to-answer and attribution.
+        // Twilio posts DialCallDuration (seconds of bridged talk), so the answer
+        // moment ≈ now − DialCallDuration; the call row's startTime marks when
+        // the incoming webhook fired (≈ when ringing began).
+        try {
+            const callRecordId = await findCallByTwilioSid(CallSid);
+            if (callRecordId) {
+                const [callRow] = await db.select({ startTime: calls.startTime })
+                    .from(calls)
+                    .where(eq(calls.id, callRecordId))
+                    .limit(1);
+
+                const update: UpdateCallData = { handledBy: 'va' };
+
+                const dialDuration = parseInt(DialCallDuration, 10);
+                if (callRow?.startTime && !isNaN(dialDuration)) {
+                    const dialTimeout = Number(settings.maxWaitSeconds) || 30;
+                    const rawRing = (Date.now() - dialDuration * 1000 - callRow.startTime.getTime()) / 1000;
+                    update.ringSeconds = Math.round(Math.min(Math.max(rawRing, 0), dialTimeout + 10));
+                }
+
+                const vaUserId = await getActiveVaUserId();
+                if (vaUserId) update.handledByUserId = vaUserId;
+
+                await updateCall(callRecordId, update);
+                console.log(`[Twilio] Call ${callRecordId} answered by VA in ${update.ringSeconds ?? '?'}s`);
+            }
+        } catch (e) {
+            console.warn('[Twilio] Failed to record VA answer attribution:', e);
+        }
+
         res.type('text/xml');
         res.send('<Response></Response>');
     }
@@ -1803,6 +1911,14 @@ async function startServer() {
             console.log('[V6 Switchboard] Lead automations scheduler started');
         } catch (e) {
             console.error('[V6 Switchboard] Failed to start automations scheduler:', e);
+        }
+
+        // Start quote follow-up alert sweep (internal Pushover chase nudges)
+        try {
+            const { startQuoteFollowupSweep } = await import('./quote-followup-alerts');
+            startQuoteFollowupSweep();
+        } catch (e) {
+            console.error('[V6 Switchboard] Failed to start quote follow-up sweep:', e);
         }
     });
 }

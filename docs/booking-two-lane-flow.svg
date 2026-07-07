@@ -1,0 +1,206 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 1020" font-family="'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#DC2626"/>
+    </marker>
+    <style>
+      .title{font-size:26px;font-weight:700;fill:#1D2D3D}
+      .sub{font-size:14px;fill:#64748B}
+      .sec{font-size:17px;font-weight:700;fill:#1D2D3D}
+      .bt{font-size:13px;font-weight:700;fill:#1E293B}
+      .bb{font-size:11px;fill:#475569}
+      .wt{fill:#ffffff}
+      .lbl{font-size:11px;font-weight:600;fill:#475569}
+      .cap{font-size:11.5px;fill:#64748B}
+      .leg{font-size:11px;fill:#475569}
+      .mono{font-family:'SF Mono',Consolas,monospace;font-size:10.5px}
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1320" height="1020" fill="#ffffff"/>
+
+  <!-- ============ TITLE + LEGEND ============ -->
+  <text x="40" y="50" class="title">Two-Lane Booking Flow</text>
+  <text x="40" y="76" class="sub">How every customer type meets one optimiser — Lane A at placement, Lane B at the offer.</text>
+
+  <g>
+    <rect x="828" y="40" width="14" height="14" rx="3" fill="#F2FBE6" stroke="#65A30D"/>
+    <text x="848" y="51" class="leg">Lane A · buffer</text>
+    <rect x="980" y="40" width="14" height="14" rx="3" fill="#E8F5FE" stroke="#0284C7"/>
+    <text x="1000" y="51" class="leg">Lane B · greedy</text>
+    <rect x="1132" y="40" width="14" height="14" rx="3" fill="#FEF6E7" stroke="#D97706"/>
+    <text x="1152" y="51" class="leg">shared core</text>
+    <rect x="828" y="62" width="14" height="14" rx="3" fill="#FDECEC" stroke="#DC2626"/>
+    <text x="848" y="73" class="leg">slack firewall</text>
+    <rect x="980" y="62" width="14" height="14" rx="3" fill="#1D2D3D"/>
+    <text x="1000" y="73" class="leg">the calendar</text>
+  </g>
+
+  <!-- ============ SECTION 1: THE DOORWAYS ============ -->
+  <text x="40" y="106" class="sec">1 · The doorways — every customer type offers the same two lanes</text>
+
+  <!-- type header row -->
+  <rect x="190" y="116" width="363" height="36" fill="#1D2D3D"/>
+  <rect x="553" y="116" width="363" height="36" fill="#1D2D3D"/>
+  <rect x="916" y="116" width="364" height="36" fill="#1D2D3D"/>
+  <text x="371" y="139" text-anchor="middle" class="wt" font-weight="700" font-size="13">HOMEOWNER</text>
+  <text x="734" y="139" text-anchor="middle" class="wt" font-weight="700" font-size="13">LANDLORD</text>
+  <text x="1098" y="139" text-anchor="middle" class="wt" font-weight="700" font-size="12.5">PROPERTY MGR / BUSINESS  (next)</text>
+
+  <!-- lane A row header -->
+  <rect x="40" y="152" width="150" height="74" fill="#65A30D"/>
+  <text x="115" y="183" text-anchor="middle" class="wt" font-weight="700" font-size="14">LANE A</text>
+  <text x="115" y="201" text-anchor="middle" class="wt" font-size="10.5">flexible</text>
+  <text x="115" y="215" text-anchor="middle" class="wt" font-size="10.5">→ buffer</text>
+
+  <!-- lane A cells -->
+  <rect x="190" y="152" width="363" height="74" fill="#F2FBE6" stroke="#D9F0B0"/>
+  <rect x="553" y="152" width="363" height="74" fill="#F2FBE6" stroke="#D9F0B0"/>
+  <rect x="916" y="152" width="364" height="74" fill="#F2FBE6" stroke="#D9F0B0"/>
+  <text x="371" y="184" text-anchor="middle" class="bt">&#8220;I&#8217;m flexible&#8221;  ·  &#8722;7%</text>
+  <text x="371" y="205" text-anchor="middle" class="bb" font-weight="600" fill="#4D7C0F">DEFAULT ON → feeds the buffer</text>
+  <text x="734" y="184" text-anchor="middle" class="bt">&#8220;Liaise w/ tenant&#8221;  ·  +£25</text>
+  <text x="734" y="205" text-anchor="middle" class="bb">opt-in today  (see note ▼)</text>
+  <text x="1098" y="184" text-anchor="middle" class="bt">reframed flex</text>
+  <text x="1098" y="205" text-anchor="middle" class="bb">portfolio batch / after-hours</text>
+
+  <!-- lane B row header -->
+  <rect x="40" y="226" width="150" height="70" fill="#0284C7"/>
+  <text x="115" y="256" text-anchor="middle" class="wt" font-weight="700" font-size="14">LANE B</text>
+  <text x="115" y="274" text-anchor="middle" class="wt" font-size="10.5">pick a date</text>
+  <text x="115" y="288" text-anchor="middle" class="wt" font-size="10.5">→ now</text>
+
+  <!-- lane B cells -->
+  <rect x="190" y="226" width="363" height="70" fill="#E8F5FE" stroke="#C7E8FB"/>
+  <rect x="553" y="226" width="363" height="70" fill="#E8F5FE" stroke="#C7E8FB"/>
+  <rect x="916" y="226" width="364" height="70" fill="#E8F5FE" stroke="#C7E8FB"/>
+  <text x="371" y="256" text-anchor="middle" class="bt">&#8220;I want a set date&#8221;</text>
+  <text x="371" y="277" text-anchor="middle" class="bb">standard / route-priced</text>
+  <text x="734" y="256" text-anchor="middle" class="bt">tap a date on grid</text>
+  <text x="734" y="277" text-anchor="middle" class="bb" font-weight="600" fill="#B45309">standard · current default ⚠</text>
+  <text x="1098" y="256" text-anchor="middle" class="bt">tap a date</text>
+  <text x="1098" y="277" text-anchor="middle" class="bb">standard / route-priced</text>
+
+  <text x="40" y="316" class="cap">Both flex lanes set the same <tspan class="mono" fill="#1E293B">useFlexBooking = true</tspan> → one shared pool. Both pick-a-date lanes go through <tspan class="mono" fill="#1E293B">reserveSlot → lock</tspan>.  (UnifiedQuoteCard.tsx)</text>
+
+  <!-- ============ SECTION 2: THE FLOW ============ -->
+  <text x="40" y="352" class="sec">2 · The flow — two lanes, one optimiser, applied at two different moments</text>
+
+  <rect x="40" y="362" width="1240" height="30" rx="6" fill="#F8FAFC" stroke="#E2E8F0"/>
+  <text x="660" y="381" text-anchor="middle" class="bb" font-size="12">Lane A hands the optimiser <tspan font-weight="700" fill="#65A30D">TIME</tspan> (a window).  Lane B hands it <tspan font-weight="700" fill="#0284C7">PRICE SENSITIVITY</tspan> (a shaped menu).  Same objective function — two control surfaces.</text>
+
+  <!-- ===== LANE A column (center 250) ===== -->
+  <!-- A1 -->
+  <rect x="70" y="404" width="360" height="56" rx="10" fill="#F2FBE6" stroke="#65A30D" stroke-width="1.5"/>
+  <text x="250" y="428" text-anchor="middle" class="bt">useFlexBooking = TRUE</text>
+  <text x="250" y="447" text-anchor="middle" class="bb">no date locked = movable inventory</text>
+  <!-- A2 -->
+  <rect x="130" y="476" width="240" height="34" rx="8" fill="#ffffff" stroke="#CBD5E1"/>
+  <text x="250" y="498" text-anchor="middle" class="bb">pay deposit now</text>
+  <!-- A3 buffer -->
+  <rect x="70" y="526" width="360" height="92" rx="10" fill="#7DB00E" stroke="#4D7C0F" stroke-width="1.5"/>
+  <text x="250" y="556" text-anchor="middle" class="wt" font-weight="700" font-size="14">PENDING-DISPATCH POOL</text>
+  <text x="250" y="577" text-anchor="middle" class="wt" font-size="11.5">the buffer · the Tetris tray</text>
+  <text x="250" y="600" text-anchor="middle" class="wt" font-size="11.5" opacity="0.92">jobs accumulate, unplaced</text>
+  <!-- A4 sweep -->
+  <rect x="70" y="634" width="360" height="40" rx="10" fill="#4D7C0F"/>
+  <text x="250" y="659" text-anchor="middle" class="wt" font-weight="700" font-size="12.5">BATCH SWEEP — nightly / 2× a day</text>
+  <!-- A5 engine -->
+  <rect x="70" y="690" width="360" height="84" rx="10" fill="#F2FBE6" stroke="#65A30D" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="250" y="715" text-anchor="middle" class="bt mono" font-size="12.5">smart-planner-engine</text>
+  <text x="250" y="735" text-anchor="middle" class="bb">cluster by area · score contractor · best-fit date</text>
+  <text x="250" y="756" text-anchor="middle" class="bb" font-weight="700" fill="#B45309">built — currently DORMANT</text>
+
+  <!-- Lane A captions -->
+  <text x="250" y="794" text-anchor="middle" class="lbl" fill="#4D7C0F">OPTIMISE AT PLACEMENT — decide with full info, after the pool fills</text>
+  <text x="250" y="812" text-anchor="middle" class="cap">promise: exact day confirmed within 24–48h</text>
+
+  <!-- Lane A vertical connectors -->
+  <line x1="250" y1="460" x2="250" y2="474" stroke="#475569" marker-end="url(#arrow)"/>
+  <line x1="250" y1="510" x2="250" y2="524" stroke="#475569" marker-end="url(#arrow)"/>
+  <line x1="250" y1="618" x2="250" y2="632" stroke="#475569" marker-end="url(#arrow)"/>
+  <line x1="250" y1="674" x2="250" y2="688" stroke="#475569" marker-end="url(#arrow)"/>
+
+  <!-- ===== LANE B column (center 1070) ===== -->
+  <!-- B1 shaped menu -->
+  <rect x="890" y="404" width="360" height="88" rx="10" fill="#E8F5FE" stroke="#0284C7" stroke-width="2"/>
+  <text x="1070" y="428" text-anchor="middle" class="bt">SHAPED OFFER MENU</text>
+  <text x="1070" y="447" text-anchor="middle" class="bb">only keepable, non-buffer dates</text>
+  <text x="1070" y="465" text-anchor="middle" class="bb">priced by route impact:</text>
+  <text x="1070" y="483" text-anchor="middle" class="bb" font-weight="600" fill="#0369A1">clustered = cheaper · dedicated trip = dearer</text>
+  <!-- B2 -->
+  <rect x="890" y="508" width="360" height="54" rx="10" fill="#E8F5FE" stroke="#0284C7" stroke-width="1.5"/>
+  <text x="1070" y="531" text-anchor="middle" class="bt">customer picks ONE exact date</text>
+  <text x="1070" y="551" text-anchor="middle" class="bb">freeze only what they actually chose</text>
+  <!-- B3 -->
+  <rect x="950" y="578" width="240" height="34" rx="8" fill="#ffffff" stroke="#CBD5E1"/>
+  <text x="1070" y="600" text-anchor="middle" class="bb">pay deposit now</text>
+  <!-- B4 confirmBooking -->
+  <rect x="890" y="628" width="360" height="58" rx="10" fill="#0EA5E9" stroke="#0369A1" stroke-width="1.5"/>
+  <text x="1070" y="652" text-anchor="middle" class="wt mono" font-weight="700" font-size="12.5">confirmBooking() — place NOW</text>
+  <text x="1070" y="672" text-anchor="middle" class="wt" font-size="11">greedy / online placement</text>
+  <!-- B5 fixed block -->
+  <rect x="890" y="702" width="360" height="42" rx="10" fill="#E8F5FE" stroke="#0284C7" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="1070" y="728" text-anchor="middle" class="bb" font-weight="600">becomes a FIXED block on the calendar</text>
+
+  <!-- Lane B captions -->
+  <text x="1070" y="766" text-anchor="middle" class="lbl" fill="#0369A1">OPTIMISE AT OFFER — can't defer, so shape the choices</text>
+  <text x="1070" y="784" text-anchor="middle" class="cap">promise: exact day locked now</text>
+
+  <!-- Lane B vertical connectors -->
+  <line x1="1070" y1="492" x2="1070" y2="506" stroke="#475569" marker-end="url(#arrow)"/>
+  <line x1="1070" y1="562" x2="1070" y2="576" stroke="#475569" marker-end="url(#arrow)"/>
+  <line x1="1070" y1="612" x2="1070" y2="626" stroke="#475569" marker-end="url(#arrow)"/>
+  <line x1="1070" y1="686" x2="1070" y2="700" stroke="#475569" marker-end="url(#arrow)"/>
+
+  <!-- ===== CORE column (center 660) ===== -->
+  <rect x="500" y="404" width="320" height="34" rx="9" fill="#FEF6E7" stroke="#D97706" stroke-width="1.5"/>
+  <text x="660" y="426" text-anchor="middle" class="bt" fill="#92400E">SHARED OPTIMISATION CORE</text>
+
+  <rect x="500" y="448" width="320" height="118" rx="10" fill="#FEF6E7" stroke="#E5B567"/>
+  <text x="660" y="471" text-anchor="middle" class="bb" font-weight="700" fill="#92400E">same data &amp; rules for both lanes</text>
+  <text x="514" y="492" class="bb">• existingJobsOnDate (live contractor load)</text>
+  <text x="514" y="511" class="bb">• routes / haversine clustering</text>
+  <text x="514" y="530" class="bb">• skills + certs (hard constraints)</text>
+  <text x="514" y="549" class="bb">• duration + drive-time buffers</text>
+
+  <rect x="500" y="578" width="320" height="122" rx="10" fill="#FDECEC" stroke="#DC2626" stroke-width="1.5"/>
+  <text x="660" y="600" text-anchor="middle" class="bt" fill="#B91C1C">SLACK GOVERNOR — the firewall</text>
+  <text x="660" y="620" text-anchor="middle" class="bb">holds near-term + daily buffer</text>
+  <text x="660" y="637" text-anchor="middle" class="bb">BEFORE anything packs</text>
+  <text x="660" y="659" text-anchor="middle" class="bb" font-weight="600" fill="#991B1B">gates BOTH lanes</text>
+  <text x="660" y="677" text-anchor="middle" class="bb">Lane B can't book held slack ·</text>
+  <text x="660" y="692" text-anchor="middle" class="bb">target: no gaps EXCEPT held slack</text>
+
+  <line x1="660" y1="438" x2="660" y2="446" stroke="#475569" marker-end="url(#arrow)"/>
+  <line x1="660" y1="566" x2="660" y2="576" stroke="#475569" marker-end="url(#arrow)"/>
+
+  <!-- Core → Lane B (offer-time, HIGHER) -->
+  <line x1="820" y1="421" x2="888" y2="430" stroke="#D97706" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="854" y="409" text-anchor="middle" class="lbl" fill="#B45309">shapes the menu</text>
+  <!-- Core → Lane A (placement-time, LOWER) -->
+  <line x1="500" y1="652" x2="432" y2="654" stroke="#D97706" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="466" y="640" text-anchor="middle" class="lbl" fill="#B45309">feeds the batch</text>
+
+  <!-- ===== CONVERGE TO CALENDAR ===== -->
+  <rect x="430" y="852" width="460" height="64" rx="12" fill="#1D2D3D"/>
+  <text x="660" y="881" text-anchor="middle" class="wt mono" font-weight="700" font-size="13">contractorBookingRequests</text>
+  <text x="660" y="901" text-anchor="middle" class="wt" font-size="11.5" opacity="0.85">THE CALENDAR — the contractor's day = the Tetris board</text>
+
+  <path d="M250,774 L250,828 L520,828 L520,850" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M1070,744 L1070,828 L800,828 L800,850" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- feedback: calendar → core -->
+  <path d="M660,852 L660,702" fill="none" stroke="#DC2626" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrowRed)"/>
+  <text x="672" y="772" class="lbl" fill="#B91C1C">Lane B's fixed blocks</text>
+  <text x="672" y="787" class="lbl" fill="#B91C1C">read back — the batch</text>
+  <text x="672" y="802" class="lbl" fill="#B91C1C">packs AROUND them</text>
+
+  <!-- ============ FOOTER TAKEAWAY ============ -->
+  <rect x="40" y="940" width="1240" height="58" rx="10" fill="#F8FAFC" stroke="#E2E8F0"/>
+  <text x="60" y="964" class="bt" fill="#1D2D3D">Takeaway</text>
+  <text x="60" y="984" class="bb" font-size="12">Don't pull Lane B into the buffer (that kills certainty-now) — pull the <tspan font-weight="700" fill="#0284C7">optimisation forward into Lane B's menu</tspan>.  The cheapest efficiency win of all is <tspan font-weight="700" fill="#65A30D">shrinking Lane B</tspan> (fix the landlord default) so fewer greedy blocks ever land.</text>
+</svg>

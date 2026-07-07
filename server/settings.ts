@@ -861,6 +861,16 @@ router.post('/check-forward-status', async (req, res) => {
             });
         }
 
+        // SIP URI (e.g. Groundwire registered to our Twilio SIP domain) — no PSTN lookup possible
+        if (/^sip:[^@\s]+@[^@\s]+$/i.test(phoneNumber.trim())) {
+            return res.json({
+                status: 'valid',
+                message: 'SIP endpoint (VoIP app)',
+                isValid: true,
+                nationalFormat: phoneNumber.trim(),
+            });
+        }
+
         // Basic E.164 format validation
         const e164Regex = /^\+[1-9]\d{1,14}$/;
         if (!e164Regex.test(phoneNumber)) {

@@ -1,0 +1,720 @@
+quote_id,customer,paid,created,line_description,category,schedule_min,hours,price_gbp,materials_gbp,labour_gbp,labour_rate_gbp_hr
+quote_n9wXpBqvzbkhtCxl_JLoV,"Rizvana",false,2026-04-16,"Strip wallpaper from two small walls",painting,300,5.00,150.00,0.00,150.00,30.0
+quote_n9wXpBqvzbkhtCxl_JLoV,"Rizvana",false,2026-04-16,"Paint 5 rooms, ceilings and 2 wardrobes",painting,3360,56.00,1680.00,254.00,1426.00,25.5
+quote_n9wXpBqvzbkhtCxl_JLoV,"Rizvana",false,2026-04-16,"Remove and dispose of laminate flooring.",flooring,960,16.00,480.00,0.00,480.00,30.0
+quote_n9wXpBqvzbkhtCxl_JLoV,"Rizvana",false,2026-04-16,"Lay sub-base ply for levelling",flooring,960,16.00,480.00,381.00,99.00,6.2
+quote_n9wXpBqvzbkhtCxl_JLoV,"Rizvana",false,2026-04-16,"Supply and lay herringbone engineered wood flooring",flooring,7680,128.00,3840.00,4064.00,-224.00,-1.8
+quote_n9wXpBqvzbkhtCxl_JLoV,"Rizvana",false,2026-04-16,"Remove 3 internal doors",,0,0.00,60.00,0.00,60.00,0.0
+quote_n9wXpBqvzbkhtCxl_JLoV,"Rizvana",false,2026-04-16,"Supply and hang 3 new internal doors ",,0,0.00,180.00,450.00,-270.00,0.0
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Paint boiler pipework",painting,90,1.50,104.00,25.00,79.00,52.7
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Paint undercoat and gloss to skirting boards",painting,420,7.00,273.00,127.00,146.00,20.9
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Paint alcove toilet",painting,150,2.50,118.00,25.00,93.00,37.2
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Caulk tile trim edges",silicone_sealant,180,3.00,98.00,25.00,73.00,24.3
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Seal 1x bath panels",silicone_sealant,180,3.00,80.00,12.00,68.00,22.7
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Reseal bath, toilet and sink silicone",silicone_sealant,300,5.00,163.00,25.00,138.00,27.6
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Repair pointing to external left wall light",general_fixing,60,1.00,88.00,51.00,37.00,37.0
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Lay turf and topsoil to front garden",garden_maintenance,480,8.00,260.00,191.00,69.00,8.6
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Strip back garden soil for new turf bed",garden_maintenance,960,16.00,355.00,0.00,355.00,22.2
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Lay topsoil and turf to back garden",garden_maintenance,960,16.00,520.00,699.00,-179.00,-11.2
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Level front path sub base and re lay slabs ",flooring,120,2.00,350.00,0.00,350.00,175.0
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Install supplied shower",plumbing_minor,180,3.00,176.00,0.00,176.00,58.7
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Regrout bathroom tiles in all areas where missing.",tiling,300,5.00,380.00,51.00,329.00,65.8
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Remove garden waste and clear garden area.",waste_removal,480,8.00,260.00,0.00,260.00,32.5
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Paint external meter cupboards",painting,60,1.00,90.00,30.00,60.00,60.0
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Site clean-up and full waste disposal",waste_removal,120,2.00,179.00,0.00,179.00,89.5
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Align & fit 1x supplied bath pannels ",bathroom_fitting,60,1.00,100.00,0.00,100.00,100.0
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Seal shower tray ",silicone_sealant,60,1.00,105.00,15.00,90.00,90.0
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"Finish painting of bathroom door ",painting,60,1.00,60.00,10.00,50.00,50.0
+quote_pK1knzzanvLkkvG18DnNj,"NECOS",false,2026-05-14,"2 visit herbicide vist for weed treatment",garden_maintenance,60,1.00,160.00,40.00,120.00,120.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Repair cracks in 4 walls with expandable filler",general_fixing,150,2.50,75.00,38.00,37.00,14.8
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Repaint walls that had cracks",painting,180,3.00,90.00,44.00,46.00,15.3
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Reseal bath with anti-mould sealant",silicone_sealant,120,2.00,55.00,13.00,42.00,21.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Reseal shower screen to prevent water leakage",silicone_sealant,60,1.00,55.00,13.00,42.00,42.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Repair, sand and repaint water-damaged bath skirting.",carpentry,120,2.00,80.00,25.00,55.00,27.5
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Stainblock and repaint 2 walls above window",painting,150,2.50,80.00,32.00,48.00,19.2
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Reattach kitchen cupboard door strips with adhesive.",kitchen_fitting,60,1.00,150.00,13.00,137.00,137.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Caulk external second floor window",silicone_sealant,90,1.50,55.00,32.00,23.00,15.3
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Repair four damaged walls with filler",general_fixing,120,2.00,60.00,32.00,28.00,14.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Fit shower screen strips to two properties",general_fixing,30,0.50,45.00,25.00,20.00,40.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Cut grass and jet wash patio",pressure_washing,240,4.00,120.00,0.00,120.00,30.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Remove waste from two properties.",waste_removal,120,2.00,55.00,0.00,55.00,27.5
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Cut grass and jet wash patio",pressure_washing,240,4.00,120.00,0.00,120.00,30.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Replace extractor boxing with timber cladding",carpentry,120,2.00,80.00,0.00,80.00,40.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Remove and regrout with correct colour",tiling,150,2.50,100.00,32.00,68.00,27.2
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Repaint marked wall adjacent to tiles",painting,60,1.00,80.00,13.00,67.00,67.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Remove stuck key from patio door",door_fitting,30,0.50,53.00,0.00,53.00,106.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Fill and prepare 5 damaged kitchen doors for wrapping",carpentry,120,2.00,80.00,38.00,42.00,21.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Apply vinyl wrap to kitchen doors",general_fixing,300,5.00,150.00,108.00,42.00,8.4
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Fix back plinths",carpentry,120,2.00,80.00,0.00,80.00,40.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Install vinyl flooring, 30 square metres across five rooms.",flooring,480,8.00,390.00,953.00,-563.00,-70.4
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Fit carpet to upstairs rooms and staircase",flooring,480,8.00,390.00,635.00,-245.00,-30.6
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Obtain Gas Safe certificates for two properties",general_fixing,270,4.50,135.00,0.00,135.00,30.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Fix crack 2 walls in property 2",general_fixing,60,1.00,75.00,38.00,37.00,37.0
+quote_T64RmhR3XETUUPSXu5MF_,"Kiren",false,2026-05-06,"Re paint the walls that have been patched with expandable filler ",painting,60,1.00,90.00,35.00,55.00,55.0
+quote_G9nQfJ3eBfjnCJTeyIzO-,"Narinder",false,2026-05-27,"Remove bathroom suite and wall tiles",plumbing_minor,480,8.00,360.00,0.00,360.00,45.0
+quote_G9nQfJ3eBfjnCJTeyIzO-,"Narinder",false,2026-05-27,"Retile bathroom floor and walls",tiling,2400,40.00,1600.00,1080.00,520.00,13.0
+quote_G9nQfJ3eBfjnCJTeyIzO-,"Narinder",false,2026-05-27,"Install 900×900 shower tray and cubicle",plumbing_minor,480,8.00,360.00,826.00,-466.00,-58.3
+quote_G9nQfJ3eBfjnCJTeyIzO-,"Narinder",false,2026-05-27,"Install basin and vanity unit",bathroom_fitting,240,4.00,200.00,267.00,-67.00,-16.8
+quote_G9nQfJ3eBfjnCJTeyIzO-,"Narinder",false,2026-05-27,"Install new toilet",plumbing_minor,180,3.00,135.00,165.00,-30.00,-10.0
+quote_G9nQfJ3eBfjnCJTeyIzO-,"Narinder",false,2026-05-27,"Install and wire sockets for washer and dryer",electrical_minor,120,2.00,100.00,38.00,62.00,31.0
+quote_a0CNMVC5kQw4ZZBcNgYr1,"Minder",false,2026-06-03,"Prepare walls for decoration",painting,480,8.00,240.00,102.00,138.00,17.3
+quote_a0CNMVC5kQw4ZZBcNgYr1,"Minder",false,2026-06-03,"Paint walls and ceilings throughout",painting,1920,32.00,960.00,572.00,388.00,12.1
+quote_a0CNMVC5kQw4ZZBcNgYr1,"Minder",false,2026-06-03,"Paint all doors and skirting boards",painting,960,16.00,480.00,254.00,226.00,14.1
+quote_Nd4TnmKgFFAyEmakJ92hC,"Jaymie",false,2026-04-14,"Remove carpet tiles from 5m × 3m area",waste_removal,960,16.00,400.00,0.00,400.00,25.0
+quote_Nd4TnmKgFFAyEmakJ92hC,"Jaymie",false,2026-04-14,"Lay vinyl flooring, 15m²",flooring,960,16.00,540.00,0.00,540.00,33.8
+quote_Nd4TnmKgFFAyEmakJ92hC,"Jaymie",false,2026-04-14,"Remove suspended ceiling and disconnect lights.",electrical_minor,300,5.00,275.00,0.00,275.00,55.0
+quote_Nd4TnmKgFFAyEmakJ92hC,"Jaymie",false,2026-04-14,"Install plasterboard ceiling to timber joists",plastering,960,16.00,704.00,127.00,577.00,36.1
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Lag pipework with lagging insulation",plumbing_minor,120,2.00,90.00,19.00,71.00,35.5
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Backfill and compact hole",general_fixing,45,0.75,55.00,38.00,17.00,22.7
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Re-lay tiles and re-grout flooring",tiling,240,4.00,160.00,44.00,116.00,29.0
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Install MDF under-stair cupboard with shelves and soft-close doors",carpentry,480,8.00,320.00,457.00,-137.00,-17.1
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Remove carpet and install laminate flooring",flooring,480,8.00,240.00,229.00,11.00,1.4
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Install laminate trim",flooring,180,3.00,90.00,64.00,26.00,8.7
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Strip wallpaper from walls",painting,120,2.00,80.00,0.00,80.00,40.0
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Sand and make good walls",plastering,180,3.00,112.00,19.00,93.00,31.0
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Paint bedroom walls",painting,300,5.00,150.00,38.00,112.00,22.4
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Paint doors and skirting boards, two rooms",painting,180,3.00,90.00,44.00,46.00,15.3
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Install new laminate flooring throughout",flooring,480,8.00,240.00,229.00,11.00,1.4
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Install laminate trim",flooring,180,3.00,90.00,64.00,26.00,8.7
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Install integrated washer door",kitchen_fitting,60,1.00,150.00,0.00,150.00,150.0
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Fix cupboard door hinge",door_fitting,60,1.00,59.00,19.00,40.00,40.0
+quote_quOScWk9RK0EruzC_xmfz,"Sandra",false,2026-06-09,"Fit mirror to wardrobe door",flat_pack,60,1.00,60.00,178.00,-118.00,-118.0
+quote_osUGM0uYWXxTCsN3p0hc7,"Louise ",false,2026-04-01,"Supply and fit new cupboard doors in kitchen",kitchen_fitting,480,8.00,520.00,952.50,-432.50,-54.1
+quote_osUGM0uYWXxTCsN3p0hc7,"Louise ",false,2026-04-01,"Supply and fit new fronts to all draws in kitchen",kitchen_fitting,270,4.50,292.50,152.40,140.10,31.1
+quote_osUGM0uYWXxTCsN3p0hc7,"Louise ",false,2026-04-01,"Add shelves to one of the cupboards in kitchen",shelving,120,2.00,78.00,31.75,46.25,23.1
+quote_osUGM0uYWXxTCsN3p0hc7,"Louise ",false,2026-04-01,"Cut back hole in ceiling to joists",carpentry,150,2.50,130.00,0.00,130.00,52.0
+quote_osUGM0uYWXxTCsN3p0hc7,"Louise ",false,2026-04-01,"Patch hole with plaster board",plastering,150,2.50,130.00,57.15,72.85,29.1
+quote_osUGM0uYWXxTCsN3p0hc7,"Louise ",false,2026-04-01,"Re skim and artex ceiling",plastering,270,4.50,234.00,57.15,176.85,39.3
+quote_osUGM0uYWXxTCsN3p0hc7,"Louise ",false,2026-04-01,"Supply and fit 3 new internal doors",door_fitting,390,6.50,295.75,285.75,10.00,1.5
+quote_osUGM0uYWXxTCsN3p0hc7,"Louise ",false,2026-04-01,"Investigate one door that isn't closing properly",carpentry,90,1.50,78.00,0.00,78.00,52.0
+quote_osUGM0uYWXxTCsN3p0hc7,"Louise ",false,2026-04-01,"Fit plastic vent covers to 2 external holes",general_fixing,90,1.50,71.50,25.40,46.10,30.7
+quote_osUGM0uYWXxTCsN3p0hc7,"Louise ",false,2026-04-01,"Jet wash patio",pressure_washing,210,3.50,136.50,0.00,136.50,39.0
+quote_osUGM0uYWXxTCsN3p0hc7,"Louise ",false,2026-04-01,"Cut back flooring where damaged",flooring,180,3.00,117.00,0.00,117.00,39.0
+quote_osUGM0uYWXxTCsN3p0hc7,"Louise ",false,2026-04-01,"Replace with customer supplied floorboard",flooring,240,4.00,156.00,0.00,156.00,39.0
+quote_JRQ64dlGFAdAP6gh6zfSd,"Tommasina",true,2026-04-21,"Scrape and repaint external window sill",general_fixing,120,2.00,65.00,13.00,52.00,26.0
+quote_JRQ64dlGFAdAP6gh6zfSd,"Tommasina",true,2026-04-21,"Repaint external pagoda black and white",painting,960,16.00,528.00,64.00,464.00,29.0
+quote_JRQ64dlGFAdAP6gh6zfSd,"Tommasina",true,2026-04-21,"Remove and dispose polycarbonate roof sheets",waste_removal,180,3.00,85.00,0.00,85.00,28.3
+quote_JRQ64dlGFAdAP6gh6zfSd,"Tommasina",true,2026-04-21,"Supply and fit polycarbonate roof sheets",general_fixing,960,16.00,540.00,368.00,172.00,10.8
+quote_JRQ64dlGFAdAP6gh6zfSd,"Tommasina",true,2026-04-21,"Remove and dispose of old plinths",general_fixing,60,1.00,55.00,0.00,55.00,55.0
+quote_JRQ64dlGFAdAP6gh6zfSd,"Tommasina",true,2026-04-21,"Supply and fit new plinths",carpentry,240,4.00,192.00,191.00,1.00,0.3
+quote_JRQ64dlGFAdAP6gh6zfSd,"Tommasina",true,2026-04-21,"Refix loose back curtain holder to wall",curtain_blinds,30,0.50,45.00,0.00,45.00,90.0
+quote_JRQ64dlGFAdAP6gh6zfSd,"Tommasina",true,2026-04-21,"Replace 3 door Handles with customer supplied handles",,0,0.00,70.00,0.00,70.00,0.0
+quote_JRQ64dlGFAdAP6gh6zfSd,"Tommasina",true,2026-04-21,"Fix 4 solar lights to posts ",,0,0.00,50.00,0.00,50.00,0.0
+quote_JRQ64dlGFAdAP6gh6zfSd,"Tommasina",true,2026-04-21,"Cement in pole to hold back trellis ",,0,0.00,60.00,30.00,30.00,0.0
+quote_YIaKOT9h1Rpfa6sMkg0Rv,"Rachel",false,2026-04-30,"Strip wallpaper from staircase and upstairs hallway",painting,360,6.00,180.00,0.00,180.00,30.0
+quote_YIaKOT9h1Rpfa6sMkg0Rv,"Rachel",false,2026-04-30,"Repair and replaster wall",plastering,1440,24.00,960.00,165.00,795.00,33.1
+quote_YIaKOT9h1Rpfa6sMkg0Rv,"Rachel",false,2026-04-30,"Supply and paint staircase and hallway",painting,480,8.00,288.00,64.00,224.00,28.0
+quote_YIaKOT9h1Rpfa6sMkg0Rv,"Rachel",false,2026-04-30,"Supply and fit new staircase handrail",curtain_blinds,180,3.00,120.00,114.00,6.00,2.0
+quote_YIaKOT9h1Rpfa6sMkg0Rv,"Rachel",false,2026-04-30,"Plater and pain ceiling ",plastering,60,1.00,100.00,0.00,100.00,100.0
+quote_91uRniVIFGuFnLdpqj1Yw,"BMW",false,2026-06-03,"Repaint wall white.",painting,480,8.00,240.00,76.00,164.00,20.5
+quote_91uRniVIFGuFnLdpqj1Yw,"BMW",false,2026-06-03,"Paint wall in washable chalk paint",painting,480,8.00,240.00,114.00,126.00,15.8
+quote_91uRniVIFGuFnLdpqj1Yw,"BMW",false,2026-06-03,"Paint showroom wall black",painting,420,7.00,210.00,76.00,134.00,19.1
+quote_91uRniVIFGuFnLdpqj1Yw,"BMW",false,2026-06-03,"Paint office walls white",painting,360,6.00,180.00,38.00,142.00,23.7
+quote_91uRniVIFGuFnLdpqj1Yw,"BMW",false,2026-06-03,"Paint 2 office walls white",painting,360,6.00,180.00,38.00,142.00,23.7
+quote_91uRniVIFGuFnLdpqj1Yw,"BMW",false,2026-06-03,"Relocate TV wall bracket",tv_mounting,90,1.50,75.00,0.00,75.00,50.0
+quote_91uRniVIFGuFnLdpqj1Yw,"BMW",false,2026-06-03,"Arrange colour-matching consultation",painting,30,0.50,45.00,0.00,45.00,90.0
+quote_91uRniVIFGuFnLdpqj1Yw,"BMW",false,2026-06-03,"Build timber frame",carpentry,180,3.00,120.00,64.00,56.00,18.7
+quote_0_GQVYh15GWfs4rhI-34k,"Fran ",false,2026-04-14,"Lay concrete slabs on prepared hard core base.",carpentry,960,16.00,720.00,699.00,21.00,1.3
+quote_0_GQVYh15GWfs4rhI-34k,"Fran ",false,2026-04-14,"Build 15.5ft × 6ft summer house",carpentry,1440,24.00,1152.00,0.00,1152.00,48.0
+quote_SXxYRukd7DPdON78ETcqt,"Natasha",false,2026-05-27,"Install wall panelling to bedroom.",carpentry,480,8.00,320.00,660.00,-340.00,-42.5
+quote_SXxYRukd7DPdON78ETcqt,"Natasha",false,2026-05-27,"Install beading paneling and prepare hallway, stairs, landing",carpentry,960,16.00,640.00,178.00,462.00,28.9
+quote_SXxYRukd7DPdON78ETcqt,"Natasha",false,2026-05-27,"Remove and refit radiators",plumbing_minor,150,2.50,113.00,0.00,113.00,45.2
+quote_SXxYRukd7DPdON78ETcqt,"Natasha",false,2026-05-27,"Prime and paint wood panelling and walls.",painting,480,8.00,288.00,0.00,288.00,36.0
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"Seal splashbacks between counter and tile, 4 apartments",silicone_sealant,240,4.00,145.00,51.00,94.00,23.5
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"Investigate and repair dropped window",general_fixing,30,0.50,20.00,0.00,20.00,40.0
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"Fill around external service box, top floor",silicone_sealant,60,1.00,62.00,13.00,49.00,49.0
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"top floor apartment supply and install flext outlet switched fuse spur",electrical_minor,45,0.75,68.00,13.00,55.00,73.3
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"fix boiler boxing in and fit doors with hinges and handels",carpentry,300,5.00,210.00,32.00,178.00,35.6
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"supply and fit 4x skirting to front of old fire place aprox 1 meter each",carpentry,180,3.00,156.00,38.00,118.00,39.3
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"1x skirting small pice next to door to be fitted",carpentry,45,0.75,58.00,0.00,58.00,77.3
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"Replace incorrectly fitted skirting board",carpentry,90,1.50,63.00,19.00,44.00,29.3
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"Fix loose wall socket",electrical_minor,30,0.50,68.00,0.00,68.00,136.0
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"Install 4 curtain rails",curtain_blinds,180,3.00,95.00,0.00,95.00,31.7
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"investigate 4x shower seals",silicone_sealant,30,0.50,38.00,0.00,38.00,76.0
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"Fix back 2× fuse spur",electrical_minor,30,0.50,68.00,0.00,68.00,136.0
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"Cut and fit kitchen plinth",kitchen_fitting,90,1.50,100.00,0.00,100.00,66.7
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"Fill 2 holes in wall",general_fixing,30,0.50,45.00,13.00,32.00,64.0
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"Seal gaps around all sockets and switches that require sealing",silicone_sealant,90,1.50,95.00,13.00,82.00,54.7
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"re seal 2x shower trays with aunti mould silicone",silicone_sealant,240,4.00,140.00,25.00,115.00,28.8
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"touch up grout in showers where grout is missing",tiling,270,4.50,190.00,76.00,114.00,25.3
+quote_NBFVJ4cabsa7ENpYPPh_R,"CGD Group",false,2026-05-13,"supply and Instal 12x doorstops",general_fixing,60,1.00,105.00,70.00,35.00,35.0
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Install bath panel and timber frame",bathroom_fitting,120,2.00,150.00,0.00,150.00,75.0
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Supply and fit new toilet seat",general_fixing,45,0.75,55.00,25.00,30.00,40.0
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Supply and fit new towel rail",electrical_minor,120,2.00,105.00,114.00,-9.00,-4.5
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Supply and fit new shower holder",plumbing_minor,30,0.50,60.00,19.00,41.00,82.0
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Supply and fit new timber vanity top to toilet",carpentry,120,2.00,85.00,25.00,60.00,30.0
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Paint one bedroom wall",painting,120,2.00,80.00,0.00,80.00,40.0
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Paint living room and kitchen walls",painting,300,5.00,150.00,0.00,150.00,30.0
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Deep clean oven and extractor hood",general_fixing,150,2.50,80.00,0.00,80.00,32.0
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Cut and fit plinths to size",carpentry,120,2.00,85.00,0.00,85.00,42.5
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Paint 4 bedroom walls",painting,270,4.50,135.00,0.00,135.00,30.0
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Fill cupboard hole with plasterboard and skim",plastering,180,3.00,125.00,0.00,125.00,41.7
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Replace downlight lamps with supplied units",electrical_minor,30,0.50,65.00,0.00,65.00,130.0
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Replace bathroom cupboard handles",bathroom_fitting,30,0.50,75.00,0.00,75.00,150.0
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Replace damaged skirting with customer supplied materials",carpentry,150,2.50,105.00,0.00,105.00,42.0
+quote_bYuW4HZWi2zV4m_Dqb5Qd,"Omar ",false,2026-05-06,"Supply and fit new internal door",door_fitting,150,2.50,90.00,114.00,-24.00,-9.6
+quote_1bKVBO7ZyRy876tzq9H2H,"Linda",false,2026-05-25,"Remove shower cubicle",plumbing_minor,90,1.50,68.00,0.00,68.00,45.3
+quote_1bKVBO7ZyRy876tzq9H2H,"Linda",false,2026-05-25,"Remove tiling from wall",tiling,180,3.00,120.00,0.00,120.00,40.0
+quote_1bKVBO7ZyRy876tzq9H2H,"Linda",false,2026-05-25,"Install new plasterboard to damaged walls.",carpentry,390,6.50,260.00,76.00,184.00,28.3
+quote_1bKVBO7ZyRy876tzq9H2H,"Linda",false,2026-05-25,"Re-tile wall with existing tiles",tiling,390,6.50,286.00,51.00,235.00,36.2
+quote_1bKVBO7ZyRy876tzq9H2H,"Linda",false,2026-05-25,"Regrout tiles",tiling,240,4.00,184.00,64.00,120.00,30.0
+quote_1bKVBO7ZyRy876tzq9H2H,"Linda",false,2026-05-25,"Install shower cubicle",plumbing_minor,240,4.00,180.00,25.00,155.00,38.8
+quote_1bKVBO7ZyRy876tzq9H2H,"Linda",false,2026-05-25,"Reseal shower cubicle silicone",silicone_sealant,240,4.00,108.00,25.00,83.00,20.8
+quote_1bKVBO7ZyRy876tzq9H2H,"Linda",false,2026-05-25,"Fix leaking toilet",plumbing_minor,120,2.00,90.00,0.00,90.00,45.0
+quote_5sM40O-eC0G_c96WDX-yF,"Mandy",false,2026-06-02,"Paint garden fence",painting,480,8.00,240.00,0.00,240.00,30.0
+quote_5sM40O-eC0G_c96WDX-yF,"Mandy",false,2026-06-02,"Paint a door",painting,90,1.50,73.00,0.00,73.00,48.7
+quote_5sM40O-eC0G_c96WDX-yF,"Mandy",false,2026-06-02,"Paint driveway",painting,300,5.00,150.00,0.00,150.00,30.0
+quote_5sM40O-eC0G_c96WDX-yF,"Mandy",false,2026-06-02,"Paint garden fence, both sides",painting,960,16.00,480.00,0.00,480.00,30.0
+quote_MGxXl_umu-Kw86Y3w8cGa,"Kitty ",false,2026-04-16,"Strip wallpaper from two rooms and dispose waste",painting,1440,24.00,840.00,0.00,840.00,35.0
+quote_MGxXl_umu-Kw86Y3w8cGa,"Kitty ",false,2026-04-16,"Remove and dispose of old brick fireplace.",waste_removal,300,5.00,165.00,0.00,165.00,33.0
+quote_LhMW5d2qklchqUmICWIGd,"S",false,2026-06-10,"Install base for patio slabs",garden_maintenance,300,5.00,244.05,64.00,180.05,36.0
+quote_LhMW5d2qklchqUmICWIGd,"S",false,2026-06-10,"Lay and cut slabs to size",garden_maintenance,960,16.00,780.95,699.00,81.95,5.1
+quote_LhMW5d2qklchqUmICWIGd,"S",false,2026-06-10,"Remove brick wall",general_fixing,120,2.00,117.14,0.00,117.14,58.6
+quote_LhMW5d2qklchqUmICWIGd,"S",false,2026-06-10,"Extend brick wall",general_fixing,300,5.00,292.86,0.00,292.86,58.6
+quote_OSbZGwu2YULLJJ1MvHK1w,"Lise",false,2026-03-30,"Supply and build new decking 3.5 meter by 2.7 meter",other,1500,25.00,1137.50,444.50,693.00,27.7
+quote_OSbZGwu2YULLJJ1MvHK1w,"Lise",false,2026-03-30,"Fit 6 customer supplied fence panels",fencing,180,3.00,136.50,0.00,136.50,45.5
+quote_QFR9-cFpslH0vmALUoU3N,"Richard ",false,2026-04-09,"Remove old ply roof",other,150,2.50,113.75,0.00,113.75,45.5
+quote_QFR9-cFpslH0vmALUoU3N,"Richard ",false,2026-04-09,"Install new polycarbonate sheets",other,1440,24.00,1092.00,0.00,1092.00,45.5
+quote_S0Faw9LiiUR-rzQp-a0an,"Nicola",true,2026-06-01,"Jet wash and de-weed patio",pressure_washing,300,5.00,180.00,0.00,180.00,36.0
+quote_S0Faw9LiiUR-rzQp-a0an,"Nicola",true,2026-06-01,"Pressure-wash and de-weed front drive",pressure_washing,390,6.50,225.00,0.00,225.00,34.6
+quote_S0Faw9LiiUR-rzQp-a0an,"Nicola",true,2026-06-01,"Re-grout patio paving",garden_maintenance,480,8.00,200.00,89.00,111.00,13.9
+quote_S0Faw9LiiUR-rzQp-a0an,"Nicola",true,2026-06-01,"Sand and reseal front driveway",garden_maintenance,300,5.00,125.00,38.00,87.00,17.4
+quote_znHHQUiwnj5eSxaVVtCn9,"Paula ",false,2026-04-27,"Install decorative panelling on staircase and upstairs wall",carpentry,960,16.00,700.00,318.00,382.00,23.9
+quote_znHHQUiwnj5eSxaVVtCn9,"Paula ",false,2026-04-27,"Supply and fit panelling to one living room wall",carpentry,480,8.00,350.00,229.00,121.00,15.1
+quote_GCnVb_IA2C-YTTjA9RLca,"Tracy  ",false,2026-04-04,"Install Winchester log cabin",carpentry,1440,24.00,1248.00,0.00,1248.00,52.0
+quote_GU7myG8jff7L-MNniGZra,"Sandra",false,2026-04-24,"supply and fit three external doors and frames",door_fitting,960,16.00,728.00,762.00,-34.00,-2.1
+quote_GU7myG8jff7L-MNniGZra,"Sandra",false,2026-04-24,"remove old outside toilet",plumbing_minor,120,2.00,117.00,0.00,117.00,58.5
+quote_GU7myG8jff7L-MNniGZra,"Sandra",false,2026-04-24,"remove old stopcock and fit a new one",plumbing_minor,120,2.00,117.00,32.00,85.00,42.5
+quote_GU7myG8jff7L-MNniGZra,"Sandra",false,2026-04-24,"install new pipe work and new external tap",plumbing_minor,210,3.50,205.00,89.00,116.00,33.1
+quote_CTJh5dqtAqeeD1LiT8aZF,"Gareth",true,2026-04-23,"Install customer supplied sound prof isolation above 3 suspended ceilings",carpentry,960,16.00,832.00,0.00,832.00,52.0
+quote_CTJh5dqtAqeeD1LiT8aZF,"Gareth",true,2026-04-23,"Fill holes with expanding foam high level",general_fixing,60,1.00,72.00,25.00,47.00,47.0
+quote_CTJh5dqtAqeeD1LiT8aZF,"Gareth",true,2026-04-23,"Add hazard tape to duct work external",plumbing_minor,60,1.00,78.00,25.00,53.00,53.0
+quote_CTJh5dqtAqeeD1LiT8aZF,"Gareth",true,2026-04-23,"Fit cage ovwe gas pipe cut to correct size",plumbing_minor,150,2.50,146.00,0.00,146.00,58.4
+quote_CTJh5dqtAqeeD1LiT8aZF,"Gareth",true,2026-04-23,"Replace handle, lock and latch on door",door_fitting,90,1.50,78.00,32.00,46.00,30.7
+quote_CTJh5dqtAqeeD1LiT8aZF,"Gareth",true,2026-04-23,"Fix coded lock onto door with latch on other side",lock_change,90,1.50,98.00,38.00,60.00,40.0
+quote_LA6eR38l8iIjfQxrTmjIW,"Rajinder",false,2026-04-02,"Professionally install 4 internal doors",door_fitting,480,8.00,364.00,0.00,364.00,45.5
+quote_LA6eR38l8iIjfQxrTmjIW,"Rajinder",false,2026-04-02,"Professionally install 6 internal doors with separate thumb turn locks",door_fitting,720,12.00,546.00,0.00,546.00,45.5
+quote_LA6eR38l8iIjfQxrTmjIW,"Rajinder",false,2026-04-02,"Professionally install 1 internal door with key lock",door_fitting,150,2.50,113.75,0.00,113.75,45.5
+quote_yq4nLPmF0hDoVUN9TGUTh,"Mark ",false,2026-04-02,"Supply and install new paving slabs in front garden (4m x 3m, gradual slope, cut to fit around bay window)",other,480,8.00,364.00,635.00,-271.00,-33.9
+quote_yq4nLPmF0hDoVUN9TGUTh,"Mark ",false,2026-04-02,"Supply and install new wall at front of house (4m x 0.8m)",other,480,8.00,364.00,711.20,-347.20,-43.4
+quote_yq4nLPmF0hDoVUN9TGUTh,"Mark ",false,2026-04-02,"Supply and install membrane to front garden area in front of window",other,180,3.00,136.50,69.85,66.65,22.2
+quote_yq4nLPmF0hDoVUN9TGUTh,"Mark ",false,2026-04-02,"Add customer supplied stones on top of membrane",other,180,3.00,136.50,0.00,136.50,45.5
+quote_WqiDHNsXrZgWXBoLbh8hu,"Jag",false,2026-04-25,"Supply and install battens for feather boards",carpentry,480,8.00,114.00,191.00,-77.00,-9.6
+quote_WqiDHNsXrZgWXBoLbh8hu,"Jag",false,2026-04-25,"Install customer supplied feather boards",carpentry,480,8.00,516.00,0.00,516.00,64.5
+quote_WqiDHNsXrZgWXBoLbh8hu,"Jag",false,2026-04-25,"Change 4 ceiling lights, 6 wall lights, 1 light above pool table, 2 wall lights changed for fused spurs",electrical_minor,300,5.00,325.00,0.00,325.00,65.0
+quote_QQfDsK5ED32-A0pi22qXa,"Julie",false,2026-04-02,"Install customer supplied cupboard door",carpentry,60,1.00,71.50,0.00,71.50,71.5
+quote_QQfDsK5ED32-A0pi22qXa,"Julie",false,2026-04-02,"Install customer supplied kick board",carpentry,30,0.50,60.00,0.00,60.00,120.0
+quote_QQfDsK5ED32-A0pi22qXa,"Julie",false,2026-04-02,"Tighten hinge under sink cupboard door",general_fixing,15,0.25,22.50,0.00,22.50,90.0
+quote_QQfDsK5ED32-A0pi22qXa,"Julie",false,2026-04-02,"Re adjust and tighten 3 sockets in kitchen make good with silicone if needed",electrical_minor,120,2.00,130.00,12.70,117.30,58.6
+quote_QQfDsK5ED32-A0pi22qXa,"Julie",false,2026-04-02,"Re plaster wall next to door 300mmx1500mm",plastering,120,2.00,104.00,44.45,59.55,29.8
+quote_QQfDsK5ED32-A0pi22qXa,"Julie",false,2026-04-02,"Paint wall 300mmx1500mm",painting,60,1.00,90.00,25.40,64.60,64.6
+quote_QQfDsK5ED32-A0pi22qXa,"Julie",false,2026-04-02,"Install folding door on pantry in kitchen",carpentry,120,2.00,104.00,63.50,40.50,20.3
+quote_QQfDsK5ED32-A0pi22qXa,"Julie",false,2026-04-02,"Install folding door on cupboard in bedroom",carpentry,120,2.00,104.00,63.50,40.50,20.3
+quote_QQfDsK5ED32-A0pi22qXa,"Julie",false,2026-04-02,"Install new fence/guard rail onto decking",fencing,300,5.00,227.50,444.50,-217.00,-43.4
+quote_QQfDsK5ED32-A0pi22qXa,"Julie",false,2026-04-02,"Re fix the beading around the living room",carpentry,120,2.00,104.00,0.00,104.00,52.0
+quote_QQfDsK5ED32-A0pi22qXa,"Julie",false,2026-04-02,"Secure handle on cupboard in bedroom",general_fixing,15,0.25,22.50,0.00,22.50,90.0
+quote_QQfDsK5ED32-A0pi22qXa,"Julie",false,2026-04-02,"Box in pipe work approximately 3 meters long",carpentry,180,3.00,156.00,50.80,105.20,35.1
+quote_cHkEC-JlyssxkqTXWM49L,"Vicky",false,2026-06-16,"Install acoustic panelling",carpentry,480,8.00,320.00,64.00,256.00,32.0
+quote_cHkEC-JlyssxkqTXWM49L,"Vicky",false,2026-06-16,"Install mirrors to wall",carpentry,480,8.00,320.00,64.00,256.00,32.0
+quote_cHkEC-JlyssxkqTXWM49L,"Vicky",false,2026-06-16,"Build bespoke TV cabinet",flat_pack,240,4.00,120.00,0.00,120.00,30.0
+quote_cHkEC-JlyssxkqTXWM49L,"Vicky",false,2026-06-16,"Mount TV on lower wall section",tv_mounting,30,0.50,53.00,0.00,53.00,106.0
+quote_R8n6v1E6BTAVTVxgcysNA,"Charlie ",false,2026-04-02,"Tile around window with customer supplied tiles",tiling,150,2.50,130.00,0.00,130.00,52.0
+quote_R8n6v1E6BTAVTVxgcysNA,"Charlie ",false,2026-04-02,"Tile behind oven with customer supplied tiles",tiling,150,2.50,130.00,0.00,130.00,52.0
+quote_R8n6v1E6BTAVTVxgcysNA,"Charlie ",false,2026-04-02,"Grout all tiling",tiling,90,1.50,78.00,38.10,39.90,26.6
+quote_R8n6v1E6BTAVTVxgcysNA,"Charlie ",false,2026-04-02,"Fit tongue and groove panels to kitchen walls behind units (cut out sockets where needed)",carpentry,360,6.00,312.00,0.00,312.00,52.0
+quote_R8n6v1E6BTAVTVxgcysNA,"Charlie ",false,2026-04-02,"Remove and replace 8 sockets with customer supplied sockets",electrical_minor,300,5.00,325.00,0.00,325.00,65.0
+quote_R8n6v1E6BTAVTVxgcysNA,"Charlie ",false,2026-04-02,"Hang new customer supplied bathroom door",carpentry,120,2.00,104.00,0.00,104.00,52.0
+quote_R8n6v1E6BTAVTVxgcysNA,"Charlie ",false,2026-04-02,"Investigate why toilet isn't flushing correctly",plumbing_minor,60,1.00,78.00,0.00,78.00,78.0
+quote_5kQlDbfaspiIPAnJUF97b,"Panda property ",true,2026-03-30,"Re fix toilet roll holder and 2 towel rails",other,30,0.50,52.50,0.00,52.50,105.0
+quote_5kQlDbfaspiIPAnJUF97b,"Panda property ",true,2026-03-30,"Clean carpets throughout property",general_fixing,180,3.00,117.00,25.40,91.60,30.5
+quote_5kQlDbfaspiIPAnJUF97b,"Panda property ",true,2026-03-30,"Sand down and re paint skirting",painting,60,1.00,90.00,0.00,90.00,90.0
+quote_5kQlDbfaspiIPAnJUF97b,"Panda property ",true,2026-03-30,"Add stain blocker and re paint wall behind sink",painting,60,1.00,90.00,25.40,64.60,64.6
+quote_5kQlDbfaspiIPAnJUF97b,"Panda property ",true,2026-03-30,"Add mould remover to ceiling in bathroom and re paint ceiling",painting,120,2.00,104.00,38.10,65.90,33.0
+quote_5kQlDbfaspiIPAnJUF97b,"Panda property ",true,2026-03-30,"Sand down table in bedrooms where it’s damaged and re paint ",general_fixing,60,1.00,71.50,12.70,58.80,58.8
+quote_5kQlDbfaspiIPAnJUF97b,"Panda property ",true,2026-03-30,"Clean carpets where dirty ",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_5kQlDbfaspiIPAnJUF97b,"Panda property ",true,2026-03-30,"Fill holes next to radiator",general_fixing,30,0.50,45.00,6.35,38.65,77.3
+quote_5kQlDbfaspiIPAnJUF97b,"Panda property ",true,2026-03-30,"Wall patch up in lots of areas of property ",painting,360,6.00,234.00,107.95,126.05,21.0
+quote_5kQlDbfaspiIPAnJUF97b,"Panda property ",true,2026-03-30,"Patch hole in kitchen floor. ( subject to an off cut of the same flooring being available) ",carpentry,180,3.00,156.00,0.00,156.00,52.0
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Repair and repaint five window sills; treat mould on frames",painting,240,4.00,220.00,36.00,184.00,46.0
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Stain-block and repaint dark patch on wall",painting,45,0.75,68.00,15.00,53.00,70.7
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Scrape and repaint ceiling above AC vent",painting,45,0.75,68.00,6.00,62.00,82.7
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Remove existing shower head.",plumbing_minor,20,0.33,45.00,0.00,45.00,135.0
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Reseal shower with new silicone sealant",silicone_sealant,45,0.75,55.00,5.00,50.00,66.7
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Clean sink and tap; reseal behind as required",silicone_sealant,45,0.75,55.00,5.00,50.00,66.7
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Remove redundant plug fittings and fill holes, Bedroom 2",painting,45,0.75,68.00,4.00,64.00,85.3
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Replace extractor fan pull cord in main bathroom",electrical_minor,20,0.33,50.00,8.00,42.00,126.0
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Remove mould, stain-block and repaint bathroom ceiling.",painting,90,1.50,80.00,34.00,46.00,30.7
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Inspect towel rail and clean mould if present.",plumbing_minor,15,0.25,34.00,0.00,34.00,136.0
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Regrout bathroom tiles in two areas.",tiling,90,1.50,60.00,11.00,49.00,32.7
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Reseal bath with silicone sealant",silicone_sealant,30,0.50,38.00,5.00,33.00,66.0
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Clean limescale from bathroom tap",plumbing_minor,15,0.25,34.00,4.00,30.00,120.0
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Deep clean toilet",other,20,0.33,35.00,4.00,31.00,93.0
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Patch holes above shower with epoxy filler",painting,30,0.50,45.00,6.00,39.00,78.0
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Replace three damaged ceiling tiles in hallway",carpentry,45,0.75,121.00,30.00,91.00,121.3
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Sand and repaint hallway skirting board section",painting,45,0.75,68.00,14.00,54.00,72.0
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Clean AC unit and check filters.",other,30,0.50,50.00,0.00,50.00,100.0
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Refix curtain rail, fill holes, and repaint living room window.",curtain_blinds,60,1.00,55.00,14.00,41.00,41.0
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Reseal kitchen tile junction with worktop",silicone_sealant,30,0.50,38.00,5.00,33.00,66.0
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Refix kitchen plinths",kitchen_fitting,45,0.75,113.00,10.00,103.00,137.3
+quote_o2Ork86eIS0CheAzDbJQ1,"Sharon",false,2026-04-22,"Repaint living room door",painting,45,0.75,68.00,19.00,49.00,65.3
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Repair and repaint five window sills; treat mould on frames.",painting,240,4.00,135.00,0.00,135.00,33.8
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Stain-block and repaint dark patch on wall",painting,45,0.75,68.00,0.00,68.00,90.7
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Scrape and repaint ceiling above AC vent",painting,45,0.75,68.00,0.00,68.00,90.7
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Remove existing shower head",plumbing_minor,20,0.33,45.00,0.00,45.00,135.0
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Reseal shower in ensuite bathroom",silicone_sealant,45,0.75,55.00,0.00,55.00,73.3
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Clean sink and tap; reseal behind sink where required",silicone_sealant,45,0.75,55.00,0.00,55.00,73.3
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Fill holes and remove redundant plug fittings, Bedroom 2",painting,45,0.75,68.00,0.00,68.00,90.7
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Replace extractor fan pull cord",electrical_minor,20,0.33,50.00,0.00,50.00,150.0
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Remove mould, stain-block and repaint bathroom ceiling.",painting,90,1.50,111.00,0.00,111.00,74.0
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Inspect towel rail; clean if mould present",plumbing_minor,15,0.25,34.00,0.00,34.00,136.0
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Regrout bathroom walls and floor in two areas",tiling,90,1.50,99.00,0.00,99.00,66.0
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Reseal bath with new silicone",silicone_sealant,30,0.50,38.00,0.00,38.00,76.0
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Clean limescale from bathroom tap",plumbing_minor,15,0.25,34.00,0.00,34.00,136.0
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Clean and disinfect toilet bowl thoroughly",other,20,0.33,35.00,0.00,35.00,105.0
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Patch holes above shower with epoxy filler",painting,30,0.50,45.00,0.00,45.00,90.0
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Replace three damaged ceiling tiles",carpentry,45,0.75,55.00,0.00,55.00,73.3
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Sand and repaint damaged hallway skirting.",painting,45,0.75,68.00,0.00,68.00,90.7
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Clean hallway AC unit and check filters",other,30,0.50,50.00,0.00,50.00,100.0
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Reffix curtain rail, fill holes and repaint.",curtain_blinds,60,1.00,56.00,0.00,56.00,56.0
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Reseal kitchen tiles at worktop junction",silicone_sealant,30,0.50,38.00,0.00,38.00,76.0
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Refix kitchen plinths",kitchen_fitting,45,0.75,113.00,0.00,113.00,150.7
+quote_vE8COwn7JkjS8nfupKnty,"Sharon",false,2026-04-22,"Repaint living room door",painting,45,0.75,68.00,0.00,68.00,90.7
+quote_9uD98a-je_0JkHPfeyRjj,"Linda ",false,2026-06-08,"Mount 2 TV brackets",tv_mounting,150,2.50,150.00,51.00,99.00,39.6
+quote_9uD98a-je_0JkHPfeyRjj,"Linda ",false,2026-06-08,"Assemble 2 flat-pack wardrobes",flat_pack,300,5.00,140.00,0.00,140.00,28.0
+quote_9uD98a-je_0JkHPfeyRjj,"Linda ",false,2026-06-08,"Install 3 upholstered headboards",carpentry,180,3.00,120.00,0.00,120.00,40.0
+quote_9uD98a-je_0JkHPfeyRjj,"Linda ",false,2026-06-08,"Prepare and paint walls",painting,420,7.00,210.00,38.00,172.00,24.6
+quote_Z0cx8J-fGwRLBghGhM2Eg,"Arash",false,2026-05-25,"Supply and fit new base unit with cupboard door.",kitchen_fitting,240,4.00,240.00,152.00,88.00,22.0
+quote_Z0cx8J-fGwRLBghGhM2Eg,"Arash",false,2026-05-25,"Supply and install new plastic shed",carpentry,480,8.00,380.00,635.00,-255.00,-31.9
+quote_Z0cx8J-fGwRLBghGhM2Eg,"Arash",false,2026-05-25,"Dismantle and remove old wooden shed.",waste_removal,300,5.00,150.00,0.00,150.00,30.0
+quote_Z0cx8J-fGwRLBghGhM2Eg,"Arash",false,2026-05-25,"Investigate and repair front door lock",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_GMjG2fbf3JWRcxvnA1tZl,"Zara ",false,2026-04-18,"Remove curtain track",curtain_blinds,45,0.75,55.00,0.00,55.00,73.3
+quote_GMjG2fbf3JWRcxvnA1tZl,"Zara ",false,2026-04-18,"Scrape and prepare paintwork affected by water damage",painting,150,2.50,80.00,0.00,80.00,32.0
+quote_GMjG2fbf3JWRcxvnA1tZl,"Zara ",false,2026-04-18,"Sand walls and fill imperfections",general_fixing,300,5.00,150.00,38.00,112.00,22.4
+quote_GMjG2fbf3JWRcxvnA1tZl,"Zara ",false,2026-04-18,"Paint full wall grey",painting,480,8.00,240.00,64.00,176.00,22.0
+quote_GMjG2fbf3JWRcxvnA1tZl,"Zara ",false,2026-04-18,"Replace curtain track",curtain_blinds,45,0.75,55.00,0.00,55.00,73.3
+quote_niNXa7TJlG50TgUh8LRcs,"Bobby",false,2026-04-29,"Install cupboard lock on door",lock_change,90,1.50,95.00,19.00,76.00,50.7
+quote_niNXa7TJlG50TgUh8LRcs,"Bobby",false,2026-04-29,"Assemble sofa set",flat_pack,120,2.00,63.00,0.00,63.00,31.5
+quote_niNXa7TJlG50TgUh8LRcs,"Bobby",false,2026-04-29,"Mount TV on wall",tv_mounting,90,1.50,65.00,0.00,65.00,43.3
+quote_niNXa7TJlG50TgUh8LRcs,"Bobby",false,2026-04-29,"Supply and install door boarding",door_fitting,150,2.50,105.00,89.00,16.00,6.4
+quote_niNXa7TJlG50TgUh8LRcs,"Bobby",false,2026-04-29,"Paint bedroom walls and ceiling",painting,180,3.00,110.00,25.00,85.00,28.3
+quote_niNXa7TJlG50TgUh8LRcs,"Bobby",false,2026-04-29,"Paint bedroom 2",painting,180,3.00,110.00,25.00,85.00,28.3
+quote_niNXa7TJlG50TgUh8LRcs,"Bobby",false,2026-04-29,"Paint bedroom 3",painting,180,3.00,110.00,25.00,85.00,28.3
+quote_bg2qYaKPd4wsOPYX0CXA8,"Panda",true,2026-04-07,"Re-hang mirror on wall",general_fixing,60,1.00,35.00,0.00,35.00,35.0
+quote_bg2qYaKPd4wsOPYX0CXA8,"Panda",true,2026-04-07,"Re-paint wall next to door frame",painting,60,1.00,75.00,19.05,55.95,56.0
+quote_bg2qYaKPd4wsOPYX0CXA8,"Panda",true,2026-04-07,"Patch hole in wall",plastering,45,0.75,45.00,12.70,32.30,43.1
+quote_bg2qYaKPd4wsOPYX0CXA8,"Panda",true,2026-04-07,"Touch up patched hole with paint",painting,45,0.75,35.00,12.70,22.30,29.7
+quote_bg2qYaKPd4wsOPYX0CXA8,"Panda",true,2026-04-07,"Re-paint full wall where scratched all over",painting,180,3.00,105.00,25.40,79.60,26.5
+quote_bg2qYaKPd4wsOPYX0CXA8,"Panda",true,2026-04-07,"Re-fix toilet seat",plumbing_minor,30,0.50,35.00,0.00,35.00,70.0
+quote_bg2qYaKPd4wsOPYX0CXA8,"Panda",true,2026-04-07,"Re-fix lamp shade that has come loose",general_fixing,30,0.50,25.00,0.00,25.00,50.0
+quote_bg2qYaKPd4wsOPYX0CXA8,"Panda",true,2026-04-07,"Patch wall where paint has come away",plastering,45,0.75,45.00,12.70,32.30,43.1
+quote_bg2qYaKPd4wsOPYX0CXA8,"Panda",true,2026-04-07,"Re-paint patched wall area",painting,180,3.00,105.00,25.40,79.60,26.5
+quote_bg2qYaKPd4wsOPYX0CXA8,"Panda",true,2026-04-07,"Fix data cable ",electrical_minor,60,1.00,15.00,0.00,15.00,15.0
+quote_bg2qYaKPd4wsOPYX0CXA8,"Panda",true,2026-04-07,"Re-paint wall that is badly scratched under data cable",painting,180,3.00,105.00,25.40,79.60,26.5
+quote_bg2qYaKPd4wsOPYX0CXA8,"Panda",true,2026-04-07,"Re-fix electric heater to wall",electrical_minor,60,1.00,45.00,0.00,45.00,45.0
+quote_V_W-23y9jBnCQR8DwaCob,"Jaymie",true,2026-06-08,"Install vinyl flooring",flooring,960,16.00,480.00,0.00,480.00,30.0
+quote_GIdpRX2_KjtpqS4VY0o4w,"Fishy ",false,2026-06-05,"Clear weeds from back garden",garden_maintenance,480,8.00,200.00,0.00,200.00,25.0
+quote_GIdpRX2_KjtpqS4VY0o4w,"Fishy ",false,2026-06-05,"Clear weeds from front garden",garden_maintenance,180,3.00,75.00,0.00,75.00,25.0
+quote_GIdpRX2_KjtpqS4VY0o4w,"Fishy ",false,2026-06-05,"Remove waste and rubbish",waste_removal,90,1.50,64.00,0.00,64.00,42.7
+quote_GIdpRX2_KjtpqS4VY0o4w,"Fishy ",false,2026-06-05,"Apply weed prevention treatment to garden beds",garden_maintenance,180,3.00,75.00,76.00,-1.00,-0.3
+quote_1eVZiWK-ytLjn8uQFj1bU,"Gabrielle",true,2026-04-20,"Remove old security box from external second-level front.",general_fixing,90,1.50,62.00,0.00,62.00,41.3
+quote_1eVZiWK-ytLjn8uQFj1bU,"Gabrielle",true,2026-04-20,"Fill and make good security box removal hole",general_fixing,60,1.00,55.00,0.00,55.00,55.0
+quote_1eVZiWK-ytLjn8uQFj1bU,"Gabrielle",true,2026-04-20,"Inspect roof and identify leak source.",plumbing_minor,45,0.75,65.00,0.00,65.00,86.7
+quote_1eVZiWK-ytLjn8uQFj1bU,"Gabrielle",true,2026-04-20,"Clean and jet wash roof",pressure_washing,300,5.00,180.00,0.00,180.00,36.0
+quote_1eVZiWK-ytLjn8uQFj1bU,"Gabrielle",true,2026-04-20,"Paint rendered front facade",painting,420,7.00,280.00,64.00,216.00,30.9
+quote_1eVZiWK-ytLjn8uQFj1bU,"Gabrielle",true,2026-04-20,"Remove debris from roofing section and reseal",,0,0.00,40.00,0.00,40.00,0.0
+quote_odpPk6nlctf6cRYHhC67t,"Nicola",false,2026-05-14,"Weed and tidy front garden",garden_maintenance,180,3.00,75.00,0.00,75.00,25.0
+quote_odpPk6nlctf6cRYHhC67t,"Nicola",false,2026-05-14,"Mow back garden lawn",garden_maintenance,240,4.00,100.00,0.00,100.00,25.0
+quote_odpPk6nlctf6cRYHhC67t,"Nicola",false,2026-05-14,"Paint garden fence",painting,420,7.00,210.00,102.00,108.00,15.4
+quote_odpPk6nlctf6cRYHhC67t,"Nicola",false,2026-05-14,"Trim hedge back ",garden_maintenance,60,1.00,80.00,0.00,80.00,80.0
+quote_Atr4KHxQfd_nd0fMKymBt,"Kings ",true,2026-04-21,"Remove wallpaper from two walls",painting,420,7.00,210.00,0.00,210.00,30.0
+quote_Atr4KHxQfd_nd0fMKymBt,"Kings ",true,2026-04-21,"Install wallpaper to 2 walls",painting,420,7.00,210.00,0.00,210.00,30.0
+quote_jxzcBJLFUahzvIc8l2BfM,"John",false,2026-04-04,"Remove old double driveway gate",fencing,60,1.00,65.00,0.00,65.00,65.0
+quote_jxzcBJLFUahzvIc8l2BfM,"John",false,2026-04-04,"Supply and install new double driveway gate",fencing,390,6.50,295.75,825.50,-529.75,-81.5
+quote_jxzcBJLFUahzvIc8l2BfM,"John",false,2026-04-04,"Supply and install new fence with single gate 2.3 meters long",fencing,390,6.50,295.75,508.00,-212.25,-32.7
+quote_y1pvlxv-kHZciC9MOITar,"Sharon",true,2026-04-14,"Remove and reseal bathroom bath",bathroom_fitting,90,1.50,195.00,13.00,182.00,121.3
+quote_y1pvlxv-kHZciC9MOITar,"Sharon",true,2026-04-14,"Fix loose curtain rail",curtain_blinds,45,0.75,68.00,0.00,68.00,90.7
+quote_y1pvlxv-kHZciC9MOITar,"Sharon",true,2026-04-14,"Replace 2 damaged ceiling tiles",general_fixing,60,1.00,72.00,108.00,-36.00,-36.0
+quote_y1pvlxv-kHZciC9MOITar,"Sharon",true,2026-04-14,"Sand and repaint damaged skirting board.",painting,60,1.00,90.00,32.00,58.00,58.0
+quote_y1pvlxv-kHZciC9MOITar,"Sharon",true,2026-04-14,"Sand and repaint damaged window sill.",painting,60,1.00,90.00,19.00,71.00,71.0
+quote_y1pvlxv-kHZciC9MOITar,"Sharon",true,2026-04-14,"Repaint wall with colour blending.",painting,120,2.00,104.00,44.00,60.00,30.0
+quote_y1pvlxv-kHZciC9MOITar,"Sharon",true,2026-04-14,"Scrape and repaint ceiling where paint damaged.",painting,210,3.50,137.00,51.00,86.00,24.6
+quote_y1pvlxv-kHZciC9MOITar,"Sharon",true,2026-04-14,"Put back plinths in kitchen where they have come away and re seal around plinths",kitchen_fitting,180,3.00,260.00,25.00,235.00,78.3
+quote_y1pvlxv-kHZciC9MOITar,"Sharon",true,2026-04-14,"Re-seal shower tray with anti-fungal sanitary silicone",,0,0.00,95.00,20.00,75.00,0.0
+quote_y1pvlxv-kHZciC9MOITar,"Sharon",true,2026-04-14,"Clean mould from windows ",,0,0.00,45.00,13.00,32.00,0.0
+quote_qgdNoXG0dsoY08JNu9IVy,"Nafees",false,2026-04-21,"Hang 3 wall mirrors",tv_mounting,120,2.00,70.00,0.00,70.00,35.0
+quote_qgdNoXG0dsoY08JNu9IVy,"Nafees",false,2026-04-21,"Hang wall-mounted phone charger",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_qgdNoXG0dsoY08JNu9IVy,"Nafees",false,2026-04-21,"Hang two TV brackets to wall",tv_mounting,90,1.50,58.00,0.00,58.00,38.7
+quote_qgdNoXG0dsoY08JNu9IVy,"Nafees",false,2026-04-21,"Hang external hose pipe bracket",plumbing_minor,45,0.75,60.00,0.00,60.00,80.0
+quote_qgdNoXG0dsoY08JNu9IVy,"Nafees",false,2026-04-21,"Fix 2 external solar lights",electrical_minor,60,1.00,65.00,0.00,65.00,65.0
+quote_qgdNoXG0dsoY08JNu9IVy,"Nafees",false,2026-04-21,"Hang 2 clocks on walls",general_fixing,45,0.75,55.00,0.00,55.00,73.3
+quote_qgdNoXG0dsoY08JNu9IVy,"Nafees",false,2026-04-21,"Hang sign on wall",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_qgdNoXG0dsoY08JNu9IVy,"Nafees",false,2026-04-21,"Hang hooks for cloth stand",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_qgdNoXG0dsoY08JNu9IVy,"Nafees",false,2026-04-21,"Install external floodlight with upstairs lighting supply.",electrical_minor,240,4.00,200.00,19.00,181.00,45.3
+quote_qgdNoXG0dsoY08JNu9IVy,"Nafees",false,2026-04-21,"Fix bookshelf to wall",shelving,120,2.00,60.00,0.00,60.00,30.0
+quote_QerKoD1dI-lH1SBRnn1eR,"Sarah",true,2026-05-15,"Replace shower unit",plumbing_minor,120,2.00,90.00,0.00,90.00,45.0
+quote_QerKoD1dI-lH1SBRnn1eR,"Sarah",true,2026-05-15,"Supply and fit bathroom shower panelling",bathroom_fitting,480,8.00,420.00,1016.00,-596.00,-74.5
+quote_QerKoD1dI-lH1SBRnn1eR,"Sarah",true,2026-05-15,"Reinstall shower after wall panelling installation.",plumbing_minor,180,3.00,135.00,0.00,135.00,45.0
+quote_qYSU9YmiYdVrlNuCE4n7y,"Alison",false,2026-06-05,"Paint fence",painting,420,7.00,210.00,0.00,210.00,30.0
+quote_qYSU9YmiYdVrlNuCE4n7y,"Alison",false,2026-06-05,"Paint exterior shed",painting,300,5.00,150.00,0.00,150.00,30.0
+quote_qYSU9YmiYdVrlNuCE4n7y,"Alison",false,2026-06-05,"Install key rack and knife rack",shelving,30,0.50,45.00,0.00,45.00,90.0
+quote__-zrzpqcTQjHmsDDLCh2U,"Reece",false,2026-05-07,"Supply and install timber frame, 2 levels with ramps, 7ft × 7ft",carpentry,480,8.00,360.00,203.00,157.00,19.6
+quote__-zrzpqcTQjHmsDDLCh2U,"Reece",false,2026-05-07,"Enclose timber with metal mesh",carpentry,240,4.00,192.00,152.00,40.00,10.0
+quote_v4QIzCtPLi5cQrAJ6PWJC,"Manas",false,2026-04-20,"Mow and tidy lawn",garden_maintenance,240,4.00,100.00,0.00,100.00,25.0
+quote_v4QIzCtPLi5cQrAJ6PWJC,"Manas",false,2026-04-20,"Remove weeds and apply weedkiller treatment.",garden_maintenance,300,5.00,125.00,30.00,95.00,19.0
+quote_v4QIzCtPLi5cQrAJ6PWJC,"Manas",false,2026-04-20,"Remove garden bush",garden_maintenance,180,3.00,75.00,0.00,75.00,25.0
+quote_Aj4WYJ-SdElgxSbTqzZFy,"Kitty ",false,2026-04-16,"Strip wallpaper from two rooms (32m² and 12m²)",painting,480,8.00,240.00,0.00,240.00,30.0
+quote_Aj4WYJ-SdElgxSbTqzZFy,"Kitty ",false,2026-04-16,"Remove brickwork from old fireplace",general_fixing,240,4.00,120.00,0.00,120.00,30.0
+quote_sVBiBTyLqwe5LNWJpvo3r,"Jackie ",false,2026-04-18,"Paint hallway with customer supplied paint",painting,420,7.00,210.00,0.00,210.00,30.0
+quote_sVBiBTyLqwe5LNWJpvo3r,"Jackie ",false,2026-04-18,"Paint gloss skirting boards with supplied product",painting,240,4.00,120.00,0.00,120.00,30.0
+quote_sVBiBTyLqwe5LNWJpvo3r,"Jackie ",false,2026-04-18,"Measure doors for ordering",door_fitting,30,0.50,53.00,0.00,53.00,106.0
+quote_6wQ3sVjsndUzZQV3NKbMU,"Dinesh ",false,2026-03-30,"Assemble new wardrobe",carpentry,240,4.00,208.00,0.00,208.00,52.0
+quote_6wQ3sVjsndUzZQV3NKbMU,"Dinesh ",false,2026-03-30,"Take apart old wardrobe at old house (NG93TW)",carpentry,120,2.00,104.00,0.00,104.00,52.0
+quote_6wQ3sVjsndUzZQV3NKbMU,"Dinesh ",false,2026-03-30,"Take to new house (NG97DR)",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_6wQ3sVjsndUzZQV3NKbMU,"Dinesh ",false,2026-03-30,"Re assemble wardrobe in new house and attach the sliding door",general_fixing,240,4.00,156.00,0.00,156.00,39.0
+quote_6wQ3sVjsndUzZQV3NKbMU,"Dinesh ",false,2026-03-30,"Fix door on wardrobe Thats isn't fitted correctly ",general_fixing,60,1.00,71.50,0.00,71.50,71.5
+quote_9kZCUOtKrkpRzptaRzbHc,"Olivia Wynn",false,2026-05-12,"Install customer-supplied bathroom splashback",tiling,180,3.00,120.00,32.00,88.00,29.3
+quote_9kZCUOtKrkpRzptaRzbHc,"Olivia Wynn",false,2026-05-12,"Install 25 metres skirting boards, customer-supplied",carpentry,480,8.00,320.00,89.00,231.00,28.9
+quote_vL5MMoFBades0dPingopv,"Billie",false,2026-05-19,"Replace water heater",plumbing_minor,210,3.50,185.00,152.00,33.00,9.4
+quote_vL5MMoFBades0dPingopv,"Billie",false,2026-05-19,"Replace door sill",door_fitting,270,4.50,165.00,64.00,101.00,22.4
+quote_vL5MMoFBades0dPingopv,"Billie",false,2026-05-19,"Install rainwater deflector to external door",door_fitting,150,2.50,105.00,38.00,67.00,26.8
+quote_aJKl7dH7yR7vuMJ_sXfR8,"Stephen",true,2026-04-29,"Backfill border area with topsoil",garden_maintenance,240,4.00,105.00,114.00,-9.00,-2.3
+quote_aJKl7dH7yR7vuMJ_sXfR8,"Stephen",true,2026-04-29,"Lay weed membrane over soil",garden_maintenance,150,2.50,69.00,25.00,44.00,17.6
+quote_aJKl7dH7yR7vuMJ_sXfR8,"Stephen",true,2026-04-29,"Add decorative stones to top surface",general_fixing,240,4.00,132.00,265.00,-133.00,-33.3
+quote_h2hmaMllVtsXj4fYwlZjn,"Joe",false,2026-04-23,"Plane and router 4 fire doors to create rebate for intumescent strip",carpentry,360,6.00,288.00,51.00,237.00,39.5
+quote_h2hmaMllVtsXj4fYwlZjn,"Joe",false,2026-04-23,"Fit 3 self closures to fire doors",door_fitting,180,3.00,132.30,114.00,18.30,6.1
+quote_h2hmaMllVtsXj4fYwlZjn,"Joe",false,2026-04-23,"Install 4 smoke seal strips to rebated doors",door_fitting,80,1.33,75.70,102.00,-26.30,-19.7
+quote_npPgrLDMhr08JuasIoOuH,"Briju",false,2026-04-30,"Install fly screens to 3 windows",general_fixing,210,3.50,105.00,76.00,29.00,8.3
+quote_npPgrLDMhr08JuasIoOuH,"Briju",false,2026-04-30,"Defrost and clean refrigerator",general_fixing,120,2.00,60.00,0.00,60.00,30.0
+quote_npPgrLDMhr08JuasIoOuH,"Briju",false,2026-04-30,"Deep clean bathroom",general_fixing,270,4.50,135.00,0.00,135.00,30.0
+quote_fLSlm0bE2bCzinyzHyysW,"Donna",false,2026-04-21,"Supply and fit 2 internal doors",door_fitting,300,5.00,175.00,165.00,10.00,2.0
+quote_fLSlm0bE2bCzinyzHyysW,"Donna",false,2026-04-21,"Fill and patch holes in two walls",plastering,60,1.00,60.00,25.00,35.00,35.0
+quote_fLSlm0bE2bCzinyzHyysW,"Donna",false,2026-04-21,"Paint two walls white",painting,240,4.00,120.00,57.00,63.00,15.8
+quote_z7xkAYVbSFCzCGtl_0dgb,"Michael",true,2026-06-17,"Install new dishwasher",general_fixing,180,3.00,95.00,0.00,95.00,31.7
+quote_z7xkAYVbSFCzCGtl_0dgb,"Michael",true,2026-06-17,"Install new washing machine",general_fixing,180,3.00,95.00,0.00,95.00,31.7
+quote_z7xkAYVbSFCzCGtl_0dgb,"Michael",true,2026-06-17,"Install MDF shelving to TV unit",shelving,180,3.00,90.00,100.00,-10.00,-3.3
+quote_gSNtAWXdGEMTMC9y_zrnx,"Mike",true,2026-04-09,"Dismantle old shed and remove and dispose",other,210,3.50,159.25,0.00,159.25,45.5
+quote_gSNtAWXdGEMTMC9y_zrnx,"Mike",true,2026-04-09,"Install 6' x 3' new shed ",carpentry,330,5.50,286.00,0.00,286.00,52.0
+quote_gSNtAWXdGEMTMC9y_zrnx,"Mike",true,2026-04-09,"Install 6' x 4' Forest Blackwood Shed",,0,0.00,369.00,0.00,369.00,0.0
+quote_gSNtAWXdGEMTMC9y_zrnx,"Mike",true,2026-04-09,"Dismantle second old shed and remove and dispose",,0,0.00,169.25,0.00,169.25,0.0
+quote_ffuqznXUulvXyU2ku3ILl,"Zach",false,2026-03-30,"Clear gutter front and rear of house access by extension ladder",general_fixing,240,4.00,156.00,0.00,156.00,39.0
+quote_ffuqznXUulvXyU2ku3ILl,"Zach",false,2026-03-30,"Clean decking and add Aunti slip treatment paint (second visit needed for second coat)",general_fixing,300,5.00,195.00,127.00,68.00,13.6
+quote_2BWDwqZsPDFzlFwgy-EWy,"Kathy",false,2026-03-30,"Install new shed onto garden flat garden surface",other,540,9.00,409.50,0.00,409.50,45.5
+quote_Aigy_tO3vW7ziRfyJLm1e,"Tam",true,2026-06-12,"Install 3 kitchen cupboards",kitchen_fitting,300,5.00,250.00,0.00,250.00,50.0
+quote_Aigy_tO3vW7ziRfyJLm1e,"Tam",true,2026-06-12,"Fit curtain pole or rail",curtain_blinds,75,1.25,59.00,0.00,59.00,47.2
+quote_Aigy_tO3vW7ziRfyJLm1e,"Tam",true,2026-06-12,"Install porch cupboard",carpentry,150,2.50,100.00,0.00,100.00,40.0
+quote_Jpkz80Ua_AxO03zxBakKL,"Chris ",false,2026-04-20,"Remove silicone sealant from bath perimeter",silicone_sealant,45,0.75,55.00,0.00,55.00,73.3
+quote_Jpkz80Ua_AxO03zxBakKL,"Chris ",false,2026-04-20,"Reseal bath with silicone sealant.",silicone_sealant,180,3.00,85.00,13.00,72.00,24.0
+quote_Jpkz80Ua_AxO03zxBakKL,"Chris ",false,2026-04-20,"Re-grout failed tiles in bathroom",tiling,300,5.00,220.00,38.00,182.00,36.4
+quote_-molH60MN2qTdd-cdyiZZ,"Shaun",true,2026-06-08,"Repair brickwork and repoint mortar joints",general_fixing,180,3.00,90.00,38.00,52.00,17.3
+quote_-molH60MN2qTdd-cdyiZZ,"Shaun",true,2026-06-08,"Install wall vent",general_fixing,45,0.75,55.00,13.00,42.00,56.0
+quote_-molH60MN2qTdd-cdyiZZ,"Shaun",true,2026-06-08,"Fill hole around tap.",general_fixing,30,0.50,45.00,13.00,32.00,64.0
+quote_-molH60MN2qTdd-cdyiZZ,"Shaun",true,2026-06-08,"Assemble flat-pack table",flat_pack,240,4.00,112.00,0.00,112.00,28.0
+quote_SvCqE6Sk4KxZqsN7M159H,"Jess",false,2026-06-02,"Install wall panelling",carpentry,480,8.00,344.00,483.00,-139.00,-17.4
+quote_SjLHLlDtgiThbixppZTP8,"Suman",true,2026-05-19,"Paint garden fence",painting,480,8.00,240.00,44.00,196.00,24.5
+quote_AwHIC9DcCFOJJFcuucAPd,"AJ",true,2026-05-07,"Build concrete shed base with supplied slabs",garden_maintenance,480,8.00,280.00,254.00,26.00,3.3
+quote_4ounRXJgE1Chb-TyhW1yZ,"Theo",false,2026-05-05,"Install customer-supplied pet screen",general_fixing,480,8.00,240.00,0.00,240.00,30.0
+quote_reFeojcPZ1gjMxGKhUizS,"Stephen",false,2026-05-04,"Install customer-supplied shed",plumbing_minor,480,8.00,360.00,0.00,360.00,45.0
+quote_mJ5b1RxqDOHeBYZkXX6Ss,"Aj",true,2026-04-27,"Install 6x4 shed and level floor",carpentry,480,8.00,320.00,0.00,320.00,40.0
+quote_wLIf9Lb0LZWjp_ONLqlmq,"Keisha ",false,2026-04-27,"Supply and fit white bath panelling",bathroom_fitting,300,5.00,280.00,279.00,1.00,0.2
+quote_wLIf9Lb0LZWjp_ONLqlmq,"Keisha ",false,2026-04-27,"Install electric shower and route pipework",electrical_minor,180,3.00,195.00,64.00,131.00,43.7
+quote_s4tC6QwvfVoo1YJSnOe0b,"Rick",true,2026-04-18,"Re-seal bath with new silicone sealant",silicone_sealant,210,3.50,88.00,13.00,75.00,21.4
+quote_s4tC6QwvfVoo1YJSnOe0b,"Rick",true,2026-04-18,"Clear gutters and downpipes.",guttering,150,2.50,88.00,0.00,88.00,35.2
+quote_s4tC6QwvfVoo1YJSnOe0b,"Rick",true,2026-04-18,"Replace gutter corner piece with new fitting.",guttering,120,2.00,70.00,25.00,45.00,22.5
+quote_s4tC6QwvfVoo1YJSnOe0b,"Rick",true,2026-04-18,"Change bathroom extractor fan to CVT2 extractor fan",,0,0.00,120.00,80.00,40.00,0.0
+quote_s4tC6QwvfVoo1YJSnOe0b,"Rick",true,2026-04-18,"add 2 ventilation roof tiles",,0,0.00,100.00,80.00,20.00,0.0
+quote_Rk5fRWLlcssAM_t4K7riB,"Katie ",true,2026-04-15,"Fix shelving brackets to wall",shelving,180,3.00,95.00,64.00,31.00,10.3
+quote_Rk5fRWLlcssAM_t4K7riB,"Katie ",true,2026-04-15,"Fit white gloss shelves to brackets",carpentry,300,5.00,220.00,127.00,93.00,18.6
+quote_RtZXuVIuoDWwGp8XattpC,"Caz ",false,2026-04-09,"Stain 6 fence panels to darker colour and gate, both sides ",painting,480,8.00,312.00,50.80,261.20,32.6
+quote_GhKveoDsjWqdzdQsauHlj,"Rebecca ",true,2026-06-15,"Mount 2 televisions to wall",tv_mounting,120,2.00,150.00,0.00,150.00,75.0
+quote_GhKveoDsjWqdzdQsauHlj,"Rebecca ",true,2026-06-15,"Mount 3 towel holders",general_fixing,45,0.75,55.00,0.00,55.00,73.3
+quote_GhKveoDsjWqdzdQsauHlj,"Rebecca ",true,2026-06-15,"Mount 3 toilet roll holders",general_fixing,45,0.75,55.00,0.00,55.00,73.3
+quote_GhKveoDsjWqdzdQsauHlj,"Rebecca ",true,2026-06-15,"Mount coat hooks",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_GhKveoDsjWqdzdQsauHlj,"Rebecca ",true,2026-06-15,"Mount towel hooks",flat_pack,30,0.50,42.00,0.00,42.00,84.0
+quote_GhKveoDsjWqdzdQsauHlj,"Rebecca ",true,2026-06-15,"Hang 2 mirrors",general_fixing,180,3.00,90.00,0.00,90.00,30.0
+quote_zw6b94-oCT3KEEYg4JeJE,"Fareeda",false,2026-06-04,"Install curtain pole",curtain_blinds,90,1.50,55.00,0.00,55.00,36.7
+quote_zw6b94-oCT3KEEYg4JeJE,"Fareeda",false,2026-06-04,"Install gas hob",kitchen_fitting,120,2.00,200.00,0.00,200.00,100.0
+quote_zw6b94-oCT3KEEYg4JeJE,"Fareeda",false,2026-06-04,"Arrange Gas Safe certification inspection and certificate",other,240,4.00,140.00,0.00,140.00,35.0
+quote_G5PZngZ5RoBQC7Tjkp9ux,"Sandra",false,2026-06-01,"Remove and relocate kitchen cupboards",kitchen_fitting,150,2.50,200.00,0.00,200.00,80.0
+quote_G5PZngZ5RoBQC7Tjkp9ux,"Sandra",false,2026-06-01,"Install extractor fan",electrical_minor,90,1.50,75.00,64.00,11.00,7.3
+quote_G5PZngZ5RoBQC7Tjkp9ux,"Sandra",false,2026-06-01,"Mount TV to brick wall",tv_mounting,90,1.50,91.00,25.00,66.00,44.0
+quote_G5PZngZ5RoBQC7Tjkp9ux,"Sandra",false,2026-06-01,"Install TV aerial",tv_mounting,120,2.00,70.00,13.00,57.00,28.5
+quote_rmaeL2AaYfwHHXo8tn7oK,"Edward",true,2026-05-20,"Remove and dispose of fridge and freezer",waste_removal,240,4.00,120.00,0.00,120.00,30.0
+quote_rmaeL2AaYfwHHXo8tn7oK,"Edward",true,2026-05-20,"Install 2 new kitchen cupboards with replacement doors",kitchen_fitting,210,3.50,280.00,572.00,-292.00,-83.4
+quote_Axb0gCEa3t77d7N3Q4TIU,"Fiona",false,2026-05-15,"Conduct initial site visit and assessment",general_fixing,150,2.50,75.00,0.00,75.00,30.0
+quote_Axb0gCEa3t77d7N3Q4TIU,"Fiona",false,2026-05-15,"Apply anti-mould silicone to bathroom/kitchen surfaces",silicone_sealant,300,5.00,125.00,0.00,125.00,25.0
+quote_2rkFssVtLcvAEGwVMHitH,"Jino",false,2026-05-06,"Install nine customer-supplied blinds",curtain_blinds,450,7.50,225.00,0.00,225.00,30.0
+quote_I_0GJTr9G4FkTLyCzHGck,"Damon",false,2026-05-06,"Cut grass and strim edges along path and fence",fencing,240,4.00,140.00,0.00,140.00,35.0
+quote_I_0GJTr9G4FkTLyCzHGck,"Damon",false,2026-05-06,"Remove weeds from front garden",garden_maintenance,120,2.00,55.00,0.00,55.00,27.5
+quote_I_0GJTr9G4FkTLyCzHGck,"Damon",false,2026-05-06,"Remove waste and rubbish",waste_removal,90,1.50,55.00,0.00,55.00,36.7
+quote_I6B8a2kEXiMS4InMgp21f,"Fiona",false,2026-04-28,"Unblock toilet",plumbing_minor,120,2.00,90.00,0.00,90.00,45.0
+quote_I6B8a2kEXiMS4InMgp21f,"Fiona",false,2026-04-28,"Repair door frame and rehang door",door_fitting,330,5.50,193.00,0.00,193.00,35.1
+quote_I6B8a2kEXiMS4InMgp21f,"Fiona",false,2026-04-28,"Investigate leak coming through ceiling, quote on the day for additional works required ",,0,0.00,50.00,0.00,50.00,0.0
+quote_I6B8a2kEXiMS4InMgp21f,"Fiona",false,2026-04-28,"Stain block boxing on ceiling where leak has stained ceiling ",,0,0.00,30.00,10.00,20.00,0.0
+quote_I6B8a2kEXiMS4InMgp21f,"Fiona",false,2026-04-28,"Re paint boxing in on ceiling after stain blocking",,0,0.00,75.00,20.00,55.00,0.0
+quote_qWij16OXtE67Gz2sOmO_Z,"Ish",true,2026-04-08,"Remove damaged plasterboard section and supply and fit new plasterboard section with reskim ceiling",plastering,300,5.00,260.00,0.00,260.00,52.0
+quote_qWij16OXtE67Gz2sOmO_Z,"Ish",true,2026-04-08,"Paint ceiling white emulsion 2 coats",painting,150,2.50,104.00,0.00,104.00,41.6
+quote_TlD9y9oD-RpFfYirdycTH,"Michael",false,2026-06-17,"Remove damaged fence panel and post.",fencing,180,3.00,105.00,0.00,105.00,35.0
+quote_TlD9y9oD-RpFfYirdycTH,"Michael",false,2026-06-17,"Install fence panel and post",fencing,240,4.00,140.00,203.00,-63.00,-15.8
+quote_gem7ZStV9R1djFiBrZaSU,"Iqra Iqbal",false,2026-05-01,"Build door frame and fit new lock",door_fitting,420,7.00,275.00,152.00,123.00,17.6
+quote_IU4beMa0DfsRpjA6oYwAa,"Radek",false,2026-05-01,"Install customer-supplied manhole cover",general_fixing,420,7.00,210.00,0.00,210.00,30.0
+quote_XoGpQCmmc4_CHPyxWNcEN,"Judie ",false,2026-05-25,"Install 2 customer-supplied blinds",curtain_blinds,180,3.00,90.00,0.00,90.00,30.0
+quote_XoGpQCmmc4_CHPyxWNcEN,"Judie ",false,2026-05-25,"Install new parking sign",general_fixing,45,0.75,55.00,0.00,55.00,73.3
+quote_XoGpQCmmc4_CHPyxWNcEN,"Judie ",false,2026-05-25,"Fix lawn mower cable",electrical_minor,60,1.00,65.00,0.00,65.00,65.0
+quote_XoGpQCmmc4_CHPyxWNcEN,"Judie ",false,2026-05-25,"Repair wooden gate",carpentry,120,2.00,80.00,13.00,67.00,33.5
+quote_7Rk9N35nUMqoSjc76cWVA,"Erika",true,2026-05-25,"Dismantle and move ottoman bed to garage",furniture_repair,270,4.50,135.00,0.00,135.00,30.0
+quote_7Rk9N35nUMqoSjc76cWVA,"Erika",true,2026-05-25,"Assemble new customer supplied bed and headboard ",flat_pack,60,1.00,90.00,0.00,90.00,90.0
+quote_7Rk9N35nUMqoSjc76cWVA,"Erika",true,2026-05-25,"Supply dust sheets to wrap stored bed ",general_fixing,60,1.00,24.00,0.00,24.00,24.0
+quote_vxnaki17iTjqy9yNTJtDm,"Herbert",true,2026-04-09,"Install new customer supplied bath panel",bathroom_fitting,120,2.00,195.00,0.00,195.00,97.5
+quote_vxnaki17iTjqy9yNTJtDm,"Herbert",true,2026-04-09,"Seal around new bath panel to make water tight",silicone_sealant,60,1.00,71.50,0.00,71.50,71.5
+quote_vxnaki17iTjqy9yNTJtDm,"Herbert",true,2026-04-09,"Remove silicone from around toilet and re-silicone",silicone_sealant,45,0.75,56.25,25.40,30.85,41.1
+quote_vxnaki17iTjqy9yNTJtDm,"Herbert",true,2026-04-09,"Remove silicone from around base of sink and re-silicone",silicone_sealant,45,0.75,56.25,0.00,56.25,75.0
+quote_vxnaki17iTjqy9yNTJtDm,"Herbert",true,2026-04-09,"Install new customer supplied internal door",door_fitting,120,2.00,91.00,0.00,91.00,45.5
+quote_eDH8EoF5cnfHf4hgqc1U6,"Isabelle ",true,2026-04-01,"Remove existing flashing from brick mortar",other,120,2.00,91.00,0.00,91.00,45.5
+quote_eDH8EoF5cnfHf4hgqc1U6,"Isabelle ",true,2026-04-01,"Install new flashing",other,180,3.00,136.50,127.00,9.50,3.2
+quote_eDH8EoF5cnfHf4hgqc1U6,"Isabelle ",true,2026-04-01,"Seal flashing to brick and roof ",silicone_sealant,60,1.00,71.50,0.00,71.50,71.5
+quote_eDH8EoF5cnfHf4hgqc1U6,"Isabelle ",true,2026-04-01,"Check for leaks after installation",other,30,0.50,52.50,0.00,52.50,105.0
+quote_Os0j1f85GyQswLy4VaYwr,"Tara",true,2026-06-15,"Reseal bath with new silicone",silicone_sealant,240,4.00,100.00,19.00,81.00,20.3
+quote_Os0j1f85GyQswLy4VaYwr,"Tara",true,2026-06-15,"Patch kitchen ceiling hole",plastering,120,2.00,80.00,13.00,67.00,33.5
+quote_bqx2v6vGemsbGuTBZJeKB,"Stephen",false,2026-06-10,"Remove adhesive tiles and clean wall stains",general_fixing,360,6.00,180.00,0.00,180.00,30.0
+quote_oNmeeExJp1irgHMiGaH4R,"Necos ",false,2026-06-05,"Install metal fence panel",fencing,360,6.00,210.00,203.00,7.00,1.2
+quote_3EDBnEpO5-M1dqja4cewc,"Sukh",false,2026-05-05,"Cut back weeds and overgrown grass",garden_maintenance,360,6.00,150.00,0.00,150.00,25.0
+quote_65IGODUss_5wMq1tqHfSV,"Angela",false,2026-05-05,"Replace decking boards cut to size",carpentry,360,6.00,240.00,0.00,240.00,40.0
+quote_cJafPpPSHFz-SzErTBf3q,"Kevin ",false,2026-05-04,"Realign garage door mechanism",door_fitting,180,3.00,112.00,0.00,112.00,37.3
+quote_cJafPpPSHFz-SzErTBf3q,"Kevin ",false,2026-05-04,"Repair back garage door frame",door_fitting,180,3.00,125.00,19.00,106.00,35.3
+quote_WPpNvEulNbCR7pYV4zdbY,"Natelle",false,2026-04-22,"Assemble flat pack gaming desk.",flat_pack,180,3.00,84.00,0.00,84.00,28.0
+quote_WPpNvEulNbCR7pYV4zdbY,"Natelle",false,2026-04-22,"Assemble flat pack gaming chair",flat_pack,180,3.00,84.00,0.00,84.00,28.0
+quote_UzFoEXSXqPwEEdyTVz76A,"Hester",true,2026-04-14,"Hang new oak internal door",door_fitting,240,4.00,140.00,0.00,140.00,35.0
+quote_UzFoEXSXqPwEEdyTVz76A,"Hester",true,2026-04-14,"Adjust understairs cupboard door to close correctly.",door_fitting,120,2.00,70.00,0.00,70.00,35.0
+quote_UzFoEXSXqPwEEdyTVz76A,"Hester",true,2026-04-14,"Supply new hinges and latch",materials,0,0.00,30.00,0.00,30.00,0.0
+quote_G8MZemLGCGY7LELzjJig8,"Raymund",false,2026-06-01,"Re-seal full bathrooom including bath",silicone_sealant,210,3.50,160.00,20.00,140.00,40.0
+quote_G8MZemLGCGY7LELzjJig8,"Raymund",false,2026-06-01,"Inspect floorboards",general_fixing,15,0.25,23.00,0.00,23.00,92.0
+quote_G8MZemLGCGY7LELzjJig8,"Raymund",false,2026-06-01,"seal window",silicone_sealant,60,1.00,80.00,30.00,50.00,50.0
+quote_G8MZemLGCGY7LELzjJig8,"Raymund",false,2026-06-01,"Cut back bush in front garden",garden_maintenance,60,1.00,90.00,0.00,90.00,90.0
+quote_NDu-80B1ucXzhVjtdeJR1,"john doe",false,2026-05-10,"Fix leaking tap",plumbing_minor,45,0.75,85.00,0.00,85.00,113.3
+quote_NDu-80B1ucXzhVjtdeJR1,"john doe",false,2026-05-10,"Paint wall white",painting,120,2.00,120.00,0.00,120.00,60.0
+quote_NDu-80B1ucXzhVjtdeJR1,"john doe",false,2026-05-10,"Install 2 locks on front door",lock_change,90,1.50,150.00,25.00,125.00,83.3
+quote_NDu-80B1ucXzhVjtdeJR1,"john doe",false,2026-05-10,"Install IKEA shelving unit",general_fixing,90,1.50,95.00,0.00,95.00,63.3
+quote_whr5sj4_LmdqBbgffQ7DW,"Stephanie ",false,2026-06-15,"Repair kitchen worktop to matched finish",kitchen_fitting,330,5.50,275.00,0.00,275.00,50.0
+quote_rhASR9xcRNhfMBaprLhAi,"Will",false,2026-06-13,"Dismantle 2 wardrobes",general_fixing,150,2.50,75.00,0.00,75.00,30.0
+quote_rhASR9xcRNhfMBaprLhAi,"Will",false,2026-06-13,"Remove waste and rubbish",waste_removal,180,3.00,278.00,0.00,278.00,92.7
+quote_Vt8Hz4R4Ev1ksg9VsJfGS,"Geoff ",false,2026-06-11,"Remove and re-seal shower tray",silicone_sealant,180,3.00,75.00,19.00,56.00,18.7
+quote_Vt8Hz4R4Ev1ksg9VsJfGS,"Geoff ",false,2026-06-11,"Re-seal shower waste",silicone_sealant,30,0.50,38.00,0.00,38.00,76.0
+quote_Vt8Hz4R4Ev1ksg9VsJfGS,"Geoff ",false,2026-06-11,"Re-grout tiles",tiling,120,2.00,96.00,32.00,64.00,32.0
+quote_Z4an2iMTG1flDRg3gtDh_,"Mila",false,2026-05-05,"Adjust bedroom door",door_fitting,150,2.50,80.00,0.00,80.00,32.0
+quote_Z4an2iMTG1flDRg3gtDh_,"Mila",false,2026-05-05,"Inspect and tighten kitchen sink waste pipe",kitchen_fitting,30,0.50,60.00,0.00,60.00,120.0
+quote_Z4an2iMTG1flDRg3gtDh_,"Mila",false,2026-05-05,"Level water butt on existing slab",general_fixing,150,2.50,60.00,0.00,60.00,24.0
+quote_s71kO7QGbyL3NAaYh8Kwg,"Safee",true,2026-04-29,"Replace sash cord on window",carpentry,240,4.00,160.00,38.00,122.00,30.5
+quote_s71kO7QGbyL3NAaYh8Kwg,"Safee",true,2026-04-29,"Replace door handle",door_fitting,90,1.50,63.00,25.00,38.00,25.3
+quote_1dQPBX7ktM4iZVzRtNCiv,"Phil ",false,2026-04-21,"Disconnect and remove ceiling speakers",electrical_minor,150,2.50,135.00,0.00,135.00,54.0
+quote_1dQPBX7ktM4iZVzRtNCiv,"Phil ",false,2026-04-21,"Remove pendant lights from two locations.",electrical_minor,180,3.00,162.00,25.00,137.00,45.7
+quote_YD8S5MlRQKbp3ygj5s-8e,"Emma",true,2026-05-14,"Drill 2 holes through kitchen units for pipework",kitchen_fitting,45,0.75,113.00,0.00,113.00,150.7
+quote_YD8S5MlRQKbp3ygj5s-8e,"Emma",true,2026-05-14,"Install curtain rail on solid wall",curtain_blinds,60,1.00,55.00,0.00,55.00,55.0
+quote_YD8S5MlRQKbp3ygj5s-8e,"Emma",true,2026-05-14,"Install ottoman bed frame",flat_pack,210,3.50,98.00,0.00,98.00,28.0
+quote_0dn1j-4vcx-9ODjIqZWHy,"Varun",false,2026-06-01,"Dismantle flat-pack wardrobe",general_fixing,180,3.00,90.00,0.00,90.00,30.0
+quote_0dn1j-4vcx-9ODjIqZWHy,"Varun",false,2026-06-01,"Remove waste and rubbish",waste_removal,120,2.00,161.00,0.00,161.00,80.5
+quote_GpAjdyGNxH-taKVCXWZxT,"Safee",false,2026-05-29,"Remove 3 sash windows, remove staff bead, sand all parts, Put back windows",carpentry,300,5.00,260.00,0.00,260.00,52.0
+quote_wPI8oAlmwU4pQQWNd40S,"Sarah Thompson",false,2026-05-29,"Remove 3 sash windows, remove staff bead, sand all parts, Put back windows",carpentry,300,5.00,260.00,0.00,260.00,52.0
+quote_VsYITzs7rnaH3CACc7L8o,"Kaz",false,2026-05-26,"Repair back-to-wall toilet pan",general_fixing,60,1.00,55.00,0.00,55.00,55.0
+quote_VsYITzs7rnaH3CACc7L8o,"Kaz",false,2026-05-26,"Install customer-supplied blind",curtain_blinds,90,1.50,55.00,0.00,55.00,36.7
+quote_VsYITzs7rnaH3CACc7L8o,"Kaz",false,2026-05-26,"Paint front door with supplied paint",painting,150,2.50,80.00,0.00,80.00,32.0
+quote_JsA0DNBcG8ZaL22IN3qQQ,"Victoria",true,2026-05-13,"Sand back wall",plastering,150,2.50,105.00,0.00,105.00,42.0
+quote_JsA0DNBcG8ZaL22IN3qQQ,"Victoria",true,2026-05-13,"Fill and finish walls with seamless plaster",plastering,150,2.50,105.00,25.00,80.00,32.0
+quote_B3jiWOhzUUa6c1w14-Bjk,"Lara ",true,2026-04-27,"Install bendable PVC curtain track",curtain_blinds,300,5.00,175.00,76.00,99.00,19.8
+quote_LFpSXQKU3JzbADP0qC8Cj,"Luke",false,2026-04-22,"Supply and fit 2 internal doors",door_fitting,300,5.00,175.00,165.00,10.00,2.0
+quote_zIdx1pR6rsC7mI-oXO8NC,"Panda ",true,2026-04-02,"Add stain block to wall",painting,30,0.50,45.00,19.05,25.95,51.9
+quote_zIdx1pR6rsC7mI-oXO8NC,"Panda ",true,2026-04-02,"Repaint medium sized wall",painting,120,2.00,104.00,44.45,59.55,29.8
+quote_zIdx1pR6rsC7mI-oXO8NC,"Panda ",true,2026-04-02,"Add mould remover to bathroom ceiling",painting,30,0.50,45.00,19.05,25.95,51.9
+quote_zIdx1pR6rsC7mI-oXO8NC,"Panda ",true,2026-04-02,"Repaint bathroom ceiling",painting,120,2.00,104.00,44.45,59.55,29.8
+quote_2TinnaZwjfw8sQLfDH_R1,"Olivia ",false,2026-06-10,"Install wooden blinds",general_fixing,270,4.50,135.00,0.00,135.00,30.0
+quote_I6eP8xjeCAgMEWnQRRcQb,"Kam",false,2026-05-19,"Remove and fit 2 new kitchen cupboards with doors",kitchen_fitting,180,3.00,200.00,0.00,200.00,66.7
+quote_I6eP8xjeCAgMEWnQRRcQb,"Kam",false,2026-05-19,"Install kitchen cupboard door to dishwasher front",kitchen_fitting,30,0.50,75.00,0.00,75.00,150.0
+quote_I6eP8xjeCAgMEWnQRRcQb,"Kam",false,2026-05-19,"Install kitchen plinth with neat corner cut",kitchen_fitting,60,1.00,150.00,0.00,150.00,150.0
+quote_noqBGS0O5PZj7If8tdCy7,"Meen",true,2026-05-14,"Install blinds in bay window",curtain_blinds,210,3.50,105.00,0.00,105.00,30.0
+quote_noqBGS0O5PZj7If8tdCy7,"Meen",true,2026-05-14,"Install blind in bedroom window",curtain_blinds,60,1.00,55.00,0.00,55.00,55.0
+quote_CsQpJZSWQGF47rXkBUwW1,"Maryam",false,2026-05-08,"Install flat pack wardrobe",flat_pack,270,4.50,126.00,0.00,126.00,28.0
+quote__0mK4noOk5rS4I5TjBScY,"Tony",true,2026-05-08,"Install 4 light switches with supplied surrounds",electrical_minor,90,1.50,75.00,0.00,75.00,50.0
+quote__0mK4noOk5rS4I5TjBScY,"Tony",true,2026-05-08,"Supply and fit new pendant light",electrical_minor,30,0.50,75.00,13.00,62.00,124.0
+quote__0mK4noOk5rS4I5TjBScY,"Tony",true,2026-05-08,"Remove 2 doors and plane back edges",door_fitting,60,1.00,60.00,0.00,60.00,60.0
+quote__0mK4noOk5rS4I5TjBScY,"Tony",true,2026-05-08,"Pin back coving to ceiling",general_fixing,90,1.50,55.00,0.00,55.00,36.7
+quote_HC7c_8aijneVzeh0SbeNG,"Moi",false,2026-04-16,"Fit five customer supplied blinds",curtain_blinds,270,4.50,135.00,0.00,135.00,30.0
+quote_JBZDhkkl3xE8-yeCHq0Z0,"Celine ",false,2026-04-06,"Repair bed",furniture_repair,90,1.50,71.50,0.00,71.50,47.7
+quote_JBZDhkkl3xE8-yeCHq0Z0,"Celine ",false,2026-04-06,"Paint room",painting,180,3.00,117.00,0.00,117.00,39.0
+quote_VeEqVzbPauTyCTEQLHY8r,"James ",true,2026-05-08,"Replace 2 shower hoses",general_fixing,15,0.25,23.00,32.00,-9.00,-36.0
+quote_VeEqVzbPauTyCTEQLHY8r,"James ",true,2026-05-08,"Remove and reseal bath with anti-mould sealant",silicone_sealant,120,2.00,75.00,13.00,62.00,31.0
+quote_VeEqVzbPauTyCTEQLHY8r,"James ",true,2026-05-08,"Remove and reseal bath with anti-mould sealant",silicone_sealant,120,2.00,75.00,13.00,62.00,31.0
+quote_9_ASV16RIG3y7gg17uUpR,"Emile",false,2026-04-12,"Install 2 TV brackets",tv_mounting,120,2.00,75.00,25.40,49.60,24.8
+quote_9_ASV16RIG3y7gg17uUpR,"Emile",false,2026-04-12,"Install 3 shelves",general_fixing,90,1.50,65.00,0.00,65.00,43.3
+quote_9_ASV16RIG3y7gg17uUpR,"Emile",false,2026-04-12,"Reseal bath",silicone_sealant,45,0.75,56.25,12.70,43.55,58.1
+quote_2tKQPC_YLD2wyqG71YYIT,"Alamdar",false,2026-06-03,"Replace PVC window hinges",door_fitting,240,4.00,270.00,76.00,194.00,48.5
+quote_PfqFnmyUYNIbiXZhZWRzd,"Megan",false,2026-05-27,"Install 4 roller blinds",curtain_blinds,240,4.00,180.00,0.00,180.00,45.0
+quote_aJSBF3KHIq_7t8tOtyQIo,"Tim",true,2026-05-25,"Replace silicone and PVC track",silicone_sealant,240,4.00,165.00,38.00,127.00,31.8
+quote_rcWTZnizJoA2lC_ntL7y9,"Lewis ",false,2026-05-21,"Install 2 window boards",carpentry,240,4.00,160.00,76.00,84.00,21.0
+quote_6a10UQxK26ZOjVCew7271,"Sanam",false,2026-05-20,"Install new window hinges",door_fitting,120,2.00,85.00,51.00,34.00,17.0
+quote_6a10UQxK26ZOjVCew7271,"Sanam",false,2026-05-20,"Install new tap cartridge",plumbing_minor,120,2.00,102.00,38.00,64.00,32.0
+quote_9ZgWfiqluOxMoVwLv6ST6,"Ava",false,2026-04-29,"Dismantle 2 wardrobes carefully",flat_pack,240,4.00,112.00,0.00,112.00,28.0
+quote_gQWFHD_j4i8N97-_k-AdB,"Nu",false,2026-04-27,"Install customer-supplied flat pack drawers",flat_pack,240,4.00,112.00,0.00,112.00,28.0
+quote_5eyceCUrGZZObzeUXwtfY,"Martin",true,2026-04-15,"Replace 3 broken pavement slabs, level bed",carpentry,180,3.00,140.00,51.00,89.00,29.7
+quote_5eyceCUrGZZObzeUXwtfY,"Martin",true,2026-04-15,"Install customer-supplied street sign",general_fixing,60,1.00,55.00,0.00,55.00,55.0
+quote_I0AFNeLFRQjh_3SB6wa9o,"Kam",true,2026-04-09,"Install 5 customer supplied blinds",curtain_blinds,240,4.00,156.00,0.00,156.00,39.0
+quote_ygE1tnxhh0ymjMNZBA0jz,"Amanda ",true,2026-04-07,"Install customer supplied trampoline",other,240,4.00,182.00,0.00,182.00,45.5
+quote_ENOOGa_NogGJgvrfBceSu,"Beverley",true,2026-04-02,"Supply and install new oven window to front door (600mm x 250mm)",other,240,4.00,182.00,152.40,29.60,7.4
+quote_EQP0FzKNjJd0wjsjFiIz0,"Karan",true,2026-05-07,"Replace 2 faulty electrical plugs",plumbing_minor,60,1.00,75.00,44.00,31.00,31.0
+quote_EQP0FzKNjJd0wjsjFiIz0,"Karan",true,2026-05-07,"Repair front door top hinge",door_fitting,45,0.75,65.00,0.00,65.00,86.7
+quote_EQP0FzKNjJd0wjsjFiIz0,"Karan",true,2026-05-07,"Cut door and install new letterbox",door_fitting,120,2.00,98.00,32.00,66.00,33.0
+quote_C3p83UFS1_cSk1vENMFOW,"Magnus ",false,2026-04-02,"Remove upholstery from headboard",furniture_repair,30,0.50,45.00,0.00,45.00,90.0
+quote_C3p83UFS1_cSk1vENMFOW,"Magnus ",false,2026-04-02,"Cut headboard in half",carpentry,45,0.75,71.50,0.00,71.50,95.3
+quote_C3p83UFS1_cSk1vENMFOW,"Magnus ",false,2026-04-02,"Reassemble headboard back to one piece upstairs",carpentry,60,1.00,71.50,0.00,71.50,71.5
+quote_C3p83UFS1_cSk1vENMFOW,"Magnus ",false,2026-04-02,"Reattach upholstery to headboard",furniture_repair,90,1.50,71.50,0.00,71.50,47.7
+quote_PLZuT0wUIGECpRYpW9DpS,"Alison",true,2026-06-01,"Remove fireplace",general_fixing,120,2.00,60.00,0.00,60.00,30.0
+quote_PLZuT0wUIGECpRYpW9DpS,"Alison",true,2026-06-01,"Remove waste and rubbish",waste_removal,90,1.50,64.00,0.00,64.00,42.7
+quote_AkYHUiP2luwlvx7YS_ubF,"Temi",false,2026-05-28,"Assemble bicycle",flat_pack,210,3.50,127.00,0.00,127.00,36.3
+quote_06rd-iJfWk13DT7jPiT6q,"Priya",false,2026-05-28,"Install shelf onto wall",shelving,150,2.50,75.00,0.00,75.00,30.0
+quote_06rd-iJfWk13DT7jPiT6q,"Priya",false,2026-05-28,"Install wall mirror",general_fixing,60,1.00,55.00,0.00,55.00,55.0
+quote_rfJbSrvJNuN_QNcuKvdUC,"Tim",false,2026-05-26,"Supply and fit MDF bath panel, paint white",carpentry,210,3.50,165.00,127.00,38.00,10.9
+quote_uLrYpDD5lzQ2tFjqCGpdd,"Paul",false,2026-05-08,"Supply and install bar mixer, riser rail and shower head",plumbing_minor,210,3.50,198.00,216.00,-18.00,-5.1
+quote_8HwYv2jV3bsOjqGAKKPz_,"Nicola ",false,2026-05-08,"Supply and fit new bath panel",bathroom_fitting,120,2.00,150.00,83.00,67.00,33.5
+quote_8HwYv2jV3bsOjqGAKKPz_,"Nicola ",false,2026-05-08,"Supply and fit new bathroom light",electrical_minor,60,1.00,65.00,25.00,40.00,40.0
+quote_8HwYv2jV3bsOjqGAKKPz_,"Nicola ",false,2026-05-08,"Install customer-supplied blind",curtain_blinds,30,0.50,45.00,0.00,45.00,90.0
+quote_q8E7kPW_NvxoVKz__5uj9,"Fiona ",true,2026-05-07,"Unblock shower drain",plumbing_minor,90,1.50,68.00,0.00,68.00,45.3
+quote_q8E7kPW_NvxoVKz__5uj9,"Fiona ",true,2026-05-07,"Inspect shower for leaks",plumbing_minor,120,2.00,90.00,0.00,90.00,45.0
+quote_fVA9H8S_HvQJh9oAhSin7,"Rytis ",false,2026-04-27,"Replace shower silicone with anti-mould sealant",silicone_sealant,210,3.50,155.00,13.00,142.00,40.6
+quote_hzJMxQVVvSYU1PqMj3XjO,"Andy",true,2026-04-27,"Hang door and reverse swing direction",door_fitting,210,3.50,123.00,0.00,123.00,35.1
+quote_smIATQq7m_hn3uN_kK6m8,"Bethany",false,2026-05-27,"Install bath shower screen",general_fixing,180,3.00,108.00,127.00,-19.00,-6.3
+quote_ZfWKzkiLkkiC1inffKEX0,"Stuart ",true,2026-05-26,"Install customer-supplied curtain rail",curtain_blinds,180,3.00,90.00,0.00,90.00,30.0
+quote_ga0znfjDO6OjX2siJkn1G,"Jay",false,2026-05-19,"Replace extractor with CV2 model",electrical_minor,180,3.00,165.00,102.00,63.00,21.0
+quote_uxTXzowcZ9Gt-NRmSJPfu,"Michael",true,2026-05-15,"Install wooden beam above fireplace",carpentry,180,3.00,120.00,0.00,120.00,40.0
+quote_eHka3-XDrIHddjtIjOGBD,"Letty",false,2026-05-12,"Paint garage door black",painting,180,3.00,108.00,64.00,44.00,14.7
+quote_F7wf8QiT9HACYoU08vxXn,"Cath",false,2026-04-29,"Supply and fit washing line pole with concrete base",general_fixing,180,3.00,135.00,38.00,97.00,32.3
+quote_JtCVMfxQkbPKdANPsOXPu,"Chloe",false,2026-04-28,"Remove door and plane to close correctly.",door_fitting,180,3.00,118.00,0.00,118.00,39.3
+quote_bCLJc_xmvDlTERRs_Ssr-,"Matthew ",true,2026-04-22,"Cut and refit plinths.",carpentry,180,3.00,120.00,0.00,120.00,40.0
+quote_tV3ccQTkzwow3kklTKu_M,"Elliot ",true,2026-04-18,"Remove old cat flap",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_tV3ccQTkzwow3kklTKu_M,"Elliot ",true,2026-04-18,"Install new cat flap and adjust door",door_fitting,150,2.50,95.00,0.00,95.00,38.0
+quote_GY8QJfhDNzyGBhGC4ZPhd,"Ananyo",true,2026-04-10,"Fix 2 baby gates that are already installed",general_fixing,60,1.00,71.50,0.00,71.50,71.5
+quote_GY8QJfhDNzyGBhGC4ZPhd,"Ananyo",true,2026-04-10,"Install 3 customer supplied shelves to wall",general_fixing,120,2.00,78.00,0.00,78.00,39.0
+quote_GY8QJfhDNzyGBhGC4ZPhd,"Ananyo",true,2026-04-10,"Install customer supplied pictures and fix desk",,0,0.00,65.00,0.00,65.00,0.0
+quote_1EXDhEnNqwcUuSO9lIv69,"Gary ",false,2026-04-07,"Dig out old grout between tiles and brick",tiling,60,1.00,78.00,0.00,78.00,78.0
+quote_1EXDhEnNqwcUuSO9lIv69,"Gary ",false,2026-04-07,"Re-grout tiles (approx 3 meters)",tiling,120,2.00,104.00,50.80,53.20,26.6
+quote_aXvl1RLZYgXiEy1OEJZUX,"Chloe",true,2026-04-07,"Remove all old silicone",silicone_sealant,30,0.50,37.50,0.00,37.50,75.0
+quote_aXvl1RLZYgXiEy1OEJZUX,"Chloe",true,2026-04-07,"Replace silicone around shower tray",silicone_sealant,60,1.00,71.50,12.70,58.80,58.8
+quote_aXvl1RLZYgXiEy1OEJZUX,"Chloe",true,2026-04-07,"Replace silicone around all edges that require it",silicone_sealant,90,1.50,71.50,0.00,71.50,47.7
+quote_fV4WR_tpRrsWtS9-uOGef,"Emily ",true,2026-04-06,"Install 3 new hinges on 12 wardrobe doors",carpentry,180,3.00,156.00,146.05,9.95,3.3
+quote_PeaNYqLzbD2K5B7Qz9_rs,"Helen",true,2026-06-04,"Patch wall damage",general_fixing,45,0.75,55.00,0.00,55.00,73.3
+quote_PeaNYqLzbD2K5B7Qz9_rs,"Helen",true,2026-06-04,"Reinstall curtain pole",curtain_blinds,120,2.00,60.00,0.00,60.00,30.0
+quote_HMHGPunEvavF6y-0RWWDs,"Lee",true,2026-06-01,"Replace outside tap",general_fixing,60,1.00,55.00,19.00,36.00,36.0
+quote_HMHGPunEvavF6y-0RWWDs,"Lee",true,2026-06-01,"Realign and repair garden gate",general_fixing,60,1.00,55.00,0.00,55.00,55.0
+quote_HMHGPunEvavF6y-0RWWDs,"Lee",true,2026-06-01,"Secure loose gutter clip",guttering,45,0.75,50.00,0.00,50.00,66.7
+quote_dbytv95LptVRjLy-EoRWV,"Guilio",true,2026-04-25,"Re fix sink back and re seal",silicone_sealant,120,2.00,72.00,19.00,53.00,26.5
+quote_dbytv95LptVRjLy-EoRWV,"Guilio",true,2026-04-25,"Replace 2 cupboard hinges",general_fixing,45,0.75,68.00,19.00,49.00,65.3
+quote_LtZXejyel-IQ0eNpNd5xA,"Olivia",false,2026-06-17,"Install washing machine",plumbing_minor,150,2.50,113.00,0.00,113.00,45.2
+998016a7-df66-471b-96f8-fccde26e1960,"Debug Homeowner",false,2026-06-02,"Install Roman blind",curtain_blinds,150,2.50,75.00,0.00,75.00,30.0
+quote_33xZ-F5sS1D7OI6lC9ct2,"Gavin ",true,2026-06-01,"Install Roman blind",curtain_blinds,150,2.50,75.00,0.00,75.00,30.0
+quote_w7EwbhBnT-DpIlKX5bbTB,"Linda",true,2026-05-27,"Repair leaking toilet",plumbing_minor,150,2.50,135.00,32.00,103.00,41.2
+quote_g0AQZy5npaMuEwIpY5Qd7,"Aman",false,2026-05-22,"Supply and fit LED light fitting",electrical_minor,150,2.50,145.00,32.00,113.00,45.2
+quote_MjUGsgyOMrN0kE7MfwByZ,"Fiona ",false,2026-05-13,"Install 2 shelves",shelving,120,2.00,60.00,0.00,60.00,30.0
+quote_MjUGsgyOMrN0kE7MfwByZ,"Fiona ",false,2026-05-13,"Install customer-supplied notice board",shelving,30,0.50,45.00,0.00,45.00,90.0
+quote_bghrTtd6lv8gx4TYCWFdh,"Kate",true,2026-05-07,"Remove and clean window sealant.",silicone_sealant,60,1.00,55.00,0.00,55.00,55.0
+quote_bghrTtd6lv8gx4TYCWFdh,"Kate",true,2026-05-07,"Reseal window with clean finish",silicone_sealant,90,1.50,83.00,13.00,70.00,46.7
+quote_SA9GH_CL6JV9BtjI66srT,"Lauren",true,2026-04-29,"Replace faulty toilet flush mechanism",plumbing_minor,90,1.50,85.00,25.00,60.00,40.0
+quote_SA9GH_CL6JV9BtjI66srT,"Lauren",true,2026-04-29,"Replace faulty tap barrel",plumbing_minor,60,1.00,72.00,25.00,47.00,47.0
+quote_a0-emEsZpYLvDvy1K0ByI,"Tracy ",false,2026-04-27,"Install 48 inch TV bracket to wall",tv_mounting,150,2.50,88.00,0.00,88.00,35.2
+quote_hw9jcpKtabOBdhD03iLc5,"Olivia",false,2026-04-22,"Supply and install new glass shower screen to bath",plumbing_minor,150,2.50,146.00,83.00,63.00,25.2
+quote_LC9IyMwU0ZbrCkP0GYQnw,"Saif ",false,2026-04-21,"Remove base from kitchen cabinet.",furniture_repair,150,2.50,75.00,0.00,75.00,30.0
+quote_F5pNsToewagHg_CD1ERsV,"Kasia",true,2026-04-21,"Hang 2 decorative pendant lights",electrical_minor,150,2.50,125.00,0.00,125.00,50.0
+quote_F5pNsToewagHg_CD1ERsV,"Kasia",true,2026-04-21,"Make good the black bathroom wall and re paint",,0,0.00,180.00,50.00,130.00,0.0
+quote_3cfdm5ArFkmTPiQf-JS1k,"Trudie",false,2026-04-16,"Assemble flat pack desk in living room",flat_pack,150,2.50,70.00,0.00,70.00,28.0
+quote_ZangqhKXQephuFXxZR2L3,"Annie ",false,2026-04-15,"Hang customer-supplied blind",curtain_blinds,150,2.50,75.00,0.00,75.00,30.0
+quote_fwo_F_d4LDOvDMdZb6ELT,"Swanny",true,2026-04-15,"Fill window-to-sill gap with flexible caulk.",silicone_sealant,150,2.50,75.00,25.00,50.00,20.0
+quote_fwo_F_d4LDOvDMdZb6ELT,"Swanny",true,2026-04-15,"Add new waterproof IP66 socket",,0,0.00,45.00,25.00,20.00,0.0
+quote_lqhO_VTn-Y3fEYk3RBUE0,"Richie ",true,2026-04-06,"Install customer supplied clock into kitchen wall",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_lqhO_VTn-Y3fEYk3RBUE0,"Richie ",true,2026-04-06,"Install 2 external customer supplied cameras to external wall",electrical_minor,120,2.00,130.00,0.00,130.00,65.0
+quote_UNKL9MxirSYmpNtvdAmfW,"Promise",true,2026-03-31,"Install 3 new customer supplied curtains",other,150,2.50,113.75,0.00,113.75,45.5
+quote_FqiGbw-Ss3aXXXGxpg-L0,"Joe ",false,2026-03-30,"Remove old post",other,30,0.50,52.50,0.00,52.50,105.0
+quote_FqiGbw-Ss3aXXXGxpg-L0,"Joe ",false,2026-03-30,"Break out concrete ",general_fixing,60,1.00,71.50,0.00,71.50,71.5
+quote_FqiGbw-Ss3aXXXGxpg-L0,"Joe ",false,2026-03-30,"Fill with new concrete and put in new 4x4 post ",general_fixing,60,1.00,71.50,50.80,20.70,20.7
+quote_5A2jAW4VUrMp4u82SNkBC,"Dawid",false,2026-06-12,"Fix wall-mounted bookcase",shelving,90,1.50,55.00,0.00,55.00,36.7
+quote_5A2jAW4VUrMp4u82SNkBC,"Dawid",false,2026-06-12,"Mount wall mirror",general_fixing,45,0.75,55.00,0.00,55.00,73.3
+quote_DAQj2ASoRW2vMPNxUjnWh,"Isabeau",false,2026-04-24,"supply and fit new 10way RCBO SPD Consumer unit",electrical_minor,30,0.50,936.00,0.00,936.00,1872.0
+quote_DAQj2ASoRW2vMPNxUjnWh,"Isabeau",false,2026-04-24,"installation of fire rated down lights through out property",electrical_minor,30,0.50,490.00,0.00,490.00,980.0
+quote_DAQj2ASoRW2vMPNxUjnWh,"Isabeau",false,2026-04-24,"installation of new pendant fitting",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_DAQj2ASoRW2vMPNxUjnWh,"Isabeau",false,2026-04-24,"re install light fitting located in lounge",electrical_minor,30,0.50,45.00,0.00,45.00,90.0
+quote_DAQj2ASoRW2vMPNxUjnWh,"Isabeau",false,2026-04-24,"further investigation into water bonding",general_fixing,15,0.25,0.00,0.00,0.00,0.0
+quote_82QUY7BXh2AWVdIbLjE-D,"Karan ",true,2026-04-06,"Supply and install curtain pole (1.6 meter)",curtain_blinds,45,0.75,67.50,25.40,42.10,56.1
+quote_82QUY7BXh2AWVdIbLjE-D,"Karan ",true,2026-04-06,"Supply and install curtain pole (1.3 meter)",curtain_blinds,45,0.75,67.50,25.40,42.10,56.1
+quote_82QUY7BXh2AWVdIbLjE-D,"Karan ",true,2026-04-06,"Fix towel holder in bathroom",general_fixing,35,0.58,52.50,0.00,52.50,90.0
+quote_4uOlVW-NQ4OMskV20alVM,"Lauren",false,2026-06-18,"Install front door chain",general_fixing,120,2.00,60.00,10.00,50.00,25.0
+quote_M1x9rPECxgKtpB339gy21,"Fixquo",false,2026-06-17,"Remove mould from wall",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_M1x9rPECxgKtpB339gy21,"Fixquo",false,2026-06-17,"Stain-block and repaint wall",painting,90,1.50,100.00,19.00,81.00,54.0
+quote_UYwMEfWZuCOWE46VbtnUf,"Lachelle",false,2026-06-12,"Assemble flat-pack furniture.",flat_pack,120,2.00,96.00,0.00,96.00,48.0
+quote_jVV75De-kBUGtlJ66s1b_,"Lachelle",false,2026-06-12,"Assemble flat-pack furniture",flat_pack,120,2.00,96.00,0.00,96.00,48.0
+quote_t7Tov__bVBw8cA1ruX9E6,"Dave",true,2026-06-01,"Install ground spike",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_t7Tov__bVBw8cA1ruX9E6,"Dave",true,2026-06-01,"Replace kitchen tap",plumbing_minor,60,1.00,91.00,0.00,91.00,91.0
+quote_t7Tov__bVBw8cA1ruX9E6,"Dave",true,2026-06-01,"Install sink plug",plumbing_minor,30,0.50,60.00,19.00,41.00,82.0
+quote_DQxvMxZ9SaTAok8m0RDBM,"Josephine",false,2026-06-01,"Assemble bed frame and headboard",flat_pack,120,2.00,96.00,0.00,96.00,48.0
+quote_ojTDkNmf0lQ0pIWP9rQm5,"Shaun",false,2026-06-01,"Assemble flat-pack furniture",flat_pack,120,2.00,96.00,0.00,96.00,48.0
+quote_KrgiALryf42O7HckhmSKu,"Niki",false,2026-05-27,"Install external water tap",plumbing_minor,120,2.00,117.00,44.00,73.00,36.5
+quote_JTDM5puDRAckPmfM5DFst,"Paul",false,2026-05-07,"Replace 2 shower hoses",plumbing_minor,120,2.00,95.00,32.00,63.00,31.5
+quote_n6Ixr15u94iVw7JJyYzpb,"Sunny",true,2026-04-29,"Supply and fit broken panel to Arden gate",fencing,120,2.00,85.00,25.00,60.00,30.0
+quote_kIT0pfCd75iuNup0kGlpj,"Arron",true,2026-04-29,"Replace under-counter spotlight bulbs",electrical_minor,60,1.00,65.00,44.00,21.00,21.0
+quote_kIT0pfCd75iuNup0kGlpj,"Arron",true,2026-04-29,"Replace central kitchen light fitting",electrical_minor,60,1.00,75.00,19.00,56.00,56.0
+quote_FfWaWExaZBQecP5Fs4Plb,"Jay",true,2026-04-22,"Supply and fit flat tv bracket to plasterboard wall with correct fixings",tv_mounting,120,2.00,91.00,32.00,59.00,29.5
+quote_qOB8klaJsdT6MUiJRvEhq,"Renu",false,2026-04-22,"Align cupboard doors and adjust wardrobe hinges.",door_fitting,30,0.50,53.00,0.00,53.00,106.0
+quote_qOB8klaJsdT6MUiJRvEhq,"Renu",false,2026-04-22,"Replace hinges on single cupboard door",door_fitting,60,1.00,70.00,0.00,70.00,70.0
+quote_qOB8klaJsdT6MUiJRvEhq,"Renu",false,2026-04-22,"Fix towel holder to wall",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_Xxf0sSX23PDAL-a9fFd98,"Eliud ",false,2026-04-09,"Install TV bracket onto solid wall",tv_mounting,120,2.00,91.00,0.00,91.00,45.5
+quote_4N9Z4RwMC88-0cwtjwz5R,"Javari",false,2026-04-01,"Install 65 inch TV on solid brick wall with customer supplied bracket",tv_mounting,60,1.00,65.00,0.00,65.00,65.0
+quote_4N9Z4RwMC88-0cwtjwz5R,"Javari",false,2026-04-01,"Install 43 inch TV on solid brick wall with customer supplied bracket",tv_mounting,45,0.75,65.00,0.00,65.00,86.7
+quote_4N9Z4RwMC88-0cwtjwz5R,"Javari",false,2026-04-01,"Install medium side mirror on solid brick wall",general_fixing,15,0.25,22.50,0.00,22.50,90.0
+quote_whODI7lwR3j1xAfEZZ9Z3,"Rob ",true,2026-05-07,"Replace cupboard door hinges with supplied parts",door_fitting,45,0.75,65.00,0.00,65.00,86.7
+quote_whODI7lwR3j1xAfEZZ9Z3,"Rob ",true,2026-05-07,"Replace 1-gang 1-way light switch",electrical_minor,30,0.50,70.00,6.00,64.00,128.0
+quote_whODI7lwR3j1xAfEZZ9Z3,"Rob ",true,2026-05-07,"Inspect and repair fused spur as required",electrical_minor,30,0.50,75.00,0.00,75.00,150.0
+quote_a9jb2a3Jfp6U2WuZcW2K2,"Mario",true,2026-05-07,"Supply and fit new toilet seat",plumbing_minor,60,1.00,85.00,0.00,85.00,85.0
+quote_a9jb2a3Jfp6U2WuZcW2K2,"Mario",true,2026-05-07,"Remove and reseal sink silicone with anti-mould",silicone_sealant,45,0.75,56.00,13.00,43.00,57.3
+quote_30xO1ISN4sBNHw2Zwt_GZ,"Andy",true,2026-04-01,"Supply and fit mortice lock to internal door and install latch plate to door frame",carpentry,45,0.75,71.50,25.40,46.10,61.5
+quote_30xO1ISN4sBNHw2Zwt_GZ,"Andy",true,2026-04-01," Re-align door and supply and fit mortice lock to internal door and install latch plate to door frame",carpentry,45,0.75,71.50,25.40,46.10,61.5
+quote_30xO1ISN4sBNHw2Zwt_GZ,"Andy",true,2026-04-01,"Re-align bathroom door",carpentry,15,0.25,30.00,0.00,30.00,120.0
+quote_gcL1Wu1lCd0YHgpEv0pPt,"Becky",true,2026-04-07,"Remove drawers from unit",furniture_repair,30,0.50,45.00,0.00,45.00,90.0
+quote_gcL1Wu1lCd0YHgpEv0pPt,"Becky",true,2026-04-07,"Check condition of all drawer runners",furniture_repair,35,0.58,52.50,0.00,52.50,90.0
+quote_gcL1Wu1lCd0YHgpEv0pPt,"Becky",true,2026-04-07,"Refit and adjust drawer runners correctly ( check on the day that the runners are in good working order if not piece may be needed for new runners) ",furniture_repair,30,0.50,45.00,0.00,45.00,90.0
+quote_gcL1Wu1lCd0YHgpEv0pPt,"Becky",true,2026-04-07,"Attempt to unblock sink via U bend and plunger ",,0,0.00,55.00,0.00,55.00,0.0
+quote_VBJvKRXUCT3Kjh2D0kyPC,"Dale ",true,2026-03-31,"Drill out timber install wall angers into concrete pillar to secure fence gate to solids Concrete pillar",fencing,95,1.58,72.05,19.05,53.00,33.5
+quote_at-hDdjHPNSaU30gSfVnX,"Courtnee Ezra Bonnick",false,2026-06-15,"Mount TV to brick wall",tv_mounting,90,1.50,91.00,0.00,91.00,60.7
+quote_bH7KfxmeTTCueDPbT3LmM," Christopher",true,2026-06-06,"Mount TV on plasterboard wall",tv_mounting,90,1.50,80.00,0.00,80.00,53.3
+quote_yxFCU0_m5bEKHIHBIE9eC,"Lewis ",true,2026-06-05,"Mount TV to brick wall",tv_mounting,90,1.50,91.00,0.00,91.00,60.7
+quote_P3TGpvPOASk85C0FjKmLg,"Joseph",false,2026-06-04,"Replace toilet fill valve",plumbing_minor,45,0.75,68.00,19.00,49.00,65.3
+quote_P3TGpvPOASk85C0FjKmLg,"Joseph",false,2026-06-04,"Replace flush valve",plumbing_minor,45,0.75,68.00,19.00,49.00,65.3
+quote_-qM4IgC0d8izwOCdGBOfW,"Titch",false,2026-06-02,"Mount TV to plasterboard wall",tv_mounting,90,1.50,80.00,0.00,80.00,53.3
+quote_4C8nveh02uqngLyZM8beP,"Andrew",false,2026-05-28,"Install 2 smoke alarms: battery and mains-powered",electrical_minor,90,1.50,115.00,38.00,77.00,51.3
+quote_-qigaRcNP_-7Jon23KAFB,"Sarah",false,2026-04-30,"Diagnose non-working inline extractor fan",electrical_minor,90,1.50,75.00,0.00,75.00,50.0
+quote_Gm4iGqveLgJNdkONSOEjI,"Matt",false,2026-04-24,"Fix kitchen cupboard door with hinge repair kit",kitchen_fitting,30,0.50,75.00,13.00,62.00,124.0
+quote_Gm4iGqveLgJNdkONSOEjI,"Matt",false,2026-04-24,"Fix back curtain rail with correct fixings",curtain_blinds,30,0.50,45.00,0.00,45.00,90.0
+quote_Gm4iGqveLgJNdkONSOEjI,"Matt",false,2026-04-24,"Make good wall where curtain rail came down",curtain_blinds,30,0.50,45.00,0.00,45.00,90.0
+quote_gs_u3qE937ltpIN5peAN5,"Gail",false,2026-04-21,"Replace mixer tap ceramic cartridge",plumbing_minor,90,1.50,85.00,25.00,60.00,40.0
+quote_J_7PoVRjPbNrXiqQJmSK2,"Elaine",true,2026-04-10,"Break out concrete around washing line pole",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_J_7PoVRjPbNrXiqQJmSK2,"Elaine",true,2026-04-10,"Remove old washing line pole",general_fixing,15,0.25,22.50,0.00,22.50,90.0
+quote_J_7PoVRjPbNrXiqQJmSK2,"Elaine",true,2026-04-10,"Install new washing line holder",general_fixing,15,0.25,22.50,0.00,22.50,90.0
+quote_J_7PoVRjPbNrXiqQJmSK2,"Elaine",true,2026-04-10,"Seal new holder back in with concrete",general_fixing,30,0.50,45.00,12.70,32.30,64.6
+quote_TEVIZTJYCTFpHipz_wzMk,"Andy ",false,2026-04-07,"Remove shelving from cupboard",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_TEVIZTJYCTFpHipz_wzMk,"Andy ",false,2026-04-07,"Cut new sheet of melamine board to fit over old hole",carpentry,30,0.50,60.00,25.40,34.60,69.2
+quote_TEVIZTJYCTFpHipz_wzMk,"Andy ",false,2026-04-07,"Cut out socket opening in melamine board",carpentry,30,0.50,60.00,0.00,60.00,120.0
+quote_Pk0bsKcgIIfXxL93UVAqX,"Mark ",true,2026-04-01,"Replace rotted wooden panel at bottom of shed",carpentry,90,1.50,78.00,25.40,52.60,35.1
+quote_ZpWZ2PA7Y76x8Rgp-Z1QS,"Mike ",false,2026-03-30,"Repair wall where original fixing has come out of wall",other,30,0.50,52.50,0.00,52.50,105.0
+quote_ZpWZ2PA7Y76x8Rgp-Z1QS,"Mike ",false,2026-03-30,"Fix wooden panel back to wall ",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_ZpWZ2PA7Y76x8Rgp-Z1QS,"Mike ",false,2026-03-30,"Re fix blind back where the fixing has come off ",general_fixing,30,0.50,45.00,0.00,45.00,90.0
+quote_EZLnSjVjVMD7Zr6tdUVSF,"Peter ",false,2026-04-10,"Remove old internal door",other,15,0.25,26.25,0.00,26.25,105.0
+quote_EZLnSjVjVMD7Zr6tdUVSF,"Peter ",false,2026-04-10,"Hang new internal door",carpentry,60,1.00,71.50,0.00,71.50,71.5
+quote_NDoeebFkJbc3LeUj_Bfyu,"Bally",false,2026-06-10,"Replace kitchen tap",plumbing_minor,60,1.00,91.00,0.00,91.00,91.0
+quote_rtr8OvgQuBtVOs0ZN5nVh,"JWong",true,2026-06-08,"Replace kitchen tap",plumbing_minor,60,1.00,91.00,0.00,91.00,91.0
+quote_N6wHANAM992t4rzyf1A6A,"V",false,2026-06-01,"Replace vent cover",general_fixing,60,1.00,55.00,32.00,23.00,23.0
+quote_0OPKL-p6LbsxS39HZTK9B,"Meen",true,2026-05-28,"Install key safe and cut key",general_fixing,60,1.00,85.00,20.00,65.00,65.0
+quote_laQrNY56GraGBzgnNvP7Y,"Andrew",true,2026-05-13,"Install Ring doorbell on brick wall",tv_mounting,60,1.00,75.00,0.00,75.00,75.0
+quote_KrU-ie6frne3tBVJIXqkR,"Z",false,2026-05-07,"Install new toilet seat and bracket",plumbing_minor,60,1.00,75.00,0.00,75.00,75.0
+quote_FHHTkApflYLaHXZy-OtQr,"Nokhaiz ",false,2026-05-04,"Supply and fit quick release fill valve to toilet",plumbing_minor,60,1.00,85.00,13.00,72.00,72.0
+quote_LGV_iuAsw6f6Awm3TOxr2,"Sabi ",false,2026-04-23,"Hang customer supplied mirror on wall",general_fixing,60,1.00,72.00,0.00,72.00,72.0
+quote_SkzxgWLGbmOBXArnandnS,"Tina",false,2026-05-26,"Fix leaking tap",plumbing_minor,45,0.75,85.00,0.00,85.00,113.3
+quote_nK1wwi_n5NXU8_9VZ2QVl,"Tracey ",true,2026-05-20,"Drill inlet hole in kitchen cupboard for washing machine",kitchen_fitting,45,0.75,113.00,0.00,113.00,150.7
+quote_kyZ5XWUtcNO2iH-6RFgJu,"Peter",false,2026-05-10,"Fix leaking tap",plumbing_minor,45,0.75,85.00,0.00,85.00,113.3
+quote_RP0W7Uey3VthHLfEs68-D,"JK",false,2026-05-08,"Supply and fit new toilet seat",plumbing_minor,45,0.75,85.00,23.00,62.00,82.7
+quote_G4HU5rYT9LzraZ2sworka,"Hannah ",true,2026-04-15,"Mount 55 inch TV on wall bracket",tv_mounting,45,0.75,75.00,0.00,75.00,100.0
+quote_eRPQx76CQJwlgUOPKBs2C,"Lauren",false,2026-05-07,"Isolate incoming water supply and bath cold tap",plumbing_minor,30,0.50,68.00,6.00,62.00,124.0
+quote_Ezo1nKeHXnwvmThUKgez7,"Jannath ",false,2026-04-02,"Remove old door handle and fit new internal lock handle",lock_change,30,0.50,75.00,0.00,75.00,150.0
+quote_VXRBU-3EAT8Zb-U_pVmv9,"Salina",true,2026-04-01,"Fix Tallboy cupboard back to plasterboard wall using correct fixings",general_fixing,30,0.50,45.00,6.35,38.65,77.3

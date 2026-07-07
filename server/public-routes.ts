@@ -1058,6 +1058,7 @@ router.post('/booking/reserve-slot', async (req: Request, res: Response) => {
                 candidateContractorIds: personalizedQuotes.candidateContractorIds,
                 contractorId: personalizedQuotes.contractorId,
                 quoteIdFull: personalizedQuotes.id,
+                quoteMode: personalizedQuotes.quoteMode,
             })
                 .from(personalizedQuotes)
                 .where(or(eq(personalizedQuotes.id, quoteId), eq(personalizedQuotes.shortSlug, quoteId)))
@@ -1095,6 +1096,23 @@ router.post('/booking/reserve-slot', async (req: Request, res: Response) => {
                     }
                 } catch (e) {
                     console.error('[PublicAPI] Fallback contractor matching failed:', e);
+                }
+            }
+
+            // Diagnostic-visit fallback: a consultation quote has no line items or
+            // candidate pool — it's a short assessment any active contractor can do.
+            // Offer the full active roster so the booking engine can pick the nearest
+            // available one. Scoped to consultation mode so regular quotes still 400.
+            if (!candidates.length && quote.quoteMode === 'consultation') {
+                try {
+                    const { handymanProfiles } = await import('../shared/schema');
+                    const activeProfiles = await db.select({ id: handymanProfiles.id })
+                        .from(handymanProfiles)
+                        .where(eq(handymanProfiles.availabilityStatus, 'available'));
+                    candidates = activeProfiles.map(p => p.id);
+                    console.log(`[PublicAPI] Visit reserve-slot: using ${candidates.length} active contractors as candidate pool`);
+                } catch (e) {
+                    console.error('[PublicAPI] Visit contractor fallback failed:', e);
                 }
             }
 

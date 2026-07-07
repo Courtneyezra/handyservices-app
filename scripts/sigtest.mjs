@@ -1,0 +1,14 @@
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import fs from 'fs';
+const env = fs.readFileSync('/Users/courtneebonnick/v6-switchboard/.env', 'utf8');
+const akey = env.match(/^S3_ACCESS_KEY=(.+)$/m)[1].replace(/^["']|["']$/g, '');
+const skey = env.match(/^S3_SECRET_KEY=(.+)$/m)[1].replace(/^["']|["']$/g, '');
+const bucket = env.match(/^S3_BUCKET=(.+)$/m)[1].replace(/^["']|["']$/g, '');
+const region = env.match(/^S3_REGION=(.+)$/m)[1].replace(/^["']|["']$/g, '');
+console.log('bucket:', bucket, 'region:', region);
+const s3 = new S3Client({ region, credentials: { accessKeyId: akey, secretAccessKey: skey } });
+const url = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: 'dispatch/disp_55889be0-13ac-4ccb-9520-9a9d610951a4/overview/b88caae357d143ba.jpeg' }), { expiresIn: 3600 });
+console.log('Signed URL:', url.slice(0, 200));
+const r = await fetch(url, { method: 'HEAD' });
+console.log('HEAD →', r.status, r.statusText);

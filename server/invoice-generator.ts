@@ -240,6 +240,8 @@ export async function generateBalanceInvoice(jobId: string): Promise<BalanceInvo
                 id: invoiceId,
                 invoiceNumber,
                 quoteId: quote.id,
+                propertyId: (job as any).propertyId || (quote as any).propertyId || undefined,
+                clientId: (job as any).clientId || (quote as any).clientId || undefined,
                 contractorId: job.assignedContractorId || job.contractorId,
                 customerName: job.customerName,
                 customerEmail: job.customerEmail || quote.email || '',
@@ -510,8 +512,8 @@ function buildInvoiceHtml(invoice: any, lineItems: InvoiceLineItem[]): string {
             <a href="${paymentLink}" class="payment-link">Pay Online - ${formatPence(invoice.balanceDue)}</a>
             <div class="bank-details">
                 <p><strong>Bank Transfer (BACS):</strong></p>
-                <p>Account Name: <strong>Handyman Nottingham</strong></p>
-                <p>Sort Code: <strong>04-00-04</strong> &nbsp;|&nbsp; Account: <strong>39473040</strong></p>
+                <p>Account Name: <strong>HANDY NETWORK LTD</strong></p>
+                <p>Sort Code: <strong>04-00-06</strong> &nbsp;|&nbsp; Account: <strong>76360634</strong></p>
                 <p>Reference: <strong>${invoice.invoiceNumber}</strong></p>
             </div>
         </div>

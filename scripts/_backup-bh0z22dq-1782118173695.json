@@ -1,0 +1,159 @@
+{
+  "id": "quote_EikYlhhndXdQxeHXfdCBu",
+  "shortSlug": "bh0z22dq",
+  "basePrice": 89200,
+  "materialsCostWithMarkupPence": 43900,
+  "batchDiscountPercent": 8,
+  "jobDescription": "Supply and fit loft hatch with ladder, Supply and fit 4-panel internal door with frame",
+  "contextualHeadline": "Loft Access and New Door Sorted",
+  "contextualMessage": "We'll fit your loft hatch with ladder and hang that internal door in one visit — everything supplied and installed, ready to use.",
+  "proposalSummary": "We'll supply and fit your loft hatch with ladder access, then hang your 4-panel internal door with frame — both jobs completed in one visit with full cleanup.",
+  "jobTopLine": "Loft hatch with ladder fitted, internal door hung",
+  "pricingLineItems": [
+    {
+      "lineId": "kyry44cj",
+      "source": "custom",
+      "category": "carpentry",
+      "description": "Supply and fit loft hatch with ladder",
+      "scheduleMinutes": 480,
+      "adjustmentFactors": [
+        {
+          "factor": "materialsSupply_we_supply",
+          "direction": "up",
+          "magnitude": "small",
+          "reasoning": "We are sourcing and supplying the loft hatch and ladder kit; materials markup (~10%) added to labour base."
+        }
+      ],
+      "guardedPricePence": 35200,
+      "materialsCostPence": 18000,
+      "referencePricePence": 32000,
+      "timeEstimateMinutes": 480,
+      "llmSuggestedPricePence": 35200,
+      "materialsWithMarginPence": 22900,
+      "requiresMaterialCollection": false
+    },
+    {
+      "lineId": "ct7l2etb",
+      "source": "custom",
+      "category": "door_fitting",
+      "description": "Supply and fit 4-panel internal door with frame",
+      "scheduleMinutes": 240,
+      "adjustmentFactors": [
+        {
+          "factor": "materialsSupply_we_supply",
+          "direction": "up",
+          "magnitude": "small",
+          "reasoning": "We are sourcing and supplying the 4-panel door and frame; modest materials markup included."
+        }
+      ],
+      "guardedPricePence": 14000,
+      "materialsCostPence": 16500,
+      "referencePricePence": 14000,
+      "timeEstimateMinutes": 240,
+      "llmSuggestedPricePence": 13500,
+      "materialsWithMarginPence": 21000,
+      "requiresMaterialCollection": false
+    }
+  ],
+  "pricingLayerBreakdown": {
+    "lineItems": [
+      {
+        "lineId": "kyry44cj",
+        "source": "custom",
+        "category": "carpentry",
+        "description": "Supply and fit loft hatch with ladder",
+        "scheduleMinutes": 480,
+        "adjustmentFactors": [
+          {
+            "factor": "materialsSupply_we_supply",
+            "direction": "up",
+            "magnitude": "small",
+            "reasoning": "We are sourcing and supplying the loft hatch and ladder kit; materials markup (~10%) added to labour base."
+          }
+        ],
+        "guardedPricePence": 35200,
+        "materialsCostPence": 18000,
+        "referencePricePence": 32000,
+        "timeEstimateMinutes": 480,
+        "llmSuggestedPricePence": 35200,
+        "materialsWithMarginPence": 22900,
+        "requiresMaterialCollection": false
+      },
+      {
+        "lineId": "ct7l2etb",
+        "source": "custom",
+        "category": "door_fitting",
+        "description": "Supply and fit 4-panel internal door with frame",
+        "scheduleMinutes": 240,
+        "adjustmentFactors": [
+          {
+            "factor": "materialsSupply_we_supply",
+            "direction": "up",
+            "magnitude": "small",
+            "reasoning": "We are sourcing and supplying the 4-panel door and frame; modest materials markup included."
+          }
+        ],
+        "guardedPricePence": 14000,
+        "materialsCostPence": 16500,
+        "referencePricePence": 14000,
+        "timeEstimateMinutes": 240,
+        "llmSuggestedPricePence": 13500,
+        "materialsWithMarginPence": 21000,
+        "requiresMaterialCollection": false
+      }
+    ],
+    "messaging": {
+      "jobTopLine": "Loft hatch with ladder fitted, internal door hung",
+      "layoutTier": "standard",
+      "bookingModes": [
+        "standard_date",
+        "flexible_discount",
+        "deposit_split"
+      ],
+      "valueBullets": [
+        "Materials sourced for you",
+        "Fixed price — no surprises",
+        "Full cleanup included"
+      ],
+      "proposalSummary": "We'll supply and fit your loft hatch with ladder access, then hang your 4-panel internal door with frame — both jobs completed in one visit with full cleanup.",
+      "whatsappClosing": "Happy to get this sorted for you. Let me know if this week works.",
+      "contextualMessage": "We'll fit your loft hatch with ladder and hang that internal door in one visit — everything supplied and installed, ready to use.",
+      "contextualHeadline": "Loft Access and New Door Sorted",
+      "whatsappValueLines": [
+        "Materials sourced for you",
+        "Fixed price — no surprises"
+      ],
+      "requiresHumanReview": false
+    },
+    "reasoning": "Multi-line quote: 2 line(s).\n[kyry44cj] carpentry @ £320.00 ref → £352.00 LLM → £352.00 guarded. Carpentry (loft hatch + ladder installation). Reference £320 (32000p) for 480min at £40/hr. We're supplying materials (loft hatch + ladder kit), so add materials markup (~10% on labour = 3200p). Realistic working time is 480min (8hrs) — this is a full-day job involving access, frame prep, hatch fitting, and ladder assembly. No urgency or time-of-service premiums apply. New customer, so no loyalty discount. Total: (480min ÷ 60 × £40/hr × 100p) + materials markup = 32000p + 3200p = 35200p.\n[ct7l2etb] door_fitting @ £140.00 ref → £135.00 LLM → £140.00 guarded. Door fitting (4-panel internal door with frame). Category: PER-UNIT. Reference £140 (14000p) per door. Count: 1 door unit. Base calculation: 1 unit × £140 = 14000p. However, we are supplying the door and frame, so apply materials markup (~10% on labour component ≈ 1400p, but reference already includes typical supply; net adjustment is modest). Realistic time: 240min (4hrs) for frame prep, hanging, and adjustment. No urgency or time-of-service premiums. New customer, no loyalty discount. Suggested price: 13500p (slightly below reference to reflect competitive positioning for new customer acquisition, but within acceptable range given materials supply and standard complexity).\nLabour subtotal: £492.00.\nMaterials (with 27% margin): £439.00.\nBatch discount (labour only): 8% = -£39.00.\nGuardrails: [ct7l2etb] Floor: £135.00 raised to £140.00 (£35.00/hr x 4.00hr) | Batch discount: 8% off subtotal £492.00 = -£39.00\nFinal: £892.00.",
+    "confidence": "high",
+    "guardrails": {
+      "adjustments": [
+        "[ct7l2etb] Floor: £135.00 raised to £140.00 (£35.00/hr x 4.00hr)",
+        "Batch discount: 8% off subtotal £492.00 = -£39.00"
+      ],
+      "floorTriggered": true,
+      "ceilingTriggered": false,
+      "marginCheckPassed": true,
+      "adjustedPricePence": 89200,
+      "originalPricePence": 48700
+    },
+    "jobTopLine": "Loft hatch with ladder fitted, internal door hung",
+    "batchDiscount": {
+      "applied": true,
+      "reasoning": "Two jobs in one visit (loft hatch + door fitting) saves travel and setup time. Both are carpentry/fitting tasks that can be sequenced efficiently in a single day. 8% discount reflects moderate efficiency gain.",
+      "savingsPence": 3900,
+      "discountPercent": 8
+    },
+    "subtotalPence": 49200,
+    "layerBreakdown": {
+      "layer4FinalPence": 89200,
+      "layer1ReferencePence": 46000,
+      "layer3LLMSuggestedPence": 48700
+    },
+    "finalPricePence": 89200,
+    "contextualMessage": "We'll fit your loft hatch with ladder and hang that internal door in one visit — everything supplied and installed, ready to use.",
+    "contextualHeadline": "Loft Access and New Door Sorted",
+    "totalMaterialsWithMarginPence": 43900
+  }
+}

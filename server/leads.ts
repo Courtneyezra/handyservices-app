@@ -16,6 +16,7 @@ import {
     STAGE_SLA_HOURS,
 } from "./lead-stage-engine";
 import { processWebFormLead } from "./services/webform-chase-service";
+import { resolveOrCreateClient } from "./clients";
 import { notifyWebformLead } from "./pushover";
 
 export const leadsRouter = Router();
@@ -53,40 +54,56 @@ leadsRouter.post('/api/leads', async (req, res) => {
         // Validate final object
         const newLead = insertLeadSchema.parse(leadData);
 
+        // Resolve the client (WHO) so the lead joins the same client spine as its
+        // future quote/job/invoice. Best-effort: never block lead capture on this.
+        const leadClientId = await resolveOrCreateClient(db, {
+            phone: newLead.phone,
+            email: newLead.email,
+            displayName: newLead.customerName,
+            billingAddress: newLead.address,
+        }).catch(() => null);
+
         // Insert into DB
-        await db.insert(leads).values(newLead);
+        await db.insert(leads).values({ ...newLead, ...(leadClientId ? { clientId: leadClientId } : {}) });
+
+        // A lead posted AFTER a successful payment (quote-page booking tracking) is not a
+        // new enquiry — the payment flow already fires its own "quote accepted" alert, so
+        // skip the new-lead notifications and analysis for it.
+        const isPostPaymentRecord = newLead.source === 'personalized_quote' || Boolean(inputData.stripePaymentId);
 
         // Broadcast to contractor inbox for real-time notification
-        try {
-            const { broadcastToClients } = await import('./index');
-            broadcastToClients({
-                type: 'inbox:new_item',
-                data: {
-                    id: newLead.id,
-                    itemType: 'lead',
-                    customerName: newLead.customerName,
-                    phone: newLead.phone,
-                    summary: newLead.jobDescription,
-                    source: 'Web Form',
-                    urgency: 3,
-                    timestamp: new Date().toISOString(),
-                }
-            });
-        } catch (broadcastErr) {
-            console.warn('[Leads] Broadcast failed (non-critical):', broadcastErr);
-        }
+        if (!isPostPaymentRecord) {
+            try {
+                const { broadcastToClients } = await import('./index');
+                broadcastToClients({
+                    type: 'inbox:new_item',
+                    data: {
+                        id: newLead.id,
+                        itemType: 'lead',
+                        customerName: newLead.customerName,
+                        phone: newLead.phone,
+                        summary: newLead.jobDescription,
+                        source: 'Web Form',
+                        urgency: 3,
+                        timestamp: new Date().toISOString(),
+                    }
+                });
+            } catch (broadcastErr) {
+                console.warn('[Leads] Broadcast failed (non-critical):', broadcastErr);
+            }
 
-        // Phone push alert (Pushover) — fire-and-forget, never blocks lead capture
-        notifyWebformLead({
-            name: newLead.customerName,
-            phoneNumber: newLead.phone,
-            details: newLead.jobDescription,
-            source: 'Web form',
-        }).catch((e) => console.warn('[Leads] notifyWebformLead failed:', e));
+            // Phone push alert (Pushover) — fire-and-forget, never blocks lead capture
+            notifyWebformLead({
+                name: newLead.customerName,
+                phoneNumber: newLead.phone,
+                details: newLead.jobDescription,
+                source: 'Web form',
+            }).catch((e) => console.warn('[Leads] notifyWebformLead failed:', e));
+        }
 
         // --- AGENTIC WORKFLOW: ONE-CLICK ACTION ---
         // Just like calls, we run the agent on the job description to get a plan
-        if (newLead.jobDescription && newLead.jobDescription.length > 10) {
+        if (!isPostPaymentRecord && newLead.jobDescription && newLead.jobDescription.length > 10) {
             (async () => {
                 try {
                     const { analyzeLeadActionPlan } = await import("./services/agentic-service");
@@ -167,6 +184,10 @@ leadsRouter.post('/api/leads/quick-capture', async (req, res) => {
 
         const leadId = `lead_${nanoid()}`;
 
+        const qcClientId = await resolveOrCreateClient(db, {
+            phone, displayName: name,
+        }).catch(() => null);
+
         await db.insert(leads).values({
             id: leadId,
             customerName: name,
@@ -174,7 +195,8 @@ leadsRouter.post('/api/leads/quick-capture', async (req, res) => {
             source: 'video_review',
             jobDescription: videoAnalysis?.summary || 'Video Review Lead',
             transcriptJson: videoAnalysis || {},
-            status: 'new'
+            status: 'new',
+            ...(qcClientId ? { clientId: qcClientId } : {}),
         });
 
         // Phone push alert (Pushover) — fire-and-forget
@@ -225,8 +247,12 @@ leadsRouter.post('/api/eleven-labs/lead', async (req, res) => {
         const validatedLead = insertLeadSchema.parse(leadData);
         console.log('[ElevenLabs] Validated object keys:', Object.keys(validatedLead));
 
+        const elClientId = await resolveOrCreateClient(db, {
+            phone: validatedLead.phone, displayName: validatedLead.customerName,
+        }).catch(() => null);
+
         try {
-            await db.insert(leads).values(validatedLead);
+            await db.insert(leads).values({ ...validatedLead, ...(elClientId ? { clientId: elClientId } : {}) });
         } catch (dbError: any) {
             console.error('[ElevenLabs] DB Insert Failed!');
             console.error('[ElevenLabs] Error details:', dbError.message);

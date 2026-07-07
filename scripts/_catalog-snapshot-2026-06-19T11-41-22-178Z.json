@@ -1,0 +1,2547 @@
+[
+  {
+    "skuCode": "DRAIN-UNBLK-01",
+    "keywords": [
+      "blocked drain",
+      "drain unblock",
+      "blocked sink",
+      "blocked shower",
+      "slow drain",
+      "draining slow",
+      "not draining",
+      "shower drain",
+      "sink drain",
+      "drain clog",
+      "unblock drain",
+      "clear drain"
+    ],
+    "negativeKeywords": [
+      "toilet"
+    ],
+    "scheduleMinutes": 50,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SHWR-BAR-01",
+    "keywords": [
+      "bar mixer shower",
+      "riser rail",
+      "shower bar",
+      "thermostatic bar",
+      "shower riser",
+      "fit shower"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "RAD-SWAP-01",
+    "keywords": [
+      "radiator",
+      "radiator replacement",
+      "new radiator",
+      "fit radiator",
+      "rad swap",
+      "radiator installation",
+      "remove radiator"
+    ],
+    "negativeKeywords": [
+      "towel rail",
+      "bleed"
+    ],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "RAD-BLEED-01",
+    "keywords": [
+      "bleed radiator",
+      "radiator cold",
+      "cold top",
+      "air in radiator",
+      "balance radiator",
+      "radiator not heating",
+      "bleed rads",
+      "cold spots"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 45,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "WASH-PLUMB-01",
+    "keywords": [
+      "washing machine plumb",
+      "dishwasher plumb",
+      "plumb in washing machine",
+      "appliance install",
+      "washer connection",
+      "dishwasher connection",
+      "waste connection",
+      "supply connection"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SIL-SHWR-01",
+    "keywords": [
+      "reseal shower",
+      "shower seal",
+      "shower silicone",
+      "shower sealant",
+      "shower tray seal",
+      "mastic shower"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 65,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SIL-WIN-01",
+    "keywords": [
+      "reseal window",
+      "window seal",
+      "window draught",
+      "draught proofing window",
+      "window silicone",
+      "window mastic"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 50,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "FILL-HOLE-01",
+    "keywords": [
+      "fill hole",
+      "fill crack",
+      "filler",
+      "polyfilla",
+      "patch wall",
+      "nail holes",
+      "screw holes"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "BATHACC-01",
+    "keywords": [
+      "bathroom accessories",
+      "toilet roll holder",
+      "soap dish",
+      "soap dispenser",
+      "bathroom fittings",
+      "fit accessories",
+      "grab rail",
+      "assist rail"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 45,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "CATFLAP-01",
+    "keywords": [
+      "cat flap",
+      "dog flap",
+      "pet flap",
+      "fit cat flap",
+      "remove cat flap",
+      "install cat flap"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "FLYSCRN-01",
+    "keywords": [
+      "fly screen",
+      "insect screen",
+      "window screen",
+      "bug screen",
+      "mosquito net",
+      "fit fly screen"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 50,
+    "tiers": null
+  },
+  {
+    "skuCode": "LEAK-FIND-01",
+    "keywords": [
+      "leak",
+      "leaking",
+      "water leak",
+      "leak find",
+      "trace leak",
+      "damp",
+      "wet patch",
+      "pipe leak",
+      "water damage",
+      "leak detection",
+      "leak fix",
+      "find leak"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 75,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "TV-BRICK-01",
+    "keywords": [
+      "tv brick wall",
+      "tv solid wall",
+      "mount tv brick",
+      "tv concrete",
+      "tv stone wall",
+      "tv on solid wall"
+    ],
+    "negativeKeywords": [
+      "plasterboard",
+      "stud wall",
+      "drywall"
+    ],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SBAR-01",
+    "keywords": [
+      "soundbar",
+      "sound bar",
+      "mount soundbar",
+      "fit soundbar",
+      "speaker bar",
+      "tv soundbar"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 45,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "CAM-01",
+    "keywords": [
+      "security camera",
+      "cctv",
+      "outdoor camera",
+      "ring camera",
+      "nest cam",
+      "fit camera",
+      "mount camera",
+      "security cam",
+      "surveillance camera"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 75,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SCKT-SWAP-01",
+    "keywords": [
+      "socket swap",
+      "replace socket",
+      "new socket face",
+      "socket replacement",
+      "plug socket",
+      "power socket",
+      "socket faulty",
+      "usb socket",
+      "double socket"
+    ],
+    "negativeKeywords": [
+      "add socket",
+      "new socket",
+      "extra socket"
+    ],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 45,
+    "tiers": null
+  },
+  {
+    "skuCode": "LIGHT-SWAP-01",
+    "keywords": [
+      "light fitting",
+      "ceiling light",
+      "replace light",
+      "light swap",
+      "fit light",
+      "new light",
+      "pendant",
+      "flush fitting",
+      "semi-flush",
+      "light shade"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 75,
+    "tiers": null
+  },
+  {
+    "skuCode": "FAN-01",
+    "keywords": [
+      "extractor fan",
+      "bathroom fan",
+      "kitchen fan",
+      "fan installation",
+      "fit fan",
+      "ventilation fan",
+      "exhaust fan"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SMOKE-01",
+    "keywords": [
+      "smoke alarm",
+      "smoke detector",
+      "fire alarm",
+      "carbon monoxide alarm",
+      "co alarm",
+      "fit smoke alarm",
+      "replace smoke alarm",
+      "heat alarm"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 40,
+    "tiers": null
+  },
+  {
+    "skuCode": "BLIND-BAY-01",
+    "keywords": [
+      "bay window blind",
+      "bay blind",
+      "blinds bay",
+      "fit blinds bay"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 55,
+    "tiers": null
+  },
+  {
+    "skuCode": "ELEC-DIAG-01",
+    "keywords": [
+      "electrical fault",
+      "electrics not working",
+      "tripping fuse",
+      "fuse keeps tripping",
+      "rcd trip",
+      "no power",
+      "electrical problem",
+      "circuit fault",
+      "fuse box",
+      "consumer unit"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "PAINT-EXT-01",
+    "keywords": [
+      "exterior paint",
+      "external paint",
+      "render paint",
+      "masonry paint",
+      "outside wall paint",
+      "facade paint",
+      "weatherproof paint"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 480,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "PAVE-01",
+    "keywords": [
+      "paving",
+      "path",
+      "slabs",
+      "lay slabs",
+      "garden path",
+      "patio slabs",
+      "block paving",
+      "brickwork path"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": [
+      {
+        "label": "Small",
+        "pricePence": 18000,
+        "scheduleMinutes": 150
+      },
+      {
+        "label": "Medium",
+        "pricePence": 42500,
+        "scheduleMinutes": 240
+      },
+      {
+        "label": "Large",
+        "pricePence": 77000,
+        "scheduleMinutes": 480
+      }
+    ]
+  },
+  {
+    "skuCode": "SHELF-UNIT-01",
+    "keywords": [
+      "shelving unit",
+      "fix unit to wall",
+      "bookcase",
+      "wall unit",
+      "secure bookcase",
+      "anchor bookcase",
+      "anti-tip"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 75,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "PAINT-ROOM-01",
+    "keywords": [
+      "paint room",
+      "repaint room",
+      "decorate room",
+      "bedroom paint",
+      "living room paint",
+      "paint walls",
+      "paint and decorate",
+      "redecorate",
+      "room decoration"
+    ],
+    "negativeKeywords": [
+      "ceiling only",
+      "one wall",
+      "woodwork only"
+    ],
+    "scheduleMinutes": null,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": [
+      {
+        "label": "Small",
+        "pricePence": 16500,
+        "scheduleMinutes": 150
+      },
+      {
+        "label": "Medium",
+        "pricePence": 22000,
+        "scheduleMinutes": 240
+      },
+      {
+        "label": "Large",
+        "pricePence": 32500,
+        "scheduleMinutes": 420
+      }
+    ]
+  },
+  {
+    "skuCode": "PAINT-WOOD-01",
+    "keywords": [
+      "paint woodwork",
+      "skirting board paint",
+      "paint skirting",
+      "paint doors",
+      "gloss",
+      "paint architrave",
+      "wood paint",
+      "satinwood"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 180,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "PAINT-FRDOOR-01",
+    "keywords": [
+      "paint front door",
+      "front door paint",
+      "external door paint",
+      "kerb appeal",
+      "door colour"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "MOULD-PAINT-01",
+    "keywords": [
+      "mould",
+      "mold",
+      "bathroom mould",
+      "mould ceiling",
+      "black mould",
+      "damp mould",
+      "treat mould",
+      "anti-mould paint"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "BOXIN-01",
+    "keywords": [
+      "box in pipes",
+      "pipe boxing",
+      "hide pipes",
+      "conceal pipes",
+      "boxing pipes",
+      "boiler boxing",
+      "pipework boxing"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 180,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "HANDRAIL-01",
+    "keywords": [
+      "handrail",
+      "stair handrail",
+      "balustrade",
+      "bannister",
+      "fit handrail",
+      "grip rail"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "DOOR-EXT-01",
+    "keywords": [
+      "external door",
+      "back door",
+      "side door",
+      "composite door",
+      "uPVC door",
+      "fit external door",
+      "front door hanging"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 30,
+    "minutesPerUnit": 180,
+    "tiers": null
+  },
+  {
+    "skuCode": "DOOR-ADJ-01",
+    "keywords": [
+      "sticking door",
+      "door sticking",
+      "door won't close",
+      "door not closing",
+      "ease door",
+      "door swollen",
+      "shave door",
+      "plane door"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 75,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "DOOR-HINGE-01",
+    "keywords": [
+      "door hinge",
+      "cupboard hinge",
+      "cabinet hinge",
+      "hinge repair",
+      "hinge replacement",
+      "broken hinge",
+      "fit hinge"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 40,
+    "tiers": null
+  },
+  {
+    "skuCode": "FP-BED-01",
+    "keywords": [
+      "bed assembly",
+      "build bed",
+      "assemble bed",
+      "ikea bed",
+      "malm bed",
+      "flat pack bed",
+      "bed frame build"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "FP-DRAWERS-01",
+    "keywords": [
+      "drawers assembly",
+      "chest of drawers",
+      "cabinet assembly",
+      "storage build",
+      "bedside table build",
+      "flat pack drawers",
+      "ikea drawers"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "CARP-MISC-01",
+    "keywords": [
+      "carpentry repair",
+      "woodwork repair",
+      "timber fix",
+      "wood fix",
+      "general carpentry",
+      "joinery repair"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 180,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "CEILTILE-01",
+    "keywords": [
+      "ceiling tile",
+      "artex ceiling",
+      "coving",
+      "cornice",
+      "ceiling rose",
+      "replace ceiling tile",
+      "fit coving"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 25,
+    "minutesPerUnit": 25,
+    "tiers": null
+  },
+  {
+    "skuCode": "GATE-WOOD-01",
+    "keywords": [
+      "wooden gate",
+      "garden gate",
+      "gate repair",
+      "gate hinge",
+      "gate post",
+      "fix gate"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "FURN-MOVE-01",
+    "keywords": [
+      "move furniture",
+      "dismantle furniture",
+      "take apart furniture",
+      "move wardrobe",
+      "heavy furniture",
+      "disassemble furniture"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SHWR-SCRN-01",
+    "keywords": [
+      "shower screen",
+      "shower door",
+      "shower enclosure",
+      "bath screen",
+      "fit shower screen",
+      "shower cubicle",
+      "shower tray"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "PLAST-SAND-01",
+    "keywords": [
+      "sand walls",
+      "make good",
+      "prepare walls",
+      "key walls",
+      "sugar soap",
+      "smooth walls",
+      "sand and fill"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 180,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SHED-INSTALL-01",
+    "keywords": [
+      "shed assembly",
+      "build shed",
+      "assemble shed",
+      "shed install",
+      "garden shed",
+      "shed erection"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 240,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "KIT-DOOR-01",
+    "keywords": [
+      "cupboard door",
+      "kitchen door",
+      "cabinet door",
+      "door hinge kitchen",
+      "door not closing kitchen",
+      "kitchen door repair"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "KIT-UNIT-01",
+    "keywords": [
+      "kitchen unit",
+      "fit kitchen",
+      "kitchen cabinet",
+      "kitchen installation",
+      "base unit",
+      "wall unit",
+      "kitchen fitting"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": [
+      {
+        "label": "Small",
+        "pricePence": 15500,
+        "scheduleMinutes": 90
+      },
+      {
+        "label": "Medium",
+        "pricePence": 26500,
+        "scheduleMinutes": 180
+      },
+      {
+        "label": "Large",
+        "pricePence": 37500,
+        "scheduleMinutes": 300
+      }
+    ]
+  },
+  {
+    "skuCode": "POINTING-01",
+    "keywords": [
+      "repointing",
+      "pointing",
+      "brickwork",
+      "mortar",
+      "repoint bricks",
+      "mortar repair",
+      "brick repoint"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "LOCK-01",
+    "keywords": [
+      "change lock",
+      "new lock",
+      "replace lock",
+      "lock replacement",
+      "fit lock",
+      "deadbolt",
+      "cylinder lock",
+      "euro cylinder",
+      "yale lock",
+      "nightlatch"
+    ],
+    "negativeKeywords": [
+      "multiple locks",
+      "cabinet lock"
+    ],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "LOCK-DIAG-01",
+    "keywords": [
+      "lock stuck",
+      "lock jammed",
+      "door won't lock",
+      "lock broken",
+      "key stuck",
+      "lock fault",
+      "lock not working"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 45,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "WASTE-01",
+    "keywords": [
+      "rubbish removal",
+      "junk removal",
+      "clear rubbish",
+      "waste removal",
+      "skip alternative",
+      "clutter clear",
+      "garden waste"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": [
+      {
+        "label": "Small",
+        "pricePence": 8000,
+        "scheduleMinutes": 90
+      },
+      {
+        "label": "Medium",
+        "pricePence": 19500,
+        "scheduleMinutes": 120
+      },
+      {
+        "label": "Large",
+        "pricePence": 32500,
+        "scheduleMinutes": 180
+      }
+    ]
+  },
+  {
+    "skuCode": "SIL-BATH-01",
+    "keywords": [
+      "reseal bath",
+      "bath seal",
+      "bath silicone",
+      "re-seal bath",
+      "bath sealant",
+      "mastic bath",
+      "bath caulk",
+      "black mould seal",
+      "gap round bath"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "HANG-PIC-01",
+    "keywords": [
+      "hang picture",
+      "hang pictures",
+      "picture hanging",
+      "hang frame",
+      "frames",
+      "hang art",
+      "hang artwork",
+      "picture rail",
+      "put up pictures",
+      "hang canvas"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 25,
+    "tiers": null
+  },
+  {
+    "skuCode": "SHELF-FLOAT-01",
+    "keywords": [
+      "floating shelf",
+      "shelf",
+      "shelves",
+      "floating shelves",
+      "hang shelf",
+      "put up shelf",
+      "wall shelf",
+      "fit shelf"
+    ],
+    "negativeKeywords": [
+      "bracket shelf",
+      "shelving unit"
+    ],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 50,
+    "tiers": null
+  },
+  {
+    "skuCode": "SHELF-BRKT-01",
+    "keywords": [
+      "bracket shelf",
+      "shelf brackets",
+      "put up shelves",
+      "shelving brackets",
+      "adjustable shelves"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 50,
+    "tiers": null
+  },
+  {
+    "skuCode": "DLIGHT-01",
+    "keywords": [
+      "downlight",
+      "spotlight",
+      "recessed light",
+      "led downlight",
+      "replace spotlight",
+      "fire-rated downlight",
+      "kitchen spotlights"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 25,
+    "minutesPerUnit": 20,
+    "tiers": null
+  },
+  {
+    "skuCode": "CURT-TRACK-01",
+    "keywords": [
+      "curtain track",
+      "bendable track",
+      "flexible track",
+      "curved track",
+      "bay window curtain",
+      "corded track",
+      "ceiling track"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "PAINT-DOOR-01",
+    "keywords": [
+      "paint door",
+      "paint internal door",
+      "door repaint",
+      "paint bedroom door",
+      "interior door paint"
+    ],
+    "negativeKeywords": [
+      "front door",
+      "external door"
+    ],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SKIRT-01",
+    "keywords": [
+      "skirting board",
+      "skirting",
+      "fit skirting",
+      "skirting repair",
+      "skirting replace",
+      "mdf skirting"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": [
+      {
+        "label": "Small",
+        "pricePence": 11000,
+        "scheduleMinutes": 60
+      },
+      {
+        "label": "Medium",
+        "pricePence": 19000,
+        "scheduleMinutes": 150
+      },
+      {
+        "label": "Large",
+        "pricePence": 38000,
+        "scheduleMinutes": 300
+      }
+    ]
+  },
+  {
+    "skuCode": "PANEL-01",
+    "keywords": [
+      "wall panelling",
+      "panel",
+      "tongue and groove",
+      "shiplap",
+      "wall panel",
+      "accent panel",
+      "mdf panelling"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": [
+      {
+        "label": "Small",
+        "pricePence": 35000,
+        "scheduleMinutes": 240
+      },
+      {
+        "label": "Medium",
+        "pricePence": 45000,
+        "scheduleMinutes": 360
+      },
+      {
+        "label": "Large",
+        "pricePence": 85000,
+        "scheduleMinutes": 600
+      }
+    ]
+  },
+  {
+    "skuCode": "DOOR-INT-01",
+    "keywords": [
+      "hang door",
+      "internal door",
+      "door hanging",
+      "new door",
+      "fit door",
+      "door installation",
+      "door lining"
+    ],
+    "negativeKeywords": [
+      "external",
+      "front door",
+      "garage"
+    ],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 100,
+    "tiers": null
+  },
+  {
+    "skuCode": "FP-MISC-01",
+    "keywords": [
+      "flat pack",
+      "flatpack",
+      "flat-pack",
+      "assemble furniture",
+      "furniture assembly",
+      "build furniture",
+      "put together furniture"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "TILE-01",
+    "keywords": [
+      "tiling",
+      "tiles",
+      "fit tiles",
+      "tile bathroom",
+      "tile kitchen",
+      "lay tiles",
+      "wall tiles",
+      "floor tiles",
+      "tiler",
+      "ceramic tiles",
+      "porcelain tiles"
+    ],
+    "negativeKeywords": [
+      "regrout",
+      "splashback"
+    ],
+    "scheduleMinutes": null,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": [
+      {
+        "label": "Small",
+        "pricePence": 16500,
+        "scheduleMinutes": 120
+      },
+      {
+        "label": "Medium",
+        "pricePence": 29500,
+        "scheduleMinutes": 300
+      },
+      {
+        "label": "Large",
+        "pricePence": 60000,
+        "scheduleMinutes": 480
+      }
+    ]
+  },
+  {
+    "skuCode": "REGROUT-01",
+    "keywords": [
+      "regrout",
+      "re-grout",
+      "grout",
+      "grouting",
+      "replace grout",
+      "clean grout",
+      "black grout",
+      "mouldy grout"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": [
+      {
+        "label": "Small",
+        "pricePence": 12000,
+        "scheduleMinutes": 120
+      },
+      {
+        "label": "Medium",
+        "pricePence": 24000,
+        "scheduleMinutes": 240
+      },
+      {
+        "label": "Large",
+        "pricePence": 45000,
+        "scheduleMinutes": 420
+      }
+    ]
+  },
+  {
+    "skuCode": "BATH-BASIN-01",
+    "keywords": [
+      "basin",
+      "sink basin",
+      "vanity unit",
+      "bathroom sink",
+      "fit basin",
+      "basin installation",
+      "pedestal basin",
+      "wall hung basin"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 180,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "LOCK-MULTI-01",
+    "keywords": [
+      "multiple locks",
+      "several locks",
+      "all locks",
+      "house locks",
+      "all doors locks",
+      "rekey",
+      "change all locks"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "GARDEN-TIDY-01",
+    "keywords": [
+      "garden tidy",
+      "garden clearance",
+      "weed garden",
+      "tidy garden",
+      "overgrown garden",
+      "garden clear up"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": [
+      {
+        "label": "Small",
+        "pricePence": 8000,
+        "scheduleMinutes": 150
+      },
+      {
+        "label": "Medium",
+        "pricePence": 16000,
+        "scheduleMinutes": 240
+      },
+      {
+        "label": "Large",
+        "pricePence": 29000,
+        "scheduleMinutes": 360
+      }
+    ]
+  },
+  {
+    "skuCode": "PLAST-01",
+    "keywords": [
+      "plaster",
+      "plastering",
+      "plaster patch",
+      "skim",
+      "patch plaster",
+      "crack plaster",
+      "plaster repair",
+      "render"
+    ],
+    "negativeKeywords": [
+      "plasterboard"
+    ],
+    "scheduleMinutes": null,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": [
+      {
+        "label": "Small",
+        "pricePence": 14000,
+        "scheduleMinutes": 150
+      },
+      {
+        "label": "Medium",
+        "pricePence": 32000,
+        "scheduleMinutes": 300
+      },
+      {
+        "label": "Large",
+        "pricePence": 82500,
+        "scheduleMinutes": 480
+      }
+    ]
+  },
+  {
+    "skuCode": "TAP-OUT-01",
+    "keywords": [
+      "outside tap",
+      "garden tap",
+      "external tap",
+      "outdoor tap",
+      "hosepipe tap",
+      "hose tap"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "TAP-CART-01",
+    "keywords": [
+      "tap cartridge",
+      "cartridge replacement",
+      "tap washer",
+      "dripping tap internal",
+      "tap not stopping"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 45,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "TAP-KIT-01",
+    "keywords": [
+      "kitchen tap",
+      "tap",
+      "faucet",
+      "mixer tap",
+      "hot tap",
+      "cold tap",
+      "dripping tap",
+      "leaking tap",
+      "tap replacement",
+      "new tap",
+      "fit tap",
+      "install tap",
+      "mono tap",
+      "kitchen faucet"
+    ],
+    "negativeKeywords": [
+      "bath tap",
+      "bathroom tap",
+      "outside tap",
+      "garden tap"
+    ],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "TAP-BATH-01",
+    "keywords": [
+      "bathroom tap",
+      "bath tap",
+      "basin tap",
+      "sink tap",
+      "hot and cold tap",
+      "pillar tap",
+      "bath mixer",
+      "basin mixer"
+    ],
+    "negativeKeywords": [
+      "kitchen tap",
+      "outside tap"
+    ],
+    "scheduleMinutes": 50,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "TAP-REPAIR-01",
+    "keywords": [
+      "dripping tap",
+      "leaking tap",
+      "tap drip",
+      "tap leak",
+      "fix tap",
+      "repair tap",
+      "tap washer",
+      "tap cartridge"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 45,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "TOI-REPAIR-01",
+    "keywords": [
+      "toilet repair",
+      "toilet fix",
+      "toilet flush",
+      "cistern",
+      "toilet running",
+      "toilet not flushing",
+      "toilet handle",
+      "toilet mechanism",
+      "toilet internals",
+      "filling valve",
+      "toilet float"
+    ],
+    "negativeKeywords": [
+      "toilet unblock",
+      "blocked toilet",
+      "toilet replacement"
+    ],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "TOI-SWAP-01",
+    "keywords": [
+      "toilet replacement",
+      "new toilet",
+      "replace toilet",
+      "toilet installation",
+      "fit toilet",
+      "wc replacement"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "TOI-SEAT-01",
+    "keywords": [
+      "toilet seat",
+      "loo seat",
+      "seat replacement",
+      "new toilet seat",
+      "fit toilet seat"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 30,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "TOI-UNBLK-01",
+    "keywords": [
+      "blocked toilet",
+      "toilet blocked",
+      "toilet unblock",
+      "toilet clog",
+      "overflow toilet",
+      "toilet not draining",
+      "toilet overflowing",
+      "unblock toilet",
+      "clear toilet"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SHWR-FIX-01",
+    "keywords": [
+      "shower repair",
+      "shower broken",
+      "shower not working",
+      "shower fix",
+      "electric shower",
+      "shower unit",
+      "power shower",
+      "shower fault"
+    ],
+    "negativeKeywords": [
+      "shower screen",
+      "shower hose",
+      "bar mixer"
+    ],
+    "scheduleMinutes": 75,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SHWR-HOSE-01",
+    "keywords": [
+      "shower hose",
+      "shower head",
+      "handset",
+      "shower handset",
+      "hose replacement",
+      "shower head blocked",
+      "shower head dripping"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 30,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SIL-SINK-01",
+    "keywords": [
+      "reseal sink",
+      "sink seal",
+      "worktop seal",
+      "kitchen seal",
+      "sink silicone"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 50,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "CAULK-01",
+    "keywords": [
+      "caulk",
+      "caulking",
+      "fill gaps",
+      "gap fill",
+      "coving gap",
+      "skirting gap",
+      "trim gap",
+      "mastic",
+      "seal gaps"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "HANG-MIR-01",
+    "keywords": [
+      "hang mirror",
+      "mirror hanging",
+      "wall mirror",
+      "fit mirror",
+      "mount mirror",
+      "heavy mirror"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 50,
+    "tiers": null
+  },
+  {
+    "skuCode": "HANG-CLK-01",
+    "keywords": [
+      "hang clock",
+      "clock",
+      "hang sign",
+      "hooks",
+      "coat hooks",
+      "key hooks",
+      "hang hooks",
+      "put up hooks"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 30,
+    "tiers": null
+  },
+  {
+    "skuCode": "KEYSAFE-01",
+    "keywords": [
+      "key safe",
+      "key box",
+      "combination lock box",
+      "keysafe",
+      "key lock box",
+      "fit key safe",
+      "install key safe"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "DRSTOP-01",
+    "keywords": [
+      "door stop",
+      "doorstop",
+      "door stopper",
+      "fit door stop",
+      "door holder"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 12,
+    "tiers": null
+  },
+  {
+    "skuCode": "TOWRAIL-01",
+    "keywords": [
+      "towel rail",
+      "towel ring",
+      "towel holder",
+      "robe hook",
+      "bathroom hook",
+      "fit towel rail",
+      "towel bar"
+    ],
+    "negativeKeywords": [
+      "heated",
+      "electric"
+    ],
+    "scheduleMinutes": 35,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "RAD-TOWEL-01",
+    "keywords": [
+      "towel radiator",
+      "heated towel rail",
+      "towel rail",
+      "chrome rail",
+      "bathroom radiator",
+      "fit towel rail"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "BALLV-01",
+    "keywords": [
+      "stopcock",
+      "stop valve",
+      "isolating valve",
+      "isolator",
+      "ball valve",
+      "gate valve",
+      "water main valve"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 75,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "BABYGATE-01",
+    "keywords": [
+      "baby gate",
+      "stair gate",
+      "safety gate",
+      "child gate",
+      "fit stair gate",
+      "child safety"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 45,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "TV-PLBD-01",
+    "keywords": [
+      "tv wall mount",
+      "mount tv",
+      "hang tv",
+      "tv plasterboard",
+      "mount television",
+      "tv bracket",
+      "tv on wall",
+      "wall mount tv",
+      "flat screen mount",
+      "tv stud wall"
+    ],
+    "negativeKeywords": [
+      "brick",
+      "concrete",
+      "solid wall"
+    ],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "TV-CABLE-01",
+    "keywords": [
+      "hide tv cables",
+      "conceal cables",
+      "cable trunking",
+      "tv wires",
+      "hide wires",
+      "cable management",
+      "tv cable",
+      "chase cables",
+      "in-wall cables"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "DOORBELL-01",
+    "keywords": [
+      "smart doorbell",
+      "ring doorbell",
+      "nest doorbell",
+      "video doorbell",
+      "fit doorbell",
+      "wireless doorbell",
+      "doorbell camera",
+      "video doorbell install"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SWCH-01",
+    "keywords": [
+      "light switch",
+      "switch swap",
+      "dimmer switch",
+      "dimmer",
+      "replace switch",
+      "switch not working",
+      "smart switch"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 35,
+    "tiers": null
+  },
+  {
+    "skuCode": "PENDANT-01",
+    "keywords": [
+      "pendant light",
+      "hanging light",
+      "chandelier",
+      "pendant fitting",
+      "drop light",
+      "over table light",
+      "pendant installation"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 50,
+    "tiers": null
+  },
+  {
+    "skuCode": "FLOOD-01",
+    "keywords": [
+      "outdoor floodlight",
+      "security light",
+      "pir light",
+      "flood light",
+      "motion sensor light",
+      "external light",
+      "outside light"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "BLIND-01",
+    "keywords": [
+      "blind",
+      "blinds",
+      "roller blind",
+      "venetian blind",
+      "roman blind",
+      "fit blind",
+      "install blind",
+      "hang blind",
+      "window blind"
+    ],
+    "negativeKeywords": [
+      "bay window",
+      "curtain pole",
+      "curtain rail"
+    ],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 50,
+    "tiers": null
+  },
+  {
+    "skuCode": "CURT-RAIL-01",
+    "keywords": [
+      "curtain pole",
+      "curtain rail",
+      "fit curtain",
+      "hang curtain",
+      "pole fitting",
+      "curtain track",
+      "eyelet curtain",
+      "ring top curtain"
+    ],
+    "negativeKeywords": [
+      "bendable",
+      "curved",
+      "bay"
+    ],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 55,
+    "tiers": null
+  },
+  {
+    "skuCode": "CURT-REFIX-01",
+    "keywords": [
+      "curtain fell",
+      "curtain pole came down",
+      "refix curtain",
+      "bracket fell",
+      "pole fallen",
+      "curtain repair",
+      "re-fix curtain rail"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 45,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "FAN-CORD-01",
+    "keywords": [
+      "fan pull cord",
+      "pull cord",
+      "bathroom pull cord",
+      "fan cord broken",
+      "light pull cord"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 35,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SPUR-01",
+    "keywords": [
+      "fused spur",
+      "spur",
+      "spur outlet",
+      "cooker switch",
+      "fcu",
+      "fused connection unit",
+      "fit spur"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "PAINT-WALL-01",
+    "keywords": [
+      "paint wall",
+      "feature wall",
+      "accent wall",
+      "single wall",
+      "one wall",
+      "paint one wall"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "PAINT-CEIL-01",
+    "keywords": [
+      "paint ceiling",
+      "ceiling paint",
+      "ceiling damp patch",
+      "ceiling decoration",
+      "repaint ceiling"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 150,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "PAINT-TOUCH-01",
+    "keywords": [
+      "touch up",
+      "patch paint",
+      "small area paint",
+      "minor paint repair",
+      "scuff",
+      "mark on wall",
+      "paint damage"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "BTHPNL-01",
+    "keywords": [
+      "bath panel",
+      "side panel",
+      "bath fascia",
+      "fit bath panel",
+      "replace bath panel"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "BEAM-01",
+    "keywords": [
+      "timber beam",
+      "wooden beam",
+      "mantel",
+      "mantelpiece",
+      "fireplace beam",
+      "false beam"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 150,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "PLINTH-01",
+    "keywords": [
+      "kitchen plinth",
+      "plinth",
+      "kickboard",
+      "toe kick",
+      "fit plinth"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 30,
+    "minutesPerUnit": 90,
+    "tiers": null
+  },
+  {
+    "skuCode": "SASH-01",
+    "keywords": [
+      "sash window",
+      "sash repair",
+      "sash cord",
+      "window cord",
+      "window weight",
+      "sash balance"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 210,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "WINBOARD-01",
+    "keywords": [
+      "window board",
+      "window sill",
+      "windowsill",
+      "window cill",
+      "fit window board"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 180,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "PAINT-FENCE-01",
+    "keywords": [
+      "paint fence",
+      "fence paint",
+      "shed paint",
+      "stain fence",
+      "treat fence",
+      "wood stain fence"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 240,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "PAINT-METAL-01",
+    "keywords": [
+      "paint metal",
+      "paint pipes",
+      "paint radiator",
+      "metal paint",
+      "railings paint",
+      "primer metal"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "PAINT-SILL-01",
+    "keywords": [],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "STAINBLK-01",
+    "keywords": [
+      "stain block",
+      "stain blocker",
+      "nicotine stain",
+      "water stain",
+      "stain ceiling",
+      "damp stain",
+      "bleed through paint"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "DOOR-HW-01",
+    "keywords": [
+      "door handle",
+      "door knob",
+      "door lever",
+      "handle replacement",
+      "latch",
+      "door latch",
+      "fit handle"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 50,
+    "tiers": null
+  },
+  {
+    "skuCode": "LETTERBOX-01",
+    "keywords": [
+      "letterbox",
+      "letter box",
+      "letter plate",
+      "fit letterbox",
+      "replace letterbox",
+      "door letterbox"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 75,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "FP-WARDROBE-01",
+    "keywords": [
+      "wardrobe assembly",
+      "ikea wardrobe",
+      "pax wardrobe",
+      "build wardrobe",
+      "assemble wardrobe",
+      "wardrobe build"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 180,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "FP-DESK-01",
+    "keywords": [
+      "desk assembly",
+      "table assembly",
+      "assemble desk",
+      "build desk",
+      "flat pack desk",
+      "ikea desk",
+      "office desk build"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "FENCE-PANEL-01",
+    "keywords": [
+      "fence panel",
+      "fence",
+      "fencing",
+      "fence repair",
+      "new fence",
+      "replace fence",
+      "fence installation"
+    ],
+    "negativeKeywords": [
+      "fence post"
+    ],
+    "scheduleMinutes": null,
+    "setupMinutes": 30,
+    "minutesPerUnit": 90,
+    "tiers": null
+  },
+  {
+    "skuCode": "VANITY-TOP-01",
+    "keywords": [
+      "vanity top",
+      "worktop bathroom",
+      "basin worktop",
+      "vanity unit top",
+      "fit vanity"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "FIREDOOR-SEAL-01",
+    "keywords": [
+      "fire door seal",
+      "intumescent strip",
+      "fire seal",
+      "smoke seal",
+      "fire door strip",
+      "flat fire door"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": null,
+    "setupMinutes": 20,
+    "minutesPerUnit": 45,
+    "tiers": null
+  },
+  {
+    "skuCode": "FP-SOFA-01",
+    "keywords": [
+      "sofa assembly",
+      "corner sofa build",
+      "sectional sofa",
+      "sofa build",
+      "large furniture build"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "FURN-FIX-01",
+    "keywords": [
+      "furniture repair",
+      "fix furniture",
+      "wobbly chair",
+      "broken drawer",
+      "loose leg",
+      "furniture fix"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "TILE-REMOVE-01",
+    "keywords": [
+      "remove tiles",
+      "tile removal",
+      "strip tiles",
+      "take off tiles",
+      "hack off tiles"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 150,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "LAWN-MOW-01",
+    "keywords": [
+      "mow lawn",
+      "mow grass",
+      "cut grass",
+      "lawn mowing",
+      "lawn cut",
+      "grass cut",
+      "lawn edge"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "PLASTERBOARD-01",
+    "keywords": [
+      "plasterboard",
+      "dry lining",
+      "stud wall",
+      "board wall",
+      "plasterboard ceiling",
+      "fix plasterboard"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 300,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "FLOOR-LIFT-01",
+    "keywords": [
+      "lift flooring",
+      "remove flooring",
+      "take up flooring",
+      "rip up carpet",
+      "remove laminate",
+      "lift tiles",
+      "floor removal"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 240,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "WASHLINE-01",
+    "keywords": [
+      "washing line",
+      "rotary line",
+      "clothesline",
+      "fit washing line",
+      "rotary dryer",
+      "install washing line"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "WEED-TREAT-01",
+    "keywords": [
+      "weed treatment",
+      "weed killer",
+      "kill weeds",
+      "weed control",
+      "herbicide",
+      "spray weeds"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "KIT-DRILL-01",
+    "keywords": [
+      "drill kitchen unit",
+      "cut out appliance",
+      "integrated appliance",
+      "appliance cutout",
+      "drill unit"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 75,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "GUTTER-REPAIR-01",
+    "keywords": [
+      "gutter repair",
+      "downpipe",
+      "gutter leak",
+      "gutter replacement",
+      "fix gutter",
+      "sagging gutter",
+      "gutter bracket"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "JETWASH-DECK-01",
+    "keywords": [
+      "jet wash decking",
+      "clean decking",
+      "pressure wash deck",
+      "decking clean",
+      "algae decking"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "TRELLIS-01",
+    "keywords": [
+      "trellis",
+      "screening",
+      "garden screen",
+      "privacy screen",
+      "fit trellis",
+      "install trellis",
+      "bamboo screen"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "LOCK-CABINET-01",
+    "keywords": [
+      "cabinet lock",
+      "desk lock",
+      "coded lock",
+      "combination lock",
+      "filing cabinet lock",
+      "cupboard lock"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 75,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "SHED-REMOVE-01",
+    "keywords": [
+      "remove shed",
+      "dismantle shed",
+      "take down shed",
+      "old shed removal",
+      "shed demolition"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 240,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "WASTE-APPLI-01",
+    "keywords": [
+      "remove appliance",
+      "dispose fridge",
+      "old washing machine",
+      "appliance removal",
+      "take away fridge",
+      "old appliance"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "WASTE-FURN-01",
+    "keywords": [
+      "remove furniture",
+      "old sofa",
+      "old bed",
+      "furniture disposal",
+      "take away furniture",
+      "old wardrobe"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 75,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "AC-CLEAN-01",
+    "keywords": [
+      "air conditioning",
+      "ac clean",
+      "aircon service",
+      "air con filter",
+      "split unit clean",
+      "hvac clean"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 60,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "OVEN-CLEAN-01",
+    "keywords": [
+      "oven clean",
+      "clean oven",
+      "oven cleaning",
+      "extractor hood clean",
+      "cooker clean"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "ROOF-MINOR-01",
+    "keywords": [
+      "roof repair",
+      "minor roof",
+      "ridge tile",
+      "slipped tile",
+      "roof tile",
+      "felt repair",
+      "flat roof patch"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 120,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "VISIT-01",
+    "keywords": [
+      "site visit",
+      "assessment",
+      "survey",
+      "come and look",
+      "estimate",
+      "come round",
+      "have a look"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 90,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  },
+  {
+    "skuCode": "EXTFIX-01",
+    "keywords": [
+      "external fixture",
+      "outdoor fitting",
+      "outside fitting",
+      "house number",
+      "exterior fitting",
+      "external sign"
+    ],
+    "negativeKeywords": [],
+    "scheduleMinutes": 45,
+    "setupMinutes": null,
+    "minutesPerUnit": null,
+    "tiers": null
+  }
+]

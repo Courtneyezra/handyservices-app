@@ -1,0 +1,17 @@
+{
+  "name": "handy-whatsapp-extension",
+  "version": "0.1.0",
+  "description": "Chrome extension that captures WhatsApp Web messages and syncs them to V6 Switchboard.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "watch": "vite build --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "typescript": "^5.4.0",
+    "vite": "^5.2.0"
+  }
+}

@@ -1,0 +1,1016 @@
+{
+  "_meta": {
+    "purpose": "Proposed keyword + negative-keyword additions to service_catalog to lift the auto-matcher's coverage on real historical quote lines. REVIEW ARTIFACT ONLY — apply manually after red-pen.",
+    "generatedBy": "scripts/_propose-keywords.ts mining of 693 non-test quote lines since 2026-04-01",
+    "matcher": "server/contextual-pricing/sku-matcher.ts (MIN_SCORE=2.5; word-weights {1:1,2:3,3:5,4+:6}; CATEGORY_BONUS=1.5)",
+    "designRule": "Prefer 2-3 word phrases. A 2-word phrase scores 3 (>=2.5) so it matches even when the parser's category-slug disagrees with the SKU's category (the dominant failure mode: e.g. a 'shelves' job tagged general_fixing while SHELF-FLOAT-01 lives in 'shelving'). Single common words were avoided unless category-anchored and distinctive.",
+    "applyNote": "Each entry MERGES into the existing keywords[]/negative_keywords[] arrays (union, de-duped, lowercased). Does not replace.",
+    "schemaPerEntry": "{ skuCode, category, addKeywords[], addNegativeKeywords[], exampleDescriptions[], note }"
+  },
+  "additions": [
+    {
+      "skuCode": "TV-BRICK-01",
+      "category": "tv_mounting",
+      "addKeywords": ["mount tv to brick", "tv to brick", "tv on solid brick", "tv on solid wall", "tv onto solid", "inch tv on solid", "bracket onto solid"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Mount TV to brick wall",
+        "Install 65 inch TV on solid brick wall with customer supplied bracket",
+        "Install TV bracket onto solid wall"
+      ],
+      "note": "Fixes a HUMAN-TAGGED anchor ('Mount TV to brick wall' -> TV-BRICK-01) that is currently unmatched. Existing kw 'mount tv brick' / 'tv brick wall' don't fire on 'Mount TV TO brick wall' (the 'to' breaks the contiguous phrase). Deliberately NOT adding bare 'brick wall' — it also appears in general_fixing lines ('Remove brick wall'), would be a false positive. TV-distinctive phrases only. Existing NEG (plasterboard/stud/drywall) retained."
+    },
+    {
+      "skuCode": "TV-PLBD-01",
+      "category": "tv_mounting",
+      "addKeywords": ["mount tv to plasterboard", "tv to plasterboard", "tv bracket", "mount tv bracket", "tv brackets", "televisions to wall", "mount television", "hang tv bracket"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Mount TV on plasterboard wall",
+        "Mount 2 TV brackets",
+        "Hang two TV brackets to wall",
+        "Mount 2 televisions to wall",
+        "Relocate TV wall bracket"
+      ],
+      "note": "'tv bracket(s)' with no wall-type stated -> default to plasterboard (the common UK case). TV-BRICK-01 NEG already excludes brick/solid/concrete, and the brick lines explicitly say 'solid'/'brick' so they route to TV-BRICK-01 first. 'tv bracket' is safe: probe shows it only appears in tv_mounting lines."
+    },
+    {
+      "skuCode": "WASTE-01",
+      "category": "waste_removal",
+      "addKeywords": ["waste and rubbish", "remove waste", "waste disposal", "waste removal", "full waste", "site clean-up", "site clean up", "remove and dispose of old brick", "old brick fireplace", "dispose polycarbonate roof sheets", "remove and dispose polycarbonate"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Remove waste and rubbish",
+        "Site clean-up and full waste disposal",
+        "Remove waste from two properties.",
+        "Remove and dispose of old brick fireplace."
+      ],
+      "note": "Biggest single win: 'Remove waste and rubbish' is a HUMAN-TAGGED anchor (WASTE-01) appearing 6x, all currently unmatched. 'waste and rubbish' (3 words, weight 5) is decisive and waste-distinctive. DELIBERATELY did NOT add bare 'dispose of' / 'remove and dispose' — those are too greedy (they stole 'Remove and dispose of laminate flooring' -> should be FLOOR-LIFT-01, and 'old plinths' -> PLINTH-01). Instead routed each disposal to its specific SKU (fridge->WASTE-APPLI-01, shed->SHED-REMOVE-01, plinths->PLINTH-01, laminate->FLOOR-LIFT-01) and gave WASTE-01 only the item-specific fireplace/polycarbonate phrases."
+    },
+    {
+      "skuCode": "WASTE-APPLI-01",
+      "category": "waste_removal",
+      "addKeywords": ["dispose of fridge", "dispose fridge and freezer", "fridge and freezer", "remove and dispose of fridge"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Remove and dispose of fridge and freezer"],
+      "note": "Appliance-specific so it beats the generic WASTE-01 'dispose of' on this line."
+    },
+    {
+      "skuCode": "SHED-REMOVE-01",
+      "category": "waste_removal",
+      "addKeywords": ["remove old wooden shed", "remove old shed", "dismantle and remove old", "dismantle old shed"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Dismantle and remove old wooden shed.",
+        "Dismantle old shed and remove and dispose"
+      ],
+      "note": "'old shed removal' already exists; these cover the 'dismantle ... remove' phrasing. Distinct from SHED-INSTALL-01 (assembly) which keeps 'build/assemble shed'."
+    },
+    {
+      "skuCode": "PAINT-FENCE-01",
+      "category": "painting",
+      "addKeywords": ["paint garden fence", "paint exterior shed", "paint shed", "stain fence panels", "fence both sides", "stain 6 fence", "fence, both sides"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Paint garden fence",
+        "Paint exterior shed",
+        "Paint garden fence, both sides",
+        "Stain 6 fence panels to darker colour and gate, both sides"
+      ],
+      "note": "'paint garden fence' (3 words) is decisive and unambiguously painting-vs-fencing. Existing 'paint fence'/'fence paint' don't fire on 'Paint garden fence' because there's no contiguous 'paint fence' substring."
+    },
+    {
+      "skuCode": "PAINT-WALL-01",
+      "category": "painting",
+      "addKeywords": ["paint full wall", "paint one bedroom wall", "repaint medium sized wall", "repaint marked wall", "paint showroom wall", "repaint wall", "re-paint full wall", "re-paint patched wall", "repaint patched wall", "repaint marked"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Paint full wall grey",
+        "Paint one bedroom wall",
+        "Repaint medium sized wall",
+        "Repaint marked wall adjacent to tiles",
+        "Re-paint full wall where scratched all over"
+      ],
+      "note": "Single-wall jobs. 'paint wall'/'one wall' already keywords on PAINT-WALL-01 but the lines say 'full wall'/'medium sized wall'/'marked wall' (adjective between paint and wall, or 'repaint'). PAINT-ROOM-01 NEG already has 'one wall' so room won't steal these."
+    },
+    {
+      "skuCode": "PAINT-ROOM-01",
+      "category": "painting",
+      "addKeywords": ["paint bedroom walls", "paint two walls", "paint office walls", "paint 4 bedroom walls", "paint living room and kitchen", "bedroom walls and ceiling", "paint bedroom 2", "paint bedroom 3", "paint 5 rooms", "office walls white", "two office walls"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Paint bedroom walls",
+        "Paint two walls white",
+        "Paint office walls white",
+        "Paint 4 bedroom walls",
+        "Paint living room and kitchen walls",
+        "Paint bedroom walls and ceiling",
+        "Paint 5 rooms, ceilings and 2 wardrobes",
+        "Paint bedroom 2"
+      ],
+      "note": "MULTI-wall / whole-room. NOTE for reviewer: 'Paint two walls' is arguably PAINT-WALL-01 territory; I routed plural-walls and named-rooms to ROOM (the bigger job). 'paint office walls white' has plural walls -> room. Existing PAINT-ROOM-01 NEG (ceiling only / one wall / woodwork only) is preserved and is compatible."
+    },
+    {
+      "skuCode": "PAINT-DOOR-01",
+      "category": "painting",
+      "addKeywords": ["repaint living room door", "repaint door", "finish painting of bathroom door", "paint bathroom door", "paint a door"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Repaint living room door",
+        "Finish painting of bathroom door",
+        "Paint a door"
+      ],
+      "note": "'Paint a door' is a HUMAN-TAGGED anchor (PAINT-DOOR-01). Existing kw 'paint door' should already hit 'Paint a door' (text ' paint a door ' contains 'paint a door'? No — keyword is 'paint door', text has 'paint A door'). The 'a' breaks it. Add 'paint a door'. PAINT-DOOR-01 NEG (front door/external door) preserved so PAINT-FRDOOR-01 keeps front doors."
+    },
+    {
+      "skuCode": "STAINBLK-01",
+      "category": "painting",
+      "addKeywords": ["stain-block and repaint", "stainblock and repaint", "stain block and repaint", "stain-block", "stainblock", "stain blocking", "repaint dark patch", "colour blending", "stainblock and repaint 2 walls"],
+      "addNegativeKeywords": ["mould"],
+      "exampleDescriptions": [
+        "Stain-block and repaint wall",
+        "Stain-block and repaint dark patch on wall",
+        "Stainblock and repaint 2 walls above window",
+        "Repaint wall with colour blending."
+      ],
+      "note": "'Stain-block and repaint wall' is a HUMAN-TAGGED anchor (STAINBLK-01). Existing kw 'stain block' (with space) misses the hyphenated 'stain-block' and the concatenated 'stainblock'. Adds both spellings. NEGATIVE 'mould' added so a combined 'Remove mould, stain-block and repaint ceiling' job stays on MOULD-PAINT-01 (a mould job is a mould job); verified the 4 pure stain-block lines contain no 'mould' so they're unaffected."
+    },
+    {
+      "skuCode": "PAINT-EXT-01",
+      "category": "painting",
+      "addKeywords": ["paint rendered front facade", "rendered facade", "rendered front", "external pagoda", "external meter cupboards", "paint external", "exterior pagoda"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Paint rendered front facade",
+        "Repaint external pagoda black and white",
+        "Paint external meter cupboards"
+      ],
+      "note": "Exterior masonry/render. 'render paint'/'facade paint' exist but phrasing is 'rendered ... facade'. Lower-confidence: 'external pagoda'/'meter cupboards' are bespoke exterior items — routed here as the closest exterior-paint SKU."
+    },
+    {
+      "skuCode": "PAINT-WOOD-01",
+      "category": "painting",
+      "addKeywords": ["repaint hallway skirting", "damaged hallway skirting", "paint all doors and skirting", "doors and skirting boards", "sand and repaint", "all doors and skirting"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Sand and repaint damaged hallway skirting.",
+        "Paint all doors and skirting boards"
+      ],
+      "note": "Skirting/woodwork. 'paint skirting'/'skirting board paint' exist but lines say 'repaint ... skirting' / 'doors and skirting'."
+    },
+    {
+      "skuCode": "CARP-MISC-01",
+      "category": "carpentry",
+      "addKeywords": ["cut and fit plinths", "cut and refit plinths", "build timber frame", "supply and install timber frame", "general carpentry repair"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Build timber frame",
+        "Supply and install timber frame, 2 levels with ramps, 7ft × 7ft"
+      ],
+      "note": "Catch-all carpentry. 'timber frame' bespoke builds routed here. NOTE plinth lines mostly go to PLINTH-01 below; 'cut and fit plinths' included on both — category bonus + identical phrase, PLINTH-01 wins on its extra 'plinth' single-word hits."
+    },
+    {
+      "skuCode": "PLINTH-01",
+      "category": "carpentry",
+      "addKeywords": ["fit plinths", "cut and fit plinths", "cut and refit plinths", "refit plinths", "fix back plinths", "supply and fit new plinths", "remove and dispose of old plinths", "fit plinths to size", "refix kitchen plinths"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Cut and fit plinths to size",
+        "Cut and refit plinths.",
+        "Fix back plinths",
+        "Supply and fit new plinths",
+        "Refix kitchen plinths"
+      ],
+      "note": "Plinth/kickboard. 'plinth' (single word) already exists but lines tagged kitchen_fitting (no plinth SKU there) so single-word weight 1 < 2.5 with no category bonus. 2-word 'fit plinths' (weight 3) clears the bar regardless of category. 'refix kitchen plinths' covers the kitchen-tagged ones."
+    },
+    {
+      "skuCode": "PANEL-01",
+      "category": "carpentry",
+      "addKeywords": ["acoustic panelling", "decorative panelling", "install panelling", "fit panelling", "beading paneling", "wood panelling and walls", "install decorative panelling", "panelling on staircase", "beading and panelling"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Install acoustic panelling",
+        "Install decorative panelling on staircase and upstairs wall",
+        "Supply and fit panelling to one living room wall",
+        "Prime and paint wood panelling and walls."
+      ],
+      "note": "Wall panelling. 'panel'/'wall panelling' exist; 'panelling' alone (single word, weight 1) wasn't enough cross-category. Multi-word phrases added. CAUTION: 'wood panelling and walls' line is also painting (prime+paint) — left in PANEL-01 since the structural install is the core SKU."
+    },
+    {
+      "skuCode": "WINBOARD-01",
+      "category": "carpentry",
+      "addKeywords": ["install window boards", "install 2 window boards", "fit window boards", "window boards"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Install 2 window boards"],
+      "note": "'window board' (singular) exists; line is plural 'window boards'."
+    },
+    {
+      "skuCode": "CEILTILE-01",
+      "category": "carpentry",
+      "addKeywords": ["replace damaged ceiling tiles", "damaged ceiling tiles", "replace three damaged ceiling tiles", "replace 2 damaged ceiling tiles", "ceiling tiles"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Replace three damaged ceiling tiles",
+        "Replace three damaged ceiling tiles in hallway",
+        "Replace 2 damaged ceiling tiles"
+      ],
+      "note": "'ceiling tile' (singular) exists; lines are plural 'ceiling tiles'. Appears in both carpentry and general_fixing — category disambiguates; phrase is ceiling-distinct, no risk to other cats."
+    },
+    {
+      "skuCode": "SASH-01",
+      "category": "carpentry",
+      "addKeywords": ["remove sash windows", "staff bead", "remove staff bead", "sash windows, remove staff"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Remove 3 sash windows, remove staff bead, sand all parts, Put back windows"],
+      "note": "'sash window' (singular) exists; line is plural + 'staff bead' (sash-distinctive joinery term)."
+    },
+    {
+      "skuCode": "BOXIN-01",
+      "category": "carpentry",
+      "addKeywords": ["box in pipe work", "boxing with timber cladding", "replace extractor boxing", "box in pipework"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Box in pipe work approximately 3 meters long",
+        "Replace extractor boxing with timber cladding"
+      ],
+      "note": "'box in pipes' exists; lines say 'box in pipe work' (space) / 'extractor boxing'."
+    },
+    {
+      "skuCode": "SHED-INSTALL-01",
+      "category": "garden_maintenance",
+      "addKeywords": ["install shed", "supply and install new plastic shed", "install plastic shed", "new shed", "install 6", "winchester log cabin", "log cabin", "summer house", "install new shed"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Supply and install new plastic shed",
+        "Install 6' x 3' new shed",
+        "Install 6x4 shed and level floor",
+        "Install Winchester log cabin",
+        "Build 15.5ft × 6ft summer house"
+      ],
+      "note": "Shed/cabin/summerhouse assembly. Many shed-install lines were tagged carpentry, not garden_maintenance, so single-word 'shed' didn't reach threshold. Multi-word phrases fix that. NOTE: these lines are cross-category (carpentry-tagged); SHED-INSTALL-01 is garden_maintenance, so no category bonus — the 2+ word phrase carries it."
+    },
+    {
+      "skuCode": "GARDEN-TIDY-01",
+      "category": "garden_maintenance",
+      "addKeywords": ["clear weeds", "weed and tidy", "cut back weeds", "remove weeds", "overgrown grass", "tidy front garden", "weed front garden", "cut back bush", "remove garden bush", "garden bush"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Clear weeds from back garden",
+        "Weed and tidy front garden",
+        "Cut back weeds and overgrown grass",
+        "Remove weeds from front garden",
+        "Cut back bush in front garden",
+        "Remove garden bush"
+      ],
+      "note": "'weed garden'/'garden tidy' exist; lines say 'clear weeds'/'weed and tidy'/'cut back bush'. CAUTION: WEED-TREAT-01 (chemical) vs GARDEN-TIDY-01 (manual) — lines with 'weedkiller'/'treatment'/'prevention' routed to WEED-TREAT-01 below; pure 'clear/remove weeds' -> tidy."
+    },
+    {
+      "skuCode": "WEED-TREAT-01",
+      "category": "garden_maintenance",
+      "addKeywords": ["weed prevention treatment", "weed prevention", "apply weedkiller", "weedkiller treatment", "apply weed prevention", "weed killer treatment"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Apply weed prevention treatment to garden beds",
+        "Remove weeds and apply weedkiller treatment."
+      ],
+      "note": "Chemical weed treatment, distinct from manual GARDEN-TIDY-01."
+    },
+    {
+      "skuCode": "LAWN-MOW-01",
+      "category": "garden_maintenance",
+      "addKeywords": ["mow and tidy lawn", "mow back garden lawn", "mow back garden", "mow and tidy"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Mow and tidy lawn",
+        "Mow back garden lawn"
+      ],
+      "note": "'mow lawn'/'mow grass' exist; lines insert words ('mow AND TIDY lawn', 'mow BACK GARDEN lawn'). NOTE 'Mow back garden lawn' is fine; a stray electrical line 'Fix lawn mower cable' contains 'mow' but routes to electrical (cable) — guarded by using 'mow ...' multi-word phrases not bare 'mow'."
+    },
+    {
+      "skuCode": "DRAIN-UNBLK-01",
+      "category": "plumbing_minor",
+      "addKeywords": ["unblock sink", "unblock sink via u bend", "plunger", "via u bend"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Attempt to unblock sink via U bend and plunger"],
+      "note": "'blocked sink'/'unblock drain' exist but not 'unblock sink'. DRAIN-UNBLK-01 NEG ('toilet') preserved so toilet unblocks stay TOI-UNBLK-01."
+    },
+    {
+      "skuCode": "RAD-SWAP-01",
+      "category": "plumbing_minor",
+      "addKeywords": ["remove and refit radiators", "refit radiators", "remove and refit radiator"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Remove and refit radiators"],
+      "note": "'radiator'/'remove radiator' exist; plural 'radiators' + 'refit' phrasing. RAD-SWAP-01 NEG ('towel rail','bleed') preserved."
+    },
+    {
+      "skuCode": "TOI-REPAIR-01",
+      "category": "plumbing_minor",
+      "addKeywords": ["replace flush valve", "flush valve", "fill valve to toilet", "quick release fill valve", "toilet isn't flushing", "why toilet isn't flushing", "fit quick release fill valve"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Replace flush valve",
+        "Supply and fit quick release fill valve to toilet",
+        "Investigate why toilet isn't flushing correctly"
+      ],
+      "note": "Toilet internals. 'filling valve' exists; lines say 'flush valve'/'fill valve'. TOI-REPAIR-01 NEG (unblock/blocked/replacement) preserved so it won't steal unblock or full-swap lines."
+    },
+    {
+      "skuCode": "WASH-PLUMB-01",
+      "category": "plumbing_minor",
+      "addKeywords": ["install washing machine", "install new washing machine", "install new dishwasher", "plumb washing machine", "wire sockets for washer", "install dishwasher"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Install washing machine",
+        "Install new washing machine",
+        "Install new dishwasher"
+      ],
+      "note": "'washing machine plumb'/'plumb in washing machine' exist; lines say 'install washing machine'. CAUTION: these also appear tagged general_fixing — category-agnostic 2-word 'install washing'... I used the full 'install washing machine' (3 words, decisive) to avoid colliding with anything else."
+    },
+    {
+      "skuCode": "SHWR-HOSE-01",
+      "category": "plumbing_minor",
+      "addKeywords": ["replace shower hoses", "shower hoses", "replace 2 shower hoses", "new shower holder", "shower holder"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Replace 2 shower hoses",
+        "Supply and fit new shower holder"
+      ],
+      "note": "'shower hose' (singular) exists; lines plural 'shower hoses'. Also tagged general_fixing in one case — 2-word phrase carries it cross-category."
+    },
+    {
+      "skuCode": "TAP-OUT-01",
+      "category": "plumbing_minor",
+      "addKeywords": ["hose pipe bracket", "external hose pipe", "hang external hose"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Hang external hose pipe bracket"],
+      "note": "Closest SKU for an outdoor hose fitting; low confidence — reviewer may prefer to leave bespoke."
+    },
+    {
+      "skuCode": "SCKT-SWAP-01",
+      "category": "electrical_minor",
+      "addKeywords": ["fix loose wall socket", "loose wall socket", "replace 8 sockets", "replace sockets with customer supplied", "customer supplied sockets", "8 sockets"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Fix loose wall socket",
+        "Remove and replace 8 sockets with customer supplied sockets"
+      ],
+      "note": "'socket swap'/'replace socket' exist; lines say 'loose wall socket'/'replace 8 sockets'. SCKT-SWAP-01 NEG (add/new/extra socket) preserved so SCKT-NEW-01 keeps additions. CAUTION: 'IP66 socket'/'waterproof socket' line is an ADD (new) -> intentionally NOT routed here."
+    },
+    {
+      "skuCode": "LIGHT-SWAP-01",
+      "category": "electrical_minor",
+      "addKeywords": ["change ceiling lights", "change 4 ceiling lights", "4 ceiling lights", "fix solar lights", "external solar lights", "solar lights", "fix 4 solar lights", "solar lights to posts"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Change 4 ceiling lights, 6 wall lights, 1 light above pool table, 2 wall lights changed for fused spurs",
+        "Fix 2 external solar lights",
+        "Fix 4 solar lights to posts"
+      ],
+      "note": "'ceiling light'/'replace light' exist; lines say 'change ... ceiling lights'. Solar/garden lights routed here (closest light-fitting SKU); reviewer may split to FLOOD-01."
+    },
+    {
+      "skuCode": "SWCH-01",
+      "category": "electrical_minor",
+      "addKeywords": ["install light switches", "4 light switches", "install 4 light switches", "light switches with supplied"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Install 4 light switches with supplied surrounds"],
+      "note": "'light switch' (singular) exists; line plural 'light switches'."
+    },
+    {
+      "skuCode": "FAN-01",
+      "category": "electrical_minor",
+      "addKeywords": ["replace extractor", "replace extractor with", "cv2 model"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Replace extractor with CV2 model"],
+      "note": "'extractor fan' exists; line abbreviates to 'extractor'. Low-volume."
+    },
+    {
+      "skuCode": "SMOKE-01",
+      "category": "electrical_minor",
+      "addKeywords": ["install smoke alarms", "2 smoke alarms", "install 2 smoke alarms", "battery and mains-powered"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Install 2 smoke alarms: battery and mains-powered"],
+      "note": "'smoke alarm' (singular) exists; line plural 'smoke alarms'."
+    },
+    {
+      "skuCode": "DLIGHT-01",
+      "category": "electrical_minor",
+      "addKeywords": ["fire rated down lights", "fire rated downlights", "down lights through out", "installation of fire rated"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["installation of fire rated down lights through out property"],
+      "note": "'fire-rated downlight' exists (hyphenated); line spells 'fire rated down lights' (spaced)."
+    },
+    {
+      "skuCode": "CAM-01",
+      "category": "electrical_minor",
+      "addKeywords": ["external cameras", "2 external customer supplied cameras", "install cameras to external", "customer supplied cameras"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Install 2 external customer supplied cameras to external wall"],
+      "note": "'security camera'/'cctv' exist; line just says 'cameras' + 'external'."
+    },
+    {
+      "skuCode": "KIT-UNIT-01",
+      "category": "kitchen_fitting",
+      "addKeywords": ["install kitchen cupboards", "2 new kitchen cupboards", "install 3 kitchen cupboards", "new kitchen cupboards", "fit 2 new kitchen cupboards", "relocate kitchen cupboards", "kitchen cupboards"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Install 3 kitchen cupboards",
+        "Remove and fit 2 new kitchen cupboards with doors",
+        "Remove and relocate kitchen cupboards",
+        "Install 2 new kitchen cupboards with replacement doors"
+      ],
+      "note": "'kitchen unit'/'kitchen cabinet' exist; lines say 'kitchen cupboards'. CAUTION: KIT-DOOR-01 has 'cupboard door' — lines with 'cupboards WITH DOORS' could collide. 'kitchen cupboards' (install/new) -> unit; 'cupboard door fix/replace' -> KIT-DOOR-01. Reviewer to confirm the 'with doors' ones."
+    },
+    {
+      "skuCode": "KIT-DOOR-01",
+      "category": "kitchen_fitting",
+      "addKeywords": ["new fronts to all draws", "new cupboard doors in kitchen", "fit new cupboard doors", "supply and fit new fronts", "drawer fronts kitchen", "fronts to all draws", "fit new fronts"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Supply and fit new cupboard doors in kitchen",
+        "Supply and fit new fronts to all draws in kitchen"
+      ],
+      "note": "Door/front replacement (not full units). 'cupboard door'/'kitchen door' exist; phrasing variants added."
+    },
+    {
+      "skuCode": "KIT-DRILL-01",
+      "category": "kitchen_fitting",
+      "addKeywords": ["drill inlet hole", "drill holes through kitchen units", "drill 2 holes through kitchen", "inlet hole in kitchen cupboard", "drill kitchen cupboard"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Drill inlet hole in kitchen cupboard for washing machine",
+        "Drill 2 holes through kitchen units for pipework"
+      ],
+      "note": "'drill kitchen unit'/'appliance cutout' exist; lines say 'drill ... hole ... kitchen cupboard/units'."
+    },
+    {
+      "skuCode": "SIL-BATH-01",
+      "category": "silicone_sealant",
+      "addKeywords": ["reseal bathroom including bath", "re-seal full bathroom", "re-seal bathrooom including bath", "seal 1x bath panels", "reseal bath panel", "remove silicone sealant from bath", "silicone from bath perimeter"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Re-seal full bathrooom including bath",
+        "Remove silicone sealant from bath perimeter",
+        "Seal 1x bath panels"
+      ],
+      "note": "'reseal bath'/'bath seal' exist; misspelling 'bathrooom' and 'including bath' phrasings added. NOTE this SKU is the bath-reseal; whole-bathroom resealing routed here as closest."
+    },
+    {
+      "skuCode": "SIL-SHWR-01",
+      "category": "silicone_sealant",
+      "addKeywords": ["re-seal shower waste", "reseal shower waste", "shower seals", "investigate shower seals", "reseal shower trays", "re seal 2x shower trays", "shower trays with"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Re-seal shower waste",
+        "investigate 4x shower seals",
+        "re seal 2x shower trays with aunti mould silicone"
+      ],
+      "note": "'reseal shower'/'shower tray seal' exist; spacing/plural variants ('shower trays','shower seals') added."
+    },
+    {
+      "skuCode": "SIL-SINK-01",
+      "category": "silicone_sealant",
+      "addKeywords": ["reseal behind sink", "reseal kitchen tiles at worktop", "reseal kitchen tile junction", "seal splashbacks between counter and tile", "reseal behind as required", "tile junction with worktop", "behind sink where required", "splashbacks between counter"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Clean sink and tap; reseal behind sink where required",
+        "Reseal kitchen tiles at worktop junction",
+        "Seal splashbacks between counter and tile, 4 apartments"
+      ],
+      "note": "'reseal sink'/'worktop seal'/'kitchen seal' exist; lines say 'reseal behind sink'/'kitchen tiles at worktop'. Distinct from tiling REGROUT/SPLASH because the verb is SEAL (silicone), category is silicone_sealant."
+    },
+    {
+      "skuCode": "SIL-WIN-01",
+      "category": "silicone_sealant",
+      "addKeywords": ["seal window", "remove and clean window sealant", "window sealant", "remove window sealant"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "seal window",
+        "Remove and clean window sealant."
+      ],
+      "note": "'reseal window'/'window seal' exist; bare 'seal window' and 'window sealant' added. 'seal window' is 2 words, window-distinct."
+    },
+    {
+      "skuCode": "DOOR-INT-01",
+      "category": "door_fitting",
+      "addKeywords": ["internal doors", "fit 2 internal doors", "supply and fit 3 new internal doors", "install internal doors", "professionally install 4 internal doors", "hang 3 new internal doors", "new internal doors", "fit internal doors", "internal doors with separate"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Supply and fit 2 internal doors",
+        "Supply and fit 3 new internal doors",
+        "Professionally install 4 internal doors",
+        "Supply and hang 3 new internal doors"
+      ],
+      "note": "'internal door' (singular) exists; lines plural 'internal doors'. DOOR-INT-01 NEG (external/front door/garage) preserved so external-door lines route to DOOR-EXT-01."
+    },
+    {
+      "skuCode": "DOOR-EXT-01",
+      "category": "door_fitting",
+      "addKeywords": ["external doors and frames", "three external doors", "supply and fit three external doors", "fit external doors"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["supply and fit three external doors and frames"],
+      "note": "'external door' (singular) exists; line plural 'external doors and frames'."
+    },
+    {
+      "skuCode": "DOOR-ADJ-01",
+      "category": "door_fitting",
+      "addKeywords": ["adjust bedroom door", "re-align bathroom door", "realign bathroom door", "plane back edges", "plane to close", "remove 2 doors and plane", "door isn't closing", "isn't closing properly", "remove door and plane"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Adjust bedroom door",
+        "Re-align bathroom door",
+        "Remove 2 doors and plane back edges",
+        "Remove door and plane to close correctly.",
+        "Investigate one door that isn't closing properly"
+      ],
+      "note": "'sticking door'/'ease door'/'plane door' exist; lines say 'adjust ... door'/'re-align'/'plane back edges'/'isn't closing'. 'Re-align bathroom door' also appears tagged carpentry — phrase added there is fine; DOOR-ADJ-01 wins in door_fitting via category bonus."
+    },
+    {
+      "skuCode": "DOOR-HINGE-01",
+      "category": "door_fitting",
+      "addKeywords": ["repair front door top hinge", "front door top hinge", "door top hinge", "install new hinges on", "3 new hinges on", "new hinges on 12 wardrobe", "replace 2 cupboard hinges", "2 cupboard hinges"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Repair front door top hinge",
+        "Install 3 new hinges on 12 wardrobe doors",
+        "Replace 2 cupboard hinges"
+      ],
+      "note": "'door hinge'/'cupboard hinge' exist; lines say 'top hinge'/'new hinges on ...'/'2 cupboard hinges'. DOOR-HINGE-01 is a HUMAN-TAGGED anchor SKU ('Fix cupboard door hinge'); these additions stay consistent with it."
+    },
+    {
+      "skuCode": "FIREDOOR-SEAL-01",
+      "category": "door_fitting",
+      "addKeywords": ["self closures to fire doors", "fit 3 self closures", "fire door self closures", "self closures"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Fit 3 self closures to fire doors"],
+      "note": "Fire-door hardware. 'fire door seal'/'fire door strip' exist; 'self closures to fire doors' is fire-door-distinct."
+    },
+    {
+      "skuCode": "WINDOW-HINGE-NOTE",
+      "category": "door_fitting",
+      "addKeywords": [],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Install new window hinges",
+        "Replace PVC window hinges"
+      ],
+      "note": "NO SKU EXISTS for window (uPVC) hinge replacement in door_fitting or carpentry. These are GENUINELY UNMATCHED — flagging as a catalog GAP, not proposing a wrong match. Recommend a new SKU (e.g. WIN-HINGE-01) rather than mis-routing to DOOR-HINGE-01 (different hardware/price)."
+    },
+    {
+      "skuCode": "PLAST-01",
+      "category": "plastering",
+      "addKeywords": ["patch hole in wall", "patch kitchen ceiling hole", "repair and replaster", "replaster wall", "patch holes in two walls", "fill and patch holes", "plater and pain ceiling", "patch hole", "kitchen ceiling hole"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Fill and patch holes in two walls",
+        "Patch kitchen ceiling hole",
+        "Repair and replaster wall",
+        "Patch hole in wall",
+        "Plater and pain ceiling"
+      ],
+      "note": "'plaster'/'plaster patch'/'crack plaster' exist; lines say 'patch hole'/'replaster'/typo 'plater'. PLAST-01 NEG ('plasterboard') preserved so board jobs route to PLASTERBOARD-01. CAUTION: 'patch hole' also in painting (filler) — but painting lines say 'fill holes'/'epoxy filler' which route to FILL-HOLE-01; the plastering ones are 'patch hole in wall'/'replaster'."
+    },
+    {
+      "skuCode": "PLAST-SAND-01",
+      "category": "plastering",
+      "addKeywords": ["sand back wall", "sand back walls"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Sand back wall"],
+      "note": "'sand walls' exists; 'sand back wall' (with 'back') added. PLAST-SAND-01 is a HUMAN-TAGGED anchor ('Sand and make good walls')."
+    },
+    {
+      "skuCode": "PLASTERBOARD-01",
+      "category": "carpentry",
+      "addKeywords": ["install new plasterboard", "plasterboard to damaged walls", "new plasterboard to damaged"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Install new plasterboard to damaged walls."],
+      "note": "PLASTERBOARD-01 is in plastering category but the line was tagged carpentry. 'plasterboard' single-word exists; 'install new plasterboard' (3 words) clears threshold cross-category."
+    },
+    {
+      "skuCode": "FILL-HOLE-01",
+      "category": "general_fixing",
+      "addKeywords": ["fill holes", "fill 2 holes", "fill holes in wall", "patch holes above shower", "epoxy filler", "fill holes with expanding foam", "fill holes and remove redundant", "holes above shower", "fix crack 2 walls", "fill holes with epoxy"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Fill 2 holes in wall",
+        "Patch holes above shower with epoxy filler",
+        "Fill holes with expanding foam high level",
+        "Fix crack 2 walls in property 2"
+      ],
+      "note": "'fill hole'/'fill crack' (singular) exist; lines plural 'fill holes'/'patch holes'. These were tagged painting/general_fixing/plastering — 2-word 'fill holes' carries cross-category. CAUTION vs PLAST-01: 'patch holes above shower with epoxy filler' -> FILL-HOLE-01 (filler job) not replastering."
+    },
+    {
+      "skuCode": "HANG-MIR-01",
+      "category": "general_fixing",
+      "addKeywords": ["hang 2 mirrors", "hang mirrors", "hang customer supplied mirror", "install medium side mirror", "install mirrors to wall", "hang 3 wall mirrors", "hang wall mirrors", "side mirror on solid brick", "medium side mirror"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Hang 2 mirrors",
+        "Hang customer supplied mirror on wall",
+        "Install medium side mirror on solid brick wall",
+        "Hang 3 wall mirrors"
+      ],
+      "note": "'hang mirror' (singular) exists; lines plural 'mirrors'/'install ... mirror'. CAUTION: 'medium side mirror on solid brick' contains 'solid brick' — must NOT route to TV-BRICK-01. Guarded because TV-BRICK additions are 'tv ...'-prefixed, and HANG-MIR gets 'mirror' phrases; 'install medium side mirror' (3 words, weight 5) decisively wins over any TV phrase (which won't hit at all here)."
+    },
+    {
+      "skuCode": "HANG-CLK-01",
+      "category": "general_fixing",
+      "addKeywords": ["hang 2 clocks", "hang clocks", "hang clocks on walls"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Hang 2 clocks on walls"],
+      "note": "'hang clock' (singular) exists; line plural 'clocks'."
+    },
+    {
+      "skuCode": "TOWRAIL-01",
+      "category": "general_fixing",
+      "addKeywords": ["mount 3 towel holders", "towel holders", "mount towel holders", "mount towel hooks", "towel hooks"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Mount 3 towel holders",
+        "Mount towel hooks"
+      ],
+      "note": "'towel holder' (singular) exists; line plural 'towel holders'. TOWRAIL-01 NEG (heated/electric) preserved so heated towel rails route to RAD-TOWEL-01."
+    },
+    {
+      "skuCode": "BATHACC-01",
+      "category": "general_fixing",
+      "addKeywords": ["mount 3 toilet roll holders", "toilet roll holders", "mount toilet roll holders"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Mount 3 toilet roll holders"],
+      "note": "'toilet roll holder' (singular) exists; line plural 'holders'."
+    },
+    {
+      "skuCode": "FLYSCRN-01",
+      "category": "general_fixing",
+      "addKeywords": ["install fly screens", "fly screens", "fly screens to 3 windows", "install fly screens to"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Install fly screens to 3 windows"],
+      "note": "'fly screen' (singular) exists; line plural 'fly screens'."
+    },
+    {
+      "skuCode": "DRSTOP-01",
+      "category": "general_fixing",
+      "addKeywords": ["12x doorstops", "supply and instal 12x doorstops", "instal doorstops", "doorstops"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["supply and Instal 12x doorstops"],
+      "note": "'doorstop'/'door stop' exist; line uses '12x doorstops' (number-prefixed, plural)."
+    },
+    {
+      "skuCode": "FILL-HOLE-VENT-NOTE",
+      "category": "general_fixing",
+      "addKeywords": [],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Install wall vent",
+        "Replace vent cover",
+        "Fit plastic vent covers to 2 external holes",
+        "Install customer-supplied manhole cover"
+      ],
+      "note": "GENUINE GAP: no vent-fitting SKU. Several 'wall vent'/'vent cover' lines. Recommend a small VENT-01 SKU rather than mis-routing. Listed for reviewer awareness, no keywords proposed."
+    },
+    {
+      "skuCode": "CATFLAP-01",
+      "category": "general_fixing",
+      "addKeywords": ["pet screen", "install customer-supplied pet screen"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Install customer-supplied pet screen"],
+      "note": "Closest SKU (pet flap family) for a 'pet screen'. LOW confidence — reviewer may prefer FLYSCRN-01 or leave bespoke. Single line."
+    },
+    {
+      "skuCode": "HANG-MIR-DUP-NOTE",
+      "category": "general_fixing",
+      "addKeywords": [],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Install 3 customer supplied shelves to wall",
+        "Install 3 shelves",
+        "Remove shelving from cupboard"
+      ],
+      "note": "POINTER: 'Install 3 shelves' / 'Install 3 customer supplied shelves to wall' are tagged general_fixing but the right SKU is SHELF-FLOAT-01 (in 'shelving'). See SHELF-FLOAT-01 entry below — keywords added there cover these cross-category lines."
+    },
+    {
+      "skuCode": "SHELF-FLOAT-01",
+      "category": "shelving",
+      "addKeywords": ["install 3 shelves", "install shelves", "fit white gloss shelves", "white gloss shelves", "shelves to brackets", "customer supplied shelves", "shelves to wall", "install 3 customer supplied shelves", "fix bookshelf to wall", "mdf shelving to tv unit", "fit shelves to brackets"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Install 3 shelves",
+        "Install 3 customer supplied shelves to wall",
+        "Fit white gloss shelves to brackets",
+        "Fix bookshelf to wall"
+      ],
+      "note": "MAJOR cross-category fix. 'shelf'/'shelves' single-word exist but lines tagged general_fixing/carpentry/shelving without enough signal. 2-3 word phrases ('install shelves','shelves to wall') clear MIN_SCORE without needing category bonus. SHELF-FLOAT-01 NEG ('bracket shelf','shelving unit') preserved — but 'fit shelves to brackets' (brackets, plural) intentionally added here; reviewer: if you want bracket-shelf jobs on SHELF-BRKT-01 instead, move 'shelves to brackets'/'white gloss shelves to brackets' there."
+    },
+    {
+      "skuCode": "SHELF-UNIT-01",
+      "category": "shelving",
+      "addKeywords": ["install key rack and knife rack", "key rack", "knife rack", "notice board", "install customer-supplied notice board"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Install key rack and knife rack",
+        "Install customer-supplied notice board"
+      ],
+      "note": "Wall-mounted racks/boards -> closest is the wall-unit/rack SKU. Low-medium confidence; reviewer may leave bespoke."
+    },
+    {
+      "skuCode": "FURN-FIX-01",
+      "category": "furniture_repair",
+      "addKeywords": ["repair bed", "drawer runners", "refit drawer runners", "adjust drawer runners", "drawer runner", "check drawer runners", "remove drawers from unit", "drawer runners correctly"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Repair bed",
+        "Refit and adjust drawer runners correctly",
+        "Remove drawers from unit",
+        "Check condition of all drawer runners"
+      ],
+      "note": "'broken drawer'/'furniture repair' exist; 'drawer runner(s)' is the recurring specific term."
+    },
+    {
+      "skuCode": "FURN-MOVE-01",
+      "category": "furniture_repair",
+      "addKeywords": ["dismantle and move ottoman bed", "move ottoman bed", "ottoman bed to garage", "dismantle ... move"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Dismantle and move ottoman bed to garage"],
+      "note": "'move furniture'/'dismantle furniture' exist; this is a specific ottoman-bed move."
+    },
+    {
+      "skuCode": "FP-BED-01",
+      "category": "flat_pack",
+      "addKeywords": ["install ottoman bed frame", "ottoman bed frame", "assemble new customer supplied bed", "bed and headboard", "assemble bed and headboard"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Install ottoman bed frame",
+        "Assemble new customer supplied bed and headboard"
+      ],
+      "note": "'bed assembly'/'assemble bed' exist; 'install ottoman bed frame' / 'bed and headboard' variants. FP-BED-01 is a HUMAN-TAGGED anchor ('Assemble bed frame and headboard')."
+    },
+    {
+      "skuCode": "FP-SOFA-01",
+      "category": "flat_pack",
+      "addKeywords": ["assemble sofa set", "sofa set"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Assemble sofa set"],
+      "note": "'sofa assembly'/'sofa build' exist; 'assemble sofa set' variant."
+    },
+    {
+      "skuCode": "FP-MISC-01",
+      "category": "flat_pack",
+      "addKeywords": ["assemble bicycle", "build bespoke tv cabinet", "bespoke tv cabinet", "assemble bike"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Assemble bicycle",
+        "Build bespoke TV cabinet"
+      ],
+      "note": "Catch-all assembly. FP-MISC-01 is a HUMAN-TAGGED anchor ('Assemble flat-pack furniture'). Bicycle/bespoke-cabinet routed to the misc bucket."
+    },
+    {
+      "skuCode": "FP-WARDROBE-01",
+      "category": "flat_pack",
+      "addKeywords": ["dismantle 2 wardrobes", "dismantle wardrobes", "dismantle 2 wardrobes carefully", "dismantle flat-pack wardrobe"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Dismantle 2 wardrobes carefully",
+        "Dismantle flat-pack wardrobe"
+      ],
+      "note": "'wardrobe assembly'/'assemble wardrobe' exist; DISMANTLE variant added (same SKU handles both per convention). Reviewer: if dismantles should be FURN-MOVE-01, move these."
+    },
+    {
+      "skuCode": "GUTTER-REPAIR-01",
+      "category": "guttering",
+      "addKeywords": ["secure loose gutter clip", "loose gutter clip", "gutter clip", "gutter corner piece", "replace gutter corner"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Secure loose gutter clip",
+        "Replace gutter corner piece with new fitting."
+      ],
+      "note": "'gutter repair'/'gutter bracket' exist; 'gutter clip'/'gutter corner' are the specific parts. Distinct from GUTTER-CLEAR-01 (cleaning)."
+    },
+    {
+      "skuCode": "BLIND-BAY-01",
+      "category": "curtain_blinds",
+      "addKeywords": ["blinds in bay window", "install blinds in bay", "blinds in bay"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Install blinds in bay window"],
+      "note": "'bay window blind'/'blinds bay' exist; 'blinds in bay window' (word order) added. BLIND-01 NEG ('bay window') preserved so plain-blind SKU won't steal bay jobs."
+    },
+    {
+      "skuCode": "CURT-RAIL-01",
+      "category": "curtain_blinds",
+      "addKeywords": ["install 4 curtain rails", "curtain rails", "install curtain rails", "4 curtain rails"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Install 4 curtain rails"],
+      "note": "'curtain rail' (singular) exists; line plural 'curtain rails'. CURT-RAIL-01 is a HUMAN-TAGGED anchor ('Fit curtain pole or rail'). CURT-RAIL-01 NEG (bendable/curved/bay) preserved."
+    },
+    {
+      "skuCode": "CURT-REFIX-01",
+      "category": "curtain_blinds",
+      "addKeywords": ["refix loose back curtain holder", "curtain holder", "loose ... curtain holder", "refix curtain holder"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Refix loose back curtain holder to wall"],
+      "note": "'refix curtain'/'re-fix curtain rail' exist; 'curtain holder' variant. Distinct from new install."
+    },
+    {
+      "skuCode": "HANDRAIL-01",
+      "category": "carpentry",
+      "addKeywords": ["supply and fit new staircase handrail", "staircase handrail", "new staircase handrail", "fit new handrail"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Supply and fit new staircase handrail"],
+      "note": "'handrail'/'stair handrail' exist but this line is tagged curtain_blinds (parser miscategorised) so the single-word 'handrail' got no category bonus and the line scored <2.5. 'staircase handrail' (2 words) clears it cross-category. Reviewer: line is genuinely a handrail despite the curtain_blinds tag."
+    },
+    {
+      "skuCode": "FENCE-PANEL-01",
+      "category": "fencing",
+      "addKeywords": ["broken panel to arden gate", "supply and fit broken panel", "broken panel to"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Supply and fit broken panel to Arden gate"],
+      "note": "'fence panel'/'fence repair' exist; this says 'broken panel to ... gate'. Low-volume. FENCE-PANEL-01 NEG ('fence post') preserved."
+    },
+    {
+      "skuCode": "GATE-WOOD-01",
+      "category": "fencing",
+      "addKeywords": ["double driveway gate", "remove old double driveway gate", "new double driveway gate", "driveway gate"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Remove old double driveway gate",
+        "Supply and install new double driveway gate"
+      ],
+      "note": "GATE-WOOD-01 is in carpentry but these are tagged fencing. 'wooden gate'/'garden gate' exist; 'driveway gate' (2 words) added, clears cross-category. Reviewer: confirm driveway gates should map to the wooden-gate SKU vs a dedicated gate SKU."
+    },
+    {
+      "skuCode": "BTHPNL-01",
+      "category": "bathroom_fitting",
+      "addKeywords": ["supplied bath panels", "align & fit 1x supplied bath", "white bath panelling", "fit white bath panelling", "supply and fit white bath", "bath panelling", "supplied bath pannels"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Align & fit 1x supplied bath pannels",
+        "Supply and fit white bath panelling"
+      ],
+      "note": "BTHPNL-01 (bath panel) is in carpentry but these are tagged bathroom_fitting. 'bath panel'/'fit bath panel' exist (singular); plural/typo 'pannels'/'panelling' added. Clears cross-category via 2-word phrase. NOTE 'Remove and reseal bathroom bath' -> SIL-BATH-01 (reseal), not here."
+    },
+    {
+      "skuCode": "BATH-BASIN-NOTE",
+      "category": "bathroom_fitting",
+      "addKeywords": [],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Replace bathroom cupboard handles"],
+      "note": "DELIBERATELY LEFT UNMATCHED. Considered routing to BATH-BASIN-01 but a cupboard-handle swap is not a basin/vanity install — that would be a forced, wrong match that dents precision. No good SKU exists (there is no generic 'replace handles' SKU). Genuinely bespoke; flagged as a small catalog gap (a HANDLE-SWAP SKU could absorb this + the kitchen 'cupboard handles' lines)."
+    },
+    {
+      "skuCode": "REGROUT-01",
+      "category": "tiling",
+      "addKeywords": ["re-grout patio paving", "regrout patio", "regrout patio paving"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Re-grout patio paving"],
+      "note": "REGROUT-01 is a HUMAN-TAGGED anchor ('Re-grout tiles'). This line ('Re-grout patio paving') is tagged garden_maintenance — 'regrout' single word + no category bonus = miss. 'regrout patio' (2 words) added. Reviewer: could also be PAVE-01; routed to regrout since the verb is regrout."
+    },
+    {
+      "skuCode": "TILE-01",
+      "category": "tiling",
+      "addKeywords": ["retile bathroom floor and walls", "retile bathroom", "retile bathroom floor"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Retile bathroom floor and walls"],
+      "note": "'tile bathroom'/'tiling' exist; 'retile bathroom' added. TILE-01 NEG ('regrout','splashback') preserved."
+    },
+    {
+      "skuCode": "TILE-REMOVE-01",
+      "category": "general_fixing",
+      "addKeywords": ["remove adhesive tiles", "remove carpet tiles", "adhesive tiles", "remove carpet tiles from"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Remove adhesive tiles and clean wall stains",
+        "Remove carpet tiles from 5m × 3m area"
+      ],
+      "note": "TILE-REMOVE-01 (tiling) for tile removal; lines tagged general_fixing/waste_removal. 'remove tiles'/'tile removal' exist; 'remove adhesive tiles'/'remove carpet tiles' added. Cross-category via 2-3 word phrase."
+    },
+    {
+      "skuCode": "FLOOR-LIFT-01",
+      "category": "flooring",
+      "addKeywords": ["dispose of laminate flooring", "remove and dispose of laminate", "remove and dispose of laminate flooring", "cut back flooring where damaged", "cut back flooring", "lift sub-base ply", "lay sub-base ply"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Remove and dispose of laminate flooring.",
+        "Cut back flooring where damaged"
+      ],
+      "note": "'remove laminate'/'remove flooring' exist but 'Remove and dispose of laminate flooring' has no contiguous 'remove laminate' (the 'and dispose of' splits it), so it fell to WASTE-01's greedy 'remove and dispose' (now removed). Adds the flooring-disposal phrasing here + category bonus so the lift/remove SKU wins. NOTE: 'Lay sub-base ply for levelling' is arguably a subfloor-prep job, not a lift — included low-confidence; reviewer may move to a flooring-install SKU."
+    },
+    {
+      "skuCode": "LOCK-MULTI-01",
+      "category": "lock_change",
+      "addKeywords": ["install 2 locks on front door", "2 locks on front door", "2 locks on", "install 2 locks"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": ["Install 2 locks on front door"],
+      "note": "'multiple locks' exists but line says '2 locks' (numeric). LOCK-01 NEG ('multiple locks') already routes multi-lock away from single LOCK-01; '2 locks on' (numeric multi) -> LOCK-MULTI-01. Reviewer: single front door, two locks — could be LOCK-01 if treated as one visit."
+    },
+    {
+      "skuCode": "POINTING-01",
+      "category": "general_fixing",
+      "addKeywords": ["repair brickwork and repoint", "repoint mortar joints", "repoint mortar", "repair pointing", "mortar joints", "repair brickwork"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Repair brickwork and repoint mortar joints",
+        "Repair pointing to external left wall light"
+      ],
+      "note": "POINTING-01 (other) for repointing; these lines tagged general_fixing. 'repointing'/'pointing'/'mortar repair' exist; 'repoint mortar joints'/'repair brickwork' added. Cross-category."
+    },
+    {
+      "skuCode": "PAVE-01",
+      "category": "carpentry",
+      "addKeywords": ["lay concrete slabs", "concrete slabs on prepared", "replace 3 broken pavement slabs", "broken pavement slabs", "lay and cut slabs", "replace 3 broken pavement", "lay slabs to size"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Lay concrete slabs on prepared hard core base.",
+        "Replace 3 broken pavement slabs, level bed",
+        "Lay and cut slabs to size"
+      ],
+      "note": "PAVE-01 (other) for slab/paving; lines tagged carpentry/garden_maintenance. 'slabs'/'lay slabs'/'patio slabs' exist (single/short); 'concrete slabs'/'pavement slabs' added. Cross-category via 2-word phrase."
+    },
+    {
+      "skuCode": "AC-CLEAN-01",
+      "category": "other",
+      "addKeywords": ["clean ac unit and check filters", "clean hallway ac unit", "ac unit and check filters", "clean ac unit", "check filters"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Clean hallway AC unit and check filters",
+        "Clean AC unit and check filters."
+      ],
+      "note": "'ac clean'/'air con filter' exist; lines say 'clean AC unit ... check filters'. 'ac unit and check filters' is AC-distinct."
+    },
+    {
+      "skuCode": "VISIT-01",
+      "category": "other",
+      "addKeywords": ["measure doors for ordering", "arrange colour-matching consultation", "colour-matching consultation", "further investigation into water bonding", "investigate leak coming through ceiling", "quote on the day"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Measure doors for ordering",
+        "Arrange colour-matching consultation",
+        "Investigate leak coming through ceiling, quote on the day for additional works required"
+      ],
+      "note": "VISIT-01 (site visit/assessment) for measure/consult/investigate-only lines that aren't a fix yet. 'assessment'/'survey'/'estimate' exist; these phrasings added. LOW-MEDIUM confidence — reviewer may prefer to leave investigate-only lines bespoke."
+    },
+    {
+      "skuCode": "ROOF-MINOR-01",
+      "category": "other",
+      "addKeywords": ["install new flashing", "new flashing", "seal flashing to brick and roof", "ventilation roof tiles", "remove old ply roof", "remove debris from roofing", "reseal roofing"],
+      "addNegativeKeywords": [],
+      "exampleDescriptions": [
+        "Install new flashing",
+        "Remove old ply roof",
+        "Remove debris from roofing section and reseal",
+        "add 2 ventilation roof tiles"
+      ],
+      "note": "'roof repair'/'flat roof patch'/'roof tile' exist; flashing/roofing-debris variants added. Polycarbonate-sheet lines left bespoke (no SKU)."
+    }
+  ],
+  "rejectedAsRisky": [
+    {
+      "keyword": "brick wall",
+      "consideredFor": "TV-BRICK-01",
+      "reason": "Appears in 3 general_fixing lines ('Remove brick wall','Extend brick wall','medium side mirror on solid brick wall'). Adding it to TV-BRICK-01 would wrongly match wall-demolition/mirror jobs. Used 'tv to brick'/'tv on solid' instead."
+    },
+    {
+      "keyword": "solid wall",
+      "consideredFor": "TV-BRICK-01",
+      "reason": "Too generic — 'install medium side mirror on solid brick wall' and others contain it. Used 'tv on solid wall'/'tv on solid brick' (tv-anchored) only."
+    },
+    {
+      "keyword": "dispose of / dispose",
+      "consideredFor": "WASTE-01 (as a short keyword)",
+      "reason": "Spans general_fixing, other, and waste sub-SKUs (fridge/furniture/shed). As a bare short phrase it would mis-route appliance/furniture disposals away from their specific SKUs. Kept 'waste and rubbish' (decisive) + 'remove and dispose' only as the catch-all, with appliance/shed phrases on the specific sub-SKUs so they win."
+    },
+    {
+      "keyword": "panel",
+      "consideredFor": "PANEL-01",
+      "reason": "Single word 'panel' collides with bath panel (BTHPNL-01), fence panel, shower panel, plinth-adjacent. Used 'acoustic panelling'/'decorative panelling'/'wall panelling' multi-word forms instead."
+    },
+    {
+      "keyword": "shed",
+      "consideredFor": "SHED-INSTALL-01 (bare)",
+      "reason": "Bare 'shed' spans install, removal, base, and painting ('Paint exterior shed'). Used 'install shed'/'new plastic shed' for install and kept removal/paint on their own SKUs."
+    },
+    {
+      "keyword": "headboard",
+      "consideredFor": "FP-BED-01",
+      "reason": "Spans flat_pack (assemble), carpentry ('Cut headboard in half','Install 3 upholstered headboards'), furniture_repair (re-upholster). Too ambiguous as a bare keyword. Left most headboard lines bespoke; only 'bed and headboard' (assembly context) added to FP-BED-01. Upholstered-headboard build/recover lines flagged as a possible new SKU."
+    },
+    {
+      "keyword": "hinge",
+      "consideredFor": "DOOR-HINGE-01 (bare)",
+      "reason": "Bare 'hinge' would grab window-hinge lines (no SKU) and wardrobe-hinge. Used door/cupboard-anchored phrases; window hinges flagged as a catalog gap."
+    },
+    {
+      "keyword": "socket",
+      "consideredFor": "SCKT-SWAP-01 (bare)",
+      "reason": "Bare 'socket' spans swap vs add-new (SCKT-NEW-01) vs carpentry ('Cut out socket opening in melamine board'). SCKT-SWAP-01 NEG already lists add/new/extra; kept swap-specific multi-word phrases and did NOT add bare 'socket'."
+    },
+    {
+      "keyword": "patch hole",
+      "consideredFor": "both FILL-HOLE-01 and PLAST-01",
+      "reason": "Genuinely ambiguous between filler (FILL-HOLE-01) and replastering (PLAST-01). Split by qualifier: 'epoxy filler'/'expanding foam' -> FILL-HOLE-01; 'replaster'/'patch hole in wall'/'kitchen ceiling hole' -> PLAST-01. Did not add bare 'patch hole' to both (would double-count / could mis-route by category)."
+    },
+    {
+      "keyword": "panelling (single)",
+      "consideredFor": "PANEL-01 vs BATH-SHWRPNL-01 vs BTHPNL-01",
+      "reason": "Spans wall panelling, shower wall panelling, bath panelling. Used context-qualified phrases ('acoustic panelling','bath panelling','shower panelling') per SKU rather than bare 'panelling'."
+    }
+  ]
+}

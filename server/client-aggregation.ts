@@ -6,8 +6,11 @@ import {
     contractorBookingRequests,
     invoices,
     contractorPayouts,
+    serviceProperties,
+    serviceClients,
 } from '../shared/schema';
-import { inArray } from 'drizzle-orm';
+import { inArray, eq } from 'drizzle-orm';
+import { clientDedupeKey } from './clients';
 
 // ==========================================
 // CLIENT AGGREGATION (READ-ONLY)
@@ -330,6 +333,30 @@ clientAggregationRouter.get('/api/clients/:clientKey', async (req, res) => {
             return res.status(404).json({ error: 'No engagement found for this client key' });
         }
 
+        // Properties (Jobber's Property — WHERE the work happened). One client can
+        // own several. Collect the distinct property_ids stamped on this client's
+        // quotes/jobs/invoices, hydrate the service_properties rows, and attach a
+        // per-property count so the frontend can group the timeline by location.
+        const propertyIds = Array.from(new Set([
+            ...clientQuotes.map((q) => (q as any).propertyId),
+            ...clientJobs.map((j) => (j as any).propertyId),
+            ...clientInvoices.map((i) => (i as any).propertyId),
+        ].filter((x): x is string => typeof x === 'string' && x.length > 0)));
+
+        let clientProperties: Array<Record<string, any>> = [];
+        if (propertyIds.length > 0) {
+            const propRows = await db.select().from(serviceProperties)
+                .where(inArray(serviceProperties.id, propertyIds));
+            clientProperties = propRows.map((p) => ({
+                ...p,
+                counts: {
+                    quotes: clientQuotes.filter((q) => (q as any).propertyId === p.id).length,
+                    jobs: clientJobs.filter((j) => (j as any).propertyId === p.id).length,
+                    invoices: clientInvoices.filter((i) => (i as any).propertyId === p.id).length,
+                },
+            }));
+        }
+
         // Derive a display name (most recent non-empty across all sources).
         let displayName: string | null = null;
         let displayPhone: string | null = null;
@@ -352,8 +379,39 @@ clientAggregationRouter.get('/api/clients/:clientKey', async (req, res) => {
             displayEmail = normEmail(clientInvoices[0].customerEmail);
         }
 
+        // Resolve the first-class service_clients row so the frontend has a real
+        // client_id to edit/merge against. Prefer a client_id already stamped on
+        // one of this client's spine rows; otherwise fall back to resolving the
+        // canonical dedupe_key from the display contact (the heuristic clientKey
+        // uses RAW digits, whereas dedupe_key is UK-canonicalized — so we can't
+        // match the two directly).
+        const stampedClientId =
+            (clientQuotes.find((q) => (q as any).clientId)?.clientId as string | undefined) ??
+            (clientLeads.find((l) => (l as any).clientId)?.clientId as string | undefined) ??
+            (clientJobs.find((j) => (j as any).clientId)?.clientId as string | undefined) ??
+            (clientInvoices.find((i) => (i as any).clientId)?.clientId as string | undefined) ??
+            null;
+
+        let client: Record<string, any> | null = null;
+        if (stampedClientId) {
+            const [row] = await db.select().from(serviceClients)
+                .where(eq(serviceClients.id, stampedClientId)).limit(1);
+            client = row ?? null;
+        }
+        if (!client) {
+            const dedupeKey = clientDedupeKey({ phone: displayPhone, email: displayEmail });
+            if (dedupeKey) {
+                const [row] = await db.select().from(serviceClients)
+                    .where(eq(serviceClients.dedupeKey, dedupeKey)).limit(1);
+                client = row ?? null;
+            }
+        }
+
         res.json({
             clientKey: targetKey,
+            // First-class client record (id + editable fields) when one exists.
+            client,
+            clientId: client?.id ?? stampedClientId ?? null,
             displayName,
             phone: displayPhone,
             email: displayEmail,
@@ -363,7 +421,11 @@ clientAggregationRouter.get('/api/clients/:clientKey', async (req, res) => {
                 jobs: clientJobs.length,
                 invoices: clientInvoices.length,
                 payouts: clientPayouts.length,
+                properties: clientProperties.length,
             },
+            // Properties this client owns (each row carries an id that the
+            // quotes/jobs/invoices reference via propertyId).
+            properties: clientProperties,
             // Linking ids surfaced so the frontend can render the chain/timeline.
             leads: clientLeads,
             quotes: clientQuotes,

@@ -1,0 +1,192 @@
+sku_code,name,shape,current_price_gbp,new_price_gbp,verdict,rationale
+TAP-KIT-01,Kitchen tap swap,fixed,91,110,RAISE,Plumber £80-100; +£20 fixed-price/insured
+TAP-BATH-01,Bathroom tap swap,fixed,86,105,RAISE,Plumber £75-90; +£20 trust premium
+TAP-REPAIR-01,Dripping tap repair,fixed,77,85,HOLD,Small job market £60-70 plus £20
+TAP-OUT-01,Outside tap fit,fixed,128,145,RAISE,Drill-through £120 plus £25 premium
+TAP-CART-01,Tap cartridge replacement,fixed,91,95,HOLD,Market £75 plus £20 trust
+TOI-REPAIR-01,Toilet repair,fixed,91,110,RAISE,Urgent; £80 plus £30 urgency premium
+TOI-SWAP-01,Toilet replacement,fixed,144,180,RAISE,Plumber £150-170; +£25 fixed price
+TOI-SEAT-01,Toilet seat fit,fixed,59,65,HOLD,Tiny job; £45 plus £20 convenience
+TOI-UNBLK-01,Toilet unblocking,fixed,96,130,RAISE,High-urgency stressed customer
+DRAIN-UNBLK-01,Sink or shower drain unblock,fixed,80,105,RAISE,Urgent; £75 plus £30 urgency
+LEAK-FIND-01,Leak find & fix,fixed,80,120,RAISE,High-stress urgency job
+SHWR-FIX-01,Shower unit repair or swap,fixed,96,120,RAISE,Plumber £100; +£20 fixed price
+SHWR-BAR-01,Bar mixer & riser fit,fixed,187,195,HOLD,Reasonable; £160 plus £35 premium
+SHWR-HOSE-01,Shower hose or head swap,fixed,48,55,HOLD,Trivial job convenience premium
+RAD-SWAP-01,Radiator swap,fixed,118,145,RAISE,Plumber £120-140; +£25
+RAD-TOWEL-01,Heated towel rail fit,fixed,112,140,RAISE,Plumber £110; +£30 premium
+RAD-BLEED-01,Radiator bleed & balance,fixed,59,65,HOLD,Small convenience job
+BALLV-01,Stopcock or valve swap,fixed,102,120,RAISE,Plumber £100; +£20 fixed price
+WHEAT-01,Water heater swap,fixed,198,220,RAISE,Plumber £200; +£20 trust premium
+WASH-PLUMB-01,Washer/dishwasher plumb-in,fixed,86,105,RAISE,Market £80; +£25 fixed price
+SIL-BATH-01,Re-seal a bath,fixed,59,75,RAISE,Visible quality job; £55+£20
+SIL-SHWR-01,Re-seal a shower,fixed,64,80,RAISE,Visible quality job; £60+£20
+SIL-SINK-01,Re-seal a sink or worktop,fixed,59,75,RAISE,Visible quality job; £55+£20
+SIL-WIN-01,Re-seal a window,fixed,64,75,RAISE,Quality job; £55+£20
+CAULK-01,Caulk gaps & trims,fixed,70,80,HOLD,Quality finish job
+HANG-PIC-01,Hang pictures & frames,per_unit,27,30,HOLD,Market £25; small premium
+HANG-MIR-01,Hang a mirror,per_unit,59,65,HOLD,Market £45-50; +£15
+HANG-CLK-01,Hang clocks signs & hooks,per_unit,48,45,LOWER,Overpriced vs market £35
+FILL-HOLE-01,Fill holes & cracks,fixed,70,80,RAISE,Skill job quality premium
+KEYSAFE-01,Key safe fit,fixed,80,95,RAISE,Security premium
+FLYSCRN-01,Fit fly screens,per_unit,37,40,HOLD,Niche awkward; market £30
+DRSTOP-01,Fit door stops,per_unit,10,12,HOLD,Min 4 ok; trivial each
+TOWRAIL-01,Fit towel rail or holder,fixed,48,60,RAISE,Awkward small job
+BATHACC-01,Fit bathroom accessories,fixed,59,70,RAISE,Multi-item awkward
+BABYGATE-01,Fit a baby gate,fixed,59,75,RAISE,Safety premium parents pay
+CATFLAP-01,Fit or remove a cat flap,fixed,102,115,RAISE,Awkward door cut
+MISC-SMALL-01,Handful of small jobs,fixed,102,120,RAISE,Hour pack convenience
+SHELF-FLOAT-01,Hang floating shelves,per_unit,48,55,HOLD,Market £40-45; +£15
+SHELF-BRKT-01,Put up bracket shelves,per_unit,48,50,HOLD,Market £40; +£10
+SHELF-UNIT-01,Fix a shelving unit to wall,fixed,96,110,RAISE,Awkward big unit
+TV-PLBD-01,TV wall mount (plasterboard),fixed,80,110,RAISE,Pride/quality job; £85+£25
+TV-BRICK-01,TV wall mount (brick/solid),fixed,91,125,RAISE,Harder visible; £95+£30
+TV-CABLE-01,Conceal TV cables,fixed,64,85,RAISE,Quality finish premium
+SBAR-01,Mount a soundbar,fixed,59,70,RAISE,Awkward pairing job
+DOORBELL-01,Smart doorbell fit,fixed,80,95,RAISE,Tech plus wiring
+CAM-01,Security camera fit,fixed,91,115,RAISE,Security premium
+SCKT-SWAP-01,Socket swap,per_unit,73,85,RAISE,Electrician £75-85; +£10-15
+SCKT-NEW-01,Add a new socket,per_unit,96,120,RAISE,Electrician £100; +£20
+SWCH-01,Light switch swap,per_unit,70,75,HOLD,Electrician £65-70; +£10
+LIGHT-SWAP-01,Light fitting swap,per_unit,80,95,RAISE,Electrician £75-85; +£15
+PENDANT-01,Pendant light swap,per_unit,70,80,RAISE,Electrician £70; +£10
+DLIGHT-01,Downlight or spotlight swap,per_unit,24,30,RAISE,Bulk efficiency; market £25 per
+FAN-01,Extractor fan fit,fixed,80,110,RAISE,Electrical plus bathroom
+FAN-CORD-01,Fan pull-cord swap,fixed,54,65,RAISE,Awkward small job
+SMOKE-01,Smoke or CO alarm fit,per_unit,59,70,RAISE,Safety peace-of-mind premium
+SPUR-01,Fused spur fit or repair,fixed,73,90,RAISE,Electrician £75; +£15
+FLOOD-01,Outdoor floodlight fit,fixed,128,150,RAISE,Ladder plus electrical
+ELEC-DIAG-01,Electrical fault find,fixed,80,120,RAISE,Urgent expertise premium
+BLIND-01,Fit a blind,per_unit,54,60,HOLD,Market £45-50; +£15
+BLIND-BAY-01,Fit blinds in a bay,per_unit,54,60,HOLD,Bay coordination premium ok
+CURT-RAIL-01,Fit a curtain pole or rail,per_unit,59,65,HOLD,Awkward levelling
+CURT-TRACK-01,Fit a bendable curtain track,fixed,161,175,HOLD,Specialist; £140+£35
+CURT-REFIX-01,Re-fix a fallen curtain rail,fixed,59,70,RAISE,Urgent quick fix
+PAINT-ROOM-01:Small,Repaint a room Small,tiered,118,165,RAISE,Underpriced; £140+£25
+PAINT-ROOM-01:Medium,Repaint a room Medium,tiered,161,220,RAISE,Decorator £180-200; +£25
+PAINT-ROOM-01:Large,Repaint a room Large,tiered,257,325,RAISE,Decorator £280-300; +£30
+PAINT-WALL-01,Paint a single wall,fixed,96,110,RAISE,Pride job; £85+£25
+PAINT-CEIL-01,Paint a ceiling,fixed,111,130,RAISE,Awkward overhead
+PAINT-WOOD-01,Paint woodwork & skirting,fixed,128,150,RAISE,Quality finish premium
+PAINT-DOOR-01,Paint a door,fixed,73,90,RAISE,Quality finish premium
+PAINT-FRDOOR-01,Paint a front door,fixed,96,120,RAISE,Kerb appeal premium
+PAINT-SILL-01,Repaint window sills,fixed,96,110,RAISE,Visible quality
+STAINBLK-01,Stain-block & repaint,fixed,86,100,RAISE,Skill plus quality
+MOULD-PAINT-01,Mould treat & repaint ceiling,fixed,96,120,RAISE,Health concern premium
+PAINT-TOUCH-01,Touch-up & patch paint,fixed,73,85,RAISE,Quality skill premium
+PAINT-EXT-01,Paint exterior render or facade,fixed,300,350,RAISE,Big job scaffold needed
+WALLPAPER-STRIP-01:Small,Strip wallpaper Small,tiered,161,175,HOLD,Reasonable; £140+£35
+WALLPAPER-STRIP-01:Medium,Strip wallpaper Medium,tiered,300,320,HOLD,Messy labour; £280+£40
+WALLPAPER-STRIP-01:Large,Strip wallpaper Large,tiered,514,550,HOLD,Big messy job
+WALLPAPER-HANG-01,Hang wallpaper,fixed,225,260,RAISE,Skilled finish premium
+PAINT-FENCE-01,Paint a fence or shed,fixed,225,240,HOLD,Big surface; £210+£30
+PAINT-METAL-01,Paint metalwork or pipework,fixed,107,125,RAISE,Prep-heavy job
+SKIRT-01:Small,Skirting board Small,tiered,75,110,RAISE,Underpriced for skill required
+SKIRT-01:Medium,Skirting board Medium,tiered,161,190,RAISE,Skilled fit
+SKIRT-01:Large,Skirting board Large,tiered,342,380,RAISE,Big carpentry job
+PANEL-01:Small,Wall panelling Small,tiered,310,350,RAISE,Trend job high WTP
+PANEL-01:Medium,Wall panelling Medium,tiered,375,450,RAISE,Visible pride premium
+PANEL-01:Large,Wall panelling Large,tiered,749,850,RAISE,Showpiece room
+PLINTH-01,Kitchen plinth fit,per_unit,107,120,HOLD,Skilled scribing
+BTHPNL-01,Bath panel fit,fixed,161,180,RAISE,Tricky scribing
+CEILTILE-01,Replace ceiling tiles,per_unit,32,35,HOLD,Overhead awkward
+WINBOARD-01,Fit window boards,fixed,171,190,RAISE,Joinery skill
+SASH-01,Sash window repair,fixed,171,210,RAISE,Specialist trade
+BOXIN-01,Box in pipes or boiler,fixed,128,150,RAISE,Quality finish
+BEAM-01,Fit a timber beam or mantel,fixed,128,160,RAISE,Carpentry plus visible
+GATE-WOOD-01,Wooden gate repair,fixed,96,110,RAISE,Carpentry job
+VANITY-TOP-01,Fit a vanity top,fixed,96,120,RAISE,Skilled bathroom
+HANDRAIL-01,Fit a handrail,fixed,128,150,RAISE,Safety structural premium
+CARP-MISC-01,General carpentry repair,fixed,128,140,HOLD,Reasonable
+DOOR-INT-01,Internal door hanging,per_unit,91,120,RAISE,Skilled fit; £100+£20
+DOOR-EXT-01,External door fitting,per_unit,257,285,RAISE,Security plus skill premium
+DOOR-FRAME-01,Door frame repair,fixed,187,200,HOLD,Carpentry
+DOOR-ADJ-01,Ease a sticking door,fixed,86,95,HOLD,Skill job
+DOOR-HW-01,Door handle or latch swap,per_unit,70,75,HOLD,Market £60-65; +£10
+DOOR-HINGE-01,Cupboard door hinge fix,per_unit,59,60,HOLD,Small awkward fix
+LETTERBOX-01,Fit a letterbox,fixed,96,105,HOLD,Skilled cut
+FIREDOOR-SEAL-01,Fit fire door seals,per_unit,41,50,RAISE,Safety compliance premium
+GARAGE-DOOR-01,Garage door repair,fixed,128,150,RAISE,Awkward urgent
+FP-WARDROBE-01,Wardrobe assembly,fixed,128,145,RAISE,TaskRabbit £130 plus premium
+FP-BED-01,Bed assembly,fixed,96,110,RAISE,Market £85-95; +£20
+FP-DESK-01,Desk or table assembly,fixed,90,100,RAISE,Market £80; +£20
+FP-DRAWERS-01,Drawers or cabinet assembly,fixed,96,105,HOLD,Market £85 plus £20
+FP-SOFA-01,Sofa or large furniture build,fixed,96,115,RAISE,Bulky
+FP-MISC-01,Flat-pack assembly,fixed,96,110,RAISE,Catch-all
+FURN-FIX-01,Furniture repair,fixed,96,110,RAISE,Skill premium
+FURN-MOVE-01,Dismantle & move furniture,fixed,107,125,RAISE,Labour intensive
+TILE-01:Small,Tiling install Small,tiered,107,165,RAISE,Splashback underpriced
+TILE-01:Medium,Tiling install Medium,tiered,235,295,RAISE,Skilled trade
+TILE-01:Large,Tiling install Large,tiered,514,600,RAISE,Bathroom-scale
+REGROUT-01:Small,Re-grout tiles Small,tiered,96,120,RAISE,Quality refresh
+REGROUT-01:Medium,Re-grout tiles Medium,tiered,203,240,RAISE,Labour
+REGROUT-01:Large,Re-grout tiles Large,tiered,407,450,RAISE,Big bathroom
+SPLASH-01,Fit a splashback,fixed,128,150,RAISE,Visible kitchen
+TILE-REMOVE-01,Remove old tiles,fixed,128,145,RAISE,Messy labour
+KIT-UNIT-01:Small,Kitchen unit fitting Small,tiered,121,155,RAISE,Skilled
+KIT-UNIT-01:Medium,Kitchen unit fitting Medium,tiered,214,265,RAISE,Skilled
+KIT-UNIT-01:Large,Kitchen unit fitting Large,tiered,300,375,RAISE,Big install
+KIT-WORKTOP-01,Fit a worktop,fixed,214,260,RAISE,Skilled trade
+KIT-DOOR-01,Kitchen cupboard door fix,fixed,80,95,RAISE,Awkward alignment
+KIT-DRILL-01,Drill unit for appliance,fixed,96,110,RAISE,Skill plus risk
+BATH-SUITE-01:Small,Bathroom suite install Small,tiered,214,350,RAISE,Severely underpriced
+BATH-SUITE-01:Medium,Bathroom suite install Medium,tiered,385,600,RAISE,Underpriced
+BATH-SUITE-01:Large,Bathroom suite install Large,tiered,642,950,RAISE,Underpriced full bathroom
+BATH-BASIN-01,Basin & vanity fit,fixed,214,250,RAISE,Plumbing plus carpentry
+BATH-SHWRPNL-01,Shower wall panelling,fixed,375,425,RAISE,Skilled finish
+SHWR-SCRN-01,Shower screen or enclosure fit,fixed,118,150,RAISE,Skilled glass
+FLOOR-LAM-01:Small,Lay laminate or LVT Small,tiered,257,290,RAISE,Skilled
+FLOOR-LAM-01:Medium,Lay laminate or LVT Medium,tiered,417,475,RAISE,Skilled
+FLOOR-LAM-01:Large,Lay laminate or LVT Large,tiered,578,650,RAISE,Big room
+FLOOR-WOOD-01,Lay engineered or solid wood,fixed,642,700,HOLD,Skilled trade
+FLOOR-CARPET-01,Fit carpet,fixed,417,450,HOLD,Specialist
+FLOOR-LIFT-01,Lift & remove old flooring,fixed,257,280,HOLD,Labour
+PLAST-01:Small,Plaster patch or skim Small,tiered,112,140,RAISE,Skilled
+PLAST-01:Medium,Plaster patch or skim Medium,tiered,278,320,RAISE,Skilled trade
+PLAST-01:Large,Plaster patch or skim Large,tiered,749,825,RAISE,Whole room
+PLASTERBOARD-01,Plasterboard a wall or ceiling,fixed,278,320,RAISE,Skill plus labour
+PLAST-SAND-01,Sand & make good walls,fixed,112,130,RAISE,Prep skill
+GARDEN-TIDY-01:Small,Garden tidy & weed Small,tiered,80,90,HOLD,Market £70; +£20
+GARDEN-TIDY-01:Medium,Garden tidy & weed Medium,tiered,134,160,RAISE,Labour
+GARDEN-TIDY-01:Large,Garden tidy & weed Large,tiered,257,290,RAISE,Big garden
+LAWN-MOW-01,Mow & edge the lawn,fixed,80,85,HOLD,Commodity
+HEDGE-01,Trim a hedge,fixed,96,110,RAISE,Awkward labour
+TURF-01:Small,Lay turf & topsoil Small,tiered,278,310,RAISE,Skilled labour
+TURF-01:Medium,Lay turf & topsoil Medium,tiered,428,475,RAISE,Big garden
+TURF-01:Large,Lay turf & topsoil Large,tiered,556,625,RAISE,Big garden
+WEED-TREAT-01,Weed treatment,fixed,96,95,HOLD,Light task
+WEED-MEMBRANE-01,Lay weed membrane,fixed,96,110,RAISE,Labour
+WASHLINE-01,Fit a rotary or washing line,fixed,96,110,RAISE,Awkward dig
+FENCE-PANEL-01,Fence panel install or repair,per_unit,96,110,RAISE,Per panel
+FENCE-POST-01,Replace a fence post,per_unit,96,115,RAISE,Dig plus concrete
+TRELLIS-01,Fit trellis or screening,fixed,96,110,RAISE,Skilled fit
+GUTTER-CLEAR-01,Gutter clearing,fixed,86,100,RAISE,Ladder work
+GUTTER-REPAIR-01,Gutter or downpipe repair,fixed,96,120,RAISE,Urgent leak
+JETWASH-01:Small,Jet-wash patio or driveway Small,tiered,96,115,RAISE,Equipment
+JETWASH-01:Medium,Jet-wash patio or driveway Medium,tiered,128,150,RAISE,Labour
+JETWASH-01:Large,Jet-wash patio or driveway Large,tiered,193,225,RAISE,Big area
+JETWASH-ROOF-01,Jet-wash a roof,fixed,193,240,RAISE,Height risk
+JETWASH-DECK-01,Jet-wash decking,fixed,96,115,RAISE,Care needed
+WASTE-01:Small,Waste & rubbish removal Small,tiered,64,80,RAISE,Tip fees
+WASTE-01:Medium,Waste & rubbish removal Medium,tiered,161,195,RAISE,Van plus tip
+WASTE-01:Large,Waste & rubbish removal Large,tiered,278,325,RAISE,Big load
+WASTE-APPLI-01,Remove an appliance,fixed,96,110,RAISE,Disconnect plus lift
+WASTE-FURN-01,Remove old furniture,fixed,96,110,RAISE,Labour
+LOCK-01,Change a lock,fixed,102,130,RAISE,Security urgency
+LOCK-MULTI-01,Fit multiple locks,fixed,161,195,RAISE,Security premium
+LOCK-CABINET-01,Fit a cabinet or coded lock,fixed,102,115,HOLD,Specialist
+LOCK-DIAG-01,Fix a faulty lock,fixed,59,85,RAISE,Urgency premium
+SHED-INSTALL-01,Shed assembly,fixed,342,380,RAISE,Full day
+SHED-REMOVE-01,Dismantle & remove a shed,fixed,171,195,RAISE,Labour plus disposal
+SHED-BASE-01,Lay a shed or garden base,fixed,300,340,RAISE,Heavy work
+DECK-01,Decking install or repair,fixed,257,295,RAISE,Skilled carpentry
+PAVE-01:Small,Paving path or slab Small,tiered,150,180,RAISE,Skilled
+PAVE-01:Medium,Paving path or slab Medium,tiered,375,425,RAISE,Skilled labour
+PAVE-01:Large,Paving path or slab Large,tiered,770,850,HOLD,Big job
+DEEPCLEAN-01,Deep clean single room,fixed,96,110,RAISE,Time intensive
+OVEN-CLEAN-01,Oven & hood deep clean,fixed,86,100,RAISE,Specialist
+AC-CLEAN-01,Air-con clean & filter check,fixed,54,70,RAISE,Light task
+VISIT-01,Site visit & assessment,fixed,80,95,FLAG,Often credited; review model
+POINTING-01,Repointing & brickwork,fixed,94,125,RAISE,Underpriced trade
+ROOF-MINOR-01,Minor roof repair,fixed,107,145,RAISE,Height plus urgency
+EXTFIX-01,External fixture fitting,fixed,59,75,RAISE,Drilling premium
