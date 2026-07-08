@@ -29,7 +29,7 @@ import { ScopeOfWorks, EstimatorFooter, ExpertSpecSheet } from '@/components/Exp
 import { PaymentToggle } from '@/components/quote/PaymentToggle';
 import { MobilePricingCard, KeyFeature } from '@/components/quote/MobilePricingCard';
 import { getExpertNoteText, getLineItems, getScopeOfWorks } from "@/lib/quote-helpers";
-import { generateQuotePDF } from "@/lib/quote-pdf-generator";
+import { generateQuotePDF, loadQuotePhotos } from "@/lib/quote-pdf-generator";
 import { InstantActionQuote } from '@/components/InstantActionQuote';
 import { UpsellBottomSheet } from '@/components/UpsellBottomSheet';
 import { ExpertAssessmentQuote } from '@/components/ExpertAssessmentQuote';
@@ -1443,18 +1443,81 @@ function getHeroImage(quote: PersonalizedQuote): string {
   const isElderly = /elderly|older|pensioner|senior/.test(vaCtx);
 
   // Job type detection
-  const isPlumbing = /plumb|tap|leak|pipe|drain|toilet|shower|boiler/.test(jobDesc) ||
+  const isPlumbing = /plumb|tap|leak|pipe|drain|toilet|boiler/.test(jobDesc) ||
     firstCategory === 'plumbing_minor';
-  const isPainting = /paint|decor|wall|colour|color/.test(jobDesc) ||
+  const isPainting = /paint|decor|colour|color/.test(jobDesc) ||
     firstCategory === 'painting';
+  const isElectrical = /electric|socket|light fitting|light fixture|pendant|downlight|spotlight|consumer unit|fuse|wiring|isolator|switch/.test(jobDesc) ||
+    firstCategory === 'electrical_minor';
+  const isFlatpack = /flat.?pack|assemble|assembly|wardrobe|furniture|ikea|cabinet|chest of drawers|bookshelf|shelf unit/.test(jobDesc);
+  const isTvMount = /tv mount|tv bracket|mount.{0,6}tv|television|wall.?mount/.test(jobDesc);
+  const isTiling = /tile|tiling|grout|splashback|backsplash/.test(jobDesc);
+  const isBathroomSeal = /silicone|re.?seal|sealant|caulk|re.?grout|shower/.test(jobDesc);
+  const isFencing = /fence|fencing|fence panel|decking|gate|garden/.test(jobDesc);
+  const isGuttering = /gutter|downpipe|fascia|soffit/.test(jobDesc);
 
+  // Persona framing wins over job type for these segments (deliberate choice).
   if (isElderly || isLandlord) return '/assets/quote-images/older-person-door.webp';
+
+  // Job-type imagery — order most-specific first.
+  if (isGuttering) return '/assets/quote-images/gutter-clean.webp';
+  if (isFencing) return '/assets/quote-images/fence-panel.webp';
+  if (isTvMount) return '/assets/quote-images/tv-mount.webp';
+  if (isTiling) return '/assets/quote-images/tiling.webp';
+  if (isFlatpack) return '/assets/quote-images/flatpack-assembly.webp';
+  if (isElectrical) return '/assets/quote-images/electrical-socket.webp';
   if (isPlumbing) return '/assets/quote-images/plumber-smile.webp';
+  if (isBathroomSeal) return '/assets/quote-images/bathroom-seal.webp';
   if (isPainting) return '/assets/quote-images/painting.webp';
   return '/assets/quote-images/door-greeting.webp';
 }
 
-/** Customer-supplied job photos — "your job, as you sent it". Placed directly
+/** Base filenames (no extension) that ship a 16:9 `-wide` twin for landscape
+ *  slots. Feeding a wide box its wide twin avoids the heavy top/bottom crop
+ *  you get from fitting a 1:1 image into an aspect-video frame. */
+const HERO_WIDE_TWINS = new Set([
+  'electrical-socket', 'electrical-light', 'flatpack-assembly', 'tv-mount',
+  'tiling', 'bathroom-seal', 'fence-panel', 'gutter-clean',
+]);
+
+/** Per-image vertical focal point so `object-cover` never crops out the face.
+ *  The tradesman's face sits in the upper third of every generated shot; kneeling
+ *  shots sit a touch lower. Default biases upward. Keyed by base filename. */
+const HERO_FOCAL: Record<string, string> = {
+  'door-greeting': 'center 30%',
+  'older-person-door': 'center 30%',
+  'plumber-smile': 'center 35%',
+  'painting': 'center 45%',
+  'tv-mount': 'center 28%',
+  'gutter-clean': 'center 25%',
+  'electrical-light': 'center 25%',
+  'fence-panel': 'center 32%',
+  // kneeling shots — face a little lower in frame
+  'tiling': 'center 34%',
+  'flatpack-assembly': 'center 38%',
+  'electrical-socket': 'center 38%',
+  'bathroom-seal': 'center 34%',
+};
+
+/**
+ * Resolve the hero image for a quote into a concrete `{ src, objectPosition }`.
+ * `shape: 'wide'` serves the 16:9 twin when one exists (for aspect-video boxes);
+ * `'fill'` keeps the square for full-bleed responsive heroes. The objectPosition
+ * keeps the subject's face in frame regardless of how the slot crops.
+ */
+function getHeroAsset(
+  quote: PersonalizedQuote,
+  shape: 'fill' | 'wide' = 'fill',
+): { src: string; objectPosition: string } {
+  const url = getHeroImage(quote);
+  const base = (url.split('/').pop() || '').replace('.webp', '');
+  const src = shape === 'wide' && HERO_WIDE_TWINS.has(base)
+    ? `/assets/quote-images/${base}-wide.webp`
+    : url;
+  return { src, objectPosition: HERO_FOCAL[base] ?? 'center 30%' };
+}
+
+/** Customer-supplied job photos — "your job, priced from your photos". Placed directly
     under the price/booking card so the photos anchor the price to THEIR exact
     job before any generic value messaging. Renders nothing when no photos. */
 const CustomerJobPhotos = ({ photos }: { photos?: string[] | null }) => {
@@ -1463,10 +1526,10 @@ const CustomerJobPhotos = ({ photos }: { photos?: string[] | null }) => {
     <SectionWrapper className="bg-white">
       <div className="max-w-2xl md:max-w-3xl mx-auto w-full py-8 md:py-12">
         <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">
-          Your job. <span className="text-[#5a8209]">As you sent it.</span>
+          Your job. <span className="text-[#5a8209]">Priced from your photos.</span>
         </h2>
         <p className="text-slate-500 mt-4 text-base md:text-lg max-w-xl mx-auto leading-relaxed">
-          We priced this from your photos — <span className="text-slate-900 font-semibold">the price covers exactly what&rsquo;s shown here.</span>
+          We priced this straight from the photos you sent — <span className="text-slate-900 font-semibold">it covers exactly what&rsquo;s shown, nothing hidden.</span>
         </p>
         {(() => {
           // Odd counts (3, 5, 7…) leave the last cell stranded in an even grid,
@@ -1577,10 +1640,10 @@ const ValueHero = ({ quote, config }: { quote: PersonalizedQuote, config: any })
       {/* Background Image with Overlay */}
       <div className="absolute inset-0 z-0 select-none">
         <img
-          src={getHeroImage(quote)}
+          src={getHeroAsset(quote, 'fill').src}
           alt="Friendly Plumber"
           className="w-full h-full object-cover opacity-75 contrast-110"
-          style={{ objectPosition: 'center 30%' }}
+          style={{ objectPosition: getHeroAsset(quote, 'fill').objectPosition }}
         />
         {/* Backlit scrim: radial — light in the centre so the photo glows through
             behind the heading, darkening toward the edges for framing/contrast. */}
@@ -1820,13 +1883,15 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
                 />
               </div>
             ) : (
-              // Rectangular contractor image — contextual engine picks image based on job type
+              // Rectangular contractor image — contextual engine picks image based on job type.
+              // Wide (aspect-video) slot → serve the 16:9 twin + face-safe focal point.
               <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-slate-900 shadow-xl border-4 border-white/10 ring-1 ring-slate-900/10 group">
                 <div className="absolute inset-0 bg-gradient-to-t from-[#1D2D3D] via-transparent to-transparent opacity-60 z-10" />
                 <img
-                  src={getHeroImage(quote)}
+                  src={getHeroAsset(quote, 'wide').src}
                   alt="Professional handyman at work"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                  style={{ objectPosition: getHeroAsset(quote, 'wide').objectPosition }}
                   loading="lazy"
                 />
               </div>
@@ -4233,7 +4298,7 @@ export default function PersonalizedQuotePage() {
 
                   {/* PDF Download — subtle link */}
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       trackCTAClick({
                         quoteId: quote.id,
                         shortSlug: quote.shortSlug,
@@ -4242,7 +4307,32 @@ export default function PersonalizedQuotePage() {
                         totalPricePence: quote.finalPricePence || quote.basePrice || 0,
                         timeOnPageMs: trackingRef.current?.getTimeOnPage() || 0,
                       });
-                      generateQuotePDF({
+                      // Load the customer's own job photos for the "Priced From Your Photos" grid.
+                      const pdfPhotos = quote.customerPhotoUrls && quote.customerPhotoUrls.length > 0
+                        ? await loadQuotePhotos(quote.customerPhotoUrls)
+                        : undefined;
+                      const pdfLineItems = isContextualQuote && quote.pricingLineItems && quote.pricingLineItems.length > 0
+                        ? (taggedPricingLineItems || sortedPricingLineItems || quote.pricingLineItems).map((l: any) => ({
+                            title: getLineTitle(l),
+                            qualifier: getSkuQualifier(l),
+                            subtitle: getLineCustomerDescription(l),
+                            category: CATEGORY_LABELS[l.category] || l.category,
+                            // Full customer-facing display price: labour + materials + folded structural share.
+                            pricePence: (l.guardedPricePence || 0) + (l.materialsWithMarginPence || 0) + (l.structuralSharePence || 0),
+                          }))
+                        : undefined;
+                      // Mirror the booking card's reserve math: deposit = 100% materials + 30% labour.
+                      const pdfMaterialsPence = quote.materialsCostWithMarkupPence || 0;
+                      const pdfDepositPence = quotePrice > 0
+                        ? Math.round(pdfMaterialsPence + (quotePrice - pdfMaterialsPence) * 0.30)
+                        : 0;
+                      // Mirror lane-pricing set-date premium (£30 flat + 6%, rounded to £), lane-eligible only.
+                      const pdfLaneEligible = !isLandlordQuote && customerType !== 'business' && customerType !== 'landlord';
+                      const pdfPremiumBase = quote.basePrice || quote.finalPricePence || quotePrice || 0;
+                      const pdfSetDatePremiumPence = pdfLaneEligible && pdfPremiumBase > 0
+                        ? Math.round((3000 + Math.round(pdfPremiumBase * 0.06)) / 100) * 100
+                        : 0;
+                      await generateQuotePDF({
                         quoteId: quote.id,
                         customerName: quote.customerName || 'Customer',
                         address: quote.address,
@@ -4252,6 +4342,18 @@ export default function PersonalizedQuotePage() {
                         segment: quote.segment || undefined,
                         validityHours: 48,
                         createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
+                        lineItems: pdfLineItems,
+                        batchDiscountPence: quote.batchDiscount?.applied ? quote.batchDiscount.savingsPence : undefined,
+                        batchDiscountLabel: quote.batchDiscount?.applied
+                          ? `Multi-job discount (${quote.batchDiscount.discountPercent}% off)`
+                          : undefined,
+                        payment: quotePrice > 0 && pdfDepositPence > 0 && pdfDepositPence < quotePrice
+                          ? { depositPence: pdfDepositPence, balancePence: quotePrice - pdfDepositPence }
+                          : undefined,
+                        scheduling: pdfSetDatePremiumPence > 0
+                          ? { flexWindowDays: 7, setDatePremiumPence: pdfSetDatePremiumPence }
+                          : undefined,
+                        photos: pdfPhotos && pdfPhotos.length ? pdfPhotos : undefined,
                       });
                     }}
                     className="w-full flex items-center justify-center gap-2 text-sm text-white transition-colors py-2.5 mt-2 rounded-xl bg-white/10 backdrop-blur-md border border-white/20 hover:bg-white/20"

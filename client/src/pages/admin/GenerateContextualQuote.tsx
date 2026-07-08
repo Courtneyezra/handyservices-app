@@ -4060,7 +4060,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                   Customer Photos
                 </CardTitle>
                 <p className="text-xs text-white/70 mt-1">
-                  Photos the customer sent of the job (WhatsApp/SMS). Shown on their quote page — "your job, as you sent it".
+                  Photos the customer sent of the job (WhatsApp/SMS). Shown on their quote page — "your job, priced from your photos".
                 </p>
               </CardHeader>
               <CardContent className="space-y-3">
