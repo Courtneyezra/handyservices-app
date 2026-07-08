@@ -18,7 +18,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 import { db } from "./db";
-import { productizedServices, skuMatchLogs, calls, callSkus, handymanProfiles, conversations, leads, personalizedQuotes, users } from "../shared/schema";
+import { productizedServices, skuMatchLogs, calls, callSkus, handymanProfiles, conversations, leads, personalizedQuotes, users, vaEndpoints } from "../shared/schema";
 import { desc, eq, and, ne, or, asc, isNull, lt, gte } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 import { detectSku, detectMultipleTasks, loadAndCacheSkus } from "./skuDetector";
@@ -1072,6 +1072,25 @@ async function getActiveVaUserId(): Promise<string | null> {
     }
 }
 
+// Multi-VA attribution: map the SIP endpoint that answered → the VA's user id
+// via the va_endpoints roster. Falls back to the single active-VA lookup when
+// the roster has no match, so single-VA setups keep working unchanged.
+async function resolveVaUserBySip(sipAddress: string | null | undefined): Promise<string | null> {
+    const norm = (sipAddress || '').trim().toLowerCase();
+    if (norm.startsWith('sip:')) {
+        try {
+            const [ep] = await db.select({ userId: vaEndpoints.userId })
+                .from(vaEndpoints)
+                .where(and(sql`lower(${vaEndpoints.sipAddress}) = ${norm}`, eq(vaEndpoints.active, true)))
+                .limit(1);
+            if (ep?.userId) return ep.userId;
+        } catch (e) {
+            console.warn('[Twilio] va_endpoints lookup failed:', e);
+        }
+    }
+    return getActiveVaUserId();
+}
+
 // Twilio Dial Status Callback - Handles missed call fallback routing
 app.post('/api/twilio/dial-status', async (req, res) => {
     const { DialCallStatus, DialCallDuration, From, CallSid } = req.body;
@@ -1242,11 +1261,16 @@ app.post('/api/twilio/dial-status', async (req, res) => {
                     update.ringSeconds = Math.round(Math.min(Math.max(rawRing, 0), dialTimeout + 10));
                 }
 
-                const vaUserId = await getActiveVaUserId();
+                // Which VA answered: prefer the SIP endpoint Twilio bridged (To),
+                // else the single forward target. Roster maps it to the user id.
+                const answeredSip = (typeof req.body.To === 'string' && req.body.To.toLowerCase().startsWith('sip:'))
+                    ? req.body.To
+                    : settings.forwardNumber;
+                const vaUserId = await resolveVaUserBySip(answeredSip);
                 if (vaUserId) update.handledByUserId = vaUserId;
 
                 await updateCall(callRecordId, update);
-                console.log(`[Twilio] Call ${callRecordId} answered by VA in ${update.ringSeconds ?? '?'}s`);
+                console.log(`[Twilio] Call ${callRecordId} answered by VA ${vaUserId ?? '?'} in ${update.ringSeconds ?? '?'}s`);
             }
         } catch (e) {
             console.warn('[Twilio] Failed to record VA answer attribution:', e);

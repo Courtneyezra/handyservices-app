@@ -444,6 +444,35 @@ export const callSkusRelations = relations(callSkus, ({ one }) => ({
     }),
 }));
 
+// ─── Multi-VA telephony (Groundwire routing + attribution) ──────────────────
+// One row per VA: maps their identity to the Groundwire SIP address calls
+// forward to. The dial-status webhook matches the answered SIP endpoint here
+// to attribute a call to the right VA (calls.handledByUserId).
+export const vaEndpoints = pgTable("va_endpoints", {
+    id: varchar("id").primaryKey().notNull(),
+    userId: varchar("user_id").references(() => users.id), // the VA
+    sipAddress: varchar("sip_address").notNull(),          // e.g. "sip:ben@handyservices.sip.twilio.com"
+    displayName: varchar("display_name", { length: 100 }),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_va_endpoints_sip").on(table.sipAddress),
+]);
+
+// When each VA is on shift, in UK time. Single source of truth for BOTH call
+// routing (who rings) and coverage reporting (expected vs actual). Overlaps =
+// two rows covering the same minute; a gap = no row → falls to Eleven Labs.
+export const vaShifts = pgTable("va_shifts", {
+    id: varchar("id").primaryKey().notNull(),
+    vaEndpointId: varchar("va_endpoint_id").references(() => vaEndpoints.id),
+    dayOfWeek: integer("day_of_week").notNull(),   // 0=Sun … 6=Sat (UK)
+    startMinute: integer("start_minute").notNull(), // minutes past UK midnight (0–1440)
+    endMinute: integer("end_minute").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_va_shifts_endpoint").on(table.vaEndpointId),
+    index("idx_va_shifts_day").on(table.dayOfWeek),
+]);
 
 // Handyman Profiles
 export const handymanProfiles = pgTable("handyman_profiles", {
