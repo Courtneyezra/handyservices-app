@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling, Library, Send, Stethoscope, ClipboardList } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling, Library, Send, Stethoscope, ClipboardList, HardHat } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import InstallPrompt from "@/components/InstallPrompt";
@@ -123,6 +123,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: DollarSign, label: "Quote Generator (Classic)", href: "/admin/generate-quote" },
                                 { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
                                 { icon: ClipboardList, label: "Pipeline", href: "/admin/work" },
+                                { icon: Calendar, label: "Availability", href: "/admin/availability-mobile" },
                                 { icon: BarChart3, label: "My Stats", href: "/admin/va-stats" },
                                 { icon: PhoneCall, label: "Calls", href: "/admin/calls" },
                             ]
@@ -324,13 +325,13 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                     <div className="flex items-center gap-2 lg:gap-4">
                         {isVA ? (
                             <>
-                                <Link href="/admin/resources" className={cn(
+                                <Link href="/admin/availability-mobile" title="Contractor availability" className={cn(
                                         "p-2 rounded-full transition-colors",
-                                        location === "/admin/resources"
+                                        location === "/admin/availability-mobile"
                                             ? "text-primary bg-primary/10"
                                             : "text-muted-foreground hover:text-foreground hover:bg-muted"
                                     )}>
-                                    <HelpCircle className="w-5 h-5" />
+                                    <HardHat className="w-5 h-5" />
                                 </Link>
                                 <button
                                     onClick={() => {

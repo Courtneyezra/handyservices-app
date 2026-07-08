@@ -20,7 +20,7 @@ import PropertyManagerLanding from "@/pages/PropertyManagerLanding";
 import BusinessLanding from "@/pages/BusinessLanding";
 import DerbyLanding from "@/pages/DerbyLanding";
 import CleaningLanding from "@/pages/CleaningLanding";
-import { Loader2, Wrench } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 // Admin/CRM pages - Eager loaded for smooth navigation within CRM
 import AudioUploadPage from "@/pages/AudioUploadPage";
@@ -88,6 +88,7 @@ const ContractorDetailPage = lazy(() => import("@/pages/admin/ContractorDetailPa
 const ClientsPage = lazy(() => import("@/pages/admin/ClientsPage"));
 const ClientDetailPage = lazy(() => import("@/pages/admin/ClientDetailPage"));
 const ContractorAvailabilityMatrixPage = lazy(() => import("@/pages/admin/ContractorAvailabilityMatrixPage"));
+const MobileAvailabilityPage = lazy(() => import("@/pages/admin/MobileAvailabilityPage"));
 const PaymentsDashboardPage = lazy(() => import("@/pages/admin/PaymentsDashboardPage"));
 const DashboardPage = lazy(() => import("@/pages/admin/DashboardPage"));
 const OnboardingSlideDeck = lazy(() => import("@/pages/admin/OnboardingSlideDeck"));
@@ -180,20 +181,12 @@ const ROICalculator = lazy(() => import("@/pages/pitch/ROICalculator"));
 const Roadmap = lazy(() => import("@/pages/pitch/Roadmap"));
 const CompetitorAnalysis = lazy(() => import("@/pages/pitch/CompetitorAnalysis"));
 
-// Loading fallback for lazy-loaded components
-// Loading fallback for lazy-loaded components
+// Loading fallback for lazy-loaded components.
+// Intentionally renders nothing: page chunks load fast, and a visible spinner
+// flashed on every navigation. A null fallback keeps the current view until the
+// next page is ready, so navigation feels instant with no loading animation.
 function LoadingFallback() {
-    return (
-        <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-gray-900 to-gray-800">
-            <div className="relative">
-                <Wrench className="h-14 w-14 animate-spin text-[#e8b323]" strokeWidth={1.5} />
-                <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="h-4 w-4 bg-gray-900 rounded-full" />
-                </div>
-            </div>
-            <p className="sr-only">Loading...</p>
-        </div>
-    );
+    return null;
 }
 
 /** Redirect VA users to /admin/live-call instead of showing PipelineHome */
@@ -731,6 +724,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <ContractorAvailabilityMatrixPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/availability-mobile">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <MobileAvailabilityPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
