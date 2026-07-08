@@ -131,6 +131,7 @@ export async function buildVaOverview(period: Period, month?: string) {
         flagsResult,
         trendResult,
         recentResult,
+        perVaResult,
     ] = await Promise.all([
         // Totals + answer time + call length, one pass over the period
         db.execute(sql`
@@ -225,6 +226,23 @@ export async function buildVaOverview(period: Period, month?: string) {
             WHERE ${where} AND ${SCORED}
             ORDER BY start_time DESC NULLS LAST
             LIMIT 10
+        `),
+        // Per-VA leaderboard — VA-handled calls grouped by who answered.
+        // (Missed calls have no owner, so they stay team-level, not here.)
+        db.execute(sql`
+            SELECT
+                handled_by_user_id AS user_id,
+                coalesce(u.first_name, 'VA') AS name,
+                count(*)::int AS answered,
+                (count(*) FILTER (WHERE ai_score_json IS NOT NULL))::int AS scored,
+                avg((ai_score_json->>'overall')::numeric)::float AS avg_overall,
+                (count(*) FILTER (WHERE ai_score_json->'dimensions'->'conversionBehaviour'->>'nextStepSecured' = 'video_request'))::int AS video_requests,
+                avg(ring_seconds)::float AS avg_answer_seconds
+            FROM calls
+            LEFT JOIN users u ON u.id = calls.handled_by_user_id
+            WHERE ${where} AND handled_by = 'va' AND handled_by_user_id IS NOT NULL
+            GROUP BY handled_by_user_id, u.first_name
+            ORDER BY answered DESC
         `),
     ]);
 
@@ -333,6 +351,20 @@ export async function buildVaOverview(period: Period, month?: string) {
         coachingThemes,
         trend,
         recentScored,
+        perVa: (perVaResult.rows as any[]).map((row) => {
+            const answered = Number(row.answered) || 0;
+            const videoRequests = Number(row.video_requests) || 0;
+            return {
+                userId: row.user_id,
+                name: row.name || "VA",
+                answered,
+                scored: Number(row.scored) || 0,
+                avgOverall: round1(row.avg_overall),
+                videoRequests,
+                videoRequestPct: answered > 0 ? round1((100 * videoRequests) / answered) : null,
+                avgAnswerSeconds: round1(row.avg_answer_seconds),
+            };
+        }),
     };
 }
 

@@ -94,6 +94,16 @@ interface VaOverview {
         coachingNote: string | null;
         flags: string[];
     }>;
+    perVa?: Array<{
+        userId: string | null;
+        name: string;
+        answered: number;
+        scored: number;
+        avgOverall: number | null;
+        videoRequests: number;
+        videoRequestPct: number | null;
+        avgAnswerSeconds: number | null;
+    }>;
 }
 
 type Period = "today" | "yesterday" | "week" | "month" | "all";
@@ -274,6 +284,7 @@ export function CallInsights() {
     }
 
     const { totals, answerTime, callLength, scores, nextSteps, discoveryCaptureRates, flags, coachingThemes, trend, recentScored } = data;
+    const perVa = data.perVa ?? [];
 
     const answeredCount = (totals.va ?? 0) + (totals.aiAgent ?? 0);
     const nextStepEntries = NEXT_STEP_ORDER
@@ -360,6 +371,46 @@ export function CallInsights() {
                     accent="green"
                 />
             </div>
+
+            {/* ─── Per-VA leaderboard ─── */}
+            {perVa.length > 0 && (
+                <Panel title="By VA" icon={Headset}>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 border-b border-zinc-200">
+                                    <th className="text-left py-1.5 pr-3 font-semibold">VA</th>
+                                    <th className="text-right py-1.5 px-2 font-semibold">Answered</th>
+                                    <th className="text-right py-1.5 px-2 font-semibold">Avg score</th>
+                                    <th className="text-right py-1.5 px-2 font-semibold">WhatsApp media</th>
+                                    <th className="text-right py-1.5 pl-2 font-semibold">Avg answer</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {perVa.map((v) => (
+                                    <tr key={v.userId ?? v.name} className="border-b border-zinc-200/60 last:border-0">
+                                        <td className="py-2 pr-3 font-medium text-foreground">{v.name}</td>
+                                        <td className="py-2 px-2 text-right tabular-nums text-zinc-700">{v.answered}</td>
+                                        <td className="py-2 px-2 text-right">
+                                            <span className={cn("px-1.5 py-0.5 rounded border text-xs font-bold font-mono", scoreChipClassLight(v.avgOverall))}>
+                                                {fmtNum(v.avgOverall)}
+                                            </span>
+                                        </td>
+                                        <td className="py-2 px-2 text-right tabular-nums">
+                                            <span className={cn(v.videoRequestPct != null && v.videoRequestPct >= 50 ? "text-emerald-600 font-semibold" : "text-zinc-600")}>
+                                                {fmtPct(v.videoRequestPct)}
+                                            </span>
+                                            <span className="text-zinc-400"> ({v.videoRequests})</span>
+                                        </td>
+                                        <td className="py-2 pl-2 text-right tabular-nums text-zinc-600">{fmtSecs(v.avgAnswerSeconds)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    <p className="text-[11px] text-zinc-400 mt-2">Answered calls attributed to each VA. Missed calls have no owner and stay in the totals above.</p>
+                </Panel>
+            )}
 
             {/* ─── Coaching themes + flags ─── */}
             <Panel title="Coaching themes" icon={Lightbulb}>
