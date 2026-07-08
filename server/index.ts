@@ -837,8 +837,14 @@ app.post('/api/twilio/voice', async (req, res) => {
         </Stream>
       </Start>`;
 
-    // Add welcome audio/message based on routing
-    if (routing.playWelcomeAudio) {
+    // Add welcome audio/message based on routing.
+    // NOT for the VA-forward path: the ~8-9s "please wait while we connect you…"
+    // greeting plays BEFORE Ben's phone starts ringing, and call data showed
+    // callers abandoning at 1-6s — i.e. hanging up during the greeting, before
+    // any ringback. Skipping it sends VA-forward callers straight to UK ringback
+    // (ringTone="uk" on the <Dial> below), which reads as a normal ringing phone.
+    // Eleven Labs / other destinations keep their greeting.
+    if (routing.playWelcomeAudio && routing.destination !== 'va-forward') {
         if (settings.welcomeAudioUrl) {
             const audioUrl = (settings.welcomeAudioUrl as string).startsWith('http')
                 ? settings.welcomeAudioUrl
