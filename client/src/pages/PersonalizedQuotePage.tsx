@@ -2735,6 +2735,42 @@ function ContextualQuoteLayout({
   );
 }
 
+// ── Client-side quote cache ────────────────────────────────────────────────
+// Persists the last-loaded quote per slug so a REOPEN renders instantly with no
+// loading screen at all (react-query is seeded from this as initialData, and the
+// preparing phase is skipped entirely). The network refetch still runs in the
+// background — stale-while-revalidate — so a price/paid/rescope change lands a
+// moment later without ever showing a spinner. Kept short (past the 48h quote
+// validity + buffer) and pruned on read; it's the customer's own quote on their
+// own device.
+const QUOTE_CACHE_PREFIX = 'hs_quote_cache_';
+const QUOTE_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+
+function readCachedQuote(slug?: string): PersonalizedQuote | undefined {
+  if (!slug) return undefined;
+  try {
+    const raw = localStorage.getItem(QUOTE_CACHE_PREFIX + slug);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as { ts?: number; data?: PersonalizedQuote };
+    if (!parsed?.ts || !parsed.data || Date.now() - parsed.ts > QUOTE_CACHE_TTL_MS) {
+      localStorage.removeItem(QUOTE_CACHE_PREFIX + slug);
+      return undefined;
+    }
+    return parsed.data;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeCachedQuote(slug: string | undefined, data: PersonalizedQuote) {
+  if (!slug) return;
+  try {
+    localStorage.setItem(QUOTE_CACHE_PREFIX + slug, JSON.stringify({ ts: Date.now(), data }));
+  } catch {
+    /* quota/full or private mode — cache is a best-effort optimisation */
+  }
+}
+
 export default function PersonalizedQuotePage() {
   const [, canonicalParams] = useRoute('/quote/:slug');
   const [, longParams] = useRoute('/quote-link/:slug');
@@ -2930,6 +2966,11 @@ export default function PersonalizedQuotePage() {
       // 410 handling removed - quotes no longer expire
 
       if (!response.ok) {
+        // A genuinely gone/invalid quote must not keep rendering from a stale
+        // cache on the next open — drop it so the not-found card shows.
+        if (response.status === 404 || response.status === 410) {
+          try { localStorage.removeItem(QUOTE_CACHE_PREFIX + params?.slug); } catch { /* noop */ }
+        }
         throw new Error('Quote not found');
       }
       const data = await response.json();
@@ -2948,9 +2989,17 @@ export default function PersonalizedQuotePage() {
       if (!data.deadZoneFraming && data.pricingLayerBreakdown?.messaging?.deadZoneFraming) {
         data.deadZoneFraming = data.pricingLayerBreakdown.messaging.deadZoneFraming;
       }
+      // Persist for instant reopen (never cache preview renders).
+      if (!isPreview) writeCachedQuote(params?.slug, data);
       return data;
     },
     enabled: !!params?.slug,
+    // Seed from the client cache so a reopen paints instantly. initialDataUpdatedAt=0
+    // marks it stale immediately, so react-query still refetches in the background
+    // (stale-while-revalidate) and reconciles any change without a spinner. Preview
+    // renders always fetch fresh — never served from cache.
+    initialData: isPreview ? undefined : () => readCachedQuote(params?.slug),
+    initialDataUpdatedAt: 0,
     retry: (failureCount, error) => {
       // Don't retry if quote is expired
       if (error.message === 'QUOTE_EXPIRED') {
@@ -3025,11 +3074,20 @@ export default function PersonalizedQuotePage() {
     }
     catch { return false; }
   });
-  // Always start on the branded preparing screen — it is the SOLE loader now
-  // (replaces the old price-lock skeleton). onComplete (below) decides where to
-  // hand off: the offer (homeowner default / any type via ?v=offer) or the quote.
-  // Admin preview jumps straight to the quote — no preparing-screen theatre.
-  const [flowPhase, setFlowPhase] = useState<'preparing' | 'offer' | 'quote'>(isPreview ? 'quote' : 'preparing');
+  // Start on the branded preparing screen — the SOLE loader (replaces the old
+  // price-lock skeleton). onComplete (below) hands off to the offer (homeowner
+  // default / any type via ?v=offer) or the quote.
+  // Two mount-time skips:
+  //   • Admin preview → straight to the quote, no theatre.
+  //   • Instant reopen → a cached quote for this slug means the customer has
+  //     opened it before, so we paint the page immediately from cache (no loader)
+  //     AND skip the offer interstitial — both are first-impression devices a
+  //     returning visitor has already seen. First visits (no cache) are untouched.
+  const [flowPhase, setFlowPhase] = useState<'preparing' | 'offer' | 'quote'>(() => {
+    if (isPreview) return 'quote';
+    if (readCachedQuote(params?.slug)) return 'quote';
+    return 'preparing';
+  });
   // Records the flex-offer choice: true = accepted (flexible lane, base price);
   // false = declined (firm date & time, base + premium); null = no offer shown.
   const [acceptedFlexOffer, setAcceptedFlexOffer] = useState<boolean | null>(null);
@@ -3046,16 +3104,26 @@ export default function PersonalizedQuotePage() {
     catch { return false; }
   });
 
+  // Whether to skip the preparing-screen theatre (checklist animation AND the
+  // minimum-display floor). The loading screen is a first-impression device;
+  // on a repeat open (localStorage flag), a return visit (server viewCount > 1),
+  // or a paid/booked quote it's pure friction. seenQuoteBefore is known
+  // synchronously; the viewCount/paid signals arrive once the quote loads and
+  // flip this true on the effect's re-run.
+  const skipPreparingTheatre =
+    seenQuoteBefore ||
+    !!(quote && (((quote.viewCount ?? 0) > 1) || quote.depositPaidAt || quote.bookedAt));
+
   const skeletonStartRef = useRef<number>(Date.now());
   useEffect(() => {
     if (isLoading || !quote) return;
     let cancelled = false;
-    // Long enough for the user to watch the price-lock seal actually tick
-    // down a few seconds ("15:00 → 14:58 …") and read the "No surprises, no
-    // hidden fees" line before content swaps in. The countdown is continuous
-    // (shared anchor), so this just controls how much of it plays on the
-    // loading card vs. the live page.
-    const MIN_DISPLAY_MS = 4000;
+    // Long enough for a FIRST-TIME visitor to watch the price-lock seal tick
+    // down a few seconds and read the "No surprises, no hidden fees" line
+    // before content swaps in. On a repeat/paid open (skipPreparingTheatre)
+    // this minimum is dropped to 0 — the branded loader only stays up as long
+    // as assets genuinely need, so reopens don't re-sit through the wait.
+    const MIN_DISPLAY_MS = skipPreparingTheatre ? 0 : 4000;
     const HARD_TIMEOUT_MS = 4500;
 
     const run = async () => {
@@ -3115,7 +3183,7 @@ export default function PersonalizedQuotePage() {
 
     run();
     return () => { cancelled = true; };
-  }, [isLoading, quote]);
+  }, [isLoading, quote, skipPreparingTheatre]);
 
   // Fetch configurable pricing settings (social proof + pricing params from public endpoint)
   const { data: pricingSettings } = useQuery<{
@@ -3762,10 +3830,7 @@ export default function PersonalizedQuotePage() {
         // becomes friction (median 7 opens; paid customers watch "locking in
         // your fixed price" for a price they already paid). viewCount arrives
         // with the quote, so this flips mid-show for other-device reopens.
-        instant={
-          seenQuoteBefore ||
-          !!(quote && (((quote.viewCount ?? 0) > 1) || quote.depositPaidAt || quote.bookedAt))
-        }
+        instant={skipPreparingTheatre}
         onComplete={() => {
           try {
             localStorage.setItem(`hs_quote_seen_${params?.slug}`, '1');
