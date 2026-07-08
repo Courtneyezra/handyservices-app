@@ -1526,7 +1526,7 @@ const CustomerJobPhotos = ({ photos }: { photos?: string[] | null }) => {
     <SectionWrapper className="bg-white">
       <div className="max-w-2xl md:max-w-3xl mx-auto w-full py-8 md:py-12">
         <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">
-          Your job. <span className="text-[#5a8209]">Priced from your photos.</span>
+          Your job.<br /><span className="text-[#5a8209]">Priced from your photos.</span>
         </h2>
         <p className="text-slate-500 mt-4 text-base md:text-lg max-w-xl mx-auto leading-relaxed">
           We priced this straight from the photos you sent — <span className="text-slate-900 font-semibold">it covers exactly what&rsquo;s shown, nothing hidden.</span>
