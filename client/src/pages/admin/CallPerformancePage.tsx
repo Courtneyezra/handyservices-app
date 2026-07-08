@@ -50,6 +50,8 @@ interface VaOverview {
         va: number | null;
         aiAgent: number | null;
         missed: number | null;
+        missedNoAnswer: number | null;
+        missedAbandoned: number | null;
         voicemail: number | null;
         unclassified: number | null;
         answeredRatePct: number | null;
@@ -334,7 +336,15 @@ export function CallInsights() {
                 <KpiCard
                     label="Missed calls"
                     value={fmtNum(totals.missed)}
-                    sub={totals.voicemail != null ? `+${totals.voicemail} voicemail` : undefined}
+                    sub={
+                        [
+                            totals.missedNoAnswer ? `${totals.missedNoAnswer} no-answer` : null,
+                            totals.missedAbandoned ? `${totals.missedAbandoned} hung up <10s` : null,
+                            totals.voicemail ? `${totals.voicemail} voicemail` : null,
+                        ]
+                            .filter(Boolean)
+                            .join(" · ") || undefined
+                    }
                     icon={PhoneMissed}
                     accent="red"
                 />

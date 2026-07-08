@@ -15,6 +15,43 @@ const NOT_TEST_CALL: SQL = sql`regexp_replace(coalesce(phone_number, ''), '\\s',
 
 const SCORED: SQL = sql`ai_score_json IS NOT NULL`;
 
+// Effective handled_by: buckets EVERY call so answered + missed + voicemail
+// always equals total (no invisible "unclassified" that makes the answered
+// rate and missed count contradict each other). Uses the stored handled_by
+// when set, else infers from outcome / missedReason / duration + transcript.
+// "Answered" requires a real conversation: the line was up long enough to talk
+// (duration >= 15s) AND produced a substantive transcript. Short blips (2-6s
+// IVR touches) and no-answer signals are missed — a 6s call is never "answered"
+// no matter how many chars its stub transcript carries.
+const ANSWERED_MIN_SECONDS = 15;
+const EFFECTIVE_HB: SQL = sql`
+    CASE
+        WHEN handled_by IS NOT NULL THEN handled_by
+        WHEN missed_reason IN ('no_answer', 'busy_agent')
+             OR outcome IN ('MISSED_CALL', 'NO_ANSWER', 'FAILED', 'DROPPED_EARLY') THEN 'missed'
+        WHEN outcome IN ('VOICEMAIL', 'VOICEMAIL_LEFT') THEN 'voicemail'
+        WHEN eleven_labs_conversation_id IS NOT NULL THEN 'ai_agent'
+        WHEN coalesce(duration, 0) >= ${ANSWERED_MIN_SECONDS}
+             AND length(coalesce(transcription, '')) >= 120 THEN 'va'
+        ELSE 'missed'
+    END
+`;
+
+// Within the "missed" bucket, distinguish caller-abandoned (hung up in the
+// first few seconds, before anyone could realistically pick up) from
+// rang-unanswered (the line rang and nobody answered / agent was busy). This
+// keeps the metric fair to the VA — a <10s hang-up isn't a call he ignored.
+const ABANDONED_MAX_SECONDS = 10;
+const MISSED_KIND: SQL = sql`
+    CASE
+        WHEN NOT (${EFFECTIVE_HB} = 'missed') THEN NULL
+        WHEN missed_reason IN ('no_answer', 'busy_agent')
+             OR outcome IN ('MISSED_CALL', 'NO_ANSWER', 'FAILED') THEN 'no_answer'
+        WHEN coalesce(duration, 0) < ${ABANDONED_MAX_SECONDS} THEN 'abandoned'
+        ELSE 'no_answer'
+    END
+`;
+
 function resolvePeriodRange(period: Period, month?: string): { start: Date | null; end: Date | null } {
     if (period === "all") {
         return { start: null, end: null };
@@ -137,17 +174,19 @@ export async function buildVaOverview(period: Period, month?: string) {
         db.execute(sql`
             SELECT
                 count(*)::int AS total,
-                (count(*) FILTER (WHERE handled_by = 'va'))::int AS va,
-                (count(*) FILTER (WHERE handled_by = 'ai_agent'))::int AS ai_agent,
-                (count(*) FILTER (WHERE handled_by = 'missed'))::int AS missed,
-                (count(*) FILTER (WHERE handled_by = 'voicemail'))::int AS voicemail,
-                (count(*) FILTER (WHERE handled_by IS NULL))::int AS unclassified,
+                (count(*) FILTER (WHERE ${EFFECTIVE_HB} = 'va'))::int AS va,
+                (count(*) FILTER (WHERE ${EFFECTIVE_HB} = 'ai_agent'))::int AS ai_agent,
+                (count(*) FILTER (WHERE ${EFFECTIVE_HB} = 'missed'))::int AS missed,
+                (count(*) FILTER (WHERE ${MISSED_KIND} = 'no_answer'))::int AS missed_no_answer,
+                (count(*) FILTER (WHERE ${MISSED_KIND} = 'abandoned'))::int AS missed_abandoned,
+                (count(*) FILTER (WHERE ${EFFECTIVE_HB} = 'voicemail'))::int AS voicemail,
+                0::int AS unclassified,
                 avg(ring_seconds)::float AS avg_ring_seconds,
                 (percentile_cont(0.9) WITHIN GROUP (ORDER BY ring_seconds))::float AS p90_ring_seconds,
                 (100.0 * (count(*) FILTER (WHERE ring_seconds <= 15))
                     / NULLIF(count(*) FILTER (WHERE ring_seconds IS NOT NULL), 0))::float AS within_15s_pct,
-                (avg(duration) FILTER (WHERE handled_by = 'va'))::float AS va_avg_seconds,
-                (avg(duration) FILTER (WHERE handled_by = 'ai_agent'))::float AS ai_avg_seconds
+                (avg(duration) FILTER (WHERE ${EFFECTIVE_HB} = 'va'))::float AS va_avg_seconds,
+                (avg(duration) FILTER (WHERE ${EFFECTIVE_HB} = 'ai_agent'))::float AS ai_avg_seconds
             FROM calls
             WHERE ${where}
         `),
@@ -203,7 +242,7 @@ export async function buildVaOverview(period: Period, month?: string) {
             SELECT
                 to_char(date_trunc('week', start_time), 'YYYY-MM-DD') AS week_start,
                 count(*)::int AS total,
-                (count(*) FILTER (WHERE handled_by = 'missed'))::int AS missed,
+                (count(*) FILTER (WHERE ${EFFECTIVE_HB} = 'missed'))::int AS missed,
                 (avg((ai_score_json->>'overall')::numeric) FILTER (WHERE handled_by = 'va' AND ${SCORED}))::float AS va_avg_score,
                 (avg((ai_score_json->>'overall')::numeric) FILTER (WHERE handled_by = 'ai_agent' AND ${SCORED}))::float AS ai_avg_score
             FROM calls
@@ -331,6 +370,8 @@ export async function buildVaOverview(period: Period, month?: string) {
             va,
             aiAgent,
             missed: Number(totalsRow?.missed || 0),
+            missedNoAnswer: Number(totalsRow?.missed_no_answer || 0),
+            missedAbandoned: Number(totalsRow?.missed_abandoned || 0),
             voicemail: Number(totalsRow?.voicemail || 0),
             unclassified: Number(totalsRow?.unclassified || 0),
             answeredRatePct: total > 0 ? round1((100 * (va + aiAgent)) / total) : 0,
