@@ -1779,12 +1779,16 @@ export function UnifiedQuoteCard({
             </button>
           </div>
 
-          {/* Deposit framing — on materials-heavy jobs the deposit can exceed half
-              the total (100% materials + 30% labour), so say what it buys: the
-              customer's own materials, not an arbitrary upfront grab. */}
-          {!payFull && !isCash && totalMaterialsPence > 0 && (
+          {/* Payment framing — one centred line for BOTH the deposit and pay-in-full
+              options so the card height never changes when the customer toggles
+              between them. Deposit: on materials-heavy jobs the deposit can exceed
+              half the total (100% materials + 30% labour), so say what it buys.
+              Pay-in-full: reassure nothing is left on the day (+ the saving). */}
+          {!isCash && totalMaterialsPence > 0 && (
             <p className={`mt-2 text-[11px] text-center leading-snug ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-              Your deposit covers your materials in full, plus 30% of labour.
+              {payFull
+                ? "Paid in full today — nothing more to pay when the job's done."
+                : 'Your deposit covers your materials in full, plus 30% of labour.'}
             </p>
           )}
 
