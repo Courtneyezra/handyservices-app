@@ -3084,16 +3084,7 @@ export function UnifiedQuoteCard({
                 </>
               )}
 
-              <p className={`text-xs text-center mt-3 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
-                {isCash
-                  ? null
-                  : payFull
-                  ? 'Secure payment powered by Stripe'
-                  : `£${Math.round(balanceOnCompletion / 100)} remaining on completion · Secure payment by Stripe`
-                }
-              </p>
-
-              <p className={`text-[11px] text-center mt-2 leading-relaxed ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
+              <p className={`text-[11px] text-center mt-3 leading-relaxed ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
                 By continuing you agree to our{' '}
                 <a
                   href="/cancellation-policy"

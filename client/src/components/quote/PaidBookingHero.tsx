@@ -335,6 +335,26 @@ END:VCALENDAR`;
             Call us
           </a>
         </motion.div>
+
+        {/* Cancellation policy — where customers look when plans change */}
+        {!jobCompleted && (
+          <motion.p
+            className="mt-4 text-center text-white/45 text-xs leading-snug"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.6 }}
+          >
+            Need to change or cancel?{' '}
+            <a
+              href="/cancellation-policy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-white/70"
+            >
+              See our Cancellation &amp; Deposit Policy
+            </a>
+          </motion.p>
+        )}
       </div>
     </motion.div>
   );
