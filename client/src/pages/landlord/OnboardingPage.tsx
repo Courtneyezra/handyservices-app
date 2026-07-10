@@ -971,9 +971,14 @@ export default function LandlordOnboardingPage() {
                         <HandLogo className="w-8 h-8" />
                         <span className="text-white/60 text-sm">Handy Services Ltd</span>
                     </div>
-                    <p className="text-white/40 text-xs">
-                        Nottingham & Derby • £2M insured • DBS checked
-                    </p>
+                    <div className="flex items-center gap-4">
+                        <a href="/cancellation-policy" className="text-white/40 text-xs underline hover:text-white/70">
+                            Cancellation &amp; Deposit Policy
+                        </a>
+                        <p className="text-white/40 text-xs">
+                            Nottingham & Derby • £2M insured • DBS checked
+                        </p>
+                    </div>
                 </div>
             </footer>
         </div>

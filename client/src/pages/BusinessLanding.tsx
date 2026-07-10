@@ -475,10 +475,13 @@ function FooterCTA() {
                     <span className="text-white font-medium">4.9 from 300+ Reviews</span>
                 </div>
 
-                <div className="border-t border-white/10 pt-8">
+                <div className="border-t border-white/10 pt-8 flex flex-col sm:flex-row items-center justify-center gap-x-6 gap-y-2">
                     <p className="text-white/40 text-sm">
                         © 2024 Handy Services Nottingham. All rights reserved.
                     </p>
+                    <a href="/cancellation-policy" className="text-white/40 text-sm underline hover:text-white/70 transition-colors">
+                        Cancellation &amp; Deposit Policy
+                    </a>
                 </div>
             </div>
         </section>

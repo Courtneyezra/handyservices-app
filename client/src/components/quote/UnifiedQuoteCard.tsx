@@ -3092,6 +3092,19 @@ export function UnifiedQuoteCard({
                   : `£${Math.round(balanceOnCompletion / 100)} remaining on completion · Secure payment by Stripe`
                 }
               </p>
+
+              <p className={`text-[11px] text-center mt-2 leading-relaxed ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
+                By continuing you agree to our{' '}
+                <a
+                  href="/cancellation-policy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:opacity-80"
+                >
+                  Cancellation &amp; Deposit Policy
+                </a>
+                . Reschedule any time free — your deposit is the most you can lose.
+              </p>
             </div>
           </motion.div>
           )

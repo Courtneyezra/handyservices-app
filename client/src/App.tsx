@@ -119,6 +119,7 @@ const SeasonalMenu = lazy(() => import("@/pages/SeasonalMenu"));
 const CareersPage = lazy(() => import("@/pages/CareersPage"));
 const PartnerPage = lazy(() => import("@/pages/PartnerPage"));
 const JoinPage = lazy(() => import("@/pages/JoinPage"));
+const CancellationPolicy = lazy(() => import("@/pages/CancellationPolicy"));
 
 // Client Portal Pages (public, token-based access)
 const InvoiceView = lazy(() => import("@/pages/client/InvoiceView"));
@@ -278,6 +279,7 @@ function Router() {
                 <Route path="/careers" component={CareersPage} />
                 <Route path="/partner" component={PartnerPage} />
                 <Route path="/join" component={JoinPage} />
+                <Route path="/cancellation-policy" component={CancellationPolicy} />
                 <Route path="/l/:slug" component={LandingPageRender} />
 
                 {/* Customer-facing quote views - /quote is the canonical URL.

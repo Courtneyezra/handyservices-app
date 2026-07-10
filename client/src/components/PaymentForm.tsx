@@ -592,6 +592,19 @@ export function PaymentForm({
           : `Your payment is secured by Stripe. We'll charge £${Math.round(serverCalculatedAmount / 100)} to reserve your slot.`
         }
       </p>
+
+      <p className="text-[11px] text-center text-gray-400 leading-relaxed">
+        By continuing you agree to our{' '}
+        <a
+          href="/cancellation-policy"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline hover:text-gray-200"
+        >
+          Cancellation &amp; Deposit Policy
+        </a>
+        . Reschedule any time free — your deposit is the most you can lose.
+      </p>
     </form>
   );
 }
