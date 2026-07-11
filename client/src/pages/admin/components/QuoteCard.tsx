@@ -2,8 +2,14 @@ import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Copy, Eye, Phone, RefreshCw, X, Download, CreditCard, Pencil, FileEdit, MessageCircle, Hammer, ShieldCheck, UserCheck } from 'lucide-react';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Copy, Eye, Phone, RefreshCw, X, Download, CreditCard, Pencil, FileEdit, MessageCircle, Hammer, ShieldCheck, UserCheck, Receipt, CheckSquare, CheckCircle, MoreHorizontal, Loader2 } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
 import { generateQuotePDF } from '@/lib/quote-pdf-generator';
@@ -34,6 +40,7 @@ interface PersonalizedQuote {
     depositAmountPence: number | null;
     paymentType: string | null;
     stripePaymentIntentId: string | null;
+    completedAt?: string | null;
     // Scheduling fields
     selectedDate: string | null;
     timeSlotType: string | null;
@@ -58,16 +65,25 @@ interface QuoteCardProps {
     onRegenerate: (quote: PersonalizedQuote) => void;
     onEdit?: (quote: PersonalizedQuote) => void;
     onPreview?: (quote: PersonalizedQuote) => void;
+    onGenerateInvoice?: (quote: PersonalizedQuote) => void;
+    onMarkComplete?: (quote: PersonalizedQuote) => void;
+    isGeneratingInvoice?: boolean;
+    isMarkingComplete?: boolean;
     availableDates?: DateAvailability[];
 }
 
-export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, availableDates = [] }: QuoteCardProps) {
+export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, onGenerateInvoice, onMarkComplete, isGeneratingInvoice, isMarkingComplete, availableDates = [] }: QuoteCardProps) {
     const { toast } = useToast();
     const [, setLocation] = useLocation();
 
     const isExpired = quote.expiresAt ? new Date(quote.expiresAt) < new Date() : false;
     const isBooked = !!quote.bookedAt;
     const isPaid = !!quote.depositPaidAt;
+    const isCompleted = !!quote.completedAt;
+    // Invoicing makes sense once a job is committed (paid / booked) or done.
+    const canInvoice = isPaid || isBooked || isCompleted;
+    // Mark-complete only for committed jobs that aren't already done.
+    const canMarkComplete = (isPaid || isBooked) && !isCompleted;
 
     // Price display — EVE single price
     const displayPrice = quote.basePrice || quote.enhancedPrice || quote.essentialPrice || 0;
@@ -124,7 +140,13 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, av
                                     Opened
                                 </Badge>
                             )}
-                            {isBooked && <Badge className="bg-green-600 text-[10px]">Booked</Badge>}
+                            {isCompleted && (
+                                <Badge className="bg-green-600 text-[10px]">
+                                    <CheckCircle className="h-3 w-3 mr-0.5" />
+                                    Done
+                                </Badge>
+                            )}
+                            {isBooked && !isCompleted && <Badge className="bg-green-600 text-[10px]">Booked</Badge>}
                             {isPaid && (
                                 <Badge className="bg-blue-600 text-[10px]">
                                     <CreditCard className="h-3 w-3 mr-0.5" />
@@ -154,15 +176,6 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, av
                             )}
                         </div>
                     </div>
-
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 -mt-1 -mr-2 shrink-0"
-                        onClick={handleDelete}
-                    >
-                        <X className="h-3.5 w-3.5" />
-                    </Button>
                 </div>
 
                 {/* Job Description */}
@@ -251,8 +264,8 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, av
                     )}
                 </div>
 
-                {/* Actions — mobile stacked */}
-                <div className="mt-auto pt-2 border-t space-y-2">
+                {/* Actions */}
+                <div className="mt-auto pt-3 border-t space-y-2">
                     {/* Primary: WhatsApp Send */}
                     <Button
                         className="w-full bg-[#25D366] hover:bg-[#20BD5A] text-white font-medium"
@@ -263,141 +276,100 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, av
                         Send via WhatsApp
                     </Button>
 
-                    {/* Secondary row: icon buttons */}
-                    <div className="flex items-center justify-center gap-1">
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        className="h-8 w-8"
-                                        onClick={() => window.open(`/quote-link/${quote.shortSlug}`, '_blank')}
+                    {/* Lean action row: View · Edit · Invoice · More */}
+                    <div className="flex items-center gap-1.5">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 h-8 px-2 text-xs"
+                            onClick={(e) => { e.stopPropagation(); window.open(`/quote-link/${quote.shortSlug}`, '_blank'); }}
+                        >
+                            <Eye className="h-3.5 w-3.5 mr-1" /> View
+                        </Button>
+
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 h-8 px-2 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-200"
+                            onClick={(e) => { e.stopPropagation(); onPreview ? onPreview(quote) : setLocation(`/admin/quotes/${quote.shortSlug}/edit`); }}
+                        >
+                            <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
+                        </Button>
+
+                        {canInvoice && onGenerateInvoice && (
+                            <Button
+                                size="sm"
+                                className="flex-1 h-8 px-2 text-xs bg-amber-500 hover:bg-amber-400 text-black font-medium"
+                                disabled={isGeneratingInvoice}
+                                onClick={(e) => { e.stopPropagation(); onGenerateInvoice(quote); }}
+                            >
+                                {isGeneratingInvoice
+                                    ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                                    : <Receipt className="h-3.5 w-3.5 mr-1" />}
+                                Invoice
+                            </Button>
+                        )}
+
+                        {/* Overflow menu — less-frequent actions */}
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                    <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-52">
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setLocation(`/admin/quotes/${quote.shortSlug}/edit`); }}>
+                                    <FileEdit className="h-4 w-4 mr-2" /> Full edit
+                                </DropdownMenuItem>
+                                {canMarkComplete && onMarkComplete && (
+                                    <DropdownMenuItem
+                                        onClick={(e) => { e.stopPropagation(); onMarkComplete(quote); }}
+                                        disabled={isMarkingComplete}
+                                        className="text-green-700 focus:text-green-800"
                                     >
-                                        <Eye className="h-4 w-4" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>View quote</TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-
-                        {onPreview && (
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-8 w-8 text-[#7DB00E] hover:text-[#6a9a0b] hover:bg-green-50 border-[#7DB00E]/30"
-                                            onClick={(e) => { e.stopPropagation(); onPreview(quote); }}
-                                        >
-                                            <Eye className="h-4 w-4" />
-                                        </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Preview & edit</TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        )}
-
-                        {onEdit && (
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-8 w-8 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                                            onClick={(e) => { e.stopPropagation(); onEdit(quote); }}
-                                        >
-                                            <Pencil className="h-4 w-4" />
-                                        </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Quick edit</TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        )}
-
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        className="h-8 w-8 text-purple-600 hover:text-purple-700 hover:bg-purple-50"
-                                        onClick={(e) => { e.stopPropagation(); setLocation(`/admin/quotes/${quote.shortSlug}/edit`); }}
-                                    >
-                                        <FileEdit className="h-4 w-4" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Full edit</TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-
-                        {/* Dispatch to contractors — only on booked/paid quotes */}
-                        {isPaid && (
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-8 w-8 text-amber-600 hover:text-white hover:bg-amber-500 border-amber-300"
-                                            onClick={(e) => { e.stopPropagation(); setLocation(`/admin/dispatch/new?quoteId=${quote.shortSlug}`); }}
-                                        >
-                                            <Hammer className="h-4 w-4" />
-                                        </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Dispatch to contractors</TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        )}
-
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        className="h-8 w-8 text-slate-600 hover:text-[#7DB00E] hover:bg-green-50"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            generateQuotePDF({
-                                                quoteId: quote.id,
-                                                customerName: quote.customerName || 'Customer',
-                                                address: quote.address,
-                                                postcode: quote.postcode,
-                                                jobDescription: quote.jobDescription || 'As discussed',
-                                                priceInPence: displayPrice,
-                                                segment: quote.segment || undefined,
-                                                validityHours: 48,
-                                                createdAt: new Date(quote.createdAt),
-                                            });
-                                        }}
-                                    >
-                                        <Download className="h-4 w-4" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Download PDF</TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-
-                        {(isExpired || !isBooked) && (
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                            onClick={(e) => { e.stopPropagation(); onRegenerate(quote); }}
-                                        >
-                                            <RefreshCw className="h-4 w-4" />
-                                        </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Regenerate</TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        )}
+                                        {isMarkingComplete
+                                            ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                            : <CheckSquare className="h-4 w-4 mr-2" />}
+                                        Mark complete
+                                    </DropdownMenuItem>
+                                )}
+                                {isPaid && (
+                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setLocation(`/admin/dispatch/new?quoteId=${quote.shortSlug}`); }}>
+                                        <Hammer className="h-4 w-4 mr-2" /> Dispatch to contractors
+                                    </DropdownMenuItem>
+                                )}
+                                {(isExpired || !isBooked) && (
+                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onRegenerate(quote); }}>
+                                        <RefreshCw className="h-4 w-4 mr-2" /> Regenerate
+                                    </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        generateQuotePDF({
+                                            quoteId: quote.id,
+                                            customerName: quote.customerName || 'Customer',
+                                            address: quote.address,
+                                            postcode: quote.postcode,
+                                            jobDescription: quote.jobDescription || 'As discussed',
+                                            priceInPence: displayPrice,
+                                            segment: quote.segment || undefined,
+                                            validityHours: 48,
+                                            createdAt: new Date(quote.createdAt),
+                                        });
+                                    }}
+                                >
+                                    <Download className="h-4 w-4 mr-2" /> Download PDF
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                    onClick={(e) => { e.stopPropagation(); handleDelete(e); }}
+                                    className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                                >
+                                    <X className="h-4 w-4 mr-2" /> Delete quote
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
                 </div>
             </CardContent>

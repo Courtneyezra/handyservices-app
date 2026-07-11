@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Search, LayoutGrid, List as ListIcon, FileText, CreditCard, Clock, CheckCircle, CheckSquare, Receipt, ExternalLink, Copy, MessageCircle, Star } from 'lucide-react';
+import { Loader2, Search, LayoutGrid, List as ListIcon, FileText, CreditCard, Clock, CheckCircle, Receipt, ExternalLink, Copy, MessageCircle, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -76,58 +76,42 @@ export default function QuotesPage() {
     const [previewOpen, setPreviewOpen] = useState(false);
     const [selectedQuoteForPreview, setSelectedQuoteForPreview] = useState<PreviewQuote | null>(null);
 
-    // Selection state for bulk actions
-    const [selectedQuoteIds, setSelectedQuoteIds] = useState<Set<string>>(new Set());
+    // Per-quote action result / loading state (bulk selection removed — each
+    // quote is invoiced / completed on its own from its card).
     const [generatedInvoiceLink, setGeneratedInvoiceLink] = useState<string | null>(null);
     const [generatedWhatsappMessage, setGeneratedWhatsappMessage] = useState<string | null>(null);
     const [includeReviewLink, setIncludeReviewLink] = useState(true);
+    const [invoicingId, setInvoicingId] = useState<string | null>(null);
+    const [completingId, setCompletingId] = useState<string | null>(null);
 
-    const toggleQuoteSelection = (id: string) => {
-        setSelectedQuoteIds(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
-    };
-
-    const toggleSelectAll = (quoteIds: string[]) => {
-        const allSelected = quoteIds.every(id => selectedQuoteIds.has(id));
-        if (allSelected) {
-            setSelectedQuoteIds(new Set());
-        } else {
-            setSelectedQuoteIds(new Set(quoteIds));
-        }
-    };
-
-    // Mark quotes as completed
+    // Mark a single quote as completed
     const markCompleteMutation = useMutation({
-        mutationFn: async (quoteIds: string[]) => {
+        mutationFn: async (quoteId: string) => {
             const res = await fetch('/api/quotes/mark-complete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ quoteIds }),
+                body: JSON.stringify({ quoteIds: [quoteId] }),
             });
             if (!res.ok) throw new Error('Failed to mark complete');
             return res.json();
         },
         onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
-            setSelectedQuoteIds(new Set());
-            toast({ title: 'Jobs Completed', description: `${data.completed} job(s) marked as completed.` });
+            toast({ title: 'Job Completed', description: `${data.completed} job marked as completed.` });
         },
         onError: () => {
-            toast({ title: 'Error', description: 'Failed to mark jobs as complete.', variant: 'destructive' });
+            toast({ title: 'Error', description: 'Failed to mark job as complete.', variant: 'destructive' });
         },
+        onSettled: () => setCompletingId(null),
     });
 
-    // Generate consolidated invoice
+    // Generate an invoice for a single quote
     const generateInvoiceMutation = useMutation({
-        mutationFn: async (quoteIds: string[]) => {
+        mutationFn: async (quoteId: string) => {
             const res = await fetch('/api/invoices/consolidated', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ quoteIds }),
+                body: JSON.stringify({ quoteIds: [quoteId] }),
             });
             if (!res.ok) throw new Error('Failed to generate invoice');
             return res.json();
@@ -135,19 +119,30 @@ export default function QuotesPage() {
         onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
             queryClient.invalidateQueries({ queryKey: ['invoices'] });
-            setSelectedQuoteIds(new Set());
             const link = `${window.location.origin}/invoice/${data.invoice.id}`;
             setGeneratedInvoiceLink(link);
             setGeneratedWhatsappMessage(data.whatsappMessage ?? null);
             toast({
                 title: 'Invoice Generated',
-                description: `${data.invoice.invoiceNumber} — ${data.summary.totalQuotes} jobs, ${data.summary.totalProperties} properties. Balance: £${(data.summary.balanceDue / 100).toFixed(2)}`,
+                description: `${data.invoice.invoiceNumber} — Balance: £${(data.summary.balanceDue / 100).toFixed(2)}`,
             });
         },
         onError: () => {
             toast({ title: 'Error', description: 'Failed to generate invoice.', variant: 'destructive' });
         },
+        onSettled: () => setInvoicingId(null),
     });
+
+    const handleGenerateInvoice = (quote: PersonalizedQuote) => {
+        setInvoicingId(quote.id);
+        setGeneratedInvoiceLink(null);
+        generateInvoiceMutation.mutate(quote.id);
+    };
+
+    const handleMarkComplete = (quote: PersonalizedQuote) => {
+        setCompletingId(quote.id);
+        markCompleteMutation.mutate(quote.id);
+    };
 
     // Fetch system-wide availability for WhatsApp messages
     const { data: availabilityData } = useAvailability({ days: 14 });
@@ -185,11 +180,6 @@ export default function QuotesPage() {
     const bookedCount = generatedQuotes.filter(q => (!!q.depositPaidAt || !!q.bookedAt) && !q.completedAt).length;
     const completedCount = generatedQuotes.filter(q => !!q.completedAt).length;
     const pendingCount = generatedQuotes.filter(q => !q.depositPaidAt && !q.bookedAt).length;
-
-    // Get selected quotes for action bar
-    const selectedQuotes = displayQuotes.filter(q => selectedQuoteIds.has(q.id));
-    const canMarkComplete = selectedQuotes.length > 0 && selectedQuotes.every(q => (!!q.depositPaidAt || !!q.bookedAt) && !q.completedAt);
-    const canGenerateInvoice = selectedQuotes.length > 0 && selectedQuotes.every(q => !!q.completedAt || !!q.depositPaidAt || !!q.bookedAt);
 
     const handleDelete = async (id: string) => {
         try {
@@ -295,7 +285,7 @@ export default function QuotesPage() {
             </div>
 
             {/* Filter Tabs */}
-            <Tabs value={filterMode} onValueChange={(v) => { setFilterMode(v as FilterMode); setSelectedQuoteIds(new Set()); setGeneratedInvoiceLink(null); }} className="w-full">
+            <Tabs value={filterMode} onValueChange={(v) => { setFilterMode(v as FilterMode); setGeneratedInvoiceLink(null); }} className="w-full">
                 <TabsList className="grid w-full max-w-xl grid-cols-4">
                     <TabsTrigger value="all" className="flex items-center gap-1">
                         <FileText className="h-4 w-4" />
@@ -358,42 +348,6 @@ export default function QuotesPage() {
                         {displayQuotes.length}
                     </Badge>
                 </div>
-
-                {/* Bulk Action Bar */}
-                {selectedQuoteIds.size > 0 && (
-                    <Card className="border-blue-500/50 bg-blue-500/5">
-                        <CardContent className="py-3 px-4 flex flex-wrap items-center gap-3">
-                            <Badge variant="secondary" className="bg-blue-600 text-white">
-                                {selectedQuoteIds.size} selected
-                            </Badge>
-                            {canMarkComplete && (
-                                <Button
-                                    size="sm"
-                                    onClick={() => markCompleteMutation.mutate(Array.from(selectedQuoteIds))}
-                                    disabled={markCompleteMutation.isPending}
-                                    className="bg-green-600 hover:bg-green-500 text-white"
-                                >
-                                    {markCompleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <CheckSquare className="h-4 w-4 mr-1" />}
-                                    Mark Complete
-                                </Button>
-                            )}
-                            {canGenerateInvoice && (
-                                <Button
-                                    size="sm"
-                                    onClick={() => generateInvoiceMutation.mutate(Array.from(selectedQuoteIds))}
-                                    disabled={generateInvoiceMutation.isPending}
-                                    className="bg-amber-500 hover:bg-amber-400 text-black"
-                                >
-                                    {generateInvoiceMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Receipt className="h-4 w-4 mr-1" />}
-                                    Generate Invoice ({selectedQuoteIds.size} jobs)
-                                </Button>
-                            )}
-                            <Button size="sm" variant="ghost" onClick={() => setSelectedQuoteIds(new Set())}>
-                                Clear
-                            </Button>
-                        </CardContent>
-                    </Card>
-                )}
 
                 {/* Generated Invoice Link */}
                 {generatedInvoiceLink && (
@@ -474,19 +428,6 @@ export default function QuotesPage() {
                             </Card>
                         ) : (
                             <>
-                                {/* Select All for booked/completed tabs */}
-                                {(filterMode === 'booked' || filterMode === 'completed') && displayQuotes.length > 0 && (
-                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                        <input
-                                            type="checkbox"
-                                            checked={displayQuotes.every(q => selectedQuoteIds.has(q.id))}
-                                            onChange={() => toggleSelectAll(displayQuotes.map(q => q.id))}
-                                            className="w-4 h-4 rounded border-gray-300"
-                                        />
-                                        <span>Select all ({displayQuotes.length})</span>
-                                    </div>
-                                )}
-
                                 {viewMode === 'list' ? (
                                     <QuotesList
                                         quotes={displayQuotes as any}
@@ -499,35 +440,19 @@ export default function QuotesPage() {
                                 ) : (
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                         {displayQuotes.map((quote) => (
-                                            <div key={quote.id} className="relative">
-                                                {/* Selection checkbox */}
-                                                {(filterMode === 'booked' || filterMode === 'completed' || filterMode === 'all') && (!!quote.depositPaidAt || !!quote.bookedAt) && (
-                                                    <div className="absolute top-2 left-2 z-10">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={selectedQuoteIds.has(quote.id)}
-                                                            onChange={() => toggleQuoteSelection(quote.id)}
-                                                            className="w-5 h-5 rounded border-gray-300 cursor-pointer"
-                                                        />
-                                                    </div>
-                                                )}
-                                                {/* Completed badge */}
-                                                {quote.completedAt && (
-                                                    <div className="absolute top-2 right-2 z-10">
-                                                        <Badge className="bg-green-600 text-white text-[10px]">
-                                                            <CheckCircle className="h-3 w-3 mr-1" /> Done
-                                                        </Badge>
-                                                    </div>
-                                                )}
-                                                <QuoteCard
-                                                    quote={quote as any}
-                                                    onDelete={handleDelete}
-                                                    onRegenerate={handleOpenRegenerate as any}
-                                                    onEdit={handleOpenEdit as any}
-                                                    onPreview={handleOpenPreview as any}
-                                                    availableDates={availableDates}
-                                                />
-                                            </div>
+                                            <QuoteCard
+                                                key={quote.id}
+                                                quote={quote as any}
+                                                onDelete={handleDelete}
+                                                onRegenerate={handleOpenRegenerate as any}
+                                                onEdit={handleOpenEdit as any}
+                                                onPreview={handleOpenPreview as any}
+                                                onGenerateInvoice={handleGenerateInvoice as any}
+                                                onMarkComplete={handleMarkComplete as any}
+                                                isGeneratingInvoice={invoicingId === quote.id}
+                                                isMarkingComplete={completingId === quote.id}
+                                                availableDates={availableDates}
+                                            />
                                         ))}
                                     </div>
                                 )}

@@ -27,12 +27,17 @@ export async function insertInvoiceWithRetry(
 ): Promise<Invoice> {
     const year = new Date().getFullYear();
     for (let attempt = 0; attempt < maxRetries; attempt++) {
+        // Take the numeric MAX over well-formed rows only. A plain
+        // max(invoice_number) is a *lexicographic* text max, so a non-standard
+        // number (e.g. "INV-TEST-BAL") sorts above "INV-2026-0198", the regex
+        // fails to match, nextSeq resets to 1, and every insert then collides.
         const [maxResult] = await db
-            .select({ maxNum: sql<string>`max(invoice_number)` })
-            .from(invoices);
-        let nextSeq = 1;
-        const match = maxResult?.maxNum?.match(/INV-\d{4}-(\d+)/);
-        if (match) nextSeq = parseInt(match[1], 10) + 1;
+            .select({
+                maxSeq: sql<number>`max((substring(invoice_number from 'INV-[0-9]{4}-([0-9]+)'))::int)`,
+            })
+            .from(invoices)
+            .where(sql`invoice_number ~ '^INV-[0-9]{4}-[0-9]+$'`);
+        const nextSeq = (maxResult?.maxSeq ?? 0) + 1;
         const invoiceNumber = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
         try {
             const [created] = await db
