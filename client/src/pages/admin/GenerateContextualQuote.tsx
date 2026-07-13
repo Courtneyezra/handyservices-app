@@ -557,6 +557,11 @@ function TwoRailEditor({
    *  and the two-rail contract (price edit ⇎ time edit) is preserved. */
   ghostPricePence = null,
   priceEdited = false,
+  /** Chip text + tooltip for the price-reset affordance. Defaults describe the
+   *  create flow ("edited → reset to catalog"); the edit flow passes "re-price"
+   *  because a frozen saved price is released back to live engine pricing. */
+  priceResetLabel = 'edited',
+  priceResetTitle = 'Reset to catalog price',
   onPriceChange,
   onPriceReset,
   /** Minutes shown in the time field. */
@@ -569,6 +574,8 @@ function TwoRailEditor({
   pricePlaceholder?: string;
   ghostPricePence?: number | null;
   priceEdited?: boolean;
+  priceResetLabel?: string;
+  priceResetTitle?: string;
   onPriceChange: (poundsStr: string) => void;
   onPriceReset?: () => void;
   timeValueMinutes: number;
@@ -598,10 +605,10 @@ function TwoRailEditor({
             <button
               type="button"
               onClick={onPriceReset}
-              title="Reset to catalog price"
+              title={priceResetTitle}
               className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-handy-yellow hover:text-handy-navy transition-colors"
             >
-              <RefreshCw className="w-2.5 h-2.5" /> edited
+              <RefreshCw className="w-2.5 h-2.5" /> {priceResetLabel}
             </button>
           ) : showGhost ? (
             <span
@@ -1316,6 +1323,10 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
   const editSlug = editSlugProp ?? (editMatch ? editParams?.slug : undefined);
   const [editQuoteId, setEditQuoteId] = useState<string | null>(null);
   const [editCustomerLabel, setEditCustomerLabel] = useState('');
+  // Phase 2 — edit is "frozen by default": saving keeps the prices and the
+  // customer-facing wording the customer already saw. Ticking this re-runs the
+  // LLM copy (and re-derives the batch discount) for this save only.
+  const [regenerateCopy, setRegenerateCopy] = useState(false);
   const editHydratedRef = useRef(false);
 
   // ── Customer fields ──
@@ -1418,6 +1429,13 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
   // Category / Time / Materials. Tracked per line id; the ref guards one-time
   // category inference so we never clobber an admin's manual category choice.
   const [customLineIds, setCustomLineIds] = useState<Set<string>>(new Set());
+  // Lines force-revealed for editing (price/time/materials rails open) because we
+  // loaded them from an existing quote. Kept SEPARATE from customLineIds so the
+  // SKU autocomplete's onCustomChange(false) — which fires whenever a hydrated
+  // description fuzzy-matches a catalog SKU — can't collapse the rails and hide
+  // the saved price. Persists through the re-price gesture (clearing the price);
+  // a line only loses its rails by being turned into a picked SKU (isPickedSku).
+  const [editRevealedLineIds, setEditRevealedLineIds] = useState<Set<string>>(new Set());
   // Lines whose materials £ field is open. Visibility used to be inferred from
   // cost > 0, which unmounted the input (and dismissed the mobile keyboard)
   // the instant the admin cleared the field to type a multi-digit amount.
@@ -1742,6 +1760,16 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
             // whole live preview collapses. Keep 'sku' only when we have the code;
             // otherwise fall back to 'custom' (priced from description/category).
             const isSku = pli.source === 'sku' && !!skuCode;
+            // Freeze the saved price on edit. `guardedPricePence` is the pure-labour
+            // price the customer saw; pinning it as an explicit override means this
+            // line does NOT re-price through the engine/LLM on save (which was
+            // silently changing custom-line labour on every edit). Prefer a stored
+            // explicit override if one exists. Materials round-trip via
+            // materialsCostPence and are recomputed deterministically, so they need
+            // no freeze. To re-price a line, Ben clears its Price box (releases the
+            // override) and the engine prices it live again.
+            const frozenLabourPence =
+              pli.priceOverridePence ?? pli.guardedPricePence ?? pli.finalPricePence;
             return {
               id: pli.lineId || pli.id || generateId(),
               description: pli.description || '',
@@ -1754,11 +1782,15 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
               ...(pli.selectedTier ? { selectedTier: pli.selectedTier } : {}),
               ...(Array.isArray(pli.scopeSteps) ? { scopeSteps: pli.scopeSteps } : {}),
               ...(pli.fixedTier ? { fixedTier: pli.fixedTier } : {}),
-              ...(pli.priceOverridePence !== undefined ? { priceOverridePence: pli.priceOverridePence } : {}),
+              ...(typeof frozenLabourPence === 'number' ? { priceOverridePence: frozenLabourPence } : {}),
               ...(pli.timeOverrideMinutes !== undefined ? { timeOverrideMinutes: pli.timeOverrideMinutes } : {}),
             };
           });
           setLineItems(hydrated);
+          // Force the per-line config open for every hydrated non-SKU line so the
+          // operator can see and adjust the saved price/time/materials on edit.
+          // (SKU lines render their own priced slab and don't use these rails.)
+          setEditRevealedLineIds(new Set(hydrated.filter((l) => l.source !== 'sku').map((l) => l.id)));
         } else if (quote.jobDescription && quote.jobDescription.trim().length > 5) {
           // Legacy quote with no stored line items — fall back to a re-parse.
           parseJobMutation.mutate(quote.jobDescription.trim());
@@ -1943,9 +1975,13 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
-          // Edit mode: server updates this quote in place (re-priced through the
-          // same engine, preserving id/slug/view stats). Absent → creates new.
+          // Edit mode: server updates this quote in place, preserving id/slug/view
+          // stats. Prices are frozen to what the customer saw (per-line overrides)
+          // and copy is preserved — unless the operator ticked "refresh wording",
+          // which re-runs the LLM copy + batch discount for this save. Absent
+          // quoteId → creates new.
           quoteId: editQuoteId || undefined,
+          ...(editQuoteId && regenerateCopy ? { regenerateCopy: true } : {}),
           customerName,
           phone: normalizePhoneInput(phone),
           email: email || undefined,
@@ -2034,10 +2070,16 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
       setQuoteResult(result);
       setSendMode('full');
       if (editQuoteId) {
-        toast({ title: 'Quote Updated!', description: 'Same link, re-priced. Ready to re-send.' });
+        toast({
+          title: 'Quote Updated!',
+          description: regenerateCopy
+            ? 'Saved with refreshed wording. Same link, ready to re-send.'
+            : 'Saved — prices and wording kept. Same link, ready to re-send.',
+        });
       } else {
         toast({ title: 'Quote Created!', description: 'Ready to send via WhatsApp.' });
       }
+      setRegenerateCopy(false);
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -2999,7 +3041,7 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                     {editCustomerLabel ? "'s" : ''} quote
                   </p>
                   <p className="text-xs text-white/80 mt-0.5">
-                    Saving re-prices and updates the existing link — the URL stays the same.
+                    Prices are locked to what the customer saw — only lines you change re-price. Same link.
                   </p>
                 </div>
                 {onClose && (
@@ -3247,7 +3289,9 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                       const isPickedSku = item.source === 'sku' && !!item.skuCode && !!item.skuMeta;
                       // Reveal Category/Time/Materials only once the line is known custom
                       // (typed, no catalog match). A picked SKU drives its own slab.
-                      const showCustomConfig = !isPickedSku && customLineIds.has(item.id);
+                      const showCustomConfig =
+                        !isPickedSku &&
+                        (customLineIds.has(item.id) || editRevealedLineIds.has(item.id));
 
                       // Two-rail defaults for a picked SKU: the catalog price +
                       // minutes for the current unit/tier selection. The rail
@@ -3505,7 +3549,13 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                                         priceValuePence={item.priceOverridePence ?? null}
                                         pricePlaceholder="auto"
                                         ghostPricePence={livePriceByLineId.get(item.id) ?? estimateLineLabourPence(item)}
-                                        priceEdited={false}
+                                        // Edit mode: a set price is the frozen saved value. Show a
+                                        // "re-price" chip that clears the override so the line prices
+                                        // live from the engine again. Create mode keeps its no-chip look.
+                                        priceEdited={!!editQuoteId && item.priceOverridePence != null}
+                                        priceResetLabel="re-price"
+                                        priceResetTitle="Clear the saved price and re-price this line from the engine"
+                                        onPriceReset={() => handleSetPriceOverride(item.id, '')}
                                         onPriceChange={(s) => handleSetPriceOverride(item.id, s)}
                                         timeValueMinutes={item.estimatedMinutes}
                                         timeEdited={false}
@@ -4152,6 +4202,24 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
                 </div>
               )}
             </div>
+
+            {/* Edit mode — copy is preserved by default (frozen). This opt-in re-runs
+                the LLM wording + batch discount for the next save only. */}
+            {editQuoteId && (
+              <label className="flex items-start gap-2.5 rounded-lg border border-handy-navy/15 bg-handy-navy/[0.03] px-3 py-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={regenerateCopy}
+                  onChange={(e) => setRegenerateCopy(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-handy-navy shrink-0"
+                />
+                <span className="text-xs text-handy-navy/80">
+                  <span className="font-semibold text-handy-navy">Refresh customer wording</span> — re-write the
+                  headline and value copy for the current job. Off by default so an edit keeps the
+                  message the customer already saw.
+                </span>
+              </label>
+            )}
 
             {/* ─── Section 6: Preview + Generate (brand CTAs — preview outline-navy, generate navy-primary) ─── */}
             {/* Stack full-width on mobile (the two labels can't fit one row < 380px); side-by-side on sm+. */}

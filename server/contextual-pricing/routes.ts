@@ -1335,6 +1335,14 @@ const contextualQuoteInputSchema = z.object({
   // same engine) instead of creating a new one. Preserves id, slug, view stats,
   // call link, and created date. This is how quote editing reuses the generator.
   quoteId: z.string().optional(),
+  /**
+   * Phase 1 edit path — when true, re-run the LLM copy + batch discount for an
+   * in-place edit. Default (false/omitted) preserves the stored messaging and
+   * reproduces the stored batch discount, so editing a detail or price never
+   * silently rewrites the customer's headline/value copy or drifts the total.
+   * Ignored on create (no quoteId).
+   */
+  regenerateCopy: z.boolean().optional(),
 
   // Source tracking
   sourceCallId: z.string().optional(),
@@ -1397,6 +1405,37 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
     // 1. Validate input
     const input = contextualQuoteInputSchema.parse(req.body);
 
+    // 1b. Edit path — load the quote being edited up-front so its stored pricing
+    // and copy can be reused deterministically (batch-discount override below +
+    // messaging preservation in the persist step). Fetched once here and reused
+    // for the id/slug reuse further down.
+    let editingQuote: typeof personalizedQuotes.$inferSelect | null = null;
+    if (input.quoteId) {
+      const [existing] = await db.select().from(personalizedQuotes)
+        .where(eq(personalizedQuotes.id, input.quoteId)).limit(1);
+      if (!existing) {
+        return res.status(404).json({ error: 'Quote to edit not found' });
+      }
+      editingQuote = existing;
+    }
+
+    // 1c. Deterministic batch discount for an in-place edit. When the line
+    // structure is unchanged and we're not regenerating copy, reproduce the
+    // stored discount so the total the customer saw doesn't drift on the LLM's
+    // non-deterministic suggestion. A changed line count (add/remove) falls
+    // through to a fresh LLM discount.
+    let batchDiscountPercentOverride: number | undefined;
+    if (editingQuote && !input.regenerateCopy) {
+      const storedBreakdown = editingQuote.pricingLayerBreakdown as any;
+      const storedPct = storedBreakdown?.batchDiscount?.discountPercent;
+      const storedLineCount = Array.isArray(editingQuote.pricingLineItems)
+        ? (editingQuote.pricingLineItems as any[]).length
+        : undefined;
+      if (typeof storedPct === 'number' && storedLineCount === input.lines.length) {
+        batchDiscountPercentOverride = storedPct;
+      }
+    }
+
     // 2. Build MultiLineRequest
     const signals: ContextualSignals = {
       urgency: input.signals?.urgency || 'standard',
@@ -1439,6 +1478,9 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       // Decomposed pricing — quote-level inputs (no-op unless the flag is on)
       visitCount: input.visitCount,
       travelDistanceMiles: input.travelDistanceMiles,
+      // Edit path — pin the stored batch discount (see 1c) so the total is
+      // deterministic on re-save. Undefined on create → engine uses the LLM's.
+      batchDiscountPercentOverride,
     };
 
     // 3. Select content from the content library based on job categories + signals
@@ -1605,15 +1647,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
 
     // 5. Slug + id. When editing in place, reuse the existing quote's id & slug
     // (so the customer link and all stats stay put); otherwise mint new ones.
-    let editingQuote: typeof personalizedQuotes.$inferSelect | null = null;
-    if (input.quoteId) {
-      const [existing] = await db.select().from(personalizedQuotes)
-        .where(eq(personalizedQuotes.id, input.quoteId)).limit(1);
-      if (!existing) {
-        return res.status(404).json({ error: 'Quote to edit not found' });
-      }
-      editingQuote = existing;
-    }
+    // `editingQuote` was loaded up-front in step 1b.
     const shortSlug = editingQuote?.shortSlug ?? await generateUniqueSlug();
     const id = editingQuote?.id ?? `quote_${nanoid()}`;
 
@@ -1933,6 +1967,30 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         id: _id, createdAt: _createdAt, createdBy: _cb, createdByName: _cbn,
         sourceCallId: _scid, sourceChannel: _sch, ...editableFields
       } = quoteInsertData;
+
+      // Preserve the customer-facing copy on edit unless the operator explicitly
+      // asked to regenerate it. The engine's LLM still ran (it's bundled with
+      // pricing), but we discard its fresh messaging so a detail/price edit never
+      // silently rewrites the headline, value bullets, proposal, etc. that the
+      // customer already saw. Pricing fields (basePrice, line items, materials)
+      // still update to the deterministically re-priced — and identical — values.
+      if (!input.regenerateCopy) {
+        Object.assign(editableFields, {
+          contextualHeadline: editingQuote.contextualHeadline,
+          contextualMessage: editingQuote.contextualMessage,
+          jobTopLine: editingQuote.jobTopLine,
+          proposalSummary: editingQuote.proposalSummary,
+          valueBullets: editingQuote.valueBullets,
+          whatsappValueLines: editingQuote.whatsappValueLines,
+          whatsappClosing: editingQuote.whatsappClosing,
+          layoutTier: editingQuote.layoutTier,
+          bookingModes: editingQuote.bookingModes,
+          requiresHumanReview: editingQuote.requiresHumanReview,
+          reviewReason: editingQuote.reviewReason,
+          selectedContentIds: editingQuote.selectedContentIds,
+        });
+      }
+
       await db.update(personalizedQuotes)
         .set({ ...editableFields, updatedAt: new Date() })
         .where(eq(personalizedQuotes.id, id));

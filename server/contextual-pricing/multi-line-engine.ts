@@ -490,12 +490,19 @@ export async function generateMultiLinePrice(
     if (typeof src.priceOverridePence === 'number' && src.priceOverridePence >= 0) {
       li.guardedPricePence = roundToWholePounds(src.priceOverridePence);
       li.llmSuggestedPricePence = li.guardedPricePence;
+      // Persist the override onto the result line so it survives the round-trip:
+      // it's stored in pricingLineItems, rehydrated when the quote is edited, and
+      // re-applied here — so an edit keeps the price the customer saw instead of
+      // silently re-pricing the line through the engine/LLM.
+      (li as any).priceOverridePence = li.guardedPricePence;
       allGuardrailAdjustments.push(`[${li.lineId}] manual price override → ${formatPence(li.guardedPricePence)}`);
     }
     if (typeof src.timeOverrideMinutes === 'number' && src.timeOverrideMinutes > 0) {
       const mins = Math.round(src.timeOverrideMinutes);
       li.timeEstimateMinutes = mins;
       (li as any).scheduleMinutes = mins;
+      // Persist the time override for the same round-trip reason as the price above.
+      (li as any).timeOverrideMinutes = mins;
       allGuardrailAdjustments.push(`[${li.lineId}] manual time override → ${mins}min`);
     }
   }
@@ -512,9 +519,11 @@ export async function generateMultiLinePrice(
     0,
   );
 
-  // Apply batch discount to LABOUR only (capped) — materials are pass-through
+  // Apply batch discount to LABOUR only (capped) — materials are pass-through.
+  // On the edit path a deterministic override reproduces the stored discount so
+  // an in-place re-save doesn't drift on the LLM's non-deterministic suggestion.
   const rawDiscountPercent = Math.min(
-    llmResult.batchDiscountPercent,
+    request.batchDiscountPercentOverride ?? llmResult.batchDiscountPercent,
     maxBatchDiscountPercent,
   );
   const effectiveDiscountPercent =

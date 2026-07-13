@@ -481,6 +481,13 @@ export interface MultiLineRequest {
    * is safe to leave unset. Quote-level: one travel leg per job.
    */
   travelDistanceMiles?: number;
+  /**
+   * Phase 1 edit path — a deterministic batch-discount percent that OVERRIDES the
+   * LLM's suggestion. Passed when editing a quote in place with unchanged line
+   * structure so re-saving reproduces the customer's original total instead of
+   * drifting on the LLM's non-deterministic discount. Still capped by settings.
+   */
+  batchDiscountPercentOverride?: number;
 }
 
 /**
