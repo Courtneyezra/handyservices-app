@@ -2316,8 +2316,10 @@ export function UnifiedQuoteCard({
                       {useFlexBooking && <Check className="w-3 h-3 text-handy-navy" strokeWidth={3} />}
                     </span>
                     <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I'm flexible</span>
-                    {isBusiness && (
+                    {isBusiness ? (
                       <span className="ml-auto text-[10px] bg-handy-yellow text-handy-navy px-1.5 py-0.5 rounded-full font-bold">Guaranteed</span>
+                    ) : (
+                      <span className="ml-auto text-[10px] bg-[#7DB00E] text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-wide">Most popular</span>
                     )}
                   </div>
                   <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
