@@ -3192,13 +3192,10 @@ export function UnifiedQuoteCard({
               {/* Timer progress bar on top edge */}
               <StickyTimerProgress />
               <div className="bg-white border-t border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.12)] px-4 py-3">
-                <div className="max-w-lg mx-auto flex items-center justify-between gap-3">
-                  <div className="flex-shrink-0">
-                    <p className="text-xs text-slate-500">{payFull ? 'Pay today' : 'Reserve from'}</p>
-                    <p className="text-2xl font-black text-[#7DB00E] leading-tight">
-                      £{payFull ? Math.round(payFullTotal / 100) : Math.round(depositAmount / 100)}
-                    </p>
-                  </div>
+                <div className="max-w-lg mx-auto">
+                  {/* One bold bright-yellow CTA carrying both the entry price
+                      ("Reserve from £X") and the action, so the sticky action
+                      reads at a glance. Navy text for contrast on yellow. */}
                   <button
                     type="button"
                     onClick={() => {
@@ -3211,24 +3208,21 @@ export function UnifiedQuoteCard({
                         block: useFlexBooking ? 'start' : 'center',
                       });
                     }}
-                    className="flex-1 max-w-[220px] bg-[#7DB00E] hover:bg-[#6a9a0c] active:scale-[0.98] text-white font-bold py-3 px-5 rounded-xl text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#7DB00E]/25"
+                    className="w-full bg-handy-yellow hover:brightness-[0.97] active:scale-[0.99] text-handy-navy font-bold py-3 px-5 rounded-xl transition-all flex items-center justify-center gap-3 shadow-lg shadow-handy-yellow/30"
                   >
-                    {isContextual ? (
-                      <>
-                        <CreditCard className="w-4 h-4" />
-                        Approve and pay
-                      </>
-                    ) : useFlexBooking ? (
-                      <>
-                        <CreditCard className="w-4 h-4" />
-                        Book now
-                      </>
+                    {(isContextual || useFlexBooking) ? (
+                      <CreditCard className="w-5 h-5 shrink-0" />
                     ) : (
-                      <>
-                        <Calendar className="w-4 h-4" />
-                        Choose your date
-                      </>
+                      <Calendar className="w-5 h-5 shrink-0" />
                     )}
+                    <span className="flex flex-col items-start leading-tight text-left">
+                      <span className="text-[11px] font-bold uppercase tracking-wide opacity-70">
+                        {payFull ? 'Pay today' : 'Reserve from'} £{payFull ? Math.round(payFullTotal / 100) : Math.round(depositAmount / 100)}
+                      </span>
+                      <span className="text-base font-black leading-tight">
+                        {isContextual ? 'Approve and pay' : useFlexBooking ? 'Book now' : 'Choose your date'}
+                      </span>
+                    </span>
                   </button>
                 </div>
               </div>
