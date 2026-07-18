@@ -493,6 +493,59 @@ router.post('/quote/:quoteId/date-preferences', async (req: Request, res: Respon
 });
 
 /**
+ * POST /api/public/quote/:quoteId/address
+ *
+ * Model A post-payment address collection: the customer pays the deposit
+ * first, then provides their exact address AFTER payment. This persists the
+ * composed one-line address onto the quote.
+ *
+ * Body: { line1: string, line2?: string, city: string, postcode: string, accessNotes?: string }
+ *   line1, city and postcode are required (non-empty). line2 and accessNotes
+ *   are optional.
+ *
+ * Note: the personalized_quotes table only has an `address` column, so the
+ * composed one-line string is stored there. There is no access-instructions
+ * column on this table, so accessNotes is accepted/validated but not persisted.
+ */
+router.post('/quote/:quoteId/address', async (req: Request, res: Response) => {
+    try {
+        const { quoteId } = req.params;
+        const { line1, line2, city, postcode, accessNotes } = req.body ?? {};
+
+        const isNonEmptyString = (v: unknown): v is string =>
+            typeof v === 'string' && v.trim().length > 0;
+
+        if (!isNonEmptyString(line1) || !isNonEmptyString(city) || !isNonEmptyString(postcode)) {
+            return res.status(400).json({ error: 'line1, city and postcode are required' });
+        }
+
+        const quote = await db.query.personalizedQuotes.findFirst({
+            where: or(
+                eq(personalizedQuotes.id, quoteId),
+                eq(personalizedQuotes.shortSlug, quoteId)
+            ),
+        });
+        if (!quote) return res.status(404).json({ error: 'Quote not found' });
+
+        // Compose a single-line address: line1[, line2], city, postcode
+        const hasLine2 = isNonEmptyString(line2);
+        const composedAddress =
+            `${line1.trim()}` +
+            (hasLine2 ? `, ${line2.trim()}` : '') +
+            `, ${city.trim()}, ${postcode.trim()}`;
+
+        await db.update(personalizedQuotes)
+            .set({ address: composedAddress })
+            .where(eq(personalizedQuotes.id, quote.id));
+
+        return res.json({ ok: true });
+    } catch (error) {
+        console.error('[PublicRoutes] address error:', error);
+        return res.status(500).json({ error: 'Failed to save address' });
+    }
+});
+
+/**
  * GET /api/public/quote/:quoteId/availability
  *
  * Returns dates where at least one candidate contractor from the quote's pool

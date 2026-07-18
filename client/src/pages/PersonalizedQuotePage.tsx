@@ -53,6 +53,7 @@ import { AmendedQuoteCard } from '@/components/quote/AmendedQuoteCard';
 import { BookingConfirmation } from '@/components/quote/BookingConfirmation';
 import { PaidBookingHero } from '@/components/quote/PaidBookingHero';
 import { PostPayDayPicker, pickerHorizonDates } from '@/components/quote/PostPayDayPicker';
+import { PostPayAddressStep } from '@/components/quote/PostPayAddressStep';
 import { ContractorProfile } from '@/components/quote/ContractorProfile';
 import { WhatsNextTimeline } from '@/components/quote/WhatsNextTimeline';
 import { QuoteTimer } from '@/components/quote/QuoteTimer';
@@ -2880,6 +2881,19 @@ export default function PersonalizedQuotePage() {
     setDayStepDone(true);
     window.scrollTo({ top: 0 });
   }, []);
+  // Post-pay ADDRESS step — for one-tap-wallet payers who paid before giving an
+  // address (the exact street address is collected here, after the days step).
+  // Self-gating: shown only when the quote has no address yet, so normal
+  // form-flow payers (address already captured) never see it.
+  const [postPayAddress, setPostPayAddress] = useState<{ line1: string; line2?: string; city: string; postcode: string; accessNotes?: string } | null>(null);
+  const [addressStepDone, setAddressStepDone] = useState(() => {
+    try { return sessionStorage.getItem(`addrstep_done_${window.location.pathname}`) === '1'; } catch { return false; }
+  });
+  const completeAddressStep = useCallback(() => {
+    try { sessionStorage.setItem(`addrstep_done_${window.location.pathname}`, '1'); } catch { /* noop */ }
+    setAddressStepDone(true);
+    window.scrollTo({ top: 0 });
+  }, []);
   // The preparing-screen checklist theatre plays on the FIRST open only.
   // localStorage skips it instantly on this device; the server viewCount /
   // depositPaidAt backstop (checked at render) covers other devices.
@@ -4729,6 +4743,14 @@ export default function PersonalizedQuotePage() {
       !paidJobCompleted &&
       !dayStepDone &&
       !(savedPrefDates && savedPrefDates.length > 0);
+    // Address step follows the day step, and only when the quote has no address
+    // yet (i.e. a one-tap wallet payer). Normal form-flow payers already have
+    // quote.address, so they skip straight to the hub.
+    const hasJobAddress = !!((quote as any).address) || !!postPayAddress;
+    const needsAddressStep =
+      !paidJobCompleted &&
+      !hasJobAddress &&
+      !addressStepDone;
     // Collected allowed days (this session's save wins over the cached quote)
     // and the crossed-off complement for the hero's date block.
     const collectedDays = postPayDates ?? (savedPrefDates?.length ? savedPrefDates : null);
@@ -4861,6 +4883,37 @@ export default function PersonalizedQuotePage() {
                     </button>
                   </div>
                 )}
+              </div>
+            </div>
+          ) : needsAddressStep ? (
+            /* ── Address step — after the days step, for wallet payers who paid
+               before giving an address. Self-gated on a missing quote.address,
+               so normal form-flow payers never see it. Skippable (money's in),
+               with a nudge in the hub if left blank. */
+            <div className="px-4 pt-6 pb-16">
+              <div className="w-full max-w-lg mx-auto space-y-3">
+                <div className="text-center pt-1">
+                  <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Almost done, {quote.customerName.split(' ')[0]}</h2>
+                  <p className="text-[13px] text-slate-600 mt-1">Just the address so Craig knows where to come.</p>
+                </div>
+                <PostPayAddressStep
+                  quoteId={quote.id}
+                  initialPostcode={quote.postcode || undefined}
+                  initialSaved={postPayAddress ?? undefined}
+                  onSaved={(addr) => {
+                    setPostPayAddress(addr);
+                    setTimeout(completeAddressStep, 1200);
+                  }}
+                />
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={completeAddressStep}
+                    className="text-slate-500 text-sm underline underline-offset-2 hover:text-slate-700"
+                  >
+                    I'll add my address later
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
