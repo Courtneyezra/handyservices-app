@@ -3326,11 +3326,22 @@ export function UnifiedQuoteCard({
                       Renders nothing when the flag is off or no wallet is
                       available, so the yellow CTA below is always present as the
                       fallback and the card path. */}
-                  {stickyExpressEnabled && isStripeConfigured && !!stripe && (
+                  {/* Flex-only: the default flex lane can be one-tapped (no date
+                      needed). The "+£52 date & time" lane needs a specific slot
+                      first, so express is hidden there. Also hidden mid-split
+                      (booking is gated then). The wallet sheet is PURE payment —
+                      no email/address/phone requested; those are inherited from
+                      the quote (email/phone/postcode) or collected post-payment
+                      (exact street address, alongside the days-to-avoid step). */}
+                  {stickyExpressEnabled && useFlexBooking && !hasDeferrals && isStripeConfigured && !!stripe && (
                     <ExpressCheckoutElement
                       onConfirm={handleStickyExpressConfirm}
                       onLoadError={() => { /* No wallet available (non-Safari, http, or no card) — the yellow CTA below stays as the fallback. */ }}
                       options={{
+                        emailRequired: false,
+                        phoneNumberRequired: false,
+                        billingAddressRequired: false,
+                        shippingAddressRequired: false,
                         paymentMethods: {
                           applePay: 'auto',
                           googlePay: 'auto',
