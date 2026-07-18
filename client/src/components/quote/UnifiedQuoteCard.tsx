@@ -851,6 +851,17 @@ export function UnifiedQuoteCard({
   // says a wallet exists, that verdict sticks (a late false from the other
   // surface must not downgrade it).
   const reportWalletAvailability = (avail: boolean) => setWalletsAvailable(prev => (prev === true ? true : avail));
+  // Card fields collapse behind a "Pay by card" button ONLY when a wallet is the
+  // faster primary (standard checkout pattern — Stripe/Shopify/Airbnb). When card
+  // is the only method (no wallet, or still detecting past a short beat), the
+  // fields open automatically so there's no pointless extra tap.
+  const [cardExpanded, setCardExpanded] = useState(false);
+  const cardOpen = cardExpanded || walletsAvailable === false;
+  useEffect(() => {
+    if (walletsAvailable !== null) return;
+    const t = setTimeout(() => setCardExpanded(true), 3500); // detection stalled → open card
+    return () => clearTimeout(t);
+  }, [walletsAvailable]);
 
   // Refs for scroll behavior
   const timeSectionRef = useRef<HTMLDivElement>(null);
@@ -1404,10 +1415,11 @@ export function UnifiedQuoteCard({
 
   // Create payment intent when inline payment should be shown
   useEffect(() => {
-    // Card-path PI: created as soon as we have an email (the only pre-payment
-    // input left — receipts need it). Wallet payments don't use this PI at all;
-    // they create their own at confirm time with the wallet's email.
-    if (!showInlinePayment || isCash || !quoteId || !stripe || !effectiveEmail) {
+    // Card-path PI: created once the card form is open and we have an email (the
+    // only pre-payment input left — receipts need it). Wallet payments don't use
+    // this PI at all; they create their own at confirm time with the wallet's
+    // email — so wallet-only payers never spin up an unused card intent.
+    if (!showInlinePayment || isCash || !quoteId || !stripe || !effectiveEmail || !cardOpen) {
       setClientSecret(null);
       setPaymentIntentId(null);
       return;
@@ -1495,7 +1507,7 @@ export function UnifiedQuoteCard({
       isCurrentRequest = false;
       abortController.abort();
     };
-  }, [showInlinePayment, useDownsell, useFlexBooking, pricingLane, quoteId, customerName, effectiveEmail, total, selectedAddOns, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation, hasDeferrals, deferredKey, splitDepositPence, splitPayFullPence]);
+  }, [showInlinePayment, useDownsell, useFlexBooking, pricingLane, quoteId, customerName, effectiveEmail, cardOpen, total, selectedAddOns, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation, hasDeferrals, deferredKey, splitDepositPence, splitPayFullPence]);
 
   // Handle inline payment submission
   const handlePayment = async (e: React.FormEvent) => {
@@ -3214,15 +3226,29 @@ export function UnifiedQuoteCard({
                       onAvailability={reportWalletAvailability}
                     />
                   )}
-                  {walletsAvailable && (
-                    <div className="flex items-center gap-3 my-1">
-                      <div className={`flex-1 h-px ${isDarkTheme ? 'bg-gray-600' : 'bg-slate-200'}`} />
-                      <span className={`text-xs ${isDarkTheme ? 'text-gray-400' : 'text-slate-400'}`}>Or pay by card</span>
-                      <div className={`flex-1 h-px ${isDarkTheme ? 'bg-gray-600' : 'bg-slate-200'}`} />
-                    </div>
+                  {/* Card collapses behind a "Pay by card" button when a wallet is
+                      the faster primary; expands on tap. Card-only → always open. */}
+                  {walletsAvailable && !cardOpen && (
+                    <button
+                      type="button"
+                      onClick={() => setCardExpanded(true)}
+                      className={`w-full flex items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold transition-colors ${
+                        isDarkTheme ? 'border-white/20 text-slate-200 hover:bg-white/5' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      Pay by card instead
+                    </button>
                   )}
-                  {(
+                  {cardOpen && (
                     <div className="space-y-3">
+                      {walletsAvailable && (
+                        <div className="flex items-center gap-3 my-1">
+                          <div className={`flex-1 h-px ${isDarkTheme ? 'bg-gray-600' : 'bg-slate-200'}`} />
+                          <span className={`text-xs ${isDarkTheme ? 'text-gray-400' : 'text-slate-400'}`}>Pay by card</span>
+                          <div className={`flex-1 h-px ${isDarkTheme ? 'bg-gray-600' : 'bg-slate-200'}`} />
+                        </div>
+                      )}
                       {/* Email — the ONE input the card path needs (receipt).
                           Valid-as-you-type; the PI spins up as soon as it is. */}
                       {!customerEmail && (
@@ -3410,101 +3436,98 @@ export function UnifiedQuoteCard({
               {/* Timer progress bar on top edge */}
               <StickyTimerProgress />
               <div className="bg-white border-t border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.12)] px-4 py-3">
-                <div className="max-w-lg mx-auto space-y-2">
-                  {/* One-tap Apple Pay / Google Pay (on by default; ?stickypay=0
-                      kills it). Renders nothing when no wallet is available, so
-                      the yellow CTA below is always the fallback + card path.
-                      Charges the CURRENT selection via the shared handleExpressPay:
-                      the flex lane one-taps immediately; the exact-date lane
-                      one-taps once a slot is reserved. Pure payment — the street
-                      address is collected post-payment. */}
-                  {stickyExpressEnabled && (useFlexBooking || (!!selectedDate && !!reservation)) && isStripeConfigured && !!stripe && (
-                    <ExpressCheckoutElement
-                      onConfirm={(e) => handleExpressPayWith(stripe, elements, e)}
-                      // Wallets need an Apple/Google-verified HTTPS domain (Stripe →
-                      // Settings → Payment method domains): localhost NEVER shows
-                      // them; verify on the live domain. onReady logs which wallets
-                      // this browser/domain/device combination can offer.
-                      onReady={(e: any) => {
-                        const m = e?.availablePaymentMethods;
-                        reportWalletAvailability(!!m && Object.values(m).some(Boolean));
-                        console.log('[stickypay] express ready — available wallets:', JSON.stringify(m ?? null));
-                      }}
-                      onLoadError={(e: any) => {
-                        reportWalletAvailability(false);
-                        console.warn('[stickypay] express load error (yellow CTA + card form remain the fallback):', e?.error?.message || e);
-                      }}
-                      options={{
-                        emailRequired: !customerEmail,
-                        phoneNumberRequired: false,
-                        billingAddressRequired: false,
-                        shippingAddressRequired: false,
-                        ...WALLET_BUTTON_STYLE,
-                        paymentMethods: {
-                          applePay: 'auto',
-                          googlePay: 'auto',
-                          link: 'never',
-                          amazonPay: 'never',
-                          paypal: 'never',
-                          klarna: 'never',
-                        },
-                      }}
-                    />
-                  )}
-                  {/* Wallet-primary (big-tech pattern): when a wallet rendered
-                      above, IT is the checkout button — the yellow CTA demotes
-                      to a slim "other ways to pay" link that scrolls to the card
-                      form. No wallet (or still detecting) → the yellow CTA stays
-                      the full-size primary. */}
-                  {walletsAvailable ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const target = useFlexBooking ? bookSectionRef : dateSectionRef;
-                        target.current?.scrollIntoView({
-                          behavior: 'smooth',
-                          block: useFlexBooking ? 'start' : 'center',
-                        });
-                      }}
-                      className="w-full text-center text-[13px] font-semibold py-1.5 text-slate-600 underline underline-offset-4 decoration-slate-300"
-                    >
-                      {useFlexBooking || isContextual
-                        ? `Other ways to pay · ${payFull ? 'from' : 'reserve from'} £${Math.round((hasDeferrals ? splitDepositPence : depositAmount) / 100)}`
-                        : 'Choose your date'}
-                    </button>
-                  ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // Flexible is the default: the customer doesn't pick a date,
-                      // so drive them to the booking/payment step. Only the
-                      // "Pick exact date" path needs the date grid.
-                      const target = useFlexBooking ? bookSectionRef : dateSectionRef;
-                      target.current?.scrollIntoView({
-                        behavior: 'smooth',
-                        block: useFlexBooking ? 'start' : 'center',
-                      });
-                    }}
-                    className="w-full bg-[#FFE500] hover:brightness-[0.95] active:scale-[0.99] text-handy-navy font-bold py-3 px-5 rounded-xl transition-all flex items-center justify-center gap-3 shadow-lg shadow-[#FFE500]/40"
-                  >
-                    {(isContextual || useFlexBooking) ? (
-                      <CreditCard className="w-5 h-5 shrink-0" />
-                    ) : (
-                      <Calendar className="w-5 h-5 shrink-0" />
+                {(() => {
+                  // Amount on the LEFT (anchored, always readable), action on the
+                  // RIGHT — the Deliveroo/Uber sticky pattern. One-tap wallet is the
+                  // right-side action when available (?stickypay=0 kills it); the
+                  // yellow CTA is the fallback when no wallet renders. Wallet charges
+                  // the CURRENT selection (flex one-taps; exact-date one-taps once a
+                  // slot is reserved) — address collected post-payment.
+                  const chargeNowPence = payFull
+                    ? (hasDeferrals ? splitPayFullPence : payFullTotal)
+                    : (hasDeferrals ? splitDepositPence : depositAmount);
+                  const balancePence = payFull ? 0 : (hasDeferrals ? splitBalancePence : balanceOnCompletion);
+                  const wantWallet = stickyExpressEnabled
+                    && (useFlexBooking || (!!selectedDate && !!reservation))
+                    && isStripeConfigured && !!stripe;
+                  const scrollToPay = () => {
+                    const target = useFlexBooking ? bookSectionRef : dateSectionRef;
+                    target.current?.scrollIntoView({ behavior: 'smooth', block: useFlexBooking ? 'start' : 'center' });
+                  };
+                  return (
+                  <div className="max-w-lg mx-auto space-y-1.5">
+                    <div className="flex items-center gap-3">
+                      {/* Amount — left, anchored */}
+                      <div className="shrink-0 text-left leading-none">
+                        <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                          {payFull ? 'Pay today' : 'Reserve'}
+                        </div>
+                        <div className="text-2xl font-black text-handy-navy leading-none mt-0.5">
+                          £{Math.round(chargeNowPence / 100)}
+                        </div>
+                        {balancePence > 0 && (
+                          <div className="text-[10px] text-slate-400 mt-0.5">+£{Math.round(balancePence / 100)} on completion</div>
+                        )}
+                      </div>
+                      {/* Action — right, flex-fills the bar */}
+                      <div className="flex-1 min-w-0">
+                        {wantWallet && walletsAvailable !== false && (
+                          <ExpressCheckoutElement
+                            onConfirm={(e) => handleExpressPayWith(stripe, elements, e)}
+                            // Wallets render only on the Apple/Google-verified HTTPS
+                            // domain (Stripe → Payment method domains); localhost never
+                            // shows them. onReady reports which wallets are available.
+                            onReady={(e: any) => {
+                              const m = e?.availablePaymentMethods;
+                              reportWalletAvailability(!!m && Object.values(m).some(Boolean));
+                              console.log('[stickypay] express ready — available wallets:', JSON.stringify(m ?? null));
+                            }}
+                            onLoadError={(e: any) => {
+                              reportWalletAvailability(false);
+                              console.warn('[stickypay] express load error (yellow CTA + card form remain the fallback):', e?.error?.message || e);
+                            }}
+                            options={{
+                              emailRequired: !customerEmail,
+                              phoneNumberRequired: false,
+                              billingAddressRequired: false,
+                              shippingAddressRequired: false,
+                              ...WALLET_BUTTON_STYLE,
+                              paymentMethods: {
+                                applePay: 'auto',
+                                googlePay: 'auto',
+                                link: 'never',
+                                amazonPay: 'never',
+                                paypal: 'never',
+                                klarna: 'never',
+                              },
+                            }}
+                          />
+                        )}
+                        {(!wantWallet || walletsAvailable === false) && (
+                          <button
+                            type="button"
+                            onClick={scrollToPay}
+                            className="w-full h-12 bg-[#FFE500] hover:brightness-[0.95] active:scale-[0.99] text-handy-navy font-black text-base rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#FFE500]/40"
+                          >
+                            {isContextual ? 'Approve and pay' : useFlexBooking ? 'Book now' : 'Choose your date'}
+                            <ChevronRight className="w-5 h-5 shrink-0" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {/* When a wallet is the primary, a quiet link to the card form. */}
+                    {walletsAvailable && (
+                      <button
+                        type="button"
+                        onClick={scrollToPay}
+                        className="w-full text-center text-[12px] font-semibold py-0.5 text-slate-500 underline underline-offset-4 decoration-slate-300"
+                      >
+                        Pay by card instead
+                      </button>
                     )}
-                    <span className="flex flex-col items-start leading-tight text-left">
-                      <span className="text-[11px] font-bold uppercase tracking-wide opacity-70">
-                        {payFull ? 'Pay today' : 'Reserve from'} £{payFull
-                          ? Math.round((hasDeferrals ? splitPayFullPence : payFullTotal) / 100)
-                          : Math.round((hasDeferrals ? splitDepositPence : depositAmount) / 100)}
-                      </span>
-                      <span className="text-base font-black leading-tight">
-                        {isContextual ? 'Approve and pay' : useFlexBooking ? 'Book now' : 'Choose your date'}
-                      </span>
-                    </span>
-                  </button>
-                  )}
-                </div>
+                  </div>
+                  );
+                })()}
               </div>
             </motion.div>
           )}
