@@ -81,39 +81,35 @@ export default function QuoteSplitLab() {
             Not ready for everything? Choose what to do now — do the rest next visit.
           </p>
 
-          {/* Line items grouped into deferrable units */}
+          {/* Active jobs only — crossed-off ones drop into the "later" box below.
+              Cross off with the X; the last job can't be removed (guard). */}
           <div className="space-y-0">
-            {UNITS.map(unit => {
+            {UNITS.filter(u => !deferred.has(u.group)).map(unit => {
               const jobs = JOBS.filter(j => j.group === unit.group);
-              const isDeferred = deferred.has(unit.group);
               return (
-                <div key={unit.group} className={`py-3 border-b border-white/[0.07] rounded-lg px-1 transition-colors ${isDeferred ? 'bg-red-500/[0.06]' : ''}`}>
+                <div key={unit.group} className="py-3 border-b border-white/[0.07]">
                   <div className="flex items-start gap-3">
                     <div className="flex-1 min-w-0">
                       {jobs.map(j => (
                         <div key={j.id} className="flex items-baseline justify-between">
                           <div>
-                            <span className={`text-[14px] font-semibold ${isDeferred ? 'line-through decoration-red-400 decoration-2 text-slate-400' : ''}`}>{j.label}</span>
+                            <span className="text-[14px] font-semibold">{j.label}</span>
                             {unit.locked && (
                               <span className="ml-1.5 text-[10px] text-slate-400 border border-white/15 rounded px-1 py-0.5 align-middle">linked</span>
                             )}
-                            {j.sub && <div className={`text-[11px] text-slate-400 ${isDeferred ? 'line-through decoration-red-400/60' : ''}`}>{j.sub}</div>}
+                            {j.sub && <div className="text-[11px] text-slate-400">{j.sub}</div>}
                           </div>
-                          <span className={`text-[13px] font-medium ml-2 ${isDeferred ? 'line-through decoration-red-400 text-slate-500' : ''}`}>{gbp(j.marginal)}</span>
+                          <span className="text-[13px] font-medium ml-2">{gbp(j.marginal)}</span>
                         </div>
                       ))}
                     </div>
                     <button
                       type="button"
                       onClick={() => toggle(unit.group)}
-                      aria-label={isDeferred ? 'Add this back to the visit' : 'Cross off — do this later'}
-                      className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center border transition-colors ${
-                        isDeferred
-                          ? 'bg-transparent border-[#7DB00E]/50 text-[#a3d65f] hover:bg-[#7DB00E]/15'
-                          : 'bg-transparent border-white/20 text-slate-400 hover:border-red-400 hover:text-red-300'
-                      }`}
+                      aria-label="Cross off — do this later"
+                      className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center border bg-transparent border-white/20 text-slate-400 hover:border-red-400 hover:text-red-300 transition-colors"
                     >
-                      {isDeferred ? <RotateCcw className="w-4 h-4" /> : <X className="w-4 h-4" strokeWidth={2.5} />}
+                      <X className="w-4 h-4" strokeWidth={2.5} />
                     </button>
                   </div>
                 </div>
@@ -140,15 +136,25 @@ export default function QuoteSplitLab() {
           {/* Deferred pipeline */}
           {deferUnits.length > 0 && (
             <div className="mt-3 bg-white/[0.05] border border-white/10 rounded-2xl p-3">
-              <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-1.5">Booked for a later visit</div>
+              <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-2">Booked for a later visit</div>
               {deferUnits.map(u => (
-                <div key={u.group} className="flex items-baseline justify-between text-[13px] py-0.5">
-                  <span>{u.label}</span>
-                  <span className="text-slate-400">{gbp(u.nextVisit)} <span className="text-slate-500">· own call-out</span></span>
+                <div key={u.group} className="flex items-center justify-between gap-2 py-1.5">
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-medium truncate">{u.label}</div>
+                    <div className="text-[11px] text-slate-400">{gbp(u.nextVisit)} · own call-out <span className="text-amber-300/70">(+{gbp(CALLOUT)} vs now)</span></div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggle(u.group)}
+                    aria-label="Add this back to today's visit"
+                    className="shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-[#a3d65f] border border-[#7DB00E]/50 rounded-full px-2.5 py-1 hover:bg-[#7DB00E]/15 transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" /> Add back
+                  </button>
                 </div>
               ))}
-              <p className="text-[11px] text-amber-300/80 mt-1.5">
-                Doing it now while Craig's here saves the extra {gbp(CALLOUT)} call-out.
+              <p className="text-[11px] text-amber-300/80 mt-2 pt-2 border-t border-white/10">
+                Doing it now while Craig's here saves the extra {gbp(CALLOUT)} call-out per job.
               </p>
             </div>
           )}
