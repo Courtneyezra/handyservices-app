@@ -3115,7 +3115,7 @@ export function UnifiedQuoteCard({
                   <Button
                     onClick={handleBook}
                     disabled={isBooking}
-                    className="w-full h-14 rounded-2xl font-bold text-lg bg-[#7DB00E] hover:bg-[#6da000] text-slate-900 transition-all"
+                    className="w-full h-14 rounded-2xl font-bold text-lg bg-[#FFE500] hover:brightness-[0.95] text-handy-navy transition-all"
                   >
                     {isBooking ? (
                       <span className="flex items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" /> Booking…</span>
@@ -3232,7 +3232,7 @@ export function UnifiedQuoteCard({
                   <Button
                     type="submit"
                     disabled={!clientSecret || isProcessingPayment || !isStripeConfigured}
-                    className="w-full h-14 rounded-2xl font-bold text-lg bg-[#7DB00E] hover:bg-[#6da000] text-slate-900 transition-all"
+                    className="w-full h-14 rounded-2xl font-bold text-lg bg-[#FFE500] hover:brightness-[0.95] text-handy-navy transition-all"
                   >
                     {isProcessingPayment ? (
                       <span className="flex items-center gap-2">
@@ -3276,7 +3276,7 @@ export function UnifiedQuoteCard({
               disabled={!canBook || isBooking}
               className={`w-full h-14 rounded-2xl font-bold text-lg transition-all ${
                 canBook
-                  ? 'bg-[#7DB00E] hover:bg-[#6da000] text-slate-900'
+                  ? 'bg-[#FFE500] hover:brightness-[0.95] text-handy-navy'
                   : isDarkTheme
                     ? 'bg-white/10 text-slate-500 cursor-not-allowed'
                     : 'bg-slate-200 text-slate-400 cursor-not-allowed'
