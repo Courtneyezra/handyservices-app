@@ -2863,7 +2863,7 @@ export function UnifiedQuoteCard({
                     reveal();
                   }
                 }}
-                className="w-full h-14 rounded-2xl font-bold text-lg bg-handy-yellow hover:brightness-[0.97] text-handy-navy shadow-lg shadow-handy-yellow/25 transition-all"
+                className="w-full h-14 rounded-2xl font-bold text-lg bg-[#FFE500] hover:brightness-[0.95] text-handy-navy shadow-lg shadow-[#FFE500]/30 transition-all"
               >
                 <span className="flex items-center gap-2">
                   {isCash ? 'Book — pay cash on the day' : isContextual ? 'Approve and pay' : 'Book my slot'}
@@ -3208,7 +3208,7 @@ export function UnifiedQuoteCard({
                         block: useFlexBooking ? 'start' : 'center',
                       });
                     }}
-                    className="w-full bg-handy-yellow hover:brightness-[0.97] active:scale-[0.99] text-handy-navy font-bold py-3 px-5 rounded-xl transition-all flex items-center justify-center gap-3 shadow-lg shadow-handy-yellow/30"
+                    className="w-full bg-[#FFE500] hover:brightness-[0.95] active:scale-[0.99] text-handy-navy font-bold py-3 px-5 rounded-xl transition-all flex items-center justify-center gap-3 shadow-lg shadow-[#FFE500]/40"
                   >
                     {(isContextual || useFlexBooking) ? (
                       <CreditCard className="w-5 h-5 shrink-0" />
