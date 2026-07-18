@@ -151,15 +151,22 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = fals
   // materials split) skip the content block entirely — a lone badge under a
   // bare title is chrome, not information.
   const hasContent = Boolean(customerDesc) || Boolean(scopeSteps) || (hasMaterials && labourDisplayPence > 0);
-  const HeaderTag = (collapsible ? 'button' : 'div') as 'button';
+  // A cross-off (onCross) puts a real <button> in the header, so the header
+  // itself can't be a <button> (no nested buttons) — use a div with role/keys
+  // when it also needs to toggle expand.
+  const useDivHeader = !!onCross;
+  const HeaderTag = (collapsible && !useDivHeader ? 'button' : 'div') as 'button';
+  const headerProps: any = collapsible
+    ? (useDivHeader
+        ? { onClick: () => setExpanded((o) => !o), role: 'button', tabIndex: 0, 'aria-expanded': open, onKeyDown: (e: any) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded((o) => !o); } } }
+        : { type: 'button' as const, onClick: () => setExpanded((o) => !o), 'aria-expanded': open })
+    : {};
 
   return (
     <div className={`rounded-lg overflow-hidden ${cardClass}`}>
       <HeaderTag
-        {...(collapsible
-          ? { type: 'button' as const, onClick: () => setExpanded((o) => !o), 'aria-expanded': open }
-          : {})}
-        className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-left ${collapsible ? 'active:scale-[0.995] transition-transform' : ''}`}
+        {...headerProps}
+        className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-left ${collapsible ? 'active:scale-[0.995] transition-transform cursor-pointer' : ''}`}
       >
         {isSku ? (
           <div className={`shrink-0 w-8 h-8 rounded-md flex items-center justify-center ${isDarkTheme ? 'bg-[#FACC15]/20 ring-1 ring-[#FACC15]/25' : 'bg-[#FACC15]/15 ring-1 ring-[#FACC15]/25'}`}>
@@ -195,7 +202,7 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = fals
         {collapsible && (
           <ChevronDown className={`shrink-0 w-4 h-4 transition-transform duration-300 ${open ? 'rotate-180' : ''} ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} />
         )}
-        {onCross && !collapsible && (
+        {onCross && (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onCross(); }}
@@ -1983,7 +1990,7 @@ export function UnifiedQuoteCard({
                     item={item}
                     isDarkTheme={isDarkTheme}
                     displayPricePence={displayPence}
-                    collapsible={!enableLineItemSplit && displayLineItems.length >= 5}
+                    collapsible={enableLineItemSplit ? true : displayLineItems.length >= 5}
                     onCross={enableLineItemSplit ? () => toggleDeferredLine(item.lineId) : undefined}
                   />
                 ))}
