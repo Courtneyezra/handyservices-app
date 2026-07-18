@@ -1990,16 +1990,6 @@ export function UnifiedQuoteCard({
           {/* Inline Price Breakdown (always visible) */}
           {pricingLineItems && pricingLineItems.length > 0 && (
             <div className={`mt-3 pt-3 border-t text-left ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
-              {enableLineItemSplit && (
-                <div className={`flex items-start gap-2 mb-2.5 rounded-lg px-2.5 py-2 ${isDarkTheme ? 'bg-[#7DB00E]/10' : 'bg-[#7DB00E]/10'}`}>
-                  <span className={`shrink-0 w-5 h-5 mt-px rounded-full border flex items-center justify-center ${isDarkTheme ? 'border-[#a3d65f] text-[#a3d65f]' : 'border-[#5a8209] text-[#5a8209]'}`}>
-                    <X className="w-3 h-3" strokeWidth={2.5} />
-                  </span>
-                  <p className={`text-[12px] leading-snug font-medium ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#4d7a09]'}`}>
-                    Only want some of these now? Tap the <b>✕</b> on any job to save it for another visit — and pay for just what you want today.
-                  </p>
-                </div>
-              )}
               <div className="space-y-1.5">
                 {displayLineItems.map(({ item, displayPence }) => (
                   <QuoteLineRow
