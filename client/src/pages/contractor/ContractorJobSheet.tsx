@@ -167,7 +167,7 @@ function renderContractorScheduling(prefs: { date: string; timeSlot: string }[])
                     {avoided.length === 0 ? (
                         <>
                             <p className="text-[10px] uppercase tracking-[0.08em] text-white/50 font-semibold mb-2">Scheduling</p>
-                            <p className="text-[13px] text-white/85">Fully flexible — any day over the next 3 weeks.</p>
+                            <p className="text-[13px] text-white/85">Fully flexible — any day over the next 2 weeks.</p>
                         </>
                     ) : (
                         <>
@@ -179,7 +179,7 @@ function renderContractorScheduling(prefs: { date: string; timeSlot: string }[])
                                     </span>
                                 ))}
                             </div>
-                            <p className="text-[11px] text-white/50 mt-1.5">Otherwise flexible over the next 3 weeks.</p>
+                            <p className="text-[11px] text-white/50 mt-1.5">Otherwise flexible over the next 2 weeks.</p>
                         </>
                     )}
                 </div>

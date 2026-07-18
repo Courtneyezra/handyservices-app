@@ -195,7 +195,7 @@ export function PostPayDayPicker({ quoteId, initialDates, onSaved, startInEdit =
               Any days we should avoid?
             </h3>
             <p className="text-slate-400 text-xs leading-snug mb-3">
-              Your job lands in the next 3 weeks. Cross off any days that don't work.
+              Your job lands in the next 2 weeks. Cross off any days that don't work.
             </p>
 
             {/* Fast lane — most flexible customers finish here in one tap */}

@@ -38,7 +38,7 @@ export interface PaidBookingHeroProps {
   reviewUrl?: string;
   /**
    * Flex booking with post-payment days collected: the date block absorbs the
-   * day state ("within 3 weeks", avoided days, change link) so the hub needs
+   * day state ("within 2 weeks", avoided days, change link) so the hub needs
    * no separate summary card. `avoided` = crossed-off days (YYYY-MM-DD).
    */
   flexDays?: { avoided: string[]; onChangeDays?: () => void };
@@ -176,7 +176,7 @@ END:VCALENDAR`;
               {dateLabel ? 'Your job date' : deadlineLabel ? 'Guaranteed done by' : 'Your job date'}
             </div>
             <div className="text-white text-2xl font-black leading-tight">
-              {dateLabel || deadlineLabel || (flexDays ? 'Within the next 3 weeks' : "We're confirming your date")}
+              {dateLabel || deadlineLabel || (flexDays ? 'Within the next 2 weeks' : "We're confirming your date")}
             </div>
             {!dateLabel && flexDays ? (
               /* Post-payment day collection absorbed here — one block owns the

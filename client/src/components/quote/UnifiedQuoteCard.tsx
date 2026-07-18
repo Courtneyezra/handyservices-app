@@ -629,10 +629,10 @@ export function UnifiedQuoteCard({
   // lane is priced at the FULL base price — there is no rebate. The only price
   // lever is the set-date premium below (a firm date & slot costs extra).
   const FLEX_WINDOW_DAYS = 7;
-  // Homeowner flex is the days-to-avoid model: booked within 3 weeks, customer
+  // Homeowner flex is the days-to-avoid model: booked within 2 weeks, customer
   // picks days to avoid post-payment. Business flex keeps the tighter 7-day
   // deadline guarantee (backup engineer), so the window is type-specific.
-  const HOMEOWNER_FLEX_DAYS = 21;
+  const HOMEOWNER_FLEX_DAYS = 14;
   const bookingFlexDays = isBusiness ? FLEX_WINDOW_DAYS : HOMEOWNER_FLEX_DAYS;
   // ── "I want a date & time" premium — the ONLY price lever ───────────────
   // Flexible is the base price; committing a specific date AND arrival slot is a
