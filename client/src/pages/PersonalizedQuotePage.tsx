@@ -3187,6 +3187,16 @@ export default function PersonalizedQuotePage() {
     catch { return false; }
   });
 
+  // ── Line-item split preview (?v=split) — cross line items off to "save for
+  // another visit". Client-side re-price only; booking stays full-scope. ──────
+  const [splitVariant] = useState(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get('v') || '';
+      return v.split(',').map((s) => s.trim()).includes('split');
+    }
+    catch { return false; }
+  });
+
   // Whether to skip the preparing-screen theatre (checklist animation AND the
   // minimum-display floor). The loading screen is a first-impression device;
   // on a repeat open (localStorage flag), a return visit (server viewCount > 1),
@@ -4208,6 +4218,7 @@ export default function PersonalizedQuotePage() {
                       bookingModes={isContextualQuote && quote.bookingModes ? quote.bookingModes : undefined}
                       batchDiscount={isContextualQuote && quote.batchDiscount ? quote.batchDiscount : undefined}
                       pricingLineItems={taggedPricingLineItems || undefined}
+                      enableLineItemSplit={splitVariant}
                       priceBuckets={isContextualQuote ? (quote as any).pricingLayerBreakdown?.priceBuckets : undefined}
                       contextualBullets={isContextualQuote && quote.valueBullets ? quote.valueBullets : undefined}
                       allowedDates={(quote as any).availableDates ?? null}

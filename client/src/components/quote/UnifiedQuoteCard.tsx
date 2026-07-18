@@ -6,7 +6,7 @@ import {
   Check, Calendar, CalendarCheck, CalendarRange, Clock, Tag, Shield, Zap,
   ChevronRight, ChevronDown, Percent, Sparkles, Star, Plus,
   Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle, User,
-  PencilRuler, MapPin, Receipt, UserCheck, BadgeCheck, Share2
+  PencilRuler, MapPin, Receipt, UserCheck, BadgeCheck, Share2, X, RotateCcw
 } from 'lucide-react';
 import { CardBrandStrip } from './CardBrandLogos';
 import { SkuIcon } from '@/lib/sku-icons';
@@ -332,6 +332,15 @@ interface UnifiedQuoteCardProps {
   priceBuckets?: PriceBuckets;
   /** Multi-job batch discount. When applied, shown as a discount line. */
   batchDiscount?: QuoteBatchDiscount;
+  /**
+   * FLAG-GATED PREVIEW (?v=split). Lets the customer cross line items off to
+   * "save for another visit", re-pricing the DISPLAY client-side. Payment is
+   * gated whenever anything is deferred (the server prices from basePrice, so
+   * booking a reduced scope needs server re-derivation — the follow-up). Each
+   * line is independently deferrable for now; dependency locks (e.g. gas hob +
+   * cert) need SKU-relationship data.
+   */
+  enableLineItemSplit?: boolean;
   /** Override the default segment-driven feature bullets with contextual value bullets. */
   contextualBullets?: string[];
   /** Deposit percentage (0-100). Default 30. */
@@ -491,6 +500,7 @@ export function UnifiedQuoteCard({
   bookingModes,
   pricingLineItems,
   batchDiscount,
+  enableLineItemSplit = false,
   contextualBullets,
   depositPercent: depositPercentProp,
   payInFullDiscountPercent: payInFullDiscountPercentProp,
@@ -1212,6 +1222,25 @@ export function UnifiedQuoteCard({
     return lines.map((item) => ({ item, displayPence: raw(item) }));
   }, [pricingLineItems]);
 
+  // ── Line-item split (?v=split preview) ──────────────────────────────────
+  // Cross a line off → it moves to "save for another visit" and the DISPLAY
+  // re-prices. Client-side only: payment is gated while anything is deferred
+  // (server prices from basePrice). Guard: the last line can't be deferred.
+  const [deferredLines, setDeferredLines] = useState<Set<string>>(new Set());
+  const toggleDeferredLine = (lineId: string) => {
+    setDeferredLines(prev => {
+      const next = new Set(prev);
+      if (next.has(lineId)) next.delete(lineId);
+      else next.add(lineId);
+      if (next.size >= displayLineItems.length) next.delete(lineId);
+      return next;
+    });
+  };
+  const activeSplitLines = enableLineItemSplit ? displayLineItems.filter(l => !deferredLines.has(l.item.lineId)) : displayLineItems;
+  const deferredSplitLines = enableLineItemSplit ? displayLineItems.filter(l => deferredLines.has(l.item.lineId)) : [];
+  const deferredSumPence = deferredSplitLines.reduce((s, l) => s + l.displayPence, 0);
+  const hasDeferrals = enableLineItemSplit && deferredLines.size > 0;
+
   // All 3 buffer dates must be selected before payment unlocks
   const allDatesSelected = confirmedDates.length >= MAX_BUFFER_DATES;
 
@@ -1491,6 +1520,91 @@ export function UnifiedQuoteCard({
   };
 
   const showExpressCheckout = !isLoadingPaymentIntent && isStripeConfigured && !!clientSecret;
+
+  // ── Sticky one-tap Apple Pay / Google Pay (flag-gated, OFF by default) ──────
+  // FLAG: enable per-visit with ?stickypay=1. The yellow scroll CTA below is the
+  // unconditional fallback, so with the flag off (or no wallet available) nothing
+  // changes. This is a DEFERRED-intent express confirm: the Elements provider is
+  // already mode:'payment' with the deposit amount, so this renders without the
+  // details-first step — Apple Pay supplies the email from the wallet. It charges
+  // the DEFAULT flex reserve deposit (server re-derives the £ from quote.basePrice);
+  // customers wanting pay-in-full / a firm date use the full form via the scroll CTA.
+  // ⚠️ UNVERIFIED: cannot be exercised outside Safari + the Apple-verified live
+  // domain — must be tested on a real device before the flag is trusted.
+  const stickyExpressEnabled = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('stickypay') === '1';
+
+  const handleStickyExpressConfirm = async (event: StripeExpressCheckoutElementConfirmEvent) => {
+    if (!stripe || !elements) return;
+    setIsProcessingPayment(true);
+    setPaymentError(null);
+    try {
+      const { error: submitError } = await elements.submit();
+      if (submitError) throw new Error(submitError.message);
+
+      const walletEmail = (event as any)?.billingDetails?.email || effectiveEmail;
+      const res = await fetch('/api/create-payment-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerName,
+          customerEmail: walletEmail,
+          quoteId,
+          selectedTier: 'standard',
+          selectedExtras: selectedAddOns,
+          paymentType: 'deposit',
+          chargeAmountPence: depositAmount,
+          flexBookingWithinDays: bookingFlexDays,
+          schedulingTier: 'flexible',
+          pricingLane,
+          address: bookingAddress?.line,
+          addressLat: bookingAddress?.lat,
+          addressLng: bookingAddress?.lng,
+        }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.message || 'Could not start payment');
+      }
+      const data = await res.json();
+      if (!data.clientSecret) throw new Error('Could not start payment');
+
+      const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        clientSecret: data.clientSecret,
+        confirmParams: { return_url: `${window.location.origin}/q/${quoteId}?paid=1` },
+        redirect: 'if_required',
+      });
+      if (stripeError) throw new Error(stripeError.message);
+
+      if (paymentIntent?.status === 'succeeded') {
+        // Default flex reserve booking; days-to-avoid are collected post-payment.
+        onBook({
+          selectedDate: null,
+          selectedDates: [],
+          dateTimePreferences: undefined,
+          timeSlot: null,
+          addOns: selectedAddOns,
+          totalPrice: total,
+          chargeNowPence: depositAmount,
+          balanceOnCompletionPence: balanceOnCompletion,
+          paymentMode: 'deposit',
+          usedDownsell: false,
+          address: bookingAddress,
+          flexBookingWithinDays: bookingFlexDays,
+          pricingLane,
+          ...landlordTenantPayload,
+        });
+        if (onPaymentSuccess) await onPaymentSuccess(data.paymentIntentId || paymentIntent.id);
+      } else {
+        throw new Error('Payment not completed');
+      }
+    } catch (err: any) {
+      setPaymentError(err.message || 'Payment failed. Please try again.');
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
 
   const toggleAddOn = (id: string) => {
     setSelectedAddOns(prev =>
@@ -1847,17 +1961,68 @@ export function UnifiedQuoteCard({
           {/* Inline Price Breakdown (always visible) */}
           {pricingLineItems && pricingLineItems.length > 0 && (
             <div className={`mt-3 pt-3 border-t text-left ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
+              {enableLineItemSplit && (
+                <p className={`text-[11px] mb-1.5 ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5a8209]'}`}>
+                  Not ready for everything? Cross off what to save for another visit.
+                </p>
+              )}
               <div className="space-y-1.5">
-                {displayLineItems.map(({ item, displayPence }) => (
-                  <QuoteLineRow
-                    key={item.lineId}
-                    item={item}
-                    isDarkTheme={isDarkTheme}
-                    displayPricePence={displayPence}
-                    collapsible={displayLineItems.length >= 5}
-                  />
+                {activeSplitLines.map(({ item, displayPence }) => (
+                  enableLineItemSplit ? (
+                    <div key={item.lineId} className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <QuoteLineRow item={item} isDarkTheme={isDarkTheme} displayPricePence={displayPence} />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleDeferredLine(item.lineId)}
+                        aria-label="Cross off — save for another visit"
+                        className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center border transition-colors ${isDarkTheme ? 'border-white/20 text-slate-400 hover:border-red-400 hover:text-red-300' : 'border-slate-300 text-slate-400 hover:border-red-400 hover:text-red-500'}`}
+                      >
+                        <X className="w-3.5 h-3.5" strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  ) : (
+                    <QuoteLineRow
+                      key={item.lineId}
+                      item={item}
+                      isDarkTheme={isDarkTheme}
+                      displayPricePence={displayPence}
+                      collapsible={displayLineItems.length >= 5}
+                    />
+                  )
                 ))}
               </div>
+
+              {/* Split preview: "save for another visit" + re-priced this-visit total.
+                  Payment stays full-scope until server re-pricing lands — hence the
+                  preview note. */}
+              {hasDeferrals && (
+                <div className={`mt-3 rounded-2xl p-3 ${isDarkTheme ? 'bg-white/[0.05] border border-white/10' : 'bg-slate-50 border border-slate-200'}`}>
+                  <div className={`text-[11px] uppercase tracking-wide mb-2 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Save for another visit</div>
+                  {deferredSplitLines.map(({ item, displayPence }) => (
+                    <div key={item.lineId} className="flex items-center justify-between gap-2 py-1.5">
+                      <div className="min-w-0">
+                        <div className={`text-[13px] font-medium truncate ${isDarkTheme ? 'text-slate-200' : 'text-slate-700'}`}>{(item as any).skuName || item.description}</div>
+                        <div className="text-[11px] text-slate-400">£{Math.round(displayPence / 100)} · separate visit</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleDeferredLine(item.lineId)}
+                        aria-label="Add this back to today's visit"
+                        className="shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-[#5a8209] border border-[#7DB00E]/50 rounded-full px-2.5 py-1 hover:bg-[#7DB00E]/10 transition-colors"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" /> Add back
+                      </button>
+                    </div>
+                  ))}
+                  <div className={`flex items-center justify-between mt-2 pt-2 border-t ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
+                    <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>This visit</span>
+                    <span className="text-[15px] font-black text-[#5a8209]">£{Math.round(Math.max(0, total - deferredSumPence) / 100)}</span>
+                  </div>
+                  <p className="text-[10.5px] text-amber-500 mt-1.5">Preview — full-scope pricing until the reduced-scope booking is wired server-side.</p>
+                </div>
+              )}
               {/* Decomposed structural costs (call-out × visits / travel /
                   collection) are FOLDED into each line's displayed price via the
                   per-line structuralSharePence (allocated in the engine, summing
@@ -3192,7 +3357,27 @@ export function UnifiedQuoteCard({
               {/* Timer progress bar on top edge */}
               <StickyTimerProgress />
               <div className="bg-white border-t border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.12)] px-4 py-3">
-                <div className="max-w-lg mx-auto">
+                <div className="max-w-lg mx-auto space-y-2">
+                  {/* Flag-gated one-tap Apple Pay / Google Pay (?stickypay=1).
+                      Renders nothing when the flag is off or no wallet is
+                      available, so the yellow CTA below is always present as the
+                      fallback and the card path. */}
+                  {stickyExpressEnabled && isStripeConfigured && !!stripe && (
+                    <ExpressCheckoutElement
+                      onConfirm={handleStickyExpressConfirm}
+                      onLoadError={() => { /* No wallet available (non-Safari, http, or no card) — the yellow CTA below stays as the fallback. */ }}
+                      options={{
+                        paymentMethods: {
+                          applePay: 'auto',
+                          googlePay: 'auto',
+                          link: 'never',
+                          amazonPay: 'never',
+                          paypal: 'never',
+                          klarna: 'never',
+                        },
+                      }}
+                    />
+                  )}
                   {/* One bold bright-yellow CTA carrying both the entry price
                       ("Reserve from £X") and the action, so the sticky action
                       reads at a glance. Navy text for contrast on yellow. */}
