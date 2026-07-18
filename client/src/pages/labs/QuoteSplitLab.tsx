@@ -136,7 +136,7 @@ export default function QuoteSplitLab() {
           {/* Deferred pipeline */}
           {deferUnits.length > 0 && (
             <div className="mt-3 bg-white/[0.05] border border-white/10 rounded-2xl p-3">
-              <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-2">Booked for a later visit</div>
+              <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-2">Save for another visit</div>
               {deferUnits.map(u => (
                 <div key={u.group} className="flex items-center justify-between gap-2 py-1.5">
                   <div className="min-w-0">
