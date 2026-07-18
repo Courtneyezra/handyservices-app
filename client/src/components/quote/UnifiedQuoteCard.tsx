@@ -1990,7 +1990,7 @@ export function UnifiedQuoteCard({
                     item={item}
                     isDarkTheme={isDarkTheme}
                     displayPricePence={displayPence}
-                    collapsible={enableLineItemSplit ? true : displayLineItems.length >= 5}
+                    collapsible={enableLineItemSplit ? false : displayLineItems.length >= 5}
                     onCross={enableLineItemSplit ? () => toggleDeferredLine(item.lineId) : undefined}
                   />
                 ))}
