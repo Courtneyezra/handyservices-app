@@ -1989,35 +1989,6 @@ export function UnifiedQuoteCard({
                 ))}
               </div>
 
-              {/* Split preview: "save for another visit" + re-priced this-visit total.
-                  Payment stays full-scope until server re-pricing lands — hence the
-                  preview note. */}
-              {hasDeferrals && (
-                <div className={`mt-3 rounded-2xl p-3 ${isDarkTheme ? 'bg-white/[0.05] border border-white/10' : 'bg-slate-50 border border-slate-200'}`}>
-                  <div className={`text-[11px] uppercase tracking-wide mb-2 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Save for another visit</div>
-                  {deferredSplitLines.map(({ item, displayPence }) => (
-                    <div key={item.lineId} className="flex items-center justify-between gap-2 py-1.5">
-                      <div className="min-w-0">
-                        <div className={`text-[13px] font-medium truncate ${isDarkTheme ? 'text-slate-200' : 'text-slate-700'}`}>{(item as any).skuName || item.description}</div>
-                        <div className="text-[11px] text-slate-400">£{Math.round(displayPence / 100)} · separate visit</div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => toggleDeferredLine(item.lineId)}
-                        aria-label="Add this back to today's visit"
-                        className="shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-[#5a8209] border border-[#7DB00E]/50 rounded-full px-2.5 py-1 hover:bg-[#7DB00E]/10 transition-colors"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" /> Add back
-                      </button>
-                    </div>
-                  ))}
-                  <div className={`flex items-center justify-between mt-2 pt-2 border-t ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
-                    <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>This visit</span>
-                    <span className="text-[15px] font-black text-[#5a8209]">£{Math.round(Math.max(0, total - deferredSumPence) / 100)}</span>
-                  </div>
-                  <p className="text-[10.5px] text-amber-500 mt-1.5">Preview — full-scope pricing until the reduced-scope booking is wired server-side.</p>
-                </div>
-              )}
               {/* Decomposed structural costs (call-out × visits / travel /
                   collection) are FOLDED into each line's displayed price via the
                   per-line structuralSharePence (allocated in the engine, summing
@@ -2151,6 +2122,36 @@ export function UnifiedQuoteCard({
                 <span className={isDarkTheme ? 'text-white' : 'text-slate-900'}>Total</span>
                 <span className="text-[#7DB00E] text-lg tabular-nums">£{Math.round((payFull ? payFullTotal : total) / 100)}</span>
               </div>
+
+              {/* Saved for later — crossed-off items live BELOW the total so the
+                  total stays the single authoritative number; these read as a
+                  future/pipeline list, not a price change. The re-priced "this
+                  visit" is a quiet preview note (payment is full-scope until the
+                  server re-pricing in Step 2). */}
+              {hasDeferrals && (
+                <div className={`mt-3 rounded-2xl p-3 ${isDarkTheme ? 'bg-white/[0.04] border border-white/10' : 'bg-slate-50 border border-slate-200'}`}>
+                  <div className={`text-[11px] uppercase tracking-wide mb-2 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Saved for later</div>
+                  {deferredSplitLines.map(({ item, displayPence }) => (
+                    <div key={item.lineId} className="flex items-center justify-between gap-2 py-1.5">
+                      <div className="min-w-0">
+                        <div className={`text-[13px] font-medium truncate ${isDarkTheme ? 'text-slate-200' : 'text-slate-700'}`}>{(item as any).skuName || item.description}</div>
+                        <div className="text-[11px] text-slate-400">£{Math.round(displayPence / 100)} · separate visit</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleDeferredLine(item.lineId)}
+                        aria-label="Add this back to today's visit"
+                        className="shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-[#5a8209] border border-[#7DB00E]/50 rounded-full px-2.5 py-1 hover:bg-[#7DB00E]/10 transition-colors"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" /> Add back
+                      </button>
+                    </div>
+                  ))}
+                  <p className={`text-[10.5px] text-amber-500/90 mt-2 pt-2 border-t ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
+                    Removing these would bring this visit to about £{Math.round(Math.max(0, total - deferredSumPence) / 100)} — available once split booking is wired.
+                  </p>
+                </div>
+              )}
               {/* Other customer types keep their compact "included as standard"
                   chips here, below the total. The homeowner set (which carries
                   sub-lines) is lifted above the price hero instead — see the top
