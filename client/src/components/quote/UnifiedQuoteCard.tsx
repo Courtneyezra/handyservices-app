@@ -1261,6 +1261,14 @@ export function UnifiedQuoteCard({
   const deferredSplitLines = enableLineItemSplit ? displayLineItems.filter(l => deferredLines.has(l.item.lineId)) : [];
   const deferredSumPence = deferredSplitLines.reduce((s, l) => s + l.displayPence, 0);
   const hasDeferrals = enableLineItemSplit && deferredLines.size > 0;
+  // Re-price the DISPLAY for the active scope. The batch discount is derived as
+  // an effective rate off the full subtotal (fullSubtotal − total), re-applied
+  // to the active subtotal, and zeroed when only one job remains (no batching).
+  const fullSubtotalPence = displayLineItems.reduce((s, l) => s + l.displayPence, 0);
+  const activeSubtotalPence = fullSubtotalPence - deferredSumPence;
+  const effectiveBatchRate = fullSubtotalPence > 0 ? Math.max(0, (fullSubtotalPence - total) / fullSubtotalPence) : 0;
+  const splitActiveSavingPence = activeSplitLines.length >= 2 ? Math.round(activeSubtotalPence * effectiveBatchRate / 100) * 100 : 0;
+  const splitActiveTotalPence = Math.max(0, activeSubtotalPence - splitActiveSavingPence);
 
   // All 3 buffer dates must be selected before payment unlocks
   const allDatesSelected = confirmedDates.length >= MAX_BUFFER_DATES;
@@ -1983,9 +1991,14 @@ export function UnifiedQuoteCard({
           {pricingLineItems && pricingLineItems.length > 0 && (
             <div className={`mt-3 pt-3 border-t text-left ${isDarkTheme ? 'border-white/10' : 'border-[#7DB00E]/20'}`}>
               {enableLineItemSplit && (
-                <p className={`text-[11px] mb-1.5 ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5a8209]'}`}>
-                  Not ready for everything? Cross off what to save for another visit.
-                </p>
+                <div className={`flex items-start gap-2 mb-2.5 rounded-lg px-2.5 py-2 ${isDarkTheme ? 'bg-[#7DB00E]/10' : 'bg-[#7DB00E]/10'}`}>
+                  <span className={`shrink-0 w-5 h-5 mt-px rounded-full border flex items-center justify-center ${isDarkTheme ? 'border-[#a3d65f] text-[#a3d65f]' : 'border-[#5a8209] text-[#5a8209]'}`}>
+                    <X className="w-3 h-3" strokeWidth={2.5} />
+                  </span>
+                  <p className={`text-[12px] leading-snug font-medium ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#4d7a09]'}`}>
+                    Only want some of these now? Tap the <b>✕</b> on any job to save it for another visit — and pay for just what you want today.
+                  </p>
+                </div>
               )}
               <div className="space-y-1.5">
                 {displayLineItems.map(({ item, displayPence }) => (
@@ -2078,7 +2091,7 @@ export function UnifiedQuoteCard({
                                 The cash figure always reconciles (lines − saving = total). */}
                             Multi-job saving
                           </span>
-                          <span className="text-[#7DB00E] font-bold tabular-nums">−£{Math.round(batchDiscount.savingsPence / 100)}</span>
+                          <span className="text-[#7DB00E] font-bold tabular-nums">−£{Math.round((hasDeferrals ? splitActiveSavingPence : batchDiscount.savingsPence) / 100)}</span>
                         </div>
                       )}
                       {payFull && payFullSaving > 0 && (
@@ -2131,16 +2144,16 @@ export function UnifiedQuoteCard({
               )}
               {/* Total */}
               <div className={`mt-2 pt-2 border-t flex justify-between items-center font-bold ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
-                <span className={isDarkTheme ? 'text-white' : 'text-slate-900'}>Total</span>
-                <span className="text-[#7DB00E] text-lg tabular-nums">£{Math.round((payFull ? payFullTotal : total) / 100)}</span>
+                <span className={isDarkTheme ? 'text-white' : 'text-slate-900'}>{hasDeferrals ? 'This visit' : 'Total'}</span>
+                <span className="text-[#7DB00E] text-lg tabular-nums">£{Math.round((hasDeferrals ? splitActiveTotalPence : (payFull ? payFullTotal : total)) / 100)}</span>
               </div>
 
               {/* Crossed-off lines dim in place (no separate box). A quiet note
                   states the reduced this-visit price; payment is full-scope until
                   the server re-pricing in Step 2. */}
               {hasDeferrals && (
-                <p className="text-[10.5px] text-amber-500/90 mt-2">
-                  {deferredLines.size} saved for another visit — this visit would be about £{Math.round(Math.max(0, total - deferredSumPence) / 100)} (available once split booking is wired).
+                <p className="text-[10.5px] text-slate-400 mt-1.5">
+                  {deferredLines.size} job{deferredLines.size === 1 ? '' : 's'} saved for another visit. Full quote £{Math.round(total / 100)}.
                 </p>
               )}
               {/* Other customer types keep their compact "included as standard"
@@ -2996,6 +3009,14 @@ export function UnifiedQuoteCard({
               transition={{ duration: 0.3 }}
               className="space-y-3"
             >
+              {hasDeferrals ? (
+                /* Split preview: booking a reduced scope needs server re-pricing
+                   (Step 2). Gate payment so the moved total can't mis-charge. */
+                <div className="w-full rounded-2xl border-2 border-dashed border-amber-400/60 bg-amber-400/10 px-4 py-3 text-center">
+                  <p className="text-[13px] font-bold text-amber-300">Split booking isn't live yet</p>
+                  <p className="text-[11.5px] text-amber-200/80 mt-0.5">Add your saved items back to book the full quote today.</p>
+                </div>
+              ) : (
               <Button
                 onClick={() => {
                   const reveal = () => {
@@ -3022,6 +3043,7 @@ export function UnifiedQuoteCard({
                   <ChevronRight className="w-5 h-5" />
                 </span>
               </Button>
+              )}
               <p className={`text-xs text-center ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
                 {isCash
                   ? `Nothing to pay now · £${Math.round(total / 100)} cash when it's done`
@@ -3368,6 +3390,11 @@ export function UnifiedQuoteCard({
                   {/* One bold bright-yellow CTA carrying both the entry price
                       ("Reserve from £X") and the action, so the sticky action
                       reads at a glance. Navy text for contrast on yellow. */}
+                  {hasDeferrals ? (
+                    <div className="w-full rounded-xl border-2 border-dashed border-amber-400/60 bg-amber-400/10 px-4 py-2.5 text-center">
+                      <span className="text-[13px] font-bold text-amber-500">Split booking isn't live — add saved items back to book</span>
+                    </div>
+                  ) : (
                   <button
                     type="button"
                     onClick={() => {
@@ -3396,6 +3423,7 @@ export function UnifiedQuoteCard({
                       </span>
                     </span>
                   </button>
+                  )}
                 </div>
               </div>
             </motion.div>
