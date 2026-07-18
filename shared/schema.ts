@@ -886,6 +886,11 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     depositPaidAt: timestamp("deposit_paid_at"), // When the deposit was successfully paid
     completedAt: timestamp("completed_at"), // When the job was marked as completed (for invoicing)
 
+    // Line-item split ("save for another visit"): snapshot of the lines the
+    // customer deferred at booking. The paid booking covers only the KEPT scope;
+    // these are surfaced to admin/dispatch as saved-for-a-follow-up-visit.
+    deferredLineItems: jsonb("deferred_line_items").$type<Array<{ lineId: string; label: string; pricePence: number }>>(),
+
     // Deposit Tracking (for audit trail)
     depositAmountPence: integer("deposit_amount_pence"), // Calculated deposit amount in pence
     selectedTierPricePence: integer("selected_tier_price_pence"), // The tier price at time of selection in pence

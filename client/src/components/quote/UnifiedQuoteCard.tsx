@@ -19,6 +19,7 @@ import { CardNumberElement, CardExpiryElement, CardCvcElement, ExpressCheckoutEl
 import type { StripeExpressCheckoutElementConfirmEvent } from '@stripe/stripe-js';
 import { isStripeConfigured } from '@/lib/stripe';
 import { getHassleComparisons } from '@shared/hassle-comparisons';
+import { computeSplitScope } from '@shared/split-scope';
 import type { PriceBuckets } from '@shared/contextual-pricing-types';
 import { trackBookingModeInteraction } from '@/lib/quote-analytics';
 import {
@@ -769,6 +770,14 @@ export function UnifiedQuoteCard({
   const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(v);
   const effectiveEmail = customerEmail || (emailConfirmed && isValidEmail(inlineEmail) ? inlineEmail : undefined);
 
+  // ── Wallet availability ─────────────────────────────────────────────────────
+  // Reported by the sticky bar's express element (the SINGLE wallet instance —
+  // Stripe allows one ExpressCheckoutElement per provider): null = still finding
+  // out, true = Apple/Google Pay can one-tap here, false = no wallet on this
+  // browser/domain/device. The card form in the booking section is always
+  // visible as the universal fallback either way.
+  const [walletsAvailable, setWalletsAvailable] = useState<boolean | null>(null);
+
   // Refs for scroll behavior
   const timeSectionRef = useRef<HTMLDivElement>(null);
   const addOnsSectionRef = useRef<HTMLDivElement>(null);
@@ -1235,18 +1244,38 @@ export function UnifiedQuoteCard({
       return next;
     });
   };
-  const activeSplitLines = enableLineItemSplit ? displayLineItems.filter(l => !deferredLines.has(l.item.lineId)) : displayLineItems;
-  const deferredSplitLines = enableLineItemSplit ? displayLineItems.filter(l => deferredLines.has(l.item.lineId)) : [];
-  const deferredSumPence = deferredSplitLines.reduce((s, l) => s + l.displayPence, 0);
   const hasDeferrals = enableLineItemSplit && deferredLines.size > 0;
-  // Re-price the DISPLAY for the active scope. The batch discount is derived as
-  // an effective rate off the full subtotal (fullSubtotal − total), re-applied
-  // to the active subtotal, and zeroed when only one job remains (no batching).
-  const fullSubtotalPence = displayLineItems.reduce((s, l) => s + l.displayPence, 0);
-  const activeSubtotalPence = fullSubtotalPence - deferredSumPence;
-  const effectiveBatchRate = fullSubtotalPence > 0 ? Math.max(0, (fullSubtotalPence - total) / fullSubtotalPence) : 0;
-  const splitActiveSavingPence = activeSplitLines.length >= 2 ? Math.round(activeSubtotalPence * effectiveBatchRate / 100) * 100 : 0;
-  const splitActiveTotalPence = Math.max(0, activeSubtotalPence - splitActiveSavingPence);
+  // Re-price for the active scope via the SHARED helper (same math the server
+  // charges with — single source of truth). Batch rate reconciles against the
+  // un-laned basePrice; every booking lever on top (set-date premium, Saturday,
+  // add-ons — i.e. total − basePrice) rides on the kept scope in full, so a
+  // date&time premium survives a split instead of being silently swallowed.
+  const splitScope = computeSplitScope({
+    lineItems: displayLineItems.map(l => l.item),
+    fullNetPence: basePrice,
+    leverDeltaPence: total - basePrice,
+    deferredLineIds: Array.from(deferredLines),
+    depositFraction: DEPOSIT_PERCENT,
+  });
+  const splitActiveSavingPence = splitScope.activeSavingPence;
+  const splitActiveTotalPence = splitScope.activeJobPricePence;
+  const splitDepositPence = splitScope.activeDepositPence;
+  const splitBalancePence = splitScope.activeBalancePence;
+  const splitPayFullPence = Math.round(Math.round(splitActiveTotalPence * (1 - PAY_FULL_DISCOUNT)) / 100) * 100;
+  // The lineIds crossed off — sent to the server so it re-prices the kept scope.
+  const activeDeferredLineIds = hasDeferrals ? Array.from(deferredLines) : [];
+  // Stable identity of the defer set for the PI effect deps: two different sets
+  // can price identically (same-value lines), and the PI must still be recreated
+  // so its metadata carries the RIGHT lineIds.
+  const deferredKey = activeDeferredLineIds.slice().sort().join(',');
+  // Customer-facing total of what's actually being booked this visit.
+  const effectiveTotalPence = hasDeferrals ? splitActiveTotalPence : total;
+  // Split-aware "charge now" / "balance" used by the booking-confirmation payloads
+  // so the confirmation reflects what was actually charged for the kept scope.
+  const effectiveChargeNowPence = payFull
+    ? (hasDeferrals ? splitPayFullPence : payFullTotal)
+    : (hasDeferrals ? splitDepositPence : depositAmount);
+  const effectiveBalancePence = payFull ? 0 : (hasDeferrals ? splitBalancePence : balanceOnCompletion);
 
   // All 3 buffer dates must be selected before payment unlocks
   const allDatesSelected = confirmedDates.length >= MAX_BUFFER_DATES;
@@ -1301,7 +1330,10 @@ export function UnifiedQuoteCard({
 
   // Create payment intent when inline payment should be shown
   useEffect(() => {
-    if (!showInlinePayment || isCash || !quoteId || !stripe || !effectiveEmail || !detailsConfirmed) {
+    // Card-path PI: created as soon as we have an email (the only pre-payment
+    // input left — receipts need it). Wallet payments don't use this PI at all;
+    // they create their own at confirm time with the wallet's email.
+    if (!showInlinePayment || isCash || !quoteId || !stripe || !effectiveEmail) {
       setClientSecret(null);
       setPaymentIntentId(null);
       return;
@@ -1325,7 +1357,11 @@ export function UnifiedQuoteCard({
             selectedTier: 'standard', // Legacy field — single price model
             selectedExtras: selectedAddOns,
             paymentType: payFull ? 'full' : 'deposit',
-            chargeAmountPence: payFull ? payFullTotal : depositAmount,
+            chargeAmountPence: hasDeferrals
+              ? (payFull ? splitPayFullPence : splitDepositPence)
+              : (payFull ? payFullTotal : depositAmount),
+            // Line-item split: name the deferred lines; the server re-derives the £.
+            deferredLineIds: activeDeferredLineIds.length > 0 ? activeDeferredLineIds : undefined,
             flexibleTiming: useDownsell,
             flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
             // Phase 25 flex (DISTINCT from the downsell above): carry the chosen flex
@@ -1385,7 +1421,7 @@ export function UnifiedQuoteCard({
       isCurrentRequest = false;
       abortController.abort();
     };
-  }, [showInlinePayment, useDownsell, useFlexBooking, pricingLane, quoteId, customerName, effectiveEmail, detailsConfirmed, total, selectedAddOns, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation]);
+  }, [showInlinePayment, useDownsell, useFlexBooking, pricingLane, quoteId, customerName, effectiveEmail, total, selectedAddOns, segment, config.downsell?.periodDays, stripe, payFull, payFullTotal, depositAmount, reservation, hasDeferrals, deferredKey, splitDepositPence, splitPayFullPence]);
 
   // Handle inline payment submission
   const handlePayment = async (e: React.FormEvent) => {
@@ -1416,8 +1452,8 @@ export function UnifiedQuoteCard({
       if (stripeError) throw new Error(stripeError.message);
 
       if (paymentIntent?.status === 'succeeded') {
-        const chargeNow = payFull ? payFullTotal : depositAmount;
-        const balance = payFull ? 0 : balanceOnCompletion;
+        const chargeNow = effectiveChargeNowPence;
+        const balance = effectiveBalancePence;
         const mode = payFull ? 'full' as const : 'deposit' as const;
 
         // Build per-date time preferences for multi-date buffer
@@ -1435,7 +1471,7 @@ export function UnifiedQuoteCard({
           dateTimePreferences: !useFlexBooking && dateTimePreferences.length > 0 ? dateTimePreferences : undefined,
           timeSlot: useFlexBooking || useDownsell ? null : backcompatSlot,
           addOns: selectedAddOns,
-          totalPrice: total,
+          totalPrice: effectiveTotalPence,
           chargeNowPence: chargeNow,
           balanceOnCompletionPence: balance,
           paymentMode: mode,
@@ -1462,86 +1498,34 @@ export function UnifiedQuoteCard({
     }
   };
 
-  const handleExpressCheckoutConfirm = async (_event: StripeExpressCheckoutElementConfirmEvent) => {
-    if (!stripe || !elements || !clientSecret || !paymentIntentId) return;
-
-    setIsProcessingPayment(true);
-    setPaymentError(null);
-
-    try {
-      const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
-        elements,
-        clientSecret,
-        confirmParams: {
-          // Redirect-based payment methods land back on the quote link itself —
-          // the /q/:slug route resolves UUIDs too, and ?paid=1 tells the page to
-          // render the post-payment job hub while the Stripe webhook catches up.
-          return_url: `${window.location.origin}/q/${quoteId}?paid=1`,
-        },
-        redirect: 'if_required',
-      });
-
-      if (stripeError) throw new Error(stripeError.message);
-
-      if (paymentIntent?.status === 'succeeded') {
-        const chargeNow = payFull ? payFullTotal : depositAmount;
-        const balance = payFull ? 0 : balanceOnCompletion;
-        const mode = payFull ? 'full' as const : 'deposit' as const;
-        const dateTimePreferences = confirmedDates.map(cd => ({
-          date: cd.date,
-          timeSlot: cd.timePref,
-        }));
-        const primaryTimePref = confirmedDates[0]?.timePref;
-        const backcompatSlot = primaryTimePref === 'pm' ? 'afternoon' : 'morning';
-
-        onBook({
-          selectedDate: useFlexBooking || useDownsell ? null : (confirmedDates[0]?.date || selectedDate),
-          selectedDates: useFlexBooking ? [] : confirmedDates.map(cd => cd.date),
-          dateTimePreferences: !useFlexBooking && dateTimePreferences.length > 0 ? dateTimePreferences : undefined,
-          timeSlot: useFlexBooking || useDownsell ? null : backcompatSlot,
-          addOns: selectedAddOns,
-          totalPrice: total,
-          chargeNowPence: chargeNow,
-          balanceOnCompletionPence: balance,
-          paymentMode: mode,
-          usedDownsell: useDownsell,
-          address: bookingAddress,
-          flexiblePeriodDays: useDownsell ? config.downsell?.periodDays : undefined,
-          flexBookingWithinDays: useFlexBooking ? bookingFlexDays : undefined,
-          // Pricing lane → server re-derives selectedTierPricePence from basePrice.
-          pricingLane,
-          ...landlordTenantPayload,
-        });
-
-        if (onPaymentSuccess) {
-          await onPaymentSuccess(paymentIntentId);
-        }
-      } else {
-        throw new Error('Payment failed');
-      }
-    } catch (err: any) {
-      setPaymentError(err.message || 'Payment failed. Please try again.');
-    } finally {
-      setIsProcessingPayment(false);
-    }
-  };
-
-  const showExpressCheckout = !isLoadingPaymentIntent && isStripeConfigured && !!clientSecret;
-
-  // ── Sticky one-tap Apple Pay / Google Pay (flag-gated, OFF by default) ──────
-  // FLAG: enable per-visit with ?stickypay=1. The yellow scroll CTA below is the
-  // unconditional fallback, so with the flag off (or no wallet available) nothing
-  // changes. This is a DEFERRED-intent express confirm: the Elements provider is
-  // already mode:'payment' with the deposit amount, so this renders without the
-  // details-first step — Apple Pay supplies the email from the wallet. It charges
-  // the DEFAULT flex reserve deposit (server re-derives the £ from quote.basePrice);
-  // customers wanting pay-in-full / a firm date use the full form via the scroll CTA.
-  // ⚠️ UNVERIFIED: cannot be exercised outside Safari + the Apple-verified live
-  // domain — must be tested on a real device before the flag is trusted.
+  // ── Sticky one-tap Apple Pay / Google Pay (ON by default) ───────────────────
+  // Kill switch: ?stickypay=0 disables per-visit. The yellow scroll CTA below is
+  // the unconditional fallback, so when no wallet is available nothing changes.
+  // Wallet availability itself is tracked by the booking-section express element
+  // (walletsAvailable) — both surfaces share the same Elements provider.
+  // ⚠️ Wallets only render on the Apple/Google-verified HTTPS domain — localhost
+  // never shows them; verify on the live domain with a real device.
   const stickyExpressEnabled = typeof window !== 'undefined'
-    && new URLSearchParams(window.location.search).get('stickypay') === '1';
+    && new URLSearchParams(window.location.search).get('stickypay') !== '0';
 
-  const handleStickyExpressConfirm = async (event: StripeExpressCheckoutElementConfirmEvent) => {
+  // Keep the wallet sheet's displayed amount in sync with the ACTIVE selection.
+  // The Apple/Google Pay sheet shows the Elements provider amount, which was set
+  // at mount from the full flex deposit — the real charge moves with the pay-full
+  // toggle, an exact-date premium, and the line-item split, so re-sync it BEFORE
+  // the customer taps or the sheet would show a stale number.
+  useEffect(() => {
+    if (!elements || isCash) return;
+    try { elements.update({ amount: Math.max(effectiveChargeNowPence, 30) }); }
+    catch { /* provider not in deferred mode — sheet falls back to mount amount */ }
+  }, [elements, isCash, effectiveChargeNowPence]);
+
+  // ── One-tap wallet confirm (Apple Pay / Google Pay) ─────────────────────────
+  // Shared by BOTH wallet surfaces (sticky bar + booking section). Deferred-
+  // intent: the PI is created here at confirm time, with the wallet's email and
+  // the CURRENT selection — flex (default) or a reserved exact slot — plus the
+  // pay-in-full toggle and any line-item split. No inputs before the tap: the
+  // street address is collected on the post-payment confirmation page.
+  const handleExpressPay = async (event: StripeExpressCheckoutElementConfirmEvent) => {
     if (!stripe || !elements) return;
     setIsProcessingPayment(true);
     setPaymentError(null);
@@ -1550,6 +1534,9 @@ export function UnifiedQuoteCard({
       if (submitError) throw new Error(submitError.message);
 
       const walletEmail = (event as any)?.billingDetails?.email || effectiveEmail;
+      // Exact-date path: a slot must already be reserved (the wallet button only
+      // renders once it is); flex is the default lane otherwise.
+      const isExactDate = !useFlexBooking && !!selectedDate && !!reservation;
       const res = await fetch('/api/create-payment-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1559,11 +1546,14 @@ export function UnifiedQuoteCard({
           quoteId,
           selectedTier: 'standard',
           selectedExtras: selectedAddOns,
-          paymentType: 'deposit',
-          chargeAmountPence: depositAmount,
-          flexBookingWithinDays: bookingFlexDays,
-          schedulingTier: 'flexible',
+          paymentType: payFull ? 'full' : 'deposit',
+          chargeAmountPence: effectiveChargeNowPence,
+          // Line-item split: name the deferred lines; the server re-derives the £.
+          deferredLineIds: activeDeferredLineIds.length > 0 ? activeDeferredLineIds : undefined,
           pricingLane,
+          ...(isExactDate
+            ? { schedulingTier: 'standard', lockId: reservation?.lockId, contractorId: reservation?.contractorId }
+            : { schedulingTier: 'flexible', flexBookingWithinDays: bookingFlexDays }),
           address: bookingAddress?.line,
           addressLat: bookingAddress?.lat,
           addressLng: bookingAddress?.lng,
@@ -1585,20 +1575,19 @@ export function UnifiedQuoteCard({
       if (stripeError) throw new Error(stripeError.message);
 
       if (paymentIntent?.status === 'succeeded') {
-        // Default flex reserve booking; days-to-avoid are collected post-payment.
         onBook({
-          selectedDate: null,
-          selectedDates: [],
+          selectedDate: isExactDate ? selectedDate : null,
+          selectedDates: isExactDate && selectedDate ? [selectedDate] : [],
           dateTimePreferences: undefined,
-          timeSlot: null,
+          timeSlot: isExactDate ? (selectedTimeSlot === 'afternoon' ? 'afternoon' : 'morning') : null,
           addOns: selectedAddOns,
-          totalPrice: total,
-          chargeNowPence: depositAmount,
-          balanceOnCompletionPence: balanceOnCompletion,
-          paymentMode: 'deposit',
+          totalPrice: effectiveTotalPence,
+          chargeNowPence: effectiveChargeNowPence,
+          balanceOnCompletionPence: effectiveBalancePence,
+          paymentMode: payFull ? 'full' : 'deposit',
           usedDownsell: false,
           address: bookingAddress,
-          flexBookingWithinDays: bookingFlexDays,
+          flexBookingWithinDays: isExactDate ? undefined : bookingFlexDays,
           pricingLane,
           ...landlordTenantPayload,
         });
@@ -1691,8 +1680,8 @@ export function UnifiedQuoteCard({
   }, [selectedDate, selectedTimeSlot, quoteId, confirmedDates.length, useFlexBooking]);
 
   const handleBook = () => {
-    const chargeNow = isCash ? 0 : payFull ? payFullTotal : depositAmount;
-    const balance = isCash ? total : payFull ? 0 : balanceOnCompletion;
+    const chargeNow = isCash ? 0 : effectiveChargeNowPence;
+    const balance = isCash ? (hasDeferrals ? splitActiveTotalPence : total) : effectiveBalancePence;
     const mode = isCash ? 'cash' as const : payFull ? 'full' as const : 'deposit' as const;
 
     // If using Phase 25 flex booking, no date/time — dispatcher picks within window.
@@ -1703,7 +1692,7 @@ export function UnifiedQuoteCard({
         selectedDate: null,
         timeSlot: null,
         addOns: selectedAddOns,
-        totalPrice: total,
+        totalPrice: effectiveTotalPence,
         chargeNowPence: chargeNow,
         balanceOnCompletionPence: balance,
         paymentMode: mode,
@@ -1723,7 +1712,7 @@ export function UnifiedQuoteCard({
         selectedDate: null,
         timeSlot: null,
         addOns: selectedAddOns,
-        totalPrice: total,
+        totalPrice: effectiveTotalPence,
         chargeNowPence: chargeNow,
         balanceOnCompletionPence: balance,
         paymentMode: mode,
@@ -1750,7 +1739,7 @@ export function UnifiedQuoteCard({
       dateTimePreferences,
       timeSlot: backcompatTimeSlot,
       addOns: selectedAddOns,
-      totalPrice: total,
+      totalPrice: effectiveTotalPence,
       chargeNowPence: chargeNow,
       balanceOnCompletionPence: balance,
       paymentMode: mode,
@@ -1810,7 +1799,7 @@ export function UnifiedQuoteCard({
                   className="inline-block"
                 >
                   <span className={`text-5xl font-black ${isDarkTheme ? 'text-white' : 'text-[#7DB00E]'}`}>
-                    £{Math.round(total / 100)}
+                    £{Math.round(effectiveTotalPence / 100)}
                   </span>
                   <div className="text-xs mt-1 leading-snug">
                     <span className={`font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>All-in fixed price.</span>{' '}
@@ -1828,10 +1817,10 @@ export function UnifiedQuoteCard({
                 >
                   <div className="flex items-baseline justify-center gap-1.5">
                     <span className="text-slate-400 line-through text-xl mr-1">
-                      £{Math.round(total / 100)}
+                      £{Math.round(effectiveTotalPence / 100)}
                     </span>
                     <span className={`text-5xl font-black ${isDarkTheme ? 'text-white' : 'text-[#7DB00E]'}`}>
-                      £{Math.round(payFullTotal / 100)}
+                      £{Math.round((hasDeferrals ? splitPayFullPence : payFullTotal) / 100)}
                     </span>
                   </div>
                   <div className={`text-xs mt-1 ${isDarkTheme ? 'text-slate-500' : 'text-slate-500'}`}>
@@ -1848,11 +1837,11 @@ export function UnifiedQuoteCard({
                   className="inline-block"
                 >
                   <span className={`text-5xl font-black ${isDarkTheme ? 'text-white' : 'text-[#7DB00E]'}`}>
-                    £{Math.round(total / 100)}
+                    £{Math.round(effectiveTotalPence / 100)}
                   </span>
                   <div className="text-xs mt-1 leading-snug">
                     <span className={`font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>All-in fixed price.</span>{' '}
-                    <span className="text-[#7DB00E]">Just £{Math.round(depositAmount / 100)} to reserve today.</span>
+                    <span className="text-[#7DB00E]">Just £{Math.round((hasDeferrals ? splitDepositPence : depositAmount) / 100)} to reserve today.</span>
                   </div>
                 </motion.div>
               )}
@@ -1902,7 +1891,7 @@ export function UnifiedQuoteCard({
                 <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I'll reserve it</span>
               </div>
               <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                £{Math.round(depositAmount / 100)} now · £{Math.round(balanceOnCompletion / 100)} later
+                £{Math.round((hasDeferrals ? splitDepositPence : depositAmount) / 100)} now · £{Math.round((hasDeferrals ? splitBalancePence : balanceOnCompletion) / 100)} later
               </p>
             </button>
 
@@ -1922,7 +1911,7 @@ export function UnifiedQuoteCard({
                 <span className={`text-[13px] font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>I'll pay in full</span>
               </div>
               <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                £{Math.round(payFullTotal / 100)} now · <span className="text-[#7DB00E] font-bold">save {Math.round(PAY_FULL_DISCOUNT * 100)}%</span>
+                £{Math.round((hasDeferrals ? splitPayFullPence : payFullTotal) / 100)} now · <span className="text-[#7DB00E] font-bold">save {Math.round(PAY_FULL_DISCOUNT * 100)}%</span>
               </p>
             </button>
           </div>
@@ -2954,35 +2943,23 @@ export function UnifiedQuoteCard({
             fully visible below the header instead of tucked behind it. */}
         <div ref={bookSectionRef} className="scroll-mt-24">
         {showInlinePayment && stripe ? (
+          isCash ? (
+          /* ── Cash on the day (OAP) — the one flow that still collects the
+             address inline: there is no payment to defer it behind, so the
+             reveal → address → confirm sequence stays. ─────────────────────── */
           !bookingStarted ? (
-            /* Reveal-on-commit gate — the customer commits to their slot here.
-               Address/email/payment only appear after this CTA; keeping that whole
-               form on the quote up-front depressed bookings. */
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.3 }}
               className="space-y-3"
             >
-              {hasDeferrals ? (
-                /* Split preview: booking a reduced scope needs server re-pricing
-                   (Step 2). Gate payment so the moved total can't mis-charge. */
-                <div className="w-full rounded-2xl border-2 border-dashed border-amber-400/60 bg-amber-400/10 px-4 py-3 text-center">
-                  <p className="text-[13px] font-bold text-amber-300">Split booking isn't live yet</p>
-                  <p className="text-[11.5px] text-amber-200/80 mt-0.5">Add your saved items back to book the full quote today.</p>
-                </div>
-              ) : (
               <Button
                 onClick={() => {
                   const reveal = () => {
                     setBookingStarted(true);
                     setTimeout(() => {
-                      // Contextual: send them up to "When suits you?" to pick a slot
-                      // first. The payment form stays revealed below and self-gates
-                      // ("Select date & time to book") until a date+time is chosen, so
-                      // booking can't dead-end. Other variants jump to the form.
-                      const target = isContextual ? dateSectionRef : bookSectionRef;
-                      target.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      bookSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }, 350);
                   };
                   if (onBeforeBooking) {
@@ -2994,21 +2971,15 @@ export function UnifiedQuoteCard({
                 className="w-full h-14 rounded-2xl font-bold text-lg bg-[#FFE500] hover:brightness-[0.95] text-handy-navy shadow-lg shadow-[#FFE500]/30 transition-all"
               >
                 <span className="flex items-center gap-2">
-                  {isCash ? 'Book — pay cash on the day' : isContextual ? 'Approve and pay' : 'Book my slot'}
+                  Book — pay cash on the day
                   <ChevronRight className="w-5 h-5" />
                 </span>
               </Button>
-              )}
               <p className={`text-xs text-center ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
-                {isCash
-                  ? `Nothing to pay now · £${Math.round(total / 100)} cash when it's done`
-                  : payFull
-                  ? `£${Math.round(payFullTotal / 100)} · secure payment by Stripe`
-                  : `Just £${Math.round(depositAmount / 100)} to secure it · £${Math.round(balanceOnCompletion / 100)} on completion${totalMaterialsPence > 0 ? ' · covers your materials in full, plus 30% of labour' : ''}`}
+                Nothing to pay now · £{Math.round(effectiveTotalPence / 100)} cash when it's done
               </p>
             </motion.div>
           ) : (
-          /* Inline Stripe card entry — reveals once the slot is committed */
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -3060,16 +3031,7 @@ export function UnifiedQuoteCard({
                       />
                     </div>
                   )}
-                  {/* Landlord liaise — the tenant contact lives under the scheduling
-                      toggle above; block payment until it's filled and say why. */}
-                  {isLandlord && useFlexBooking && !(tenantNameValid && tenantMobileValid) && (
-                    <div className={`flex items-start gap-2 rounded-lg px-3 py-2 text-[12px] leading-snug ${isDarkTheme ? 'bg-amber-400/10 text-amber-300' : 'bg-amber-50 text-amber-700'}`}>
-                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                      <span>Add your tenant's name and mobile above so we can arrange access.</span>
-                    </div>
-                  )}
-                  {/* Continue → reveals secure payment. Requires address + email
-                      (+ tenant contact for landlords in liaise mode). */}
+                  {/* Continue → confirms address, then the cash confirm below. */}
                   <button
                     type="button"
                     onClick={() => {
@@ -3087,29 +3049,22 @@ export function UnifiedQuoteCard({
                         : isDarkTheme ? 'bg-white/5 text-slate-600 cursor-not-allowed' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                     }`}
                   >
-                    {isCash ? 'Continue' : 'Continue to payment'}
+                    Continue
                   </button>
                 </div>
-              ) : isLoadingPaymentIntent ? (
-                <div className="flex items-center justify-center py-6">
-                  <Loader2 className="w-6 h-6 animate-spin text-[#7DB00E]" />
-                  <span className={`ml-2 text-sm ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Setting up secure payment...
-                  </span>
-                </div>
-              ) : isCash ? (
-                /* Cash on the day (OAP): no card form — the address is captured
-                   above, then this confirms. handleBook fires onBook with
-                   paymentMode 'cash', £0 now and the full balance due in cash. */
+              ) : (
+                /* Cash on the day: no card form — the address is captured above,
+                   then this confirms. handleBook fires onBook with paymentMode
+                   'cash', £0 now and the full balance due in cash. */
                 <div className="space-y-3">
                   <div className={`flex items-center justify-between gap-2 pt-1 ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
                     <div>
                       <p className={`text-xs uppercase tracking-wide ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Total</p>
-                      <p className="text-lg font-bold">£{Math.round(total / 100)}</p>
+                      <p className="text-lg font-bold">£{Math.round(effectiveTotalPence / 100)}</p>
                     </div>
                     <div className="text-right">
                       <p className={`text-base font-bold ${isDarkTheme ? 'text-[#7DB00E]' : 'text-[#5a8a0a]'}`}>£0 now</p>
-                      <p className={`text-[11px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>£{Math.round(total / 100)} cash on the day</p>
+                      <p className={`text-[11px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>£{Math.round(effectiveTotalPence / 100)} cash on the day</p>
                     </div>
                   </div>
                   <Button
@@ -3124,136 +3079,185 @@ export function UnifiedQuoteCard({
                     )}
                   </Button>
                   <p className={`text-xs text-center ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
-                    No payment now. Pay £{Math.round(total / 100)} in cash when the job's done.
+                    No payment now. Pay £{Math.round(effectiveTotalPence / 100)} in cash when the job's done.
                   </p>
                 </div>
-              ) : paymentError && !clientSecret ? (
-                <Alert variant="destructive" className="bg-red-50 border-red-200">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{paymentError}</AlertDescription>
-                </Alert>
+              )}
+              <p className={`text-[11px] text-center mt-3 leading-relaxed ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
+                By continuing you agree to our{' '}
+                <a
+                  href="/cancellation-policy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:opacity-80"
+                >
+                  Cancellation &amp; Deposit Policy
+                </a>
+                . Reschedule any time free — your deposit is the most you can lose.
+              </p>
+            </div>
+          </motion.div>
+          )
+          ) : (
+          /* ── Wallet-first checkout (non-cash) — zero inputs before payment.
+             Apple/Google Pay render immediately (deferred-intent: the PI is
+             created at confirm with the wallet's email and the current
+             selection). The manual card is the fallback — collapsed behind
+             "Or pay by card" when a wallet is available, auto-expanded when
+             none is. The street address is collected on the post-payment
+             confirmation page, not here. ──────────────────────────────────── */
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3 }}
+            className="space-y-4"
+          >
+            <h4 className={`text-sm font-bold uppercase tracking-wide flex items-center gap-2 ${isDarkTheme ? 'text-white' : 'text-slate-700'}`}>
+              <CreditCard className="w-4 h-4 text-[#7DB00E]" />
+              Complete your booking
+            </h4>
+            <div className={`rounded-xl p-4 space-y-3 ${isDarkTheme ? 'bg-white/5' : 'bg-slate-50'}`}>
+              {/* Landlord liaise — block payment until the tenant contact is in. */}
+              {!tenantContactOk ? (
+                <div className={`flex items-start gap-2 rounded-lg px-3 py-2 text-[12px] leading-snug ${isDarkTheme ? 'bg-amber-400/10 text-amber-300' : 'bg-amber-50 text-amber-700'}`}>
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>Add your tenant's name and mobile above so we can arrange access.</span>
+                </div>
               ) : (
                 <>
-                  {showExpressCheckout && (
-                    <>
-                      <ExpressCheckoutElement
-                        onConfirm={handleExpressCheckoutConfirm}
-                        options={{
-                          paymentMethods: {
-                            applePay: 'auto',
-                            googlePay: 'auto',
-                            link: 'never',
-                            amazonPay: 'never',
-                            paypal: 'never',
-                            klarna: 'never',
-                          },
-                        }}
-                      />
-                      <div className={`flex items-center gap-3 my-2`}>
-                        <div className={`flex-1 h-px ${isDarkTheme ? 'bg-gray-600' : 'bg-slate-200'}`} />
-                        <span className={`text-xs ${isDarkTheme ? 'text-gray-400' : 'text-slate-400'}`}>Or pay by card</span>
-                        <div className={`flex-1 h-px ${isDarkTheme ? 'bg-gray-600' : 'bg-slate-200'}`} />
-                      </div>
-                    </>
+                  {/* One-tap wallets live in the STICKY BAR (Stripe allows one
+                      ExpressCheckoutElement per provider, and the sticky is the
+                      always-in-reach surface). This section is the card fallback
+                      — visible for everyone, one email field at most. */}
+                  {walletsAvailable && (
+                    <p className={`text-[11.5px] text-center ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
+                      Fastest: one-tap {' '}
+                      <span className="font-semibold">Apple&nbsp;Pay / Google&nbsp;Pay</span>
+                      {' '}in the bar below — or pay by card here.
+                    </p>
                   )}
-                <form onSubmit={handlePayment}>
-                  {/* Split card fields — explicit layout so CVC is always visible on mobile */}
-                  <div className="space-y-2 mb-4">
-                    {(() => {
-                      const stripeStyle = {
-                        base: {
-                          fontSize: '16px',
-                          fontFamily: 'system-ui, -apple-system, sans-serif',
-                          color: isDarkTheme ? '#ffffff' : '#1e293b',
-                          backgroundColor: 'transparent',
-                          iconColor: '#7DB00E',
-                          '::placeholder': { color: isDarkTheme ? '#64748b' : '#94a3b8' },
-                        },
-                        invalid: { color: '#ef4444', iconColor: '#ef4444' },
-                        complete: { color: '#22c55e', iconColor: '#22c55e' },
-                      };
-                      const fieldCls = `border rounded-lg px-3 py-3 ${isDarkTheme ? 'border-white/20 bg-slate-800' : 'border-slate-200 bg-white'}`;
-                      return (
-                        <>
-                          <div>
-                            <label className={`text-[11px] font-medium uppercase tracking-wide mb-1 block ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Card number</label>
-                            <div className={fieldCls}>
-                              <CardNumberElement options={{ style: stripeStyle, showIcon: true }} />
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className={`text-[11px] font-medium uppercase tracking-wide mb-1 block ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Expiry</label>
-                              <div className={fieldCls}>
-                                <CardExpiryElement options={{ style: stripeStyle }} />
-                              </div>
-                            </div>
-                            <div>
-                              <label className={`text-[11px] font-medium uppercase tracking-wide mb-1 block ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>CVC</label>
-                              <div className={fieldCls}>
-                                <CardCvcElement options={{ style: stripeStyle }} />
-                              </div>
-                            </div>
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
+                  {(
+                    <div className="space-y-3">
+                      {/* Email — the ONE input the card path needs (receipt).
+                          Valid-as-you-type; the PI spins up as soon as it is. */}
+                      {!customerEmail && (
+                        <div className="space-y-1.5">
+                          <label className={`text-sm font-medium ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>Email for receipt</label>
+                          <input
+                            type="email"
+                            value={inlineEmail}
+                            onChange={e => { setInlineEmail(e.target.value); setEmailConfirmed(isValidEmail(e.target.value)); }}
+                            placeholder="your@email.com"
+                            className={`w-full border rounded-lg p-3 text-base outline-none focus:ring-2 focus:ring-[#7DB00E]/40 ${
+                              isDarkTheme ? 'border-white/20 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-900'
+                            }`}
+                          />
+                        </div>
+                      )}
+                      <form onSubmit={handlePayment}>
+                        {/* Split card fields — explicit layout so CVC is always visible on mobile */}
+                        <div className="space-y-2 mb-4">
+                          {(() => {
+                            const stripeStyle = {
+                              base: {
+                                fontSize: '16px',
+                                fontFamily: 'system-ui, -apple-system, sans-serif',
+                                color: isDarkTheme ? '#ffffff' : '#1e293b',
+                                backgroundColor: 'transparent',
+                                iconColor: '#7DB00E',
+                                '::placeholder': { color: isDarkTheme ? '#64748b' : '#94a3b8' },
+                              },
+                              invalid: { color: '#ef4444', iconColor: '#ef4444' },
+                              complete: { color: '#22c55e', iconColor: '#22c55e' },
+                            };
+                            const fieldCls = `border rounded-lg px-3 py-3 ${isDarkTheme ? 'border-white/20 bg-slate-800' : 'border-slate-200 bg-white'}`;
+                            return (
+                              <>
+                                <div>
+                                  <label className={`text-[11px] font-medium uppercase tracking-wide mb-1 block ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Card number</label>
+                                  <div className={fieldCls}>
+                                    <CardNumberElement options={{ style: stripeStyle, showIcon: true }} />
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className={`text-[11px] font-medium uppercase tracking-wide mb-1 block ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Expiry</label>
+                                    <div className={fieldCls}>
+                                      <CardExpiryElement options={{ style: stripeStyle }} />
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className={`text-[11px] font-medium uppercase tracking-wide mb-1 block ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>CVC</label>
+                                    <div className={fieldCls}>
+                                      <CardCvcElement options={{ style: stripeStyle }} />
+                                    </div>
+                                  </div>
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
 
-                  {paymentError && (
-                    <Alert variant="destructive" className="mb-4 bg-red-50 border-red-200">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription>{paymentError}</AlertDescription>
-                    </Alert>
-                  )}
-
-                  {/* Phase 30 — reaffirm the amount right before paying. */}
-                  <div className={`flex items-center justify-between gap-2 mb-3 pt-3 border-t ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
-                    <div>
-                      <p className={`text-xs uppercase tracking-wide ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Total</p>
-                      <p className={`text-lg font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>£{Math.round(total / 100)}</p>
-                    </div>
-                    {payFull ? (
-                      <div className="text-right">
-                        <p className={`text-base font-bold ${isDarkTheme ? 'text-[#7DB00E]' : 'text-[#5a8a0a]'}`}>£{Math.round(payFullTotal / 100)} now</p>
-                        <p className={`text-[11px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>full payment · save 3%</p>
-                      </div>
-                    ) : (
-                      <div className="text-right">
-                        <p className={`text-base font-bold ${isDarkTheme ? 'text-[#7DB00E]' : 'text-[#5a8a0a]'}`}>£{Math.round(depositAmount / 100)} today</p>
-                        <p className={`text-[11px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>£{Math.round(balanceOnCompletion / 100)} on completion</p>
-                        {totalMaterialsPence > 0 && (
-                          <p className={`text-[10px] ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>covers materials in full + 30% labour</p>
+                        {paymentError && (
+                          <Alert variant="destructive" className="mb-4 bg-red-50 border-red-200">
+                            <AlertCircle className="h-4 w-4" />
+                            <AlertDescription>{paymentError}</AlertDescription>
+                          </Alert>
                         )}
-                      </div>
-                    )}
-                  </div>
 
-                  <Button
-                    type="submit"
-                    disabled={!clientSecret || isProcessingPayment || !isStripeConfigured}
-                    className="w-full h-14 rounded-2xl font-bold text-lg bg-[#FFE500] hover:brightness-[0.95] text-handy-navy transition-all"
-                  >
-                    {isProcessingPayment ? (
-                      <span className="flex items-center gap-2">
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        Processing...
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-2">
-                        {payFull
-                          ? `Pay £${Math.round(payFullTotal / 100)} now`
-                          : `Pay £${Math.round(depositAmount / 100)} deposit`
-                        }
-                        <ChevronRight className="w-5 h-5" />
-                      </span>
-                    )}
-                  </Button>
-                </form>
+                        {/* Reaffirm the amount right before paying (split-aware). */}
+                        <div className={`flex items-center justify-between gap-2 mb-3 pt-3 border-t ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
+                          <div>
+                            <p className={`text-xs uppercase tracking-wide ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>{hasDeferrals ? 'This visit' : 'Total'}</p>
+                            <p className={`text-lg font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>£{Math.round(effectiveTotalPence / 100)}</p>
+                          </div>
+                          {payFull ? (
+                            <div className="text-right">
+                              <p className={`text-base font-bold ${isDarkTheme ? 'text-[#7DB00E]' : 'text-[#5a8a0a]'}`}>£{Math.round(effectiveChargeNowPence / 100)} now</p>
+                              <p className={`text-[11px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>full payment · save {Math.round(PAY_FULL_DISCOUNT * 100)}%</p>
+                            </div>
+                          ) : (
+                            <div className="text-right">
+                              <p className={`text-base font-bold ${isDarkTheme ? 'text-[#7DB00E]' : 'text-[#5a8a0a]'}`}>£{Math.round(effectiveChargeNowPence / 100)} today</p>
+                              <p className={`text-[11px] ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>£{Math.round(effectiveBalancePence / 100)} on completion</p>
+                              {totalMaterialsPence > 0 && (
+                                <p className={`text-[10px] ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>covers materials in full + 30% labour</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <Button
+                          type="submit"
+                          disabled={!clientSecret || isProcessingPayment || !isStripeConfigured || !effectiveEmail}
+                          className="w-full h-14 rounded-2xl font-bold text-lg bg-[#FFE500] hover:brightness-[0.95] text-handy-navy transition-all"
+                        >
+                          {isProcessingPayment ? (
+                            <span className="flex items-center gap-2">
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              Processing...
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-2">
+                              {payFull
+                                ? `Pay £${Math.round(effectiveChargeNowPence / 100)} now`
+                                : `Pay £${Math.round(effectiveChargeNowPence / 100)} deposit`
+                              }
+                              <ChevronRight className="w-5 h-5" />
+                            </span>
+                          )}
+                        </Button>
+                        {!effectiveEmail && (
+                          <p className={`text-[11px] text-center mt-2 ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
+                            Enter your email above to unlock card payment.
+                          </p>
+                        )}
+                      </form>
+                    </div>
+                  )}
                 </>
               )}
-
-              <p className={`text-[11px] text-center mt-3 leading-relaxed ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
+              <p className={`text-[11px] text-center mt-1 leading-relaxed ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`}>
                 By continuing you agree to our{' '}
                 <a
                   href="/cancellation-policy"
@@ -3322,23 +3326,31 @@ export function UnifiedQuoteCard({
               <StickyTimerProgress />
               <div className="bg-white border-t border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.12)] px-4 py-3">
                 <div className="max-w-lg mx-auto space-y-2">
-                  {/* Flag-gated one-tap Apple Pay / Google Pay (?stickypay=1).
-                      Renders nothing when the flag is off or no wallet is
-                      available, so the yellow CTA below is always present as the
-                      fallback and the card path. */}
-                  {/* Flex-only: the default flex lane can be one-tapped (no date
-                      needed). The "+£52 date & time" lane needs a specific slot
-                      first, so express is hidden there. Also hidden mid-split
-                      (booking is gated then). The wallet sheet is PURE payment —
-                      no email/address/phone requested; those are inherited from
-                      the quote (email/phone/postcode) or collected post-payment
-                      (exact street address, alongside the days-to-avoid step). */}
-                  {stickyExpressEnabled && useFlexBooking && !hasDeferrals && isStripeConfigured && !!stripe && (
+                  {/* One-tap Apple Pay / Google Pay (on by default; ?stickypay=0
+                      kills it). Renders nothing when no wallet is available, so
+                      the yellow CTA below is always the fallback + card path.
+                      Charges the CURRENT selection via the shared handleExpressPay:
+                      the flex lane one-taps immediately; the exact-date lane
+                      one-taps once a slot is reserved. Pure payment — the street
+                      address is collected post-payment. */}
+                  {stickyExpressEnabled && (useFlexBooking || (!!selectedDate && !!reservation)) && isStripeConfigured && !!stripe && (
                     <ExpressCheckoutElement
-                      onConfirm={handleStickyExpressConfirm}
-                      onLoadError={() => { /* No wallet available (non-Safari, http, or no card) — the yellow CTA below stays as the fallback. */ }}
+                      onConfirm={handleExpressPay}
+                      // Wallets need an Apple/Google-verified HTTPS domain (Stripe →
+                      // Settings → Payment method domains): localhost NEVER shows
+                      // them; verify on the live domain. onReady logs which wallets
+                      // this browser/domain/device combination can offer.
+                      onReady={(e: any) => {
+                        const m = e?.availablePaymentMethods;
+                        setWalletsAvailable(!!m && Object.values(m).some(Boolean));
+                        console.log('[stickypay] express ready — available wallets:', JSON.stringify(m ?? null));
+                      }}
+                      onLoadError={(e: any) => {
+                        setWalletsAvailable(false);
+                        console.warn('[stickypay] express load error (yellow CTA + card form remain the fallback):', e?.error?.message || e);
+                      }}
                       options={{
-                        emailRequired: false,
+                        emailRequired: !customerEmail,
                         phoneNumberRequired: false,
                         billingAddressRequired: false,
                         shippingAddressRequired: false,
@@ -3356,11 +3368,6 @@ export function UnifiedQuoteCard({
                   {/* One bold bright-yellow CTA carrying both the entry price
                       ("Reserve from £X") and the action, so the sticky action
                       reads at a glance. Navy text for contrast on yellow. */}
-                  {hasDeferrals ? (
-                    <div className="w-full rounded-xl border-2 border-dashed border-amber-400/60 bg-amber-400/10 px-4 py-2.5 text-center">
-                      <span className="text-[13px] font-bold text-amber-500">Split booking isn't live — add saved items back to book</span>
-                    </div>
-                  ) : (
                   <button
                     type="button"
                     onClick={() => {
@@ -3382,14 +3389,15 @@ export function UnifiedQuoteCard({
                     )}
                     <span className="flex flex-col items-start leading-tight text-left">
                       <span className="text-[11px] font-bold uppercase tracking-wide opacity-70">
-                        {payFull ? 'Pay today' : 'Reserve from'} £{payFull ? Math.round(payFullTotal / 100) : Math.round(depositAmount / 100)}
+                        {payFull ? 'Pay today' : 'Reserve from'} £{payFull
+                          ? Math.round((hasDeferrals ? splitPayFullPence : payFullTotal) / 100)
+                          : Math.round((hasDeferrals ? splitDepositPence : depositAmount) / 100)}
                       </span>
                       <span className="text-base font-black leading-tight">
                         {isContextual ? 'Approve and pay' : useFlexBooking ? 'Book now' : 'Choose your date'}
                       </span>
                     </span>
                   </button>
-                  )}
                 </div>
               </div>
             </motion.div>

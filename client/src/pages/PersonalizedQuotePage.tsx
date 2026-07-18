@@ -3201,12 +3201,14 @@ export default function PersonalizedQuotePage() {
     catch { return false; }
   });
 
-  // ── Line-item split preview (?v=split) — cross line items off to "save for
-  // another visit". Client-side re-price only; booking stays full-scope. ──────
-  const [splitVariant] = useState(() => {
+  // ── Line-item split — cross line items off to "save for another visit".
+  // The kept scope is re-priced server-side and charged; deferred items are
+  // recorded for a follow-up visit. On by default for multi-item quotes;
+  // opt out with ?v=nosplit. ──────────────────────────────────────────────────
+  const [splitOptOut] = useState(() => {
     try {
       const v = new URLSearchParams(window.location.search).get('v') || '';
-      return v.split(',').map((s) => s.trim()).includes('split');
+      return v.split(',').map((s) => s.trim()).includes('nosplit');
     }
     catch { return false; }
   });
@@ -4232,7 +4234,7 @@ export default function PersonalizedQuotePage() {
                       bookingModes={isContextualQuote && quote.bookingModes ? quote.bookingModes : undefined}
                       batchDiscount={isContextualQuote && quote.batchDiscount ? quote.batchDiscount : undefined}
                       pricingLineItems={taggedPricingLineItems || undefined}
-                      enableLineItemSplit={splitVariant}
+                      enableLineItemSplit={!splitOptOut && (taggedPricingLineItems?.length ?? 0) >= 2}
                       priceBuckets={isContextualQuote ? (quote as any).pricingLayerBreakdown?.priceBuckets : undefined}
                       contextualBullets={isContextualQuote && quote.valueBullets ? quote.valueBullets : undefined}
                       allowedDates={(quote as any).availableDates ?? null}

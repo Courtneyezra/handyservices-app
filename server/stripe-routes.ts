@@ -12,6 +12,7 @@ import { insertInvoiceWithRetry } from './invoices';
 import { extendLock, confirmBooking, autoAssignPaidJob } from './booking-engine';
 import { computeLaneBasePence, parsePricingLane } from './lane-pricing';
 import { confirmPaidPick } from './slot-offers';
+import { computeSplitScope } from '../shared/split-scope';
 
 // Helper to get Stripe instance lazily
 const getStripe = () => {
@@ -27,15 +28,17 @@ const getStripe = () => {
 export const stripeRouter = Router();
 
 // Generate idempotency key from quote details to prevent duplicate payments
-function generateIdempotencyKey(quoteId: string, tier: string, extras: string[], paymentType: string = 'full', chargeAmount: number = 0, bookingMeta: Record<string, string> = {}): string {
+function generateIdempotencyKey(quoteId: string, tier: string, extras: string[], paymentType: string = 'full', chargeAmount: number = 0, bookingMeta: Record<string, string> = {}, customerName: string = '', customerEmail: string = ''): string {
     // The key MUST be a function of EVERY param the PI is created with — Stripe
     // rejects reuse of a key with different params. bookingMeta carries everything
     // volatile that goes into the PI metadata (lockId, contractorId, scheduledDate/
     // Slot, address, coords), so re-reserving a different slot OR editing the address
     // mints a fresh key instead of colliding, while a genuine retry of the SAME
-    // request (identical params) still dedupes to the same PI.
+    // request (identical params) still dedupes to the same PI. customerName/Email
+    // are PI params too (receipt_email, description, metadata) — a customer
+    // correcting their email must mint a fresh key, not collide.
     const metaStr = Object.keys(bookingMeta).sort().map((k) => `${k}=${bookingMeta[k]}`).join('&');
-    const data = `${quoteId}-${tier}-${extras.sort().join(',')}-${paymentType}-${chargeAmount}-${metaStr}`;
+    const data = `${quoteId}-${tier}-${extras.sort().join(',')}-${paymentType}-${chargeAmount}-${metaStr}-${customerName}-${customerEmail}`;
     return crypto.createHash('sha256').update(data).digest('hex');
 }
 
@@ -107,6 +110,10 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             // only names the lane, never the amount. Legacy callers (PaymentForm,
             // diagnostic visits) omit this, so they keep the flat-base behaviour.
             pricingLane,
+            // Line-item split ("save for another visit"): the lineIds the customer
+            // crossed off. The client only names lines — the server re-derives the
+            // reduced £ from the trusted quote row via computeSplitScope.
+            deferredLineIds,
         } = req.body;
 
         if (!quoteId) {
@@ -217,6 +224,48 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
             });
         }
 
+        // ── Line-item split ("save for another visit") ──────────────────────
+        // If the customer crossed lines off, re-derive the charge for the KEPT
+        // scope only. computeSplitScope reconciles the quote's batch saving onto
+        // the active subset (server-authoritative — the client named lineIds, not
+        // amounts). The batch rate is recovered against the base net (baseTierPrice),
+        // then any selected extras are added back on top (extras are add-ons,
+        // unaffected by which line items are deferred).
+        let appliedDeferredLineIds: string[] = [];
+        if (Array.isArray(deferredLineIds) && deferredLineIds.length > 0) {
+            const quoteLineItems = (quote.pricingLineItems as any[]) || [];
+            const split = computeSplitScope({
+                lineItems: quoteLineItems,
+                // Batch rate reconciles against the UN-LANED base; the lane
+                // premium (set-date etc.) rides on the kept scope as a lever.
+                fullNetPence: storedBasePrice,
+                leverDeltaPence: baseTierPrice - storedBasePrice,
+                deferredLineIds: deferredLineIds.map(String),
+                depositFraction,
+            });
+            // Only apply if the split is valid (at least one line deferred, kept
+            // scope still has value). Defer-all / unknown ids no-op to full scope.
+            if (split.deferredCount > 0 && split.activeJobPricePence > 0) {
+                appliedDeferredLineIds = split.deferredLineIds;
+                const activeTotalJobPrice = split.activeJobPricePence + extrasTotal;
+                const activeMaterials = split.activeMaterialsPence + extrasMaterials;
+                if (paymentType === 'full') {
+                    const payInFullDiscount = (settings.payInFullDiscountPercent || 3) / 100;
+                    chargeAmount = Math.round(activeTotalJobPrice * (1 - payInFullDiscount));
+                } else {
+                    chargeAmount = calculateDeposit(activeTotalJobPrice, activeMaterials, depositFraction).total;
+                }
+                console.log('[Stripe] Split booking — charging kept scope only:', {
+                    deferred: appliedDeferredLineIds,
+                    keptCount: split.activeCount,
+                    activeTotalJobPrice,
+                    activeMaterials,
+                    activeSaving: split.activeSavingPence,
+                    chargeAmount,
+                });
+            }
+        }
+
         // Minimum Stripe charge is 30p (£0.30)
         chargeAmount = Math.max(chargeAmount, 30);
 
@@ -260,40 +309,57 @@ stripeRouter.post('/api/create-payment-intent', async (req, res) => {
         if (lanePricing.laneApplied && lanePricing.lane) {
             bookingMetadata.pricingLane = lanePricing.lane;
         }
+        // Line-item split — carry the deferred lineIds so the webhook records
+        // which items were saved for another visit (comma-separated, string metadata).
+        if (appliedDeferredLineIds.length > 0) {
+            bookingMetadata.deferredLineIds = appliedDeferredLineIds.join(',').slice(0, 480);
+        }
 
         // Generate the idempotency key AFTER bookingMetadata is assembled, derived
-        // from the full metadata so it always matches the PI's params. This prevents
-        // the "Keys for idempotent requests…" error when the customer re-reserves a
-        // different date/slot (new lockId) or edits their address.
-        const idempotencyKey = generateIdempotencyKey(quoteId, 'standard', selectedExtras, paymentType, chargeAmount, bookingMetadata);
+        // from the full metadata + customer identity so it always matches the PI's
+        // params. This prevents the "Keys for idempotent requests…" error when the
+        // customer re-reserves a different date/slot (new lockId), edits their
+        // address, or corrects their name/email.
+        const idempotencyKey = generateIdempotencyKey(quoteId, 'standard', selectedExtras, paymentType, chargeAmount, bookingMetadata, customerName, customerEmail);
 
-        // Create payment intent with idempotency key
-        const paymentIntent = await stripe.paymentIntents.create(
-            {
-                amount: chargeAmount,
-                currency: 'gbp',
-                automatic_payment_methods: {
-                    enabled: true,
-                },
-                metadata: {
-                    quoteId,
-                    customerName,
-                    customerEmail,
-                    paymentType,
-                    totalJobPrice: totalJobPrice.toString(),
-                    depositAmount: chargeAmount.toString(),
-                    selectedExtras: selectedExtras.join(','),
-                    ...bookingMetadata,
-                },
-                receipt_email: customerEmail,
-                description: paymentType === 'full'
-                    ? `Full payment for ${customerName} (${settings.payInFullDiscountPercent}% pay-in-full discount applied)`
-                    : `Deposit for ${customerName}`
+        const piParams = {
+            amount: chargeAmount,
+            currency: 'gbp' as const,
+            automatic_payment_methods: {
+                enabled: true,
             },
-            {
-                idempotencyKey,
-            }
-        );
+            metadata: {
+                quoteId,
+                customerName,
+                customerEmail,
+                paymentType,
+                totalJobPrice: totalJobPrice.toString(),
+                depositAmount: chargeAmount.toString(),
+                selectedExtras: selectedExtras.join(','),
+                ...bookingMetadata,
+            },
+            receipt_email: customerEmail,
+            description: paymentType === 'full'
+                ? `Full payment for ${customerName} (${settings.payInFullDiscountPercent}% pay-in-full discount applied)`
+                : `Deposit for ${customerName}`
+        };
+
+        // Create payment intent with idempotency key. Self-heal on a key collision
+        // (same key, different params — possible if any PI param drifts outside the
+        // key derivation): retry ONCE with a time-suffixed key rather than dead-
+        // ending the customer with Stripe's raw idempotency error. A genuine
+        // duplicate submit (identical params) still dedupes on the first call.
+        let paymentIntent;
+        try {
+            paymentIntent = await stripe.paymentIntents.create(piParams, { idempotencyKey });
+        } catch (piErr: any) {
+            const isIdempotencyCollision = piErr?.type === 'StripeIdempotencyError'
+                || /idempotent/i.test(piErr?.message || '');
+            if (!isIdempotencyCollision) throw piErr;
+            const freshKey = `${idempotencyKey.slice(0, 48)}-${Date.now().toString(36)}`;
+            console.warn(`[Stripe] Idempotency collision for quote ${quoteId} — retrying with fresh key`);
+            paymentIntent = await stripe.paymentIntents.create(piParams, { idempotencyKey: freshKey });
+        }
 
         console.log('[Stripe] Payment intent created:', paymentIntent.id);
 
@@ -468,6 +534,28 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             console.log(`[Stripe Webhook] Persisted schedulingTier=${metadataSchedulingTier} from metadata for quote ${quoteId}`);
                         }
 
+                        // Line-item split — record which lines the customer deferred to a
+                        // follow-up visit. Resolve the lineIds from this PI's own metadata
+                        // against the quote's stored line items to snapshot label + price,
+                        // so admin/dispatch can see the paid booking covers only the kept
+                        // scope. Ids that no longer exist are dropped defensively.
+                        const metadataDeferred = (paymentIntent.metadata?.deferredLineIds || '')
+                            .split(',').map((s) => s.trim()).filter(Boolean);
+                        if (metadataDeferred.length > 0) {
+                            const quoteLines = (quote.pricingLineItems as any[]) || [];
+                            const deferredSnapshot = quoteLines
+                                .filter((l) => metadataDeferred.includes(String(l.lineId)))
+                                .map((l) => ({
+                                    lineId: String(l.lineId),
+                                    label: l.skuName || l.skuCustomerDescription || l.customerDescription || l.description || 'Item',
+                                    pricePence: (l.guardedPricePence || 0) + (l.materialsWithMarginPence || 0) + (l.structuralSharePence || 0),
+                                }));
+                            if (deferredSnapshot.length > 0) {
+                                updateFields.deferredLineItems = deferredSnapshot;
+                                console.log(`[Stripe Webhook] Recorded ${deferredSnapshot.length} deferred line(s) for quote ${quoteId}: ${deferredSnapshot.map((d) => d.label).join(', ')}`);
+                            }
+                        }
+
                         await db.update(personalizedQuotes)
                             .set(updateFields)
                             .where(eq(personalizedQuotes.id, quoteId));
@@ -510,6 +598,27 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         for (const extraLabel of selectedExtras) {
                             const extra = optionalExtras.find((e: any) => e.label === extraLabel);
                             if (extra) totalJobPrice += extra.priceInPence || 0;
+                        }
+
+                        // Line-item split — the booked job value is the KEPT scope only.
+                        // Re-derive the active base (same computeSplitScope as the charge)
+                        // and swap it in, keeping extras, so the invoice + balance reflect
+                        // what was booked, not the deferred-for-later items.
+                        if (metadataDeferred.length > 0) {
+                            const webhookStoredBase = quote.basePrice || quote.essentialPrice || 0;
+                            const split = computeSplitScope({
+                                lineItems: (quote.pricingLineItems as any[]) || [],
+                                // Same basis as the charge: un-laned base + lane delta as a lever.
+                                fullNetPence: webhookStoredBase,
+                                leverDeltaPence: webhookLanePricing.laneBasePence - webhookStoredBase,
+                                deferredLineIds: metadataDeferred,
+                                depositFraction: 0.30, // unused here (charge came from metadata)
+                            });
+                            if (split.deferredCount > 0 && split.activeJobPricePence > 0) {
+                                const extrasPence = totalJobPrice - webhookLanePricing.laneBasePence;
+                                totalJobPrice = split.activeJobPricePence + extrasPence;
+                                console.log(`[Stripe Webhook] Split booking — invoice total reduced to kept scope: £${(totalJobPrice / 100).toFixed(2)} (deferred ${split.deferredCount} line(s))`);
+                            }
                         }
 
                         // 3. Booking-confirm chain: if the customer reserved a slot

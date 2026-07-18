@@ -1,7 +1,6 @@
 import { Check, ArrowRight } from 'lucide-react';
 import handyLogo from '@/assets/handy-logo-transparent.png';
 import { HS_GREEN_DARK, HS_NAVY, firstNameOf, type OfferTemplateProps } from './types';
-import { FlexDaysAnimation } from './FlexDaysAnimation';
 
 /**
  * 'at_home' template — warm, editorial, trust-led. Built for the HOMEOWNER
@@ -97,12 +96,6 @@ export function AtHomeOffer({ offer, render, customerName, onAccept, onDecline }
             {shAfter}
           </p>
         )}
-
-        {/* How flex works — looping mini week strip: cross off bad days, we
-            book the rest. Sets up the post-payment days-to-avoid picker. */}
-        <div className="mt-6 hs-ah-rise hs-ah-d2">
-          <FlexDaysAnimation />
-        </div>
 
         {/* Benefits — white card with green circle ticks, mirroring the
             preparing/loading screen's checklist card. */}

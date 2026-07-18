@@ -41,6 +41,9 @@ interface PersonalizedQuote {
     paymentType: string | null;
     stripePaymentIntentId: string | null;
     completedAt?: string | null;
+    // Line-item split: lines the customer deferred to a follow-up visit. The paid
+    // booking covers only the kept scope.
+    deferredLineItems?: { lineId: string; label: string; pricePence: number }[] | null;
     // Scheduling fields
     selectedDate: string | null;
     timeSlotType: string | null;
@@ -317,6 +320,26 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, on
                         </span>
                     )}
                 </div>
+
+                {/* Line-item split — booked scope is reduced; the deferred items are
+                    saved for a follow-up visit. Flag it so dispatch books only the
+                    kept work and knows there's a re-book opportunity. */}
+                {quote.deferredLineItems && quote.deferredLineItems.length > 0 && (
+                    <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5">
+                        <div className="text-[10px] font-bold uppercase tracking-wide text-amber-700">
+                            Saved for another visit · {quote.deferredLineItems.length}
+                        </div>
+                        <ul className="mt-0.5 space-y-0.5">
+                            {quote.deferredLineItems.map((d) => (
+                                <li key={d.lineId} className="flex justify-between gap-2 text-[11px] text-amber-800">
+                                    <span className="truncate">{d.label}</span>
+                                    <span className="tabular-nums shrink-0">£{Math.round(d.pricePence / 100)}</span>
+                                </li>
+                            ))}
+                        </ul>
+                        <div className="mt-0.5 text-[9.5px] text-amber-600">Book only the kept items · follow-up rebook opportunity</div>
+                    </div>
+                )}
 
                 {/* Actions */}
                 <div className="mt-auto pt-3 border-t space-y-2">
