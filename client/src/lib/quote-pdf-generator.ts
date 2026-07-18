@@ -408,10 +408,9 @@ export function buildQuotePdf(data: QuotePDFData, brand?: QuotePdfBrand): jsPDF 
     ensureSpace(7 + 2 * 15);
     sectionHeading('When Suits You?', y);
     y += 7;
-    const days = data.scheduling.flexWindowDays || 7;
     optionBox(
       "I'm flexible",
-      `We pick the best weekday within ${days} days`,
+      'We fit you into our route — you pick any days to avoid after booking',
       { recommended: true, badge: 'BEST PRICE' },
     );
     optionBox(
