@@ -15,8 +15,8 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { format, addDays, isWeekend } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
-import { CardNumberElement, CardExpiryElement, CardCvcElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
-import type { StripeExpressCheckoutElementConfirmEvent } from '@stripe/stripe-js';
+import { Elements, CardNumberElement, CardExpiryElement, CardCvcElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import type { Stripe as StripeJs, StripeElements, StripeExpressCheckoutElementConfirmEvent } from '@stripe/stripe-js';
 import { isStripeConfigured } from '@/lib/stripe';
 import { getHassleComparisons } from '@shared/hassle-comparisons';
 import { computeSplitScope } from '@shared/split-scope';
@@ -505,6 +505,76 @@ const DIFFERENTIATOR_CHIPS: Record<CustomerType, DifferentiatorChip[]> = {
   ],
 };
 
+// Wallet button styling shared by both surfaces: the real branded buttons
+// ("Book with  Pay" / "Book with G Pay"), black, proper button height —
+// a bare wallet logo reads as decoration, not an action.
+const WALLET_BUTTON_STYLE = {
+  buttonTheme: { applePay: 'black' as const, googlePay: 'black' as const },
+  buttonType: { applePay: 'book' as const, googlePay: 'book' as const },
+  buttonHeight: 48,
+};
+
+// ── Booking-section wallet button ────────────────────────────────────────────
+// Stripe allows ONE ExpressCheckoutElement per Elements provider, and the
+// sticky bar owns the page-level provider's instance — so this surface runs a
+// NESTED provider on the same Stripe instance (deferred mode). The amount is
+// kept in sync with the active selection via elements.update; confirm calls
+// back into the shared handleExpressPayWith with THIS provider's pair.
+function InlineExpressPay({ stripe, amountPence, customerEmail, onConfirmWith, onAvailability }: {
+  stripe: StripeJs | null;
+  amountPence: number;
+  customerEmail?: string;
+  onConfirmWith: (s: StripeJs | null, e: StripeElements | null, ev: StripeExpressCheckoutElementConfirmEvent) => void;
+  onAvailability: (avail: boolean) => void;
+}) {
+  if (!stripe) return null;
+  return (
+    <Elements stripe={stripe} options={{ mode: 'payment', amount: Math.max(amountPence, 30), currency: 'gbp' }}>
+      <InlineExpressInner amountPence={amountPence} customerEmail={customerEmail} onConfirmWith={onConfirmWith} onAvailability={onAvailability} />
+    </Elements>
+  );
+}
+
+function InlineExpressInner({ amountPence, customerEmail, onConfirmWith, onAvailability }: {
+  amountPence: number;
+  customerEmail?: string;
+  onConfirmWith: (s: StripeJs | null, e: StripeElements | null, ev: StripeExpressCheckoutElementConfirmEvent) => void;
+  onAvailability: (avail: boolean) => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  useEffect(() => {
+    if (!elements) return;
+    try { elements.update({ amount: Math.max(amountPence, 30) }); }
+    catch { /* provider settling — mount amount stands until next sync */ }
+  }, [elements, amountPence]);
+  return (
+    <ExpressCheckoutElement
+      onConfirm={(ev) => onConfirmWith(stripe, elements, ev)}
+      onReady={(e: any) => {
+        const m = e?.availablePaymentMethods;
+        onAvailability(!!m && Object.values(m).some(Boolean));
+      }}
+      onLoadError={() => onAvailability(false)}
+      options={{
+        emailRequired: !customerEmail,
+        phoneNumberRequired: false,
+        billingAddressRequired: false,
+        shippingAddressRequired: false,
+        ...WALLET_BUTTON_STYLE,
+        paymentMethods: {
+          applePay: 'auto',
+          googlePay: 'auto',
+          link: 'never',
+          amazonPay: 'never',
+          paypal: 'never',
+          klarna: 'never',
+        },
+      }}
+    />
+  );
+}
+
 export function UnifiedQuoteCard({
   segment,
   basePrice,
@@ -777,6 +847,10 @@ export function UnifiedQuoteCard({
   // browser/domain/device. The card form in the booking section is always
   // visible as the universal fallback either way.
   const [walletsAvailable, setWalletsAvailable] = useState<boolean | null>(null);
+  // Two wallet surfaces (sticky + booking section) both report — once EITHER
+  // says a wallet exists, that verdict sticks (a late false from the other
+  // surface must not downgrade it).
+  const reportWalletAvailability = (avail: boolean) => setWalletsAvailable(prev => (prev === true ? true : avail));
 
   // Refs for scroll behavior
   const timeSectionRef = useRef<HTMLDivElement>(null);
@@ -1520,17 +1594,19 @@ export function UnifiedQuoteCard({
   }, [elements, isCash, effectiveChargeNowPence]);
 
   // ── One-tap wallet confirm (Apple Pay / Google Pay) ─────────────────────────
-  // Shared by BOTH wallet surfaces (sticky bar + booking section). Deferred-
+  // Shared by BOTH wallet surfaces (sticky bar + booking section). Each surface
+  // lives under its OWN Elements provider (Stripe allows one express element per
+  // provider), so the caller passes ITS stripe/elements pair in. Deferred-
   // intent: the PI is created here at confirm time, with the wallet's email and
   // the CURRENT selection — flex (default) or a reserved exact slot — plus the
   // pay-in-full toggle and any line-item split. No inputs before the tap: the
   // street address is collected on the post-payment confirmation page.
-  const handleExpressPay = async (event: StripeExpressCheckoutElementConfirmEvent) => {
-    if (!stripe || !elements) return;
+  const handleExpressPayWith = async (stripeX: StripeJs | null, elementsX: StripeElements | null, event: StripeExpressCheckoutElementConfirmEvent) => {
+    if (!stripeX || !elementsX) return;
     setIsProcessingPayment(true);
     setPaymentError(null);
     try {
-      const { error: submitError } = await elements.submit();
+      const { error: submitError } = await elementsX.submit();
       if (submitError) throw new Error(submitError.message);
 
       const walletEmail = (event as any)?.billingDetails?.email || effectiveEmail;
@@ -1566,8 +1642,8 @@ export function UnifiedQuoteCard({
       const data = await res.json();
       if (!data.clientSecret) throw new Error('Could not start payment');
 
-      const { error: stripeError, paymentIntent } = await stripe.confirmPayment({
-        elements,
+      const { error: stripeError, paymentIntent } = await stripeX.confirmPayment({
+        elements: elementsX,
         clientSecret: data.clientSecret,
         confirmParams: { return_url: `${window.location.origin}/q/${quoteId}?paid=1` },
         redirect: 'if_required',
@@ -3125,16 +3201,25 @@ export function UnifiedQuoteCard({
                 </div>
               ) : (
                 <>
-                  {/* One-tap wallets live in the STICKY BAR (Stripe allows one
-                      ExpressCheckoutElement per provider, and the sticky is the
-                      always-in-reach surface). This section is the card fallback
-                      — visible for everyone, one email field at most. */}
+                  {/* Wallet button IN the section (own nested Elements provider —
+                      Stripe allows one express element per provider and the sticky
+                      bar owns the page-level one). Card form below is the
+                      universal fallback — visible for everyone. */}
+                  {isStripeConfigured && (
+                    <InlineExpressPay
+                      stripe={stripe}
+                      amountPence={effectiveChargeNowPence}
+                      customerEmail={customerEmail}
+                      onConfirmWith={handleExpressPayWith}
+                      onAvailability={reportWalletAvailability}
+                    />
+                  )}
                   {walletsAvailable && (
-                    <p className={`text-[11.5px] text-center ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
-                      Fastest: one-tap {' '}
-                      <span className="font-semibold">Apple&nbsp;Pay / Google&nbsp;Pay</span>
-                      {' '}in the bar below — or pay by card here.
-                    </p>
+                    <div className="flex items-center gap-3 my-1">
+                      <div className={`flex-1 h-px ${isDarkTheme ? 'bg-gray-600' : 'bg-slate-200'}`} />
+                      <span className={`text-xs ${isDarkTheme ? 'text-gray-400' : 'text-slate-400'}`}>Or pay by card</span>
+                      <div className={`flex-1 h-px ${isDarkTheme ? 'bg-gray-600' : 'bg-slate-200'}`} />
+                    </div>
                   )}
                   {(
                     <div className="space-y-3">
@@ -3335,18 +3420,18 @@ export function UnifiedQuoteCard({
                       address is collected post-payment. */}
                   {stickyExpressEnabled && (useFlexBooking || (!!selectedDate && !!reservation)) && isStripeConfigured && !!stripe && (
                     <ExpressCheckoutElement
-                      onConfirm={handleExpressPay}
+                      onConfirm={(e) => handleExpressPayWith(stripe, elements, e)}
                       // Wallets need an Apple/Google-verified HTTPS domain (Stripe →
                       // Settings → Payment method domains): localhost NEVER shows
                       // them; verify on the live domain. onReady logs which wallets
                       // this browser/domain/device combination can offer.
                       onReady={(e: any) => {
                         const m = e?.availablePaymentMethods;
-                        setWalletsAvailable(!!m && Object.values(m).some(Boolean));
+                        reportWalletAvailability(!!m && Object.values(m).some(Boolean));
                         console.log('[stickypay] express ready — available wallets:', JSON.stringify(m ?? null));
                       }}
                       onLoadError={(e: any) => {
-                        setWalletsAvailable(false);
+                        reportWalletAvailability(false);
                         console.warn('[stickypay] express load error (yellow CTA + card form remain the fallback):', e?.error?.message || e);
                       }}
                       options={{
@@ -3354,6 +3439,7 @@ export function UnifiedQuoteCard({
                         phoneNumberRequired: false,
                         billingAddressRequired: false,
                         shippingAddressRequired: false,
+                        ...WALLET_BUTTON_STYLE,
                         paymentMethods: {
                           applePay: 'auto',
                           googlePay: 'auto',
