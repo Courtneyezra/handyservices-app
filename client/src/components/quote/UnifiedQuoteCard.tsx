@@ -104,7 +104,7 @@ export interface QuoteBatchDiscount {
  * scannable. SKU lines read as solid product tiles (green icon), custom lines
  * as a "made-to-order" neutral icon.
  */
-function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = false }: { item: PricingLineItem; isDarkTheme: boolean; displayPricePence?: number; collapsible?: boolean }) {
+function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = false, onCross }: { item: PricingLineItem; isDarkTheme: boolean; displayPricePence?: number; collapsible?: boolean; onCross?: () => void }) {
   const anyItem = item as any;
   const isSku = anyItem.source === 'sku';
   const title = anyItem.skuName || item.description;
@@ -194,6 +194,16 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = fals
         <span className={`shrink-0 text-[14px] font-bold tabular-nums ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}>£{Math.round((displayPricePence ?? lineTotal) / 100)}</span>
         {collapsible && (
           <ChevronDown className={`shrink-0 w-4 h-4 transition-transform duration-300 ${open ? 'rotate-180' : ''} ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} />
+        )}
+        {onCross && !collapsible && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onCross(); }}
+            aria-label="Cross off — save for another visit"
+            className={`shrink-0 w-6 h-6 -mr-0.5 rounded-full flex items-center justify-center border transition-colors ${isDarkTheme ? 'border-white/20 text-slate-400 hover:border-red-400 hover:text-red-300' : 'border-slate-300 text-slate-400 hover:border-red-400 hover:text-red-500'}`}
+          >
+            <X className="w-3 h-3" strokeWidth={2.5} />
+          </button>
         )}
       </HeaderTag>
 
@@ -1968,29 +1978,14 @@ export function UnifiedQuoteCard({
               )}
               <div className="space-y-1.5">
                 {activeSplitLines.map(({ item, displayPence }) => (
-                  enableLineItemSplit ? (
-                    <div key={item.lineId} className="flex items-center gap-2">
-                      <div className="flex-1 min-w-0">
-                        <QuoteLineRow item={item} isDarkTheme={isDarkTheme} displayPricePence={displayPence} />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => toggleDeferredLine(item.lineId)}
-                        aria-label="Cross off — save for another visit"
-                        className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center border transition-colors ${isDarkTheme ? 'border-white/20 text-slate-400 hover:border-red-400 hover:text-red-300' : 'border-slate-300 text-slate-400 hover:border-red-400 hover:text-red-500'}`}
-                      >
-                        <X className="w-3.5 h-3.5" strokeWidth={2.5} />
-                      </button>
-                    </div>
-                  ) : (
-                    <QuoteLineRow
-                      key={item.lineId}
-                      item={item}
-                      isDarkTheme={isDarkTheme}
-                      displayPricePence={displayPence}
-                      collapsible={displayLineItems.length >= 5}
-                    />
-                  )
+                  <QuoteLineRow
+                    key={item.lineId}
+                    item={item}
+                    isDarkTheme={isDarkTheme}
+                    displayPricePence={displayPence}
+                    collapsible={!enableLineItemSplit && displayLineItems.length >= 5}
+                    onCross={enableLineItemSplit ? () => toggleDeferredLine(item.lineId) : undefined}
+                  />
                 ))}
               </div>
 
