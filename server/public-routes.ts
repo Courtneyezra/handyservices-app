@@ -440,6 +440,59 @@ function timeRangeCoversSlot(startTime: string | null, endTime: string | null, s
 }
 
 /**
+ * POST /api/public/quote/:quoteId/date-preferences
+ *
+ * Model A post-payment day collection: a flex customer (paid, no selectedDate)
+ * submits the days they could be home. Stored as dateTimePreferences with
+ * timeSlot 'flexible' — dispatch treats these as ALLOWED days (customer
+ * constraints), not currently-open days, and places the job inside
+ * window ∩ approved days.
+ *
+ * Body: { dates: string[] }  — YYYY-MM-DD, 3..14 entries, today or later.
+ */
+router.post('/quote/:quoteId/date-preferences', async (req: Request, res: Response) => {
+    try {
+        const { quoteId } = req.params;
+        const dates = req.body?.dates;
+
+        // Upper bound = full 21-day exclusion-picker horizon (18 working days)
+        // with slack — "All days work for me" submits every working day.
+        if (!Array.isArray(dates) || dates.length < 3 || dates.length > 31) {
+            return res.status(400).json({ error: 'dates must be an array of 3-31 entries' });
+        }
+        const today = formatTz(toZonedTime(new Date(), 'Europe/London'), 'yyyy-MM-dd');
+        for (const d of dates) {
+            if (typeof d !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+                return res.status(400).json({ error: `invalid date: ${d}` });
+            }
+            if (d < today) {
+                return res.status(400).json({ error: `date in the past: ${d}` });
+            }
+        }
+
+        const quote = await db.query.personalizedQuotes.findFirst({
+            where: or(
+                eq(personalizedQuotes.id, quoteId),
+                eq(personalizedQuotes.shortSlug, quoteId)
+            ),
+        });
+        if (!quote) return res.status(404).json({ error: 'Quote not found' });
+
+        const preferences = [...new Set(dates as string[])].sort()
+            .map(date => ({ date, timeSlot: 'flexible' as const }));
+
+        await db.update(personalizedQuotes)
+            .set({ dateTimePreferences: preferences })
+            .where(eq(personalizedQuotes.id, quote.id));
+
+        return res.json({ ok: true, count: preferences.length });
+    } catch (error) {
+        console.error('[PublicRoutes] date-preferences error:', error);
+        return res.status(500).json({ error: 'Failed to save date preferences' });
+    }
+});
+
+/**
  * GET /api/public/quote/:quoteId/availability
  *
  * Returns dates where at least one candidate contractor from the quote's pool

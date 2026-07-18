@@ -36,6 +36,12 @@ export interface PaidBookingHeroProps {
   jobCompleted?: boolean;
   /** Google review link — review CTA only renders when provided. */
   reviewUrl?: string;
+  /**
+   * Flex booking with post-payment days collected: the date block absorbs the
+   * day state ("within 3 weeks", avoided days, change link) so the hub needs
+   * no separate summary card. `avoided` = crossed-off days (YYYY-MM-DD).
+   */
+  flexDays?: { avoided: string[]; onChangeDays?: () => void };
 }
 
 /** £12.50 for odd pence, £125 for whole pounds — matches quote-page price idiom. */
@@ -64,6 +70,7 @@ export function PaidBookingHero({
   phoneNumber = '+447449501762',
   jobCompleted = false,
   reviewUrl,
+  flexDays,
 }: PaidBookingHeroProps) {
   const firstName = customerName?.split(' ')[0] || 'there';
   const jobDate = parseDate(selectedDate);
@@ -169,12 +176,54 @@ END:VCALENDAR`;
               {dateLabel ? 'Your job date' : deadlineLabel ? 'Guaranteed done by' : 'Your job date'}
             </div>
             <div className="text-white text-2xl font-black leading-tight">
-              {dateLabel || deadlineLabel || "We're confirming your date"}
+              {dateLabel || deadlineLabel || (flexDays ? 'Within the next 3 weeks' : "We're confirming your date")}
             </div>
-            {!dateLabel && (
+            {!dateLabel && flexDays ? (
+              /* Post-payment day collection absorbed here — one block owns the
+                 whole "when" story: window, avoided days, confirm promise. */
+              <>
+                <div className="text-white/85 text-xs mt-1">
+                  We'll text your confirmed day at least 2 days ahead.
+                </div>
+                {flexDays.avoided.length > 0 ? (
+                  <div className="mt-3 pt-3 border-t border-white/20">
+                    <div className="text-white/80 text-[10px] font-bold uppercase tracking-wider mb-1.5">
+                      Days we'll avoid
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-1.5">
+                      {flexDays.avoided.map(str => (
+                        <span
+                          key={str}
+                          className="inline-flex items-center px-2.5 py-1 rounded-lg bg-white text-slate-700 text-[11px] font-bold shadow-sm"
+                        >
+                          <span className="line-through decoration-red-500 decoration-2">
+                            {format(new Date(`${str}T12:00:00`), 'EEE d MMM')}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-white text-[11px] font-bold">
+                    <Check className="w-3 h-3" strokeWidth={3} /> You're fully flexible
+                  </div>
+                )}
+                {flexDays.onChangeDays && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={flexDays.onChangeDays}
+                      className="mt-2.5 text-white/85 text-[11px] font-semibold underline underline-offset-2 hover:text-white"
+                    >
+                      {flexDays.avoided.length > 0 ? 'Change my days' : 'Add days to avoid'}
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : !dateLabel && (
               <div className="text-white/85 text-xs mt-1">
                 {deadlineLabel
-                  ? "You chose our flexible slot — we pick the exact day and WhatsApp you at least a day ahead."
+                  ? "You're flexible — we fit you into the route and text your confirmed day at least 2 days ahead."
                   : "We'll WhatsApp you as soon as your slot is locked."}
               </div>
             )}

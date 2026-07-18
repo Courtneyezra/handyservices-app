@@ -52,6 +52,8 @@ import { WistiaFacade } from '@/components/quote/WistiaFacade';
 import { AmendedQuoteCard } from '@/components/quote/AmendedQuoteCard';
 import { BookingConfirmation } from '@/components/quote/BookingConfirmation';
 import { PaidBookingHero } from '@/components/quote/PaidBookingHero';
+import { PostPayDayPicker, pickerHorizonDates } from '@/components/quote/PostPayDayPicker';
+import { ContractorProfile } from '@/components/quote/ContractorProfile';
 import { WhatsNextTimeline } from '@/components/quote/WhatsNextTimeline';
 import { QuoteTimer } from '@/components/quote/QuoteTimer';
 import { QuoteTimerProvider, StickyTimerProgress } from '@/components/quote/QuoteTimerContext';
@@ -2862,6 +2864,22 @@ export default function PersonalizedQuotePage() {
   // redirect beats the webhook that writes depositPaidAt, so this flag renders
   // the job hub optimistically while a poll below waits for the webhook.
   const [justPaid] = useState(() => new URLSearchParams(window.location.search).get('paid') === '1');
+  // Model A day-collection step — shown once between payment and the job hub
+  // for flex bookings. postPayDates = days saved this session (the quote cache
+  // won't have them yet); dayStepDone = step completed or skipped (skips
+  // persist per-session so reopens go straight to the hub, where the picker
+  // card remains as the fallback surface).
+  const [postPayDates, setPostPayDates] = useState<string[] | null>(null);
+  // Hub "Change my days" — reopens the picker card below the hero.
+  const [editingDays, setEditingDays] = useState(false);
+  const [dayStepDone, setDayStepDone] = useState(() => {
+    try { return sessionStorage.getItem(`daystep_done_${window.location.pathname}`) === '1'; } catch { return false; }
+  });
+  const completeDayStep = useCallback(() => {
+    try { sessionStorage.setItem(`daystep_done_${window.location.pathname}`, '1'); } catch { /* noop */ }
+    setDayStepDone(true);
+    window.scrollTo({ top: 0 });
+  }, []);
   // The preparing-screen checklist theatre plays on the FIRST open only.
   // localStorage skips it instantly on this device; the server viewCount /
   // depositPaidAt backstop (checked at render) covers other devices.
@@ -4690,6 +4708,22 @@ export default function PersonalizedQuotePage() {
               (quote.flexBookingWithinDays as number) * 24 * 60 * 60 * 1000,
           )
         : null;
+    // Model A day-collection step: flex payers pick their workable days as a
+    // dedicated step BEFORE the job hub, so the hub's "nothing more to do" is
+    // true by the time they see it. Already-saved prefs (reopens) skip it.
+    const savedPrefDates = ((quote as any).dateTimePreferences as { date: string }[] | null | undefined)
+      ?.map(p => p.date);
+    const needsDayStep =
+      !quote.selectedDate &&
+      !paidJobCompleted &&
+      !dayStepDone &&
+      !(savedPrefDates && savedPrefDates.length > 0);
+    // Collected allowed days (this session's save wins over the cached quote)
+    // and the crossed-off complement for the hero's date block.
+    const collectedDays = postPayDates ?? (savedPrefDates?.length ? savedPrefDates : null);
+    const avoidedDays = collectedDays
+      ? pickerHorizonDates().filter(d => !collectedDays.includes(d))
+      : [];
     return (
       <QuoteTimerProvider quoteKey={params?.slug || 'quote'} expiresAt={quote.expiresAt} viewCount={quote.viewCount}>
       <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
@@ -4749,6 +4783,76 @@ export default function PersonalizedQuotePage() {
         />
 
         {isPaidState ? (
+          (needsDayStep || editingDays) ? (
+            /* ── Day-collection step — its OWN screen, before the job hub ──────
+               First time: a LOUD payment-received flash (never let a customer
+               wonder if the charge worked while being asked for more). Reopened
+               via "Change my days" from the hub: a plain edit header instead.
+               Either way this is the ONLY place the picker grid lives — the hub
+               is hero-only. Skippable; the confirmation is never held hostage. */
+            <div className="px-4 pt-4 pb-16">
+              <div className="w-full max-w-lg mx-auto space-y-3">
+                {editingDays ? (
+                  <div className="text-center pt-2">
+                    <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Change your days</h2>
+                    <p className="text-[13px] text-slate-600 mt-1">Update the days Craig should avoid.</p>
+                  </div>
+                ) : (
+                  /* Compact one-line payment confirmation — mobile-first: the
+                     calendar is the star, so the flash stays loud (green check
+                     + bold) but spends one row, not four. */
+                  <div className="flex items-center justify-center gap-2.5 text-center">
+                    <motion.span
+                      initial={{ scale: 0.6, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ type: 'spring', stiffness: 260, damping: 18 }}
+                      className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-[#7DB00E] shadow shadow-[#7DB00E]/30 shrink-0"
+                    >
+                      <Check className="w-5 h-5 text-white" strokeWidth={3} />
+                    </motion.span>
+                    <p className="text-left leading-tight">
+                      <span className="block text-lg font-extrabold text-slate-900 tracking-tight">Payment received</span>
+                      <span className="block text-[13px] text-slate-600">You're in Craig's queue, {quote.customerName.split(' ')[0]}. One last&nbsp;thing&nbsp;—</span>
+                    </p>
+                  </div>
+                )}
+                <PostPayDayPicker
+                  key={editingDays ? 'editing' : 'first'}
+                  quoteId={quote.id}
+                  initialDates={collectedDays ?? undefined}
+                  startInEdit={editingDays}
+                  onSaved={(dates) => {
+                    setPostPayDates(dates);
+                    // Let the "days set" state land for a beat, then hand back
+                    // to the hub (whose hero shows the same summary).
+                    setTimeout(() => { setEditingDays(false); completeDayStep(); }, 1400);
+                  }}
+                />
+                {!editingDays && (
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      onClick={completeDayStep}
+                      className="text-slate-500 text-sm underline underline-offset-2 hover:text-slate-700"
+                    >
+                      I'll pick my days later
+                    </button>
+                  </div>
+                )}
+                {editingDays && (
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => { setEditingDays(false); window.scrollTo({ top: 0 }); }}
+                      className="text-slate-500 text-sm underline underline-offset-2 hover:text-slate-700"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
           /* ── Paid job hub — confirmation-first ─────────────────────────────
              The pitch has done its job. Every reopen after payment answers
              "when are they coming, what do I owe, how do I reach them"
@@ -4768,7 +4872,30 @@ export default function PersonalizedQuotePage() {
                 invoiceNumber={confirmationData?.invoice?.invoiceNumber ?? invoiceData?.invoiceNumber}
                 portalToken={confirmationData?.portalToken ?? undefined}
                 jobCompleted={paidJobCompleted}
+                flexDays={!quote.selectedDate && !paidJobCompleted
+                  ? { avoided: avoidedDays, onChangeDays: () => { setEditingDays(true); window.scrollTo({ top: 0 }); } }
+                  : undefined}
               />
+              {/* Model A: the hero's date block owns the ENTIRE day state —
+                  window, avoided days, and the change link (which reopens the
+                  day step). No picker card on the hub. */}
+              {/* C3: compact Craig reassurance post-purchase — same dark hub
+                  card style, gallery/review dropped. Homeowner contextual only.
+                  Placeholder content pending C5. */}
+              {['homeowner', 'oap_homeowner'].includes(deriveOfferCustomerType((quote as any).contextSignals)) && (
+                <div className="bg-[#1D2D3D] rounded-3xl shadow-2xl px-5 py-6 sm:px-6">
+                  <ContractorProfile
+                    onDark
+                    compact
+                    name="Craig"
+                    headshotUrl="/assets/avatars/craig-avatar-1.webp"
+                    rating={4.9}
+                    jobsCount={214}
+                    bio="Craig's got your job. Over a decade putting things right in people's homes — tidy, on time, and back to sort it if anything's not perfect."
+                    badges={['DBS-checked', '£2M insured', '12-month guarantee']}
+                  />
+                </div>
+              )}
               <WhatsNextTimeline
                 currentStep={paidJobCompleted ? (paidBalancePence <= 0 ? 'job_done' : 'balance') : 'booked'}
                 selectedDate={quote.selectedDate}
@@ -4777,6 +4904,7 @@ export default function PersonalizedQuotePage() {
               />
             </div>
           </div>
+          )
         ) : (
         <>
         {/* Value Sections Flow */}
@@ -4797,6 +4925,44 @@ export default function PersonalizedQuotePage() {
         {/* Customer's own job photos — anchors the price to THEIR exact job,
             straight after the price card and before any generic messaging. */}
         <CustomerJobPhotos photos={quote.customerPhotoUrls} />
+
+        {/* Meet your handyman — person-led brand. Placed HERE (right after the
+            customer's own job photos) so the journey reads "your price → your
+            job → the person who does your job" — the human peak of the quote,
+            landing trust at the decision moment. The company proof (guarantee,
+            social proof, comparison) then reinforces below. Homeowner
+            contextual quotes only.
+            TODO(C5): hardcoded Craig with PLACEHOLDER bio/review + AI-generated
+            work gallery — swap for real handyman_profiles content and wire from
+            the assigned-contractor record once seat selection exists. */}
+        {['homeowner', 'oap_homeowner'].includes(deriveOfferCustomerType((quote as any).contextSignals)) && (
+          /* Same dark navy as the ValueGuarantee section (#1D2D3D) so the two dark beats read as one system, not a one-off. */
+          <SectionWrapper className="bg-[#1D2D3D] py-16 lg:py-24">
+            <ContractorProfile
+              onDark
+              name="Craig"
+              headshotUrl="/assets/avatars/craig-avatar-1.webp"
+              bannerUrl="/assets/quote-images/craig-banner.webp"
+              rating={4.9}
+              jobsCount={214}
+              bio="Over a decade putting homes right — tidy, on time, and back to sort it if anything's not perfect."
+              badges={['DBS-checked', '£2M insured', '12-month guarantee']}
+              work={[
+                { url: '/assets/quote-images/craig-bathroom.webp', label: 'Bathroom reseal' },
+                { url: '/assets/quote-images/craig-tiling.webp', label: 'Tiling' },
+                { url: '/assets/quote-images/craig-fence.webp', label: 'Fence repair' },
+                { url: '/assets/quote-images/craig-light.webp', label: 'Light fitting' },
+                { url: '/assets/quote-images/craig-flatpack.webp', label: 'Flat-pack build' },
+                { url: '/assets/quote-images/craig-gutter.webp', label: 'Gutter clear' },
+              ]}
+              review={{
+                text: "Craig was brilliant — turned up when he said, got through everything on my list, and left the place spotless.",
+                author: 'Mark D.',
+                location: 'West Bridgford',
+              }}
+            />
+          </SectionWrapper>
+        )}
 
         {/* Cost of the wrong choice — established before any price. Quiet editorial
             beat (type + whitespace, no coloured band). Contextual quotes only. */}
