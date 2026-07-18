@@ -174,6 +174,7 @@ const InstantPricePage = lazy(() => import("@/pages/InstantPricePage"));
 // Labs — self-contained, frontend-only sandbox pages (no backend)
 const BookingTwoLaneLab = lazy(() => import("@/pages/labs/BookingTwoLaneLab"));
 const OfferPreviewLab = lazy(() => import("@/pages/labs/OfferPreviewLab"));
+const QuoteSplitLab = lazy(() => import("@/pages/labs/QuoteSplitLab"));
 
 // Pitch/Sales Pages
 const PitchIndex = lazy(() => import("@/pages/pitch/PitchIndex"));
@@ -362,6 +363,11 @@ function Router() {
                   * Defaults to the homeowner 'at_home' flex-save design. */}
                 <Route path="/labs/offer-preview">
                     <OfferPreviewLab />
+                </Route>
+                {/* "Choose what to do now" — interactive line-item deferral with
+                  * honest call-out-sharing re-pricing + locked gas dependency. */}
+                <Route path="/labs/quote-split">
+                    <QuoteSplitLab />
                 </Route>
                 <Route path="/review/:token">
                     <LeaveReview />
