@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { X, RotateCcw } from 'lucide-react';
 
 /**
  * QuoteSplitLab (/labs/quote-split) — pressure-test for the "Choose what to do
@@ -86,32 +87,33 @@ export default function QuoteSplitLab() {
               const jobs = JOBS.filter(j => j.group === unit.group);
               const isDeferred = deferred.has(unit.group);
               return (
-                <div key={unit.group} className="py-3 border-b border-white/[0.07]">
+                <div key={unit.group} className={`py-3 border-b border-white/[0.07] rounded-lg px-1 transition-colors ${isDeferred ? 'bg-red-500/[0.06]' : ''}`}>
                   <div className="flex items-start gap-3">
                     <div className="flex-1 min-w-0">
                       {jobs.map(j => (
-                        <div key={j.id} className={`flex items-baseline justify-between ${isDeferred ? 'opacity-45' : ''}`}>
+                        <div key={j.id} className="flex items-baseline justify-between">
                           <div>
-                            <span className="text-[14px] font-semibold">{j.label}</span>
+                            <span className={`text-[14px] font-semibold ${isDeferred ? 'line-through decoration-red-400 decoration-2 text-slate-400' : ''}`}>{j.label}</span>
                             {unit.locked && (
                               <span className="ml-1.5 text-[10px] text-slate-400 border border-white/15 rounded px-1 py-0.5 align-middle">linked</span>
                             )}
-                            {j.sub && <div className="text-[11px] text-slate-400">{j.sub}</div>}
+                            {j.sub && <div className={`text-[11px] text-slate-400 ${isDeferred ? 'line-through decoration-red-400/60' : ''}`}>{j.sub}</div>}
                           </div>
-                          <span className={`text-[13px] font-medium ml-2 ${isDeferred ? 'line-through text-slate-500' : ''}`}>{gbp(j.marginal)}</span>
+                          <span className={`text-[13px] font-medium ml-2 ${isDeferred ? 'line-through decoration-red-400 text-slate-500' : ''}`}>{gbp(j.marginal)}</span>
                         </div>
                       ))}
                     </div>
                     <button
                       type="button"
                       onClick={() => toggle(unit.group)}
-                      className={`shrink-0 text-[12px] font-bold rounded-full px-3 py-1.5 border transition-colors ${
+                      aria-label={isDeferred ? 'Add this back to the visit' : 'Cross off — do this later'}
+                      className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center border transition-colors ${
                         isDeferred
-                          ? 'bg-transparent border-white/25 text-slate-300'
-                          : 'bg-[#7DB00E] border-[#7DB00E] text-[#0f2410]'
+                          ? 'bg-transparent border-[#7DB00E]/50 text-[#a3d65f] hover:bg-[#7DB00E]/15'
+                          : 'bg-transparent border-white/20 text-slate-400 hover:border-red-400 hover:text-red-300'
                       }`}
                     >
-                      {isDeferred ? 'Do later' : 'Doing now'}
+                      {isDeferred ? <RotateCcw className="w-4 h-4" /> : <X className="w-4 h-4" strokeWidth={2.5} />}
                     </button>
                   </div>
                 </div>
