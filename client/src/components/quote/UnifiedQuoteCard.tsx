@@ -3365,9 +3365,28 @@ export function UnifiedQuoteCard({
                       }}
                     />
                   )}
-                  {/* One bold bright-yellow CTA carrying both the entry price
-                      ("Reserve from £X") and the action, so the sticky action
-                      reads at a glance. Navy text for contrast on yellow. */}
+                  {/* Wallet-primary (big-tech pattern): when a wallet rendered
+                      above, IT is the checkout button — the yellow CTA demotes
+                      to a slim "other ways to pay" link that scrolls to the card
+                      form. No wallet (or still detecting) → the yellow CTA stays
+                      the full-size primary. */}
+                  {walletsAvailable ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = useFlexBooking ? bookSectionRef : dateSectionRef;
+                        target.current?.scrollIntoView({
+                          behavior: 'smooth',
+                          block: useFlexBooking ? 'start' : 'center',
+                        });
+                      }}
+                      className="w-full text-center text-[13px] font-semibold py-1.5 text-slate-600 underline underline-offset-4 decoration-slate-300"
+                    >
+                      {useFlexBooking || isContextual
+                        ? `Other ways to pay · ${payFull ? 'from' : 'reserve from'} £${Math.round((hasDeferrals ? splitDepositPence : depositAmount) / 100)}`
+                        : 'Choose your date'}
+                    </button>
+                  ) : (
                   <button
                     type="button"
                     onClick={() => {
@@ -3398,6 +3417,7 @@ export function UnifiedQuoteCard({
                       </span>
                     </span>
                   </button>
+                  )}
                 </div>
               </div>
             </motion.div>
