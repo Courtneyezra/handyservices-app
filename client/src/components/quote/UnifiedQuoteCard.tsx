@@ -6,7 +6,7 @@ import {
   Check, Calendar, CalendarCheck, CalendarRange, Clock, Tag, Shield, Zap,
   ChevronRight, ChevronDown, Percent, Sparkles, Star, Plus,
   Phone, Camera, Timer, Lock, CreditCard, Loader2, AlertCircle, MessageCircle, User,
-  PencilRuler, MapPin, Receipt, UserCheck, BadgeCheck, Share2, X, RotateCcw
+  PencilRuler, MapPin, Receipt, UserCheck, BadgeCheck, X, RotateCcw
 } from 'lucide-react';
 import { CardBrandStrip } from './CardBrandLogos';
 import { SkuIcon } from '@/lib/sku-icons';
@@ -593,28 +593,6 @@ export function UnifiedQuoteCard({
   const [showAllDates, setShowAllDates] = useState(false);
   const queryClient = useQueryClient();
   const [payFull, setPayFull] = useState(false);
-  // Share affordance — big-ticket buyers almost always need to show someone else
-  // (spouse, landlord). Native share sheet on mobile; clipboard fallback on desktop.
-  const [shareCopied, setShareCopied] = useState(false);
-  const handleShareQuote = async () => {
-    const url = window.location.href;
-    const firstName = customerName.split(' ')[0];
-    if (typeof navigator !== 'undefined' && navigator.share) {
-      try {
-        await navigator.share({ title: `Handy Services quote for ${firstName}`, url });
-        return;
-      } catch {
-        // User dismissed the sheet or share failed — fall through to copy.
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      setShareCopied(true);
-      setTimeout(() => setShareCopied(false), 2000);
-    } catch {
-      // Clipboard unavailable — nothing sensible to do.
-    }
-  };
   // Cash-on-the-day, offered only to OAP homeowners. When chosen no online payment
   // is taken: the job books and the contractor collects cash on the day. Gated on
   // cashEligible so it can never activate for any other customer type.
@@ -2180,19 +2158,6 @@ export function UnifiedQuoteCard({
               })()}
             </div>
           )}
-
-          {/* Share — big-ticket decisions rarely happen alone; let the customer
-              forward the quote to whoever signs it off (spouse, landlord) without
-              Ben needing an email on file. Quiet text button so it never competes
-              with the booking CTA. */}
-          <button
-            type="button"
-            onClick={handleShareQuote}
-            className={`mt-3 mx-auto flex items-center gap-1.5 text-[12px] font-medium transition-colors ${isDarkTheme ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-800'}`}
-          >
-            <Share2 className="w-3.5 h-3.5" />
-            {shareCopied ? 'Link copied' : 'Share this quote'}
-          </button>
 
           {/* Contact card — chat or call Ben directly (reduces decision anxiety).
               Uses the same translucent dark fill as the "included as standard" tiles

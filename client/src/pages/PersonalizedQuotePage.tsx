@@ -4758,7 +4758,7 @@ export default function PersonalizedQuotePage() {
               </div>
               <div className="min-w-0 leading-tight">
                 <p className="text-white text-sm font-bold leading-none truncate">Ben</p>
-                <p className="text-[11px] text-slate-400 leading-none mt-1 truncate">Questions? Tap to chat</p>
+                <p className="text-[11px] text-slate-400 leading-none mt-1 truncate">Connect with Ben for answers.</p>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -5001,7 +5001,7 @@ export default function PersonalizedQuotePage() {
                       <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
                     ))}
                   </span>
-                  <span className="font-semibold text-slate-900">Mark D., West Bridgford</span>
+                  <span className="font-semibold text-slate-900">James P., Beeston</span>
                   <span className="inline-flex items-center gap-1 text-[#5a8209] font-medium">
                     <ShieldCheck className="w-3.5 h-3.5" /> Verified
                   </span>
