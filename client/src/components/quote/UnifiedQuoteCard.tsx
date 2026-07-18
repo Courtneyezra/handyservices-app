@@ -104,7 +104,7 @@ export interface QuoteBatchDiscount {
  * scannable. SKU lines read as solid product tiles (green icon), custom lines
  * as a "made-to-order" neutral icon.
  */
-function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = false, onCross }: { item: PricingLineItem; isDarkTheme: boolean; displayPricePence?: number; collapsible?: boolean; onCross?: () => void }) {
+function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = false, onCross, crossed = false }: { item: PricingLineItem; isDarkTheme: boolean; displayPricePence?: number; collapsible?: boolean; onCross?: () => void; crossed?: boolean }) {
   const anyItem = item as any;
   const isSku = anyItem.source === 'sku';
   const title = anyItem.skuName || item.description;
@@ -114,7 +114,8 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = fals
   const scopeSteps: string[] | null =
     Array.isArray(anyItem.scopeSteps) && anyItem.scopeSteps.length > 0 ? anyItem.scopeSteps : null;
   const [expanded, setExpanded] = useState(false);
-  const open = collapsible ? expanded : true;
+  // Crossed-off ("saved for later") rows collapse their steps and dim in place.
+  const open = crossed ? false : (collapsible ? expanded : true);
   const hasMaterials = (item.materialsWithMarginPence || 0) > 0;
   const lineTotal = item.guardedPricePence + (item.materialsWithMarginPence || 0);
   // Labour/materials split shown in the expanded row. Labour is derived from the
@@ -191,25 +192,28 @@ function QuoteLineRow({ item, isDarkTheme, displayPricePence, collapsible = fals
 
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5">
-            <span className={`text-[13px] font-semibold ${open ? 'break-words' : 'line-clamp-2'} ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>{title}</span>
+            <span className={`text-[13px] font-semibold ${open ? 'break-words' : 'line-clamp-2'} ${crossed ? 'line-through opacity-50 blur-[0.7px]' : ''} ${isDarkTheme ? 'text-slate-100' : 'text-slate-900'}`}>{title}</span>
             {qualifier && (
               <span className={`shrink-0 text-[10.5px] font-semibold ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>{qualifier}</span>
             )}
           </div>
         </div>
 
-        <span className={`shrink-0 text-[14px] font-bold tabular-nums ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}>£{Math.round((displayPricePence ?? lineTotal) / 100)}</span>
-        {collapsible && (
+        <span className={`shrink-0 text-[14px] font-bold tabular-nums ${crossed ? 'line-through opacity-50 blur-[0.7px]' : ''} ${isDarkTheme ? 'text-[#a3d65f]' : 'text-[#5b8a08]'}`}>£{Math.round((displayPricePence ?? lineTotal) / 100)}</span>
+        {crossed && (
+          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Saved</span>
+        )}
+        {collapsible && !crossed && (
           <ChevronDown className={`shrink-0 w-4 h-4 transition-transform duration-300 ${open ? 'rotate-180' : ''} ${isDarkTheme ? 'text-slate-500' : 'text-slate-400'}`} />
         )}
         {onCross && (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onCross(); }}
-            aria-label="Cross off — save for another visit"
-            className={`shrink-0 w-6 h-6 -mr-0.5 rounded-full flex items-center justify-center border transition-colors ${isDarkTheme ? 'border-white/20 text-slate-400 hover:border-red-400 hover:text-red-300' : 'border-slate-300 text-slate-400 hover:border-red-400 hover:text-red-500'}`}
+            aria-label={crossed ? 'Add this back to today\'s visit' : 'Cross off — save for another visit'}
+            className={`shrink-0 w-6 h-6 -mr-0.5 rounded-full flex items-center justify-center border transition-colors ${crossed ? 'border-[#7DB00E]/60 text-[#a3d65f] hover:bg-[#7DB00E]/15' : (isDarkTheme ? 'border-white/20 text-slate-400 hover:border-red-400 hover:text-red-300' : 'border-slate-300 text-slate-400 hover:border-red-400 hover:text-red-500')}`}
           >
-            <X className="w-3 h-3" strokeWidth={2.5} />
+            {crossed ? <RotateCcw className="w-3 h-3" strokeWidth={2.5} /> : <X className="w-3 h-3" strokeWidth={2.5} />}
           </button>
         )}
       </HeaderTag>
@@ -1984,7 +1988,7 @@ export function UnifiedQuoteCard({
                 </p>
               )}
               <div className="space-y-1.5">
-                {activeSplitLines.map(({ item, displayPence }) => (
+                {displayLineItems.map(({ item, displayPence }) => (
                   <QuoteLineRow
                     key={item.lineId}
                     item={item}
@@ -1992,6 +1996,7 @@ export function UnifiedQuoteCard({
                     displayPricePence={displayPence}
                     collapsible={enableLineItemSplit ? false : displayLineItems.length >= 5}
                     onCross={enableLineItemSplit ? () => toggleDeferredLine(item.lineId) : undefined}
+                    crossed={enableLineItemSplit && deferredLines.has(item.lineId)}
                   />
                 ))}
               </div>
@@ -2130,34 +2135,13 @@ export function UnifiedQuoteCard({
                 <span className="text-[#7DB00E] text-lg tabular-nums">£{Math.round((payFull ? payFullTotal : total) / 100)}</span>
               </div>
 
-              {/* Saved for later — crossed-off items live BELOW the total so the
-                  total stays the single authoritative number; these read as a
-                  future/pipeline list, not a price change. The re-priced "this
-                  visit" is a quiet preview note (payment is full-scope until the
-                  server re-pricing in Step 2). */}
+              {/* Crossed-off lines dim in place (no separate box). A quiet note
+                  states the reduced this-visit price; payment is full-scope until
+                  the server re-pricing in Step 2. */}
               {hasDeferrals && (
-                <div className={`mt-3 rounded-2xl p-3 ${isDarkTheme ? 'bg-white/[0.04] border border-white/10' : 'bg-slate-50 border border-slate-200'}`}>
-                  <div className={`text-[11px] uppercase tracking-wide mb-2 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>Saved for later</div>
-                  {deferredSplitLines.map(({ item, displayPence }) => (
-                    <div key={item.lineId} className="flex items-center justify-between gap-2 py-1.5">
-                      <div className="min-w-0">
-                        <div className={`text-[13px] font-medium truncate ${isDarkTheme ? 'text-slate-200' : 'text-slate-700'}`}>{(item as any).skuName || item.description}</div>
-                        <div className="text-[11px] text-slate-400">£{Math.round(displayPence / 100)} · separate visit</div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => toggleDeferredLine(item.lineId)}
-                        aria-label="Add this back to today's visit"
-                        className="shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-[#5a8209] border border-[#7DB00E]/50 rounded-full px-2.5 py-1 hover:bg-[#7DB00E]/10 transition-colors"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" /> Add back
-                      </button>
-                    </div>
-                  ))}
-                  <p className={`text-[10.5px] text-amber-500/90 mt-2 pt-2 border-t ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
-                    Removing these would bring this visit to about £{Math.round(Math.max(0, total - deferredSumPence) / 100)} — available once split booking is wired.
-                  </p>
-                </div>
+                <p className="text-[10.5px] text-amber-500/90 mt-2">
+                  {deferredLines.size} saved for another visit — this visit would be about £{Math.round(Math.max(0, total - deferredSumPence) / 100)} (available once split booking is wired).
+                </p>
               )}
               {/* Other customer types keep their compact "included as standard"
                   chips here, below the total. The homeowner set (which carries
