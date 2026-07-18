@@ -895,23 +895,43 @@ export default function DailyPlannerPage() {
                                       {job.address || job.postcode}
                                     </span>
                                   )}
-                                  {job.availableDates && job.availableDates.length > 0 && (
-                                    <div className="text-[10px] text-muted-foreground/70 mt-1">
-                                      Available:{" "}
-                                      {job.availableDates.map((d, i) => (
-                                        <span key={d}>
-                                          {i > 0 && " \u00b7 "}
-                                          {(() => {
-                                            try {
-                                              return format(parseISO(d), "EEE d");
-                                            } catch {
-                                              return d;
-                                            }
-                                          })()}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
+                                  {(() => {
+                                    // New model: dateTimePreferences = ALLOWED days.
+                                    // Summarise as avoids / fully-flexible rather
+                                    // than listing up to 18 dates. Falls back to the
+                                    // legacy availableDates list.
+                                    const prefs = job.dateTimePreferences;
+                                    const fmt = (d: string) => { try { return format(parseISO(d), "EEE d"); } catch { return d; } };
+                                    if (prefs && prefs.length > 0) {
+                                      const allowed = prefs.map((p) => p.date).sort();
+                                      const set = new Set(allowed);
+                                      const avoided: string[] = [];
+                                      const start = new Date(allowed[0] + "T12:00:00");
+                                      const end = new Date(allowed[allowed.length - 1] + "T12:00:00");
+                                      for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                                        if (d.getDay() === 0) continue;
+                                        const iso = format(d, "yyyy-MM-dd");
+                                        if (!set.has(iso)) avoided.push(iso);
+                                      }
+                                      return (
+                                        <div className="text-[10px] text-muted-foreground/70 mt-1">
+                                          {allowed.length <= 4
+                                            ? <>Works: {allowed.map(fmt).join(" \u00b7 ")}</>
+                                            : avoided.length === 0
+                                              ? <>Fully flexible \u00b7 {allowed.length} days</>
+                                              : <>Flexible \u00b7 avoids {avoided.map(fmt).join(", ")}</>}
+                                        </div>
+                                      );
+                                    }
+                                    if (job.availableDates && job.availableDates.length > 0) {
+                                      return (
+                                        <div className="text-[10px] text-muted-foreground/70 mt-1">
+                                          Available: {job.availableDates.map(fmt).join(" \u00b7 ")}
+                                        </div>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
                                 </div>
                               </div>
                             </div>

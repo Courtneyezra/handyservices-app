@@ -144,6 +144,62 @@ function fmtPreferredDate(d: { date: string; timeSlot: string }): string {
     return `${day} · ${slot}`;
 }
 
+// See DispatchLinkPage.renderContractorScheduling — mirror kept in sync. Flex
+// model stores ALLOWED days; show what to AVOID, not 3 arbitrary "preferred".
+function renderContractorScheduling(prefs: { date: string; timeSlot: string }[]) {
+    const dayLabel = (iso: string) =>
+        new Date(iso + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+    const allFlexible = prefs.every((p) => p.timeSlot === "flexible");
+    if (allFlexible) {
+        const allowed = prefs.map((p) => p.date).sort();
+        const set = new Set(allowed);
+        const avoided: string[] = [];
+        const start = new Date(allowed[0] + "T12:00:00");
+        const end = new Date(allowed[allowed.length - 1] + "T12:00:00");
+        for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            if (d.getDay() === 0) continue;
+            const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+            if (!set.has(iso)) avoided.push(iso);
+        }
+        if (allowed.length > 4) {
+            return (
+                <div className="mt-4 pt-4 border-t border-white/10">
+                    {avoided.length === 0 ? (
+                        <>
+                            <p className="text-[10px] uppercase tracking-[0.08em] text-white/50 font-semibold mb-2">Scheduling</p>
+                            <p className="text-[13px] text-white/85">Fully flexible — any day over the next 3 weeks.</p>
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-[10px] uppercase tracking-[0.08em] text-red-300/70 font-semibold mb-2">Do not book these days</p>
+                            <div className="flex flex-wrap gap-1.5">
+                                {avoided.map((iso, i) => (
+                                    <span key={i} className="inline-flex items-center text-[12px] font-medium bg-red-500/15 text-red-200 px-2.5 py-1 rounded-md tabular-nums line-through decoration-red-400">
+                                        {dayLabel(iso)}
+                                    </span>
+                                ))}
+                            </div>
+                            <p className="text-[11px] text-white/50 mt-1.5">Otherwise flexible over the next 3 weeks.</p>
+                        </>
+                    )}
+                </div>
+            );
+        }
+    }
+    return (
+        <div className="mt-4 pt-4 border-t border-white/10">
+            <p className="text-[10px] uppercase tracking-[0.08em] text-white/50 font-semibold mb-2">Customer prefers</p>
+            <div className="flex flex-wrap gap-1.5">
+                {prefs.slice(0, 4).map((d, i) => (
+                    <span key={i} className="inline-flex items-center text-[12px] font-medium bg-white/10 text-white px-2.5 py-1 rounded-md tabular-nums">
+                        {fmtPreferredDate(d)}
+                    </span>
+                ))}
+            </div>
+        </div>
+    );
+}
+
 // Count tasks per tier and return ordered chips
 function skillMix(tasks: Task[]): Array<{ tier: string; count: number }> {
     const order = ["specialist", "skilled", "general", "outdoor"];
@@ -549,19 +605,9 @@ export default function ContractorJobSheet() {
                                 );
                             })()}
 
-                            {/* Preferred dates from customer */}
-                            {dispatch.preferredDates && dispatch.preferredDates.length > 0 && (
-                                <div className="mt-4 pt-4 border-t border-white/10">
-                                    <p className="text-[10px] uppercase tracking-[0.08em] text-white/50 font-semibold mb-2">Customer prefers</p>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {dispatch.preferredDates.slice(0, 3).map((d, i) => (
-                                            <span key={i} className="inline-flex items-center text-[12px] font-medium bg-white/10 text-white px-2.5 py-1 rounded-md tabular-nums">
-                                                {fmtPreferredDate(d)}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+                            {/* Scheduling from customer (avoid-days aware) */}
+                            {dispatch.preferredDates && dispatch.preferredDates.length > 0 &&
+                                renderContractorScheduling(dispatch.preferredDates)}
 
                             {/* Address row — privacy-gated */}
                             <div className="mt-4 pt-4 border-t border-white/10">

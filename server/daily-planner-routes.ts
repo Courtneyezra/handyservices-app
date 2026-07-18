@@ -402,16 +402,34 @@ router.get('/', async (req: Request, res: Response) => {
         categories: lineItemData.categories,
         itemCount: lineItemData.itemCount,
         createdAt: q.createdAt,
-        isBufferDate: !q.selectedDate && q.availableDates && (q.availableDates as string[]).length > 1,
+        isBufferDate: !q.selectedDate && (
+          (q.availableDates && (q.availableDates as string[]).length > 1) ||
+          (q.dateTimePreferences && (q.dateTimePreferences as any[]).length > 1)
+        ),
       });
+
+      // Prefer dateTimePreferences (the post-payment days-to-avoid model: the
+      // ALLOWED days a flex job can run on) over the legacy availableDates
+      // buffer. Without this a new-model flex booking has availableDates=null
+      // and falls straight to UNSCHEDULED — invisible to route clustering.
+      const prefDates = Array.isArray(q.dateTimePreferences)
+        ? [...new Set((q.dateTimePreferences as { date: string }[]).map(p => p.date))]
+        : [];
 
       if (q.selectedDate) {
         // Confirmed single date
         const dateKey = new Date(q.selectedDate).toISOString().split('T')[0];
         if (!dateGroups.has(dateKey)) dateGroups.set(dateKey, []);
         dateGroups.get(dateKey)!.push(buildQuoteData(dateKey));
+      } else if (prefDates.length > 0) {
+        // Flex allowed days: show the quote on EVERY allowed date so it clusters
+        // onto whichever day gives the best route.
+        for (const dateStr of prefDates) {
+          if (!dateGroups.has(dateStr)) dateGroups.set(dateStr, []);
+          dateGroups.get(dateStr)!.push(buildQuoteData(dateStr));
+        }
       } else if (q.availableDates && Array.isArray(q.availableDates) && (q.availableDates as string[]).length > 0) {
-        // 3-date buffer: show quote on ALL preferred dates for clustering
+        // Legacy 3-date buffer: show quote on ALL preferred dates for clustering
         for (const dateStr of q.availableDates as string[]) {
           if (!dateGroups.has(dateStr)) dateGroups.set(dateStr, []);
           dateGroups.get(dateStr)!.push(buildQuoteData(dateStr));

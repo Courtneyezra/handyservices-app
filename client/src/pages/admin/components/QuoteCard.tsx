@@ -9,7 +9,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Copy, Eye, Phone, RefreshCw, X, Download, CreditCard, Pencil, FileEdit, MessageCircle, Hammer, ShieldCheck, UserCheck, Receipt, CheckSquare, CheckCircle, MoreHorizontal, Loader2 } from 'lucide-react';
+import { Copy, Eye, Phone, RefreshCw, X, Download, CreditCard, Pencil, FileEdit, MessageCircle, Hammer, ShieldCheck, UserCheck, Receipt, CheckSquare, CheckCircle, MoreHorizontal, Loader2, AlertCircle } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
 import { generateQuotePDF } from '@/lib/quote-pdf-generator';
@@ -216,23 +216,70 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, on
                     </Button>
                 </div>
 
-                {/* Booking Dates — show all 3 customer picks if present */}
+                {/* Booking Dates — flex bookings store the customer's ALLOWED
+                    days (all timeSlot 'flexible', up to ~18 under the days-to-
+                    avoid model). Rendering 18 rows is a wall, so summarise as
+                    "avoids: X, Y" (the crossed-off days) / "Fully flexible".
+                    Legacy AM/PM/full-day picks keep the numbered list. */}
                 {quote.dateTimePreferences && quote.dateTimePreferences.length > 0 ? (
-                    <div className="text-xs mb-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded px-2 py-1 space-y-0.5">
-                        {quote.dateTimePreferences.map((pref, i) => {
-                            const slotLabel = pref.timeSlot === 'am' ? 'AM'
-                                : pref.timeSlot === 'pm' ? 'PM'
-                                : pref.timeSlot === 'full_day' ? 'Full day'
-                                : 'Flexible';
+                    (() => {
+                        const prefs = quote.dateTimePreferences!;
+                        const allFlexible = prefs.every(p => p.timeSlot === 'flexible');
+                        if (allFlexible) {
+                            const allowed = prefs.map(p => p.date).sort();
+                            // Reconstruct crossed-off days: working days (Sundays
+                            // closed) inside the allowed range that aren't allowed.
+                            const avoided: string[] = [];
+                            const start = new Date(allowed[0] + 'T12:00:00');
+                            const end = new Date(allowed[allowed.length - 1] + 'T12:00:00');
+                            const allowedSet = new Set(allowed);
+                            for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                                if (d.getDay() === 0) continue;
+                                const iso = format(d, 'yyyy-MM-dd');
+                                if (!allowedSet.has(iso)) avoided.push(iso);
+                            }
+                            const chip = (iso: string, struck: boolean) => (
+                                <span key={iso} className={`px-1.5 py-0.5 rounded bg-white/60 dark:bg-black/20 font-medium ${struck ? 'line-through decoration-red-500/70' : ''}`}>
+                                    {format(new Date(iso + 'T12:00:00'), 'EEE d MMM')}
+                                </span>
+                            );
                             return (
-                                <div key={pref.date + i} className="flex items-baseline gap-1.5">
-                                    <span className="text-[10px] font-bold opacity-70">{i + 1}.</span>
-                                    <span className="font-medium">{format(new Date(pref.date), 'EEE d MMM')}</span>
-                                    <span className="text-green-600/70 dark:text-green-500/70">· {slotLabel}</span>
+                                <div className="text-xs mb-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded px-2 py-1.5">
+                                    {allowed.length <= 4 ? (
+                                        <div className="flex flex-wrap items-center gap-1">
+                                            <span className="font-semibold opacity-80">Works:</span>
+                                            {allowed.map(d => chip(d, false))}
+                                        </div>
+                                    ) : avoided.length === 0 ? (
+                                        <span className="font-semibold">Fully flexible <span className="opacity-70 font-normal">· {allowed.length} days open</span></span>
+                                    ) : (
+                                        <div className="flex flex-wrap items-center gap-1">
+                                            <span className="font-semibold opacity-80">Flexible · avoids:</span>
+                                            {avoided.slice(0, 8).map(d => chip(d, true))}
+                                            {avoided.length > 8 && <span className="opacity-60">+{avoided.length - 8} more</span>}
+                                        </div>
+                                    )}
                                 </div>
                             );
-                        })}
-                    </div>
+                        }
+                        return (
+                            <div className="text-xs mb-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded px-2 py-1 space-y-0.5">
+                                {prefs.map((pref, i) => {
+                                    const slotLabel = pref.timeSlot === 'am' ? 'AM'
+                                        : pref.timeSlot === 'pm' ? 'PM'
+                                        : pref.timeSlot === 'full_day' ? 'Full day'
+                                        : 'Flexible';
+                                    return (
+                                        <div key={pref.date + i} className="flex items-baseline gap-1.5">
+                                            <span className="text-[10px] font-bold opacity-70">{i + 1}.</span>
+                                            <span className="font-medium">{format(new Date(pref.date), 'EEE d MMM')}</span>
+                                            <span className="text-green-600/70 dark:text-green-500/70">· {slotLabel}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    })()
                 ) : quote.selectedDate ? (
                     <div className="flex items-center gap-1.5 text-xs mb-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded px-2 py-1">
                         <span className="font-medium">{format(new Date(quote.selectedDate), 'EEE d MMM')}</span>
@@ -244,6 +291,13 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, on
                                 : quote.timeSlotType === 'anytime' ? '· Any Time'
                                 : ''}
                         </span>
+                    </div>
+                ) : isPaid ? (
+                    /* D3: paid flex booking that skipped the post-payment day
+                       step and never came back — the nudge list. */
+                    <div className="flex items-center gap-1.5 text-xs mb-2 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 rounded px-2 py-1 font-medium">
+                        <AlertCircle className="h-3 w-3 shrink-0" />
+                        Paid — no days picked yet · nudge
                     </div>
                 ) : (
                     <div className="text-xs text-muted-foreground/40 mb-2">No booking date</div>
