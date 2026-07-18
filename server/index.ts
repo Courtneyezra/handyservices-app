@@ -141,6 +141,22 @@ app.use(passport.initialize());
 app.get('/health', (req, res) => res.status(200).send('OK'));
 app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() }));
 
+// Apple Pay domain verification — Apple fetches this exact path when Stripe
+// validates the domain (Stripe Dashboard/API → Payment method domains). It MUST
+// return Stripe's association file, but express.static ignores dotfile dirs and
+// the SPA catch-all was answering with index.html, so Apple Pay never verified.
+// Explicit route, registered early. File lives in client/public/.well-known/
+// (copied into dist/public by the build); dev serves the source copy directly.
+app.get('/.well-known/apple-developer-merchantid-domain-association', (_req, res) => {
+    const candidates = [
+        path.resolve(__dirname, '../dist/public/.well-known/apple-developer-merchantid-domain-association'),
+        path.resolve(__dirname, '../client/public/.well-known/apple-developer-merchantid-domain-association'),
+    ];
+    const file = candidates.find((p) => fs.existsSync(p));
+    if (!file) return res.status(404).send('association file missing');
+    res.type('text/plain').sendFile(file);
+});
+
 // Serve static files from attached_assets directory if needed
 // app.use('/attached_assets', express.static('attached_assets'));
 

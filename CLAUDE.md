@@ -140,9 +140,9 @@ Key tables: `users`, `leads`, `calls`, `personalized_quotes`, `productized_servi
 
 ## Apple Pay Setup
 
-The Apple Pay domain verification file at `/.well-known/apple-developer-merchantid-domain-association` is served by Cloudflare (or whatever upstream proxy fronts production) — NOT by this app. Do not add an Express route for that path; it would intercept and override the upstream-served file, breaking Apple Pay verification.
+The Apple Pay domain verification file at `/.well-known/apple-developer-merchantid-domain-association` is served BY THIS APP (explicit Express route in `server/index.ts`, file at `client/public/.well-known/`). Updated 19 Jul 2026: the previously documented Cloudflare-served file was found NOT to exist — the path fell through to the SPA catch-all and returned index.html, which silently broke Apple Pay verification on www.handyservices.app. Cloudflare proxies the path straight through, so the Express route is authoritative. Do not remove the route or the file.
 
-To register a new domain: Stripe Dashboard → Settings → Payment methods → Apple Pay → Add domain → take the verification string Stripe provides and place it at `/.well-known/apple-developer-merchantid-domain-association` via the upstream proxy config.
+To register a new domain: Stripe Dashboard → Settings → Payment method domains → Add domain (or `POST /v1/payment_method_domains` with the secret key, then `/validate`). Stripe's universal association file (same for all Stripe merchants) downloads from https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association.
 
 ---
 
