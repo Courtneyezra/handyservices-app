@@ -285,17 +285,17 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
             // saving without anchoring the price. The headline *star* span gets
             // the hand-drawn underline. The full fixed price lands on the quote.
             eyebrow: "one quick choice",
-            headline: "Let us pick the day — *you save {savings}*.",
-            subhead: "Flexible on the day? **That's {savings} straight back to you.**",
+            headline: "Flexible on the day? *You save {savings}*.",
+            subhead: "Slot into Craig's route over the next 3 weeks — **{savings} stays in your pocket.**",
             benefits: [
-              { icon: "check", text: "Sorted within {days} days, hands-free" },
-              { icon: "check", text: "Same fixed price & guarantee" },
-              { icon: "check", text: "Rewarded with our best price" },
+              { icon: "check", text: "Booked within 3 weeks, hands-free" },
+              { icon: "check", text: "You pick any days to avoid after booking" },
+              { icon: "check", text: "Same fixed price & our best rate" },
             ],
             acceptLabel: "I'm flexible — save {savings}",
             declineLabel: "I need a specific day",
             finePrint: "You'll see your full fixed price on the next screen.",
-            flexWithinDays: 7,
+            flexWithinDays: 21,
           },
         ],
       },
