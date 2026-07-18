@@ -2863,7 +2863,7 @@ export function UnifiedQuoteCard({
                     reveal();
                   }
                 }}
-                className="w-full h-14 rounded-2xl font-bold text-lg bg-[#7DB00E] hover:bg-[#6da000] text-slate-900 transition-all"
+                className="w-full h-14 rounded-2xl font-bold text-lg bg-handy-yellow hover:brightness-[0.97] text-handy-navy shadow-lg shadow-handy-yellow/25 transition-all"
               >
                 <span className="flex items-center gap-2">
                   {isCash ? 'Book — pay cash on the day' : isContextual ? 'Approve and pay' : 'Book my slot'}
