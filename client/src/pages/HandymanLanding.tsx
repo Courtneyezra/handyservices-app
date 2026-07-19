@@ -230,7 +230,7 @@ function RealJobsSection() {
         { name: "Mike", area: "NG2", job: "Kitchen painting", image: realJobPainting },
         { name: "Emily", area: "NG1", job: "Sink installation", image: realJobSink },
         { name: "Linda", area: "NG4", job: "Shelving installation", image: realJobShelf },
-        { name: "Craig", area: "NG7", job: "Kitchen cabinet fitting", image: realJobKitchen },
+        { name: "Tom", area: "NG7", job: "Kitchen cabinet fitting", image: realJobKitchen },
         { name: "David", area: "NG3", job: "Blind fitting", image: realJobBlinds },
     ];
 
@@ -247,11 +247,13 @@ function RealJobsSection() {
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
                     {customers.map((customer, idx) => (
                         <div key={idx} className="bg-slate-700 rounded-2xl overflow-hidden group hover:bg-slate-600 transition-colors">
-                            <div className="aspect-video bg-slate-600 flex items-center justify-center overflow-hidden">
+                            <div className="aspect-video bg-slate-600 overflow-hidden">
                                 <img
                                     src={customer.image}
                                     alt={`${customer.job} for ${customer.name}`}
-                                    className="w-full h-full object-contain bg-slate-700"
+                                    loading="lazy"
+                                    decoding="async"
+                                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                                 />
                             </div>
                             <div className="p-6">
@@ -309,7 +311,7 @@ function BeforeAfterSection() {
 
                 <div className="text-center mt-8">
                     <p className="text-slate-800 italic text-lg">
-                        "Elle, NG5 - requested a kitchenette to be removed and a unit with a sink built. 2 days to complete and a happy customer!"
+                        "Elle in NG5 asked us to strip out an old kitchenette and build a new unit with a sink. Two days start to finish, one very happy customer."
                     </p>
                 </div>
             </div>
