@@ -768,7 +768,7 @@ export default function HandymanLanding({
                         ctaText={variant?.content?.ctaText || "Get Instant Quote"}
                         mobileCtaText={variant?.content?.mobileCtaText || "Call Now"}
                         desktopCtaText={variant?.content?.desktopCtaText || "Get a Price"}
-                        bannerText="⚡️ Fastest growing property services team in {{location}}"
+                        bannerText="★★★★★ &nbsp;Rated 4.9 on Google by {{location}} homeowners"
                         onConversion={trackConversionWithEvent}
                         transparentBg={true}
                     />

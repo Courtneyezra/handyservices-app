@@ -55,11 +55,24 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                 <span className="text-amber-400 font-medium text-sm">Trusted by 300+ {location} Homeowners</span>
               </div>
 
-              {/* Tick icon for mobile */}
-              <div className="lg:hidden flex justify-center mb-6">
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-amber-400 to-amber-500 flex items-center justify-center shadow-lg shadow-amber-400/30">
-                  <CheckCircle className="w-12 h-12 text-slate-900" strokeWidth={2.5} />
+              {/* Person-led (mobile): Craig's face — the same handyman the quote
+                  assigns and the team section features — instead of an abstract
+                  tick. One consistent, real cast across the whole journey. */}
+              <div className="lg:hidden flex flex-col items-center mb-6">
+                <div className="relative">
+                  <div className="w-24 h-24 rounded-full overflow-hidden border-[3px] border-amber-400 shadow-lg shadow-amber-400/30">
+                    <img
+                      src="/assets/avatars/craig-avatar-1.webp"
+                      alt="Craig, your Nottingham handyman"
+                      className="w-full h-full object-cover"
+                      loading="eager"
+                    />
+                  </div>
+                  <span className="absolute bottom-1 right-1 w-4 h-4 rounded-full bg-green-500 ring-2 ring-slate-900" aria-hidden="true" />
                 </div>
+                <p className="mt-3 text-white/90 text-sm">
+                  <span className="font-bold text-white">Craig</span> · your local handyman
+                </p>
               </div>
 
               {/* Dynamic H1: Supports both single-line and three-tier formats */}
