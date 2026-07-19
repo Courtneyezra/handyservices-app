@@ -17,7 +17,6 @@ import teamMember4 from "@assets/Untitled design (25)_1764599239599.webp";
 import teamMember5 from "@assets/Untitled design (26)_1764599239599.webp";
 import teamMember6 from "@assets/Untitled design (27)_1764599239595.webp";
 import heroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
-import videoQuoteImage from "@assets/123d3462-a11d-42b8-9fad-fdb2d6f29b11_1764600237774.webp";
 import handyLogo from "@assets/Copy of Copy of Add a heading-3_1764600628729.webp";
 import mobileHeroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764604328714.webp";
 import realJobToilet from "@assets/c33e343a-3b9d-4d85-97cb-a0752ea3e80d_1764687156907.webp";
@@ -40,7 +39,6 @@ const WHATSAPP_MESSAGE = encodeURIComponent("I'm interested in Handy Services");
 const PHONE_NUMBER = "+447449501762";
 
 import { LandingHeader } from "@/components/LandingHeader";
-import { GoogleReviewsBadge } from "@/components/LandingShared";
 
 
 
@@ -171,50 +169,6 @@ function ProcessSection() {
     );
 }
 
-function VideoQuoteSection() {
-    return (
-        <section className="bg-amber-400 px-4 lg:px-8 py-16 lg:py-24">
-            <div className="max-w-7xl mx-auto">
-                <div className="grid lg:grid-cols-2 gap-12 items-center">
-                    <div className="order-2 lg:order-1">
-                        <div className="relative rounded-3xl overflow-hidden max-w-xl shadow-2xl">
-                            <img
-                                src={videoQuoteImage}
-                                alt="Handy Services technician talking with customer"
-                                className="w-full h-auto object-contain"
-                            />
-                        </div>
-                    </div>
-
-                    <div className="order-1 lg:order-2 text-center lg:text-left">
-                        <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-slate-900 mb-6 leading-tight">
-                            Don't wait in for a quote and get an instant quote
-                        </h2>
-
-                        <p className="text-slate-700 text-lg mb-8 max-w-lg mx-auto lg:mx-0 font-medium">
-                            From shelves to skirting boards, send us a quick video and we'll price it up in minutes — no need to wait in for a quote.
-                        </p>
-
-                        <a href="#hero" className="scroll-smooth">
-                            <Button
-                                className="w-full sm:w-auto px-10 py-6 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-full text-lg"
-                                data-testid="button-video-quote"
-                            >
-                                Get Instant Quote
-                                <ArrowRight className="w-5 h-5 ml-2" />
-                            </Button>
-                        </a>
-
-                        <div className="flex items-center justify-center lg:justify-start gap-2 mt-6">
-                            <GoogleReviewsBadge dark />
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-    );
-}
-
 function ServicesSection() {
     const services = [
         { name: "Plumbing", price: "£69", description: "Taps, toilets, leaks & more", icon: <Droplets className="w-10 h-10" />, bgColor: "bg-blue-400" },
@@ -231,7 +185,9 @@ function ServicesSection() {
                         <span className="text-amber-500">Instant Quotes</span>{" "}
                         <span className="text-slate-800">For Big & Small Jobs</span>
                     </h2>
-                    <p className="text-slate-600 text-lg font-medium">Professional handyman services at transparent prices</p>
+                    <p className="text-slate-600 text-lg font-medium max-w-2xl mx-auto">
+                        Send a quick photo or video and we'll price it up in minutes. No waiting in, no call-out fee, a fixed price up front.
+                    </p>
                 </div>
 
                 <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8">
@@ -791,7 +747,6 @@ export default function HandymanLanding({
                         <EmergencyServiceSection />
                         <ProcessSection />
                         <HassleComparisonSection segment="BUSY_PRO" />
-                        <VideoQuoteSection />
                         <ServicesSection />
                         <RealJobsSection />
                         <BeforeAfterSection />
