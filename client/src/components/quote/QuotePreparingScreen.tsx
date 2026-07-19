@@ -23,6 +23,18 @@ const STEPS: { icon: typeof Wrench; label: string }[] = [
   { icon: Sparkles, label: 'Adding the finishing touches' },
 ];
 
+/** The person (or team) matched to the job. A LIST so single-handyman and team
+ *  jobs share one shape — hardcoded to Craig today, fed from the matched
+ *  contractor record once seat selection exists. The first checklist step
+ *  resolves into this: "Matching…" → "Matched with Craig" + their face. */
+export interface MatchedHandyman {
+  name: string;
+  avatarUrl: string;
+}
+const DEFAULT_MATCH: MatchedHandyman[] = [
+  { name: 'Craig', avatarUrl: '/assets/avatars/craig-avatar-1.webp' },
+];
+
 const STEP_MS = 1050; // per-step dwell; ~4.2s total across 4 steps
 
 interface QuotePreparingScreenProps {
@@ -42,6 +54,9 @@ interface QuotePreparingScreenProps {
   subcopy?: string;
   /** Override the checklist steps (e.g. for the visit flow). Defaults to STEPS. */
   steps?: { icon: typeof Wrench; label: string }[];
+  /** The matched handyman(s). The first step resolves into this reveal. Defaults
+   *  to Craig while hardcoded; pass the matched contractor(s) once assigned. */
+  matchedHandymen?: MatchedHandyman[];
   /**
    * Skip the checklist theatre — returning visitors (median 7 opens) and paid
    * customers shouldn't sit through "locking in your fixed price" again. The
@@ -52,9 +67,16 @@ interface QuotePreparingScreenProps {
   instant?: boolean;
 }
 
-export function QuotePreparingScreen({ ready, onComplete, customerName, pricingSettings, subcopy, steps, instant = false }: QuotePreparingScreenProps) {
+export function QuotePreparingScreen({ ready, onComplete, customerName, pricingSettings, subcopy, steps, matchedHandymen, instant = false }: QuotePreparingScreenProps) {
   const STEPS_TO_USE = steps ?? STEPS;
   const firstName = customerName?.trim().split(/\s+/)[0] ?? '';
+  // Matched handyman(s) — the "Matching…" step resolves into this reveal. Only
+  // applies to the default quote checklist (the visit flow passes its own steps).
+  const matched = (matchedHandymen && matchedHandymen.length > 0) ? matchedHandymen : DEFAULT_MATCH;
+  const isDefaultSteps = !steps;
+  const matchNames = matched.length === 1
+    ? matched[0].name
+    : matched.slice(0, 2).map((m) => m.name.split(/\s+/)[0]).join(' & ') + (matched.length > 2 ? ` +${matched.length - 2}` : '');
   // activeStep = the index currently "in progress". Steps below it are done.
   // When it reaches STEPS.length the checklist animation is complete.
   // Instant mode starts (or snaps) fully ticked — no theatre on reopens.
@@ -125,6 +147,10 @@ export function QuotePreparingScreen({ ready, onComplete, customerName, pricingS
               const done = i < activeStep;
               const active = i === activeStep;
               const Icon = step.icon;
+              // The first step of the default checklist is the handyman-match
+              // reveal: once done, the tick circle becomes the matched person's
+              // face and the label names them ("Matched with Craig").
+              const isMatchReveal = isDefaultSteps && i === 0 && done;
               return (
                 <li
                   key={i}
@@ -132,30 +158,48 @@ export function QuotePreparingScreen({ ready, onComplete, customerName, pricingS
                     active ? 'bg-[#7DB00E]/[0.07]' : ''
                   }`}
                 >
-                  <span
-                    className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-                      done
-                        ? 'bg-[#7DB00E] text-white'
-                        : active
-                        ? 'bg-[#7DB00E]/15 text-[#5a8209]'
-                        : 'bg-slate-100 text-slate-300'
-                    }`}
-                    style={done ? { animation: 'hs-pop 0.35s ease-out' } : undefined}
-                  >
-                    {done ? (
-                      <Check className="w-5 h-5" strokeWidth={3} />
-                    ) : active ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Icon className="w-4 h-4" />
-                    )}
-                  </span>
+                  {isMatchReveal ? (
+                    /* Matched-person avatar (stacked for team jobs), ringed green
+                       to echo the done-state colour. */
+                    <span className="shrink-0 flex items-center" style={{ animation: 'hs-pop 0.35s ease-out' }}>
+                      {matched.slice(0, 3).map((m, mi) => (
+                        <span
+                          key={mi}
+                          className={`w-8 h-8 rounded-full overflow-hidden border-2 border-[#7DB00E] bg-white ${mi > 0 ? '-ml-3' : ''}`}
+                          style={{ zIndex: matched.length - mi }}
+                        >
+                          <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" />
+                        </span>
+                      ))}
+                    </span>
+                  ) : (
+                    <span
+                      className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                        done
+                          ? 'bg-[#7DB00E] text-white'
+                          : active
+                          ? 'bg-[#7DB00E]/15 text-[#5a8209]'
+                          : 'bg-slate-100 text-slate-300'
+                      }`}
+                      style={done ? { animation: 'hs-pop 0.35s ease-out' } : undefined}
+                    >
+                      {done ? (
+                        <Check className="w-5 h-5" strokeWidth={3} />
+                      ) : active ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Icon className="w-4 h-4" />
+                      )}
+                    </span>
+                  )}
                   <span
                     className={`text-sm font-medium transition-colors ${
                       done ? 'text-slate-900' : active ? 'text-slate-900' : 'text-slate-400'
                     }`}
                   >
-                    {step.label}
+                    {isMatchReveal
+                      ? <>Matched with <span className="font-bold">{matchNames}</span></>
+                      : step.label}
                   </span>
                 </li>
               );

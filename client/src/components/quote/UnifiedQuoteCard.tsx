@@ -458,17 +458,21 @@ const DIFFERENTIATOR_CHIPS: Record<CustomerType, DifferentiatorChip[]> = {
     // weighs when letting a stranger into their home. Every claim is one we already
     // make elsewhere on the page (insured / DBS / fix-it-free / tidy-up) — nothing
     // invented. No guarantee duration asserted; "we come back free" is the promise.
+    // Lead chip = the DELIVERER: a rated, vetted person does your job — the "who
+    // comes to my house?" reassurance folded in at the decision moment (the full
+    // "Meet your handyman" banner sits one scroll below). Generic while the
+    // assigned contractor is hardcoded — no individual named; 4.9★ is the real
+    // Google rating. DBS is rolled into the subline so the strip stays 3 chips
+    // (a 4th forces a mobile wrap).
+    { icon: <Star className="w-4 h-4" />, label: 'Vetted, rated pro', short: '4.9★ pro', sub: 'DBS-checked — a safe pro in your home' },
     { icon: <Shield className="w-4 h-4" />, label: '£2M insured', short: '£2M insured', sub: "covered if anything's damaged" },
-    { icon: <UserCheck className="w-4 h-4" />, label: 'Vetted & DBS-checked', short: 'DBS-checked', sub: 'a safe pro in your home' },
     { icon: <BadgeCheck className="w-4 h-4" />, label: 'Guaranteed', short: 'Guaranteed', sub: 'not right? we come back free' },
-    // "We tidy up" intentionally dropped from the homeowner strip — 3 items keep
-    // the trust strip on one line on mobile at a readable size (4 forced a wrap).
   ],
   // OAP homeowner: a faithful duplicate of homeowner (same reassurance set). It
   // differs only in payment options (cash on the day), handled in the toggle below.
   oap_homeowner: [
+    { icon: <Star className="w-4 h-4" />, label: 'Vetted, rated pro', short: '4.9★ pro', sub: 'DBS-checked — a safe pro in your home' },
     { icon: <Shield className="w-4 h-4" />, label: '£2M insured', short: '£2M insured', sub: "covered if anything's damaged" },
-    { icon: <UserCheck className="w-4 h-4" />, label: 'Vetted & DBS-checked', short: 'DBS-checked', sub: 'a safe pro in your home' },
     { icon: <BadgeCheck className="w-4 h-4" />, label: 'Guaranteed', short: 'Guaranteed', sub: 'not right? we come back free' },
   ],
   landlord: [
