@@ -1849,28 +1849,10 @@ export function UnifiedQuoteCard({
       <div className={`${isDarkTheme ? 'p-6' : ''} space-y-6 md:space-y-0 md:grid md:grid-cols-5 md:gap-8 md:items-start`}>
         {/* Price Display — left column on desktop, sticky so it follows the booking flow */}
         <div ref={priceCardRef} className={`text-center md:col-span-2 md:sticky md:top-6 md:self-start ${!isDarkTheme ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-[#7DB00E] rounded-2xl p-6' : ''}`}>
-          {/* Assigned-handyman letterhead (backported from HEAD 7924a94):
-              person-led brand — Ben prepares (hero credit), Craig delivers.
-              Hardcoded to Craig; hidden when the contractor pool is empty. */}
-          {!isLandlord && !isBusiness && filteredDates.some(d => !d.isBlocked) && (
-            <div className={`mb-4 pb-3 border-b ${isDarkTheme ? 'border-white/10' : 'border-slate-200'}`}>
-              <div className="flex items-center gap-3 text-left min-w-0">
-                <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-[#7DB00E] shadow-xl shrink-0">
-                  <img src="/assets/avatars/craig-avatar-1.webp" alt="Craig, your assigned handyman" className="w-full h-full object-cover" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-slate-400 text-xs uppercase tracking-wider font-semibold mb-0.5">Your assigned handyman</div>
-                  <div className={`font-bold text-lg leading-none ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
-                    Craig <span className="text-[#7DB00E] text-sm font-normal">from HandyServices</span>
-                  </div>
-                  <p className={`flex items-center gap-1 text-[11px] mt-1.5 ${isDarkTheme ? 'text-slate-300' : 'text-slate-600'}`}>
-                    <Star className="w-3 h-3 text-amber-400 fill-amber-400 shrink-0" />
-                    <span><b className={isDarkTheme ? 'text-white' : 'text-slate-900'}>4.9</b> · 214 jobs</span>
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Assigned-handyman letterhead removed here — it duplicated the full
+              "Meet your handyman" ContractorProfile banner further down the page
+              and pushed the price down. The profile section is the single place
+              the assigned handyman is shown. */}
           <div className={`${isDarkTheme ? 'text-slate-400' : 'text-slate-600'} text-sm mb-1`}>
             {customerName.split(' ')[0]}, your quote
           </div>
