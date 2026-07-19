@@ -22,7 +22,7 @@ export function GoogleReviewsBadge({ dark = false }: { dark?: boolean }) {
                     <Star key={i} className={`w-4 h-4 ${dark ? "fill-white text-white" : "fill-amber-400 text-amber-400"}`} />
                 ))}
             </div>
-            <span className="text-sm font-medium">4.9 from 300+ Reviews</span>
+            <span className="text-sm font-medium">4.9 · 300+ homeowners served</span>
         </div>
     );
 }

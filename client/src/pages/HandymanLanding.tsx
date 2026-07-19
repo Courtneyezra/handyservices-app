@@ -3,7 +3,6 @@ import { Link } from "wouter";
 import { Phone, Star, Wrench, Paintbrush, Hammer, Droplets, Shield, Clock, CheckCircle, ArrowRight, AlertCircle, MapPin, Leaf, Package, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SiWhatsapp, SiGoogle } from "react-icons/si";
-import { SocialProofSection } from "@/components/SocialProofSection";
 import { IntakeHero } from "@/components/IntakeHero";
 import { GoogleReviewsSection } from "@/components/GoogleReviewsSection";
 import { StickyCTA } from "@/components/StickyCTA";
@@ -14,9 +13,6 @@ import { PropertyManagerView } from "@/components/PropertyManagerView";
 import { BusinessView } from "@/components/BusinessView";
 import { HassleComparisonSection } from "@/components/HassleComparisonSection";
 
-import teamMember1 from "@assets/Untitled design (22)_1764599239600.webp";
-import teamMember2 from "@assets/Untitled design (23)_1764599239600.webp";
-import teamMember3 from "@assets/Untitled design (24)_1764599239599.webp";
 import teamMember4 from "@assets/Untitled design (25)_1764599239599.webp";
 import teamMember5 from "@assets/Untitled design (26)_1764599239599.webp";
 import teamMember6 from "@assets/Untitled design (27)_1764599239595.webp";
@@ -49,50 +45,81 @@ import { GoogleReviewsBadge } from "@/components/LandingShared";
 
 
 function TeamSection() {
-    const team = [
-        { name: "Richard", role: "Lead Handyman", rating: "4.9/5", reviews: "80+ Reviews", specialty: "General Repairs", icon: <Wrench className="w-5 h-5" />, image: teamMember1 },
-        { name: "Barry", role: "Senior Carpenter", rating: "4.8/5", reviews: "50+ Reviews", specialty: "Joinery & Woodwork", icon: <Hammer className="w-5 h-5" />, image: teamMember2 },
-        { name: "Vinny", role: "Decorator", rating: "4.8/5", reviews: "15+ Reviews", specialty: "Painting & Finishing", icon: <Paintbrush className="w-5 h-5" />, image: teamMember3 },
+    // Person-led brand: the landing features the SAME core handyman the quote
+    // assigns (Craig) — one consistent cast across the whole journey. Real
+    // imagery + numbers matching the quote's "Meet your handyman" section.
+    // Data-driven-ready: extend to a roster once more core techs are onboarded.
+    const recentWork = [
+        { url: "/assets/quote-images/craig-bathroom.webp", label: "Bathroom reseal" },
+        { url: "/assets/quote-images/craig-tiling.webp", label: "Tiling" },
+        { url: "/assets/quote-images/craig-light.webp", label: "Light fitting" },
+        { url: "/assets/quote-images/craig-flatpack.webp", label: "Flat-pack build" },
     ];
 
     return (
         <section id="team" className="bg-slate-800 px-4 lg:px-8 py-16 lg:py-24">
-            <div className="max-w-7xl mx-auto">
-                <div className="text-center mb-12 lg:mb-16">
+            <div className="max-w-6xl mx-auto">
+                <div className="text-center mb-10 lg:mb-14">
+                    <p className="text-amber-400 font-bold uppercase tracking-[0.14em] text-xs md:text-sm mb-3">Meet your handyman</p>
                     <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-4">
-                        Out of Many Locals, One <span className="text-amber-400">Handy Team</span>
+                        The person who <span className="text-amber-400">does your job</span>
                     </h2>
                     <p className="text-white/60 text-lg max-w-2xl mx-auto font-medium">
-                        Meet our trusted professionals who've helped hundreds of Nottingham homeowners
+                        Not a faceless call centre — a vetted local pro who turns up when we say and stands behind the work.
                     </p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 md:gap-8 lg:gap-12 items-stretch">
-                    {team.map((member, idx) => (
-                        <div key={idx} className="bg-slate-700/50 rounded-xl md:rounded-3xl p-2 md:p-8 text-center hover:bg-slate-700 transition-colors h-full flex flex-col">
+                <div className="grid lg:grid-cols-5 gap-6 lg:gap-10 items-center">
+                    {/* Craig — banner portrait */}
+                    <div className="lg:col-span-2">
+                        <div className="relative rounded-3xl overflow-hidden shadow-2xl aspect-[4/5]">
                             <img
-                                src={member.image}
-                                alt={member.name}
+                                src="/assets/quote-images/craig-banner.webp"
+                                alt="Craig, your Nottingham handyman"
                                 loading="lazy"
                                 decoding="async"
-                                className="w-16 h-16 md:w-32 md:h-32 lg:w-40 lg:h-40 mx-auto mb-2 md:mb-6 object-contain"
+                                className="w-full h-full object-cover"
                             />
-
-                            <div className="flex items-center justify-center gap-1 md:gap-2 text-amber-400 font-semibold mb-1 md:mb-2">
-                                <span className="hidden md:inline">{member.icon}</span>
-                                <span className="text-xs md:text-xl font-semibold">{member.name}</span>
+                            <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/10 to-transparent" />
+                            <div className="absolute bottom-0 left-0 right-0 p-5">
+                                <div className="text-white text-2xl font-extrabold leading-none">Craig</div>
+                                <div className="text-amber-400 font-semibold text-sm mt-1">Lead handyman · HandyServices</div>
+                                <div className="flex items-center gap-1.5 mt-2 text-white/90 text-sm">
+                                    <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                                    <span className="font-bold text-white">4.9</span>
+                                    <span className="text-white/60">· 214 jobs completed</span>
+                                </div>
                             </div>
-
-                            <p className="text-white/60 text-xs md:text-base mb-2 md:mb-4">{member.role}</p>
-
-                            <div className="bg-slate-800 rounded-lg md:rounded-xl p-2 md:p-4 mb-2 md:mb-4">
-                                <p className="text-amber-400 font-bold text-sm md:text-2xl">{member.rating}</p>
-                                <p className="text-white/50 text-xs">{member.reviews}</p>
-                            </div>
-
-                            <p className="text-white/70 text-xs hidden md:block">Specialty: {member.specialty}</p>
                         </div>
-                    ))}
+                    </div>
+
+                    {/* Bio + trust + recent work */}
+                    <div className="lg:col-span-3">
+                        <p className="text-white/80 text-lg leading-relaxed mb-6">
+                            Over a decade putting Nottingham homes right — tidy, on time, and back to sort it free if anything's not perfect.
+                        </p>
+                        <div className="flex flex-wrap gap-2.5 mb-8">
+                            {["DBS-checked", "£2M insured", "90-day guarantee"].map((b) => (
+                                <span key={b} className="inline-flex items-center gap-1.5 rounded-full bg-slate-700/70 border border-slate-600 px-3.5 py-1.5 text-sm font-medium text-white/90">
+                                    <CheckCircle className="w-4 h-4 text-amber-400" /> {b}
+                                </span>
+                            ))}
+                        </div>
+                        <p className="text-white/50 text-xs font-bold uppercase tracking-wider mb-3">Recent work</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            {recentWork.map((w) => (
+                                <div key={w.label} className="relative rounded-xl overflow-hidden aspect-square">
+                                    <img src={w.url} alt={w.label} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/80 to-transparent p-2">
+                                        <span className="text-white text-[11px] font-medium leading-tight">{w.label}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <p className="text-white/40 text-sm mt-6">
+                            Craig leads a growing team of vetted local pros — bigger jobs get the right hands, always DBS-checked and insured.
+                        </p>
+                    </div>
                 </div>
             </div>
         </section>
@@ -479,12 +506,12 @@ function FooterCTA() {
                             <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
                         ))}
                     </div>
-                    <span className="text-white font-medium">4.9 from 300+ Reviews</span>
+                    <span className="text-white font-medium">4.9 · 300+ homeowners served</span>
                 </div>
 
                 <div className="border-t border-white/10 pt-8 flex flex-col sm:flex-row items-center justify-center gap-x-6 gap-y-2">
                     <p className="text-white/40 text-sm">
-                        © 2024 Handy Services Nottingham. All rights reserved.
+                        © 2026 Handy Services Nottingham. All rights reserved.
                     </p>
                     <a href="/cancellation-policy" className="text-white/40 text-sm underline hover:text-white/70 transition-colors">
                         Cancellation &amp; Deposit Policy
@@ -752,7 +779,10 @@ export default function HandymanLanding({
                 </div>
             </div>
 
-            <SocialProofSection location="nottingham" />
+            {/* Fabricated "Recent quotes in your area" ticker removed — the names,
+                locations, prices and "X mins ago" were randomly generated every 3s
+                (manufactured urgency / fake activity). Real proof lives in the
+                Google reviews, guarantees and before/after sections below. */}
 
             <div ref={contentRef} key={activeSegment} className="animate-in fade-in slide-in-from-bottom-4 duration-700 scroll-mt-24">
                 {activeSegment === 'residential' && (

@@ -211,23 +211,25 @@ export function LocalTrustSection({ location = "derby" }: LocalTrustSectionProps
                         We're active across {cityName} & the surrounding areas every single day. From neighborhoods to city center, our team is busy helping neighbors just like you.
                     </p>
 
-                    {/* Stats Grid */}
+                    {/* Stats Grid — honest, defensible facts (no fake live metrics
+                        like "jobs today" / "avg response" that imply live tracking
+                        we don't have). Rating is the real Google score. */}
                     <div className="grid grid-cols-2 gap-6">
                         <div>
-                            <p className="text-4xl font-bold text-white mb-1">15+</p>
-                            <p className="text-slate-500 text-sm uppercase tracking-wider">Jobs Today</p>
-                        </div>
-                        <div>
-                            <p className="text-4xl font-bold text-white mb-1">28m</p>
-                            <p className="text-slate-500 text-sm uppercase tracking-wider">Avg Response</p>
-                        </div>
-                        <div>
                             <p className="text-4xl font-bold text-white mb-1">4.9</p>
-                            <p className="text-slate-500 text-sm uppercase tracking-wider">Avg Rating</p>
+                            <p className="text-slate-500 text-sm uppercase tracking-wider">Google Rating</p>
                         </div>
                         <div>
-                            <p className="text-4xl font-bold text-white mb-1">98%</p>
-                            <p className="text-slate-500 text-sm uppercase tracking-wider">On Time</p>
+                            <p className="text-4xl font-bold text-white mb-1">300+</p>
+                            <p className="text-slate-500 text-sm uppercase tracking-wider">Homeowners Served</p>
+                        </div>
+                        <div>
+                            <p className="text-4xl font-bold text-white mb-1">£2M</p>
+                            <p className="text-slate-500 text-sm uppercase tracking-wider">Insured</p>
+                        </div>
+                        <div>
+                            <p className="text-4xl font-bold text-white mb-1">90-day</p>
+                            <p className="text-slate-500 text-sm uppercase tracking-wider">Guarantee</p>
                         </div>
                     </div>
                 </div>
