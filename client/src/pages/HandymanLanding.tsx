@@ -245,7 +245,7 @@ function ServicesSection() {
                             </div>
                             <h3 className="text-white font-bold text-xl text-center mb-2">{service.name}</h3>
                             <p className="text-white/60 text-center text-sm mb-4">{service.description}</p>
-                            <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 bg-red-500 text-white text-sm font-bold px-5 py-2 rounded-full shadow-lg">
+                            <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 bg-amber-400 text-slate-900 text-sm font-bold px-5 py-2 rounded-full shadow-lg">
                                 From {service.price}
                             </div>
                         </div>
@@ -424,30 +424,30 @@ function PayIn3Section() {
 
 function GuaranteesSection() {
     const guarantees = [
-        { icon: <Clock className="w-6 h-6" />, title: "We turn up when we say we will", subtitle: "Punctuality guaranteed" },
-        { icon: <Star className="w-6 h-6" />, title: "Top-rated team trusted by 70+ locals", subtitle: "Proven track record" },
-        { icon: <CheckCircle className="w-6 h-6" />, title: "No hidden charges, ever", subtitle: "Transparent pricing" },
-        { icon: <Shield className="w-6 h-6" />, title: "Fully insured and DBS checked", subtitle: "Peace of mind" },
+        { icon: <Clock className="w-7 h-7" />, title: "We turn up when we say", sub: "Or your deposit back, no quibble." },
+        { icon: <CheckCircle className="w-7 h-7" />, title: "The price we quote is the price", sub: "Agreed up front. No hidden extras." },
+        { icon: <Shield className="w-7 h-7" />, title: "£2M insured, DBS-checked", sub: "A safe, vetted pro in your home." },
+        { icon: <Star className="w-7 h-7" />, title: "Not right? We come back free", sub: "90-day guarantee on every job." },
     ];
 
     return (
-        <section className="bg-slate-100 px-4 lg:px-8 py-16 lg:py-24">
-            <div className="max-w-7xl mx-auto">
-                <div className="text-center mb-12 lg:mb-16">
-                    <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-slate-800 mb-4">
-                        Our Guarantees
+        <section className="bg-slate-900 px-4 lg:px-8 py-20 lg:py-28">
+            <div className="max-w-5xl mx-auto">
+                <div className="mb-12 lg:mb-16 max-w-2xl">
+                    <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white leading-[1.05] mb-4">
+                        Four promises we <span className="text-amber-400">put in writing.</span>
                     </h2>
-                    <p className="text-slate-600 text-lg">What you can expect from Handy Services</p>
+                    <p className="text-white/50 text-lg">The reasons 300+ Nottingham homeowners called us back.</p>
                 </div>
 
-                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {guarantees.map((guarantee, idx) => (
-                        <div key={idx} className="bg-white rounded-2xl p-6 text-center shadow-sm hover:shadow-md transition-shadow">
-                            <div className="w-14 h-14 bg-amber-400 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-900">
-                                {guarantee.icon}
+                <div className="grid sm:grid-cols-2 gap-x-10 gap-y-10">
+                    {guarantees.map((g, idx) => (
+                        <div key={idx} className="flex items-start gap-4">
+                            <div className="shrink-0 text-amber-400 mt-1">{g.icon}</div>
+                            <div>
+                                <h3 className="text-white font-bold text-xl md:text-2xl leading-tight mb-1.5">{g.title}</h3>
+                                <p className="text-white/55 text-base leading-relaxed">{g.sub}</p>
                             </div>
-                            <h3 className="font-bold text-slate-800 mb-2">{guarantee.title}</h3>
-                            <p className="text-slate-500 text-sm">{guarantee.subtitle}</p>
                         </div>
                     ))}
                 </div>
@@ -768,7 +768,7 @@ export default function HandymanLanding({
                         ctaText={variant?.content?.ctaText || "Get Instant Quote"}
                         mobileCtaText={variant?.content?.mobileCtaText || "Call Now"}
                         desktopCtaText={variant?.content?.desktopCtaText || "Get a Price"}
-                        bannerText="★★★★★ &nbsp;Rated 4.9 on Google by {{location}} homeowners"
+                        bannerText="Fixed prices agreed up front. No hourly surprises, no call-out fees."
                         onConversion={trackConversionWithEvent}
                         transparentBg={true}
                     />
