@@ -2,7 +2,7 @@
 
 > The concise product spec for the contractor OS. The **why + what + scope**.
 > Detailed model + data flow lives in [`01-model-and-data-flow.md`](./01-model-and-data-flow.md);
-> schema in `02-schema.md` (next). Founder-confirmed via interview + hand
+> schema in [`02-schema.md`](./02-schema.md). Founder-confirmed via interview + hand
 > sketches, 20 Jul 2026.
 
 ---
@@ -173,7 +173,8 @@ change one.
 ## 11. Deliverables & next step
 
 This PRD (`00-PRD.md`) + [`01-model-and-data-flow.md`](./01-model-and-data-flow.md)
-are the canonical spec. **Next: `02-schema.md`** — the additive migration
++ [`02-schema.md`](./02-schema.md) are the canonical spec. The additive schema
 (`delivery_tier`, `leadContractorId`, `contractor_commitments`,
-`booking_assignments`) that the shell, panels, modals, and workspaces all read
-from. Then build v1: the Admin OS shell + Contractor Hub.
+`booking_assignments`) is **implemented** in `shared/schema.ts`. **Next: build
+v1** — the routing fix (`resolveQuoteTeam`) writing `lead_contractor_id` +
+`team_plan`, then the Admin OS shell + Contractor Hub reading from the spine.

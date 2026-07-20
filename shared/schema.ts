@@ -523,6 +523,11 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     partnerStatus: varchar("partner_status", { length: 30 }).default('not_started'), // Partner application status
     partnerActivatedAt: timestamp("partner_activated_at"), // When they became a partner
 
+    // Contractor platform — DELIVERY tier (feat/contractor-platform).
+    // Distinct from subscriptionTier above (freemium/marketing). Do NOT overload.
+    deliveryTier: varchar("delivery_tier", { length: 20 }).notNull().default('adhoc'), // 'partner' | 'core' | 'adhoc'
+    deliveryPriority: integer("delivery_priority"), // routing order within a tier — lower = picked first (Craig = 1); null = unranked
+
     // Availability freshness — updated when contractor toggles availability
     lastAvailabilityRefresh: timestamp("last_availability_refresh"),
     // Round-robin fairness — updated when contractor is assigned a job
@@ -973,6 +978,12 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     candidateContractorIds: jsonb("candidate_contractor_ids").$type<string[]>(), // All contractor IDs who can service this quote
     candidatePoolSize: integer("candidate_pool_size"), // Total candidates found
     fullCoverageCandidates: integer("full_coverage_candidates"), // Count who cover 100% of categories
+
+    // Contractor platform — SOFT lead + composed team plan (feat/contractor-platform).
+    // Advisory only: set at quote generation, drives the contractor skin + hub pipeline
+    // lane. Holds NO capacity — hard reservation still happens at deposit (bookingSlotLocks).
+    leadContractorId: varchar("lead_contractor_id").references(() => handymanProfiles.id), // soft-assigned lead
+    teamPlan: jsonb("team_plan"), // { lead, assignments:[{contractorId,role,coveredCategories}], uncoveredCategories } — the "steer, then compose" suggestion Ben confirms
 
     // Booking Lock
     bookingLockedAt: timestamp("booking_locked_at"),
@@ -3167,3 +3178,86 @@ export const v2Bookings = pgTable("v2_bookings", {
 
 export type V2Booking = typeof v2Bookings.$inferSelect;
 export type InsertV2Booking = typeof v2Bookings.$inferInsert;
+
+// ===========================================================================
+// Contractor Platform (feat/contractor-platform)
+// Additive tables for the 3-tier delivery OS. See docs/contractor-platform/.
+// Appended at end-of-file + additive-only so the merge with the -deployed
+// chat's schema edits stays conflict-free.
+// ===========================================================================
+
+// Committed-capacity agreement per Core/Partner contractor — the "weekly
+// retainer agreed?" flag from the founder sketch. Versioned (effectiveFrom/To)
+// so floor terms can change without losing history. Null money fields = the
+// floor is theoretical (tiers route work; floor is papered later).
+export const contractorCommitments = pgTable("contractor_commitments", {
+    id: varchar("id").primaryKey().notNull(),
+    contractorId: varchar("contractor_id").references(() => handymanProfiles.id).notNull(),
+    weeklyFloorPence: integer("weekly_floor_pence"),            // guaranteed weekly earnings floor (null until agreed)
+    topupPercentOfLabour: integer("topup_percent_of_labour"),  // % of the labour line paid per job (e.g. 10)
+    residualBookPercent: integer("residual_book_percent"),     // % on rebookings from a customer they served
+    acceptanceSlaMinutes: integer("acceptance_sla_minutes"),   // must accept assigned jobs within N mins to keep the floor
+    committedDaysPerWeek: integer("committed_days_per_week"),   // committed working days per week
+    status: varchar("status", { length: 20 }).notNull().default('draft'), // 'draft' | 'proposed' | 'active' | 'ended'
+    effectiveFrom: timestamp("effective_from"),
+    effectiveTo: timestamp("effective_to"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+    index("idx_contractor_commitments_contractor").on(table.contractorId),
+    index("idx_contractor_commitments_status").on(table.status),
+]);
+
+// One booking → many contractor assignments. A solo job = one 'lead' row (the
+// existing contractorBookingRequests.assignedContractorId stays the lead, so
+// nothing downstream breaks). Multi-trade = lead + one 'specialist' row per
+// off-skill line. This is what makes "steer, then compose" real.
+export const bookingAssignments = pgTable("booking_assignments", {
+    id: varchar("id").primaryKey().notNull(),
+    bookingId: varchar("booking_id").references(() => contractorBookingRequests.id).notNull(),
+    contractorId: varchar("contractor_id").references(() => handymanProfiles.id).notNull(),
+    role: varchar("role", { length: 20 }).notNull().default('lead'), // 'lead' | 'specialist'
+    coveredCategories: text("covered_categories").array(), // category slugs this contractor covers on the job
+    status: varchar("status", { length: 20 }).notNull().default('assigned'), // 'assigned' | 'accepted' | 'declined' | 'in_progress' | 'completed'
+    payoutPence: integer("payout_pence"),                  // this contractor's share of the labour line
+    scheduledDate: timestamp("scheduled_date"),            // may differ from the lead if a specialist follows separately
+    scheduledSlot: scheduledSlotEnum("scheduled_slot"),
+    offeredVia: varchar("offered_via", { length: 20 }),    // 'auto' | 'whatsapp' | 'manual' — v1 = whatsapp/manual (no job_offers table yet)
+    assignedAt: timestamp("assigned_at"),
+    acceptedAt: timestamp("accepted_at"),
+    declinedAt: timestamp("declined_at"),
+    completedAt: timestamp("completed_at"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+    index("idx_booking_assignments_booking").on(table.bookingId),
+    index("idx_booking_assignments_contractor").on(table.contractorId),
+    index("idx_booking_assignments_status").on(table.status),
+]);
+
+export const contractorCommitmentsRelations = relations(contractorCommitments, ({ one }) => ({
+    contractor: one(handymanProfiles, {
+        fields: [contractorCommitments.contractorId],
+        references: [handymanProfiles.id],
+    }),
+}));
+
+export const bookingAssignmentsRelations = relations(bookingAssignments, ({ one }) => ({
+    booking: one(contractorBookingRequests, {
+        fields: [bookingAssignments.bookingId],
+        references: [contractorBookingRequests.id],
+    }),
+    contractor: one(handymanProfiles, {
+        fields: [bookingAssignments.contractorId],
+        references: [handymanProfiles.id],
+    }),
+}));
+
+export const insertContractorCommitmentSchema = createInsertSchema(contractorCommitments);
+export type ContractorCommitment = typeof contractorCommitments.$inferSelect;
+export type InsertContractorCommitment = typeof contractorCommitments.$inferInsert;
+
+export const insertBookingAssignmentSchema = createInsertSchema(bookingAssignments);
+export type BookingAssignment = typeof bookingAssignments.$inferSelect;
+export type InsertBookingAssignment = typeof bookingAssignments.$inferInsert;
