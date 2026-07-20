@@ -85,10 +85,16 @@ export default function OperatingSystem() {
   const [cats, setCats] = useState<{ slug: string; label: string }[]>([]);
   const [addOpen, setAddOpen] = useState(false);
 
-  const loadWeek = (id: string) => Promise.all([
-    getJSON<WeekResp>(`/api/admin/contractor-hub/${id}/week`).then((w) => { setWeek(w); setPatternEdit(w.pattern); }),
+  const loadWeek = (id: string, weekParam?: string) => Promise.all([
+    getJSON<WeekResp>(`/api/admin/contractor-hub/${id}/week${weekParam ? `?week=${weekParam}` : ''}`).then((w) => { setWeek(w); setPatternEdit(w.pattern); }),
     getJSON<{ jobs: FlexJob[] }>(`/api/admin/contractor-hub/${id}/flex`).then((f) => setFlex(f.jobs)),
   ]).catch((e) => setErr(e.message));
+  const shiftWeek = (delta: number) => {
+    if (!weekOf || !week) return;
+    const d = new Date(`${week.weekStart}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + delta * 7);
+    loadWeek(weekOf.id, d.toISOString().slice(0, 10));
+  };
 
   const openWeek = (id: string, name: string) => { setDrawer(null); setWeekOf({ id, name }); setWeek(null); setFlex(null); setMsg(null); loadWeek(id); };
   const togglePattern = (dow: number, slot: 'am' | 'pm') =>
@@ -96,12 +102,12 @@ export default function OperatingSystem() {
   const savePattern = async () => {
     if (!weekOf) return;
     const patterns = patternEdit.filter((p) => p.am || p.pm).map((p) => ({ dayOfWeek: p.dayOfWeek, ...patternToWindow(p.am, p.pm) }));
-    try { setMsg('Saving…'); await sendJSON(`/api/admin/contractor-hub/${weekOf.id}/pattern`, 'PUT', { patterns }); await loadWeek(weekOf.id); setMsg('Weekly pattern saved.'); }
+    try { setMsg('Saving…'); await sendJSON(`/api/admin/contractor-hub/${weekOf.id}/pattern`, 'PUT', { patterns }); await loadWeek(weekOf.id, week?.weekStart); setMsg("Weekly pattern saved."); }
     catch (e: any) { setMsg(`Save failed: ${e.message}`); }
   };
   const placeFlex = async (date: string, slot: 'am' | 'pm') => {
     if (!weekOf || !placing) return;
-    try { setMsg('Placing…'); await sendJSON(`/api/admin/contractor-hub/${weekOf.id}/flex/${placing}/place`, 'POST', { date, slot }); setPlacing(null); await loadWeek(weekOf.id); setMsg('Flex job placed as a booking.'); }
+    try { setMsg('Placing…'); await sendJSON(`/api/admin/contractor-hub/${weekOf.id}/flex/${placing}/place`, 'POST', { date, slot }); setPlacing(null); await loadWeek(weekOf.id, week?.weekStart); setMsg("Flex job placed as a booking."); }
     catch (e: any) { setMsg(`Couldn't place: ${e.message}`); }
   };
   // Edit just THIS week: toggle a day's AM/PM as a date override (reuses the
@@ -114,7 +120,7 @@ export default function OperatingSystem() {
     const amOn = slot === 'am' ? !isOn(d.am) : isOn(d.am);
     const pmOn = slot === 'pm' ? !isOn(d.pm) : isOn(d.pm);
     const slotType = amOn && pmOn ? 'full_day' : amOn ? 'am' : pmOn ? 'pm' : 'off';
-    try { setMsg('Updating this week…'); await sendJSON(`/api/admin/contractors/${weekOf.id}/availability`, 'PUT', { dates: [{ date, slot: slotType, isAvailable: true }] }); await loadWeek(weekOf.id); setMsg('This week updated.'); }
+    try { setMsg('Updating this week…'); await sendJSON(`/api/admin/contractors/${weekOf.id}/availability`, 'PUT', { dates: [{ date, slot: slotType, isAvailable: true }] }); await loadWeek(weekOf.id, week?.weekStart); setMsg("This week updated."); }
     catch (e: any) { setMsg(`Update failed: ${e.message}`); }
   };
 
@@ -174,7 +180,14 @@ export default function OperatingSystem() {
         <p className="text-[11px] text-gray-400 mt-2">Tap AM/PM to set his standing days, then Save — this lights up the customer calendar.</p>
       </div>
 
-      <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">This week{placing ? ' — tap an open slot to place the flex job' : ' — tap AM/PM to change just this week'}</div>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[11px] uppercase tracking-wide text-gray-400">{placing ? 'Tap an open slot to place the flex job' : 'Tap AM/PM to change a specific week'}</span>
+        <span className="flex items-center gap-1.5 text-xs text-gray-600">
+          <button onClick={() => shiftWeek(-1)} className="w-6 h-6 rounded border border-gray-200 hover:bg-gray-50" aria-label="Previous week">‹</button>
+          <span className="min-w-[92px] text-center">Week of {new Date(`${week!.weekStart}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+          <button onClick={() => shiftWeek(1)} className="w-6 h-6 rounded border border-gray-200 hover:bg-gray-50" aria-label="Next week">›</button>
+        </span>
+      </div>
       <div className="grid grid-cols-7 gap-2 mb-4">
         {week!.days.map((d) => (
           <div key={d.date} className="border border-gray-200 rounded-lg p-2 text-center bg-white">
