@@ -236,10 +236,12 @@ export default function OperatingSystem() {
                   </div>
                   {band.contractors.length === 0 ? <p className="text-sm text-gray-400 italic px-1">None yet.</p> : band.contractors.map((c) => (
                     <button key={c.id} onClick={() => openModal(c)} className="w-full flex items-center gap-3 p-3 mb-1.5 rounded-xl border border-gray-200 bg-white hover:border-gray-300 text-left">
-                      <span className="w-8 h-8 rounded-lg bg-blue-50 text-blue-700 grid place-items-center text-xs font-medium shrink-0">{c.name.slice(0, 2).toUpperCase()}</span>
+                      {c.imageUrl
+                        ? <img src={c.imageUrl} alt={c.name} className="w-9 h-9 rounded-lg object-cover shrink-0" />
+                        : <span className="w-9 h-9 rounded-lg bg-blue-50 text-blue-700 grid place-items-center text-xs font-medium shrink-0">{c.name.slice(0, 2).toUpperCase()}</span>}
                       <span className="flex-1 min-w-0">
                         <span className="block text-sm font-medium">{c.name}</span>
-                        <span className="block text-xs text-gray-500 truncate">{c.skills.slice(0, 4).join(' · ') || 'No skills tagged'}</span>
+                        <span className="block text-xs text-gray-500 truncate">{c.tier === 'core' ? `Priority ${c.priority ?? '—'}${c.priority === 1 ? ' · book first' : ''}` : c.tier === 'adhoc' ? 'By offer' : 'Partner'}</span>
                       </span>
                       <span className="w-32 shrink-0">
                         <span className="flex justify-between text-[10px] text-gray-400 mb-1"><span>fill</span><span>{c.fillPercent}%</span></span>
