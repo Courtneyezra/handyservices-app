@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { assembleHub, type HubContractorInput, type CapacityGap } from './lib/contractor-hub';
 
 const mk = (over: Partial<HubContractorInput>): HubContractorInput => ({
-  id: 'x', name: 'X', tier: 'core', priority: null, skills: [], bookedDaysThisWeek: 0, committedDaysPerWeek: null, pipelineCount: 0,
+  id: 'x', name: 'X', tier: 'core', priority: null, imageUrl: null, skills: [], bookedDaysThisWeek: 0, committedDaysPerWeek: null, pipelineCount: 0,
   ...over,
 });
 

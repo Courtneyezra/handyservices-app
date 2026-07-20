@@ -12,6 +12,7 @@ export interface HubContractorInput {
   name: string;
   tier: DeliveryTier;
   priority: number | null;
+  imageUrl: string | null;
   skills: string[];
   bookedDaysThisWeek: number;
   committedDaysPerWeek: number | null;

@@ -26,6 +26,7 @@ import {
   contractorCommitments,
 } from '../shared/schema';
 import { timeRangeCoversSlot, type SlotType } from '../shared/slot-times';
+import { CATEGORY_LABELS } from '../shared/categories';
 import type { DeliveryTier } from './lib/quote-team';
 import { assembleHub, type HubContractorInput, type CapacityGap, type ContractorHub } from './lib/contractor-hub';
 import { resolveWeek } from './lib/contractor-week';
@@ -50,6 +51,8 @@ router.get('/', async (_req: Request, res: Response) => {
         priority: handymanProfiles.deliveryPriority,
         verification: handymanProfiles.verificationStatus,
         publicEnabled: handymanProfiles.publicProfileEnabled,
+        profileImageUrl: handymanProfiles.profileImageUrl,
+        heroImageUrl: handymanProfiles.heroImageUrl,
       })
       .from(handymanProfiles);
 
@@ -117,6 +120,7 @@ router.get('/', async (_req: Request, res: Response) => {
       name: nameById.get(p.userId) ?? 'Unknown',
       tier: (p.tier as DeliveryTier) ?? 'adhoc',
       priority: p.priority ?? null,
+      imageUrl: p.profileImageUrl ?? p.heroImageUrl ?? null,
       skills: skillsById.get(p.id) ?? [],
       bookedDaysThisWeek: bookedDaysById.get(p.id)?.size ?? 0,
       committedDaysPerWeek: committedById.get(p.id) ?? null,
@@ -254,6 +258,39 @@ router.post('/:id/flex/:jobId/place', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[Hub/place] failed:', err?.message);
     res.status(500).json({ error: 'Failed to place flex job', details: err?.message });
+  }
+});
+
+// GET /categories → the full category list for the skill picker.
+router.get('/meta/categories', (_req: Request, res: Response) => {
+  res.json({ categories: Object.entries(CATEGORY_LABELS).map(([slug, label]) => ({ slug, label })) });
+});
+
+// POST /:id/skills { categorySlug } → add a skill (idempotent).
+router.post('/:id/skills', async (req: Request, res: Response) => {
+  try {
+    const { categorySlug } = req.body || {};
+    if (!categorySlug) return res.status(400).json({ error: 'categorySlug required' });
+    const exists = await db.select({ id: handymanSkills.id }).from(handymanSkills)
+      .where(and(eq(handymanSkills.handymanId, req.params.id), eq(handymanSkills.categorySlug, categorySlug))).limit(1);
+    if (exists.length === 0) {
+      await db.insert(handymanSkills).values({ id: uuidv4(), handymanId: req.params.id, categorySlug, proficiency: 'competent' });
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Hub/skills add] failed:', err?.message);
+    res.status(500).json({ error: 'Failed to add skill', details: err?.message });
+  }
+});
+
+// DELETE /:id/skills/:slug → remove a skill.
+router.delete('/:id/skills/:slug', async (req: Request, res: Response) => {
+  try {
+    await db.delete(handymanSkills).where(and(eq(handymanSkills.handymanId, req.params.id), eq(handymanSkills.categorySlug, req.params.slug)));
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Hub/skills remove] failed:', err?.message);
+    res.status(500).json({ error: 'Failed to remove skill', details: err?.message });
   }
 });
 
