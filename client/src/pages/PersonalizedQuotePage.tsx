@@ -3929,55 +3929,29 @@ export default function PersonalizedQuotePage() {
   // above-the-fold assets are ready. A failed load (not loading, no quote) falls
   // through to the "not found" card below instead of spinning here. onComplete
   // hands off to the offer for homeowner (or any type via ?v=offer), else quote.
-  // Interstitial phases (loading → offer) share ONE sliding container so the
-  // hand-off is a horizontal carousel: the loading screen slides out to the left
-  // as the offer slides in from the right (and the offer slides left again into
-  // the quote). Both phases coexist only during the ~0.45s transition (absolute-
-  // positioned, clipped by overflow-hidden). offer→quote is a plain cut (the
-  // quote is the huge main render below, not part of this container).
-  if ((flowPhase === 'preparing' && (isLoading || quote)) || (flowPhase === 'offer' && selectedOffer && quote)) {
-    const offerBasePrice = (quote?.finalPricePence || quote?.basePrice || (quote as any)?.enhancedPrice || 0);
-    const slide = { type: 'tween' as const, ease: [0.4, 0, 0.2, 1] as [number, number, number, number], duration: 0.45 };
+  if (flowPhase === 'preparing' && (isLoading || quote)) {
     return (
-      <div className="relative min-h-screen overflow-hidden">
-        <AnimatePresence initial={false}>
-          {flowPhase === 'preparing' ? (
-            <motion.div key="prep" initial={{ x: 0 }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={slide} className="absolute inset-0">
-              <QuotePreparingScreen
-                ready={!isLoading && assetsReady && !!quote}
-                pricingSettings={pricingSettings}
-                customerName={quote?.customerName}
-                // First open only: the checklist theatre builds anticipation once, then
-                // becomes friction (median 7 opens; paid customers watch "locking in
-                // your fixed price" for a price they already paid). viewCount arrives
-                // with the quote, so this flips mid-show for other-device reopens.
-                instant={skipPreparingTheatre}
-                onComplete={() => {
-                  try {
-                    localStorage.setItem(`hs_quote_seen_${params?.slug}`, '1');
-                  } catch { /* private mode — server viewCount backstop covers it */ }
-                  // Paid/booked customers skip the offer pitch entirely — they land on
-                  // the post-payment job hub, not a discount for a decision already made.
-                  // justPaid covers the seconds before the Stripe webhook lands.
-                  const alreadyPaid = !!(quote?.depositPaidAt || quote?.bookedAt) || justPaid;
-                  const homeowner = deriveOfferCustomerType((quote as any)?.contextSignals) === 'homeowner';
-                  setFlowPhase(!alreadyPaid && selectedOffer && (offerVariant || homeowner) ? 'offer' : 'quote');
-                }}
-              />
-            </motion.div>
-          ) : (
-            <motion.div key="offer" initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }} transition={slide} className="absolute inset-0">
-              <IrresistibleOfferScreen
-                offer={selectedOffer!}
-                basePricePence={offerBasePrice}
-                customerName={quote!.customerName}
-                onAccept={() => { trackOfferEvent('accept'); setAcceptedFlexOffer(true); setFlowPhase('quote'); }}
-                onDecline={() => { trackOfferEvent('decline'); setAcceptedFlexOffer(false); setFlowPhase('quote'); }}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+      <QuotePreparingScreen
+        ready={!isLoading && assetsReady && !!quote}
+        pricingSettings={pricingSettings}
+        customerName={quote?.customerName}
+        // First open only: the checklist theatre builds anticipation once, then
+        // becomes friction (median 7 opens; paid customers watch "locking in
+        // your fixed price" for a price they already paid). viewCount arrives
+        // with the quote, so this flips mid-show for other-device reopens.
+        instant={skipPreparingTheatre}
+        onComplete={() => {
+          try {
+            localStorage.setItem(`hs_quote_seen_${params?.slug}`, '1');
+          } catch { /* private mode — server viewCount backstop covers it */ }
+          // Paid/booked customers skip the offer pitch entirely — they land on
+          // the post-payment job hub, not a discount for a decision already made.
+          // justPaid covers the seconds before the Stripe webhook lands.
+          const alreadyPaid = !!(quote?.depositPaidAt || quote?.bookedAt) || justPaid;
+          const homeowner = deriveOfferCustomerType((quote as any)?.contextSignals) === 'homeowner';
+          setFlowPhase(!alreadyPaid && selectedOffer && (offerVariant || homeowner) ? 'offer' : 'quote');
+        }}
+      />
     );
   }
 
@@ -4054,9 +4028,21 @@ export default function PersonalizedQuotePage() {
   // For contextual quotes, prefer finalPricePence from the contextual pricing engine
   const quotePrice = (isContextualQuote ? quote.finalPricePence : undefined) || quote.basePrice || quote.enhancedPrice || 0;
 
-  // Offer flow, step 2 (the irresistible-offer interstitial) now renders inside
-  // the sliding interstitial container above, so the loading → offer hand-off is
-  // a horizontal slide. See that block for the accept/decline wiring.
+  // Offer flow, step 2: the irresistible offer interstitial, shown before the
+  // price. Accept → flexible lane (base price); decline → firm date & time
+  // (base + premium). The choice is threaded into UnifiedQuoteCard via
+  // initialUseFlexBooking, which performs the server-safe re-price.
+  if (flowPhase === 'offer' && selectedOffer) {
+    return (
+      <IrresistibleOfferScreen
+        offer={selectedOffer}
+        basePricePence={quotePrice}
+        customerName={quote.customerName}
+        onAccept={() => { trackOfferEvent('accept'); setAcceptedFlexOffer(true); setFlowPhase('quote'); }}
+        onDecline={() => { trackOfferEvent('decline'); setAcceptedFlexOffer(false); setFlowPhase('quote'); }}
+      />
+    );
+  }
 
   // Sort line items by total descending — anchors the breakdown high (primacy + descending-price effect).
   const sortedPricingLineItems = quote.pricingLineItems

@@ -128,6 +128,20 @@ export function QuotePreparingScreen({ ready, onComplete, customerName, pricingS
     }
   }, [activeStep, ready, onComplete, instant, revealEligible, revealDone]);
 
+  // Failsafe: never hold the loader forever waiting on `ready`. Once the theatre
+  // animation itself is finished, cap the wait — if the quote/assets still
+  // aren't ready after MAX_READY_WAIT_MS, hand off anyway rather than sticking
+  // on a completed checklist (the quote page paints as soon as it can).
+  useEffect(() => {
+    if (completedRef.current || instant) return;
+    const revealSettled = !revealEligible || revealDone;
+    if (!(activeStep >= STEPS_TO_USE.length && revealSettled)) return;
+    const t = setTimeout(() => {
+      if (!completedRef.current) { completedRef.current = true; onComplete(); }
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [activeStep, revealEligible, revealDone, instant, onComplete, STEPS_TO_USE.length]);
+
   const rating = pricingSettings?.googleRating ?? '4.9';
   const jobs = pricingSettings?.jobsCompleted ?? '500+';
 
