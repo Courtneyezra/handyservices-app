@@ -1,4 +1,5 @@
-import { MessageCircle, CheckCircle, Clock, Shield, Phone, Gift } from "lucide-react";
+import { MessageCircle, CheckCircle, Clock, Shield, Phone, Gift, Star } from "lucide-react";
+import { SiGoogle } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { DesktopLeadForm } from "@/components/DesktopLeadForm";
 import defaultHeroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
@@ -141,9 +142,20 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                 );
               })()}
 
-              <p className="text-xl text-slate-200 font-medium mb-10 max-w-xl mx-auto lg:mx-0 drop-shadow-md">
+              <p className="text-xl text-slate-200 font-medium mb-6 max-w-xl mx-auto lg:mx-0 drop-shadow-md">
                 {subhead ? subhead.replace("{{location}}", location) : "Call or WhatsApp for an instant fixed-price quote"}
               </p>
+
+              {/* Google reviews — social proof high in the hero */}
+              <div className="flex items-center justify-center lg:justify-start gap-2 mb-10">
+                <SiGoogle className="w-5 h-5 text-white" />
+                <div className="flex items-center gap-0.5">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                  ))}
+                </div>
+                <span className="text-white font-semibold text-sm">4.9 · 300+ Google reviews</span>
+              </div>
 
               {/* Primary Actions: Call & WhatsApp (Mobile Only) */}
               <div className="lg:hidden flex flex-col sm:flex-row gap-4 max-w-xl mx-auto mb-10 text-xl md:text-2xl">
