@@ -1066,8 +1066,51 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
                 ? new Date(new Date(quote.createdAt).getTime() + QUOTE_VALIDITY_MS)
                 : new Date(Date.now() + QUOTE_VALIDITY_MS));
 
+        // Contractor platform: attach the SOFT lead's REAL profile so the quote
+        // skin (name/photo/bio/rating/badges) reflects the actual assigned
+        // handyman from the Contractor Hub, not hardcoded placeholders. Null →
+        // the client falls back to its defaults.
+        let leadContractor: any = null;
+        const leadId = (quote as any).leadContractorId as string | null;
+        if (leadId) {
+            try {
+                const [lc] = await db.select({
+                    id: handymanProfiles.id,
+                    firstName: users.firstName,
+                    businessName: handymanProfiles.businessName,
+                    profileImageUrl: handymanProfiles.profileImageUrl,
+                    heroImageUrl: handymanProfiles.heroImageUrl,
+                    bio: handymanProfiles.bio,
+                    reviews: handymanProfiles.reviews,
+                    trustBadges: handymanProfiles.trustBadges,
+                })
+                    .from(handymanProfiles)
+                    .leftJoin(users, eq(handymanProfiles.userId, users.id))
+                    .where(eq(handymanProfiles.id, leadId))
+                    .limit(1);
+                if (lc) {
+                    const reviews = Array.isArray(lc.reviews) ? (lc.reviews as any[]) : [];
+                    const rating = reviews.length
+                        ? Math.round((reviews.reduce((s, r) => s + (Number(r?.rating) || 0), 0) / reviews.length) * 10) / 10
+                        : null;
+                    leadContractor = {
+                        id: lc.id,
+                        name: lc.firstName || lc.businessName || null,
+                        imageUrl: lc.profileImageUrl || lc.heroImageUrl || null,
+                        bio: lc.bio || null,
+                        rating,
+                        jobsCount: reviews.length || null,
+                        badges: Array.isArray(lc.trustBadges) ? (lc.trustBadges as string[]) : null,
+                    };
+                }
+            } catch (e) {
+                console.warn('[Quote] lead contractor lookup failed:', e instanceof Error ? e.message : e);
+            }
+        }
+
         res.json({
             ...quote,
+            leadContractor,
             expiresAt: effectiveExpiresAt,
             segment: quoteSegment, // Use the direct field from database (B3.4)
             // Enriched Tier Objects for Frontend Display

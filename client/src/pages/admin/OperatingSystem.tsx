@@ -137,6 +137,20 @@ export default function OperatingSystem() {
     try { await sendJSON(`/api/admin/contractor-hub/${modalC.id}/skills/${slug}`, 'DELETE'); setSkills((s) => s.filter((x) => x !== slug)); refreshHub(); }
     catch (e: any) { setMsg(e.message); }
   };
+  const onAvatarFile = async (e: any) => {
+    const f = e.target.files?.[0];
+    if (!f || !modalC) return;
+    const fd = new FormData(); fd.append('image', f);
+    try {
+      setMsg('Uploading photo…');
+      const r = await fetch(`/api/admin/contractors/${modalC.id}/image`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body: fd });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      setModalC((m) => (m ? { ...m, imageUrl: d.url } : m));
+      refreshHub();
+      setMsg('Photo updated.');
+    } catch (err: any) { setMsg(`Upload failed: ${err.message}`); }
+  };
 
   const renderWeek = () => (
     <>
@@ -341,9 +355,13 @@ export default function OperatingSystem() {
         <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-auto p-4 md:p-8" onClick={closeModal}>
           <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl w-full max-w-3xl my-4">
             <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-200">
-              {modalC.imageUrl
-                ? <img src={modalC.imageUrl} alt={modalC.name} className="w-12 h-12 rounded-xl object-cover" />
-                : <span className="w-12 h-12 rounded-xl bg-blue-50 text-blue-700 grid place-items-center font-medium">{modalC.name.slice(0, 2).toUpperCase()}</span>}
+              <label className="relative w-12 h-12 shrink-0 cursor-pointer group" title="Change photo">
+                {modalC.imageUrl
+                  ? <img src={modalC.imageUrl} alt={modalC.name} className="w-12 h-12 rounded-xl object-cover" />
+                  : <span className="w-12 h-12 rounded-xl bg-blue-50 text-blue-700 grid place-items-center font-medium">{modalC.name.slice(0, 2).toUpperCase()}</span>}
+                <input type="file" accept="image/*" className="hidden" onChange={onAvatarFile} />
+                <span className="absolute inset-0 rounded-xl bg-black/50 text-white text-[9px] grid place-items-center opacity-0 group-hover:opacity-100 transition">Change</span>
+              </label>
               <div className="min-w-0">
                 <div className="text-base font-medium truncate">{modalC.name}</div>
                 <div className="text-xs text-gray-500 capitalize">{modalC.tier}{modalC.priority ? ` · priority ${modalC.priority}` : ''}</div>

@@ -3254,7 +3254,8 @@ export default function PersonalizedQuotePage() {
         const urls = new Set<string>();
         const heroImg = getHeroImage(quote);
         if (heroImg) urls.add(heroImg);
-        const contractorImg = (quote as any).matchedContractor?.profileImageUrl
+        const contractorImg = (quote as any).leadContractor?.imageUrl
+          || (quote as any).matchedContractor?.profileImageUrl
           || (quote as any).matchedContractorProfileImageUrl;
         if (contractorImg) urls.add(contractorImg);
 
@@ -4953,12 +4954,12 @@ export default function PersonalizedQuotePage() {
                   <ContractorProfile
                     onDark
                     compact
-                    name="Craig"
-                    headshotUrl="/assets/avatars/craig-avatar-1.webp"
-                    rating={4.9}
-                    jobsCount={214}
-                    bio="Craig's got your job. Over a decade putting things right in people's homes — tidy, on time, and back to sort it if anything's not perfect."
-                    badges={['DBS-checked', '£2M insured', '12-month guarantee']}
+                    name={(quote as any).leadContractor?.name || 'Craig'}
+                    headshotUrl={(quote as any).leadContractor?.imageUrl || '/assets/avatars/craig-avatar-1.webp'}
+                    rating={(quote as any).leadContractor?.rating ?? 4.9}
+                    jobsCount={(quote as any).leadContractor?.jobsCount ?? 214}
+                    bio={(quote as any).leadContractor?.bio || "Craig's got your job. Over a decade putting things right in people's homes — tidy, on time, and back to sort it if anything's not perfect."}
+                    badges={(quote as any).leadContractor?.badges?.length ? (quote as any).leadContractor.badges : ['DBS-checked', '£2M insured', '12-month guarantee']}
                   />
                 </div>
               )}
