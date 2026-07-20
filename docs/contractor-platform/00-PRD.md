@@ -211,8 +211,13 @@ Spec: `00-PRD.md` + [`01-model-and-data-flow.md`](./01-model-and-data-flow.md)
 | Pipeline + Send workspaces | **Done** — `GET /api/admin/os/pipeline` + `/send` (`server/os-routes.ts` + pure `lib/os-summary.ts`, 4 tests); wired into the shell with a unified drawer. |
 | Lead `booking_assignments` | **Done** — `confirmBooking` writes the `lead` row atomically in the booking tx (covered categories from `team_plan`). |
 | Roster tiers | **Done** — Core = Craig(1), Bezent(2), Joe(3); rest ad-hoc (`scripts/_seed-contractor-tiers.ts`). |
+| Dashboard cockpit + Settings | **Done** — Dashboard = KPIs + live panels (hub/pipeline/send/gaps) that open workspaces; Settings = section cards. |
+| Specialist assignments | **Done** — `confirmBooking` materialises specialist `booking_assignments` (`assigned`/`offered_via=manual`) from a composed `team_plan` via pure `planToAssignments` (4 tests; verified live). |
+| `/admin/os` for `va` (Ben) | **Done** — route reachable via `adminToken`; "Operating System" added to the VA + admin sidebars. |
+| `db:push` at merge | **Runbook** — [`MERGE.md`](./MERGE.md); additive DDL already applied, reconcile without a blind prod push. |
 | Decision §10.1 | **Settled** — compose at generation, anchor calendar on lead. |
 
-**Next:** build the Dashboard cockpit + Settings workspace; add specialist
-`booking_assignments` rows when composed teams dispatch (WhatsApp/manual);
-broaden `/admin/os` access to `va` (Ben); coordinate a proper `db:push` at merge.
+**Remaining (post-v1):** committed-availability so specialists carry calendars
+(unlocks team-keepable dates); in-app tap-to-accept (`job_offers`) to replace
+WhatsApp; payout math on `booking_assignments.payout_pence`; the recurring/care-
+plan track (behind the delivery gate).
