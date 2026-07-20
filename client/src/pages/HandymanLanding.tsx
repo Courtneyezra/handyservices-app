@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
 import { Phone, Star, Wrench, Paintbrush, Hammer, Droplets, Shield, Clock, CheckCircle, ArrowRight, AlertCircle, MapPin, Leaf, Package, Mic, Play } from "lucide-react";
-import { WistiaPopover } from "@/components/WistiaEmbed";
+import { WistiaFacade } from "@/components/quote/WistiaFacade";
 import { Button } from "@/components/ui/button";
 import { SiWhatsapp, SiGoogle } from "react-icons/si";
 import { IntakeHero } from "@/components/IntakeHero";
@@ -129,20 +129,19 @@ function PainPointsSection() {
     // Extreme, unmistakable damage — the real problems Nottingham texts us.
     // A card can carry a `wistiaId` to become a playable customer problem-video
     // (poster + play button); paste a real hashed media id to activate it.
-    const problems: { img: string; q: string; wistiaId?: string }[] = [
+    // A card becomes a Wistia video (same WistiaFacade the quote page uses) when
+    // given a `wistiaId`: the photo is the poster, a play button appears, and the
+    // heavy player only loads on click. Optional `previewVideoUrl` = a small muted
+    // clip that autoplays as a moving thumbnail. `aspect` = width/height of the
+    // real video (customer phone clips are usually vertical → "0.5625").
+    type MediaCard = { img: string; q?: string; label?: string; wistiaId?: string; previewVideoUrl?: string; aspect?: string };
+    const problems: MediaCard[] = [
         { img: "/assets/pain-points/pain-hole.webp", q: "Hole in the wall?" },
         { img: "/assets/pain-points/pain-deck.webp", q: "Decking gone rotten?" },
         { img: "/assets/pain-points/pain-mould.webp", q: "Black mould spreading?" },
         { img: "/assets/pain-points/pain-crack.webp", q: "Cracks in the plaster?" },
         { img: "/assets/pain-points/pain-roof.webp", q: "Flat roof rotting?" },
         { img: "/assets/pain-points/pain-gutter-broken.webp", q: "Gutter hanging off?" },
-    ];
-    // Handymen at work — real Nottingham pros getting stuck in (stills from job
-    // footage; the work videos can drop in here as short loops).
-    const atWork = [
-        { img: "/assets/at-work/work-sander.webp", label: "Floor restoration" },
-        { img: "/assets/at-work/work-edging.webp", label: "Sanding to the edge" },
-        { img: "/assets/at-work/work-finishing.webp", label: "Finishing touches" },
     ];
     const isVideo = (w?: string) => !!w && !/^(placeholder|todo|xxxx)/i.test(w);
     return (
@@ -161,20 +160,16 @@ function PainPointsSection() {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-5">
                     {problems.map((p) => {
                         const video = isVideo(p.wistiaId);
-                        const card = (
-                            <div className="relative rounded-2xl overflow-hidden aspect-square group">
-                                <img src={p.img} alt={p.q} loading="lazy" decoding="async" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
-                                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/85 via-slate-900/10 to-transparent" />
-                                {/* Video cards get a centred play button; the customer's
-                                    real problem clip opens in the Wistia player on tap. */}
-                                {video && (
-                                    <div className="absolute inset-0 flex items-center justify-center">
-                                        <span className="w-14 h-14 rounded-full bg-white/90 text-slate-900 flex items-center justify-center shadow-xl transition-transform group-hover:scale-110">
-                                            <Play className="w-6 h-6 ml-0.5 fill-slate-900" />
-                                        </span>
-                                    </div>
+                        return (
+                            <div key={p.q} className="relative rounded-2xl overflow-hidden aspect-square group">
+                                {video ? (
+                                    // Same click-to-play Wistia facade as the quote page.
+                                    <WistiaFacade mediaId={p.wistiaId!} aspect={p.aspect ?? "0.5625"} posterUrl={p.img} previewVideoUrl={p.previewVideoUrl} />
+                                ) : (
+                                    <img src={p.img} alt={p.q} loading="lazy" decoding="async" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                                 )}
-                                <div className="absolute inset-x-0 bottom-0 p-4">
+                                {/* Caption — pointer-events-none so the facade's play button stays clickable. */}
+                                <div className="pointer-events-none absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-slate-900/85 via-slate-900/10 to-transparent z-10">
                                     <p className="text-white font-bold text-base md:text-lg leading-tight">{p.q}</p>
                                     <span className="inline-flex items-center gap-1 mt-1.5 text-[#a3d65f] text-xs font-bold uppercase tracking-wide">
                                         {video ? (<><Play className="w-3 h-3 fill-current" /> Their video</>) : (<><CheckCircle className="w-3.5 h-3.5" /> We sort it</>)}
@@ -182,26 +177,18 @@ function PainPointsSection() {
                                 </div>
                             </div>
                         );
-                        return video
-                            ? <WistiaPopover key={p.q} mediaId={p.wistiaId}>{card}</WistiaPopover>
-                            : <div key={p.q}>{card}</div>;
                     })}
                 </div>
 
-                {/* Handymen at work — the "we sort it" payoff. Real pros, real jobs. */}
+                {/* Our latest job — the "we sort it" payoff as a click-to-play video
+                    (same WistiaFacade the quote page uses). Real job, start to finish. */}
                 <div className="mt-14 lg:mt-20">
                     <div className="text-center mb-6 lg:mb-8">
-                        <p className="text-amber-500 font-bold uppercase tracking-[0.14em] text-xs md:text-sm mb-2">Then we get stuck in</p>
-                        <h3 className="text-2xl md:text-3xl lg:text-4xl font-bold text-slate-900">Craig, Joe &amp; the team on the tools.</h3>
+                        <p className="text-amber-500 font-bold uppercase tracking-[0.14em] text-xs md:text-sm mb-2">Our latest job</p>
+                        <h3 className="text-2xl md:text-3xl lg:text-4xl font-bold text-slate-900">Craig, Joe &amp; the team, start to finish.</h3>
                     </div>
-                    <div className="grid grid-cols-3 gap-3 md:gap-5">
-                        {atWork.map((w) => (
-                            <div key={w.label} className="relative rounded-2xl overflow-hidden aspect-[4/5] sm:aspect-square group">
-                                <img src={w.img} alt={w.label} loading="lazy" decoding="async" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
-                                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-transparent to-transparent" />
-                                <span className="absolute bottom-3 left-3 text-white text-xs md:text-sm font-semibold">{w.label}</span>
-                            </div>
-                        ))}
+                    <div className="relative mx-auto w-full max-w-lg aspect-square rounded-3xl overflow-hidden shadow-2xl bg-slate-900">
+                        <WistiaFacade mediaId="n3dh959arn" aspect="1" posterUrl="/assets/at-work/work-sander.webp" />
                     </div>
                 </div>
 
