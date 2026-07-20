@@ -59,20 +59,61 @@ Four ideas, detailed in `01`:
 4. **The Hub and the quote are two faces of one assignment spine.** The hub reads
    the same records the quote writes; no separate sync.
 
-## 5. Users & surfaces
+## 5. Surfaces
 
-| Surface | User | v1 role |
+Three audiences, three surfaces:
+
+| Surface | User | Role |
 |---|---|---|
-| **Contractor Hub (admin)** | Owner + Ben (`va`) | **v1 focus.** Bands, per-contractor lanes (availability · fill% · pipeline=soft · booked=hard), capacity-gap queue, overrides. |
-| **Contextual quote** | Customer | Exists. Add: Craig's contractor skin + honest team-aware calendar. |
-| **Contractor app** | Craig first | Week view, accept/decline, en-route, complete + photos + sign-off, earnings. Ad-hoc = stripped offer inbox. |
+| **Admin OS** | Owner + Ben (`va`) | The command center — runs the whole operation. See §5a. |
+| **Contextual quote** | Customer | Exists. Add: Craig's contractor skin + honest team-aware calendar. Plus a new **job-tracking** page ("where's my handyman" + live photos). |
+| **Contractor app** | Craig first | Week view, accept/decline, en-route, complete + photos + sign-off, earnings. Ad-hoc = stripped offer inbox. Craig is the template every future Core contractor copies. |
+
+## 5a. Admin OS — UX architecture
+
+**No CRM sidebar sprawl.** The ~135 existing pages (70 admin) collapse to
+**five workspaces + contextual overlays**, all in one shell.
+
+**The five workspaces** (menu = 5 items, not 70):
+
+| Workspace | Absorbs |
+|---|---|
+| **Dashboard** | The command center (see below). The 4 old analytics/business dashboards. |
+| **Pipeline** | Lead → quote → job → invoice lifecycle, + clients + disputes (~18 pages). |
+| **Contractor Hub** | Bands, contractor lanes, availability, capacity gaps, assignment (contractor + 3 availability + 9 dispatch pages). |
+| **Send** | Build + send a contextual quote (skills + time + manual contractor/team pick, skinned to Craig) + comms inbox / WhatsApp (3 builder + 3 comms pages). |
+| **Settings** | Pricing config, landing + content, VA console, team + roles, integrations (~15 config pages). |
+
+**Three interaction levels on one data spine** — build the domain once, render it
+at three densities:
+
+1. **Panel** — a live section on the Dashboard (at-a-glance state + quick actions).
+2. **Modal / drawer** — click any row → its detail + actions **slide out over**
+   the current context. Detail, edit, create, and assign never navigate away.
+3. **Workspace** — the panel's "expand to full width" view, for sustained deep
+   work (working a whole pipeline, building a quote, editing the roster).
+
+**Dashboard = the command center.** Each menu area is a live panel on the
+Dashboard — you operate ~80% of the day from home: read state in the panel, act
+in a modal, expand to a workspace only when you need room. Cockpit for speed,
+workspace for depth — same records either way.
+
+**Rule of thumb:** quick read or single action → modal; multi-record or
+build-heavy work → expand to the workspace. Never force deep work into a small
+modal.
+
+Canonical page count: **~34** (≈8 customer + ≈8 contractor + ≈18 admin folding
+into the 5 workspaces). ~12 dev/test pages (`TestLab`, `QuoteTestLab`,
+`LiveCallTest*`, `LeadPipelinePage.old`, …) are **deleted**, not migrated.
 
 ## 6. v1 scope & build order
 
 Manual-first, highest-leverage first:
 
-1. **Contractor Hub (admin oversight)** — see + override the whole system, run it
-   by hand. Depends on `delivery_tier` + the assignment spine.
+1. **Admin OS shell + Contractor Hub** — the one-page shell (5 workspaces, drawer
+   pattern, dashboard cockpit) with the Hub as the first full workspace: see +
+   override the whole system, run it by hand. Depends on `delivery_tier` + the
+   assignment spine.
 2. **Routing fix** (`resolveQuoteTeam`) — kills the multi-trade zero-pool bug;
    **auto-suggest, Ben confirms** (proposes team, Ben approves/edits).
 3. **Contractor app (Craig)** — the template every future Core contractor copies.
@@ -112,11 +153,27 @@ Merge-safe vs the `-deployed` chat (new tables + nullable columns only):
 - **Multi-trade bookability** — % of multi-trade quotes that reach a bookable
   calendar (target: no more dead calendars from coverage gaps).
 
-## 10. Open decisions (before schema)
+## 10. Proposed defaults (confirmable, not blocking)
 
-1. **Multi-trade compose timing + date promise** — when Ben confirms the team on a
-   *self-booked* quote, and whether the calendar shows only team-keepable dates or
-   anchors on Craig with the specialist following. (This is the last real gap.)
-2. **Fill meter** — hard-only (recommended; soft shown separately) vs hard+soft.
-3. **Craig's floor** — remains theoretical; tiers route work now, floor money is
-   papered later.
+These carry a recommended position so the schema can proceed; flag if you'd
+change one.
+
+1. **Multi-trade compose timing + date promise** — *Proposed:* Ben confirms the
+   team **at quote generation** (before the link goes out), and the calendar shows
+   **only team-keepable dates** (dates where the lead *and* a specialist are both
+   reachable). This keeps self-book honest — no post-payment "the electrician
+   can't make it" surprises. Fallback for thin supply: anchor on Craig, dispatch
+   the specialist as a separate follow-up visit.
+2. **Fill meter** — *Proposed:* **hard (booked) only**, with soft (pipeline) shown
+   as a separate faint number. Avoids phantom-fill inflating the week.
+3. **Craig's floor** — remains theoretical; **tiers route work now, floor money is
+   papered later**. No blocker — `contractor_commitments` supports it the day it's
+   signed.
+
+## 11. Deliverables & next step
+
+This PRD (`00-PRD.md`) + [`01-model-and-data-flow.md`](./01-model-and-data-flow.md)
+are the canonical spec. **Next: `02-schema.md`** — the additive migration
+(`delivery_tier`, `leadContractorId`, `contractor_commitments`,
+`booking_assignments`) that the shell, panels, modals, and workspaces all read
+from. Then build v1: the Admin OS shell + Contractor Hub.
