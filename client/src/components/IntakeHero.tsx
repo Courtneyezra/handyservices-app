@@ -1,4 +1,4 @@
-import { MessageCircle, CheckCircle, Clock, Shield, Phone, Gift, Star } from "lucide-react";
+import { MessageCircle, CheckCircle, Clock, Shield, Phone, Gift, Star, Users } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { DesktopLeadForm } from "@/components/DesktopLeadForm";
@@ -65,8 +65,11 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
             <div className="text-center lg:text-left order-2 lg:order-1">
               {/* Person-led kicker (replaces the trust-stat badge): introduces the
                   real team shown below / in the team section. */}
-              <div className="flex items-center gap-2 bg-amber-400/20 px-4 py-2 rounded-full mb-6 backdrop-blur-sm border border-amber-400/10 w-fit mx-auto lg:mx-0">
-                <span className="text-amber-400 font-semibold text-sm uppercase tracking-wide">Meet your handymen</span>
+              <div className="inline-flex items-center gap-2.5 rounded-full mb-6 mx-auto lg:mx-0 w-fit pl-1.5 pr-4 py-1.5 bg-white/10 backdrop-blur-md border border-white/15 shadow-lg shadow-black/20">
+                <span className="flex items-center justify-center w-7 h-7 rounded-full bg-amber-400 text-slate-900 shrink-0">
+                  <Users className="w-4 h-4" strokeWidth={2.5} />
+                </span>
+                <span className="text-white font-semibold text-xs md:text-sm uppercase tracking-[0.16em]">Meet your handymen</span>
               </div>
 
               {/* Person-led (mobile): the real team — Craig + Joe as an avatar
