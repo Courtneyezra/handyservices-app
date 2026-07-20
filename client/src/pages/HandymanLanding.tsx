@@ -119,6 +119,59 @@ function TeamSection() {
     );
 }
 
+function PainPointsSection() {
+    // Customer-supplied pain points — the real problems Nottingham texts us.
+    // Ties directly to the video-quote mechanic: snap it, priced in minutes.
+    const problems = [
+        { img: "/assets/pain-points/pain-hole.webp", q: "Hole in the wall?" },
+        { img: "/assets/pain-points/pain-floor.webp", q: "Floorboards had it?" },
+        { img: "/assets/pain-points/pain-deck.webp", q: "Decking gone rotten?" },
+        { img: "/assets/pain-points/pain-damp-ceiling.webp", q: "Water stain spreading?" },
+        { img: "/assets/pain-points/pain-sink.webp", q: "Sink or tap dripping?" },
+        { img: "/assets/pain-points/pain-wall.webp", q: "Damp, dated walls?" },
+    ];
+    return (
+        <section className="bg-white px-4 lg:px-8 py-16 lg:py-24">
+            <div className="max-w-6xl mx-auto">
+                <div className="text-center mb-10 lg:mb-14 max-w-2xl mx-auto">
+                    <p className="text-amber-500 font-bold uppercase tracking-[0.14em] text-xs md:text-sm mb-3">Send us a photo</p>
+                    <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-slate-900 leading-[1.1] mb-4">
+                        Whatever's up, <span className="text-amber-500">we've sorted it before.</span>
+                    </h2>
+                    <p className="text-slate-600 text-lg font-medium">
+                        These are the real jobs Nottingham texts us every week. Snap a photo or a quick video and we'll send a fixed price back in minutes.
+                    </p>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-5">
+                    {problems.map((p) => (
+                        <div key={p.q} className="relative rounded-2xl overflow-hidden aspect-square group">
+                            <img src={p.img} alt={p.q} loading="lazy" decoding="async" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-slate-900/85 via-slate-900/10 to-transparent" />
+                            <div className="absolute inset-x-0 bottom-0 p-4">
+                                <p className="text-white font-bold text-base md:text-lg leading-tight">{p.q}</p>
+                                <span className="inline-flex items-center gap-1 mt-1.5 text-[#a3d65f] text-xs font-bold uppercase tracking-wide">
+                                    <CheckCircle className="w-3.5 h-3.5" /> We sort it
+                                </span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="text-center mt-10">
+                    <a href="#hero" className="scroll-smooth">
+                        <Button className="px-10 py-6 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-full text-lg" data-testid="button-painpoints-quote">
+                            Get your fixed price
+                            <ArrowRight className="w-5 h-5 ml-2" />
+                        </Button>
+                    </a>
+                    <p className="text-slate-400 text-sm mt-3">Photo or video. Fixed price back in minutes.</p>
+                </div>
+            </div>
+        </section>
+    );
+}
+
 function ProcessSection() {
     const steps = [
         { number: "1", title: "Instant Quote", description: "Get a price in minutes via video or photo", highlight: true },
@@ -741,6 +794,7 @@ export default function HandymanLanding({
                 {activeSegment === 'residential' && (
                     <>
                         <TeamSection />
+                        <PainPointsSection />
                         <EmergencyServiceSection />
                         <ProcessSection />
                         <HassleComparisonSection segment="BUSY_PRO" />
