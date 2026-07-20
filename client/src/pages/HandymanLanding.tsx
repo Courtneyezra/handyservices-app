@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
-import { Phone, Star, Wrench, Paintbrush, Hammer, Droplets, Shield, Clock, CheckCircle, ArrowRight, AlertCircle, MapPin, Leaf, Package, Mic } from "lucide-react";
+import { Phone, Star, Wrench, Paintbrush, Hammer, Droplets, Shield, Clock, CheckCircle, ArrowRight, AlertCircle, MapPin, Leaf, Package, Mic, Play } from "lucide-react";
+import { WistiaPopover } from "@/components/WistiaEmbed";
 import { Button } from "@/components/ui/button";
 import { SiWhatsapp, SiGoogle } from "react-icons/si";
 import { IntakeHero } from "@/components/IntakeHero";
@@ -122,7 +123,10 @@ function TeamSection() {
 function PainPointsSection() {
     // Customer-supplied pain points — the real problems Nottingham texts us.
     // Ties directly to the video-quote mechanic: snap it, priced in minutes.
-    const problems = [
+    // Add a `wistiaId` to turn any card into a customer PROBLEM VIDEO: the photo
+    // becomes the poster, a play button appears, and tapping opens the Wistia
+    // player. Upload the customer's video to Wistia, paste its hashed media id.
+    const problems: { img: string; q: string; wistiaId?: string }[] = [
         { img: "/assets/pain-points/pain-hole.webp", q: "Hole in the wall?" },
         { img: "/assets/pain-points/pain-floor.webp", q: "Floorboards had it?" },
         { img: "/assets/pain-points/pain-deck.webp", q: "Decking gone rotten?" },
@@ -130,6 +134,7 @@ function PainPointsSection() {
         { img: "/assets/pain-points/pain-sink.webp", q: "Sink or tap dripping?" },
         { img: "/assets/pain-points/pain-wall.webp", q: "Damp, dated walls?" },
     ];
+    const isVideo = (w?: string) => !!w && !/^(placeholder|todo|xxxx)/i.test(w);
     return (
         <section className="bg-white px-4 lg:px-8 py-16 lg:py-24">
             <div className="max-w-6xl mx-auto">
@@ -144,18 +149,33 @@ function PainPointsSection() {
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-5">
-                    {problems.map((p) => (
-                        <div key={p.q} className="relative rounded-2xl overflow-hidden aspect-square group">
-                            <img src={p.img} alt={p.q} loading="lazy" decoding="async" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
-                            <div className="absolute inset-0 bg-gradient-to-t from-slate-900/85 via-slate-900/10 to-transparent" />
-                            <div className="absolute inset-x-0 bottom-0 p-4">
-                                <p className="text-white font-bold text-base md:text-lg leading-tight">{p.q}</p>
-                                <span className="inline-flex items-center gap-1 mt-1.5 text-[#a3d65f] text-xs font-bold uppercase tracking-wide">
-                                    <CheckCircle className="w-3.5 h-3.5" /> We sort it
-                                </span>
+                    {problems.map((p) => {
+                        const video = isVideo(p.wistiaId);
+                        const card = (
+                            <div className="relative rounded-2xl overflow-hidden aspect-square group">
+                                <img src={p.img} alt={p.q} loading="lazy" decoding="async" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/85 via-slate-900/10 to-transparent" />
+                                {/* Video cards get a centred play button; the customer's
+                                    real problem clip opens in the Wistia player on tap. */}
+                                {video && (
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                        <span className="w-14 h-14 rounded-full bg-white/90 text-slate-900 flex items-center justify-center shadow-xl transition-transform group-hover:scale-110">
+                                            <Play className="w-6 h-6 ml-0.5 fill-slate-900" />
+                                        </span>
+                                    </div>
+                                )}
+                                <div className="absolute inset-x-0 bottom-0 p-4">
+                                    <p className="text-white font-bold text-base md:text-lg leading-tight">{p.q}</p>
+                                    <span className="inline-flex items-center gap-1 mt-1.5 text-[#a3d65f] text-xs font-bold uppercase tracking-wide">
+                                        {video ? (<><Play className="w-3 h-3 fill-current" /> Their video</>) : (<><CheckCircle className="w-3.5 h-3.5" /> We sort it</>)}
+                                    </span>
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                        return video
+                            ? <WistiaPopover key={p.q} mediaId={p.wistiaId}>{card}</WistiaPopover>
+                            : <div key={p.q}>{card}</div>;
+                    })}
                 </div>
 
                 <div className="text-center mt-10">
