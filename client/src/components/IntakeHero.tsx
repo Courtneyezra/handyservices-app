@@ -28,14 +28,14 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
   return (
     <>
       {bannerReviews ? (
-        <div className="bg-amber-500 text-slate-900 py-2.5 px-4 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 font-bold">
-          <SiGoogle className="w-4 h-4" />
+        <div className="bg-amber-500 text-slate-900 py-1.5 px-4 flex items-center justify-center gap-x-2 font-bold">
+          <SiGoogle className="w-3.5 h-3.5" />
           <span className="flex items-center gap-0.5">
             {[...Array(5)].map((_, i) => (
-              <Star key={i} className="w-4 h-4 fill-slate-900 text-slate-900" />
+              <Star key={i} className="w-3 h-3 fill-slate-900 text-slate-900" />
             ))}
           </span>
-          <span className="text-sm md:text-base">4.9 · Rated excellent by 300+ homeowners on Google</span>
+          <span className="text-xs md:text-sm whitespace-nowrap">4.9 · 300+ Google reviews</span>
         </div>
       ) : bannerText ? (
         <div className="bg-amber-500 text-slate-900 text-center py-2 font-bold px-4">
