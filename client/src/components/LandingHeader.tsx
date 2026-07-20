@@ -56,7 +56,7 @@ export function LandingHeader({ onConversion }: HeaderProps) {
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={() => onConversion?.('header_whatsapp')}
-                        className="flex lg:hidden items-center gap-2 px-4 py-2 bg-amber-400 hover:bg-amber-500 text-slate-900 font-semibold rounded-full transition-colors"
+                        className="flex lg:hidden items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-full transition-colors"
                         data-testid="button-header-whatsapp"
                     >
                         <SiWhatsapp className="w-4 h-4" />

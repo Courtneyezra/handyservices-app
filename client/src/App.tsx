@@ -113,6 +113,34 @@ const PersonalizedQuotePage = lazy(() => import("@/pages/PersonalizedQuotePage")
 // fallback for PersonalizedQuotePage. If both were lazy we'd flash the wrench
 // spinner while the fallback chunk itself loaded.
 import { QuotePreparingScreen } from "@/components/quote/QuotePreparingScreen";
+
+// Suspense fallback for the quote routes. FIRST-time visitors get the branded
+// loading theatre while the page chunk downloads; RETURNING visitors (a seen
+// flag or a fresh cached quote in localStorage) skip straight to the quote once
+// the chunk resolves, so we must NOT flash the theatre at them meanwhile — we
+// render a bare background (usually imperceptible: the chunk is browser-cached
+// on a revisit). PersonalizedQuotePage's own flowPhase then paints the quote
+// directly (it seeds react-query from the same cache). Mirrors the seen-flag /
+// 3-day cache logic in PersonalizedQuotePage.
+function QuoteRouteFallback() {
+    let returning = false;
+    try {
+        const m = window.location.pathname.match(/\/(?:quote|quote-link|q)\/([^/?#]+)/);
+        const slug = m?.[1];
+        if (slug) {
+            if (localStorage.getItem(`hs_quote_seen_${slug}`) === "1") returning = true;
+            else {
+                const raw = localStorage.getItem(`hs_quote_cache_${slug}`);
+                if (raw) {
+                    const p = JSON.parse(raw);
+                    if (p?.ts && Date.now() - p.ts < 3 * 24 * 60 * 60 * 1000) returning = true;
+                }
+            }
+        }
+    } catch { /* private mode / parse error — fall through to the theatre */ }
+    if (returning) return <div className="min-h-screen bg-slate-50" />;
+    return <QuotePreparingScreen ready={false} onComplete={() => {}} />;
+}
 const BookingConfirmedPage = lazy(() => import("@/pages/BookingConfirmedPage"));
 const ConfirmSlotPage = lazy(() => import("@/pages/ConfirmSlotPage"));
 const DiagnosticVisitPage = lazy(() => import("@/pages/DiagnosticVisitPage"));
@@ -292,18 +320,18 @@ function Router() {
                   * straight from URL → preparing screen → real quote: no spinner
                   * flash and no price-lock skeleton/timer. */}
                 <Route path="/quote/:slug">
-                    <Suspense fallback={<QuotePreparingScreen ready={false} onComplete={() => {}} />}>
+                    <Suspense fallback={<QuoteRouteFallback />}>
                         <PersonalizedQuotePage />
                     </Suspense>
                 </Route>
                 {/* Legacy routes for backward compatibility */}
                 <Route path="/quote-link/:slug">
-                    <Suspense fallback={<QuotePreparingScreen ready={false} onComplete={() => {}} />}>
+                    <Suspense fallback={<QuoteRouteFallback />}>
                         <PersonalizedQuotePage />
                     </Suspense>
                 </Route>
                 <Route path="/q/:slug">
-                    <Suspense fallback={<QuotePreparingScreen ready={false} onComplete={() => {}} />}>
+                    <Suspense fallback={<QuoteRouteFallback />}>
                         <PersonalizedQuotePage />
                     </Suspense>
                 </Route>

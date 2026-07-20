@@ -285,14 +285,16 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
             // saving without anchoring the price. The headline *star* span gets
             // the hand-drawn underline. The full fixed price lands on the quote.
             eyebrow: "one quick choice",
-            headline: "Flexible on the day? *You save {savings}*.",
-            subhead: "Slot into Craig's route over the next 2 weeks — **{savings} stays in your pocket.**",
+            headline: "Slot into Craig's diary? *You save {savings}*.",
+            // Subhead removed — the first benefit ("We slot you into Craig's diary")
+            // carries the mechanism, and dropping it keeps the offer to one mobile
+            // viewport with no scroll.
             benefits: [
-              { icon: "check", text: "Booked within 2 weeks, hands-free" },
-              { icon: "check", text: "You pick any days to avoid after booking" },
-              { icon: "check", text: "Same fixed price & our best rate" },
+              { icon: "check", text: "We slot you into Craig's diary — booked within 2 weeks" },
+              { icon: "check", text: "You just cross off any days that don't work" },
+              { icon: "check", text: "Same fixed price — the saving's for the flexibility" },
             ],
-            acceptLabel: "I'm flexible — save {savings}",
+            acceptLabel: "Slot me in — save {savings}",
             declineLabel: "I need a specific day",
             finePrint: "You'll see your full fixed price on the next screen.",
             flexWithinDays: 14,

@@ -1,4 +1,5 @@
-import { MessageCircle, CheckCircle, Clock, Shield, Phone, Gift } from "lucide-react";
+import { MessageCircle, CheckCircle, Clock, Shield, Phone, Gift, Star, Users } from "lucide-react";
+import { SiGoogle, SiWhatsapp } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { DesktopLeadForm } from "@/components/DesktopLeadForm";
 import defaultHeroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
@@ -11,12 +12,14 @@ interface IntakeHeroProps {
   mobileCtaText?: string;
   desktopCtaText?: string;
   bannerText?: string;
+  /** Show a Google reviews strip in the top banner instead of `bannerText`. */
+  bannerReviews?: boolean;
   heroImage?: string;
   onConversion?: (source: string) => void;
   transparentBg?: boolean;
 }
 
-export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText, desktopCtaText, bannerText, heroImage, onConversion, transparentBg }: IntakeHeroProps) {
+export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText, desktopCtaText, bannerText, bannerReviews, heroImage, onConversion, transparentBg }: IntakeHeroProps) {
 
   // Simplified Hero - Direct to Call/WhatsApp
 
@@ -24,11 +27,21 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
   // Job description step (initial) - Split layout on desktop
   return (
     <>
-      {bannerText && (
+      {bannerReviews ? (
+        <div className="bg-amber-500 text-slate-900 py-1.5 px-4 flex items-center justify-center gap-x-2 font-bold">
+          <SiGoogle className="w-3.5 h-3.5" />
+          <span className="flex items-center gap-0.5">
+            {[...Array(5)].map((_, i) => (
+              <Star key={i} className="w-3 h-3 fill-slate-900 text-slate-900" />
+            ))}
+          </span>
+          <span className="text-xs md:text-sm whitespace-nowrap">4.9 · 300+ Google reviews</span>
+        </div>
+      ) : bannerText ? (
         <div className="bg-amber-500 text-slate-900 text-center py-2 font-bold px-4">
           <span dangerouslySetInnerHTML={{ __html: bannerText.replace("{{location}}", location) }} />
         </div>
-      )}
+      ) : null}
 
       <section id="hero" className={`relative px-4 lg:px-8 py-12 lg:py-20 font-poppins font-medium min-h-[600px] lg:min-h-[750px] flex items-center overflow-hidden ${transparentBg ? 'bg-transparent' : 'bg-slate-900'}`}>
 
@@ -50,28 +63,30 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Left Column - Text */}
             <div className="text-center lg:text-left order-2 lg:order-1">
-              <div className="flex items-center gap-2 bg-amber-400/20 px-4 py-2 rounded-full mb-6 backdrop-blur-sm border border-amber-400/10 w-fit mx-auto lg:mx-0">
-                <CheckCircle className="w-4 h-4 text-amber-400" />
-                <span className="text-amber-400 font-medium text-sm">Trusted by 300+ {location} Homeowners</span>
+              {/* Person-led kicker (replaces the trust-stat badge): introduces the
+                  real team shown below / in the team section. */}
+              <div className="inline-flex items-center gap-2.5 rounded-full mb-6 mx-auto lg:mx-0 w-fit pl-1.5 pr-4 py-1.5 bg-white/10 backdrop-blur-md border border-white/15 shadow-lg shadow-black/20">
+                <span className="flex items-center justify-center w-7 h-7 rounded-full bg-amber-400 text-slate-900 shrink-0">
+                  <Users className="w-4 h-4" strokeWidth={2.5} />
+                </span>
+                <span className="text-white font-semibold text-xs md:text-sm uppercase tracking-[0.16em]">Meet your handymen</span>
               </div>
 
-              {/* Person-led (mobile): Craig's face — the same handyman the quote
-                  assigns and the team section features — instead of an abstract
-                  tick. One consistent, real cast across the whole journey. */}
+              {/* Person-led (mobile): the real team — Craig + Joe as an avatar
+                  cluster, room to grow — the same faces the quote assigns and the
+                  team section features. One consistent, real cast. */}
               <div className="lg:hidden flex flex-col items-center mb-6">
-                <div className="relative">
-                  <div className="w-24 h-24 rounded-full overflow-hidden border-[3px] border-amber-400 shadow-lg shadow-amber-400/30">
-                    <img
-                      src="/assets/avatars/craig-avatar-1.webp"
-                      alt="Craig, your Nottingham handyman"
-                      className="w-full h-full object-cover"
-                      loading="eager"
-                    />
+                <div className="relative flex items-center -space-x-5">
+                  <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-amber-400 shadow-lg shadow-amber-400/30 relative z-20">
+                    <img src="/assets/avatars/craig-avatar-1.webp" alt="Craig, your Nottingham handyman" className="w-full h-full object-cover" loading="eager" />
                   </div>
-                  <span className="absolute bottom-1 right-1 w-4 h-4 rounded-full bg-green-500 ring-2 ring-slate-900" aria-hidden="true" />
+                  <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-slate-900 shadow-lg relative z-10">
+                    <img src="/assets/quote-images/joe-estimator.webp" alt="Joe, your Nottingham handyman" className="w-full h-full object-cover" loading="eager" />
+                  </div>
+                  <span className="absolute -bottom-0.5 left-16 w-4 h-4 rounded-full bg-green-500 ring-2 ring-slate-900 z-30" aria-hidden="true" />
                 </div>
-                <p className="mt-3 text-white/90 text-sm">
-                  <span className="font-bold text-white">Craig</span> · your local handyman
+                <p className="mt-3 text-white/90 text-sm text-center">
+                  <span className="font-bold text-white">Craig, Joe</span> &amp; the local team
                 </p>
               </div>
 
@@ -166,9 +181,9 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                     onConversion?.('hero_whatsapp');
                     window.open("https://wa.me/447508744402", "_blank");
                   }}
-                  className="flex-1 py-4 lg:py-6 bg-transparent border-[3px] border-white hover:bg-white/10 text-white font-bold rounded-full transition-transform hover:scale-105 flex items-center justify-center gap-2"
+                  className="flex-1 py-4 lg:py-6 bg-green-500 hover:bg-green-600 text-white font-bold rounded-full shadow-lg shadow-green-500/20 transition-transform hover:scale-105 flex items-center justify-center gap-2"
                 >
-                  <MessageCircle className="w-6 h-6 lg:w-8 lg:h-8" />
+                  <SiWhatsapp className="w-6 h-6 lg:w-8 lg:h-8" />
                   WhatsApp Us
                 </Button>
               </div>

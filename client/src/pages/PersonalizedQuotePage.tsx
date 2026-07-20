@@ -1459,19 +1459,22 @@ function getHeroImage(quote: PersonalizedQuote): string {
   const isFencing = /fence|fencing|fence panel|decking|gate|garden/.test(jobDesc);
   const isGuttering = /gutter|downpipe|fascia|soffit/.test(jobDesc);
 
-  // Persona framing wins over job type for these segments (deliberate choice).
+  // Person-led brand: the hero shows CRAIG (the assigned handyman) doing the job,
+  // not a generic stock tradesman — one consistent face from loading → offer →
+  // quote. All `craig-*` shots are the craig-tech character; the door/plumbing/
+  // elderly fallbacks were already Craig-ified (commit c41016b).
   if (isElderly || isLandlord) return '/assets/quote-images/older-person-door.webp';
 
   // Job-type imagery — order most-specific first.
-  if (isGuttering) return '/assets/quote-images/gutter-clean.webp';
-  if (isFencing) return '/assets/quote-images/fence-panel.webp';
-  if (isTvMount) return '/assets/quote-images/tv-mount.webp';
-  if (isTiling) return '/assets/quote-images/tiling.webp';
-  if (isFlatpack) return '/assets/quote-images/flatpack-assembly.webp';
-  if (isElectrical) return '/assets/quote-images/electrical-socket.webp';
+  if (isGuttering) return '/assets/quote-images/craig-gutter.webp';
+  if (isFencing) return '/assets/quote-images/craig-fence.webp';
+  if (isTvMount) return '/assets/quote-images/craig-tv-mount.webp';
+  if (isTiling) return '/assets/quote-images/craig-tiling.webp';
+  if (isFlatpack) return '/assets/quote-images/craig-flatpack.webp';
+  if (isElectrical) return '/assets/quote-images/craig-light.webp';
   if (isPlumbing) return '/assets/quote-images/plumber-smile.webp';
-  if (isBathroomSeal) return '/assets/quote-images/bathroom-seal.webp';
-  if (isPainting) return '/assets/quote-images/painting.webp';
+  if (isBathroomSeal) return '/assets/quote-images/craig-bathroom.webp';
+  if (isPainting) return '/assets/quote-images/craig-painting.webp';
   return '/assets/quote-images/door-greeting.webp';
 }
 
@@ -1819,6 +1822,10 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
 
   // For contextual quotes, override mainTitle based on customerType from vaContext
   if (isContextualGuarantee) {
+    // Guarantee is a TRUST moment (not job-specific), so anchor it with Craig —
+    // the same assigned handyman shown throughout — rather than the generic
+    // job-type stock the fallback would otherwise pick.
+    content.image = '/assets/quote-images/craig-guarantee.webp';
     const vaCtx = ((quote as any).contextSignals?.vaContext || '').toLowerCase();
     const isLandlord = /landlord|rental|tenant|buy.to.let|btl|letting/.test(vaCtx);
     const isProfessional = /property manager|portfolio|prop mgr|managing agent|professional|busy exec|corporate|office|business|company|commercial|shop/.test(vaCtx);
