@@ -2508,7 +2508,7 @@ export function UnifiedQuoteCard({
                   <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                     {isBusiness
                       ? `Done within ${FLEX_WINDOW_DAYS} days — backup engineer booked, so your date never slips`
-                      : `We fit you into Craig's route — you pick any days to avoid after booking`}
+                      : `We fit you into Craig's diary — you pick any days to avoid after booking`}
                   </p>
                   {/* Model A expectation guard: nobody pays blind. Flex is a
                       DEADLINE promise (we choose the day within the window), so
