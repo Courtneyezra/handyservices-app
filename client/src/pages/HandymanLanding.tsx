@@ -180,26 +180,43 @@ function PainPointsSection() {
                     })}
                 </div>
 
-                {/* Our latest job — the "we sort it" payoff as a click-to-play video
-                    (same WistiaFacade the quote page uses). Real job, start to finish. */}
-                <div className="mt-14 lg:mt-20">
-                    <div className="text-center mb-6 lg:mb-8">
-                        <p className="text-amber-500 font-bold uppercase tracking-[0.14em] text-xs md:text-sm mb-2">Our latest job</p>
-                        <h3 className="text-2xl md:text-3xl lg:text-4xl font-bold text-slate-900">Craig, Joe &amp; the team, start to finish.</h3>
+                {/* Our latest job — a bold navy case-study panel: the click-to-play
+                    showcase reel paired with the job details + CTA. Framed as recent
+                    work from a handyman, not a floor-sanding pitch. */}
+                <div className="mt-14 lg:mt-20 rounded-[28px] bg-[#1D2D3D] overflow-hidden shadow-2xl">
+                    <div className="grid lg:grid-cols-2 items-stretch">
+                        {/* Video */}
+                        <div className="relative aspect-square lg:aspect-auto lg:min-h-[460px] bg-slate-900">
+                            <WistiaFacade mediaId="n3dh959arn" aspect="1" posterUrl="/assets/at-work/work-sander.webp" />
+                        </div>
+                        {/* Case-study copy */}
+                        <div className="p-7 sm:p-10 lg:p-12 flex flex-col justify-center">
+                            <p className="text-amber-400 font-bold uppercase tracking-[0.14em] text-xs md:text-sm mb-3">Our latest job</p>
+                            <h3 className="text-2xl md:text-3xl lg:text-4xl font-bold text-white leading-[1.12] mb-4">
+                                A tired floor, <span className="text-amber-400">brought back to life.</span>
+                            </h3>
+                            <p className="text-white/70 text-base md:text-lg leading-relaxed mb-6">
+                                Craig, Joe and the team stripped this period floor back to bare timber and restored it in two days. Whatever your job, big or small, we sort it the same way.
+                            </p>
+                            <div className="flex flex-wrap gap-2.5 mb-8">
+                                {[["MapPin", "Nottingham"], ["Clock", "2 days, start to finish"], ["Shield", "Insured & DBS-checked"]].map(([icon, label]) => (
+                                    <span key={label} className="inline-flex items-center gap-1.5 rounded-full bg-white/10 border border-white/15 px-3.5 py-1.5 text-sm font-medium text-white/90">
+                                        {icon === "MapPin" && <MapPin className="w-4 h-4 text-amber-400" />}
+                                        {icon === "Clock" && <Clock className="w-4 h-4 text-amber-400" />}
+                                        {icon === "Shield" && <Shield className="w-4 h-4 text-amber-400" />}
+                                        {label}
+                                    </span>
+                                ))}
+                            </div>
+                            <a href="#hero" className="scroll-smooth">
+                                <Button className="w-full sm:w-auto px-9 py-6 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-full text-lg" data-testid="button-painpoints-quote">
+                                    Get your fixed price
+                                    <ArrowRight className="w-5 h-5 ml-2" />
+                                </Button>
+                            </a>
+                            <p className="text-white/40 text-sm mt-3">Photo or video. Fixed price back in minutes.</p>
+                        </div>
                     </div>
-                    <div className="relative mx-auto w-full max-w-lg aspect-square rounded-3xl overflow-hidden shadow-2xl bg-slate-900">
-                        <WistiaFacade mediaId="n3dh959arn" aspect="1" posterUrl="/assets/at-work/work-sander.webp" />
-                    </div>
-                </div>
-
-                <div className="text-center mt-12">
-                    <a href="#hero" className="scroll-smooth">
-                        <Button className="px-10 py-6 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-full text-lg" data-testid="button-painpoints-quote">
-                            Get your fixed price
-                            <ArrowRight className="w-5 h-5 ml-2" />
-                        </Button>
-                    </a>
-                    <p className="text-slate-400 text-sm mt-3">Photo or video. Fixed price back in minutes.</p>
                 </div>
             </div>
         </section>
