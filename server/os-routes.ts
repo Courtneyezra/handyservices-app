@@ -47,7 +47,7 @@ router.get('/pipeline', async (_req: Request, res: Response) => {
 router.get('/send', async (_req: Request, res: Response) => {
   try {
     const [readyRows, threadRows] = await Promise.all([
-      db.select({ id: personalizedQuotes.id, slug: personalizedQuotes.shortSlug, name: personalizedQuotes.customerName, status: personalizedQuotes.status })
+      db.select({ id: personalizedQuotes.id, slug: personalizedQuotes.shortSlug, name: personalizedQuotes.customerName })
         .from(personalizedQuotes).where(and(isNull(personalizedQuotes.depositPaidAt), isNull(personalizedQuotes.bookedAt)))
         .orderBy(desc(personalizedQuotes.createdAt)).limit(8),
       db.select({ id: leads.id, name: leads.customerName, desc: leads.jobDescription, status: leads.status })
@@ -55,7 +55,7 @@ router.get('/send', async (_req: Request, res: Response) => {
         .orderBy(desc(leads.createdAt)).limit(8),
     ]);
 
-    const readyToSend: OsItem[] = readyRows.map((r) => ({ id: r.id, title: r.name || 'Quote', subtitle: [r.slug, r.status].filter(Boolean).join(' · ') }));
+    const readyToSend: OsItem[] = readyRows.map((r) => ({ id: r.id, title: r.name || 'Quote', subtitle: r.slug || 'draft' }));
     const threads: OsItem[] = threadRows.map((r) => ({ id: r.id, title: r.name || 'Lead', subtitle: [snippet(r.desc), r.status].filter(Boolean).join(' · ') }));
 
     return res.json(buildSend(readyToSend, threads));
