@@ -126,17 +126,23 @@ function PainPointsSection() {
     // Add a `wistiaId` to turn any card into a customer PROBLEM VIDEO: the photo
     // becomes the poster, a play button appears, and tapping opens the Wistia
     // player. Upload the customer's video to Wistia, paste its hashed media id.
+    // Extreme, unmistakable damage — the real problems Nottingham texts us.
+    // A card can carry a `wistiaId` to become a playable customer problem-video
+    // (poster + play button); paste a real hashed media id to activate it.
     const problems: { img: string; q: string; wistiaId?: string }[] = [
         { img: "/assets/pain-points/pain-hole.webp", q: "Hole in the wall?" },
-        { img: "/assets/pain-points/pain-floor.webp", q: "Floorboards had it?" },
         { img: "/assets/pain-points/pain-deck.webp", q: "Decking gone rotten?" },
-        { img: "/assets/pain-points/pain-damp-ceiling.webp", q: "Water stain spreading?" },
-        { img: "/assets/pain-points/pain-sink.webp", q: "Sink or tap dripping?" },
-        { img: "/assets/pain-points/pain-wall.webp", q: "Damp, dated walls?" },
-        // ── Customer PROBLEM VIDEOS (Wistia). Replace the placeholder ids with the
-        //    real hashed media ids and these two cards become playable clips. ──────
-        { img: "/assets/quote-images/craig-light.webp", q: "Light on the blink?", wistiaId: "placeholder-light" },
-        { img: "/assets/quote-images/craig-gutter.webp", q: "Gutter overflowing?", wistiaId: "placeholder-gutter" },
+        { img: "/assets/pain-points/pain-mould.webp", q: "Black mould spreading?" },
+        { img: "/assets/pain-points/pain-crack.webp", q: "Cracks in the plaster?" },
+        { img: "/assets/pain-points/pain-roof.webp", q: "Flat roof rotting?" },
+        { img: "/assets/pain-points/pain-gutter-broken.webp", q: "Gutter hanging off?" },
+    ];
+    // Handymen at work — real Nottingham pros getting stuck in (stills from job
+    // footage; the work videos can drop in here as short loops).
+    const atWork = [
+        { img: "/assets/at-work/work-sander.webp", label: "Floor restoration" },
+        { img: "/assets/at-work/work-edging.webp", label: "Sanding to the edge" },
+        { img: "/assets/at-work/work-finishing.webp", label: "Finishing touches" },
     ];
     const isVideo = (w?: string) => !!w && !/^(placeholder|todo|xxxx)/i.test(w);
     return (
@@ -182,7 +188,24 @@ function PainPointsSection() {
                     })}
                 </div>
 
-                <div className="text-center mt-10">
+                {/* Handymen at work — the "we sort it" payoff. Real pros, real jobs. */}
+                <div className="mt-14 lg:mt-20">
+                    <div className="text-center mb-6 lg:mb-8">
+                        <p className="text-amber-500 font-bold uppercase tracking-[0.14em] text-xs md:text-sm mb-2">Then we get stuck in</p>
+                        <h3 className="text-2xl md:text-3xl lg:text-4xl font-bold text-slate-900">Craig, Joe &amp; the team on the tools.</h3>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 md:gap-5">
+                        {atWork.map((w) => (
+                            <div key={w.label} className="relative rounded-2xl overflow-hidden aspect-[4/5] sm:aspect-square group">
+                                <img src={w.img} alt={w.label} loading="lazy" decoding="async" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-transparent to-transparent" />
+                                <span className="absolute bottom-3 left-3 text-white text-xs md:text-sm font-semibold">{w.label}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="text-center mt-12">
                     <a href="#hero" className="scroll-smooth">
                         <Button className="px-10 py-6 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-full text-lg" data-testid="button-painpoints-quote">
                             Get your fixed price
