@@ -100,6 +100,19 @@ export default function OperatingSystem() {
     try { setMsg('Placing…'); await sendJSON(`/api/admin/contractor-hub/${weekOf.id}/flex/${placing}/place`, 'POST', { date, slot }); setPlacing(null); await loadWeek(weekOf.id); setMsg('Flex job placed as a booking.'); }
     catch (e: any) { setMsg(`Couldn't place: ${e.message}`); }
   };
+  // Edit just THIS week: toggle a day's AM/PM as a date override (reuses the
+  // existing per-date endpoint; a day carries one slot type Off/AM/PM/All-day).
+  const editThisWeek = async (date: string, slot: 'am' | 'pm') => {
+    if (!weekOf || !week) return;
+    const d = week.days.find((x) => x.date === date);
+    if (!d || d[slot] === 'booked') return; // can't edit a booked slot
+    const isOn = (st: SlotState) => st === 'open' || st === 'booked';
+    const amOn = slot === 'am' ? !isOn(d.am) : isOn(d.am);
+    const pmOn = slot === 'pm' ? !isOn(d.pm) : isOn(d.pm);
+    const slotType = amOn && pmOn ? 'full_day' : amOn ? 'am' : pmOn ? 'pm' : 'off';
+    try { setMsg('Updating this week…'); await sendJSON(`/api/admin/contractors/${weekOf.id}/availability`, 'PUT', { dates: [{ date, slot: slotType, isAvailable: true }] }); await loadWeek(weekOf.id); setMsg('This week updated.'); }
+    catch (e: any) { setMsg(`Update failed: ${e.message}`); }
+  };
 
   const title = NAV.find((n) => n.key === ws)?.label ?? '';
   const openItem = (i: OsItem, kind: string) => setDrawer({ title: i.title, subtitle: `${kind} · ${i.subtitle}` });
@@ -165,14 +178,14 @@ export default function OperatingSystem() {
                     <p className="text-[11px] text-gray-400 mt-2">Tap AM/PM to set his standing days, then Save — this lights up the customer calendar.</p>
                   </div>
 
-                  <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">This week{placing ? ' — tap an open slot to place the flex job' : ''}</div>
+                  <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">This week{placing ? ' — tap an open slot to place the flex job' : ' — tap AM/PM to change just this week'}</div>
                   <div className="grid grid-cols-7 gap-2 mb-4">
                     {week.days.map((d) => (
                       <div key={d.date} className="border border-gray-200 rounded-lg p-2 text-center bg-white">
                         <div className="text-[10px] text-gray-500 font-medium">{DOW[d.dayOfWeek]}</div>
                         <div className="text-[10px] text-gray-400 mb-1">{d.date.slice(8)}</div>
                         {(['am', 'pm'] as const).map((s) => (
-                          <SlotChip key={s} label={s.toUpperCase()} state={d[s]} placing={!!placing} onClick={() => { if (d[s] === 'open' && placing) placeFlex(d.date, s); }} />
+                          <SlotChip key={s} label={s.toUpperCase()} state={d[s]} placing={!!placing} onClick={() => { if (placing && d[s] === 'open') placeFlex(d.date, s); else editThisWeek(d.date, s); }} />
                         ))}
                       </div>
                     ))}
@@ -362,9 +375,10 @@ function SlotChip({ label, state, placing, onClick }: { label: string; state: Sl
   const cls = state === 'booked'
     ? 'bg-blue-600 text-white'
     : state === 'open'
-      ? (placing ? 'bg-green-100 text-green-700 ring-1 ring-green-400 cursor-pointer' : 'bg-green-50 text-green-700')
-      : 'bg-gray-50 text-gray-300';
-  return <div onClick={onClick} className={`text-[10px] rounded py-0.5 mb-0.5 ${cls}`}>{label}{state === 'booked' ? '·bk' : ''}</div>;
+      ? (placing ? 'bg-green-100 text-green-700 ring-1 ring-green-400 cursor-pointer' : 'bg-green-50 text-green-700 cursor-pointer hover:bg-green-100')
+      : 'bg-gray-50 text-gray-300 cursor-pointer hover:bg-gray-100';
+  const title = state === 'booked' ? 'Booked' : state === 'open' ? 'Available — tap to turn off this week' : 'Off — tap to turn on this week';
+  return <div onClick={state === 'booked' ? undefined : onClick} title={title} className={`text-[10px] rounded py-0.5 mb-0.5 ${cls}`}>{label}{state === 'booked' ? '·bk' : ''}</div>;
 }
 
 function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
