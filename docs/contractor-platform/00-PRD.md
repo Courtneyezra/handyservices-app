@@ -197,14 +197,22 @@ change one.
 Covered by [`server/lib/quote-team.test.ts`](../../server/lib/quote-team.test.ts)
 (vitest, 8 tests, all green).
 
-## 12. Deliverables & next step
+## 12. Build status
 
-This PRD (`00-PRD.md`) + [`01-model-and-data-flow.md`](./01-model-and-data-flow.md)
-+ [`02-schema.md`](./02-schema.md) are the canonical spec. The additive schema
-(`delivery_tier`, `leadContractorId`, `contractor_commitments`,
-`booking_assignments`) is **implemented** in `shared/schema.ts`, and the routing
-core (`resolveQuoteTeam`) is **implemented + tested**. **Next: wire it in** —
-`resolveQuoteTeam` reads DB candidate tiers and writes `lead_contractor_id` +
-`team_plan` at quote generation; `confirmBooking` writes the `lead`
-`booking_assignments` row; then the Admin OS shell + Contractor Hub read the
-spine.
+Spec: `00-PRD.md` + [`01-model-and-data-flow.md`](./01-model-and-data-flow.md)
++ [`02-schema.md`](./02-schema.md). v1 is **built + tested**:
+
+| Piece | Status |
+|---|---|
+| Additive schema | **Done** — `shared/schema.ts`; applied to the DB via `scripts/_apply-contractor-platform-ddl.ts` (additive, `IF NOT EXISTS`). |
+| Routing core `resolveQuoteTeam` | **Done + tested** — `server/lib/quote-team.ts`; 14 vitest cases (AC1–AC6 + deriveTeamFit). |
+| Live wiring | **Done** — `quote-fit.ts` composes a team; `public-routes.ts` date picker reads `availabilityContractorIds` (multi-trade bug fixed); quote generation persists `lead_contractor_id` + `team_plan`. Live DB smoke: solo + no_supply verified end-to-end. |
+| Admin OS shell + Contractor Hub | **Done** — `client/src/pages/admin/OperatingSystem.tsx` (route `/admin/os`) reading `GET /api/admin/contractor-hub` (`server/contractor-hub-routes.ts` + pure `lib/contractor-hub.ts`, 5 tests). |
+| Decision §10.1 | **Settled** — compose at generation, anchor calendar on lead. |
+
+**Roster seed:** Craig set `delivery_tier=core`, `delivery_priority=1`. Bezent/Joe
+(Core) + Dwaine (ad-hoc) still to be tagged.
+
+**Next:** tag the rest of the roster's tiers; write the `lead` `booking_assignments`
+row in `confirmBooking`; build the Pipeline + Send workspaces; broaden `/admin/os`
+access to `va` (Ben). Coordinate a proper `db:push` at branch merge.
