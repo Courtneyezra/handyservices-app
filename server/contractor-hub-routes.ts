@@ -11,19 +11,25 @@
  * so it stays unit-testable. See docs/contractor-platform/00-PRD.md §5a.
  */
 import { Router, Request, Response } from 'express';
-import { and, or, eq, gte, lt, isNull, inArray, sql, desc } from 'drizzle-orm';
-import { startOfWeek } from 'date-fns';
+import { and, or, eq, gte, lt, isNull, isNotNull, inArray, sql, desc } from 'drizzle-orm';
+import { startOfWeek, addDays, format } from 'date-fns';
+import { v4 as uuidv4 } from 'uuid';
 import { db } from './db';
 import {
   users,
   handymanProfiles,
   handymanSkills,
+  handymanAvailability,
+  contractorAvailabilityDates,
   personalizedQuotes,
   contractorBookingRequests,
   contractorCommitments,
 } from '../shared/schema';
+import { timeRangeCoversSlot, type SlotType } from '../shared/slot-times';
 import type { DeliveryTier } from './lib/quote-team';
 import { assembleHub, type HubContractorInput, type CapacityGap, type ContractorHub } from './lib/contractor-hub';
+import { resolveWeek } from './lib/contractor-week';
+import { reserveSlot, confirmBooking } from './booking-engine';
 
 const BOOKED_STATUSES = new Set(['accepted', 'completed']);
 const BOOKED_ASSIGNMENT = new Set(['accepted', 'in_progress', 'completed']);
@@ -128,6 +134,126 @@ router.get('/', async (_req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[ContractorHub] failed:', err?.message, err?.stack);
     return res.status(500).json({ error: 'Failed to load contractor hub', details: err?.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Craig-first: per-contractor week grid + flex queue + place action.
+// See docs/contractor-platform/03-craig-availability.md.
+// ---------------------------------------------------------------------------
+
+const BOOKED_SLOT_STATUSES = new Set(['accepted', 'completed']);
+const BOOKED_SLOT_ASSIGNMENT = new Set(['accepted', 'in_progress', 'completed']);
+
+function mondayOf(weekParam?: string): Date {
+  const d = weekParam ? new Date(weekParam) : new Date();
+  return startOfWeek(d, { weekStartsOn: 1 });
+}
+
+// GET /:id/week?week=YYYY-MM-DD → resolved AM/PM grid for the 7 days.
+router.get('/:id/week', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    const monday = mondayOf(typeof req.query.week === 'string' ? req.query.week : undefined);
+    const weekEnd = addDays(monday, 7);
+    const weekDates = Array.from({ length: 7 }, (_, i) => {
+      const d = addDays(monday, i);
+      return { date: format(d, 'yyyy-MM-dd'), dayOfWeek: d.getDay() };
+    });
+
+    const [patternRows, overrideRows, bookingRows] = await Promise.all([
+      db.select({ dayOfWeek: handymanAvailability.dayOfWeek, startTime: handymanAvailability.startTime, endTime: handymanAvailability.endTime, isActive: handymanAvailability.isActive })
+        .from(handymanAvailability).where(eq(handymanAvailability.handymanId, id)),
+      db.select({ date: contractorAvailabilityDates.date, isAvailable: contractorAvailabilityDates.isAvailable, startTime: contractorAvailabilityDates.startTime, endTime: contractorAvailabilityDates.endTime })
+        .from(contractorAvailabilityDates).where(and(eq(contractorAvailabilityDates.contractorId, id), gte(contractorAvailabilityDates.date, monday), lt(contractorAvailabilityDates.date, weekEnd))),
+      db.select({ contractorId: contractorBookingRequests.contractorId, assignedContractorId: contractorBookingRequests.assignedContractorId, scheduledDate: contractorBookingRequests.scheduledDate, slot: contractorBookingRequests.scheduledSlot, status: contractorBookingRequests.status, assignmentStatus: contractorBookingRequests.assignmentStatus })
+        .from(contractorBookingRequests).where(and(gte(contractorBookingRequests.scheduledDate, monday), lt(contractorBookingRequests.scheduledDate, weekEnd), or(eq(contractorBookingRequests.contractorId, id), eq(contractorBookingRequests.assignedContractorId, id)))),
+    ]);
+
+    const weeklyPatterns = patternRows.map((p) => ({ dayOfWeek: p.dayOfWeek ?? 0, startTime: p.startTime ?? null, endTime: p.endTime ?? null, isActive: !!p.isActive }));
+    const overrides = overrideRows.map((o) => ({ date: format(new Date(o.date as any), 'yyyy-MM-dd'), isAvailable: !!o.isAvailable, startTime: o.startTime ?? null, endTime: o.endTime ?? null }));
+    const bookings = bookingRows
+      .filter((b) => ((b.status && BOOKED_SLOT_STATUSES.has(b.status)) || (b.assignmentStatus && BOOKED_SLOT_ASSIGNMENT.has(b.assignmentStatus))) && b.scheduledDate && (b.assignedContractorId ?? b.contractorId) === id)
+      .map((b) => ({ date: format(new Date(b.scheduledDate as any), 'yyyy-MM-dd'), slot: (b.slot ?? null) as SlotType | null }));
+
+    // Raw weekly pattern per weekday (for the editor to initialise from).
+    const pattern = [0, 1, 2, 3, 4, 5, 6].map((dow) => {
+      const active = weeklyPatterns.filter((p) => p.dayOfWeek === dow && p.isActive);
+      return {
+        dayOfWeek: dow,
+        am: active.some((p) => timeRangeCoversSlot(p.startTime, p.endTime, 'am')),
+        pm: active.some((p) => timeRangeCoversSlot(p.startTime, p.endTime, 'pm')),
+      };
+    });
+
+    res.json({ weekStart: format(monday, 'yyyy-MM-dd'), days: resolveWeek({ weekDates, weeklyPatterns, overrides, bookings }), pattern });
+  } catch (err: any) {
+    console.error('[Hub/week] failed:', err?.message);
+    res.status(500).json({ error: 'Failed to load week', details: err?.message });
+  }
+});
+
+// GET /:id/flex → his pending flex jobs (soft-lead, paid, flexible, not yet booked).
+router.get('/:id/flex', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    const rows = await db.select({ id: personalizedQuotes.id, slug: personalizedQuotes.shortSlug, name: personalizedQuotes.customerName, desc: personalizedQuotes.jobDescription, within: personalizedQuotes.flexBookingWithinDays, paidAt: personalizedQuotes.depositPaidAt })
+      .from(personalizedQuotes)
+      .where(and(eq(personalizedQuotes.leadContractorId, id), isNotNull(personalizedQuotes.depositPaidAt), isNotNull(personalizedQuotes.flexBookingWithinDays), isNull(personalizedQuotes.bookedAt)))
+      .orderBy(desc(personalizedQuotes.depositPaidAt)).limit(20);
+    const jobs = rows.map((r) => ({
+      quoteId: r.id, slug: r.slug, customerName: r.name, jobDescription: r.desc, withinDays: r.within,
+      deadline: r.paidAt && r.within ? format(addDays(new Date(r.paidAt as any), r.within), 'yyyy-MM-dd') : null,
+    }));
+    res.json({ jobs });
+  } catch (err: any) {
+    console.error('[Hub/flex] failed:', err?.message);
+    res.status(500).json({ error: 'Failed to load flex queue', details: err?.message });
+  }
+});
+
+// PUT /:id/pattern { patterns:[{dayOfWeek,startTime,endTime}] } → set weekly recurring.
+router.put('/:id/pattern', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    const patterns = req.body?.patterns;
+    if (!Array.isArray(patterns)) return res.status(400).json({ error: 'Invalid patterns' });
+    await db.transaction(async (tx) => {
+      for (const p of patterns) {
+        const existing = await tx.select().from(handymanAvailability).where(and(eq(handymanAvailability.handymanId, id), eq(handymanAvailability.dayOfWeek, p.dayOfWeek))).limit(1);
+        if (existing.length) {
+          await tx.update(handymanAvailability).set({ startTime: p.startTime, endTime: p.endTime, isActive: true }).where(eq(handymanAvailability.id, existing[0].id));
+        } else {
+          await tx.insert(handymanAvailability).values({ id: uuidv4(), handymanId: id, dayOfWeek: p.dayOfWeek, startTime: p.startTime, endTime: p.endTime, isActive: true });
+        }
+      }
+      const sentDays = patterns.map((p: any) => p.dayOfWeek);
+      for (const dow of [0, 1, 2, 3, 4, 5, 6].filter((d) => !sentDays.includes(d))) {
+        await tx.update(handymanAvailability).set({ isActive: false }).where(and(eq(handymanAvailability.handymanId, id), eq(handymanAvailability.dayOfWeek, dow)));
+      }
+    });
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Hub/pattern] failed:', err?.message);
+    res.status(500).json({ error: 'Failed to save pattern', details: err?.message });
+  }
+});
+
+// POST /:id/flex/:jobId/place { date, slot } → place a flex job as a dated booking.
+router.post('/:id/flex/:jobId/place', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    const quoteId = req.params.jobId;
+    const { date, slot } = req.body || {};
+    if (!date || !['am', 'pm', 'full_day'].includes(slot)) return res.status(400).json({ error: 'date and slot (am|pm|full_day) required' });
+    const reserve = await reserveSlot({ quoteId, scheduledDate: new Date(`${date}T09:00:00`), scheduledSlot: slot as SlotType, candidateContractorIds: [id] });
+    if (!reserve.success || !reserve.lockId) return res.status(409).json({ error: reserve.error || 'That slot is not available' });
+    const confirm = await confirmBooking({ quoteId, lockId: reserve.lockId, paymentIntentId: 'flex-hub-place' });
+    if (!confirm.success) return res.status(500).json({ error: confirm.error || 'Could not confirm the booking' });
+    res.json({ success: true, jobId: confirm.jobId });
+  } catch (err: any) {
+    console.error('[Hub/place] failed:', err?.message);
+    res.status(500).json({ error: 'Failed to place flex job', details: err?.message });
   }
 });
 

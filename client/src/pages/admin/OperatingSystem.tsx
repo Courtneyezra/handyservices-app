@@ -18,7 +18,7 @@ interface PipelineStage { key: string; label: string; count: number; items: OsIt
 interface OsPipeline { stages: PipelineStage[] }
 interface OsSend { readyToSend: OsItem[]; threads: OsItem[] }
 
-interface DrawerData { title: string; subtitle?: string; avatar?: string; skills?: string[]; rows?: { k: string; v: string }[]; actions?: string[] }
+interface DrawerData { title: string; subtitle?: string; avatar?: string; skills?: string[]; rows?: { k: string; v: string }[]; actions?: string[]; contractorId?: string; contractorName?: string }
 
 const NAV = [
   { key: 'dashboard', label: 'Dashboard' },
@@ -40,6 +40,21 @@ async function getJSON<T>(url: string): Promise<T> {
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
+async function sendJSON<T>(url: string, method: string, body?: any): Promise<T> {
+  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` }, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || `HTTP ${r.status}`); }
+  return r.json();
+}
+
+type SlotState = 'off' | 'open' | 'booked';
+interface DayAvailability { date: string; dayOfWeek: number; am: SlotState; pm: SlotState }
+interface PatternDay { dayOfWeek: number; am: boolean; pm: boolean }
+interface WeekResp { weekStart: string; days: DayAvailability[]; pattern: PatternDay[] }
+interface FlexJob { quoteId: string; slug: string | null; customerName: string; jobDescription: string | null; withinDays: number | null; deadline: string | null }
+
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const patternToWindow = (am: boolean, pm: boolean) =>
+  am && pm ? { startTime: '09:00', endTime: '18:00' } : am ? { startTime: '09:00', endTime: '13:00' } : { startTime: '14:00', endTime: '18:00' };
 
 export default function OperatingSystem() {
   const [ws, setWs] = useState<(typeof NAV)[number]['key']>('hub');
@@ -58,10 +73,39 @@ export default function OperatingSystem() {
   const coreLead = hub?.bands.find((b) => b.tier === 'core')?.contractors[0] ?? null;
   const stageCount = (k: string) => pipeline?.stages.find((s) => s.key === k)?.count ?? 0;
 
+  // Craig-first: per-contractor week + flex management.
+  const [weekOf, setWeekOf] = useState<{ id: string; name: string } | null>(null);
+  const [week, setWeek] = useState<WeekResp | null>(null);
+  const [flex, setFlex] = useState<FlexJob[] | null>(null);
+  const [patternEdit, setPatternEdit] = useState<PatternDay[]>([]);
+  const [placing, setPlacing] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const loadWeek = (id: string) => Promise.all([
+    getJSON<WeekResp>(`/api/admin/contractor-hub/${id}/week`).then((w) => { setWeek(w); setPatternEdit(w.pattern); }),
+    getJSON<{ jobs: FlexJob[] }>(`/api/admin/contractor-hub/${id}/flex`).then((f) => setFlex(f.jobs)),
+  ]).catch((e) => setErr(e.message));
+
+  const openWeek = (id: string, name: string) => { setDrawer(null); setWeekOf({ id, name }); setWeek(null); setFlex(null); setMsg(null); loadWeek(id); };
+  const togglePattern = (dow: number, slot: 'am' | 'pm') =>
+    setPatternEdit((prev) => prev.map((p) => (p.dayOfWeek === dow ? { ...p, [slot]: !p[slot] } : p)));
+  const savePattern = async () => {
+    if (!weekOf) return;
+    const patterns = patternEdit.filter((p) => p.am || p.pm).map((p) => ({ dayOfWeek: p.dayOfWeek, ...patternToWindow(p.am, p.pm) }));
+    try { setMsg('Saving…'); await sendJSON(`/api/admin/contractor-hub/${weekOf.id}/pattern`, 'PUT', { patterns }); await loadWeek(weekOf.id); setMsg('Weekly pattern saved.'); }
+    catch (e: any) { setMsg(`Save failed: ${e.message}`); }
+  };
+  const placeFlex = async (date: string, slot: 'am' | 'pm') => {
+    if (!weekOf || !placing) return;
+    try { setMsg('Placing…'); await sendJSON(`/api/admin/contractor-hub/${weekOf.id}/flex/${placing}/place`, 'POST', { date, slot }); setPlacing(null); await loadWeek(weekOf.id); setMsg('Flex job placed as a booking.'); }
+    catch (e: any) { setMsg(`Couldn't place: ${e.message}`); }
+  };
+
   const title = NAV.find((n) => n.key === ws)?.label ?? '';
   const openItem = (i: OsItem, kind: string) => setDrawer({ title: i.title, subtitle: `${kind} · ${i.subtitle}` });
   const openContractor = (c: HubContractor) => setDrawer({
     title: c.name, subtitle: `${c.tier}${c.priority ? ` · priority ${c.priority}` : ''}`, avatar: c.name.slice(0, 2).toUpperCase(), skills: c.skills,
+    contractorId: c.id, contractorName: c.name,
     rows: [
       { k: 'Fill this week', v: `${c.fillPercent}%${c.committedDaysPerWeek ? ` of ${c.committedDaysPerWeek}d` : ''}` },
       { k: 'Booked (days)', v: String(c.bookedDaysThisWeek) },
@@ -94,7 +138,60 @@ export default function OperatingSystem() {
         <div className="flex-1 overflow-auto p-6">
           {err && <p className="text-sm text-red-600 mb-3">Something didn't load: {err}</p>}
 
-          {ws === 'hub' && (hub ? (
+          {ws === 'hub' && weekOf && (
+            <div>
+              <button onClick={() => { setWeekOf(null); setPlacing(null); }} className="text-sm text-blue-600 mb-3">← Contractor hub</button>
+              <h2 className="text-base font-medium mb-1">{weekOf.name} — this week</h2>
+              {msg && <p className="text-xs text-gray-500 mb-2">{msg}</p>}
+              {!week ? <p className="text-sm text-gray-500">Loading…</p> : (
+                <>
+                  <div className="rounded-xl border border-gray-200 bg-white p-3 mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">Weekly recurring pattern</span>
+                      <button onClick={savePattern} className="text-xs rounded-md bg-blue-600 text-white px-3 py-1.5">Save pattern</button>
+                    </div>
+                    <div className="grid grid-cols-7 gap-2">
+                      {[1, 2, 3, 4, 5, 6, 0].map((dow) => {
+                        const p = patternEdit.find((x) => x.dayOfWeek === dow) || { dayOfWeek: dow, am: false, pm: false };
+                        return (
+                          <div key={dow} className="text-center">
+                            <div className="text-xs text-gray-500 mb-1">{DOW[dow]}</div>
+                            <button onClick={() => togglePattern(dow, 'am')} className={`w-full text-[11px] rounded mb-1 py-1 ${p.am ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>AM</button>
+                            <button onClick={() => togglePattern(dow, 'pm')} className={`w-full text-[11px] rounded py-1 ${p.pm ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>PM</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-2">Tap AM/PM to set his standing days, then Save — this lights up the customer calendar.</p>
+                  </div>
+
+                  <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">This week{placing ? ' — tap an open slot to place the flex job' : ''}</div>
+                  <div className="grid grid-cols-7 gap-2 mb-4">
+                    {week.days.map((d) => (
+                      <div key={d.date} className="border border-gray-200 rounded-lg p-2 text-center bg-white">
+                        <div className="text-[10px] text-gray-500 font-medium">{DOW[d.dayOfWeek]}</div>
+                        <div className="text-[10px] text-gray-400 mb-1">{d.date.slice(8)}</div>
+                        {(['am', 'pm'] as const).map((s) => (
+                          <SlotChip key={s} label={s.toUpperCase()} state={d[s]} placing={!!placing} onClick={() => { if (d[s] === 'open' && placing) placeFlex(d.date, s); }} />
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Pending flex jobs</div>
+                  {(!flex || flex.length === 0) ? <p className="text-sm text-gray-400 italic">None in his queue.</p> : flex.map((j) => (
+                    <button key={j.quoteId} onClick={() => setPlacing(placing === j.quoteId ? null : j.quoteId)} className={`w-full text-left rounded-lg border px-3 py-2 mb-1.5 ${placing === j.quoteId ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+                      <div className="flex justify-between"><span className="text-sm font-medium">{j.customerName}</span>{j.deadline && <span className="text-[11px] text-amber-700">by {j.deadline}</span>}</div>
+                      <div className="text-xs text-gray-500 truncate">{j.jobDescription || j.slug}</div>
+                      {placing === j.quoteId && <div className="text-[11px] text-amber-700 mt-1">Selected — tap an open AM/PM slot above to place.</div>}
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+
+          {ws === 'hub' && !weekOf && (hub ? (
             <>
               {hub.bands.map((band) => (
                 <section key={band.tier} className="mb-6">
@@ -245,6 +342,9 @@ export default function OperatingSystem() {
               {drawer.rows?.map((r) => (
                 <div key={r.k} className="flex justify-between py-1.5 border-b border-gray-100 text-xs"><span className="text-gray-500">{r.k}</span><span>{r.v}</span></div>
               ))}
+              {drawer.contractorId && (
+                <button onClick={() => openWeek(drawer.contractorId!, drawer.contractorName || drawer.title)} className="mt-4 w-full text-sm rounded-md bg-blue-600 text-white px-3 py-2">Manage availability &amp; flex →</button>
+              )}
               {drawer.actions && (
                 <div className="flex gap-2 mt-4 flex-wrap">
                   {drawer.actions.map((a) => <button key={a} className="text-xs border border-gray-300 rounded-md px-3 py-1.5">{a}</button>)}
@@ -256,6 +356,15 @@ export default function OperatingSystem() {
       </aside>
     </div>
   );
+}
+
+function SlotChip({ label, state, placing, onClick }: { label: string; state: SlotState; placing: boolean; onClick: () => void }) {
+  const cls = state === 'booked'
+    ? 'bg-blue-600 text-white'
+    : state === 'open'
+      ? (placing ? 'bg-green-100 text-green-700 ring-1 ring-green-400 cursor-pointer' : 'bg-green-50 text-green-700')
+      : 'bg-gray-50 text-gray-300';
+  return <div onClick={onClick} className={`text-[10px] rounded py-0.5 mb-0.5 ${cls}`}>{label}{state === 'booked' ? '·bk' : ''}</div>;
 }
 
 function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
