@@ -208,11 +208,11 @@ Spec: `00-PRD.md` + [`01-model-and-data-flow.md`](./01-model-and-data-flow.md)
 | Routing core `resolveQuoteTeam` | **Done + tested** — `server/lib/quote-team.ts`; 14 vitest cases (AC1–AC6 + deriveTeamFit). |
 | Live wiring | **Done** — `quote-fit.ts` composes a team; `public-routes.ts` date picker reads `availabilityContractorIds` (multi-trade bug fixed); quote generation persists `lead_contractor_id` + `team_plan`. Live DB smoke: solo + no_supply verified end-to-end. |
 | Admin OS shell + Contractor Hub | **Done** — `client/src/pages/admin/OperatingSystem.tsx` (route `/admin/os`) reading `GET /api/admin/contractor-hub` (`server/contractor-hub-routes.ts` + pure `lib/contractor-hub.ts`, 5 tests). |
+| Pipeline + Send workspaces | **Done** — `GET /api/admin/os/pipeline` + `/send` (`server/os-routes.ts` + pure `lib/os-summary.ts`, 4 tests); wired into the shell with a unified drawer. |
+| Lead `booking_assignments` | **Done** — `confirmBooking` writes the `lead` row atomically in the booking tx (covered categories from `team_plan`). |
+| Roster tiers | **Done** — Core = Craig(1), Bezent(2), Joe(3); rest ad-hoc (`scripts/_seed-contractor-tiers.ts`). |
 | Decision §10.1 | **Settled** — compose at generation, anchor calendar on lead. |
 
-**Roster seed:** Craig set `delivery_tier=core`, `delivery_priority=1`. Bezent/Joe
-(Core) + Dwaine (ad-hoc) still to be tagged.
-
-**Next:** tag the rest of the roster's tiers; write the `lead` `booking_assignments`
-row in `confirmBooking`; build the Pipeline + Send workspaces; broaden `/admin/os`
-access to `va` (Ben). Coordinate a proper `db:push` at branch merge.
+**Next:** build the Dashboard cockpit + Settings workspace; add specialist
+`booking_assignments` rows when composed teams dispatch (WhatsApp/manual);
+broaden `/admin/os` access to `va` (Ben); coordinate a proper `db:push` at merge.
