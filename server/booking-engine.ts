@@ -11,6 +11,7 @@ import {
     users,
     wtbpRateCard,
     serviceProperties,
+    bookingAssignments,
 } from '../shared/schema';
 import { eq, and, lt, gte, lte, or, inArray, isNull } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
@@ -678,6 +679,33 @@ export async function confirmBooking(params: {
                     acceptedAt: new Date(),
                 })
                 .returning();
+
+            // e2. Contractor-platform: write the LEAD booking_assignment (one
+            // booking → many contractors). Today every confirmed booking is the
+            // lead; specialist rows are added when composed teams dispatch. The
+            // covered categories come from the quote's team_plan lead assignment,
+            // falling back to the quote's line-item categories.
+            const tp = quote.teamPlan as any;
+            const leadPlanCats: string[] | undefined = Array.isArray(tp?.assignments)
+                ? tp.assignments.find((a: any) => a.role === 'lead')?.coveredCategories
+                : undefined;
+            const leadCats = (leadPlanCats && leadPlanCats.length)
+                ? leadPlanCats
+                : Array.from(new Set(((quote.pricingLineItems as any[]) || []).map((li: any) => li.categorySlug || li.category).filter(Boolean)));
+            await tx.insert(bookingAssignments).values({
+                id: uuidv4(),
+                bookingId,
+                contractorId: contractorIdStr,
+                role: 'lead',
+                coveredCategories: leadCats.length ? leadCats : undefined,
+                status: 'accepted',
+                payoutPence: null,
+                scheduledDate: lock.scheduledDate,
+                scheduledSlot: lock.scheduledSlot as 'am' | 'pm' | 'full_day',
+                offeredVia: 'auto',
+                assignedAt: new Date(),
+                acceptedAt: new Date(),
+            });
 
             // f. Generate job sheet from quote line items. contractorRatePence is
             // derived from the wtbp_rate_card when the quote line doesn't carry one
