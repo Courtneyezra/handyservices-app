@@ -80,6 +80,7 @@ import availabilityRouter from './availability'; // Availability Slots for Live 
 
 import publicRoutes from './public-routes';
 import adminContractorsRouter from './admin-contractors-routes';
+import contractorHubRouter from './contractor-hub-routes';
 import adminDashboardRouter from './admin-dashboard-routes';
 import { vaStatsRouter } from './va-stats';
 import mediaRouter from './media-upload';
@@ -400,6 +401,7 @@ app.use('/api/contractor/availability', contractorAvailabilityRouter);
 app.use('/api/contractor/jobs', contractorJobsRouter);
 app.use('/api/admin/availability', requireAdmin, adminAvailabilityRouter); // Master availability admin routes
 app.use('/api/admin/contractors', requireAdmin, adminContractorsRouter); // Admin contractors management
+app.use('/api/admin/contractor-hub', requireAdmin, contractorHubRouter); // Contractor Hub (Admin OS v1)
 app.use('/api/admin/dashboard', requireAdmin, adminDashboardRouter); // Admin dashboard analytics
 app.use(leadTubeMapRouter); // Lead Tube Map API (includes its own /api/admin prefix)
 app.use(callScriptRouter); // Call Script Tube Map API (VA call coaching)
