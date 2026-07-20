@@ -12,12 +12,14 @@ interface IntakeHeroProps {
   mobileCtaText?: string;
   desktopCtaText?: string;
   bannerText?: string;
+  /** Show a Google reviews strip in the top banner instead of `bannerText`. */
+  bannerReviews?: boolean;
   heroImage?: string;
   onConversion?: (source: string) => void;
   transparentBg?: boolean;
 }
 
-export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText, desktopCtaText, bannerText, heroImage, onConversion, transparentBg }: IntakeHeroProps) {
+export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText, desktopCtaText, bannerText, bannerReviews, heroImage, onConversion, transparentBg }: IntakeHeroProps) {
 
   // Simplified Hero - Direct to Call/WhatsApp
 
@@ -25,11 +27,21 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
   // Job description step (initial) - Split layout on desktop
   return (
     <>
-      {bannerText && (
+      {bannerReviews ? (
+        <div className="bg-amber-500 text-slate-900 py-2.5 px-4 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 font-bold">
+          <SiGoogle className="w-4 h-4" />
+          <span className="flex items-center gap-0.5">
+            {[...Array(5)].map((_, i) => (
+              <Star key={i} className="w-4 h-4 fill-slate-900 text-slate-900" />
+            ))}
+          </span>
+          <span className="text-sm md:text-base">4.9 · Rated excellent by 300+ homeowners on Google</span>
+        </div>
+      ) : bannerText ? (
         <div className="bg-amber-500 text-slate-900 text-center py-2 font-bold px-4">
           <span dangerouslySetInnerHTML={{ __html: bannerText.replace("{{location}}", location) }} />
         </div>
-      )}
+      ) : null}
 
       <section id="hero" className={`relative px-4 lg:px-8 py-12 lg:py-20 font-poppins font-medium min-h-[600px] lg:min-h-[750px] flex items-center overflow-hidden ${transparentBg ? 'bg-transparent' : 'bg-slate-900'}`}>
 
@@ -142,20 +154,9 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                 );
               })()}
 
-              <p className="text-xl text-slate-200 font-medium mb-6 max-w-xl mx-auto lg:mx-0 drop-shadow-md">
+              <p className="text-xl text-slate-200 font-medium mb-10 max-w-xl mx-auto lg:mx-0 drop-shadow-md">
                 {subhead ? subhead.replace("{{location}}", location) : "Call or WhatsApp for an instant fixed-price quote"}
               </p>
-
-              {/* Google reviews — social proof high in the hero */}
-              <div className="flex items-center justify-center lg:justify-start gap-2 mb-10">
-                <SiGoogle className="w-5 h-5 text-white" />
-                <div className="flex items-center gap-0.5">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                  ))}
-                </div>
-                <span className="text-white font-semibold text-sm">4.9 · 300+ Google reviews</span>
-              </div>
 
               {/* Primary Actions: Call & WhatsApp (Mobile Only) */}
               <div className="lg:hidden flex flex-col sm:flex-row gap-4 max-w-xl mx-auto mb-10 text-xl md:text-2xl">

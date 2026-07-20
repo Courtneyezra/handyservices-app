@@ -825,7 +825,7 @@ export default function HandymanLanding({
                         ctaText={variant?.content?.ctaText || "Get Instant Quote"}
                         mobileCtaText={variant?.content?.mobileCtaText || "Call Now"}
                         desktopCtaText={variant?.content?.desktopCtaText || "Get a Price"}
-                        bannerText="Fixed prices agreed up front. No hourly surprises, no call-out fees."
+                        bannerReviews
                         onConversion={trackConversionWithEvent}
                         transparentBg={true}
                     />
