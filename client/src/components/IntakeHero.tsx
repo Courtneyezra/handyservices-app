@@ -1,5 +1,5 @@
 import { MessageCircle, CheckCircle, Clock, Shield, Phone, Gift, Star, Users } from "lucide-react";
-import { SiGoogle } from "react-icons/si";
+import { SiGoogle, SiWhatsapp } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { DesktopLeadForm } from "@/components/DesktopLeadForm";
 import defaultHeroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
@@ -181,9 +181,9 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                     onConversion?.('hero_whatsapp');
                     window.open("https://wa.me/447508744402", "_blank");
                   }}
-                  className="flex-1 py-4 lg:py-6 bg-transparent border-[3px] border-white hover:bg-white/10 text-white font-bold rounded-full transition-transform hover:scale-105 flex items-center justify-center gap-2"
+                  className="flex-1 py-4 lg:py-6 bg-green-500 hover:bg-green-600 text-white font-bold rounded-full shadow-lg shadow-green-500/20 transition-transform hover:scale-105 flex items-center justify-center gap-2"
                 >
-                  <MessageCircle className="w-6 h-6 lg:w-8 lg:h-8" />
+                  <SiWhatsapp className="w-6 h-6 lg:w-8 lg:h-8" />
                   WhatsApp Us
                 </Button>
               </div>
