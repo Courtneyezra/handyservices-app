@@ -4,6 +4,11 @@
 > contractor tier structure**. This is the model; schema (`02-schema.md`) and the
 > app + admin surfaces follow from it. Grounded in current code as of Jul 2026 —
 > file:line citations verified in this worktree.
+>
+> **Update (20 Jul, founder review):** [`00-PRD.md`](./00-PRD.md) is the canonical
+> product spec. Two corrections supersede text below: **Core = Craig, Bezent, Joe
+> (Craig first)** — not Craig alone; Bezent/Joe are committed Core, ad-hoc = Dwaine
+> + warm pool. And the build approach is **clean-spine strangler**, not a rewrite.
 
 ---
 
