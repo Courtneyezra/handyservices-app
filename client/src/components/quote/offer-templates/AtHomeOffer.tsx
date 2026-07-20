@@ -77,17 +77,17 @@ export function AtHomeOffer({ offer, render, customerName, onAccept, onDecline }
         {/* Craig — the offer is about slotting into HIS diary, so anchor it with
             his face (same avatar as the loading reveal + the quote's "Meet your
             handyman" section, one consistent person across the journey). */}
-        <div className="flex items-center gap-3 mb-4 hs-ah-rise">
-          <div className="relative shrink-0">
-            <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#7DB00E] shadow-sm">
+        <div className="flex flex-col items-center text-center mb-5 hs-ah-rise">
+          <div className="relative">
+            <div className="w-24 h-24 rounded-full overflow-hidden border-[3px] border-[#7DB00E] shadow-md">
               <img src="/assets/avatars/craig-avatar-1.webp" alt="Craig, your handyman" className="w-full h-full object-cover" />
             </div>
-            <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[#7DB00E] ring-2 ring-slate-50" aria-hidden="true" />
+            <span className="absolute bottom-1 right-1 w-5 h-5 rounded-full bg-[#7DB00E] ring-[3px] ring-slate-50" aria-hidden="true" />
           </div>
-          <div className="leading-tight">
-            <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: navy(0.45) }}>Your handyman</div>
-            <div className="text-[15px] font-extrabold" style={{ color: HS_NAVY }}>
-              Craig <span className="font-semibold" style={{ color: HS_GREEN_DARK }}>· 4.9★</span>
+          <div className="mt-3 leading-tight">
+            <div className="text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: navy(0.45) }}>Your handyman</div>
+            <div className="text-xl font-extrabold mt-0.5" style={{ color: HS_NAVY }}>
+              Craig <span className="font-bold" style={{ color: HS_GREEN_DARK }}>· 4.9★</span>
             </div>
           </div>
         </div>
