@@ -191,3 +191,44 @@ export function deriveTeamFit(
 
   return { plan, availabilityContractorIds, fullCoverageCandidateIds };
 }
+
+// ---------------------------------------------------------------------------
+// Booking-time assignment rows
+// ---------------------------------------------------------------------------
+
+export interface AssignmentSpec {
+  contractorId: string;
+  role: 'lead' | 'specialist';
+  coveredCategories: string[];
+}
+
+/**
+ * Pure: the booking_assignments rows to write when a booking is confirmed.
+ *
+ * The lead row is always the actually-booked contractor (`bookedContractorId` —
+ * the one who won the slot lock). Specialist rows are materialised from the
+ * quote's team plan ONLY when the booked contractor IS the plan's composed lead
+ * (a composed multi-trade job). Solo bookings — or a booking that landed on a
+ * different soloer than the plan named — produce just the lead row. Specialists
+ * start life un-accepted (Ben offers them on WhatsApp, then marks accepted).
+ */
+export function planToAssignments(
+  plan: QuoteTeamPlan | null | undefined,
+  bookedContractorId: string,
+  fallbackCategories: string[],
+): AssignmentSpec[] {
+  const isComposedLead = !!plan && plan.kind === 'composed' && plan.leadContractorId === bookedContractorId;
+  const planLead = plan?.assignments.find((a) => a.role === 'lead' && a.contractorId === bookedContractorId);
+
+  const leadCats = planLead?.coveredCategories?.length ? planLead.coveredCategories : Array.from(new Set(fallbackCategories.filter(Boolean)));
+  const rows: AssignmentSpec[] = [{ contractorId: bookedContractorId, role: 'lead', coveredCategories: leadCats }];
+
+  if (isComposedLead) {
+    for (const a of plan!.assignments) {
+      if (a.role === 'specialist' && a.contractorId !== bookedContractorId) {
+        rows.push({ contractorId: a.contractorId, role: 'specialist', coveredCategories: a.coveredCategories });
+      }
+    }
+  }
+  return rows;
+}

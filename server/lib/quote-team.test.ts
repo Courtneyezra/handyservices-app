@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveQuoteTeam, deriveTeamFit, type TeamCandidate } from './quote-team';
+import { resolveQuoteTeam, deriveTeamFit, planToAssignments, type TeamCandidate } from './quote-team';
 
 // Roster mirrors the founder-confirmed tiers: Core = Craig, Bezent, Joe (Craig
 // first via priority); ad-hoc = Dwaine. Each fixture sets coveredCategories to
@@ -125,5 +125,32 @@ describe('deriveTeamFit — availability anchoring', () => {
     expect(fit.plan.kind).toBe('no_supply');
     expect(fit.availabilityContractorIds).toEqual([]);
     expect(fit.plan.uncoveredCategories).toEqual(['gas_safe']);
+  });
+});
+
+describe('planToAssignments — booking-time rows', () => {
+  const composed = resolveQuoteTeam(['plumbing_minor', 'electrical_part_p'], [craig(['plumbing_minor']), joe(['electrical_part_p'])]);
+  const solo = resolveQuoteTeam(['joinery'], [craig(['joinery'])]);
+
+  it('solo → a single lead row with the booked contractor', () => {
+    const rows = planToAssignments(solo, 'craig', ['joinery']);
+    expect(rows).toEqual([{ contractorId: 'craig', role: 'lead', coveredCategories: ['joinery'] }]);
+  });
+
+  it('composed + booked === plan lead → lead + specialist rows', () => {
+    const rows = planToAssignments(composed, 'craig', ['plumbing_minor', 'electrical_part_p']);
+    expect(rows).toContainEqual({ contractorId: 'craig', role: 'lead', coveredCategories: ['plumbing_minor'] });
+    expect(rows).toContainEqual({ contractorId: 'joe', role: 'specialist', coveredCategories: ['electrical_part_p'] });
+    expect(rows).toHaveLength(2);
+  });
+
+  it('booked contractor differs from plan lead → only a lead row (fallback cats)', () => {
+    const rows = planToAssignments(composed, 'someone_else', ['plumbing_minor', 'electrical_part_p']);
+    expect(rows).toEqual([{ contractorId: 'someone_else', role: 'lead', coveredCategories: ['plumbing_minor', 'electrical_part_p'] }]);
+  });
+
+  it('no plan → lead row from fallback categories', () => {
+    const rows = planToAssignments(null, 'craig', ['tiling', 'tiling', 'flooring']);
+    expect(rows).toEqual([{ contractorId: 'craig', role: 'lead', coveredCategories: ['tiling', 'flooring'] }]);
   });
 });

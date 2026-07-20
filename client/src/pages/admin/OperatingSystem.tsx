@@ -51,9 +51,12 @@ export default function OperatingSystem() {
 
   useEffect(() => { getJSON<ContractorHub>('/api/admin/contractor-hub').then(setHub).catch((e) => setErr(e.message)); }, []);
   useEffect(() => {
-    if (ws === 'pipeline' && !pipeline) getJSON<OsPipeline>('/api/admin/os/pipeline').then(setPipeline).catch((e) => setErr(e.message));
-    if (ws === 'send' && !send) getJSON<OsSend>('/api/admin/os/send').then(setSend).catch((e) => setErr(e.message));
+    if ((ws === 'pipeline' || ws === 'dashboard') && !pipeline) getJSON<OsPipeline>('/api/admin/os/pipeline').then(setPipeline).catch((e) => setErr(e.message));
+    if ((ws === 'send' || ws === 'dashboard') && !send) getJSON<OsSend>('/api/admin/os/send').then(setSend).catch((e) => setErr(e.message));
   }, [ws, pipeline, send]);
+
+  const coreLead = hub?.bands.find((b) => b.tier === 'core')?.contractors[0] ?? null;
+  const stageCount = (k: string) => pipeline?.stages.find((s) => s.key === k)?.count ?? 0;
 
   const title = NAV.find((n) => n.key === ws)?.label ?? '';
   const openItem = (i: OsItem, kind: string) => setDrawer({ title: i.title, subtitle: `${kind} · ${i.subtitle}` });
@@ -171,8 +174,50 @@ export default function OperatingSystem() {
             </div>
           ) : <p className="text-sm text-gray-500">Loading send…</p>)}
 
-          {ws === 'dashboard' && <Stub name="Dashboard" desc="Command center: KPIs, today's jobs, alerts. Panels expand into the workspaces." />}
-          {ws === 'settings' && <Stub name="Settings" desc="Pricing config, landing + content, VA console, team, integrations." />}
+          {ws === 'dashboard' && (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                <Kpi label="Craig fill" value={coreLead ? `${coreLead.fillPercent}%` : '—'} sub="target 85%" />
+                <Kpi label="Open quotes" value={String(stageCount('quotes'))} />
+                <Kpi label="Jobs booked" value={String(stageCount('jobs'))} />
+                <Kpi label="Capacity gaps" value={String(hub?.capacityGaps.length ?? 0)} />
+              </div>
+              <p className="text-xs text-gray-400 mb-3">Live panels — click one to open its workspace.</p>
+              <div className="grid md:grid-cols-2 gap-3">
+                <Panel title="Contractor hub" onOpen={() => setWs('hub')}>
+                  {(hub?.bands.find((b) => b.tier === 'core')?.contractors ?? []).slice(0, 3).map((c) => (
+                    <div key={c.id} className="flex items-center gap-2 py-1 text-sm">
+                      <span className="flex-1 truncate">{c.name}</span>
+                      <span className="w-24 h-1.5 rounded-full bg-gray-100 relative overflow-hidden"><span className="absolute inset-y-0 left-0 bg-blue-500 rounded-full" style={{ width: `${c.fillPercent}%` }} /></span>
+                      <span className="text-xs text-gray-400 w-9 text-right">{c.fillPercent}%</span>
+                    </div>
+                  ))}
+                </Panel>
+                <Panel title="Pipeline" onOpen={() => setWs('pipeline')}>
+                  {(pipeline?.stages ?? []).map((s) => (
+                    <div key={s.key} className="flex justify-between py-1 text-sm"><span className="text-gray-600">{s.label}</span><span className="font-medium">{s.count}</span></div>
+                  ))}
+                </Panel>
+                <Panel title="Send" onOpen={() => setWs('send')}>
+                  <div className="flex justify-between py-1 text-sm"><span className="text-gray-600">Ready to send</span><span className="font-medium">{send?.readyToSend.length ?? 0}</span></div>
+                  <div className="flex justify-between py-1 text-sm"><span className="text-gray-600">Open conversations</span><span className="font-medium">{send?.threads.length ?? 0}</span></div>
+                </Panel>
+                <Panel title="Capacity gaps" onOpen={() => setWs('hub')}>
+                  {(hub?.capacityGaps ?? []).length === 0 ? <p className="text-sm text-gray-400 py-1">None right now.</p> : (hub?.capacityGaps ?? []).slice(0, 4).map((g) => (
+                    <div key={g.quoteId} className="text-xs text-amber-800 py-0.5">{g.uncoveredCategories.join(', ') || 'unknown'}{g.postcode ? ` · ${g.postcode}` : ''}</div>
+                  ))}
+                </Panel>
+              </div>
+            </>
+          )}
+          {ws === 'settings' && (
+            <div className="grid md:grid-cols-2 gap-3 max-w-3xl">
+              <SettingCard title="Pricing" desc="EVE reference prices, engine, rate cards" href="/admin/pricing-settings" />
+              <SettingCard title="Landing & content" desc="Landing pages, banners, content library" href="/admin/landing-pages" />
+              <SettingCard title="Contractors" desc="Profiles, skills, availability, tiers" href="/admin/contractors" />
+              <SettingCard title="VA console" desc="Ben's stats, resources, training" href="/admin/va-stats" />
+            </div>
+          )}
         </div>
       </main>
 
@@ -213,11 +258,33 @@ export default function OperatingSystem() {
   );
 }
 
-function Stub({ name, desc }: { name: string; desc: string }) {
+function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
-    <div className="text-sm text-gray-500 leading-relaxed max-w-lg">
-      <span className="font-medium text-gray-800">{name}</span> — {desc}
-      <div className="mt-2 text-xs text-gray-400">Wired next.</div>
+    <div className="rounded-lg bg-white border border-gray-200 p-3">
+      <div className="text-xs text-gray-500">{label}</div>
+      <div className="text-2xl font-medium mt-0.5">{value}</div>
+      {sub && <div className="text-[11px] text-gray-400">{sub}</div>}
     </div>
+  );
+}
+
+function Panel({ title, onOpen, children }: { title: string; onOpen: () => void; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-medium">{title}</span>
+        <button onClick={onOpen} className="text-xs text-blue-600 hover:underline">Open</button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SettingCard({ title, desc, href }: { title: string; desc: string; href: string }) {
+  return (
+    <a href={href} className="block rounded-xl border border-gray-200 bg-white p-4 hover:border-gray-300">
+      <div className="text-sm font-medium">{title}</div>
+      <div className="text-xs text-gray-500 mt-1">{desc}</div>
+    </a>
   );
 }

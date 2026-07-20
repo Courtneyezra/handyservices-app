@@ -14,6 +14,7 @@ import {
     bookingAssignments,
 } from '../shared/schema';
 import { eq, and, lt, gte, lte, or, inArray, isNull } from 'drizzle-orm';
+import { planToAssignments } from './lib/quote-team';
 import { v4 as uuidv4 } from 'uuid';
 import { timeRangeCoversSlot as canonicalTimeRangeCoversSlot, type SlotType as CanonicalSlotType } from '../shared/slot-times';
 import { findBestContractorForJob } from './auto-assignment-engine';
@@ -680,32 +681,31 @@ export async function confirmBooking(params: {
                 })
                 .returning();
 
-            // e2. Contractor-platform: write the LEAD booking_assignment (one
-            // booking → many contractors). Today every confirmed booking is the
-            // lead; specialist rows are added when composed teams dispatch. The
-            // covered categories come from the quote's team_plan lead assignment,
-            // falling back to the quote's line-item categories.
-            const tp = quote.teamPlan as any;
-            const leadPlanCats: string[] | undefined = Array.isArray(tp?.assignments)
-                ? tp.assignments.find((a: any) => a.role === 'lead')?.coveredCategories
-                : undefined;
-            const leadCats = (leadPlanCats && leadPlanCats.length)
-                ? leadPlanCats
-                : Array.from(new Set(((quote.pricingLineItems as any[]) || []).map((li: any) => li.categorySlug || li.category).filter(Boolean)));
-            await tx.insert(bookingAssignments).values({
-                id: uuidv4(),
-                bookingId,
-                contractorId: contractorIdStr,
-                role: 'lead',
-                coveredCategories: leadCats.length ? leadCats : undefined,
-                status: 'accepted',
-                payoutPence: null,
-                scheduledDate: lock.scheduledDate,
-                scheduledSlot: lock.scheduledSlot as 'am' | 'pm' | 'full_day',
-                offeredVia: 'auto',
-                assignedAt: new Date(),
-                acceptedAt: new Date(),
-            });
+            // e2. Contractor-platform: write booking_assignments (one booking →
+            // many contractors). The lead is the booked contractor, auto-accepted.
+            // On a COMPOSED multi-trade booking the specialist lines are also
+            // materialised from the quote's team_plan as 'assigned' rows — Ben
+            // offers them on WhatsApp (offered_via='manual') and marks them
+            // accepted once the specialist confirms. Covered categories fall back
+            // to the quote's line-item categories when the plan is absent.
+            const fallbackCats = Array.from(new Set(((quote.pricingLineItems as any[]) || []).map((li: any) => li.categorySlug || li.category).filter(Boolean)));
+            const assignmentSpecs = planToAssignments(quote.teamPlan as any, contractorIdStr, fallbackCats);
+            for (const spec of assignmentSpecs) {
+                const isLead = spec.role === 'lead';
+                await tx.insert(bookingAssignments).values({
+                    id: uuidv4(),
+                    bookingId,
+                    contractorId: spec.contractorId,
+                    role: spec.role,
+                    coveredCategories: spec.coveredCategories.length ? spec.coveredCategories : undefined,
+                    status: isLead ? 'accepted' : 'assigned',
+                    scheduledDate: lock.scheduledDate,
+                    scheduledSlot: lock.scheduledSlot as 'am' | 'pm' | 'full_day',
+                    offeredVia: isLead ? 'auto' : 'manual',
+                    assignedAt: new Date(),
+                    acceptedAt: isLead ? new Date() : null,
+                });
+            }
 
             // f. Generate job sheet from quote line items. contractorRatePence is
             // derived from the wtbp_rate_card when the quote line doesn't carry one

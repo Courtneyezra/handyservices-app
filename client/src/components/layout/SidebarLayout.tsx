@@ -116,6 +116,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                         {
                             title: "YOUR TOOLS",
                             items: [
+                                { icon: LayoutDashboard, label: "Operating System", href: "/admin/os", badge: "NEW" },
                                 { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
                                 { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
                                 { icon: Send, label: "Visit Link", href: "/admin/send", badge: "NEW" },
@@ -141,6 +142,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                         {
                             title: "DISPATCH CONSOLE",
                             items: [
+                                { icon: LayoutDashboard, label: "Operating System", href: "/admin/os", badge: "NEW" },
                                 { icon: Home, label: "Pipeline Home", href: "/admin/pipeline-home" },
                                 { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
                                 { icon: Inbox, label: "Inbox", href: "/admin/inbox", badge: "NEW" },
