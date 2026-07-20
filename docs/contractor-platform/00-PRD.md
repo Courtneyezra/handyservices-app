@@ -170,11 +170,38 @@ change one.
    papered later**. No blocker — `contractor_commitments` supports it the day it's
    signed.
 
-## 11. Deliverables & next step
+## 11. Acceptance criteria — v1 routing core
+
+`resolveQuoteTeam(requiredCategories, candidates)`
+([`server/lib/quote-team.ts`](../../server/lib/quote-team.ts)) replaces the
+`coveragePercent === 100` filter. It MUST:
+
+- **AC1 — solo.** One contractor covering every category → a `solo` plan with
+  that contractor as `lead`.
+- **AC2 — Craig-first.** When several could lead, the committed (core) contractor
+  with the lowest `delivery_priority` wins — Craig before an ad-hoc that also
+  covers the whole job.
+- **AC3 — compose (the bug fix).** A quote spanning trades no single contractor
+  covers → a `composed` plan (committed lead + one `specialist` per residual
+  category) → `bookable: true`. Old behaviour was empty pool → dead calendar.
+- **AC4 — no supply.** A category no candidate covers → `bookable: false`,
+  `kind: 'no_supply'`, missing category surfaced (the recruiting signal).
+- **AC5 — steer.** The lead stays a committed contractor even when an ad-hoc
+  covers more lines; ad-hoc fills only the residual.
+- **AC6 — dedupe.** Duplicate category slugs (multi-line quotes) don't break
+  coverage — deduped to the required set.
+
+Covered by [`server/lib/quote-team.test.ts`](../../server/lib/quote-team.test.ts)
+(vitest, 8 tests, all green).
+
+## 12. Deliverables & next step
 
 This PRD (`00-PRD.md`) + [`01-model-and-data-flow.md`](./01-model-and-data-flow.md)
 + [`02-schema.md`](./02-schema.md) are the canonical spec. The additive schema
 (`delivery_tier`, `leadContractorId`, `contractor_commitments`,
-`booking_assignments`) is **implemented** in `shared/schema.ts`. **Next: build
-v1** — the routing fix (`resolveQuoteTeam`) writing `lead_contractor_id` +
-`team_plan`, then the Admin OS shell + Contractor Hub reading from the spine.
+`booking_assignments`) is **implemented** in `shared/schema.ts`, and the routing
+core (`resolveQuoteTeam`) is **implemented + tested**. **Next: wire it in** —
+`resolveQuoteTeam` reads DB candidate tiers and writes `lead_contractor_id` +
+`team_plan` at quote generation; `confirmBooking` writes the `lead`
+`booking_assignments` row; then the Admin OS shell + Contractor Hub read the
+spine.
