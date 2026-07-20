@@ -1,8 +1,14 @@
 # Contractor Hub — Craig's availability + flex (build spec)
 
+> **Status: BUILT + verified live (20 Jul).** `resolveWeek`
+> (`server/lib/contractor-week.ts`, 7 tests) + hub endpoints (`/:id/week`,
+> `/:id/flex`, `/:id/pattern`, `/:id/flex/:jobId/place`) + Craig's week workspace
+> in `OperatingSystem.tsx`. Verified in preview: saved a recurring pattern
+> (round-tripped) and confirmed override-wins precedence.
+>
 > Start with Craig. The hub needs to: plot his available days, set his weekly
-> recurring pattern, and show + place his pending flex jobs. This is the shared
-> understanding before building. Decisions confirmed with the founder 20 Jul.
+> recurring pattern, and show + place his pending flex jobs. Decisions confirmed
+> with the founder 20 Jul.
 
 ## The model — one grid, one queue
 
