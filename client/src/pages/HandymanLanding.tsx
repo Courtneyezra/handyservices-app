@@ -133,6 +133,10 @@ function PainPointsSection() {
         { img: "/assets/pain-points/pain-damp-ceiling.webp", q: "Water stain spreading?" },
         { img: "/assets/pain-points/pain-sink.webp", q: "Sink or tap dripping?" },
         { img: "/assets/pain-points/pain-wall.webp", q: "Damp, dated walls?" },
+        // ── Customer PROBLEM VIDEOS (Wistia). Replace the placeholder ids with the
+        //    real hashed media ids and these two cards become playable clips. ──────
+        { img: "/assets/quote-images/craig-light.webp", q: "Light on the blink?", wistiaId: "placeholder-light" },
+        { img: "/assets/quote-images/craig-gutter.webp", q: "Gutter overflowing?", wistiaId: "placeholder-gutter" },
     ];
     const isVideo = (w?: string) => !!w && !/^(placeholder|todo|xxxx)/i.test(w);
     return (
