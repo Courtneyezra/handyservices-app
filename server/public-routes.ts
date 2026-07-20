@@ -843,17 +843,21 @@ async function buildAvailabilityResponse(
                 if (freePerContractor.get(contractorId)?.has(dateStr)) availableCount++;
             }
         } else {
-            // Multi-day: contractor must have all N consecutive days free
-            // starting at this date.
-            const spanDates: string[] = [];
-            for (let j = 0; j < requiredDays; j++) {
-                const d = addDays(checkDate, j);
-                spanDates.push(formatTz(d, 'yyyy-MM-dd', { timeZone: UK_TIMEZONE }));
-            }
+            // Multi-day: the job occupies the contractor's next N AVAILABLE days
+            // starting at this date — days they don't work (e.g. weekends) are
+            // SKIPPED, not required. So a 2-day job starting Friday spans Fri +
+            // the next available day (Mon), never Fri + Sat. Bounded by maxSpan so
+            // the span can't drift across a huge gap and make a bad promise.
+            const maxSpan = requiredDays + 4; // room to skip a weekend / bank holiday
             for (const contractorId of contractorIds) {
                 const free = freePerContractor.get(contractorId);
-                if (!free) continue;
-                if (spanDates.every(ds => free.has(ds))) availableCount++;
+                if (!free || !free.has(dateStr)) continue; // must START on a free day
+                let collected = 1; // the start day counts as day 1
+                for (let k = 1; k < maxSpan && collected < requiredDays; k++) {
+                    const ds = formatTz(addDays(checkDate, k), 'yyyy-MM-dd', { timeZone: UK_TIMEZONE });
+                    if (free.has(ds)) collected++;
+                }
+                if (collected >= requiredDays) availableCount++;
             }
         }
 
