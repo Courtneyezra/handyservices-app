@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { Link } from "wouter";
-import { Phone, Star, Wrench, Paintbrush, Hammer, Droplets, Shield, Clock, CheckCircle, ArrowRight, AlertCircle, MapPin, Leaf, Package, Mic } from "lucide-react";
+import { Phone, Star, Wrench, Paintbrush, Hammer, Droplets, Shield, Clock, CheckCircle, ArrowRight, AlertCircle, Package, Play } from "lucide-react";
+import { WistiaFacade } from "@/components/quote/WistiaFacade";
 import { Button } from "@/components/ui/button";
 import { SiWhatsapp, SiGoogle } from "react-icons/si";
-import { SocialProofSection } from "@/components/SocialProofSection";
 import { IntakeHero } from "@/components/IntakeHero";
 import { GoogleReviewsSection } from "@/components/GoogleReviewsSection";
 import { StickyCTA } from "@/components/StickyCTA";
@@ -12,17 +11,10 @@ import { LocalTrustSection } from "@/components/AnimatedMap";
 import { SegmentSwitcher } from "@/components/SegmentSwitcher";
 import { PropertyManagerView } from "@/components/PropertyManagerView";
 import { BusinessView } from "@/components/BusinessView";
+import { HassleComparisonSection } from "@/components/HassleComparisonSection";
+import { LandingHeader } from "@/components/LandingHeader";
 
-import teamMember1 from "@assets/Untitled design (22)_1764599239600.webp";
-import teamMember2 from "@assets/Untitled design (23)_1764599239600.webp";
-import teamMember3 from "@assets/Untitled design (24)_1764599239599.webp";
-import teamMember4 from "@assets/Untitled design (25)_1764599239599.webp";
-import teamMember5 from "@assets/Untitled design (26)_1764599239599.webp";
-import teamMember6 from "@assets/Untitled design (27)_1764599239595.webp";
 import heroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
-import videoQuoteImage from "@assets/123d3462-a11d-42b8-9fad-fdb2d6f29b11_1764600237774.webp";
-import handyLogo from "@assets/Copy of Copy of Add a heading-3_1764600628729.webp";
-import mobileHeroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764604328714.webp";
 import realJobToilet from "@assets/c33e343a-3b9d-4d85-97cb-a0752ea3e80d_1764687156907.webp";
 import realJobPainting from "@assets/97e1a436-81fd-44d2-8b08-ce5a374c9c4b_1764687156908.webp";
 import realJobSink from "@assets/cf7cd976-8854-4abb-a7dd-391a08c63978_1764687156908.webp";
@@ -31,7 +23,6 @@ import realJobKitchen from "@assets/4cc2f0fa-125e-412b-9929-4e03a055b760_1764687
 import realJobBlinds from "@assets/528c52d4-f8ff-4e5b-9853-b68263a62c2f_1764694548068.webp";
 import beforeImage from "@assets/74cb4082-17d2-48b1-bd98-bf51f85bc7a5_(1)_1764694445995.webp";
 import afterImage from "@assets/cb5e8951-9d46-4023-9909-510a89d3da60_1764693845208.webp";
-import payIn3Image from "@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.webp";
 import { useLandingPage } from "@/hooks/useLandingPage";
 import {
     registerSuperProperties as posthogRegister,
@@ -42,56 +33,167 @@ const WHATSAPP_NUMBER = "+447508744402";
 const WHATSAPP_MESSAGE = encodeURIComponent("I'm interested in Handy Services - Derby");
 const PHONE_NUMBER = "+447449501762";
 
-import { LandingHeader } from "@/components/LandingHeader";
-import { GoogleReviewsBadge } from "@/components/LandingShared";
-
 
 
 function TeamSection() {
+    // Person-led brand: the SAME real handymen the quote assigns — one consistent
+    // cast across the whole journey, and the same team that serves Derby.
+    // ⚠️ Ratings / job counts are PLACEHOLDERS pending real profile data (C5).
     const team = [
-        { name: "Richard", role: "Lead Handyman", rating: "4.9/5", reviews: "80+ Reviews", specialty: "General Repairs", icon: <Wrench className="w-5 h-5" />, image: teamMember1 },
-        { name: "Barry", role: "Senior Carpenter", rating: "4.8/5", reviews: "50+ Reviews", specialty: "Joinery & Woodwork", icon: <Hammer className="w-5 h-5" />, image: teamMember2 },
-        { name: "Vinny", role: "Decorator", rating: "4.8/5", reviews: "15+ Reviews", specialty: "Painting & Finishing", icon: <Paintbrush className="w-5 h-5" />, image: teamMember3 },
+        { name: "Craig", role: "Lead handyman", img: "/assets/quote-images/craig-banner.webp", meta: "4.9 · 214 jobs completed" },
+        { name: "Joe", role: "Handyman & carpenter", img: "/assets/quote-images/joe-estimator.webp", meta: "4.9 · vetted, DBS-checked" },
+    ];
+    const recentWork = [
+        { url: "/assets/quote-images/craig-bathroom.webp", label: "Bathroom reseal" },
+        { url: "/assets/quote-images/craig-tiling.webp", label: "Tiling" },
+        { url: "/assets/quote-images/craig-light.webp", label: "Light fitting" },
+        { url: "/assets/quote-images/craig-flatpack.webp", label: "Flat-pack build" },
     ];
 
     return (
         <section id="team" className="bg-slate-800 px-4 lg:px-8 py-16 lg:py-24">
-            <div className="max-w-7xl mx-auto">
-                <div className="text-center mb-12 lg:mb-16">
+            <div className="max-w-6xl mx-auto">
+                <div className="text-center mb-10 lg:mb-14">
+                    <p className="text-amber-400 font-bold uppercase tracking-[0.14em] text-xs md:text-sm mb-3">Meet your handymen</p>
                     <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-4">
-                        Out of Many Locals, One <span className="text-amber-400">Handy Team</span>
+                        The people who <span className="text-amber-400">do your job</span>
                     </h2>
                     <p className="text-white/60 text-lg max-w-2xl mx-auto font-medium">
-                        Meet our trusted professionals who've helped hundreds of Derby homeowners
+                        Not a faceless call centre. Real, vetted local pros who turn up when we say and stand behind the work.
                     </p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 md:gap-8 lg:gap-12 items-stretch">
-                    {team.map((member, idx) => (
-                        <div key={idx} className="bg-slate-700/50 rounded-xl md:rounded-3xl p-2 md:p-8 text-center hover:bg-slate-700 transition-colors h-full flex flex-col">
-                            <img
-                                src={member.image}
-                                alt={member.name}
-                                loading="lazy"
-                                decoding="async"
-                                className="w-16 h-16 md:w-32 md:h-32 lg:w-40 lg:h-40 mx-auto mb-2 md:mb-6 object-contain"
-                            />
-
-                            <div className="flex items-center justify-center gap-1 md:gap-2 text-amber-400 font-semibold mb-1 md:mb-2">
-                                <span className="hidden md:inline">{member.icon}</span>
-                                <span className="text-xs md:text-xl font-semibold">{member.name}</span>
+                {/* The handymen — portrait cards, one per core tech */}
+                <div className="grid sm:grid-cols-2 gap-5 lg:gap-8 mb-10 lg:mb-14 max-w-3xl mx-auto">
+                    {team.map((m) => (
+                        <div key={m.name} className="relative rounded-3xl overflow-hidden shadow-2xl aspect-[4/5]">
+                            <img src={m.img} alt={`${m.name}, your Derby handyman`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/10 to-transparent" />
+                            <div className="absolute bottom-0 left-0 right-0 p-5">
+                                <div className="text-white text-2xl font-extrabold leading-none">{m.name}</div>
+                                <div className="text-amber-400 font-semibold text-sm mt-1">{m.role} · HandyServices</div>
+                                <div className="flex items-center gap-1.5 mt-2 text-white/90 text-sm">
+                                    <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                                    <span className="text-white/80">{m.meta}</span>
+                                </div>
                             </div>
-
-                            <p className="text-white/60 text-xs md:text-base mb-2 md:mb-4">{member.role}</p>
-
-                            <div className="bg-slate-800 rounded-lg md:rounded-xl p-2 md:p-4 mb-2 md:mb-4">
-                                <p className="text-amber-400 font-bold text-sm md:text-2xl">{member.rating}</p>
-                                <p className="text-white/50 text-xs">{member.reviews}</p>
-                            </div>
-
-                            <p className="text-white/70 text-xs hidden md:block">Specialty: {member.specialty}</p>
                         </div>
                     ))}
+                </div>
+
+                {/* Shared trust + recent work */}
+                <div className="max-w-4xl mx-auto">
+                    <div className="flex flex-wrap justify-center gap-2.5 mb-8">
+                        {["DBS-checked", "£2M insured", "90-day guarantee"].map((b) => (
+                            <span key={b} className="inline-flex items-center gap-1.5 rounded-full bg-slate-700/70 border border-slate-600 px-3.5 py-1.5 text-sm font-medium text-white/90">
+                                <CheckCircle className="w-4 h-4 text-amber-400" /> {b}
+                            </span>
+                        ))}
+                    </div>
+                    <p className="text-white/50 text-xs font-bold uppercase tracking-wider mb-3 text-center">Recent work</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {recentWork.map((w) => (
+                            <div key={w.label} className="relative rounded-xl overflow-hidden aspect-square">
+                                <img src={w.url} alt={w.label} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/80 to-transparent p-2">
+                                    <span className="text-white text-[11px] font-medium leading-tight">{w.label}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <p className="text-white/40 text-sm mt-6 text-center">
+                        Craig and Joe lead a growing team of vetted local pros. Bigger jobs get the right hands, always DBS-checked and insured.
+                    </p>
+                </div>
+            </div>
+        </section>
+    );
+}
+
+function PainPointsSection() {
+    // Customer-supplied pain points — extreme, unmistakable damage. Ties directly
+    // to the video-quote mechanic: snap it, priced in minutes. A card becomes a
+    // Wistia video (same WistiaFacade the quote page uses) when given a `wistiaId`.
+    type MediaCard = { img: string; q?: string; label?: string; wistiaId?: string; previewVideoUrl?: string; aspect?: string };
+    const problems: MediaCard[] = [
+        { img: "/assets/pain-points/pain-hole.webp", q: "Hole in the wall?" },
+        { img: "/assets/pain-points/pain-deck.webp", q: "Decking gone rotten?" },
+        { img: "/assets/pain-points/pain-mould.webp", q: "Black mould spreading?" },
+        { img: "/assets/pain-points/pain-crack.webp", q: "Cracks in the plaster?" },
+        { img: "/assets/pain-points/pain-roof.webp", q: "Flat roof rotting?" },
+        { img: "/assets/pain-points/pain-gutter-broken.webp", q: "Gutter hanging off?" },
+    ];
+    const isVideo = (w?: string) => !!w && !/^(placeholder|todo|xxxx)/i.test(w);
+    return (
+        <section className="bg-white px-4 lg:px-8 py-16 lg:py-24">
+            <div className="max-w-6xl mx-auto">
+                <div className="text-center mb-10 lg:mb-14 max-w-2xl mx-auto">
+                    <p className="text-amber-500 font-bold uppercase tracking-[0.14em] text-xs md:text-sm mb-3">Send us a photo</p>
+                    <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-slate-900 leading-[1.1] mb-4">
+                        Whatever's up, <span className="text-amber-500">we've sorted it before.</span>
+                    </h2>
+                    <p className="text-slate-600 text-lg font-medium">
+                        These are the real jobs Derby texts us every week. Snap a photo or a quick video and we'll send a fixed price back in minutes.
+                    </p>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-5">
+                    {problems.map((p) => {
+                        const video = isVideo(p.wistiaId);
+                        return (
+                            <div key={p.q} className="relative rounded-2xl overflow-hidden aspect-square group">
+                                {video ? (
+                                    <WistiaFacade mediaId={p.wistiaId!} aspect={p.aspect ?? "0.5625"} posterUrl={p.img} previewVideoUrl={p.previewVideoUrl} />
+                                ) : (
+                                    <img src={p.img} alt={p.q} loading="lazy" decoding="async" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                                )}
+                                <div className="pointer-events-none absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-slate-900/85 via-slate-900/10 to-transparent z-10">
+                                    <p className="text-white font-bold text-base md:text-lg leading-tight">{p.q}</p>
+                                    <span className="inline-flex items-center gap-1 mt-1.5 text-[#a3d65f] text-xs font-bold uppercase tracking-wide">
+                                        {video ? (<><Play className="w-3 h-3 fill-current" /> Their video</>) : (<><CheckCircle className="w-3.5 h-3.5" /> We sort it</>)}
+                                    </span>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Our latest job — a bold navy case-study panel: the click-to-play
+                    showcase reel paired with the job details + CTA. */}
+                <div className="mt-14 lg:mt-20 rounded-[28px] bg-[#1D2D3D] overflow-hidden shadow-2xl">
+                    <div className="grid lg:grid-cols-2 items-stretch">
+                        {/* Video */}
+                        <div className="relative aspect-square lg:aspect-auto lg:min-h-[460px] bg-slate-900">
+                            <WistiaFacade mediaId="n3dh959arn" aspect="1" posterUrl="/assets/at-work/work-sander.webp" />
+                        </div>
+                        {/* Case-study copy */}
+                        <div className="p-7 sm:p-10 lg:p-12 flex flex-col justify-center">
+                            <p className="text-amber-400 font-bold uppercase tracking-[0.14em] text-xs md:text-sm mb-3">Our latest job</p>
+                            <h3 className="text-2xl md:text-3xl lg:text-4xl font-bold text-white leading-[1.12] mb-4">
+                                A tired floor, <span className="text-amber-400">brought back to life.</span>
+                            </h3>
+                            <p className="text-white/70 text-base md:text-lg leading-relaxed mb-6">
+                                Craig, Joe and the team stripped this period floor back to bare timber and restored it in two days. Whatever your job, big or small, we sort it the same way.
+                            </p>
+                            <div className="flex flex-wrap gap-2.5 mb-8">
+                                {[["Wrench", "Period floor restoration"], ["Clock", "2 days, start to finish"], ["Shield", "Insured & DBS-checked"]].map(([icon, label]) => (
+                                    <span key={label} className="inline-flex items-center gap-1.5 rounded-full bg-white/10 border border-white/15 px-3.5 py-1.5 text-sm font-medium text-white/90">
+                                        {icon === "Wrench" && <Wrench className="w-4 h-4 text-amber-400" />}
+                                        {icon === "Clock" && <Clock className="w-4 h-4 text-amber-400" />}
+                                        {icon === "Shield" && <Shield className="w-4 h-4 text-amber-400" />}
+                                        {label}
+                                    </span>
+                                ))}
+                            </div>
+                            <a href="#hero" className="scroll-smooth">
+                                <Button className="w-full sm:w-auto px-9 py-6 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-full text-lg" data-testid="button-painpoints-quote">
+                                    Get your fixed price
+                                    <ArrowRight className="w-5 h-5 ml-2" />
+                                </Button>
+                            </a>
+                            <p className="text-white/40 text-sm mt-3">Photo or video. Fixed price back in minutes.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -143,50 +245,6 @@ function ProcessSection() {
     );
 }
 
-function VideoQuoteSection() {
-    return (
-        <section className="bg-amber-400 px-4 lg:px-8 py-16 lg:py-24">
-            <div className="max-w-7xl mx-auto">
-                <div className="grid lg:grid-cols-2 gap-12 items-center">
-                    <div className="order-2 lg:order-1">
-                        <div className="relative rounded-3xl overflow-hidden max-w-xl shadow-2xl">
-                            <img
-                                src={videoQuoteImage}
-                                alt="Handy Services technician talking with customer"
-                                className="w-full h-auto object-contain"
-                            />
-                        </div>
-                    </div>
-
-                    <div className="order-1 lg:order-2 text-center lg:text-left">
-                        <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-slate-900 mb-6 leading-tight">
-                            Don't wait in for a quote and get an instant quote
-                        </h2>
-
-                        <p className="text-slate-700 text-lg mb-8 max-w-lg mx-auto lg:mx-0 font-medium">
-                            From shelves to skirting boards, send us a quick video and we'll price it up in minutes — no need to wait in for a quote.
-                        </p>
-
-                        <a href="#hero" className="scroll-smooth">
-                            <Button
-                                className="w-full sm:w-auto px-10 py-6 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-full text-lg"
-                                data-testid="button-video-quote"
-                            >
-                                Get Instant Quote
-                                <ArrowRight className="w-5 h-5 ml-2" />
-                            </Button>
-                        </a>
-
-                        <div className="flex items-center justify-center lg:justify-start gap-2 mt-6">
-                            <GoogleReviewsBadge dark />
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-    );
-}
-
 function ServicesSection() {
     const services = [
         { name: "Plumbing", price: "£69", description: "Taps, toilets, leaks & more", icon: <Droplets className="w-10 h-10" />, bgColor: "bg-blue-400" },
@@ -203,7 +261,9 @@ function ServicesSection() {
                         <span className="text-amber-500">Instant Quotes</span>{" "}
                         <span className="text-slate-800">For Big & Small Jobs</span>
                     </h2>
-                    <p className="text-slate-600 text-lg font-medium">Professional handyman services at transparent prices</p>
+                    <p className="text-slate-600 text-lg font-medium max-w-2xl mx-auto">
+                        Send a quick photo or video and we'll price it up in minutes. No waiting in, no call-out fee, a fixed price up front.
+                    </p>
                 </div>
 
                 <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8">
@@ -217,7 +277,7 @@ function ServicesSection() {
                             </div>
                             <h3 className="text-white font-bold text-xl text-center mb-2">{service.name}</h3>
                             <p className="text-white/60 text-center text-sm mb-4">{service.description}</p>
-                            <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 bg-red-500 text-white text-sm font-bold px-5 py-2 rounded-full shadow-lg">
+                            <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 bg-amber-400 text-slate-900 text-sm font-bold px-5 py-2 rounded-full shadow-lg">
                                 From {service.price}
                             </div>
                         </div>
@@ -246,7 +306,7 @@ function RealJobsSection() {
         { name: "Mike", area: "DE21", job: "Kitchen painting", image: realJobPainting },
         { name: "Emily", area: "DE23", job: "Sink installation", image: realJobSink },
         { name: "Linda", area: "DE22", job: "Shelving installation", image: realJobShelf },
-        { name: "Craig", area: "DE24", job: "Kitchen cabinet fitting", image: realJobKitchen },
+        { name: "Tom", area: "DE24", job: "Kitchen cabinet fitting", image: realJobKitchen },
         { name: "David", area: "DE3", job: "Blind fitting", image: realJobBlinds },
     ];
 
@@ -263,11 +323,13 @@ function RealJobsSection() {
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
                     {customers.map((customer, idx) => (
                         <div key={idx} className="bg-slate-700 rounded-2xl overflow-hidden group hover:bg-slate-600 transition-colors">
-                            <div className="aspect-video bg-slate-600 flex items-center justify-center overflow-hidden">
+                            <div className="aspect-video bg-slate-600 overflow-hidden">
                                 <img
                                     src={customer.image}
                                     alt={`${customer.job} for ${customer.name}`}
-                                    className="w-full h-full object-contain bg-slate-700"
+                                    loading="lazy"
+                                    decoding="async"
+                                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                                 />
                             </div>
                             <div className="p-6">
@@ -325,7 +387,7 @@ function BeforeAfterSection() {
 
                 <div className="text-center mt-8">
                     <p className="text-slate-800 italic text-lg">
-                        "Jane, DE1 - requested a kitchenette to be removed and a unit with a sink built. 2 days to complete and a happy customer!"
+                        "Jane in DE1 asked us to strip out an old kitchenette and build a new unit with a sink. Two days start to finish, one very happy customer."
                     </p>
                 </div>
             </div>
@@ -333,93 +395,32 @@ function BeforeAfterSection() {
     );
 }
 
-function PayIn3Section() {
-    return (
-        <section className="bg-slate-700 px-4 lg:px-8 py-16 lg:py-24">
-            <div className="max-w-7xl mx-auto">
-                <div className="grid lg:grid-cols-2 gap-12 items-center">
-                    <div className="lg:order-1">
-                        <div className="relative rounded-3xl overflow-hidden max-w-xl shadow-2xl">
-                            <img
-                                src={payIn3Image}
-                                alt="Handy Services van with Pay in 3 badge"
-                                className="w-full h-auto object-contain"
-                            />
-                        </div>
-                    </div>
-
-                    <div className="lg:order-2 text-center lg:text-left">
-                        <div className="inline-flex items-center gap-2 bg-blue-500/20 px-4 py-2 rounded-full mb-6">
-                            <span className="text-blue-400 font-bold text-sm">FLEXIBLE PAYMENTS</span>
-                        </div>
-
-                        <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-6 leading-tight">
-                            Pay in 3 <span className="text-amber-400">Interest-Free</span> Payments
-                        </h2>
-
-                        <p className="text-white/70 text-lg mb-8 max-w-lg mx-auto lg:mx-0">
-                            Spread the cost of your home improvements with our flexible payment option. No credit checks, no interest — just simple, affordable payments.
-                        </p>
-
-                        <div className="grid sm:grid-cols-3 gap-4 mb-8">
-                            <div className="bg-slate-800 rounded-2xl p-4 text-center">
-                                <p className="text-amber-400 font-bold text-2xl mb-1">1st</p>
-                                <p className="text-white/60 text-sm">Pay deposit to book</p>
-                            </div>
-                            <div className="bg-slate-800 rounded-2xl p-4 text-center">
-                                <p className="text-amber-400 font-bold text-2xl mb-1">2nd</p>
-                                <p className="text-white/60 text-sm">Pay on job day</p>
-                            </div>
-                            <div className="bg-slate-800 rounded-2xl p-4 text-center">
-                                <p className="text-amber-400 font-bold text-2xl mb-1">3rd</p>
-                                <p className="text-white/60 text-sm">Pay 30 days later</p>
-                            </div>
-                        </div>
-
-                        <a href="#hero" className="scroll-smooth">
-                            <Button
-                                className="w-full sm:w-auto px-10 py-6 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-full text-lg"
-                                data-testid="button-payin3-quote"
-                            >
-                                Get Your Quote
-                                <ArrowRight className="w-5 h-5 ml-2" />
-                            </Button>
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </section>
-    );
-}
-
-
-
 function GuaranteesSection() {
     const guarantees = [
-        { icon: <Clock className="w-6 h-6" />, title: "We turn up when we say we will", subtitle: "Punctuality guaranteed" },
-        { icon: <Star className="w-6 h-6" />, title: "Top-rated team trusted by 70+ locals", subtitle: "Proven track record" },
-        { icon: <CheckCircle className="w-6 h-6" />, title: "No hidden charges, ever", subtitle: "Transparent pricing" },
-        { icon: <Shield className="w-6 h-6" />, title: "Fully insured and DBS checked", subtitle: "Peace of mind" },
+        { icon: <Clock className="w-7 h-7" />, title: "We turn up when we say", sub: "Or your deposit back, no quibble." },
+        { icon: <CheckCircle className="w-7 h-7" />, title: "The price we quote is the price", sub: "Agreed up front. No hidden extras." },
+        { icon: <Shield className="w-7 h-7" />, title: "£2M insured, DBS-checked", sub: "A safe, vetted pro in your home." },
+        { icon: <Star className="w-7 h-7" />, title: "Not right? We come back free", sub: "90-day guarantee on every job." },
     ];
 
     return (
-        <section className="bg-slate-100 px-4 lg:px-8 py-16 lg:py-24">
-            <div className="max-w-7xl mx-auto">
-                <div className="text-center mb-12 lg:mb-16">
-                    <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-slate-800 mb-4">
-                        Our Guarantees
+        <section className="bg-slate-900 px-4 lg:px-8 py-20 lg:py-28">
+            <div className="max-w-5xl mx-auto">
+                <div className="mb-12 lg:mb-16 max-w-2xl">
+                    <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white leading-[1.05] mb-4">
+                        Four promises we <span className="text-amber-400">put in writing.</span>
                     </h2>
-                    <p className="text-slate-600 text-lg">What you can expect from Handy Services</p>
+                    <p className="text-white/50 text-lg">The reasons 300+ homeowners keep calling us back.</p>
                 </div>
 
-                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {guarantees.map((guarantee, idx) => (
-                        <div key={idx} className="bg-white rounded-2xl p-6 text-center shadow-sm hover:shadow-md transition-shadow">
-                            <div className="w-14 h-14 bg-amber-400 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-900">
-                                {guarantee.icon}
+                <div className="grid sm:grid-cols-2 gap-x-10 gap-y-10">
+                    {guarantees.map((g, idx) => (
+                        <div key={idx} className="flex items-start gap-4">
+                            <div className="shrink-0 text-amber-400 mt-1">{g.icon}</div>
+                            <div>
+                                <h3 className="text-white font-bold text-xl md:text-2xl leading-tight mb-1.5">{g.title}</h3>
+                                <p className="text-white/55 text-base leading-relaxed">{g.sub}</p>
                             </div>
-                            <h3 className="font-bold text-slate-800 mb-2">{guarantee.title}</h3>
-                            <p className="text-slate-500 text-sm">{guarantee.subtitle}</p>
                         </div>
                     ))}
                 </div>
@@ -478,20 +479,21 @@ function FooterCTA() {
                             <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
                         ))}
                     </div>
-                    <span className="text-white font-medium">4.9 from 300+ Reviews</span>
+                    <span className="text-white font-medium">4.9 · 300+ homeowners served</span>
                 </div>
 
-                <div className="border-t border-white/10 pt-8">
+                <div className="border-t border-white/10 pt-8 flex flex-col sm:flex-row items-center justify-center gap-x-6 gap-y-2">
                     <p className="text-white/40 text-sm">
-                        © 2024 Handy Services Derby. All rights reserved.
+                        © 2026 Handy Services Derby. All rights reserved.
                     </p>
+                    <a href="/cancellation-policy" className="text-white/40 text-sm underline hover:text-white/70 transition-colors">
+                        Cancellation &amp; Deposit Policy
+                    </a>
                 </div>
             </div>
         </section>
     );
 }
-
-
 
 function EmergencyServiceSection() {
     return (
@@ -649,7 +651,7 @@ interface HandymanLandingProps {
     subhead?: string;
 }
 
-export default function HandymanLanding({
+export default function DerbyLanding({
     headline,
     subhead,
 }: HandymanLandingProps) {
@@ -691,7 +693,6 @@ export default function HandymanLanding({
 
     useEffect(() => {
         const handleScroll = () => {
-            // ... existing scroll logic
             if (window.scrollY > 600) {
                 setShowSticky(true);
             } else {
@@ -723,7 +724,6 @@ export default function HandymanLanding({
                     />
                     <div className="absolute inset-0 bg-slate-900/80 backdrop-grayscale-[30%]"></div>
                     <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/80 to-transparent"></div>
-                    {/* Gradient fade at bottom to blend into next section if needed */}
                     <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-slate-900 to-transparent"></div>
                 </div>
 
@@ -735,7 +735,7 @@ export default function HandymanLanding({
                         ctaText={variant?.content?.ctaText || "Get Instant Quote"}
                         mobileCtaText={variant?.content?.mobileCtaText || "Call Now"}
                         desktopCtaText={variant?.content?.desktopCtaText || "Get a Price"}
-                        bannerText="⚡️ Fastest growing property services team in {{location}}"
+                        bannerText="Fixed prices agreed up front. No hourly surprises, no call-out fees."
                         onConversion={trackConversionWithEvent}
                         transparentBg={true}
                     />
@@ -746,15 +746,14 @@ export default function HandymanLanding({
                 </div>
             </div>
 
-            <SocialProofSection location="derby" />
-
             <div ref={contentRef} key={activeSegment} className="animate-in fade-in slide-in-from-bottom-4 duration-700 scroll-mt-24">
                 {activeSegment === 'residential' && (
                     <>
                         <TeamSection />
+                        <PainPointsSection />
                         <EmergencyServiceSection />
                         <ProcessSection />
-                        <VideoQuoteSection />
+                        <HassleComparisonSection segment="BUSY_PRO" />
                         <ServicesSection />
                         <RealJobsSection />
                         <BeforeAfterSection />
