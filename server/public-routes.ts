@@ -595,8 +595,15 @@ router.get('/quote/:quoteId/availability', async (req: Request, res: Response) =
         const { resolveQuoteCandidatePoolForQuote } = await import('./lib/quote-fit');
         const fit = await resolveQuoteCandidatePoolForQuote(quote);
 
-        if (fit.candidates.length === 0) {
-            console.log(`[PublicAPI] quote ${quote.id}: no eligible contractors (uncovered=[${fit.uncoveredCategories.join(',')}], partialDropped=${fit.partialCoverageDropped})`);
+        // Team-aware: the calendar reads the composed team's availability drivers
+        // (solo → all soloers; composed → the lead only, anchor-on-lead). This is
+        // the multi-trade zero-pool fix — a quote that no single contractor could
+        // fully cover is now bookable off the lead's calendar. Empty only on a
+        // TRUE supply gap. Falls back to `candidates` if the field is absent.
+        const availabilityIds = fit.availabilityContractorIds ?? fit.candidates.map((c) => c.contractorId);
+
+        if (availabilityIds.length === 0) {
+            console.log(`[PublicAPI] quote ${quote.id}: no availability drivers (plan=${fit.teamPlan?.kind}, uncovered=[${fit.uncoveredCategories.join(',')}], partialDropped=${fit.partialCoverageDropped})`);
             return res.json([]);
         }
 
@@ -616,8 +623,7 @@ router.get('/quote/:quoteId/availability', async (req: Request, res: Response) =
             console.log(`[PublicAPI] quote ${quote.id}: multi-day job (${requiredDays} days) — forcing slot=full_day`);
         }
 
-        const candidateIds = fit.candidates.map((c) => c.contractorId);
-        return await buildAvailabilityResponse(res, candidateIds, effectiveSlot, monthParam, requiredDays);
+        return await buildAvailabilityResponse(res, availabilityIds, effectiveSlot, monthParam, requiredDays);
 
     } catch (error: any) {
         console.error('[PublicAPI] Quote availability error:', error);

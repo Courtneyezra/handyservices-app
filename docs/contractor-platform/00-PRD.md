@@ -158,12 +158,15 @@ Merge-safe vs the `-deployed` chat (new tables + nullable columns only):
 These carry a recommended position so the schema can proceed; flag if you'd
 change one.
 
-1. **Multi-trade compose timing + date promise** — *Proposed:* Ben confirms the
-   team **at quote generation** (before the link goes out), and the calendar shows
-   **only team-keepable dates** (dates where the lead *and* a specialist are both
-   reachable). This keeps self-book honest — no post-payment "the electrician
-   can't make it" surprises. Fallback for thin supply: anchor on Craig, dispatch
-   the specialist as a separate follow-up visit.
+1. **Multi-trade compose timing + date promise** — *DECIDED (20 Jul):* the team is
+   composed **at quote generation** (`resolveQuoteTeam` writes `team_plan` +
+   `lead_contractor_id`), and the calendar is **anchored on the lead's
+   availability**. Rationale: ad-hoc specialists hold **no** availability records
+   (they signal availability by accepting an offer), so "team-keepable dates" is
+   uncomputable — there is nothing to intersect. The lead's real windows drive the
+   calendar; the specialist line is coordinated by Ben post-confirm (WhatsApp,
+   manual — matching v1). "Team-keepable dates" only becomes possible once
+   specialists carry committed availability, so it's a post-v1 enhancement.
 2. **Fill meter** — *Proposed:* **hard (booked) only**, with soft (pipeline) shown
    as a separate faint number. Avoids phantom-fill inflating the week.
 3. **Craig's floor** — remains theoretical; **tiers route work now, floor money is

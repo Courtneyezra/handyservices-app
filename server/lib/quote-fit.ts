@@ -18,11 +18,43 @@
  * If you change this function, customer-facing dates and admin fit
  * panel both move together. That's the point.
  */
+import { inArray } from 'drizzle-orm';
 import { findCandidateContractors } from '../contractor-matcher';
+import { db } from '../db';
+import { handymanProfiles } from '../../shared/schema';
 import type { personalizedQuotes } from '../../shared/schema';
 import { geocodeAddress } from './geocoding';
+import { deriveTeamFit, type TeamCandidate, type DeliveryTier, type QuoteTeamPlan } from './quote-team';
 
 type QuoteRow = typeof personalizedQuotes.$inferSelect;
+
+const EMPTY_TEAM_PLAN: QuoteTeamPlan = {
+  bookable: false,
+  kind: 'no_supply',
+  leadContractorId: null,
+  assignments: [],
+  uncoveredCategories: [],
+};
+
+/** Look up delivery tier + routing priority for a set of contractor ids. */
+async function fetchContractorTiers(
+  ids: string[],
+): Promise<Map<string, { tier: DeliveryTier; priority: number | null }>> {
+  const map = new Map<string, { tier: DeliveryTier; priority: number | null }>();
+  if (ids.length === 0) return map;
+  const rows = await db
+    .select({
+      id: handymanProfiles.id,
+      tier: handymanProfiles.deliveryTier,
+      priority: handymanProfiles.deliveryPriority,
+    })
+    .from(handymanProfiles)
+    .where(inArray(handymanProfiles.id, ids));
+  for (const r of rows) {
+    map.set(r.id, { tier: (r.tier as DeliveryTier) ?? 'adhoc', priority: r.priority ?? null });
+  }
+  return map;
+}
 
 export interface QuoteFitInput {
   categorySlugs: string[];
@@ -46,11 +78,26 @@ export interface QuoteFitResult {
   fullCoverageCandidates: number;
   /** How many were dropped purely because coverage < 100. Diagnostic only. */
   partialCoverageDropped: number;
+  /** The composed team plan (steer, then compose). solo / composed / no_supply. */
+  teamPlan: QuoteTeamPlan;
+  /**
+   * Contractor ids whose availability drives the customer calendar. solo → all
+   * soloers (union); composed → the lead only (anchor — ad-hoc specialists hold no
+   * availability); no_supply → empty. This is what the public date picker reads.
+   */
+  availabilityContractorIds: string[];
 }
 
 export async function resolveQuoteCandidatePool(input: QuoteFitInput): Promise<QuoteFitResult> {
   if (input.categorySlugs.length === 0) {
-    return { candidates: [], uncoveredCategories: [], fullCoverageCandidates: 0, partialCoverageDropped: 0 };
+    return {
+      candidates: [],
+      uncoveredCategories: [],
+      fullCoverageCandidates: 0,
+      partialCoverageDropped: 0,
+      teamPlan: EMPTY_TEAM_PLAN,
+      availabilityContractorIds: [],
+    };
   }
 
   const match = await findCandidateContractors({
@@ -61,8 +108,31 @@ export async function resolveQuoteCandidatePool(input: QuoteFitInput): Promise<Q
 
   const full = match.candidates.filter((c) => c.coveragePercent === 100);
   const partialDropped = match.candidates.length - full.length;
-  if (partialDropped > 0) {
-    console.log(`[QuoteFit] dropping ${partialDropped} partial-coverage candidate(s) — keeping ${full.length} full-coverage`);
+
+  // Steer, then compose. Instead of dropping every partial-coverage candidate
+  // (which left multi-trade quotes with an EMPTY pool → dead calendar), build a
+  // team: a committed lead + specialists for the residual lines. See quote-team.ts
+  // + docs/contractor-platform. `candidates` stays the full-coverage soloers for
+  // backward-compatible admin display; `availabilityContractorIds` drives the
+  // customer calendar (anchor-on-lead for composed).
+  const tierById = await fetchContractorTiers(match.candidates.map((c) => c.contractorId));
+  const teamCandidates: TeamCandidate[] = match.candidates.map((c) => {
+    const t = tierById.get(c.contractorId);
+    return {
+      contractorId: c.contractorId,
+      tier: t?.tier ?? 'adhoc',
+      priority: t?.priority ?? null,
+      coveredCategories: c.coveredCategories,
+    };
+  });
+  const fit = deriveTeamFit(input.categorySlugs, teamCandidates);
+
+  if (fit.plan.kind === 'composed') {
+    console.log(
+      `[QuoteFit] composed team: lead=${fit.plan.leadContractorId} + ${fit.plan.assignments.length - 1} specialist(s) — previously an unbookable zero-pool multi-trade quote`,
+    );
+  } else if (fit.plan.kind === 'no_supply' && fit.plan.uncoveredCategories.length > 0) {
+    console.log(`[QuoteFit] no supply for [${fit.plan.uncoveredCategories.join(', ')}] — capacity gap`);
   }
 
   return {
@@ -70,6 +140,8 @@ export async function resolveQuoteCandidatePool(input: QuoteFitInput): Promise<Q
     uncoveredCategories: match.uncoveredCategories,
     fullCoverageCandidates: full.length,
     partialCoverageDropped: partialDropped,
+    teamPlan: fit.plan,
+    availabilityContractorIds: fit.availabilityContractorIds,
   };
 }
 

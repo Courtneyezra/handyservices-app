@@ -34,7 +34,6 @@ import { trackQuoteCreated } from '../posthog';
 import { calculateMultiLineCost, checkMargin, calculateCostFromWTBP } from '../margin-engine';
 import { incrementExtrasPickCount } from '../quote-extras-catalog';
 import { QUOTE_VALIDITY_MS } from '../quotes';
-import { findCandidateContractors } from '../contractor-matcher';
 import { normalizeQuoteImageUrl } from '../quote-image-utils';
 import { uploadQuotePhotoToS3, isS3Configured } from '../s3-media';
 import { geocodePostcode } from '../lib/geocode';
@@ -1799,17 +1798,26 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
     // LIVE date picker via /api/public/quote/:id/availability. Same matcher the
     // builder's "who fits" panel uses, so customer dates reflect the right pool.
     let candidateContractorIds: string[] | null = null;
+    let leadContractorId: string | null = null;
+    let teamPlan: any = null;
     try {
-      const match = await findCandidateContractors({
+      // Steer, then compose: resolve the team plan (solo / composed / no_supply)
+      // + the availability-driver ids. Persist the SOFT lead + team plan so the
+      // contractor skin, the hub pipeline lane, and admin all read the same spine.
+      const { resolveQuoteCandidatePool } = await import('../lib/quote-fit');
+      const fit = await resolveQuoteCandidatePool({
         categorySlugs: jobCategories as string[],
         customerLat: resolvedCoordinates?.lat,
         customerLng: resolvedCoordinates?.lng,
       });
-      const ids = match.candidates.map((c) => c.contractorId);
-      candidateContractorIds = ids.length ? ids : null;
-      console.log(`[ContextualQuote] candidate pool: ${ids.length} contractor(s) for [${jobCategories.join(', ')}]`);
+      candidateContractorIds = fit.availabilityContractorIds.length ? fit.availabilityContractorIds : null;
+      leadContractorId = fit.teamPlan.leadContractorId;
+      teamPlan = fit.teamPlan;
+      console.log(
+        `[ContextualQuote] team plan: ${fit.teamPlan.kind} lead=${leadContractorId ?? '—'} avail=${fit.availabilityContractorIds.length} for [${jobCategories.join(', ')}]`,
+      );
     } catch (e) {
-      console.warn('[ContextualQuote] candidate match failed:', e instanceof Error ? e.message : e);
+      console.warn('[ContextualQuote] team resolve failed:', e instanceof Error ? e.message : e);
     }
 
     // 6c. Quote origin — tie the quote back to the call it came from. Loose
@@ -1850,6 +1858,8 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       postcode: input.postcode || null,
       coordinates: resolvedCoordinates || null,
       candidateContractorIds,
+      leadContractorId,
+      teamPlan,
       jobDescription: input.jobDescription || input.lines.map((l) => l.description).join('; '),
       quoteMode: 'simple' as const,
       leadId: linkedLeadId,

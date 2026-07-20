@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveQuoteTeam, type TeamCandidate } from './quote-team';
+import { resolveQuoteTeam, deriveTeamFit, type TeamCandidate } from './quote-team';
 
 // Roster mirrors the founder-confirmed tiers: Core = Craig, Bezent, Joe (Craig
 // first via priority); ad-hoc = Dwaine. Each fixture sets coveredCategories to
@@ -96,5 +96,34 @@ describe('resolveQuoteTeam', () => {
     expect(plan.leadContractorId).toBe('craig');
     expect(plan.assignments).toHaveLength(3);
     expect(plan.assignments.filter((a) => a.role === 'specialist').map((a) => a.contractorId).sort()).toEqual(['bezent', 'joe']);
+  });
+});
+
+describe('deriveTeamFit — availability anchoring', () => {
+  it('solo → calendar reflects the UNION of everyone who can solo the job', () => {
+    const fit = deriveTeamFit(
+      ['joinery', 'decorating'],
+      [craig(['joinery', 'decorating']), bezent(['joinery', 'decorating'])],
+    );
+    expect(fit.plan.kind).toBe('solo');
+    expect(fit.availabilityContractorIds.sort()).toEqual(['bezent', 'craig']);
+    expect(fit.fullCoverageCandidateIds.sort()).toEqual(['bezent', 'craig']);
+  });
+
+  it('composed → calendar is ANCHORED on the lead only (specialists hold no availability)', () => {
+    const fit = deriveTeamFit(
+      ['plumbing_minor', 'electrical_part_p'],
+      [craig(['plumbing_minor']), joe(['electrical_part_p'])],
+    );
+    expect(fit.plan.kind).toBe('composed');
+    expect(fit.availabilityContractorIds).toEqual(['craig']); // Ben coordinates Joe post-confirm
+    expect(fit.fullCoverageCandidateIds).toEqual([]);
+  });
+
+  it('no_supply → empty availability (dead calendar only on a true gap)', () => {
+    const fit = deriveTeamFit(['plumbing_minor', 'gas_safe'], [craig(['plumbing_minor'])]);
+    expect(fit.plan.kind).toBe('no_supply');
+    expect(fit.availabilityContractorIds).toEqual([]);
+    expect(fit.plan.uncoveredCategories).toEqual(['gas_safe']);
   });
 });

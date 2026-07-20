@@ -143,3 +143,51 @@ export function resolveQuoteTeam(
 
   return { bookable: true, kind: 'composed', leadContractorId: lead.contractorId, assignments, uncoveredCategories: [] };
 }
+
+// ---------------------------------------------------------------------------
+// Availability-driver derivation
+// ---------------------------------------------------------------------------
+
+export interface TeamFit {
+  plan: QuoteTeamPlan;
+  /**
+   * Whose availability drives the customer calendar. `solo` → every contractor
+   * who can do the whole job alone (union of their dates, unchanged from the old
+   * behaviour). `composed` → the lead only (anchor) — ad-hoc specialists hold no
+   * availability to intersect, so the lead's real windows set the promise and Ben
+   * coordinates the specialist post-confirm (PRD §10.1). `no_supply` → empty.
+   */
+  availabilityContractorIds: string[];
+  /** Contractors who can solo the whole job — for admin display + candidate pool. */
+  fullCoverageCandidateIds: string[];
+}
+
+/**
+ * Pure: turn a resolved candidate pool (with tiers) into a team plan plus the
+ * contractor ids whose availability the customer calendar should reflect. DB-free
+ * so it stays unit-testable; the caller supplies `candidates` from the matcher +
+ * profile tiers.
+ */
+export function deriveTeamFit(
+  requiredCategories: string[],
+  candidates: TeamCandidate[],
+): TeamFit {
+  const plan = resolveQuoteTeam(requiredCategories, candidates);
+  const required = Array.from(new Set(requiredCategories.filter(Boolean)));
+
+  const fullCoverageCandidateIds =
+    required.length === 0
+      ? []
+      : candidates
+          .filter((c) => required.every((cat) => c.coveredCategories.includes(cat)))
+          .map((c) => c.contractorId);
+
+  let availabilityContractorIds: string[] = [];
+  if (plan.kind === 'solo') {
+    availabilityContractorIds = fullCoverageCandidateIds; // union of everyone who can solo it
+  } else if (plan.kind === 'composed') {
+    availabilityContractorIds = plan.leadContractorId ? [plan.leadContractorId] : [];
+  }
+
+  return { plan, availabilityContractorIds, fullCoverageCandidateIds };
+}
