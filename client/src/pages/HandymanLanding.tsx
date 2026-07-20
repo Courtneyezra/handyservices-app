@@ -185,8 +185,10 @@ function PainPointsSection() {
                     work from a handyman, not a floor-sanding pitch. */}
                 <div className="mt-14 lg:mt-20 rounded-[28px] bg-[#1D2D3D] overflow-hidden shadow-2xl">
                     <div className="grid lg:grid-cols-2 items-stretch">
-                        {/* Video */}
-                        <div className="relative aspect-square lg:aspect-auto lg:min-h-[460px] bg-slate-900">
+                        {/* Video — min-h floor so the box never collapses on mobile
+                            browsers that don't honour aspect-ratio (iOS Safari), which
+                            was hiding the embed entirely on phones. */}
+                        <div className="relative aspect-square min-h-[340px] lg:aspect-auto lg:min-h-[460px] bg-slate-900">
                             <WistiaFacade mediaId="n3dh959arn" aspect="1" posterUrl="/assets/at-work/work-sander.webp" />
                         </div>
                         {/* Case-study copy */}
