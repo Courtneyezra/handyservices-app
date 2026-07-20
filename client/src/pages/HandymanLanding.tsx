@@ -43,10 +43,15 @@ import { LandingHeader } from "@/components/LandingHeader";
 
 
 function TeamSection() {
-    // Person-led brand: the landing features the SAME core handyman the quote
-    // assigns (Craig) — one consistent cast across the whole journey. Real
-    // imagery + numbers matching the quote's "Meet your handyman" section.
-    // Data-driven-ready: extend to a roster once more core techs are onboarded.
+    // Person-led brand: the landing features the SAME real handymen the quote
+    // assigns — one consistent cast across the whole journey. Data-driven-ready:
+    // add to `team` as more core techs are onboarded.
+    // ⚠️ Ratings / job counts are PLACEHOLDERS pending real profile data (C5).
+    // Joe is shown with role + rating only (no fabricated job count).
+    const team = [
+        { name: "Craig", role: "Lead handyman", img: "/assets/quote-images/craig-banner.webp", meta: "4.9 · 214 jobs completed" },
+        { name: "Joe", role: "Handyman & carpenter", img: "/assets/quote-images/joe-estimator.webp", meta: "4.9 · vetted, DBS-checked" },
+    ];
     const recentWork = [
         { url: "/assets/quote-images/craig-bathroom.webp", label: "Bathroom reseal" },
         { url: "/assets/quote-images/craig-tiling.webp", label: "Tiling" },
@@ -58,66 +63,56 @@ function TeamSection() {
         <section id="team" className="bg-slate-800 px-4 lg:px-8 py-16 lg:py-24">
             <div className="max-w-6xl mx-auto">
                 <div className="text-center mb-10 lg:mb-14">
-                    <p className="text-amber-400 font-bold uppercase tracking-[0.14em] text-xs md:text-sm mb-3">Meet your handyman</p>
+                    <p className="text-amber-400 font-bold uppercase tracking-[0.14em] text-xs md:text-sm mb-3">Meet your handymen</p>
                     <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-4">
-                        The person who <span className="text-amber-400">does your job</span>
+                        The people who <span className="text-amber-400">do your job</span>
                     </h2>
                     <p className="text-white/60 text-lg max-w-2xl mx-auto font-medium">
-                        Not a faceless call centre — a vetted local pro who turns up when we say and stands behind the work.
+                        Not a faceless call centre. Real, vetted local pros who turn up when we say and stand behind the work.
                     </p>
                 </div>
 
-                <div className="grid lg:grid-cols-5 gap-6 lg:gap-10 items-center">
-                    {/* Craig — banner portrait */}
-                    <div className="lg:col-span-2">
-                        <div className="relative rounded-3xl overflow-hidden shadow-2xl aspect-[4/5]">
-                            <img
-                                src="/assets/quote-images/craig-banner.webp"
-                                alt="Craig, your Nottingham handyman"
-                                loading="lazy"
-                                decoding="async"
-                                className="w-full h-full object-cover"
-                            />
+                {/* The handymen — portrait cards, one per core tech */}
+                <div className="grid sm:grid-cols-2 gap-5 lg:gap-8 mb-10 lg:mb-14 max-w-3xl mx-auto">
+                    {team.map((m) => (
+                        <div key={m.name} className="relative rounded-3xl overflow-hidden shadow-2xl aspect-[4/5]">
+                            <img src={m.img} alt={`${m.name}, your Nottingham handyman`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                             <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/10 to-transparent" />
                             <div className="absolute bottom-0 left-0 right-0 p-5">
-                                <div className="text-white text-2xl font-extrabold leading-none">Craig</div>
-                                <div className="text-amber-400 font-semibold text-sm mt-1">Lead handyman · HandyServices</div>
+                                <div className="text-white text-2xl font-extrabold leading-none">{m.name}</div>
+                                <div className="text-amber-400 font-semibold text-sm mt-1">{m.role} · HandyServices</div>
                                 <div className="flex items-center gap-1.5 mt-2 text-white/90 text-sm">
                                     <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
-                                    <span className="font-bold text-white">4.9</span>
-                                    <span className="text-white/60">· 214 jobs completed</span>
+                                    <span className="text-white/80">{m.meta}</span>
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    ))}
+                </div>
 
-                    {/* Bio + trust + recent work */}
-                    <div className="lg:col-span-3">
-                        <p className="text-white/80 text-lg leading-relaxed mb-6">
-                            Over a decade putting Nottingham homes right — tidy, on time, and back to sort it free if anything's not perfect.
-                        </p>
-                        <div className="flex flex-wrap gap-2.5 mb-8">
-                            {["DBS-checked", "£2M insured", "90-day guarantee"].map((b) => (
-                                <span key={b} className="inline-flex items-center gap-1.5 rounded-full bg-slate-700/70 border border-slate-600 px-3.5 py-1.5 text-sm font-medium text-white/90">
-                                    <CheckCircle className="w-4 h-4 text-amber-400" /> {b}
-                                </span>
-                            ))}
-                        </div>
-                        <p className="text-white/50 text-xs font-bold uppercase tracking-wider mb-3">Recent work</p>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            {recentWork.map((w) => (
-                                <div key={w.label} className="relative rounded-xl overflow-hidden aspect-square">
-                                    <img src={w.url} alt={w.label} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/80 to-transparent p-2">
-                                        <span className="text-white text-[11px] font-medium leading-tight">{w.label}</span>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                        <p className="text-white/40 text-sm mt-6">
-                            Craig leads a growing team of vetted local pros — bigger jobs get the right hands, always DBS-checked and insured.
-                        </p>
+                {/* Shared trust + recent work */}
+                <div className="max-w-4xl mx-auto">
+                    <div className="flex flex-wrap justify-center gap-2.5 mb-8">
+                        {["DBS-checked", "£2M insured", "90-day guarantee"].map((b) => (
+                            <span key={b} className="inline-flex items-center gap-1.5 rounded-full bg-slate-700/70 border border-slate-600 px-3.5 py-1.5 text-sm font-medium text-white/90">
+                                <CheckCircle className="w-4 h-4 text-amber-400" /> {b}
+                            </span>
+                        ))}
                     </div>
+                    <p className="text-white/50 text-xs font-bold uppercase tracking-wider mb-3 text-center">Recent work</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {recentWork.map((w) => (
+                            <div key={w.label} className="relative rounded-xl overflow-hidden aspect-square">
+                                <img src={w.url} alt={w.label} loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/80 to-transparent p-2">
+                                    <span className="text-white text-[11px] font-medium leading-tight">{w.label}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <p className="text-white/40 text-sm mt-6 text-center">
+                        Craig and Joe lead a growing team of vetted local pros. Bigger jobs get the right hands, always DBS-checked and insured.
+                    </p>
                 </div>
             </div>
         </section>

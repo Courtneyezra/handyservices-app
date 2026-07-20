@@ -50,28 +50,27 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Left Column - Text */}
             <div className="text-center lg:text-left order-2 lg:order-1">
+              {/* Person-led kicker (replaces the trust-stat badge): introduces the
+                  real team shown below / in the team section. */}
               <div className="flex items-center gap-2 bg-amber-400/20 px-4 py-2 rounded-full mb-6 backdrop-blur-sm border border-amber-400/10 w-fit mx-auto lg:mx-0">
-                <CheckCircle className="w-4 h-4 text-amber-400" />
-                <span className="text-amber-400 font-medium text-sm">Trusted by 300+ {location} Homeowners</span>
+                <span className="text-amber-400 font-semibold text-sm uppercase tracking-wide">Meet your handymen</span>
               </div>
 
-              {/* Person-led (mobile): Craig's face — the same handyman the quote
-                  assigns and the team section features — instead of an abstract
-                  tick. One consistent, real cast across the whole journey. */}
+              {/* Person-led (mobile): the real team — Craig + Joe as an avatar
+                  cluster, room to grow — the same faces the quote assigns and the
+                  team section features. One consistent, real cast. */}
               <div className="lg:hidden flex flex-col items-center mb-6">
-                <div className="relative">
-                  <div className="w-24 h-24 rounded-full overflow-hidden border-[3px] border-amber-400 shadow-lg shadow-amber-400/30">
-                    <img
-                      src="/assets/avatars/craig-avatar-1.webp"
-                      alt="Craig, your Nottingham handyman"
-                      className="w-full h-full object-cover"
-                      loading="eager"
-                    />
+                <div className="relative flex items-center -space-x-5">
+                  <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-amber-400 shadow-lg shadow-amber-400/30 relative z-20">
+                    <img src="/assets/avatars/craig-avatar-1.webp" alt="Craig, your Nottingham handyman" className="w-full h-full object-cover" loading="eager" />
                   </div>
-                  <span className="absolute bottom-1 right-1 w-4 h-4 rounded-full bg-green-500 ring-2 ring-slate-900" aria-hidden="true" />
+                  <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-slate-900 shadow-lg relative z-10">
+                    <img src="/assets/quote-images/joe-estimator.webp" alt="Joe, your Nottingham handyman" className="w-full h-full object-cover" loading="eager" />
+                  </div>
+                  <span className="absolute -bottom-0.5 left-16 w-4 h-4 rounded-full bg-green-500 ring-2 ring-slate-900 z-30" aria-hidden="true" />
                 </div>
-                <p className="mt-3 text-white/90 text-sm">
-                  <span className="font-bold text-white">Craig</span> · your local handyman
+                <p className="mt-3 text-white/90 text-sm text-center">
+                  <span className="font-bold text-white">Craig, Joe</span> &amp; the local team
                 </p>
               </div>
 
