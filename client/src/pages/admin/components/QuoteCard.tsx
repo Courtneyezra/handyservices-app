@@ -9,7 +9,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Copy, Eye, Phone, RefreshCw, X, Download, CreditCard, Pencil, FileEdit, MessageCircle, Hammer, ShieldCheck, UserCheck, Receipt, CheckSquare, CheckCircle, MoreHorizontal, Loader2, AlertCircle } from 'lucide-react';
+import { Copy, Eye, Phone, RefreshCw, X, Download, CreditCard, Pencil, FileEdit, MessageCircle, Hammer, ShieldCheck, UserCheck, Receipt, CheckSquare, CheckCircle, MoreHorizontal, Loader2, AlertCircle, MapPin } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
 import { generateQuotePDF, validityHoursFromQuote } from '@/lib/quote-pdf-generator';
@@ -197,11 +197,18 @@ export function QuoteCard({ quote, onDelete, onRenew, renewingId, onEdit, onPrev
                         </span>
                     )}
                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                        <a href={`tel:${quote.phone}`} className="flex items-center gap-1 text-blue-500 hover:underline">
+                        <a href={`tel:${quote.phone}`} className="flex items-center gap-1 text-blue-500 hover:underline shrink-0">
                             <Phone className="h-3 w-3" />
                             {quote.phone}
                         </a>
-                        {quote.postcode && <span>{quote.postcode}</span>}
+                        {quote.address ? (
+                            <span className="flex items-center gap-1 min-w-0" title={quote.address}>
+                                <MapPin className="h-3 w-3 shrink-0" />
+                                <span className="truncate">{quote.address}</span>
+                            </span>
+                        ) : quote.postcode ? (
+                            <span>{quote.postcode}</span>
+                        ) : null}
                     </div>
                 </div>
 
