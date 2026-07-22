@@ -11,6 +11,7 @@
  * so it stays unit-testable. See docs/contractor-platform/00-PRD.md §5a.
  */
 import { Router, Request, Response } from 'express';
+import { randomBytes } from 'crypto';
 import { and, or, eq, gte, lt, isNull, isNotNull, inArray, sql, desc } from 'drizzle-orm';
 import { startOfWeek, addDays, format } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
@@ -258,6 +259,26 @@ router.post('/:id/flex/:jobId/place', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[Hub/place] failed:', err?.message);
     res.status(500).json({ error: 'Failed to place flex job', details: err?.message });
+  }
+});
+
+// POST /:id/app-link → issue (or return) the contractor's availability-app link.
+// Idempotent: one durable token per contractor; texting the same link twice is fine.
+router.post('/:id/app-link', async (req: Request, res: Response) => {
+  try {
+    const rows = await db.select({ id: handymanProfiles.id, appToken: handymanProfiles.appToken })
+      .from(handymanProfiles).where(eq(handymanProfiles.id, req.params.id)).limit(1);
+    if (!rows.length) return res.status(404).json({ error: 'Contractor not found' });
+
+    let token = rows[0].appToken;
+    if (!token) {
+      token = randomBytes(24).toString('base64url'); // 32 chars, unguessable
+      await db.update(handymanProfiles).set({ appToken: token, updatedAt: new Date() }).where(eq(handymanProfiles.id, rows[0].id));
+    }
+    res.json({ token, path: `/my-week/${token}` });
+  } catch (err: any) {
+    console.error('[Hub/app-link] failed:', err?.message);
+    res.status(500).json({ error: 'Failed to issue app link', details: err?.message });
   }
 });
 

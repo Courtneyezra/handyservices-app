@@ -216,6 +216,7 @@ Spec: `00-PRD.md` + [`01-model-and-data-flow.md`](./01-model-and-data-flow.md)
 | `/admin/os` for `va` (Ben) | **Done** — route reachable via `adminToken`; "Operating System" added to the VA + admin sidebars. |
 | `db:push` at merge | **Runbook** — [`MERGE.md`](./MERGE.md); additive DDL already applied, reconcile without a blind prod push. |
 | Decision §10.1 | **Settled** — compose at generation, anchor calendar on lead. |
+| Contractor app — availability (solo v1) | **Done** — tokenised `/my-week/:token` harvest surface + Hub "App link" button; [`04-contractor-app.md`](./04-contractor-app.md). Teams variant pending. |
 
 **Remaining (post-v1):** committed-availability so specialists carry calendars
 (unlocks team-keepable dates); in-app tap-to-accept (`job_offers`) to replace

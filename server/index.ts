@@ -81,6 +81,7 @@ import availabilityRouter from './availability'; // Availability Slots for Live 
 import publicRoutes from './public-routes';
 import adminContractorsRouter from './admin-contractors-routes';
 import contractorHubRouter from './contractor-hub-routes';
+import contractorAppRouter from './contractor-app-routes';
 import osRouter from './os-routes';
 import adminDashboardRouter from './admin-dashboard-routes';
 import { vaStatsRouter } from './va-stats';
@@ -403,6 +404,7 @@ app.use('/api/contractor/jobs', contractorJobsRouter);
 app.use('/api/admin/availability', requireAdmin, adminAvailabilityRouter); // Master availability admin routes
 app.use('/api/admin/contractors', requireAdmin, adminContractorsRouter); // Admin contractors management
 app.use('/api/admin/contractor-hub', requireAdmin, contractorHubRouter); // Contractor Hub (Admin OS v1)
+app.use('/api/contractor-app', contractorAppRouter); // Tokenised contractor availability app (/my-week/:token)
 app.use('/api/admin/os', requireAdmin, osRouter); // Admin OS — Pipeline + Send workspaces
 app.use('/api/admin/dashboard', requireAdmin, adminDashboardRouter); // Admin dashboard analytics
 app.use(leadTubeMapRouter); // Lead Tube Map API (includes its own /api/admin prefix)

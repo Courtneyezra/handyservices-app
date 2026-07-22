@@ -160,6 +160,7 @@ const JobHistoryPage = lazy(() => import("@/pages/client/JobHistoryPage"));
 // Contractor Job Sheet (public, token-based access — broadcast dispatch)
 const ContractorJobSheet = lazy(() => import("@/pages/contractor/ContractorJobSheet"));
 const DispatchLinkPage = lazy(() => import("@/pages/contractor/DispatchLinkPage"));
+const MyWeekPage = lazy(() => import("@/pages/contractor/MyWeekPage")); // availability app (tokenised)
 const DispatchPreviewPage = lazy(() => import("@/pages/contractor/DispatchPreviewPage"));
 const AdminDispatchDashboard = lazy(() => import("@/pages/admin/AdminDispatchDashboard"));
 const AdminGenerateDispatch = lazy(() => import("@/pages/admin/AdminGenerateDispatch"));
@@ -372,6 +373,12 @@ function Router() {
                 </Route>
                 <Route path="/dispatch-link/:token">
                     <DispatchLinkPage />
+                </Route>
+                {/* Contractor availability app — tokenised, no login. The
+                  * harvest surface: solo contractors open/close their days.
+                  * See docs/contractor-platform/04-contractor-app.md. */}
+                <Route path="/my-week/:token">
+                    <MyWeekPage />
                 </Route>
                 {/* Day-pack preview — frontend-only test page, no backend.
                   * Shareable URL to validate the day-pack offer UX with a real

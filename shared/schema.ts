@@ -527,6 +527,9 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     // Distinct from subscriptionTier above (freemium/marketing). Do NOT overload.
     deliveryTier: varchar("delivery_tier", { length: 20 }).notNull().default('adhoc'), // 'partner' | 'core' | 'adhoc'
     deliveryPriority: integer("delivery_priority"), // routing order within a tier — lower = picked first (Craig = 1); null = unranked
+    // Contractor app entry — unguessable per-contractor link token (no login).
+    // /my-week/:token → availability harvesting. Issued lazily from the Hub.
+    appToken: varchar("app_token", { length: 80 }).unique(),
 
     // Availability freshness — updated when contractor toggles availability
     lastAvailabilityRefresh: timestamp("last_availability_refresh"),
