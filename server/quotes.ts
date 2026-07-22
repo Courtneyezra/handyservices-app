@@ -50,6 +50,75 @@ export function quoteValidityMs(pricePence?: number | null): number {
     return QUOTE_VALIDITY_MS;
 }
 
+// Customer self-reissue: once a quote's price-lock has lapsed the customer can
+// refresh it themselves, but each refresh bumps the price 5% (compounding).
+// After REISSUE_MAX_SELF self-refreshes it's admin-only (the admin "renew" path
+// stays free of the surcharge). REISSUE_SURCHARGE is the per-refresh multiplier.
+export const REISSUE_SURCHARGE = 1.05;
+export const REISSUE_MAX_SELF = 3;
+
+/**
+ * The quote's real expiry, falling back to createdAt + validity window for
+ * legacy rows that predate expiresAt being written at creation. Central so
+ * every reader (GET, reissue) agrees on whether a quote has lapsed.
+ */
+export function effectiveExpiryMs(quote: { expiresAt?: Date | string | null; createdAt?: Date | string | null }): number {
+    if (quote.expiresAt) return new Date(quote.expiresAt).getTime();
+    if (quote.createdAt) return new Date(quote.createdAt).getTime() + QUOTE_VALIDITY_MS;
+    return Date.now() + QUOTE_VALIDITY_MS;
+}
+
+/**
+ * Deep-scale every monetary value inside a stored pricing blob by `factor`,
+ * rounding to whole pence. Money keys are identified by a `Pence` suffix, so
+ * non-monetary siblings (scheduleMinutes, visitCount, booleans, strings) are
+ * left untouched. Used to apply the reissue surcharge to pricingLineItems and
+ * pricingLayerBreakdown WITHOUT re-deriving the batch-discount math — because
+ * every figure scales by the same factor, the internal identities
+ * (final = subtotal − discount + materials, Σ lines = subtotal, …) are all
+ * preserved exactly up to per-field rounding.
+ */
+function scalePenceDeep(value: any, factor: number): any {
+    if (Array.isArray(value)) return value.map((v) => scalePenceDeep(v, factor));
+    if (value && typeof value === 'object') {
+        const out: any = Array.isArray(value) ? [] : { ...value };
+        for (const [k, v] of Object.entries(value)) {
+            if (typeof v === 'number' && /Pence$/.test(k)) {
+                out[k] = Math.round(v * factor);
+            } else if (v && typeof v === 'object') {
+                out[k] = scalePenceDeep(v, factor);
+            }
+        }
+        return out;
+    }
+    return value;
+}
+
+/**
+ * Build the DB patch that applies one reissue surcharge to a quote. Scales the
+ * canonical `basePrice` (the sole payment driver — see stripe-routes
+ * create-payment-intent) and the materials cost basis, plus the two pricing
+ * JSON blobs so any itemised display and a later admin edit stay reconciled.
+ * `optionalExtras` are intentionally left flat — they're independently-priced
+ * add-ons stacked on top of the quote price, not part of it.
+ */
+export function computeReissuePatch(quote: any, factor: number = REISSUE_SURCHARGE): Record<string, any> {
+    const patch: Record<string, any> = {};
+    if (typeof quote.basePrice === 'number') {
+        patch.basePrice = Math.round(quote.basePrice * factor);
+    }
+    if (typeof quote.materialsCostWithMarkupPence === 'number') {
+        patch.materialsCostWithMarkupPence = Math.round(quote.materialsCostWithMarkupPence * factor);
+    }
+    if (Array.isArray(quote.pricingLineItems)) {
+        patch.pricingLineItems = scalePenceDeep(quote.pricingLineItems, factor);
+    }
+    if (quote.pricingLayerBreakdown && typeof quote.pricingLayerBreakdown === 'object') {
+        patch.pricingLayerBreakdown = scalePenceDeep(quote.pricingLayerBreakdown, factor);
+    }
+    return patch;
+}
+
 // Define input schema for value pricing
 const valuePricingInputSchema = z.object({
     jobDescription: z.string().min(10, 'Job description must be at least 10 characters'),
@@ -2090,6 +2159,73 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/renew', async (req, res) =
     } catch (error) {
         console.error("Renew quote error:", error);
         res.status(500).json({ error: "Failed to renew quote" });
+    }
+});
+
+// Customer self-reissue — the customer refreshes their own lapsed quote. Unlike
+// the admin `renew` (free, price unchanged), this bumps the price 5% compounding
+// each time and is capped at REISSUE_MAX_SELF, after which it's admin-only. Only
+// permitted once the quote has actually expired and before it's booked, so the
+// surcharge is a real cost of letting the price-lock lapse rather than a way to
+// re-price a live quote.
+quotesRouter.post('/api/personalized-quotes/:slug/reissue', async (req, res) => {
+    try {
+        const { slug } = req.params;
+
+        let result = await db.select().from(personalizedQuotes)
+            .where(eq(personalizedQuotes.shortSlug, slug)).limit(1);
+        if (result.length === 0 && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slug)) {
+            result = await db.select().from(personalizedQuotes)
+                .where(eq(personalizedQuotes.id, slug)).limit(1);
+        }
+        const quote = result[0];
+        if (!quote) return res.status(404).json({ error: "Quote not found" });
+
+        // Already paid — nothing to refresh, and we must never move a booked price.
+        if (quote.depositPaidAt) {
+            return res.status(409).json({ error: "This quote is already booked.", alreadyBooked: true });
+        }
+
+        // Still inside the lock — no surcharge, no refresh needed.
+        if (effectiveExpiryMs(quote) > Date.now()) {
+            return res.status(409).json({ error: "This quote is still active — no need to refresh.", stillActive: true });
+        }
+
+        // Cap reached — hand off to a human (admin renew stays surcharge-free).
+        const selfReissues = quote.extensionCount || 0;
+        if (selfReissues >= REISSUE_MAX_SELF) {
+            return res.status(403).json({
+                error: "You've refreshed this quote the maximum number of times. Message us and we'll sort a fresh one.",
+                capReached: true,
+            });
+        }
+
+        const patch = computeReissuePatch(quote, REISSUE_SURCHARGE);
+        // Band on the post-surcharge price so the refreshed window matches the band.
+        const newExpiresAt = new Date(Date.now() + quoteValidityMs(patch.basePrice ?? quote.basePrice));
+
+        await db.update(personalizedQuotes)
+            .set({
+                ...patch,
+                expiresAt: newExpiresAt,
+                extensionCount: selfReissues + 1,
+                regenerationCount: (quote.regenerationCount || 0) + 1,
+            })
+            .where(eq(personalizedQuotes.id, quote.id));
+
+        res.json({
+            success: true,
+            reissued: true,
+            expiresAt: newExpiresAt,
+            newBasePrice: patch.basePrice ?? quote.basePrice,
+            previousBasePrice: quote.basePrice,
+            surchargePercent: Math.round((REISSUE_SURCHARGE - 1) * 100),
+            reissueCount: selfReissues + 1,
+            reissuesRemaining: REISSUE_MAX_SELF - (selfReissues + 1),
+        });
+    } catch (error) {
+        console.error("Reissue quote error:", error);
+        res.status(500).json({ error: "Failed to refresh quote" });
     }
 });
 

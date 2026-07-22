@@ -2141,6 +2141,146 @@ function ContextualTrustStrip({ showRiskReversal = false, googleRating, reviewCo
   );
 }
 
+/**
+ * Expiry gate — once the price-lock has lapsed, this fully blocks the quote
+ * (offer intro, quote page, Book/Pay CTA) behind a bold screen until the customer
+ * refreshes it. Refreshing calls the reissue endpoint, which bumps the price 5%
+ * (compounding), resets the lock, then we refetch so the fresh price + timer
+ * replace the stale ones and the gate clears itself. After the server-side cap
+ * (3 self-refreshes) the refresh button becomes a "message us" hand-off.
+ */
+/** True once the quote's server expiry has passed (unbooked quotes only). */
+function isQuoteExpired(quote: Pick<PersonalizedQuote, 'expiresAt'>): boolean {
+  if (!quote.expiresAt) return false;
+  const ms = new Date(quote.expiresAt).getTime();
+  return Number.isFinite(ms) && ms <= Date.now();
+}
+
+function ReissueGate({
+  quote,
+  slug,
+  onReissued,
+}: {
+  quote: PersonalizedQuote;
+  slug: string;
+  onReissued: () => void;
+}) {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'error' | 'capped'>('idle');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [recalcStep, setRecalcStep] = useState(0);
+
+  // Belt-and-braces: never gate a booked quote (price is locked at payment).
+  if (quote.depositPaidAt) return null;
+
+  // The on-click "recalculation" beat. The reissue call itself is instant, so we
+  // hold a short, honest sequence — re-checking availability, then recalculating —
+  // so the refreshed (today's) price reads as the output of that, not a bare tap.
+  const RECALC_STEPS = ["Checking today's availability…", 'Recalculating your price…'];
+  const RECALC_MIN_MS = 1900;
+
+  const handleReissue = async () => {
+    setStatus('loading');
+    setRecalcStep(0);
+    setErrorMsg(null);
+    const startedAt = Date.now();
+    const stepTimer = setTimeout(() => setRecalcStep(1), 950);
+    try {
+      const res = await fetch(`/api/personalized-quotes/${slug}/reissue`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok || data.stillActive) {
+        // Let the recalculation beat play out before the fresh price is revealed.
+        const elapsed = Date.now() - startedAt;
+        if (elapsed < RECALC_MIN_MS) {
+          await new Promise((r) => setTimeout(r, RECALC_MIN_MS - elapsed));
+        }
+        clearTimeout(stepTimer);
+        onReissued(); // refetch → fresh price + reset timer clear the overlay
+        return;
+      }
+      clearTimeout(stepTimer);
+      if (res.status === 403 && data.capReached) {
+        setStatus('capped');
+        return;
+      }
+      setStatus('error');
+      setErrorMsg(data.error || 'Something went wrong. Please try again.');
+    } catch {
+      clearTimeout(stepTimer);
+      setStatus('error');
+      setErrorMsg('Network error. Please try again.');
+    }
+  };
+
+  const whatsappHref = `https://wa.me/447508744402?text=${encodeURIComponent(
+    `Hi, my quote${quote.shortSlug ? ` (${quote.shortSlug})` : ''} expired — can I get a fresh one?`,
+  )}`;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex min-h-screen items-center justify-center bg-white px-5">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden">
+        <div className="flex flex-col items-center bg-white px-6 pb-5 pt-6 text-center text-slate-900">
+          <img src="/assets/quote-images/ben-estimator.webp" alt="Ben" className="mb-3 h-14 w-14 rounded-full border-2 border-[#7DB00E] object-cover" />
+          <p className="text-[11px] font-bold uppercase tracking-widest text-[#7DB00E]">Price lock lapsed</p>
+          <h2 className="mt-1 text-2xl font-black leading-tight">Let's refresh your price</h2>
+        </div>
+
+        {status === 'capped' ? (
+          <div className="px-6 py-6">
+            <p className="text-slate-700 text-[15px] leading-relaxed">
+              You've refreshed this quote the maximum number of times. Message us and we'll
+              sort a fresh one for you.
+            </p>
+            <a
+              href={whatsappHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-5 flex w-full items-center justify-center rounded-xl bg-[#25D366] px-5 py-4 text-lg font-bold text-white"
+            >
+              Message us on WhatsApp
+            </a>
+          </div>
+        ) : (
+          <div className="px-6 py-6">
+            <p className="text-slate-700 text-[15px] leading-relaxed">
+              Your price lock has ended. Prices move with availability — tap to refresh yours.
+            </p>
+
+            {status === 'loading' && (
+              <div className="mt-5 flex items-center justify-center gap-3 rounded-xl bg-slate-50 py-5">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-[#7DB00E]" />
+                <span className="text-[15px] font-semibold text-slate-700">
+                  {RECALC_STEPS[recalcStep]}
+                </span>
+              </div>
+            )}
+
+            <button
+              onClick={handleReissue}
+              disabled={status === 'loading'}
+              className="mt-5 flex w-full items-center justify-center rounded-xl bg-[#7DB00E] px-5 py-4 text-lg font-black text-white transition active:scale-[0.99] disabled:opacity-60"
+            >
+              {status === 'loading' ? 'Recalculating…' : 'Refresh my price →'}
+            </button>
+
+            {status === 'error' && errorMsg && (
+              <p className="mt-3 text-center text-sm font-medium text-red-600">{errorMsg}</p>
+            )}
+
+            <a
+              href={whatsappHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 block text-center text-sm font-medium text-slate-500 underline"
+            >
+              Or message us instead
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Simple Book Now CTA — single button, date selection happens after */
 function ContextualBookNowButton({ onClick, label = 'Book Now' }: { onClick?: () => void; label?: string }) {
   return (
@@ -3073,7 +3213,7 @@ export default function PersonalizedQuotePage() {
   }, [hasBooked]);
 
   // Fetch personalized quote data
-  const { data: quote, isLoading, error } = useQuery<PersonalizedQuote>({
+  const { data: quote, isLoading, error, refetch } = useQuery<PersonalizedQuote>({
     queryKey: ['/api/personalized-quotes', params?.slug, isPreview],
     queryFn: async () => {
       const response = await fetch(`/api/personalized-quotes/${params?.slug}${isPreview ? '?preview=1' : ''}`);
@@ -3941,6 +4081,14 @@ export default function PersonalizedQuotePage() {
     // hub renders instantly instead of flashing the sales page.
     window.location.href = `/q/${quote.shortSlug || quote.id}?paid=1`;
   };
+
+  // Expiry gate — an expired, unbooked quote is blocked here, before any of the
+  // preparing/offer/quote branches, so the pre-quote offer screens can't be used
+  // to reach the Book/Pay CTA on a lapsed price. Refreshing bumps the price 5%
+  // and resets the lock, then the refetch drops us back into the normal flow.
+  if (quote && !isPreview && isQuoteExpired(quote) && !quote.depositPaidAt) {
+    return <ReissueGate quote={quote} slug={params?.slug || ''} onReissued={() => refetch()} />;
+  }
 
   // Offer flow, step 1 — the branded preparing screen is the SOLE loader (it
   // replaces the old price-lock skeleton). It shows while the quote is loading
