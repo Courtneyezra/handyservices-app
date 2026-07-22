@@ -200,7 +200,7 @@ export default function MyWeekPage() {
       if (!res.ok) throw new Error('load failed');
       return res.json();
     },
-    enabled: !!token && ((tab === 'jobs' && flexCount >= 2) || (planOpen && flexCount >= 1)),
+    enabled: !!token && planOpen && flexCount >= 1,
   });
 
   const lockMutation = useMutation({
@@ -638,75 +638,22 @@ export default function MyWeekPage() {
           <div>
             {!jobs && <div className="h-24 bg-slate-900 rounded-xl animate-pulse" />}
 
-            {/* Day Builder — the pool composed into day-packs, goal picked by him */}
-            {jobs && flexCount >= 2 && (
-              <div className="mb-6 p-4 bg-slate-900/60 border border-emerald-500/25 rounded-2xl">
-                <div className="text-sm font-bold mb-1">Build my days</div>
-                <p className="text-[11px] text-slate-500 mb-3">
-                  Your {flexCount} flexible jobs, grouped into days. Pick what matters and lock a day in one go.
-                </p>
-                <div className="flex gap-1.5 mb-3">
-                  {([
-                    { key: 'earnings' as const, label: 'Best £/day' },
-                    { key: 'fewest_days' as const, label: 'Fewest days' },
-                    { key: 'soonest' as const, label: 'Cash soonest' },
-                  ]).map((g) => (
-                    <button
-                      key={g.key}
-                      onClick={() => { setPlanGoal(g.key); setConfirmLock(null); }}
-                      className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${
-                        planGoal === g.key ? 'bg-emerald-500 text-slate-950 border-emerald-500' : 'bg-slate-800/70 text-slate-400 border-slate-700'
-                      }`}
-                    >
-                      {g.label}
-                    </button>
-                  ))}
-                </div>
-                {lockError && <p className="text-[11px] font-semibold text-red-400 mb-2">{lockError}</p>}
-                {plansLoading && <div className="h-16 bg-slate-800/60 rounded-xl animate-pulse" />}
-                {!plansLoading && dayPlans && dayPlans.plans.length === 0 && (
-                  <p className="text-[11px] text-slate-500">No day plans possible — open more days on "Week".</p>
-                )}
-                {!plansLoading && dayPlans?.plans.map((p) => {
-                  const confirming = confirmLock === p.date;
-                  return (
-                    <div key={p.date} className="mb-2 p-3 bg-slate-800/50 border border-slate-700/60 rounded-xl">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-sm font-bold">{format(new Date(p.date + 'T00:00:00'), 'EEE d MMM')}</div>
-                        <div className="text-base font-bold text-emerald-400">£{Math.round(p.totalPence / 100)}</div>
-                      </div>
-                      <div className="text-[10px] text-slate-500 mb-2">{p.rationale}</div>
-                      <div className="space-y-1 mb-2.5">
-                        {p.jobs.map((j) => (
-                          <div key={j.quoteId} className="flex items-center gap-2 text-[11px]">
-                            <span className={`font-bold uppercase w-7 shrink-0 ${j.fixed ? 'text-blue-400' : 'text-slate-400'}`}>{j.slot === 'full_day' ? 'DAY' : j.slot}</span>
-                            <span className="text-slate-300 truncate flex-1">{j.jobDescription || j.customerName}</span>
-                            {j.postcodeArea && <span className="text-slate-500 shrink-0">{j.postcodeArea}</span>}
-                            <span className="text-slate-400 font-semibold shrink-0">£{Math.round(j.valuePence / 100)}</span>
-                            {j.fixed && <Lock size={9} className="text-blue-400 shrink-0" />}
-                          </div>
-                        ))}
-                      </div>
-                      {p.placements.length > 0 && (
-                        <button
-                          disabled={lockMutation.isPending}
-                          onClick={() => (confirming ? lockMutation.mutate(p.placements) : setConfirmLock(p.date))}
-                          className={`w-full py-2 rounded-lg text-xs font-bold transition-all active:scale-[0.99] ${
-                            confirming ? 'bg-emerald-500 text-slate-950' : 'bg-slate-700/80 text-slate-200'
-                          }`}
-                        >
-                          {confirming
-                            ? (lockMutation.isPending ? 'Booking the day…' : `Confirm — book ${p.placements.length} job${p.placements.length === 1 ? '' : 's'} on ${format(new Date(p.date + 'T00:00:00'), 'EEE d')}?`)
-                            : 'Lock this day'}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-                {!plansLoading && (dayPlans?.unassignable.length ?? 0) > 0 && (
-                  <p className="text-[10px] text-slate-500 mt-1">{dayPlans!.unassignable.length} job{dayPlans!.unassignable.length === 1 ? ' has' : 's have'} no possible day yet — open more days or call us.</p>
-                )}
-              </div>
+            {/* Planner entry — composition lives in the Plan sheet now
+              * (the old "Build my days" panel folded into it; the cards
+              * below stay as the per-job manual path). */}
+            {jobs && jobs.flex.length > 0 && (
+              <button
+                onClick={() => setPlanOpen(true)}
+                className="w-full mb-5 p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-2.5 text-left active:scale-[0.99] transition-all"
+              >
+                <CalendarDays size={16} className="text-emerald-400 shrink-0" />
+                <span className="flex-1 text-xs font-semibold text-emerald-300">
+                  {readyPence > 0
+                    ? `£${Math.round(readyPence / 100).toLocaleString()} ready to add — group your jobs into days`
+                    : 'Group your jobs into days'}
+                </span>
+                <span className="text-emerald-400 text-xs font-bold">Plan my week →</span>
+              </button>
             )}
 
             {jobs && jobs.flex.length > 0 && (
@@ -932,6 +879,8 @@ export default function MyWeekPage() {
                   </button>
                 ))}
               </div>
+
+              {plansLoading && <div className="mb-3 h-10 bg-slate-900 rounded-xl animate-pulse" />}
 
               {/* Coaching — what opening days would unlock */}
               {stuck.length > 0 && (
