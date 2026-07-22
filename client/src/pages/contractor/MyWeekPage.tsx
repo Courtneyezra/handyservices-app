@@ -13,7 +13,7 @@ import { useRoute } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText } from 'lucide-react';
+import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound } from 'lucide-react';
 
 // ── Types (mirror server/contractor-app-routes.ts) ────────────────────────────
 
@@ -225,7 +225,7 @@ export default function MyWeekPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <div className="max-w-md mx-auto px-4 pt-6 pb-16">
+      <div className="max-w-md mx-auto px-4 pt-6 pb-32">
         {/* Header */}
         <div className="flex items-center gap-3 mb-1">
           {data?.provider.imageUrl ? (
@@ -246,28 +246,10 @@ export default function MyWeekPage() {
           </div>
         </div>
         <p className="text-xs text-slate-500 mb-4 mt-2">
-          Tap a day to open or close it. Customers can only book days you open.
+          {tab === 'quotes'
+            ? 'Live quotes going out with your name and photo on them.'
+            : 'Tap a day to open or close it. Customers can only book days you open.'}
         </p>
-
-        {/* Tabs */}
-        <div className="flex gap-2 mb-4">
-          <button
-            onClick={() => setTab('week')}
-            className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${
-              tab === 'week' ? 'bg-white text-slate-950 border-white' : 'bg-slate-900/60 text-slate-400 border-slate-800'
-            }`}
-          >
-            My week
-          </button>
-          <button
-            onClick={() => setTab('quotes')}
-            className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${
-              tab === 'quotes' ? 'bg-white text-slate-950 border-white' : 'bg-slate-900/60 text-slate-400 border-slate-800'
-            }`}
-          >
-            My quotes{pipeline ? ` (${pipeline.liveCount})` : ''}
-          </button>
-        </div>
 
         {/* Live-quotes strip — the demand your open days are feeding */}
         {tab === 'week' && (pipeline?.liveCount ?? 0) > 0 && (
@@ -425,6 +407,45 @@ export default function MyWeekPage() {
           </div>
         )}
       </div>
+
+      {/* Bottom nav — the app frame. Week + Quotes live; Jobs + Profile land
+        * in later phases (kept visible so the destination is legible). */}
+      <nav className="fixed bottom-0 inset-x-0 z-40 bg-slate-950/90 backdrop-blur-md border-t border-slate-800/80 pb-[env(safe-area-inset-bottom)]">
+        <div className="max-w-md mx-auto grid grid-cols-4">
+          {([
+            { key: 'week' as const, label: 'Week', icon: CalendarDays, live: true, badge: 0 },
+            { key: 'quotes' as const, label: 'Quotes', icon: FileText, live: true, badge: pipeline?.liveCount ?? 0 },
+            { key: 'jobs' as const, label: 'Jobs', icon: Briefcase, live: false, badge: 0 },
+            { key: 'profile' as const, label: 'Profile', icon: UserRound, live: false, badge: 0 },
+          ]).map((item) => {
+            const active = item.live && tab === item.key;
+            return (
+              <button
+                key={item.key}
+                disabled={!item.live}
+                aria-label={item.live ? item.label : `${item.label} — coming soon`}
+                onClick={() => item.live && setTab(item.key as 'week' | 'quotes')}
+                className={`relative flex flex-col items-center gap-1 py-2.5 transition-colors ${
+                  active ? 'text-white' : item.live ? 'text-slate-500 active:text-slate-300' : 'text-slate-700'
+                }`}
+              >
+                <span className="relative">
+                  <item.icon size={20} strokeWidth={active ? 2.4 : 1.8} />
+                  {item.badge > 0 && (
+                    <span className="absolute -top-1.5 -right-2 min-w-[15px] h-[15px] px-0.5 rounded-full bg-emerald-500 text-slate-950 text-[9px] font-bold flex items-center justify-center">
+                      {item.badge}
+                    </span>
+                  )}
+                </span>
+                <span className={`text-[10px] leading-none ${active ? 'font-bold' : 'font-medium'}`}>
+                  {item.live ? item.label : 'Soon'}
+                </span>
+                {active && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-white" />}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
 
       {/* Day bottom sheet */}
       <AnimatePresence>
