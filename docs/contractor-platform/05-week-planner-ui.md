@@ -2,7 +2,10 @@
 
 > The contractor app's next evolution: the day builder harvested inside a
 > **week planner**, designed mobile-first for Craig's phone (375px, dark).
-> Builds on the shipped surfaces (04-contractor-app.md). Status: DESIGN —
+> Builds on the shipped surfaces (04-contractor-app.md). Status: DESIGN
+> SIGNED-OFF PENDING — interactive mock live at **`/labs/week-planner`**
+> (`WeekPlannerPreview.tsx`, frontend-only, seeded with Craig's real four
+> jobs; full journey works: coach → open days → ghosts → lock week). P0
 > build starts after the span-reconciliation task lands.
 
 ## Design principles (locked by what's already working)
