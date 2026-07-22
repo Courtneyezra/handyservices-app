@@ -105,12 +105,19 @@ export function canCoexist(
   job: { minutes: number; postcodeArea: string | null },
   slot: 'am' | 'pm' | 'full_day',
   dayBookings: DayLoadBooking[],
+  opts: {
+    /** Self-serve single placements pack same-area only. Optimiser-endorsed
+     *  day-pack locks pass false — the optimiser already did REAL travel math
+     *  (radius + route), which outward-code equality only approximates. */
+    requireSameArea?: boolean;
+  } = {},
 ): CoexistVerdict {
+  const { requireSameArea = true } = opts;
   if (dayBookings.length === 0) return { ok: true }; // empty day — not packing
   if (dayBookings.length >= MAX_STOPS_PER_DAY) return { ok: false, reason: 'day already has the maximum number of jobs' };
 
   // Packing is same-area only (auto path; Ben can override via the Hub).
-  if (!job.postcodeArea || !dayBookings.some((b) => b.postcodeArea === job.postcodeArea)) {
+  if (requireSameArea && (!job.postcodeArea || !dayBookings.some((b) => b.postcodeArea === job.postcodeArea))) {
     return { ok: false, reason: 'packing requires a job in the same postcode area that day' };
   }
 

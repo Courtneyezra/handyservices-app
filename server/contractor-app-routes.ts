@@ -408,6 +408,7 @@ async function placeFlexJob(
   quoteId: string,
   date: string,
   slot: string,
+  opts: { fromPack?: boolean } = {},
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   if (!isIsoDate(date) || !['am', 'pm', 'full_day'].includes(slot)) {
     return { ok: false, status: 400, error: 'date (YYYY-MM-DD) and slot (am|pm|full_day) required' };
@@ -444,7 +445,7 @@ async function placeFlexJob(
   let sharing = false;
   if (dayBookings.length > 0) {
     const jobMinutes = totalScheduleMinutes(((quote.pricingLineItems as any[]) || []), {});
-    const verdict = canCoexist({ minutes: jobMinutes, postcodeArea: outwardPostcode(quote.postcode) }, slot as SlotType, dayBookings);
+    const verdict = canCoexist({ minutes: jobMinutes, postcodeArea: outwardPostcode(quote.postcode) }, slot as SlotType, dayBookings, { requireSameArea: !opts.fromPack });
     if (!verdict.ok) return { ok: false, status: 409, error: `Can't add to that day — ${verdict.reason}` };
     sharing = true;
   }
@@ -556,19 +557,34 @@ router.get('/:token/day-plans', async (req: Request, res: Response) => {
       .from(personalizedQuotes)
       .where(and(eq(personalizedQuotes.leadContractorId, profile.id), isNotNull(personalizedQuotes.depositPaidAt), isNotNull(personalizedQuotes.flexBookingWithinDays), isNull(personalizedQuotes.bookedAt)))
       .limit(50);
-    const poolIds = flexRows
-      .filter((r) => computeBookingDurationDays(((r.pricingLineItems as any[]) || []), {}) <= 1)
-      .map((r) => r.id);
+    const singleDayRows = flexRows.filter((r) => computeBookingDurationDays(((r.pricingLineItems as any[]) || []), {}) <= 1);
+    const poolIds = singleDayRows.map((r) => r.id);
+    // Jobs whose work + travel overflow a half slot must lock as full_day —
+    // the optimiser labels placements am/pm only, and an am lock would 409.
+    const needsFullDayById = new Set(singleDayRows
+      .filter((r) => totalScheduleMinutes(((r.pricingLineItems as any[]) || []), {}) + TRAVEL_ALLOWANCE_MIN > SLOT_CAPACITY_MIN.am)
+      .map((r) => r.id));
     if (poolIds.length === 0) return res.json({ goal: goalKey, plans: [], unassignable: [] });
 
     const { runDispatchOptimizer, DEFAULT_GOAL } = await import('./dispatch-optimizer');
-    const [result, { days: grid }] = await Promise.all([
-      runDispatchOptimizer(
-        { ...DEFAULT_GOAL, ...DAY_PLAN_GOALS[goalKey] },
-        { maxWindowDays: JOBS_HORIZON_DAYS, scopeContractorId: profile.id, poolQuoteIds: poolIds },
-      ),
-      loadJobsAndGrid(profile.id),
-    ]);
+    // Simulation support: the dispatch pool fences dummy quotes (test_q_flex_*)
+    // away from real surfaces. When THIS contractor's whole lead pool is dummy
+    // (an isolated test contractor), flip the optimiser into dummy-only mode so
+    // the planner composes the simulated pool. Mixed pools stay real-only.
+    const { TEST_QUOTE_PREFIX } = await import('./dispatch-test-mode');
+    const testPool = poolIds.length > 0 && poolIds.every((id) => id.startsWith(TEST_QUOTE_PREFIX));
+    // His TRUE grid first — the optimiser only proposes onto slots he opened
+    // (openSlotKeys), so plans can't land on closed days.
+    const { days: grid } = await loadJobsAndGrid(profile.id);
+    const openSlotKeys = new Set<string>();
+    for (const d of grid) {
+      if (d.am === 'open') openSlotKeys.add(`${d.date}|am`);
+      if (d.pm === 'open') openSlotKeys.add(`${d.date}|pm`);
+    }
+    const result = await runDispatchOptimizer(
+      { ...DEFAULT_GOAL, ...DAY_PLAN_GOALS[goalKey] },
+      { maxWindowDays: JOBS_HORIZON_DAYS, scopeContractorId: profile.id, poolQuoteIds: poolIds, testOnly: testPool, openSlotKeys },
+    );
 
     // The dispatch context's availability can be looser than the contractor's
     // own resolved grid (master fallbacks) — and reserveSlot would reject
@@ -593,20 +609,31 @@ router.get('/:token/day-plans', async (req: Request, res: Response) => {
         jobs: g.members.map((m) => ({
           quoteId: m.quoteId,
           fixed: !!m.fixed,
-          slot: m.slot,
+          slot: needsFullDayById.has(m.quoteId) ? 'full_day' : m.slot,
           customerName: m.customerName,
           postcodeArea: outwardPostcode(m.postcode ?? null),
           jobDescription: trimDescription(m.jobDescription ?? null),
           valuePence: m.valuePence,
         })),
         // What lock-day actually places (anchors are already booked).
-        placements: g.members.filter((m) => !m.fixed).map((m) => ({ quoteId: m.quoteId, date: g.date, slot: m.slot })),
+        // Full-day-needing jobs are coerced to full_day so locks can't 409
+        // against the half-slot window.
+        placements: g.members.filter((m) => !m.fixed).map((m) => ({ quoteId: m.quoteId, date: g.date, slot: needsFullDayById.has(m.quoteId) ? 'full_day' : m.slot })),
       }));
+
+    // Grid-validity dropped groups (optimiser proposed a day HE hasn't opened,
+    // e.g. its looser master-fallback availability) — re-surface those jobs so
+    // nothing silently vanishes; the client's per-job suggestion ghosts still
+    // give them a lockable home.
+    const surfaced = new Set(plans.flatMap((p) => p.placements.map((pl) => pl.quoteId)));
+    const dropped = result.assigned
+      .filter((a) => a.contractorId === profile.id && poolIds.includes(a.quoteId) && !surfaced.has(a.quoteId))
+      .map((a) => ({ quoteId: a.quoteId, reason: 'Proposed on a day that is not open on your calendar — see its day suggestions instead' }));
 
     res.json({
       goal: goalKey,
       plans,
-      unassignable: result.unassignable.map((u) => ({ quoteId: u.quoteId, reason: u.reason })),
+      unassignable: [...result.unassignable.map((u) => ({ quoteId: u.quoteId, reason: u.reason })), ...dropped],
     });
   } catch (err: any) {
     console.error('[ContractorApp] day-plans failed:', err?.message, err?.stack);
@@ -630,7 +657,9 @@ router.post('/:token/day-plans/lock', async (req: Request, res: Response) => {
     const placed: string[] = [];
     const failed: Array<{ quoteId: string; error: string }> = [];
     for (const p of placements) {
-      const result = await placeFlexJob(profile, String(p?.quoteId ?? ''), p?.date, p?.slot);
+      // fromPack: the optimiser composed this day with real travel math —
+      // skip the outward-code approximation, keep every capacity ceiling.
+      const result = await placeFlexJob(profile, String(p?.quoteId ?? ''), p?.date, p?.slot, { fromPack: true });
       if (result.ok) placed.push(p.quoteId);
       else failed.push({ quoteId: p?.quoteId ?? 'unknown', error: result.error });
     }

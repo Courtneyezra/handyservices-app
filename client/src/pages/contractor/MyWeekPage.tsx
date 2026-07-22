@@ -383,7 +383,10 @@ export default function MyWeekPage() {
     }
     return Array.from({ length: 28 }, (_, i) => {
       const date = format(addDaysFn(new Date(data.today + 'T00:00:00'), i), 'yyyy-MM-dd');
-      return { date, g: gridBy.get(date), booked: bookedBy.get(date) ?? [], pack: packBy.get(date), suggested: packBy.has(date) ? undefined : suggestedBy.get(date), block: blockBy.get(date), blockSpan: blockSpanBy.get(date) };
+      // Suggested ghosts render even alongside a pack (packedQuoteIds already
+      // prevents the same job appearing twice) — a dropped/skipped job must
+      // always have a visible, lockable home.
+      return { date, g: gridBy.get(date), booked: bookedBy.get(date) ?? [], pack: packBy.get(date), suggested: suggestedBy.get(date), block: blockBy.get(date), blockSpan: blockSpanBy.get(date) };
     });
   }, [data, jobs, dayPlans]);
 

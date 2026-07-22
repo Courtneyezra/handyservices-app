@@ -825,12 +825,21 @@ export async function runDispatchOptimizer(goal: DispatchGoal, opts: {
   scopeContractorId?: string;
   /** Restrict the pool to these quote ids (e.g. one contractor's lead pipeline). */
   poolQuoteIds?: string[];
+  /** Scoped runs only: the contractor's TRUE resolved availability as
+   *  `date|slot` keys (am/pm). Overrides the context's looser network
+   *  availability (master fallbacks) so proposals land only on days the
+   *  contractor actually opened — a lock can then never hit a closed day. */
+  openSlotKeys?: Set<string>;
 } = {}): Promise<OptimizeResult> {
-  const { limit = 50, maxWindowDays = 21, testOnly = false, scopeContractorId, poolQuoteIds } = opts;
+  const { limit = 50, maxWindowDays = 21, testOnly = false, scopeContractorId, poolQuoteIds, openSlotKeys } = opts;
 
   const ctxAll = await loadDispatchContext(maxWindowDays);
   const ctx = scopeContractorId
-    ? { ...ctxAll, contractors: ctxAll.contractors.filter((c) => c.id === scopeContractorId) }
+    ? {
+        ...ctxAll,
+        contractors: ctxAll.contractors.filter((c) => c.id === scopeContractorId),
+        ...(openSlotKeys ? { isAvailable: (_cid: string, d: string, _dow: number, slot: 'am' | 'pm') => openSlotKeys.has(`${d}|${slot}`) } : {}),
+      }
     : ctxAll;
   // testOnly fences the pool: default (falsy) excludes seeded dummies so the real
   // console never sees them; true includes ONLY dummies (test-mode preview).
