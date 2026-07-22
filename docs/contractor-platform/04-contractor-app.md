@@ -72,12 +72,35 @@ of the customer calendar on next recompute.
 Verified live 22 Jul: GET returns Craig's real resolved grid (booked 29 Jul
 locked, 30–31 open), day write round-trips, past-date and bad-token rejected.
 
-## Next (teams variant + beyond)
+## Quote-skin integration (phase 1 BUILT, 22 Jul — commit 7179792)
 
-1. **Teams variant** — `provider.type: 'team'`: a team lead marks how many
-   heads are free per day (crew capacity), needs a team/crew model in schema
-   first (none exists — greenfield, per the Explore audit).
-2. WhatsApp nudge loop — weekly "top up your week" message carrying the link;
+The app and the skinned quote are two faces of one spine (`leadContractorId`
++ `booking_assignments`); the app now shows the demand side:
+
+- **`GET /:token/pipeline`** — his soft-lead unpaid quotes, privacy-gated
+  like dispatch links: **outward postcode + trimmed description only**, no
+  customer name/address/contact pre-deposit (`outwardPostcode` /
+  `trimDescription` in `lib/contractor-app.ts`). Live = unexpired.
+- **Week tab strip** — "N live quotes showing your days to customers right
+  now" → makes harvesting feel consequential; taps through to the tab.
+- **Quotes tab** — per quote: value, area badge, seen-state (`viewedAt` /
+  `viewCount`), sent + expiry countdown, footer explaining the skin link.
+
+Ownership split (locked in design): Craig owns availability/photo/intro +
+(later) placing flex onto his own open days; admin owns skills, tier,
+priority, pricing — anything that changes routing or customer promises. The
+app never shows pay guarantees (floor is unpapered; piece-rate only).
+
+## Next (in order)
+
+1. **Phase 2 — Jobs tab + flex self-place**: booked-job detail (tap a locked
+   cell) + his flex queue with `POST /:token/flex/:quoteId/place` restricted
+   to his own open days (mirrors the Hub's place endpoint). The loop-closer:
+   "£480 in your queue — open Thursday and take it."
+2. **Phase 3 — profile self-serve**: photo + intro → directly edits his quote
+   skin; skill *requests* approved by Ben in the Hub.
+3. **Phase 4 — earnings**: once `booking_assignments.payout_pence` math lands.
+4. **Teams variant** — `provider.type: 'team'`: crew capacity per day (heads
+   free), needs a team/crew model in schema first (none exists — greenfield).
+5. WhatsApp nudge loop — weekly "top up your week" message carrying the link;
    staleness alert drops stale contractors from the buffered picker.
-3. Grow `/my-week` into the full contractor app: jobs, accept/decline,
-   en-route, complete + photos, earnings (PRD §5).
