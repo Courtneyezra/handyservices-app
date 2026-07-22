@@ -30,7 +30,7 @@ import {
   personalizedQuotes,
 } from '../shared/schema';
 import { timeRangeCoversSlot, SLOT_CAPACITY_MIN, type SlotType } from '../shared/slot-times';
-import { totalScheduleMinutes, computeBookingDurationDays } from '../shared/schedule-composition';
+import { totalScheduleMinutes, computeBookingDurationDays, expandSpanDates } from '../shared/schedule-composition';
 import { resolveWeek, type DayAvailability } from './lib/contractor-week';
 import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, type DayMode, type DayLoadBooking } from './lib/contractor-app';
 import { scoreFlexPlacements, type PlacementCandidate } from './lib/contractor-flex-score';
@@ -77,21 +77,22 @@ router.get('/:token', async (req: Request, res: Response) => {
         .from(handymanAvailability).where(eq(handymanAvailability.handymanId, profile.id)),
       db.select({ date: contractorAvailabilityDates.date, isAvailable: contractorAvailabilityDates.isAvailable, startTime: contractorAvailabilityDates.startTime, endTime: contractorAvailabilityDates.endTime })
         .from(contractorAvailabilityDates).where(and(eq(contractorAvailabilityDates.contractorId, profile.id), gte(contractorAvailabilityDates.date, monday), lt(contractorAvailabilityDates.date, end))),
-      db.select({ contractorId: contractorBookingRequests.contractorId, assignedContractorId: contractorBookingRequests.assignedContractorId, scheduledDate: contractorBookingRequests.scheduledDate, slot: contractorBookingRequests.scheduledSlot, durationDays: contractorBookingRequests.durationDays, status: contractorBookingRequests.status, assignmentStatus: contractorBookingRequests.assignmentStatus })
+      db.select({ contractorId: contractorBookingRequests.contractorId, assignedContractorId: contractorBookingRequests.assignedContractorId, scheduledDate: contractorBookingRequests.scheduledDate, slot: contractorBookingRequests.scheduledSlot, durationDays: contractorBookingRequests.durationDays, scheduledDates: contractorBookingRequests.scheduledDates, status: contractorBookingRequests.status, assignmentStatus: contractorBookingRequests.assignmentStatus })
         .from(contractorBookingRequests).where(and(gte(contractorBookingRequests.scheduledDate, addDays(monday, -14)), lt(contractorBookingRequests.scheduledDate, end), or(eq(contractorBookingRequests.contractorId, profile.id), eq(contractorBookingRequests.assignedContractorId, profile.id)))),
     ]);
 
     const weeklyPatterns = patternRows.map((p) => ({ dayOfWeek: p.dayOfWeek ?? 0, startTime: p.startTime ?? null, endTime: p.endTime ?? null, isActive: !!p.isActive }));
     const overrides = overrideRows.map((o) => ({ date: format(new Date(o.date as any), 'yyyy-MM-dd'), isAvailable: !!o.isAvailable, startTime: o.startTime ?? null, endTime: o.endTime ?? null }));
-    // Multi-day bookings are ONE row with durationDays=N — expand across the
-    // span (query reaches back 14 days so a span STARTING before the window
-    // still blocks its in-window days). Span days are full_day by definition.
+    // Multi-day bookings are ONE row — expand across the ACTUAL span dates
+    // (scheduledDates may skip a weekend; legacy rows expand consecutively;
+    // query reaches back 14 days so a span STARTING before the window still
+    // blocks its in-window days). Span days are full_day by definition.
     const bookings = bookingRows
       .filter((b) => ((b.status && BOOKED_STATUSES.has(b.status)) || (b.assignmentStatus && BOOKED_ASSIGNMENT.has(b.assignmentStatus))) && b.scheduledDate && (b.assignedContractorId ?? b.contractorId) === profile.id)
       .flatMap((b) => {
         const dur = b.durationDays ?? 1;
-        return Array.from({ length: dur }, (_, i) => ({
-          date: format(addDays(new Date(b.scheduledDate as any), i), 'yyyy-MM-dd'),
+        return expandSpanDates(b.scheduledDate as any, dur, b.scheduledDates).map((date) => ({
+          date,
           slot: (dur > 1 ? 'full_day' : (b.slot ?? null)) as SlotType | null,
         }));
       });
@@ -214,6 +215,7 @@ async function loadJobsAndGrid(profileId: string) {
       scheduledDate: contractorBookingRequests.scheduledDate,
       slot: contractorBookingRequests.scheduledSlot,
       durationDays: contractorBookingRequests.durationDays,
+      scheduledDates: contractorBookingRequests.scheduledDates,
       status: contractorBookingRequests.status,
       assignmentStatus: contractorBookingRequests.assignmentStatus,
       contractorId: contractorBookingRequests.contractorId,
@@ -236,15 +238,16 @@ async function loadJobsAndGrid(profileId: string) {
     : [];
   const quoteById = new Map(quoteRows.map((q) => [q.id, q]));
 
-  // Multi-day bookings are ONE row with durationDays=N → expand each booking
-  // across its span. Span days are full_day by definition; per-day minutes =
-  // total / N (matches the engine's perDayWork distribution).
+  // Multi-day bookings are ONE row → expand each booking across its ACTUAL
+  // span dates (may skip a weekend; legacy rows expand consecutively). Span
+  // days are full_day by definition; per-day minutes = total / N (matches
+  // the engine's perDayWork distribution).
   const spanEntries = booked.flatMap((b) => {
     const q = b.quoteId ? quoteById.get(b.quoteId) : undefined;
     const dur = b.durationDays ?? 1;
     const totalMinutes = totalScheduleMinutes(((q?.pricingLineItems as any[]) || []), {});
-    return Array.from({ length: dur }, (_, i) => ({
-      date: format(addDays(new Date(b.scheduledDate as any), i), 'yyyy-MM-dd'),
+    return expandSpanDates(b.scheduledDate as any, dur, b.scheduledDates).map((date) => ({
+      date,
       slot: (dur > 1 ? 'full_day' : (b.slot ?? 'full_day')) as SlotType,
       minutes: Math.ceil(totalMinutes / dur),
       postcodeArea: outwardPostcode(q?.postcode),
@@ -276,7 +279,11 @@ async function loadJobsAndGrid(profileId: string) {
   });
 
   const bookedOut = booked
-    .filter((b) => format(addDays(new Date(b.scheduledDate as any), (b.durationDays ?? 1) - 1), 'yyyy-MM-dd') >= format(todayStart, 'yyyy-MM-dd'))
+    // Keep a job listed until its LAST actual span day has passed.
+    .filter((b) => {
+      const span = expandSpanDates(b.scheduledDate as any, b.durationDays ?? 1, b.scheduledDates);
+      return span[span.length - 1] >= format(todayStart, 'yyyy-MM-dd');
+    })
     .sort((a, b) => new Date(a.scheduledDate as any).getTime() - new Date(b.scheduledDate as any).getTime())
     .map((b) => {
       const q = b.quoteId ? quoteById.get(b.quoteId) : undefined;
@@ -495,13 +502,28 @@ router.get('/:token/day-plans', async (req: Request, res: Response) => {
     if (poolIds.length === 0) return res.json({ goal: goalKey, plans: [], unassignable: [] });
 
     const { runDispatchOptimizer, DEFAULT_GOAL } = await import('./dispatch-optimizer');
-    const result = await runDispatchOptimizer(
-      { ...DEFAULT_GOAL, ...DAY_PLAN_GOALS[goalKey] },
-      { maxWindowDays: JOBS_HORIZON_DAYS, scopeContractorId: profile.id, poolQuoteIds: poolIds },
-    );
+    const [result, { days: grid }] = await Promise.all([
+      runDispatchOptimizer(
+        { ...DEFAULT_GOAL, ...DAY_PLAN_GOALS[goalKey] },
+        { maxWindowDays: JOBS_HORIZON_DAYS, scopeContractorId: profile.id, poolQuoteIds: poolIds },
+      ),
+      loadJobsAndGrid(profile.id),
+    ]);
+
+    // The dispatch context's availability can be looser than the contractor's
+    // own resolved grid (master fallbacks) — and reserveSlot would reject
+    // those days at lock time anyway. Only offer plans whose flexible
+    // placements land on slots HE has actually opened.
+    const openBy = new Map(grid.map((d) => [d.date, d]));
+    const slotOpen = (date: string, slot: SlotType) => {
+      const g = openBy.get(date);
+      if (!g) return false;
+      return slot === 'full_day' ? g.am === 'open' && g.pm === 'open' : g[slot] === 'open';
+    };
 
     const plans = result.groups
       .filter((g) => g.contractorId === profile.id)
+      .filter((g) => g.members.filter((m) => !m.fixed).every((m) => slotOpen(g.date, m.slot as SlotType)))
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((g) => ({
         date: g.date,
