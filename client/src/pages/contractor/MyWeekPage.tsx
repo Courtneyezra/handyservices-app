@@ -51,6 +51,32 @@ interface PipelinePayload {
   quotes: PipelineQuote[];
 }
 
+interface BookedJob {
+  id: string;
+  date: string;
+  slot: 'am' | 'pm' | 'full_day';
+  customerName: string;
+  postcodeArea: string | null;
+  jobDescription: string | null;
+  valuePence: number | null;
+}
+
+interface FlexJob {
+  quoteId: string;
+  postcodeArea: string | null;
+  jobDescription: string | null;
+  valuePence: number | null;
+  deadline: string | null;
+  multiDay: boolean;
+  needsFullDay: boolean;
+  suggestions: Array<{ date: string; slot: 'am' | 'pm' | 'full_day'; reasons: string[] }>;
+}
+
+interface JobsPayload {
+  booked: BookedJob[];
+  flex: FlexJob[];
+}
+
 interface AppPayload {
   provider: {
     type: 'solo';
@@ -103,7 +129,9 @@ export default function MyWeekPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [patternDraft, setPatternDraft] = useState<PatternDay[] | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
-  const [tab, setTab] = useState<'week' | 'quotes'>('week');
+  const [tab, setTab] = useState<'week' | 'quotes' | 'jobs'>('week');
+  const [confirmPlace, setConfirmPlace] = useState<string | null>(null); // `${quoteId}|${date}|${slot}`
+  const [placeError, setPlaceError] = useState<{ quoteId: string; message: string } | null>(null);
 
   const { data, isLoading, isError } = useQuery<AppPayload>({
     queryKey: ['contractor-app', token],
@@ -124,6 +152,42 @@ export default function MyWeekPage() {
       return res.json();
     },
     enabled: !!token,
+  });
+
+  // Jobs — booked work + flex queue with placement suggestions.
+  const { data: jobs } = useQuery<JobsPayload>({
+    queryKey: ['contractor-app-jobs', token],
+    queryFn: async () => {
+      const res = await fetch(`/api/contractor-app/${token}/jobs`);
+      if (!res.ok) throw new Error('load failed');
+      return res.json();
+    },
+    enabled: !!token,
+  });
+
+  // Self-place a flex job onto one of his own open days.
+  const placeMutation = useMutation({
+    mutationFn: async ({ quoteId, date, slot }: { quoteId: string; date: string; slot: string }) => {
+      const res = await fetch(`/api/contractor-app/${token}/flex/${quoteId}/place`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, slot }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Could not place the job');
+    },
+    onSuccess: () => {
+      setConfirmPlace(null);
+      setPlaceError(null);
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-jobs', token] });
+      queryClient.invalidateQueries({ queryKey: ['contractor-app', token] });
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-pipeline', token] });
+    },
+    onError: (e: any, vars) => {
+      setConfirmPlace(null);
+      setPlaceError({ quoteId: vars.quoteId, message: e?.message || 'Could not place the job' });
+      // Re-rank — the engine knows something the suggestions didn't.
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-jobs', token] });
+    },
   });
 
   // ── Day override mutation (optimistic) ──
@@ -248,7 +312,9 @@ export default function MyWeekPage() {
         <p className="text-xs text-slate-500 mb-4 mt-2">
           {tab === 'quotes'
             ? 'Live quotes going out with your name and photo on them.'
-            : 'Tap a day to open or close it. Customers can only book days you open.'}
+            : tab === 'jobs'
+              ? 'Paid work: booked days, plus flexible jobs waiting for you to pick a day.'
+              : 'Tap a day to open or close it. Customers can only book days you open.'}
         </p>
 
         {/* Live-quotes strip — the demand your open days are feeding */}
@@ -399,6 +465,107 @@ export default function MyWeekPage() {
           </div>
         )}
 
+        {/* Jobs tab — flex queue (needs a day) + booked work */}
+        {tab === 'jobs' && (
+          <div>
+            {!jobs && <div className="h-24 bg-slate-900 rounded-xl animate-pulse" />}
+
+            {jobs && jobs.flex.length > 0 && (
+              <div className="mb-6">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-400 mb-2">Needs a day — pick one</div>
+                <div className="space-y-3">
+                  {jobs.flex.map((f) => {
+                    const overdue = f.deadline ? f.deadline < (data?.today ?? '') : false;
+                    return (
+                      <div key={f.quoteId} className="p-4 bg-slate-900/60 border border-amber-500/25 rounded-xl">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              {f.postcodeArea && <span className="text-[10px] font-bold tracking-wider text-slate-400 bg-slate-800 rounded px-1.5 py-0.5">{f.postcodeArea}</span>}
+                              {f.deadline && (
+                                <span className={`text-[10px] font-semibold ${overdue ? 'text-red-400' : 'text-amber-400'}`}>
+                                  {overdue ? 'Overdue — call us' : `needs a day by ${format(new Date(f.deadline + 'T00:00:00'), 'EEE d MMM')}`}
+                                </span>
+                              )}
+                            </div>
+                            {f.jobDescription && <p className="text-xs text-slate-300 mt-1.5 leading-snug">{f.jobDescription}</p>}
+                          </div>
+                          {f.valuePence != null && <div className="text-lg font-bold text-white shrink-0">£{Math.round(f.valuePence / 100)}</div>}
+                        </div>
+
+                        {placeError?.quoteId === f.quoteId && (
+                          <p className="mt-2 text-[11px] font-semibold text-red-400">{placeError.message}</p>
+                        )}
+                        {f.multiDay ? (
+                          <p className="mt-3 text-[11px] text-slate-500">Multi-day job — Handy will schedule this with you.</p>
+                        ) : f.suggestions.length === 0 ? (
+                          <p className="mt-3 text-[11px] text-slate-500">No open days before the deadline — open a day on "Week" or call us.</p>
+                        ) : (
+                          <div className="mt-3 space-y-1.5">
+                            {f.suggestions.map((s) => {
+                              const key = `${f.quoteId}|${s.date}|${s.slot}`;
+                              const confirming = confirmPlace === key;
+                              const slotLabel = s.slot === 'am' ? 'Morning' : s.slot === 'pm' ? 'Afternoon' : 'Full day';
+                              return (
+                                <button
+                                  key={key}
+                                  disabled={placeMutation.isPending}
+                                  onClick={() => (confirming
+                                    ? placeMutation.mutate({ quoteId: f.quoteId, date: s.date, slot: s.slot })
+                                    : setConfirmPlace(key))}
+                                  className={`w-full flex items-center gap-2 p-2.5 rounded-lg border text-left transition-all active:scale-[0.99] ${
+                                    confirming ? 'bg-emerald-500 border-emerald-500 text-slate-950' : 'bg-slate-800/70 border-slate-700 text-slate-200'
+                                  }`}
+                                >
+                                  <span className="text-xs font-bold shrink-0">
+                                    {confirming ? (placeMutation.isPending ? 'Booking…' : `Confirm ${format(new Date(s.date + 'T00:00:00'), 'EEE d')} ${slotLabel}?`) : `${format(new Date(s.date + 'T00:00:00'), 'EEE d MMM')} · ${slotLabel}`}
+                                  </span>
+                                  {!confirming && s.reasons.length > 0 && (
+                                    <span className="text-[10px] text-emerald-400/90 truncate">{s.reasons[0]}</span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {jobs && (
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Booked</div>
+                {jobs.booked.length === 0 ? (
+                  <div className="p-6 text-center bg-slate-900/60 border border-slate-800/60 rounded-2xl">
+                    <Briefcase size={20} className="mx-auto text-slate-600 mb-2" />
+                    <div className="text-sm font-bold text-slate-300">Nothing booked yet</div>
+                    <p className="text-xs text-slate-500 mt-1">Booked jobs land here with the customer's details.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {jobs.booked.map((b) => (
+                      <div key={b.id} className="p-3.5 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-blue-300">
+                            {format(new Date(b.date + 'T00:00:00'), 'EEE d MMM')} · {b.slot === 'am' ? '9am–1pm' : b.slot === 'pm' ? '2pm–6pm' : '9am–6pm'}
+                          </div>
+                          <div className="text-xs text-slate-400 mt-0.5 truncate">
+                            {b.customerName}{b.postcodeArea ? ` · ${b.postcodeArea}` : ''}{b.jobDescription ? ` — ${b.jobDescription}` : ''}
+                          </div>
+                        </div>
+                        {b.valuePence != null && <div className="text-base font-bold text-blue-200 shrink-0">£{Math.round(b.valuePence / 100)}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Freshness footer */}
         {tab === 'week' && data?.provider.lastAvailabilityRefresh && (
           <div className="mt-5 text-center text-[10px] text-slate-600">
@@ -415,7 +582,7 @@ export default function MyWeekPage() {
           {([
             { key: 'week' as const, label: 'Week', icon: CalendarDays, live: true, badge: 0 },
             { key: 'quotes' as const, label: 'Quotes', icon: FileText, live: true, badge: pipeline?.liveCount ?? 0 },
-            { key: 'jobs' as const, label: 'Jobs', icon: Briefcase, live: false, badge: 0 },
+            { key: 'jobs' as const, label: 'Jobs', icon: Briefcase, live: true, badge: jobs?.flex.length ?? 0 },
             { key: 'profile' as const, label: 'Profile', icon: UserRound, live: false, badge: 0 },
           ]).map((item) => {
             const active = item.live && tab === item.key;
@@ -424,7 +591,7 @@ export default function MyWeekPage() {
                 key={item.key}
                 disabled={!item.live}
                 aria-label={item.live ? item.label : `${item.label} — coming soon`}
-                onClick={() => item.live && setTab(item.key as 'week' | 'quotes')}
+                onClick={() => item.live && setTab(item.key as 'week' | 'quotes' | 'jobs')}
                 className={`relative flex flex-col items-center gap-1 py-2.5 transition-colors ${
                   active ? 'text-white' : item.live ? 'text-slate-500 active:text-slate-300' : 'text-slate-700'
                 }`}
