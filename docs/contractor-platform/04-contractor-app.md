@@ -189,6 +189,35 @@ revenue £248 · day £150"), one-tap lock booked both (AM+PM); electrical job
 correctly unassignable (Craig has no electrical skill tagged). Pool loader
 note: line items need `category` (not `categorySlug`) for pool jobs.
 
+## Incoming-quote simulation (23 Jul — harness + findings)
+
+`scripts/_sim-incoming-quotes.ts seed|scrub` — isolated Newcastle test
+contractor (8mi radius; ids on the `test_q_flex_` fence so real surfaces
+never see them; day-plans auto-detects an all-dummy lead pool → optimiser
+test mode). Pool: 3-day block £2,400 · covered multi-skill £680 ·
+skills-gap job £450 (roofing) · 4 minors · 1 out-of-radius outlier.
+
+**Outcome (the spec, achieved):** block claimed Mon–Wed; multi-skill
+full-day took Thu; minors packed 2-up onto the two days opened via
+harvest-coaching; skills-gap + outlier surfaced as the only exceptions —
+£3,540 of £4,070 booked, sequence: lock block first → everything
+recomposed around it (P0's blocks-first thesis confirmed empirically).
+
+**Five defects found + fixed (commit 9e8bfce):** optimiser proposing
+never-opened days (→ `openSlotKeys` true-grid override); dropped jobs
+vanishing (→ re-surfaced in unassignable); full-day jobs labelled `am`
+(→ placement slot coercion); ghost fallback suppressed by same-day packs
+(→ always renders); same-area rule vetoing optimiser-endorsed cross-area
+packs (→ `canCoexist.requireSameArea=false` for `fromPack` locks).
+
+**Filed, not fixed:** engine matches availability by UTC day while every
+writer stores LOCAL midnight — invisible on UTC prod, ±1-day shift on
+non-UTC machines (chip task_e5d1e107; fix after the span task lands).
+Design decision open: the per-job suggester is skill-blind (lead
+assignment = Ben's steering), so a skills-gap job still counts as "ready"
+in the payslip — decide whether payslip should exclude optimiser-refused
+jobs.
+
 ## Next (in order)
 
 1. **Flex-runway alert** — flex job unplaced with <48h to deadline → alert
