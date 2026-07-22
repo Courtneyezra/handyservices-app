@@ -31,6 +31,7 @@ interface PersonalizedQuote {
     quoteMode: string;
     expiresAt: string | null;
     basePrice: number | null;
+    extensionCount?: number | null;
     essentialPrice: number | null;
     enhancedPrice: number | null;
     elitePrice: number | null;
@@ -191,11 +192,22 @@ export function QuoteCard({ quote, onDelete, onRenew, renewingId, onEdit, onPrev
 
                 {/* Price + Details Row */}
                 <div className="flex items-center justify-between gap-2 mb-2">
-                    {displayPrice > 0 && (
-                        <span className="text-lg font-bold text-foreground">
-                            £{(displayPrice / 100).toFixed(0)}
-                        </span>
-                    )}
+                    <div className="flex items-center gap-2 min-w-0">
+                        {displayPrice > 0 && (
+                            <span className="text-lg font-bold text-foreground">
+                                £{(displayPrice / 100).toFixed(0)}
+                            </span>
+                        )}
+                        {quote.extensionCount && quote.extensionCount > 0 ? (
+                            <Badge
+                                variant="outline"
+                                className="text-amber-600 border-amber-300 text-[10px] shrink-0"
+                                title={`Customer refreshed this expired quote ${quote.extensionCount}× — price uplifted ${Math.round((Math.pow(1.05, quote.extensionCount) - 1) * 100)}%`}
+                            >
+                                Reissued ×{quote.extensionCount} · +{Math.round((Math.pow(1.05, quote.extensionCount) - 1) * 100)}%
+                            </Badge>
+                        ) : null}
+                    </div>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
                         <a href={`tel:${quote.phone}`} className="flex items-center gap-1 text-blue-500 hover:underline shrink-0">
                             <Phone className="h-3 w-3" />
