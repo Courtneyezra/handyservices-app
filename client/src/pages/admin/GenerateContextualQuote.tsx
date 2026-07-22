@@ -12,7 +12,9 @@ import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -1068,17 +1070,40 @@ interface FitResponse {
   days: number;
   /** Phase 24b — echoed back so the UI can show "Start a 3-day job on…" */
   requiredDays?: number;
+  /** Contractor platform — the engine's auto team plan (suggested lead + coverage). */
+  teamPlan?: {
+    bookable: boolean;
+    kind: 'solo' | 'composed' | 'no_supply';
+    leadContractorId: string | null;
+    assignments: { contractorId: string; role: 'lead' | 'specialist'; coveredCategories: string[] }[];
+    uncoveredCategories: string[];
+  } | null;
+}
+
+/** Roster shape from GET /api/admin/contractor-hub (bands: partner/core/adhoc). */
+interface HubRosterContractor {
+  id: string;
+  name: string;
+  skills: string[];
+}
+interface HubRosterResponse {
+  bands: { tier: 'partner' | 'core' | 'adhoc'; label: string; contractors: HubRosterContractor[] }[];
 }
 
 function ContractorFitPanel({
   categorySlugs,
   coordinates,
   requiredDays = 1,
+  leadOverrideId,
+  onLeadOverrideChange,
 }: {
   categorySlugs: string[];
   coordinates: { lat: number; lng: number } | null;
   /** Phase 24b — multi-day jobs need N consecutive days. Default 1 = legacy. */
   requiredDays?: number;
+  /** null = Auto (engine picks the lead); an id = Ben's explicit override. */
+  leadOverrideId: string | null;
+  onLeadOverrideChange: (id: string | null) => void;
 }) {
   const catKey = [...categorySlugs].sort().join(',');
   const { data, isLoading, isError, refetch, isFetching } = useQuery<FitResponse>({
@@ -1096,6 +1121,41 @@ function ContractorFitPanel({
       return res.json();
     },
   });
+
+  // Roster for the lead selector — delivery bands from the Contractor Hub.
+  // Rendered core-first (Craig-first within a band via delivery_priority).
+  const { data: hub } = useQuery<HubRosterResponse>({
+    queryKey: ['contractor-hub-roster'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/contractor-hub', { headers: { ...getAuthHeaders() } });
+      if (!res.ok) throw new Error('Failed to load contractor roster');
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  const distinctCats = useMemo(() => [...new Set(categorySlugs)], [catKey]);
+  const rosterById = useMemo(() => {
+    const map = new Map<string, HubRosterContractor>();
+    for (const band of hub?.bands ?? []) for (const c of band.contractors) map.set(c.id, c);
+    return map;
+  }, [hub]);
+  const bandsCoreFirst = useMemo(() => {
+    const order: Record<string, number> = { core: 0, partner: 1, adhoc: 2 };
+    return [...(hub?.bands ?? [])].sort((a, b) => (order[a.tier] ?? 9) - (order[b.tier] ?? 9));
+  }, [hub]);
+
+  const autoLeadId = data?.teamPlan?.leadContractorId ?? null;
+  const autoLeadAssignment = data?.teamPlan?.assignments.find((a) => a.role === 'lead') ?? null;
+  const autoLeadName = autoLeadId
+    ? rosterById.get(autoLeadId)?.name
+      ?? data?.candidates.find((c) => c.contractorId === autoLeadId)?.name
+      ?? null
+    : null;
+  const coveredByContractor = (c: HubRosterContractor | undefined) =>
+    c ? distinctCats.filter((cat) => c.skills.includes(cat)) : [];
+  const overrideContractor = leadOverrideId ? rosterById.get(leadOverrideId) : undefined;
+  const overrideCovered = coveredByContractor(overrideContractor);
 
   if (categorySlugs.length === 0) return null;
 
@@ -1121,6 +1181,68 @@ function ContractorFitPanel({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* Lead contractor — auto-suggest, Ben confirms (PRD: the confirm/override
+            surface). The chosen lead drives the customer-facing quote skin AND
+            anchors the customer date picker on their availability. */}
+        <div className="rounded-lg border border-handy-grid bg-white p-3 space-y-2">
+          <Label className="text-xs font-bold uppercase tracking-wider text-handy-navy">Lead contractor</Label>
+          <Select
+            value={leadOverrideId ?? 'auto'}
+            onValueChange={(v) => onLeadOverrideChange(v === 'auto' ? null : v)}
+          >
+            <SelectTrigger className="h-10">
+              <SelectValue placeholder="Auto — engine picks" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">
+                Auto — engine picks{autoLeadName ? ` (${autoLeadName})` : ''}
+              </SelectItem>
+              {bandsCoreFirst.map((band) =>
+                band.contractors.length === 0 ? null : (
+                  <SelectGroup key={band.tier}>
+                    <SelectLabel>{band.label}</SelectLabel>
+                    {band.contractors.map((c) => {
+                      const covered = coveredByContractor(c);
+                      return (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                          {distinctCats.length > 0 ? ` — covers ${covered.length}/${distinctCats.length}` : ''}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectGroup>
+                ),
+              )}
+            </SelectContent>
+          </Select>
+          {leadOverrideId === null ? (
+            autoLeadId ? (
+              <p className="text-[11px] text-handy-muted">
+                Suggested: <span className="font-semibold text-handy-navy">{autoLeadName ?? autoLeadId}</span>
+                {autoLeadAssignment && autoLeadAssignment.coveredCategories.length > 0 && (
+                  <> — covers {autoLeadAssignment.coveredCategories.map((c) => getCategoryLabel(c as any)).join(', ')}</>
+                )}
+                {data?.teamPlan?.kind === 'composed' && <> · specialists cover the rest</>}
+              </p>
+            ) : (
+              <p className="text-[11px] text-handy-muted">The engine picks the lead when the quote is generated.</p>
+            )
+          ) : (
+            <div className="text-[11px] text-handy-muted flex items-start gap-1.5 flex-wrap">
+              <Badge className="bg-handy-navy text-white text-[10px] font-bold shrink-0">Manual override</Badge>
+              <span>
+                <span className="font-semibold text-handy-navy">{overrideContractor?.name ?? leadOverrideId}</span> fronts the
+                quote (skin + customer dates anchor on their diary).
+                {distinctCats.length > 0 && overrideCovered.length < distinctCats.length && (
+                  <span className="text-amber-700 font-medium">
+                    {' '}Covers {overrideCovered.length}/{distinctCats.length} — the rest goes to specialists.
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
+        </div>
+
         {isLoading ? (
           <div className="flex items-center gap-2 text-xs text-handy-muted py-4"><Loader2 className="w-4 h-4 animate-spin" /> Finding contractors…</div>
         ) : isError ? (
@@ -1402,6 +1524,9 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
 
   // ── Contractor assignment ──
   const [selectedContractorId, setSelectedContractorId] = useState<string | null>(null);
+  // Lead contractor override — null = Auto (resolveQuoteTeam picks). An id =
+  // Ben forced this lead: sent as forcedLeadContractorId on generation.
+  const [leadOverrideId, setLeadOverrideId] = useState<string | null>(null);
 
   // ── Call card selection ──
   const [selectedCallerId, setSelectedCallerId] = useState<string | null>(null);
@@ -1747,6 +1872,12 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
         if (Array.isArray(quote.availableDates)) setAvailableDates(quote.availableDates);
         if (Array.isArray(quote.customerPhotoUrls)) setCustomerPhotos(quote.customerPhotoUrls);
 
+        // A manually forced lead survives the edit round-trip; an auto lead
+        // stays on Auto so the engine may re-pick as the roster changes.
+        if (quote.leadContractorSource === 'manual' && quote.leadContractorId) {
+          setLeadOverrideId(quote.leadContractorId);
+        }
+
         if (quote.jobDescription) setJobDescription(quote.jobDescription);
 
         // Load the ACTUAL saved line items — preserve structure and any per-line
@@ -2037,6 +2168,8 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
             ? { sourceChannel: 'whatsapp' as const }
             : {}),
           contractorId: selectedContractorId || undefined,
+          // Lead override ("auto-suggest, Ben confirms") — omitted = auto.
+          ...(leadOverrideId ? { forcedLeadContractorId: leadOverrideId } : {}),
           createdBy: adminUser?.id || undefined,
           createdByName: adminUser?.name || adminUser?.email || undefined,
           availableDates,
@@ -4163,6 +4296,8 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
               categorySlugs={lineItems.map(li => li.category)}
               coordinates={coordinates}
               requiredDays={liveRequiredDays}
+              leadOverrideId={leadOverrideId}
+              onLeadOverrideChange={setLeadOverrideId}
             />
 
 

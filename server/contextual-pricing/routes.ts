@@ -1354,6 +1354,13 @@ const contextualQuoteInputSchema = z.object({
   // Contractor assignment (optional — shows their profile on the quote page)
   contractorId: z.string().optional(),
 
+  // Lead contractor override ("auto-suggest, Ben confirms"). Absent/null → the
+  // team engine picks (leadContractorSource='auto'). Set → this contractor is
+  // steered into the lead role: they drive the quote skin AND the customer
+  // date picker anchors on their availability alone. Persisted as
+  // leadContractorSource='manual' so live fit recomputes keep honoring it.
+  forcedLeadContractorId: z.string().nullable().optional(),
+
   // Vestigial — Phase A locked the customer date pool to live contractor
   // availability, so admins no longer need to hand-pick dates. Kept optional
   // for backward compatibility with older quote flows. Newly-created quotes
@@ -1800,6 +1807,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
     let candidateContractorIds: string[] | null = null;
     let leadContractorId: string | null = null;
     let teamPlan: any = null;
+    let leadContractorSource: 'auto' | 'manual' = 'auto';
     try {
       // Steer, then compose: resolve the team plan (solo / composed / no_supply)
       // + the availability-driver ids. Persist the SOFT lead + team plan so the
@@ -1809,12 +1817,19 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
         categorySlugs: jobCategories as string[],
         customerLat: resolvedCoordinates?.lat,
         customerLng: resolvedCoordinates?.lng,
+        forcedLeadId: input.forcedLeadContractorId ?? null,
       });
       candidateContractorIds = fit.availabilityContractorIds.length ? fit.availabilityContractorIds : null;
       leadContractorId = fit.teamPlan.leadContractorId;
       teamPlan = fit.teamPlan;
+      // 'manual' only when the override actually won the lead — a bogus/unknown
+      // id falls back to auto and must not pin future recomputes to it.
+      leadContractorSource =
+        input.forcedLeadContractorId && fit.teamPlan.leadContractorId === input.forcedLeadContractorId
+          ? 'manual'
+          : 'auto';
       console.log(
-        `[ContextualQuote] team plan: ${fit.teamPlan.kind} lead=${leadContractorId ?? '—'} avail=${fit.availabilityContractorIds.length} for [${jobCategories.join(', ')}]`,
+        `[ContextualQuote] team plan: ${fit.teamPlan.kind} lead=${leadContractorId ?? '—'} (${leadContractorSource}) avail=${fit.availabilityContractorIds.length} for [${jobCategories.join(', ')}]`,
       );
     } catch (e) {
       console.warn('[ContextualQuote] team resolve failed:', e instanceof Error ? e.message : e);
@@ -1860,6 +1875,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       candidateContractorIds,
       leadContractorId,
       teamPlan,
+      leadContractorSource,
       jobDescription: input.jobDescription || input.lines.map((l) => l.description).join('; '),
       quoteMode: 'simple' as const,
       leadId: linkedLeadId,

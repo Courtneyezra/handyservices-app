@@ -99,6 +99,59 @@ describe('resolveQuoteTeam', () => {
   });
 });
 
+describe('resolveQuoteTeam — forced lead (Ben\'s builder override)', () => {
+  it('forced full-coverer wins the lead even when routing order prefers someone else', () => {
+    // Auto would pick Craig (core p1); Ben forces Joe.
+    const plan = resolveQuoteTeam(
+      ['joinery', 'decorating'],
+      [craig(['joinery', 'decorating']), joe(['joinery', 'decorating'])],
+      { forcedLeadId: 'joe' },
+    );
+    expect(plan.kind).toBe('solo');
+    expect(plan.leadContractorId).toBe('joe');
+  });
+
+  it('forced partial-coverer composes: they lead, residual lines go to specialists', () => {
+    // Craig could solo the whole job, but Ben forces Bezent who only covers tiling.
+    const plan = resolveQuoteTeam(
+      ['joinery', 'tiling'],
+      [craig(['joinery', 'tiling']), bezent(['tiling'])],
+      { forcedLeadId: 'bezent' },
+    );
+    expect(plan.bookable).toBe(true);
+    expect(plan.kind).toBe('composed');
+    expect(plan.leadContractorId).toBe('bezent');
+    expect(plan.assignments).toContainEqual({ contractorId: 'bezent', role: 'lead', coveredCategories: ['tiling'] });
+    expect(plan.assignments).toContainEqual({ contractorId: 'craig', role: 'specialist', coveredCategories: ['joinery'] });
+  });
+
+  it('forced lead with ZERO coverage overlap still fronts the job (specialists deliver)', () => {
+    const plan = resolveQuoteTeam(
+      ['plumbing_minor'],
+      [craig(['plumbing_minor']), dwaine([])],
+      { forcedLeadId: 'dwaine' },
+    );
+    expect(plan.bookable).toBe(true);
+    expect(plan.kind).toBe('composed');
+    expect(plan.leadContractorId).toBe('dwaine');
+    expect(plan.assignments).toContainEqual({ contractorId: 'dwaine', role: 'lead', coveredCategories: [] });
+    expect(plan.assignments).toContainEqual({ contractorId: 'craig', role: 'specialist', coveredCategories: ['plumbing_minor'] });
+  });
+
+  it('unknown forced id falls back to the auto flow', () => {
+    const plan = resolveQuoteTeam(['joinery'], [craig(['joinery'])], { forcedLeadId: 'nobody' });
+    expect(plan.kind).toBe('solo');
+    expect(plan.leadContractorId).toBe('craig');
+  });
+
+  it('forcing a lead cannot rescue a true supply gap', () => {
+    const plan = resolveQuoteTeam(['gas_safe'], [craig([]), dwaine([])], { forcedLeadId: 'craig' });
+    expect(plan.bookable).toBe(false);
+    expect(plan.kind).toBe('no_supply');
+    expect(plan.uncoveredCategories).toEqual(['gas_safe']);
+  });
+});
+
 describe('deriveTeamFit — availability anchoring', () => {
   it('solo → calendar reflects the UNION of everyone who can solo the job', () => {
     const fit = deriveTeamFit(
@@ -118,6 +171,17 @@ describe('deriveTeamFit — availability anchoring', () => {
     expect(fit.plan.kind).toBe('composed');
     expect(fit.availabilityContractorIds).toEqual(['craig']); // Ben coordinates Joe post-confirm
     expect(fit.fullCoverageCandidateIds).toEqual([]);
+  });
+
+  it('forced lead → calendar anchors on the FORCED lead alone, even when others could solo', () => {
+    const fit = deriveTeamFit(
+      ['joinery', 'decorating'],
+      [craig(['joinery', 'decorating']), bezent(['joinery', 'decorating'])],
+      { forcedLeadId: 'bezent' },
+    );
+    expect(fit.plan.kind).toBe('solo');
+    expect(fit.plan.leadContractorId).toBe('bezent');
+    expect(fit.availabilityContractorIds).toEqual(['bezent']); // NOT the craig+bezent union
   });
 
   it('no_supply → empty availability (dead calendar only on a true gap)', () => {

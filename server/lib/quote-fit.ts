@@ -18,10 +18,10 @@
  * If you change this function, customer-facing dates and admin fit
  * panel both move together. That's the point.
  */
-import { inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { findCandidateContractors } from '../contractor-matcher';
 import { db } from '../db';
-import { handymanProfiles } from '../../shared/schema';
+import { handymanProfiles, handymanSkills } from '../../shared/schema';
 import type { personalizedQuotes } from '../../shared/schema';
 import { geocodeAddress } from './geocoding';
 import { deriveTeamFit, type TeamCandidate, type DeliveryTier, type QuoteTeamPlan } from './quote-team';
@@ -60,6 +60,14 @@ export interface QuoteFitInput {
   categorySlugs: string[];
   customerLat?: number;
   customerLng?: number;
+  /**
+   * Ben's manual lead override from the quote builder. The forced contractor is
+   * steered into the lead role (see quote-team.ts) and anchors the customer
+   * calendar alone. If the matcher excluded them (radius/verification), they're
+   * injected from their skills row anyway — an explicit override outranks the
+   * auto filters.
+   */
+  forcedLeadId?: string | null;
 }
 
 export interface FitCandidate {
@@ -115,7 +123,11 @@ export async function resolveQuoteCandidatePool(input: QuoteFitInput): Promise<Q
   // + docs/contractor-platform. `candidates` stays the full-coverage soloers for
   // backward-compatible admin display; `availabilityContractorIds` drives the
   // customer calendar (anchor-on-lead for composed).
-  const tierById = await fetchContractorTiers(match.candidates.map((c) => c.contractorId));
+  const forcedLeadId = input.forcedLeadId ?? null;
+  const matchedIds = match.candidates.map((c) => c.contractorId);
+  const tierById = await fetchContractorTiers(
+    forcedLeadId && !matchedIds.includes(forcedLeadId) ? [...matchedIds, forcedLeadId] : matchedIds,
+  );
   const teamCandidates: TeamCandidate[] = match.candidates.map((c) => {
     const t = tierById.get(c.contractorId);
     return {
@@ -125,7 +137,32 @@ export async function resolveQuoteCandidatePool(input: QuoteFitInput): Promise<Q
       coveredCategories: c.coveredCategories,
     };
   });
-  const fit = deriveTeamFit(input.categorySlugs, teamCandidates);
+
+  // A forced lead the matcher filtered out (radius / verification / no skill
+  // overlap) is injected from their skills row: Ben's explicit pick outranks
+  // the auto filters. Only a contractor with NO profile row at all is dropped
+  // (deriveTeamFit then falls back to auto).
+  if (forcedLeadId && !matchedIds.includes(forcedLeadId) && tierById.has(forcedLeadId)) {
+    try {
+      const skillRows = await db
+        .select({ categorySlug: handymanSkills.categorySlug })
+        .from(handymanSkills)
+        .where(eq(handymanSkills.handymanId, forcedLeadId));
+      const skills = new Set(skillRows.map((r) => r.categorySlug).filter(Boolean) as string[]);
+      const t = tierById.get(forcedLeadId);
+      teamCandidates.push({
+        contractorId: forcedLeadId,
+        tier: t?.tier ?? 'adhoc',
+        priority: t?.priority ?? null,
+        coveredCategories: input.categorySlugs.filter((cat) => skills.has(cat)),
+      });
+      console.log(`[QuoteFit] forced lead ${forcedLeadId} injected past the matcher filters (manual override)`);
+    } catch (e) {
+      console.warn('[QuoteFit] forced-lead injection failed:', e instanceof Error ? e.message : e);
+    }
+  }
+
+  const fit = deriveTeamFit(input.categorySlugs, teamCandidates, { forcedLeadId });
 
   if (fit.plan.kind === 'composed') {
     console.log(
@@ -192,7 +229,13 @@ export async function computeQuoteCandidatePoolForQuote(quote: QuoteRow): Promis
     }
   }
 
-  return resolveQuoteCandidatePool({ categorySlugs, customerLat, customerLng });
+  // Manual lead override (quote builder): keep steering Ben's chosen lead on
+  // every live recompute — otherwise the public availability route, which
+  // resolves the pool fresh, would silently revert to the engine's auto pick.
+  const forcedLeadId =
+    (quote as any).leadContractorSource === 'manual' ? ((quote as any).leadContractorId as string | null) : null;
+
+  return resolveQuoteCandidatePool({ categorySlugs, customerLat, customerLng, forcedLeadId });
 }
 
 // ---------------------------------------------------------------------------

@@ -987,6 +987,10 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
     // lane. Holds NO capacity — hard reservation still happens at deposit (bookingSlotLocks).
     leadContractorId: varchar("lead_contractor_id").references(() => handymanProfiles.id), // soft-assigned lead
     teamPlan: jsonb("team_plan"), // { lead, assignments:[{contractorId,role,coveredCategories}], uncoveredCategories } — the "steer, then compose" suggestion Ben confirms
+    // 'manual' = Ben forced the lead in the quote builder → live fit recomputes
+    // (public availability, admin panels) must keep steering this lead first.
+    // 'auto'/null = engine's own pick, free to move as the roster changes.
+    leadContractorSource: varchar("lead_contractor_source").$type<'auto' | 'manual'>(),
 
     // Booking Lock
     bookingLockedAt: timestamp("booking_locked_at"),
