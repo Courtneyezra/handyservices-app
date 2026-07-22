@@ -91,12 +91,45 @@ Ownership split (locked in design): Craig owns availability/photo/intro +
 priority, pricing — anything that changes routing or customer promises. The
 app never shows pay guarantees (floor is unpapered; piece-rate only).
 
+## Phase 2 — Jobs tab + flex self-place (BUILT 22 Jul, commit e1b4c38)
+
+Craig fills his own empty days — the piece-rate answer to calendar
+commitment:
+
+- **`GET /:token/jobs`** — upcoming booked work (post-deposit: customer
+  names allowed) + his flex queue (paid, `flexBookingWithinDays`, unbooked,
+  his lead). Each placeable flex job carries **top-3 ranked suggestions**.
+- **Placement scorer** (`lib/contractor-flex-score.ts`, pure, 6 tests) —
+  optimises for what a contractor wants, with reasons in words:
+  clustering (+40 same outward code that day), day-completion (+25 fills the
+  other half of a part-booked day), soonest (+15, −3/day), fragment
+  protection (−10 half-day job burning an empty full-open day). Transparent
+  filter+pick, NOT a route solver (right-sized per the scheduling design).
+  Same scorer can later serve the Hub place action + Fill-Up Packs.
+- **`POST /:token/flex/:quoteId/place`** — validates his/paid/flex/unbooked/
+  in-window, then `reserveSlot` → `confirmBooking` (`flex-self-place`). The
+  engine's **travel-aware day-fit is the authority** (geocodes + rejects
+  overfull slots); the suggester budgets `TRAVEL_ALLOWANCE_MIN = 45` so
+  work + travel overflowing a half slot steers to full-day. Engine
+  rejections surface inline on the card and trigger a re-rank.
+- **Multi-day flex** is excluded from self-place ("Handy will schedule this
+  with you") — Ben places via the Hub.
+- Jobs nav slot live with a needs-a-day badge; deadline countdown per card;
+  overdue shows "call us".
+
+Verified live end-to-end 22 Jul: suggest → two-tap confirm → booked →
+grid cell locked; the engine's 409 (210min work + 38min travel > 240 PM cap)
+exercised the fallback path. Synthetic rows fully scrubbed (booking +
+assignments + locks + quote).
+
+**Still manual:** customer comms when a flex date is confirmed (Ben,
+WhatsApp — keep Handy-branded); the ~48h-runway "unplaced flex" alert to Ben
+is not built yet.
+
 ## Next (in order)
 
-1. **Phase 2 — Jobs tab + flex self-place**: booked-job detail (tap a locked
-   cell) + his flex queue with `POST /:token/flex/:quoteId/place` restricted
-   to his own open days (mirrors the Hub's place endpoint). The loop-closer:
-   "£480 in your queue — open Thursday and take it."
+1. **Flex-runway alert** — flex job unplaced with <48h to deadline → alert
+   Ben (Pushover/WhatsApp) to place it via the Hub.
 2. **Phase 3 — profile self-serve**: photo + intro → directly edits his quote
    skin; skill *requests* approved by Ben in the Hub.
 3. **Phase 4 — earnings**: once `booking_assignments.payout_pence` math lands.
