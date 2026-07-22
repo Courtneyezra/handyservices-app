@@ -13,7 +13,8 @@ import { useRoute } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound } from 'lucide-react';
+import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles } from 'lucide-react';
+import { addDays as addDaysFn } from 'date-fns';
 
 // ── Types (mirror server/contractor-app-routes.ts) ────────────────────────────
 
@@ -154,6 +155,7 @@ export default function MyWeekPage() {
   const [confirmPlace, setConfirmPlace] = useState<string | null>(null); // `${quoteId}|${date}|${slot}`
   const [placeError, setPlaceError] = useState<{ quoteId: string; message: string } | null>(null);
   const [planGoal, setPlanGoal] = useState<DayPlanGoal>('earnings');
+  const [planOpen, setPlanOpen] = useState(false);
   const [confirmLock, setConfirmLock] = useState<string | null>(null); // plan date
   const [lockError, setLockError] = useState<string | null>(null);
 
@@ -198,7 +200,7 @@ export default function MyWeekPage() {
       if (!res.ok) throw new Error('load failed');
       return res.json();
     },
-    enabled: !!token && tab === 'jobs' && flexCount >= 2,
+    enabled: !!token && ((tab === 'jobs' && flexCount >= 2) || (planOpen && flexCount >= 1)),
   });
 
   const lockMutation = useMutation({
@@ -306,7 +308,12 @@ export default function MyWeekPage() {
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) queryClient.setQueryData(['contractor-app', token], ctx.prev);
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['contractor-app', token] }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['contractor-app', token] });
+      // Opening/closing a day changes what fits — recompute the plan surfaces.
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-jobs', token] });
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-day-plans', token] });
+    },
   });
 
   // ── Usual-week pattern mutation ──
@@ -326,6 +333,48 @@ export default function MyWeekPage() {
       queryClient.invalidateQueries({ queryKey: ['contractor-app', token] });
     },
   });
+
+  // ── Week planner composition (client-side over existing queries) ──
+  const bookedPence = jobs?.booked.reduce((s, b) => s + (b.valuePence ?? 0), 0) ?? 0;
+  const hasOptions = (f: FlexJob) => (f.multiDay ? f.blockStarts.length : f.suggestions.length) > 0;
+  const readyPence = jobs?.flex.reduce((s, f) => s + (hasOptions(f) ? (f.valuePence ?? 0) : 0), 0) ?? 0;
+  const stuck = jobs?.flex.filter((f) => !hasOptions(f)) ?? [];
+  const stuckPence = stuck.reduce((s, f) => s + (f.valuePence ?? 0), 0);
+
+  const planRows = useMemo(() => {
+    if (!data || !jobs) return [];
+    const gridBy = new Map(data.days.map((d) => [d.date, d]));
+    const bookedBy = new Map<string, Array<{ label: string; valuePence: number; tag: string }>>();
+    for (const b of jobs.booked) {
+      const dur = b.durationDays ?? 1;
+      for (let i = 0; i < dur; i++) {
+        const dt = format(addDaysFn(new Date(b.date + 'T00:00:00'), i), 'yyyy-MM-dd');
+        const list = bookedBy.get(dt) ?? [];
+        list.push({
+          label: `${b.customerName.trim()}${b.jobDescription ? ' — ' + b.jobDescription : ''}`,
+          valuePence: b.valuePence ?? 0,
+          tag: dur > 1 ? `Day ${i + 1} of ${dur}` : b.slot === 'am' ? '9am–1pm' : b.slot === 'pm' ? '2pm–6pm' : '9am–6pm',
+        });
+        bookedBy.set(dt, list);
+      }
+    }
+    const packBy = new Map((dayPlans?.plans ?? []).filter((p) => p.placements.length > 0).map((p) => [p.date, p]));
+    const blockBy = new Map<string, { f: FlexJob; start: FlexJob['blockStarts'][0] }>();
+    const blockSpanBy = new Map<string, { f: FlexJob; idx: number }>();
+    for (const f of jobs.flex) {
+      if (f.multiDay && f.blockStarts.length > 0) {
+        const s = f.blockStarts[0];
+        blockBy.set(s.startDate, { f, start: s });
+        for (let i = 1; i < f.requiredDays; i++) {
+          blockSpanBy.set(format(addDaysFn(new Date(s.startDate + 'T00:00:00'), i), 'yyyy-MM-dd'), { f, idx: i });
+        }
+      }
+    }
+    return Array.from({ length: 14 }, (_, i) => {
+      const date = format(addDaysFn(new Date(data.today + 'T00:00:00'), i), 'yyyy-MM-dd');
+      return { date, g: gridBy.get(date), booked: bookedBy.get(date) ?? [], pack: packBy.get(date), block: blockBy.get(date), blockSpan: blockSpanBy.get(date) };
+    });
+  }, [data, jobs, dayPlans]);
 
   const weeks = useMemo(() => {
     if (!data) return [];
@@ -402,6 +451,35 @@ export default function MyWeekPage() {
               ? 'Paid work: booked days, plus flexible jobs waiting for you to pick a day.'
               : 'Tap a day to open or close it. Customers can only book days you open.'}
         </p>
+
+        {/* Payslip — the week as money (spec: 05-week-planner-ui.md) */}
+        {tab === 'week' && jobs && (bookedPence > 0 || (jobs.flex.length ?? 0) > 0) && (
+          <div className="mb-4 p-4 rounded-2xl bg-slate-900/70 border border-slate-800">
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <span className="text-2xl font-bold">£{Math.round(bookedPence / 100).toLocaleString()}</span>
+              <span className="text-xs text-slate-400 font-semibold">booked</span>
+              {readyPence > 0 && (
+                <>
+                  <span className="text-2xl font-bold text-emerald-400">+£{Math.round(readyPence / 100).toLocaleString()}</span>
+                  <span className="text-xs text-emerald-400/80 font-semibold">ready to add</span>
+                </>
+              )}
+            </div>
+            {stuckPence > 0 && (
+              <div className="mt-1 text-[11px] font-semibold text-amber-400">
+                £{Math.round(stuckPence / 100).toLocaleString()} waiting — open days to take it
+              </div>
+            )}
+            {jobs.flex.length > 0 && (
+              <button
+                onClick={() => setPlanOpen(true)}
+                className="mt-3 w-full py-2.5 rounded-xl bg-emerald-500 text-slate-950 text-sm font-bold active:scale-[0.99] transition-all"
+              >
+                Plan my week →
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Live-quotes strip — the demand your open days are feeding */}
         {tab === 'week' && (pipeline?.liveCount ?? 0) > 0 && (
@@ -810,6 +888,178 @@ export default function MyWeekPage() {
           })}
         </div>
       </nav>
+
+      {/* Plan my week — full-screen sheet (spec: 05-week-planner-ui.md).
+        * Composed client-side over the existing real queries; per-day and
+        * per-block locks reuse the existing place paths. */}
+      <AnimatePresence>
+        {planOpen && (
+          <motion.div
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 28, stiffness: 260 }}
+            className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto"
+          >
+            <div className="max-w-md mx-auto px-4 pt-5 pb-16">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-xl font-bold">Plan my week</h2>
+                <button onClick={() => setPlanOpen(false)} className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400" aria-label="Close planner"><X size={16} /></button>
+              </div>
+
+              {/* Payslip inside the sheet */}
+              <div className="mb-3 p-4 rounded-2xl bg-slate-900/70 border border-slate-800">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="text-2xl font-bold">£{Math.round(bookedPence / 100).toLocaleString()}</span>
+                  <span className="text-xs text-slate-400 font-semibold">booked</span>
+                  {readyPence > 0 && (
+                    <>
+                      <span className="text-2xl font-bold text-emerald-400">+£{Math.round(readyPence / 100).toLocaleString()}</span>
+                      <span className="text-xs text-emerald-400/80 font-semibold">ready to add</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Goal pills */}
+              <div className="flex gap-1.5 mb-3">
+                {([
+                  { key: 'earnings' as const, label: 'Best week £' },
+                  { key: 'fewest_days' as const, label: 'Fewest days' },
+                  { key: 'soonest' as const, label: 'Done soonest' },
+                ]).map((g) => (
+                  <button key={g.key} onClick={() => { setPlanGoal(g.key); setConfirmLock(null); }}
+                    className={`flex-1 py-2 rounded-xl text-[11px] font-bold border transition-all ${planGoal === g.key ? 'bg-emerald-500 text-slate-950 border-emerald-500' : 'bg-slate-900/60 text-slate-400 border-slate-800'}`}>
+                    {g.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Coaching — what opening days would unlock */}
+              {stuck.length > 0 && (
+                <div className="mb-3 p-3 rounded-xl bg-slate-900/50 border border-amber-500/25">
+                  {stuck.map((f) => (
+                    <div key={f.quoteId} className="flex items-start gap-2 py-0.5">
+                      <Sparkles size={13} className="text-amber-400 shrink-0 mt-0.5" />
+                      <span className="text-[11px] text-amber-300/90 leading-snug">
+                        £{Math.round((f.valuePence ?? 0) / 100)} {f.jobDescription ? `— ${f.jobDescription.slice(0, 40)}` : ''} needs {f.multiDay ? `${f.requiredDays} open days in a row` : 'an open day'}{f.deadline ? ` by ${format(new Date(f.deadline + 'T00:00:00'), 'EEE d MMM')}` : ''} — open days below to take it.
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {lockError && <p className="mb-2 text-[11px] font-semibold text-red-400">{lockError}</p>}
+              {placeError && <p className="mb-2 text-[11px] font-semibold text-red-400">{placeError.message}</p>}
+
+              {/* Day rows — next 14 days */}
+              <div className="space-y-2">
+                {planRows.map((row) => {
+                  const isPast = false;
+                  const state = row.booked.length > 0 || row.blockSpan ? 'busy' : row.block || row.pack ? 'ghost' : row.g && (row.g.am === 'open' || row.g.pm === 'open') ? 'open' : 'off';
+                  return (
+                    <div key={row.date} className="flex gap-2.5">
+                      <div className={`w-14 shrink-0 rounded-xl border flex flex-col items-center justify-center py-2 ${
+                        state === 'busy' ? 'bg-blue-500/15 border-blue-500/30'
+                        : state === 'ghost' ? 'border-emerald-500/50 border-dashed bg-emerald-500/5'
+                        : state === 'open' ? 'bg-slate-900/60 border-emerald-500/30'
+                        : 'bg-slate-900/40 border-slate-800/50'
+                      }`}>
+                        <span className="text-[10px] font-bold uppercase text-slate-400">{format(new Date(row.date + 'T00:00:00'), 'EEE')}</span>
+                        <span className="text-base font-bold">{format(new Date(row.date + 'T00:00:00'), 'd')}</span>
+                      </div>
+
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        {/* Booked work (incl. span days) */}
+                        {row.booked.map((b, i) => (
+                          <div key={i} className="p-3 rounded-xl bg-blue-500/15 border border-blue-500/30">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-blue-300 truncate">{b.label}</span>
+                              <span className="text-sm font-bold text-blue-200 shrink-0 flex items-center gap-1.5">£{Math.round(b.valuePence / 100)} <Lock size={10} /></span>
+                            </div>
+                            <span className="text-[10px] text-blue-400/70 font-semibold">{b.tag} · booked</span>
+                          </div>
+                        ))}
+
+                        {/* Block span shading (days 2..N of a proposed block) */}
+                        {row.blockSpan && (
+                          <div className="min-h-[34px] rounded-xl border border-dashed bg-emerald-500/5 border-emerald-500/25 flex items-center px-3">
+                            <span className="text-[10px] text-slate-500 font-semibold">↑ day {row.blockSpan.idx + 1} of {row.blockSpan.f.requiredDays}</span>
+                          </div>
+                        )}
+
+                        {/* Block proposal (start day) */}
+                        {row.block && (() => {
+                          const key = `${row.block.f.quoteId}|block|${row.block.start.startDate}`;
+                          const confirming = confirmPlace === key;
+                          return (
+                            <div className="p-3 rounded-xl border border-dashed bg-emerald-500/8 border-emerald-500/40">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-bold text-emerald-300 truncate">{row.block.f.jobDescription || 'Multi-day job'}</span>
+                                <span className="text-sm font-bold text-emerald-300 shrink-0">£{Math.round((row.block.f.valuePence ?? 0) / 100)}</span>
+                              </div>
+                              <div className="text-[10px] text-slate-400 mt-0.5">
+                                runs {format(new Date(row.block.start.startDate + 'T00:00:00'), 'EEE d')} → {format(new Date(row.block.start.endDate + 'T00:00:00'), 'EEE d')}
+                                {row.block.f.deadline ? ` · start by ${format(new Date(row.block.f.deadline + 'T00:00:00'), 'EEE d MMM')}` : ''}
+                              </div>
+                              <button
+                                disabled={blockMutation.isPending}
+                                onClick={() => (confirming ? blockMutation.mutate({ quoteId: row.block!.f.quoteId, startDate: row.block!.start.startDate }) : setConfirmPlace(key))}
+                                className={`mt-2 w-full py-2 rounded-lg text-xs font-bold transition-all ${confirming ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-200'}`}>
+                                {confirming ? (blockMutation.isPending ? 'Booking…' : `Confirm — book ${format(new Date(row.block.start.startDate + 'T00:00:00'), 'EEE d')} → ${format(new Date(row.block.start.endDate + 'T00:00:00'), 'EEE d')}?`) : `Lock this block · ${row.block.f.requiredDays} days`}
+                              </button>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Day-pack proposal */}
+                        {row.pack && (() => {
+                          const confirming = confirmLock === row.pack.date;
+                          return (
+                            <div className="p-3 rounded-xl border border-dashed bg-emerald-500/8 border-emerald-500/40">
+                              {row.pack.jobs.filter((j) => !j.fixed).map((j) => (
+                                <div key={j.quoteId} className="flex items-center justify-between gap-2 py-0.5">
+                                  <span className="text-xs font-bold text-emerald-300 truncate">{(j.slot === 'am' ? 'AM' : j.slot === 'pm' ? 'PM' : 'DAY')} · {j.jobDescription || j.customerName}</span>
+                                  <span className="text-sm font-bold text-emerald-300 shrink-0">£{Math.round(j.valuePence / 100)}</span>
+                                </div>
+                              ))}
+                              <div className="text-[10px] text-slate-500 mt-0.5">{row.pack.rationale}</div>
+                              <button
+                                disabled={lockMutation.isPending}
+                                onClick={() => (confirming ? lockMutation.mutate(row.pack!.placements) : setConfirmLock(row.pack!.date))}
+                                className={`mt-2 w-full py-2 rounded-lg text-xs font-bold transition-all ${confirming ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-200'}`}>
+                                {confirming ? (lockMutation.isPending ? 'Booking…' : `Confirm — book ${format(new Date(row.pack.date + 'T00:00:00'), 'EEE d')}?`) : `Lock this day · £${Math.round(row.pack.totalPence / 100)}`}
+                              </button>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Open but nothing proposed / off day */}
+                        {row.booked.length === 0 && !row.block && !row.blockSpan && !row.pack && (
+                          state === 'open' ? (
+                            <div className="min-h-[34px] h-full rounded-xl bg-slate-900/40 border border-emerald-500/20 flex items-center px-3">
+                              <span className="text-[10px] text-emerald-400/60 font-semibold">open · nothing fits yet</span>
+                            </div>
+                          ) : (
+                            <div className="min-h-[34px] h-full rounded-xl bg-slate-900/30 border border-slate-800/40 flex items-center justify-between px-3">
+                              <span className="text-[10px] text-slate-600 font-semibold">off</span>
+                              {stuck.length > 0 && (
+                                <button
+                                  disabled={dayMutation.isPending}
+                                  onClick={() => dayMutation.mutate({ date: row.date, mode: 'full' })}
+                                  className="text-[10px] font-bold text-slate-300 bg-slate-800 rounded-md px-2 py-1 flex items-center gap-1 active:scale-95 transition-all">
+                                  <CalendarPlus size={11} /> Open this day
+                                </button>
+                              )}
+                            </div>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Day bottom sheet */}
       <AnimatePresence>
