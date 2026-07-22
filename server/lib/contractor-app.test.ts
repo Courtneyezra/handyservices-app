@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription } from './contractor-app';
+import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, DAY_PACK_CEILING_MIN } from './contractor-app';
 import { SLOT_TIMES, timeRangeCoversSlot } from '../../shared/slot-times';
 import { resolveWeek } from './contractor-week';
 
@@ -54,6 +54,56 @@ describe('validators', () => {
     expect(isEditableDate('2026-07-21', '2026-07-22')).toBe(false);
     expect(isEditableDate('2026-07-22', '2026-07-22')).toBe(true);
     expect(isEditableDate('2026-08-01', '2026-07-22')).toBe(true);
+  });
+});
+
+describe('canCoexist — packing guardrails', () => {
+  const ng16 = { minutes: 90, postcodeArea: 'NG16' };
+
+  it('empty day is trivially fine (not packing)', () => {
+    expect(canCoexist(ng16, 'am', []).ok).toBe(true);
+  });
+
+  it('packs a same-area filler into the other half of a part-booked day', () => {
+    const v = canCoexist(ng16, 'pm', [{ slot: 'am', minutes: 120, postcodeArea: 'NG16' }]);
+    expect(v.ok).toBe(true);
+  });
+
+  it('rejects cross-area packing', () => {
+    const v = canCoexist(ng16, 'pm', [{ slot: 'am', minutes: 120, postcodeArea: 'DE24' }]);
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/same postcode area/);
+  });
+
+  it('a full-day booking owns the day', () => {
+    expect(canCoexist(ng16, 'am', [{ slot: 'full_day', minutes: 400, postcodeArea: 'NG16' }]).ok).toBe(false);
+  });
+
+  it('caps stops per day at 3', () => {
+    const three = Array(3).fill({ slot: 'am' as const, minutes: 60, postcodeArea: 'NG16' });
+    expect(canCoexist(ng16, 'pm', three).ok).toBe(false);
+  });
+
+  it('enforces the 85% day ceiling', () => {
+    // 300min booked + 20 hop + 90 job + 20 hop = 430 > 408 ceiling.
+    const v = canCoexist(ng16, 'pm', [{ slot: 'am', minutes: 300, postcodeArea: 'NG16' }]);
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/room left/);
+    // Sanity: the ceiling itself is 85% of 480.
+    expect(DAY_PACK_CEILING_MIN).toBe(408);
+  });
+
+  it('enforces the half-slot window ceiling when sharing the same slot', () => {
+    // AM already has 150min; 150 + 20 + 90 = 260 > 240 AM cap.
+    const v = canCoexist(ng16, 'am', [{ slot: 'am', minutes: 150, postcodeArea: 'NG16' }]);
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/window is already full/);
+    // But a smaller filler fits the same window: 150 + 20 + 60 = 230 ≤ 240.
+    expect(canCoexist({ minutes: 60, postcodeArea: 'NG16' }, 'am', [{ slot: 'am', minutes: 150, postcodeArea: 'NG16' }]).ok).toBe(true);
+  });
+
+  it('full-day fillers cannot share a day', () => {
+    expect(canCoexist({ minutes: 300, postcodeArea: 'NG16' }, 'full_day', [{ slot: 'am', minutes: 60, postcodeArea: 'NG16' }]).ok).toBe(false);
   });
 });
 

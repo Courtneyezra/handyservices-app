@@ -67,6 +67,75 @@ export function outwardPostcode(postcode: string | null | undefined): string | n
   return m ? m[1] : clean;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-job-day packing guardrails (anchor + filler).
+//
+// Dated customer bookings are anchors — one per slot, protected. Density
+// comes from FLEX jobs packed around them, and only under these rules.
+// The booking engine's slot-fit + day-itinerary checks remain the authority;
+// these are the *suggestion/self-place* ceilings (deliberately tighter —
+// reliability-per-promise over utilisation).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Max stops per day for packed suggestions (anchors + fillers combined). */
+export const MAX_STOPS_PER_DAY = 3;
+/** Suggestions stop filling at 85% of the 8h day cap — deliberate slack. */
+export const DAY_PACK_CEILING_MIN = Math.round(480 * 0.85); // 408
+/** Rough inter-job hop budget — packing requires same outward code, so short. */
+export const INTER_JOB_TRAVEL_MIN = 20;
+/** Half-slot (AM/PM) capacity in minutes. */
+const HALF_SLOT_CAP_MIN = 240;
+
+export interface DayLoadBooking {
+  slot: 'am' | 'pm' | 'full_day' | null;
+  minutes: number;               // composed work minutes of the booking
+  postcodeArea: string | null;
+}
+
+export interface CoexistVerdict {
+  ok: boolean;
+  reason?: string;               // human-readable rejection (for logs/UI)
+}
+
+/**
+ * Can a flex job (jobMinutes, jobArea) be packed into `slot` on a day that
+ * already carries `dayBookings`? Pure — callers resolve the day first.
+ */
+export function canCoexist(
+  job: { minutes: number; postcodeArea: string | null },
+  slot: 'am' | 'pm' | 'full_day',
+  dayBookings: DayLoadBooking[],
+): CoexistVerdict {
+  if (dayBookings.length === 0) return { ok: true }; // empty day — not packing
+  if (dayBookings.length >= MAX_STOPS_PER_DAY) return { ok: false, reason: 'day already has the maximum number of jobs' };
+
+  // Packing is same-area only (auto path; Ben can override via the Hub).
+  if (!job.postcodeArea || !dayBookings.some((b) => b.postcodeArea === job.postcodeArea)) {
+    return { ok: false, reason: 'packing requires a job in the same postcode area that day' };
+  }
+
+  // A full_day booking owns the whole day.
+  if (dayBookings.some((b) => b.slot === 'full_day' || b.slot === null)) {
+    return { ok: false, reason: 'a full-day job already owns that day' };
+  }
+
+  // Day ceiling — 85% of the 8h cap including inter-job hops.
+  const hops = dayBookings.length; // each added stop ≈ one hop
+  const dayUsed = dayBookings.reduce((s, b) => s + b.minutes, 0) + hops * INTER_JOB_TRAVEL_MIN;
+  if (dayUsed + job.minutes + INTER_JOB_TRAVEL_MIN > DAY_PACK_CEILING_MIN) {
+    return { ok: false, reason: 'not enough room left in that day' };
+  }
+
+  // Slot ceiling — the arrival-window promise must stay keepable.
+  if (slot === 'full_day') return { ok: false, reason: 'full-day fillers cannot share a day' };
+  const slotUsed = dayBookings.filter((b) => b.slot === slot).reduce((s, b) => s + b.minutes, 0);
+  if (slotUsed > 0 && slotUsed + INTER_JOB_TRAVEL_MIN + job.minutes > HALF_SLOT_CAP_MIN) {
+    return { ok: false, reason: 'that arrival window is already full' };
+  }
+
+  return { ok: true };
+}
+
 /** Trim a job description for the pipeline card (whole words, ellipsis). */
 export function trimDescription(desc: string | null | undefined, max = 90): string | null {
   if (!desc) return null;

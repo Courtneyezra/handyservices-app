@@ -214,6 +214,15 @@ export async function reserveSlot(params: {
     scheduledDate: Date;
     scheduledSlot: SlotType;
     candidateContractorIds: (number | string)[];
+    /**
+     * Multi-job-day packing (flex filler lane ONLY): skip the binary
+     * one-booking-per-slot block and rely on capacity checks instead — the
+     * slot-fit + day-itinerary gates below still run, and the caller
+     * (contractor-app flex place) enforces same-area / stop-count / slot-
+     * minute ceilings. Dated customer bookings never set this: their slot
+     * stays protected. See docs/contractor-platform/04-contractor-app.md.
+     */
+    allowSlotSharing?: boolean;
 }): Promise<{
     success: boolean;
     lockId?: number;
@@ -222,7 +231,7 @@ export async function reserveSlot(params: {
     expiresAt?: Date;
     error?: string;
 }> {
-    const { quoteId, scheduledDate, scheduledSlot, candidateContractorIds } = params;
+    const { quoteId, scheduledDate, scheduledSlot, candidateContractorIds, allowSlotSharing } = params;
 
     if (!candidateContractorIds.length) {
         return { success: false, error: 'No candidate contractors provided' };
@@ -386,7 +395,12 @@ export async function reserveSlot(params: {
                         ));
                     const bookingBlocked = durationDays > 1
                         ? existingBookings.length > 0
-                        : existingBookings.some((b) => b.scheduledSlot && conflictingSlots.includes(b.scheduledSlot as SlotType));
+                        : allowSlotSharing
+                            // Packing mode: existing single-day bookings don't block —
+                            // capacity gates (slot fit + day itinerary) police the day.
+                            // Multi-day spans still block: those days are fully owned.
+                            ? existingBookings.some((b) => (b.durationDays ?? 1) > 1)
+                            : existingBookings.some((b) => b.scheduledSlot && conflictingSlots.includes(b.scheduledSlot as SlotType));
                     if (bookingBlocked) { candidateOk = false; break; }
 
                     // Active locks on this day (any quote, including our own).
@@ -560,12 +574,14 @@ export async function confirmBooking(params: {
     quoteId: string;
     lockId: number;
     paymentIntentId: string;
+    /** Must mirror the reserveSlot call — see allowSlotSharing there. */
+    allowSlotSharing?: boolean;
 }): Promise<{
     success: boolean;
     jobId?: number;
     error?: string;
 }> {
-    const { quoteId, lockId, paymentIntentId } = params;
+    const { quoteId, lockId, paymentIntentId, allowSlotSharing } = params;
 
     try {
         const result = await db.transaction(async (tx) => {
@@ -615,7 +631,9 @@ export async function confirmBooking(params: {
                     ));
                 const hasConflict = durationDays > 1
                     ? existingBookings.length > 0
-                    : existingBookings.some((b) => b.scheduledSlot && conflictingSlots.includes(b.scheduledSlot as SlotType));
+                    : allowSlotSharing
+                        ? false // packing mode — capacity was gated at reserve time
+                        : existingBookings.some((b) => b.scheduledSlot && conflictingSlots.includes(b.scheduledSlot as SlotType));
                 if (hasConflict) {
                     await tx.delete(bookingSlotLocks).where(eq(bookingSlotLocks.id, lockId));
                     return { success: false, error: `A conflicting booking was created on ${checkDate.toISOString().slice(0,10)} while payment was processing` };

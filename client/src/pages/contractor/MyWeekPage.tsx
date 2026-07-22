@@ -69,7 +69,7 @@ interface FlexJob {
   deadline: string | null;
   multiDay: boolean;
   needsFullDay: boolean;
-  suggestions: Array<{ date: string; slot: 'am' | 'pm' | 'full_day'; reasons: string[] }>;
+  suggestions: Array<{ date: string; slot: 'am' | 'pm' | 'full_day'; reasons: string[]; packed?: boolean }>;
 }
 
 interface JobsPayload {
@@ -88,6 +88,7 @@ interface AppPayload {
   today: string;
   weekStart: string;
   days: AppDay[];
+  bookedCountByDate?: Record<string, number>;
   pattern: PatternDay[];
 }
 
@@ -370,7 +371,11 @@ export default function MyWeekPage() {
                     <span className="text-[9px] font-medium uppercase text-slate-500">{format(dateObj, 'EEEEE')}</span>
                     <span className="text-sm font-bold leading-none">{format(dateObj, 'd')}</span>
                     {hasBooking ? (
-                      <Lock size={9} className="text-blue-400 mt-0.5" />
+                      (data?.bookedCountByDate?.[day.date] ?? 1) > 1 ? (
+                        <span className="text-[8px] font-bold text-blue-400 mt-0.5">×{data!.bookedCountByDate![day.date]}</span>
+                      ) : (
+                        <Lock size={9} className="text-blue-400 mt-0.5" />
+                      )
                     ) : (
                       <span className={`text-[8px] font-bold mt-0.5 ${style.labelColor}`}>{style.label || '·'}</span>
                     )}
@@ -520,6 +525,9 @@ export default function MyWeekPage() {
                                   <span className="text-xs font-bold shrink-0">
                                     {confirming ? (placeMutation.isPending ? 'Booking…' : `Confirm ${format(new Date(s.date + 'T00:00:00'), 'EEE d')} ${slotLabel}?`) : `${format(new Date(s.date + 'T00:00:00'), 'EEE d MMM')} · ${slotLabel}`}
                                   </span>
+                                  {!confirming && s.packed && (
+                                    <span className="text-[9px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 rounded px-1 py-0.5 shrink-0">2ND JOB</span>
+                                  )}
                                   {!confirming && s.reasons.length > 0 && (
                                     <span className="text-[10px] text-emerald-400/90 truncate">{s.reasons[0]}</span>
                                   )}

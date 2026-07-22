@@ -32,7 +32,7 @@ import {
 import { timeRangeCoversSlot, SLOT_CAPACITY_MIN, type SlotType } from '../shared/slot-times';
 import { totalScheduleMinutes, computeBookingDurationDays } from '../shared/schedule-composition';
 import { resolveWeek, type DayAvailability } from './lib/contractor-week';
-import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, type DayMode } from './lib/contractor-app';
+import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, type DayMode, type DayLoadBooking } from './lib/contractor-app';
 import { scoreFlexPlacements, type PlacementCandidate } from './lib/contractor-flex-score';
 import { reserveSlot, confirmBooking } from './booking-engine';
 
@@ -96,6 +96,10 @@ router.get('/:token', async (req: Request, res: Response) => {
       };
     });
 
+    // Per-day booking counts — the grid shows load (×2) once days can pack.
+    const bookedCountByDate: Record<string, number> = {};
+    for (const b of bookings) bookedCountByDate[b.date] = (bookedCountByDate[b.date] ?? 0) + 1;
+
     const u = userRows[0];
     res.json({
       provider: {
@@ -108,6 +112,7 @@ router.get('/:token', async (req: Request, res: Response) => {
       today: format(new Date(), 'yyyy-MM-dd'),
       weekStart: format(monday, 'yyyy-MM-dd'),
       days: resolveWeek({ weekDates, weeklyPatterns, overrides, bookings }),
+      bookedCountByDate,
       pattern,
     });
   } catch (err: any) {
@@ -214,7 +219,7 @@ async function loadJobsAndGrid(profileId: string) {
 
   const quoteIds = [...new Set(booked.map((b) => b.quoteId).filter(Boolean))] as string[];
   const quoteRows = quoteIds.length
-    ? await db.select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName, postcode: personalizedQuotes.postcode, jobDescription: personalizedQuotes.jobDescription, basePrice: personalizedQuotes.basePrice })
+    ? await db.select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName, postcode: personalizedQuotes.postcode, jobDescription: personalizedQuotes.jobDescription, basePrice: personalizedQuotes.basePrice, pricingLineItems: personalizedQuotes.pricingLineItems })
         .from(personalizedQuotes).where(inArray(personalizedQuotes.id, quoteIds))
     : [];
   const quoteById = new Map(quoteRows.map((q) => [q.id, q]));
@@ -249,6 +254,8 @@ async function loadJobsAndGrid(profileId: string) {
         postcodeArea: outwardPostcode(q?.postcode),
         jobDescription: trimDescription(q?.jobDescription),
         valuePence: q?.basePrice ?? null,
+        // Composed work minutes — drives the packing ceilings (canCoexist).
+        minutes: totalScheduleMinutes(((q?.pricingLineItems as any[]) || []), {}),
       };
     });
 
@@ -281,10 +288,10 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
     ]);
 
     const today = format(new Date(), 'yyyy-MM-dd');
-    const bookedByDate = new Map<string, Array<{ postcodeArea: string | null; slot: SlotType | null }>>();
+    const bookedByDate = new Map<string, Array<{ postcodeArea: string | null; slot: SlotType | null; minutes: number }>>();
     for (const b of bookedOut) {
       const list = bookedByDate.get(b.date) ?? [];
-      list.push({ postcodeArea: b.postcodeArea, slot: b.slot });
+      list.push({ postcodeArea: b.postcodeArea, slot: b.slot, minutes: b.minutes });
       bookedByDate.set(b.date, list);
     }
 
@@ -297,9 +304,9 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
       const deadline = f.depositPaidAt && f.withinDays ? format(addDays(new Date(f.depositPaidAt as any), f.withinDays), 'yyyy-MM-dd') : null;
       const area = outwardPostcode(f.postcode);
 
-      let suggestions: Array<{ date: string; slot: SlotType; reasons: string[] }> = [];
+      let suggestions: Array<{ date: string; slot: SlotType; reasons: string[]; packed?: boolean }> = [];
       if (!multiDay) {
-        const candidates: PlacementCandidate[] = [];
+        const candidates: Array<PlacementCandidate & { packed?: boolean }> = [];
         for (const d of days) {
           if (d.date < today) continue;
           if (deadline && d.date > deadline) continue;
@@ -308,12 +315,21 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
           if (needsFullDay) {
             if (bothOpen) candidates.push({ date: d.date, slot: 'full_day', dayBookings, dayFullyOpen: bothOpen && dayBookings.length === 0 });
           } else {
-            if (d.am === 'open') candidates.push({ date: d.date, slot: 'am', dayBookings, dayFullyOpen: bothOpen && dayBookings.length === 0 });
-            if (d.pm === 'open') candidates.push({ date: d.date, slot: 'pm', dayBookings, dayFullyOpen: bothOpen && dayBookings.length === 0 });
+            for (const s of ['am', 'pm'] as const) {
+              if (d[s] === 'open') {
+                candidates.push({ date: d.date, slot: s, dayBookings, dayFullyOpen: bothOpen && dayBookings.length === 0 });
+              } else if (d[s] === 'booked' && dayBookings.length > 0) {
+                // Multi-job-day packing: a filler can share a booked slot when
+                // the guardrails allow (same area, stop cap, day + window ceilings).
+                const verdict = canCoexist({ minutes, postcodeArea: area }, s, dayBookings as DayLoadBooking[]);
+                if (verdict.ok) candidates.push({ date: d.date, slot: s, dayBookings, dayFullyOpen: false, packed: true });
+              }
+            }
           }
         }
+        const packedByKey = new Map(candidates.map((c) => [`${c.date}|${c.slot}`, !!c.packed]));
         suggestions = scoreFlexPlacements({ postcodeArea: area, needsFullDay }, candidates)
-          .slice(0, 3).map((s) => ({ date: s.date, slot: s.slot, reasons: s.reasons }));
+          .slice(0, 3).map((s) => ({ date: s.date, slot: s.slot, reasons: s.reasons, packed: packedByKey.get(`${s.date}|${s.slot}`) || undefined }));
       }
 
       return {
@@ -357,6 +373,7 @@ router.post('/:token/flex/:quoteId/place', async (req: Request, res: Response) =
       withinDays: personalizedQuotes.flexBookingWithinDays,
       bookedAt: personalizedQuotes.bookedAt,
       pricingLineItems: personalizedQuotes.pricingLineItems,
+      postcode: personalizedQuotes.postcode,
     }).from(personalizedQuotes).where(eq(personalizedQuotes.id, req.params.quoteId)).limit(1);
     const quote = quoteRows[0];
     if (!quote || quote.leadContractorId !== profile.id) return res.status(404).json({ error: 'Job not found' });
@@ -369,9 +386,23 @@ router.post('/:token/flex/:quoteId/place', async (req: Request, res: Response) =
     const requiredDays = computeBookingDurationDays(((quote.pricingLineItems as any[]) || []), {});
     if (requiredDays > 1) return res.status(400).json({ error: 'Multi-day job — Handy will schedule this with you' });
 
-    const reserve = await reserveSlot({ quoteId: quote.id, scheduledDate: new Date(`${date}T09:00:00`), scheduledSlot: slot as SlotType, candidateContractorIds: [profile.id] });
+    // Packing check: if the target slot already carries work, this placement
+    // is a filler — the guardrails must pass, and the engine gets the
+    // sharing flag so its capacity gates (not the binary block) police it.
+    const { bookedOut } = await loadJobsAndGrid(profile.id);
+    const dayBookings = bookedOut.filter((b) => b.date === date)
+      .map((b) => ({ slot: b.slot, minutes: b.minutes, postcodeArea: b.postcodeArea })) as DayLoadBooking[];
+    let sharing = false;
+    if (dayBookings.length > 0) {
+      const jobMinutes = totalScheduleMinutes(((quote.pricingLineItems as any[]) || []), {});
+      const verdict = canCoexist({ minutes: jobMinutes, postcodeArea: outwardPostcode(quote.postcode) }, slot as SlotType, dayBookings);
+      if (!verdict.ok) return res.status(409).json({ error: `Can't add to that day — ${verdict.reason}` });
+      sharing = true;
+    }
+
+    const reserve = await reserveSlot({ quoteId: quote.id, scheduledDate: new Date(`${date}T09:00:00`), scheduledSlot: slot as SlotType, candidateContractorIds: [profile.id], allowSlotSharing: sharing });
     if (!reserve.success || !reserve.lockId) return res.status(409).json({ error: reserve.error || 'That slot is no longer free' });
-    const confirm = await confirmBooking({ quoteId: quote.id, lockId: reserve.lockId, paymentIntentId: 'flex-self-place' });
+    const confirm = await confirmBooking({ quoteId: quote.id, lockId: reserve.lockId, paymentIntentId: 'flex-self-place', allowSlotSharing: sharing });
     if (!confirm.success) return res.status(500).json({ error: confirm.error || 'Could not confirm the booking' });
 
     res.json({ success: true, date, slot });
