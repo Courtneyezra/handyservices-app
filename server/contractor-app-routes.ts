@@ -38,7 +38,7 @@ import { reserveSlot, confirmBooking } from './booking-engine';
 
 const BOOKED_STATUSES = new Set(['accepted', 'completed']);
 const BOOKED_ASSIGNMENT = new Set(['accepted', 'in_progress', 'completed']);
-const WEEKS_SERVED = 3;
+const WEEKS_SERVED = 4; // grid horizon — keep ≥ the planner's window
 
 const router = Router();
 
@@ -185,7 +185,7 @@ router.get('/:token/pipeline', async (req: Request, res: Response) => {
 // Post-deposit surface, so customer names are allowed (unlike /pipeline).
 // ---------------------------------------------------------------------------
 
-const JOBS_HORIZON_DAYS = 21;
+const JOBS_HORIZON_DAYS = 28; // suggestions / blocks / day-packs / planner window
 
 // The booking engine's day-fit check adds real (geocoded) travel time on top
 // of composed work minutes. Suggestions can't geocode every candidate cheaply,

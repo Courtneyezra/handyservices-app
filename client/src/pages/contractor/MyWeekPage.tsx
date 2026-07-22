@@ -370,7 +370,7 @@ export default function MyWeekPage() {
         }
       }
     }
-    return Array.from({ length: 14 }, (_, i) => {
+    return Array.from({ length: 28 }, (_, i) => {
       const date = format(addDaysFn(new Date(data.today + 'T00:00:00'), i), 'yyyy-MM-dd');
       return { date, g: gridBy.get(date), booked: bookedBy.get(date) ?? [], pack: packBy.get(date), block: blockBy.get(date), blockSpan: blockSpanBy.get(date) };
     });
