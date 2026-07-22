@@ -8,13 +8,13 @@
  * immediately bookable. Craig is the template; a teams variant forks on
  * provider.type. See docs/contractor-platform/04-contractor-app.md.
  */
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useRoute } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles } from 'lucide-react';
-import { addDays as addDaysFn } from 'date-fns';
+import { addDays as addDaysFn, startOfWeek } from 'date-fns';
 
 // ── Types (mirror server/contractor-app-routes.ts) ────────────────────────────
 
@@ -898,13 +898,29 @@ export default function MyWeekPage() {
               {lockError && <p className="mb-2 text-[11px] font-semibold text-red-400">{lockError}</p>}
               {placeError && <p className="mb-2 text-[11px] font-semibold text-red-400">{placeError.message}</p>}
 
-              {/* Day rows — next 14 days */}
+              {/* Day rows — the planning horizon, broken by week */}
               <div className="space-y-2">
-                {planRows.map((row) => {
-                  const isPast = false;
-                  const state = row.booked.length > 0 || row.blockSpan ? 'busy' : row.block || row.pack ? 'ghost' : row.g && (row.g.am === 'open' || row.g.pm === 'open') ? 'open' : 'off';
+                {planRows.map((row, rowIdx) => {
+                  // Proposed block span-days are ghosts (not yet booked) — only real bookings are 'busy'.
+                  const state = row.booked.length > 0 ? 'busy' : row.block || row.blockSpan || row.pack ? 'ghost' : row.g && (row.g.am === 'open' || row.g.pm === 'open') ? 'open' : 'off';
+                  const dateObj = new Date(row.date + 'T00:00:00');
+                  const showWeekBreak = rowIdx === 0 || dateObj.getDay() === 1;
+                  let weekLabel = '';
+                  if (showWeekBreak && data) {
+                    const thisMonday = startOfWeek(new Date(data.today + 'T00:00:00'), { weekStartsOn: 1 }).getTime();
+                    const rowMonday = startOfWeek(dateObj, { weekStartsOn: 1 });
+                    const weeksAhead = Math.round((rowMonday.getTime() - thisMonday) / (7 * 86400000));
+                    weekLabel = weeksAhead === 0 ? 'This week' : weeksAhead === 1 ? 'Next week' : `Week of ${format(rowMonday, 'd MMM')}`;
+                  }
                   return (
-                    <div key={row.date} className="flex gap-2.5">
+                    <Fragment key={row.date}>
+                    {showWeekBreak && (
+                      <div className={`flex items-center gap-2 ${rowIdx === 0 ? '' : 'pt-3'}`}>
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 shrink-0">{weekLabel}</span>
+                        <span className="flex-1 h-px bg-slate-800" />
+                      </div>
+                    )}
+                    <div className="flex gap-2.5">
                       <div className={`w-14 shrink-0 rounded-xl border flex flex-col items-center justify-center py-2 ${
                         state === 'busy' ? 'bg-blue-500/15 border-blue-500/30'
                         : state === 'ghost' ? 'border-emerald-500/50 border-dashed bg-emerald-500/5'
@@ -1002,6 +1018,7 @@ export default function MyWeekPage() {
                         )}
                       </div>
                     </div>
+                    </Fragment>
                   );
                 })}
               </div>
