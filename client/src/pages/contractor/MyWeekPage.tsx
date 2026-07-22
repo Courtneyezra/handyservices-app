@@ -249,6 +249,7 @@ export default function MyWeekPage() {
                   <button
                     key={day.date}
                     disabled={isPast || hasBooking}
+                    aria-label={`${format(dateObj, 'EEEE d MMMM')} — ${hasBooking ? 'booked' : mode === 'off' ? 'not working' : mode === 'full' ? 'full day' : mode.toUpperCase()}`}
                     onClick={() => setSelectedDate(day.date)}
                     className={`aspect-[3/4] rounded-lg border flex flex-col items-center justify-center gap-0.5 transition-all active:scale-95 ${style.bg} ${
                       isPast ? 'opacity-30' : ''
@@ -285,6 +286,7 @@ export default function MyWeekPage() {
                 return (
                   <button
                     key={p.dayOfWeek}
+                    aria-label={`Usual ${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][p.dayOfWeek]}: ${mode === 'off' ? 'not working' : mode === 'full' ? 'full day' : mode.toUpperCase()}`}
                     onClick={() => cyclePatternDay(p.dayOfWeek)}
                     className={`aspect-square rounded-lg border flex flex-col items-center justify-center gap-0.5 transition-all active:scale-95 ${style.bg}`}
                   >
