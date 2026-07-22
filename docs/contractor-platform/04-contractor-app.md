@@ -158,6 +158,37 @@ dated jobs (public blast radius — after v1 proves out). **v3:** within-day
 run-order optimization + en-route pings. Watch promise-kept rate weekly
 once packed days exist in the wild.
 
+## Day Builder (BUILT 22 Jul, commit c939e63)
+
+"Build my days" on the Jobs tab (shows at ≥2 placeable flex jobs): the pool
+composed into candidate day-packs by the REAL dispatch optimiser —
+`runDispatchOptimizer` gained additive `scopeContractorId` + `poolQuoteIds`
+opts (network console untouched) — under a goal Craig picks:
+
+| Preset | DispatchGoal |
+|---|---|
+| Best £/day | `day_margin` · balanced |
+| Fewest days | `throughput` · dense |
+| Cash soonest | `customer_speed` · fast |
+
+Cards show date, total £, the optimiser's margin rationale, member jobs
+(committed anchors marked with a padlock — the optimiser co-locates fillers
+around booked work). **Lock this day** commits the whole pack: sequential
+`placeFlexJob` (extracted, shared with single place) so guardrails re-run as
+the day fills; partial failures reported per job. Unassignable jobs surface
+with the reason (e.g. skills gap = recruiting signal).
+
+Pooling economics (the "wait for better packing" question): option value is
+real but decays against deadline runway — policy is last-responsible-moment,
+NOT max-wait. The 48h runway backstop (next) is the floor; a ~85%-packed day
+should prompt locking. Thicker pool ⇒ denser days ⇒ funds deeper flex
+discounts (two-sided pricing loop, supply half).
+
+Verified live 22 Jul: 3-job NG16 pool → Thu pack £248 ("margin +£98 ·
+revenue £248 · day £150"), one-tap lock booked both (AM+PM); electrical job
+correctly unassignable (Craig has no electrical skill tagged). Pool loader
+note: line items need `category` (not `categorySlug`) for pool jobs.
+
 ## Next (in order)
 
 1. **Flex-runway alert** — flex job unplaced with <48h to deadline → alert
