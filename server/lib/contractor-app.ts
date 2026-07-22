@@ -52,3 +52,26 @@ export function isIsoDate(v: unknown): v is string {
 export function isEditableDate(dateStr: string, today: string): boolean {
   return dateStr >= today;
 }
+
+/**
+ * Privacy gate for the contractor pipeline view: pre-deposit quotes show the
+ * OUTWARD postcode only (dispatch-link convention — area, not doorstep).
+ */
+export function outwardPostcode(postcode: string | null | undefined): string | null {
+  if (!postcode) return null;
+  const clean = postcode.trim().toUpperCase();
+  if (!clean) return null;
+  if (clean.includes(' ')) return clean.split(/\s+/)[0];
+  // No space: strip the inward part (digit + 2 letters) if it looks like a full code.
+  const m = clean.match(/^([A-Z]{1,2}\d[A-Z\d]?)\d[A-Z]{2}$/);
+  return m ? m[1] : clean;
+}
+
+/** Trim a job description for the pipeline card (whole words, ellipsis). */
+export function trimDescription(desc: string | null | undefined, max = 90): string | null {
+  if (!desc) return null;
+  const clean = desc.replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), max - 20))}…`;
+}

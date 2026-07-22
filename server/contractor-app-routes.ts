@@ -17,7 +17,7 @@
  * See docs/contractor-platform/04-contractor-app.md.
  */
 import { Router, Request, Response } from 'express';
-import { and, eq, gte, lt, or } from 'drizzle-orm';
+import { and, eq, gte, lt, or, isNull, desc } from 'drizzle-orm';
 import { startOfWeek, addDays, format } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './db';
@@ -27,10 +27,11 @@ import {
   handymanAvailability,
   contractorAvailabilityDates,
   contractorBookingRequests,
+  personalizedQuotes,
 } from '../shared/schema';
 import { timeRangeCoversSlot, type SlotType } from '../shared/slot-times';
 import { resolveWeek } from './lib/contractor-week';
-import { modeToWindow, isDayMode, isIsoDate, isEditableDate, type DayMode } from './lib/contractor-app';
+import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, type DayMode } from './lib/contractor-app';
 
 const BOOKED_STATUSES = new Set(['accepted', 'completed']);
 const BOOKED_ASSIGNMENT = new Set(['accepted', 'in_progress', 'completed']);
@@ -109,6 +110,55 @@ router.get('/:token', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[ContractorApp] load failed:', err?.message);
     res.status(500).json({ error: 'Failed to load your week' });
+  }
+});
+
+// GET /:token/pipeline → quotes skinned to this contractor (soft lead, unpaid).
+// Privacy-gated like dispatch links: outward postcode + trimmed description
+// only — no customer name/address/contact before a deposit is paid.
+router.get('/:token/pipeline', async (req: Request, res: Response) => {
+  try {
+    const profile = await findByAppToken(req.params.token);
+    if (!profile) return res.status(404).json({ error: 'Link not recognised' });
+
+    const rows = await db
+      .select({
+        id: personalizedQuotes.id,
+        postcode: personalizedQuotes.postcode,
+        jobDescription: personalizedQuotes.jobDescription,
+        basePrice: personalizedQuotes.basePrice,
+        createdAt: personalizedQuotes.createdAt,
+        viewedAt: personalizedQuotes.viewedAt,
+        viewCount: personalizedQuotes.viewCount,
+        lastViewedAt: personalizedQuotes.lastViewedAt,
+        expiresAt: personalizedQuotes.expiresAt,
+      })
+      .from(personalizedQuotes)
+      .where(and(eq(personalizedQuotes.leadContractorId, profile.id), isNull(personalizedQuotes.depositPaidAt)))
+      .orderBy(desc(personalizedQuotes.createdAt))
+      .limit(50);
+
+    const now = new Date();
+    const live = rows.filter((r) => !r.expiresAt || new Date(r.expiresAt as any) > now);
+
+    res.json({
+      liveCount: live.length,
+      expiredCount: rows.length - live.length,
+      quotes: live.map((r) => ({
+        id: r.id,
+        postcodeArea: outwardPostcode(r.postcode),
+        jobDescription: trimDescription(r.jobDescription),
+        valuePence: r.basePrice ?? null,
+        sentAt: r.createdAt,
+        viewed: !!r.viewedAt,
+        viewCount: r.viewCount ?? 0,
+        lastViewedAt: r.lastViewedAt,
+        expiresAt: r.expiresAt,
+      })),
+    });
+  } catch (err: any) {
+    console.error('[ContractorApp] pipeline failed:', err?.message);
+    res.status(500).json({ error: 'Failed to load your quotes' });
   }
 });
 

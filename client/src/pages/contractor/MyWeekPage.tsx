@@ -13,7 +13,7 @@ import { useRoute } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sun, Sunset, Clock, X, Lock, CalendarCheck2 } from 'lucide-react';
+import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText } from 'lucide-react';
 
 // ── Types (mirror server/contractor-app-routes.ts) ────────────────────────────
 
@@ -31,6 +31,24 @@ interface PatternDay {
   dayOfWeek: number;
   am: boolean;
   pm: boolean;
+}
+
+interface PipelineQuote {
+  id: string;
+  postcodeArea: string | null;
+  jobDescription: string | null;
+  valuePence: number | null;
+  sentAt: string | null;
+  viewed: boolean;
+  viewCount: number;
+  lastViewedAt: string | null;
+  expiresAt: string | null;
+}
+
+interface PipelinePayload {
+  liveCount: number;
+  expiredCount: number;
+  quotes: PipelineQuote[];
 }
 
 interface AppPayload {
@@ -85,11 +103,23 @@ export default function MyWeekPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [patternDraft, setPatternDraft] = useState<PatternDay[] | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [tab, setTab] = useState<'week' | 'quotes'>('week');
 
   const { data, isLoading, isError } = useQuery<AppPayload>({
     queryKey: ['contractor-app', token],
     queryFn: async () => {
       const res = await fetch(`/api/contractor-app/${token}`);
+      if (!res.ok) throw new Error('load failed');
+      return res.json();
+    },
+    enabled: !!token,
+  });
+
+  // Pipeline — quotes wearing this contractor's skin (fed by the same token).
+  const { data: pipeline } = useQuery<PipelinePayload>({
+    queryKey: ['contractor-app-pipeline', token],
+    queryFn: async () => {
+      const res = await fetch(`/api/contractor-app/${token}/pipeline`);
       if (!res.ok) throw new Error('load failed');
       return res.json();
     },
@@ -215,12 +245,46 @@ export default function MyWeekPage() {
             </div>
           </div>
         </div>
-        <p className="text-xs text-slate-500 mb-6 mt-2">
+        <p className="text-xs text-slate-500 mb-4 mt-2">
           Tap a day to open or close it. Customers can only book days you open.
         </p>
 
+        {/* Tabs */}
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={() => setTab('week')}
+            className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${
+              tab === 'week' ? 'bg-white text-slate-950 border-white' : 'bg-slate-900/60 text-slate-400 border-slate-800'
+            }`}
+          >
+            My week
+          </button>
+          <button
+            onClick={() => setTab('quotes')}
+            className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${
+              tab === 'quotes' ? 'bg-white text-slate-950 border-white' : 'bg-slate-900/60 text-slate-400 border-slate-800'
+            }`}
+          >
+            My quotes{pipeline ? ` (${pipeline.liveCount})` : ''}
+          </button>
+        </div>
+
+        {/* Live-quotes strip — the demand your open days are feeding */}
+        {tab === 'week' && (pipeline?.liveCount ?? 0) > 0 && (
+          <button
+            onClick={() => setTab('quotes')}
+            className="w-full mb-5 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 flex items-center gap-2.5 text-left active:scale-[0.99] transition-all"
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span className="text-xs text-emerald-300 font-semibold flex-1">
+              {pipeline!.liveCount} live quote{pipeline!.liveCount === 1 ? '' : 's'} showing your days to customers right now
+            </span>
+            <span className="text-emerald-400 text-xs">View →</span>
+          </button>
+        )}
+
         {/* Loading */}
-        {isLoading && (
+        {tab === 'week' && isLoading && (
           <div className="space-y-2">
             {[...Array(3)].map((_, i) => (
               <div key={i} className="h-20 bg-slate-900 rounded-xl animate-pulse" />
@@ -229,7 +293,7 @@ export default function MyWeekPage() {
         )}
 
         {/* Week rows */}
-        {!isLoading && weeks.map((week, wi) => (
+        {tab === 'week' && !isLoading && weeks.map((week, wi) => (
           <div key={week[0]?.date ?? wi} className="mb-5">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">
               {WEEK_TITLES[wi] ?? `Week of ${format(new Date(week[0].date + 'T00:00:00'), 'd MMM')}`}
@@ -270,7 +334,7 @@ export default function MyWeekPage() {
         ))}
 
         {/* Usual week */}
-        {!isLoading && data && (
+        {tab === 'week' && !isLoading && data && (
           <div className="mt-8 p-4 bg-slate-900/60 border border-slate-800/60 rounded-2xl">
             <div className="flex items-center justify-between mb-1">
               <div className="text-sm font-bold">Your usual week</div>
@@ -308,8 +372,53 @@ export default function MyWeekPage() {
           </div>
         )}
 
+        {/* Quotes tab — the pipeline wearing this contractor's skin */}
+        {tab === 'quotes' && (
+          <div>
+            {!pipeline && <div className="h-24 bg-slate-900 rounded-xl animate-pulse" />}
+            {pipeline && pipeline.quotes.length === 0 && (
+              <div className="p-6 text-center bg-slate-900/60 border border-slate-800/60 rounded-2xl">
+                <FileText size={20} className="mx-auto text-slate-600 mb-2" />
+                <div className="text-sm font-bold text-slate-300">No live quotes right now</div>
+                <p className="text-xs text-slate-500 mt-1">New quotes with your name on them will show here.</p>
+              </div>
+            )}
+            <div className="space-y-2.5">
+              {pipeline?.quotes.map((q) => (
+                <div key={q.id} className="p-4 bg-slate-900/60 border border-slate-800/60 rounded-xl">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        {q.postcodeArea && <span className="text-[10px] font-bold tracking-wider text-slate-400 bg-slate-800 rounded px-1.5 py-0.5">{q.postcodeArea}</span>}
+                        {q.viewed ? (
+                          <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400"><Eye size={11} /> Seen{q.viewCount > 1 ? ` ×${q.viewCount}` : ''}</span>
+                        ) : (
+                          <span className="text-[10px] font-semibold text-slate-500">Not seen yet</span>
+                        )}
+                      </div>
+                      {q.jobDescription && <p className="text-xs text-slate-300 mt-1.5 leading-snug">{q.jobDescription}</p>}
+                      <div className="text-[10px] text-slate-500 mt-1.5">
+                        {q.sentAt && <>Sent {formatDistanceToNow(new Date(q.sentAt), { addSuffix: true })}</>}
+                        {q.expiresAt && new Date(q.expiresAt) > new Date() && <> · expires {formatDistanceToNow(new Date(q.expiresAt), { addSuffix: true })}</>}
+                      </div>
+                    </div>
+                    {q.valuePence != null && (
+                      <div className="text-lg font-bold text-white shrink-0">£{Math.round(q.valuePence / 100)}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {pipeline && pipeline.quotes.length > 0 && (
+              <p className="mt-4 text-center text-[10px] text-slate-600">
+                These quotes carry your name and photo. The days you open on "My week" are the days these customers can book.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Freshness footer */}
-        {data?.provider.lastAvailabilityRefresh && (
+        {tab === 'week' && data?.provider.lastAvailabilityRefresh && (
           <div className="mt-5 text-center text-[10px] text-slate-600">
             Last updated {formatDistanceToNow(new Date(data.provider.lastAvailabilityRefresh), { addSuffix: true })}.
             Keep this fresh — we only offer customers days you've opened.
