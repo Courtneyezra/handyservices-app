@@ -77,6 +77,23 @@ interface JobsPayload {
   flex: FlexJob[];
 }
 
+type DayPlanGoal = 'earnings' | 'fewest_days' | 'soonest';
+
+interface DayPlan {
+  date: string;
+  rationale: string;
+  totalPence: number;
+  committedCount: number;
+  jobs: Array<{ quoteId: string; fixed: boolean; slot: string; customerName: string; postcodeArea: string | null; jobDescription: string | null; valuePence: number }>;
+  placements: Array<{ quoteId: string; date: string; slot: string }>;
+}
+
+interface DayPlansPayload {
+  goal: DayPlanGoal;
+  plans: DayPlan[];
+  unassignable: Array<{ quoteId: string; reason: string }>;
+}
+
 interface AppPayload {
   provider: {
     type: 'solo';
@@ -133,6 +150,9 @@ export default function MyWeekPage() {
   const [tab, setTab] = useState<'week' | 'quotes' | 'jobs'>('week');
   const [confirmPlace, setConfirmPlace] = useState<string | null>(null); // `${quoteId}|${date}|${slot}`
   const [placeError, setPlaceError] = useState<{ quoteId: string; message: string } | null>(null);
+  const [planGoal, setPlanGoal] = useState<DayPlanGoal>('earnings');
+  const [confirmLock, setConfirmLock] = useState<string | null>(null); // plan date
+  const [lockError, setLockError] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery<AppPayload>({
     queryKey: ['contractor-app', token],
@@ -164,6 +184,44 @@ export default function MyWeekPage() {
       return res.json();
     },
     enabled: !!token,
+  });
+
+  // Day Builder — the flex pool composed into day-packs by the optimiser.
+  const flexCount = jobs?.flex.filter((f) => !f.multiDay).length ?? 0;
+  const { data: dayPlans, isFetching: plansLoading } = useQuery<DayPlansPayload>({
+    queryKey: ['contractor-app-day-plans', token, planGoal],
+    queryFn: async () => {
+      const res = await fetch(`/api/contractor-app/${token}/day-plans?goal=${planGoal}`);
+      if (!res.ok) throw new Error('load failed');
+      return res.json();
+    },
+    enabled: !!token && tab === 'jobs' && flexCount >= 2,
+  });
+
+  const lockMutation = useMutation({
+    mutationFn: async (placements: DayPlan['placements']) => {
+      const res = await fetch(`/api/contractor-app/${token}/day-plans/lock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ placements }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error || 'Could not lock the day');
+      if (body?.failed?.length) throw new Error(`${body.placed.length} booked, ${body.failed.length} failed: ${body.failed[0]?.error}`);
+    },
+    onSuccess: () => {
+      setConfirmLock(null);
+      setLockError(null);
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-jobs', token] });
+      queryClient.invalidateQueries({ queryKey: ['contractor-app', token] });
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-day-plans', token] });
+    },
+    onError: (e: any) => {
+      setConfirmLock(null);
+      setLockError(e?.message || 'Could not lock the day');
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-jobs', token] });
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-day-plans', token] });
+    },
   });
 
   // Self-place a flex job onto one of his own open days.
@@ -474,6 +532,77 @@ export default function MyWeekPage() {
         {tab === 'jobs' && (
           <div>
             {!jobs && <div className="h-24 bg-slate-900 rounded-xl animate-pulse" />}
+
+            {/* Day Builder — the pool composed into day-packs, goal picked by him */}
+            {jobs && flexCount >= 2 && (
+              <div className="mb-6 p-4 bg-slate-900/60 border border-emerald-500/25 rounded-2xl">
+                <div className="text-sm font-bold mb-1">Build my days</div>
+                <p className="text-[11px] text-slate-500 mb-3">
+                  Your {flexCount} flexible jobs, grouped into days. Pick what matters and lock a day in one go.
+                </p>
+                <div className="flex gap-1.5 mb-3">
+                  {([
+                    { key: 'earnings' as const, label: 'Best £/day' },
+                    { key: 'fewest_days' as const, label: 'Fewest days' },
+                    { key: 'soonest' as const, label: 'Cash soonest' },
+                  ]).map((g) => (
+                    <button
+                      key={g.key}
+                      onClick={() => { setPlanGoal(g.key); setConfirmLock(null); }}
+                      className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${
+                        planGoal === g.key ? 'bg-emerald-500 text-slate-950 border-emerald-500' : 'bg-slate-800/70 text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {g.label}
+                    </button>
+                  ))}
+                </div>
+                {lockError && <p className="text-[11px] font-semibold text-red-400 mb-2">{lockError}</p>}
+                {plansLoading && <div className="h-16 bg-slate-800/60 rounded-xl animate-pulse" />}
+                {!plansLoading && dayPlans && dayPlans.plans.length === 0 && (
+                  <p className="text-[11px] text-slate-500">No day plans possible — open more days on "Week".</p>
+                )}
+                {!plansLoading && dayPlans?.plans.map((p) => {
+                  const confirming = confirmLock === p.date;
+                  return (
+                    <div key={p.date} className="mb-2 p-3 bg-slate-800/50 border border-slate-700/60 rounded-xl">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm font-bold">{format(new Date(p.date + 'T00:00:00'), 'EEE d MMM')}</div>
+                        <div className="text-base font-bold text-emerald-400">£{Math.round(p.totalPence / 100)}</div>
+                      </div>
+                      <div className="text-[10px] text-slate-500 mb-2">{p.rationale}</div>
+                      <div className="space-y-1 mb-2.5">
+                        {p.jobs.map((j) => (
+                          <div key={j.quoteId} className="flex items-center gap-2 text-[11px]">
+                            <span className={`font-bold uppercase w-7 shrink-0 ${j.fixed ? 'text-blue-400' : 'text-slate-400'}`}>{j.slot === 'full_day' ? 'DAY' : j.slot}</span>
+                            <span className="text-slate-300 truncate flex-1">{j.jobDescription || j.customerName}</span>
+                            {j.postcodeArea && <span className="text-slate-500 shrink-0">{j.postcodeArea}</span>}
+                            <span className="text-slate-400 font-semibold shrink-0">£{Math.round(j.valuePence / 100)}</span>
+                            {j.fixed && <Lock size={9} className="text-blue-400 shrink-0" />}
+                          </div>
+                        ))}
+                      </div>
+                      {p.placements.length > 0 && (
+                        <button
+                          disabled={lockMutation.isPending}
+                          onClick={() => (confirming ? lockMutation.mutate(p.placements) : setConfirmLock(p.date))}
+                          className={`w-full py-2 rounded-lg text-xs font-bold transition-all active:scale-[0.99] ${
+                            confirming ? 'bg-emerald-500 text-slate-950' : 'bg-slate-700/80 text-slate-200'
+                          }`}
+                        >
+                          {confirming
+                            ? (lockMutation.isPending ? 'Booking the day…' : `Confirm — book ${p.placements.length} job${p.placements.length === 1 ? '' : 's'} on ${format(new Date(p.date + 'T00:00:00'), 'EEE d')}?`)
+                            : 'Lock this day'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                {!plansLoading && (dayPlans?.unassignable.length ?? 0) > 0 && (
+                  <p className="text-[10px] text-slate-500 mt-1">{dayPlans!.unassignable.length} job{dayPlans!.unassignable.length === 1 ? ' has' : 's have'} no possible day yet — open more days or call us.</p>
+                )}
+              </div>
+            )}
 
             {jobs && jobs.flex.length > 0 && (
               <div className="mb-6">

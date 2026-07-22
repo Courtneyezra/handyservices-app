@@ -351,6 +351,64 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Place one flex job onto (date, slot) for this contractor — validations,
+ * packing guardrails, then reserveSlot → confirmBooking. Shared by the
+ * single-tap place endpoint and the Day Builder's lock-day loop.
+ */
+async function placeFlexJob(
+  profile: { id: string },
+  quoteId: string,
+  date: string,
+  slot: string,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  if (!isIsoDate(date) || !['am', 'pm', 'full_day'].includes(slot)) {
+    return { ok: false, status: 400, error: 'date (YYYY-MM-DD) and slot (am|pm|full_day) required' };
+  }
+  const today = format(new Date(), 'yyyy-MM-dd');
+  if (date < today) return { ok: false, status: 400, error: 'That day is in the past' };
+
+  const quoteRows = await db.select({
+    id: personalizedQuotes.id,
+    leadContractorId: personalizedQuotes.leadContractorId,
+    depositPaidAt: personalizedQuotes.depositPaidAt,
+    withinDays: personalizedQuotes.flexBookingWithinDays,
+    bookedAt: personalizedQuotes.bookedAt,
+    pricingLineItems: personalizedQuotes.pricingLineItems,
+    postcode: personalizedQuotes.postcode,
+  }).from(personalizedQuotes).where(eq(personalizedQuotes.id, quoteId)).limit(1);
+  const quote = quoteRows[0];
+  if (!quote || quote.leadContractorId !== profile.id) return { ok: false, status: 404, error: 'Job not found' };
+  if (!quote.depositPaidAt || !quote.withinDays) return { ok: false, status: 400, error: 'Not a paid flex job' };
+  if (quote.bookedAt) return { ok: false, status: 409, error: 'Already has a day' };
+
+  const deadline = format(addDays(new Date(quote.depositPaidAt as any), quote.withinDays), 'yyyy-MM-dd');
+  if (date > deadline) return { ok: false, status: 400, error: `Must be on or before ${deadline}` };
+
+  const requiredDays = computeBookingDurationDays(((quote.pricingLineItems as any[]) || []), {});
+  if (requiredDays > 1) return { ok: false, status: 400, error: 'Multi-day job — Handy will schedule this with you' };
+
+  // Packing check: if the target slot already carries work, this placement
+  // is a filler — the guardrails must pass, and the engine gets the
+  // sharing flag so its capacity gates (not the binary block) police it.
+  const { bookedOut } = await loadJobsAndGrid(profile.id);
+  const dayBookings = bookedOut.filter((b) => b.date === date)
+    .map((b) => ({ slot: b.slot, minutes: b.minutes, postcodeArea: b.postcodeArea })) as DayLoadBooking[];
+  let sharing = false;
+  if (dayBookings.length > 0) {
+    const jobMinutes = totalScheduleMinutes(((quote.pricingLineItems as any[]) || []), {});
+    const verdict = canCoexist({ minutes: jobMinutes, postcodeArea: outwardPostcode(quote.postcode) }, slot as SlotType, dayBookings);
+    if (!verdict.ok) return { ok: false, status: 409, error: `Can't add to that day — ${verdict.reason}` };
+    sharing = true;
+  }
+
+  const reserve = await reserveSlot({ quoteId: quote.id, scheduledDate: new Date(`${date}T09:00:00`), scheduledSlot: slot as SlotType, candidateContractorIds: [profile.id], allowSlotSharing: sharing });
+  if (!reserve.success || !reserve.lockId) return { ok: false, status: 409, error: reserve.error || 'That slot is no longer free' };
+  const confirm = await confirmBooking({ quoteId: quote.id, lockId: reserve.lockId, paymentIntentId: 'flex-self-place', allowSlotSharing: sharing });
+  if (!confirm.success) return { ok: false, status: 500, error: confirm.error || 'Could not confirm the booking' };
+  return { ok: true };
+}
+
 // POST /:token/flex/:quoteId/place { date, slot } → self-place a flex job
 // onto one of HIS OWN open days inside the window. The booking engine's
 // reserveSlot re-validates availability, so this can't double-book.
@@ -360,55 +418,110 @@ router.post('/:token/flex/:quoteId/place', async (req: Request, res: Response) =
     if (!profile) return res.status(404).json({ error: 'Link not recognised' });
 
     const { date, slot } = req.body || {};
-    if (!isIsoDate(date) || !['am', 'pm', 'full_day'].includes(slot)) {
-      return res.status(400).json({ error: 'date (YYYY-MM-DD) and slot (am|pm|full_day) required' });
-    }
-    const today = format(new Date(), 'yyyy-MM-dd');
-    if (date < today) return res.status(400).json({ error: 'That day is in the past' });
-
-    const quoteRows = await db.select({
-      id: personalizedQuotes.id,
-      leadContractorId: personalizedQuotes.leadContractorId,
-      depositPaidAt: personalizedQuotes.depositPaidAt,
-      withinDays: personalizedQuotes.flexBookingWithinDays,
-      bookedAt: personalizedQuotes.bookedAt,
-      pricingLineItems: personalizedQuotes.pricingLineItems,
-      postcode: personalizedQuotes.postcode,
-    }).from(personalizedQuotes).where(eq(personalizedQuotes.id, req.params.quoteId)).limit(1);
-    const quote = quoteRows[0];
-    if (!quote || quote.leadContractorId !== profile.id) return res.status(404).json({ error: 'Job not found' });
-    if (!quote.depositPaidAt || !quote.withinDays) return res.status(400).json({ error: 'Not a paid flex job' });
-    if (quote.bookedAt) return res.status(409).json({ error: 'Already has a day' });
-
-    const deadline = format(addDays(new Date(quote.depositPaidAt as any), quote.withinDays), 'yyyy-MM-dd');
-    if (date > deadline) return res.status(400).json({ error: `Must be on or before ${deadline}` });
-
-    const requiredDays = computeBookingDurationDays(((quote.pricingLineItems as any[]) || []), {});
-    if (requiredDays > 1) return res.status(400).json({ error: 'Multi-day job — Handy will schedule this with you' });
-
-    // Packing check: if the target slot already carries work, this placement
-    // is a filler — the guardrails must pass, and the engine gets the
-    // sharing flag so its capacity gates (not the binary block) police it.
-    const { bookedOut } = await loadJobsAndGrid(profile.id);
-    const dayBookings = bookedOut.filter((b) => b.date === date)
-      .map((b) => ({ slot: b.slot, minutes: b.minutes, postcodeArea: b.postcodeArea })) as DayLoadBooking[];
-    let sharing = false;
-    if (dayBookings.length > 0) {
-      const jobMinutes = totalScheduleMinutes(((quote.pricingLineItems as any[]) || []), {});
-      const verdict = canCoexist({ minutes: jobMinutes, postcodeArea: outwardPostcode(quote.postcode) }, slot as SlotType, dayBookings);
-      if (!verdict.ok) return res.status(409).json({ error: `Can't add to that day — ${verdict.reason}` });
-      sharing = true;
-    }
-
-    const reserve = await reserveSlot({ quoteId: quote.id, scheduledDate: new Date(`${date}T09:00:00`), scheduledSlot: slot as SlotType, candidateContractorIds: [profile.id], allowSlotSharing: sharing });
-    if (!reserve.success || !reserve.lockId) return res.status(409).json({ error: reserve.error || 'That slot is no longer free' });
-    const confirm = await confirmBooking({ quoteId: quote.id, lockId: reserve.lockId, paymentIntentId: 'flex-self-place', allowSlotSharing: sharing });
-    if (!confirm.success) return res.status(500).json({ error: confirm.error || 'Could not confirm the booking' });
-
+    const result = await placeFlexJob(profile, req.params.quoteId, date, slot);
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
     res.json({ success: true, date, slot });
   } catch (err: any) {
     console.error('[ContractorApp] self-place failed:', err?.message);
     res.status(500).json({ error: 'Failed to place the job' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Day Builder — the flex pool composed into candidate day-packs by the
+// dispatch optimiser (scoped to this contractor), under a goal Craig picks.
+// Proposals only; locking a day walks each job through placeFlexJob.
+// ---------------------------------------------------------------------------
+
+const DAY_PLAN_GOALS = {
+  // Best £/day — true-margin density (revenue − day rate − fuel per day).
+  earnings: { objective: 'day_margin', packMode: 'balanced' },
+  // Fewest days — compress the pool into the densest possible days.
+  fewest_days: { objective: 'throughput', packMode: 'dense' },
+  // Cash soonest — earliest completion, lighter packing.
+  soonest: { objective: 'customer_speed', packMode: 'fast' },
+} as const;
+type DayPlanGoalKey = keyof typeof DAY_PLAN_GOALS;
+
+// GET /:token/day-plans?goal=earnings|fewest_days|soonest
+router.get('/:token/day-plans', async (req: Request, res: Response) => {
+  try {
+    const profile = await findByAppToken(req.params.token);
+    if (!profile) return res.status(404).json({ error: 'Link not recognised' });
+
+    const goalKey = (typeof req.query.goal === 'string' && req.query.goal in DAY_PLAN_GOALS ? req.query.goal : 'earnings') as DayPlanGoalKey;
+
+    // His placeable flex pool (paid, windowed, unbooked, his lead).
+    const flexRows = await db.select({ id: personalizedQuotes.id })
+      .from(personalizedQuotes)
+      .where(and(eq(personalizedQuotes.leadContractorId, profile.id), isNotNull(personalizedQuotes.depositPaidAt), isNotNull(personalizedQuotes.flexBookingWithinDays), isNull(personalizedQuotes.bookedAt)))
+      .limit(50);
+    const poolIds = flexRows.map((r) => r.id);
+    if (poolIds.length === 0) return res.json({ goal: goalKey, plans: [], unassignable: [] });
+
+    const { runDispatchOptimizer, DEFAULT_GOAL } = await import('./dispatch-optimizer');
+    const result = await runDispatchOptimizer(
+      { ...DEFAULT_GOAL, ...DAY_PLAN_GOALS[goalKey] },
+      { maxWindowDays: JOBS_HORIZON_DAYS, scopeContractorId: profile.id, poolQuoteIds: poolIds },
+    );
+
+    const plans = result.groups
+      .filter((g) => g.contractorId === profile.id)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((g) => ({
+        date: g.date,
+        rationale: g.rationale,
+        totalPence: g.totalValue,
+        committedCount: g.committedCount ?? 0,
+        jobs: g.members.map((m) => ({
+          quoteId: m.quoteId,
+          fixed: !!m.fixed,
+          slot: m.slot,
+          customerName: m.customerName,
+          postcodeArea: outwardPostcode(m.postcode ?? null),
+          jobDescription: trimDescription(m.jobDescription ?? null),
+          valuePence: m.valuePence,
+        })),
+        // What lock-day actually places (anchors are already booked).
+        placements: g.members.filter((m) => !m.fixed).map((m) => ({ quoteId: m.quoteId, date: g.date, slot: m.slot })),
+      }));
+
+    res.json({
+      goal: goalKey,
+      plans,
+      unassignable: result.unassignable.map((u) => ({ quoteId: u.quoteId, reason: u.reason })),
+    });
+  } catch (err: any) {
+    console.error('[ContractorApp] day-plans failed:', err?.message, err?.stack);
+    res.status(500).json({ error: 'Failed to build day plans' });
+  }
+});
+
+// POST /:token/day-plans/lock { placements: [{quoteId, date, slot}] } → commit
+// a whole day-pack. Sequential: each placement re-runs the guardrails against
+// the day as it fills, so a mid-pack failure can't corrupt what already booked.
+router.post('/:token/day-plans/lock', async (req: Request, res: Response) => {
+  try {
+    const profile = await findByAppToken(req.params.token);
+    if (!profile) return res.status(404).json({ error: 'Link not recognised' });
+
+    const placements = req.body?.placements;
+    if (!Array.isArray(placements) || placements.length === 0 || placements.length > 6) {
+      return res.status(400).json({ error: 'placements: 1-6 of {quoteId, date, slot} required' });
+    }
+
+    const placed: string[] = [];
+    const failed: Array<{ quoteId: string; error: string }> = [];
+    for (const p of placements) {
+      const result = await placeFlexJob(profile, String(p?.quoteId ?? ''), p?.date, p?.slot);
+      if (result.ok) placed.push(p.quoteId);
+      else failed.push({ quoteId: p?.quoteId ?? 'unknown', error: result.error });
+    }
+
+    res.json({ success: failed.length === 0, placed, failed });
+  } catch (err: any) {
+    console.error('[ContractorApp] lock-day failed:', err?.message);
+    res.status(500).json({ error: 'Failed to lock the day' });
   }
 });
 
