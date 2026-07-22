@@ -55,6 +55,7 @@ interface BookedJob {
   id: string;
   date: string;
   slot: 'am' | 'pm' | 'full_day';
+  durationDays?: number;
   customerName: string;
   postcodeArea: string | null;
   jobDescription: string | null;
@@ -687,7 +688,7 @@ export default function MyWeekPage() {
                       <div key={b.id} className="p-3.5 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <div className="text-sm font-bold text-blue-300">
-                            {format(new Date(b.date + 'T00:00:00'), 'EEE d MMM')} · {b.slot === 'am' ? '9am–1pm' : b.slot === 'pm' ? '2pm–6pm' : '9am–6pm'}
+                            {format(new Date(b.date + 'T00:00:00'), 'EEE d MMM')} · {(b.durationDays ?? 1) > 1 ? `${b.durationDays} days` : b.slot === 'am' ? '9am–1pm' : b.slot === 'pm' ? '2pm–6pm' : '9am–6pm'}
                           </div>
                           <div className="text-xs text-slate-400 mt-0.5 truncate">
                             {b.customerName}{b.postcodeArea ? ` · ${b.postcodeArea}` : ''}{b.jobDescription ? ` — ${b.jobDescription}` : ''}

@@ -77,15 +77,24 @@ router.get('/:token', async (req: Request, res: Response) => {
         .from(handymanAvailability).where(eq(handymanAvailability.handymanId, profile.id)),
       db.select({ date: contractorAvailabilityDates.date, isAvailable: contractorAvailabilityDates.isAvailable, startTime: contractorAvailabilityDates.startTime, endTime: contractorAvailabilityDates.endTime })
         .from(contractorAvailabilityDates).where(and(eq(contractorAvailabilityDates.contractorId, profile.id), gte(contractorAvailabilityDates.date, monday), lt(contractorAvailabilityDates.date, end))),
-      db.select({ contractorId: contractorBookingRequests.contractorId, assignedContractorId: contractorBookingRequests.assignedContractorId, scheduledDate: contractorBookingRequests.scheduledDate, slot: contractorBookingRequests.scheduledSlot, status: contractorBookingRequests.status, assignmentStatus: contractorBookingRequests.assignmentStatus })
-        .from(contractorBookingRequests).where(and(gte(contractorBookingRequests.scheduledDate, monday), lt(contractorBookingRequests.scheduledDate, end), or(eq(contractorBookingRequests.contractorId, profile.id), eq(contractorBookingRequests.assignedContractorId, profile.id)))),
+      db.select({ contractorId: contractorBookingRequests.contractorId, assignedContractorId: contractorBookingRequests.assignedContractorId, scheduledDate: contractorBookingRequests.scheduledDate, slot: contractorBookingRequests.scheduledSlot, durationDays: contractorBookingRequests.durationDays, status: contractorBookingRequests.status, assignmentStatus: contractorBookingRequests.assignmentStatus })
+        .from(contractorBookingRequests).where(and(gte(contractorBookingRequests.scheduledDate, addDays(monday, -14)), lt(contractorBookingRequests.scheduledDate, end), or(eq(contractorBookingRequests.contractorId, profile.id), eq(contractorBookingRequests.assignedContractorId, profile.id)))),
     ]);
 
     const weeklyPatterns = patternRows.map((p) => ({ dayOfWeek: p.dayOfWeek ?? 0, startTime: p.startTime ?? null, endTime: p.endTime ?? null, isActive: !!p.isActive }));
     const overrides = overrideRows.map((o) => ({ date: format(new Date(o.date as any), 'yyyy-MM-dd'), isAvailable: !!o.isAvailable, startTime: o.startTime ?? null, endTime: o.endTime ?? null }));
+    // Multi-day bookings are ONE row with durationDays=N — expand across the
+    // span (query reaches back 14 days so a span STARTING before the window
+    // still blocks its in-window days). Span days are full_day by definition.
     const bookings = bookingRows
       .filter((b) => ((b.status && BOOKED_STATUSES.has(b.status)) || (b.assignmentStatus && BOOKED_ASSIGNMENT.has(b.assignmentStatus))) && b.scheduledDate && (b.assignedContractorId ?? b.contractorId) === profile.id)
-      .map((b) => ({ date: format(new Date(b.scheduledDate as any), 'yyyy-MM-dd'), slot: (b.slot ?? null) as SlotType | null }));
+      .flatMap((b) => {
+        const dur = b.durationDays ?? 1;
+        return Array.from({ length: dur }, (_, i) => ({
+          date: format(addDays(new Date(b.scheduledDate as any), i), 'yyyy-MM-dd'),
+          slot: (dur > 1 ? 'full_day' : (b.slot ?? null)) as SlotType | null,
+        }));
+      });
 
     const pattern = [0, 1, 2, 3, 4, 5, 6].map((dow) => {
       const active = weeklyPatterns.filter((p) => p.dayOfWeek === dow && p.isActive);
@@ -204,13 +213,16 @@ async function loadJobsAndGrid(profileId: string) {
       quoteId: contractorBookingRequests.quoteId,
       scheduledDate: contractorBookingRequests.scheduledDate,
       slot: contractorBookingRequests.scheduledSlot,
+      durationDays: contractorBookingRequests.durationDays,
       status: contractorBookingRequests.status,
       assignmentStatus: contractorBookingRequests.assignmentStatus,
       contractorId: contractorBookingRequests.contractorId,
       assignedContractorId: contractorBookingRequests.assignedContractorId,
     })
     .from(contractorBookingRequests)
-    .where(and(gte(contractorBookingRequests.scheduledDate, todayStart), lt(contractorBookingRequests.scheduledDate, end),
+    // Reach back 14 days: a multi-day span STARTING before today still
+    // occupies days inside the window.
+    .where(and(gte(contractorBookingRequests.scheduledDate, addDays(todayStart, -14)), lt(contractorBookingRequests.scheduledDate, end),
       or(eq(contractorBookingRequests.contractorId, profileId), eq(contractorBookingRequests.assignedContractorId, profileId))));
 
   const booked = bookedRows.filter((b) =>
@@ -223,6 +235,27 @@ async function loadJobsAndGrid(profileId: string) {
         .from(personalizedQuotes).where(inArray(personalizedQuotes.id, quoteIds))
     : [];
   const quoteById = new Map(quoteRows.map((q) => [q.id, q]));
+
+  // Multi-day bookings are ONE row with durationDays=N → expand each booking
+  // across its span. Span days are full_day by definition; per-day minutes =
+  // total / N (matches the engine's perDayWork distribution).
+  const spanEntries = booked.flatMap((b) => {
+    const q = b.quoteId ? quoteById.get(b.quoteId) : undefined;
+    const dur = b.durationDays ?? 1;
+    const totalMinutes = totalScheduleMinutes(((q?.pricingLineItems as any[]) || []), {});
+    return Array.from({ length: dur }, (_, i) => ({
+      date: format(addDays(new Date(b.scheduledDate as any), i), 'yyyy-MM-dd'),
+      slot: (dur > 1 ? 'full_day' : (b.slot ?? 'full_day')) as SlotType,
+      minutes: Math.ceil(totalMinutes / dur),
+      postcodeArea: outwardPostcode(q?.postcode),
+    }));
+  });
+  const spanByDate = new Map<string, Array<{ slot: SlotType; minutes: number; postcodeArea: string | null }>>();
+  for (const s of spanEntries) {
+    const list = spanByDate.get(s.date) ?? [];
+    list.push({ slot: s.slot, minutes: s.minutes, postcodeArea: s.postcodeArea });
+    spanByDate.set(s.date, list);
+  }
 
   // Resolved grid over the horizon (pattern + overrides − bookings).
   const [patternRows, overrideRows] = await Promise.all([
@@ -239,10 +272,11 @@ async function loadJobsAndGrid(profileId: string) {
     weekDates,
     weeklyPatterns: patternRows.map((p) => ({ dayOfWeek: p.dayOfWeek ?? 0, startTime: p.startTime ?? null, endTime: p.endTime ?? null, isActive: !!p.isActive })),
     overrides: overrideRows.map((o) => ({ date: format(new Date(o.date as any), 'yyyy-MM-dd'), isAvailable: !!o.isAvailable, startTime: o.startTime ?? null, endTime: o.endTime ?? null })),
-    bookings: booked.map((b) => ({ date: format(new Date(b.scheduledDate as any), 'yyyy-MM-dd'), slot: (b.slot ?? null) as SlotType | null })),
+    bookings: spanEntries.map((s) => ({ date: s.date, slot: s.slot as SlotType | null })),
   });
 
   const bookedOut = booked
+    .filter((b) => format(addDays(new Date(b.scheduledDate as any), (b.durationDays ?? 1) - 1), 'yyyy-MM-dd') >= format(todayStart, 'yyyy-MM-dd'))
     .sort((a, b) => new Date(a.scheduledDate as any).getTime() - new Date(b.scheduledDate as any).getTime())
     .map((b) => {
       const q = b.quoteId ? quoteById.get(b.quoteId) : undefined;
@@ -250,6 +284,7 @@ async function loadJobsAndGrid(profileId: string) {
         id: b.id,
         date: format(new Date(b.scheduledDate as any), 'yyyy-MM-dd'),
         slot: (b.slot ?? 'full_day') as SlotType,
+        durationDays: b.durationDays ?? 1,
         customerName: q?.customerName ?? 'Customer',
         postcodeArea: outwardPostcode(q?.postcode),
         jobDescription: trimDescription(q?.jobDescription),
@@ -259,7 +294,7 @@ async function loadJobsAndGrid(profileId: string) {
       };
     });
 
-  return { bookedOut, days };
+  return { bookedOut, days, spanByDate };
 }
 
 // GET /:token/jobs → upcoming booked work + flex queue with ranked suggestions.
@@ -268,7 +303,7 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
     const profile = await findByAppToken(req.params.token);
     if (!profile) return res.status(404).json({ error: 'Link not recognised' });
 
-    const [{ bookedOut, days }, flexRows] = await Promise.all([
+    const [{ bookedOut, days, spanByDate }, flexRows] = await Promise.all([
       loadJobsAndGrid(profile.id),
       db.select({
         id: personalizedQuotes.id,
@@ -288,12 +323,8 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
     ]);
 
     const today = format(new Date(), 'yyyy-MM-dd');
-    const bookedByDate = new Map<string, Array<{ postcodeArea: string | null; slot: SlotType | null; minutes: number }>>();
-    for (const b of bookedOut) {
-      const list = bookedByDate.get(b.date) ?? [];
-      list.push({ postcodeArea: b.postcodeArea, slot: b.slot, minutes: b.minutes });
-      bookedByDate.set(b.date, list);
-    }
+    // Span-expanded day loads (multi-day bookings occupy every day they span).
+    const bookedByDate = spanByDate;
 
     const flex = flexRows.map((f) => {
       const lines = (f.pricingLineItems as any[]) || [];
@@ -391,9 +422,9 @@ async function placeFlexJob(
   // Packing check: if the target slot already carries work, this placement
   // is a filler — the guardrails must pass, and the engine gets the
   // sharing flag so its capacity gates (not the binary block) police it.
-  const { bookedOut } = await loadJobsAndGrid(profile.id);
-  const dayBookings = bookedOut.filter((b) => b.date === date)
-    .map((b) => ({ slot: b.slot, minutes: b.minutes, postcodeArea: b.postcodeArea })) as DayLoadBooking[];
+  // spanByDate is span-expanded: day 2 of a multi-day booking counts as load.
+  const { spanByDate } = await loadJobsAndGrid(profile.id);
+  const dayBookings = (spanByDate.get(date) ?? []) as DayLoadBooking[];
   let sharing = false;
   if (dayBookings.length > 0) {
     const jobMinutes = totalScheduleMinutes(((quote.pricingLineItems as any[]) || []), {});
@@ -452,11 +483,15 @@ router.get('/:token/day-plans', async (req: Request, res: Response) => {
     const goalKey = (typeof req.query.goal === 'string' && req.query.goal in DAY_PLAN_GOALS ? req.query.goal : 'earnings') as DayPlanGoalKey;
 
     // His placeable flex pool (paid, windowed, unbooked, his lead).
-    const flexRows = await db.select({ id: personalizedQuotes.id })
+    // Multi-day jobs are excluded — Ben schedules those (same policy as
+    // self-place; a pack containing one would fail at lock anyway).
+    const flexRows = await db.select({ id: personalizedQuotes.id, pricingLineItems: personalizedQuotes.pricingLineItems })
       .from(personalizedQuotes)
       .where(and(eq(personalizedQuotes.leadContractorId, profile.id), isNotNull(personalizedQuotes.depositPaidAt), isNotNull(personalizedQuotes.flexBookingWithinDays), isNull(personalizedQuotes.bookedAt)))
       .limit(50);
-    const poolIds = flexRows.map((r) => r.id);
+    const poolIds = flexRows
+      .filter((r) => computeBookingDurationDays(((r.pricingLineItems as any[]) || []), {}) <= 1)
+      .map((r) => r.id);
     if (poolIds.length === 0) return res.json({ goal: goalKey, plans: [], unassignable: [] });
 
     const { runDispatchOptimizer, DEFAULT_GOAL } = await import('./dispatch-optimizer');

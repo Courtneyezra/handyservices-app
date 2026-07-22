@@ -171,15 +171,23 @@ router.get('/:id/week', async (req: Request, res: Response) => {
         .from(handymanAvailability).where(eq(handymanAvailability.handymanId, id)),
       db.select({ date: contractorAvailabilityDates.date, isAvailable: contractorAvailabilityDates.isAvailable, startTime: contractorAvailabilityDates.startTime, endTime: contractorAvailabilityDates.endTime })
         .from(contractorAvailabilityDates).where(and(eq(contractorAvailabilityDates.contractorId, id), gte(contractorAvailabilityDates.date, monday), lt(contractorAvailabilityDates.date, weekEnd))),
-      db.select({ contractorId: contractorBookingRequests.contractorId, assignedContractorId: contractorBookingRequests.assignedContractorId, scheduledDate: contractorBookingRequests.scheduledDate, slot: contractorBookingRequests.scheduledSlot, status: contractorBookingRequests.status, assignmentStatus: contractorBookingRequests.assignmentStatus })
-        .from(contractorBookingRequests).where(and(gte(contractorBookingRequests.scheduledDate, monday), lt(contractorBookingRequests.scheduledDate, weekEnd), or(eq(contractorBookingRequests.contractorId, id), eq(contractorBookingRequests.assignedContractorId, id)))),
+      db.select({ contractorId: contractorBookingRequests.contractorId, assignedContractorId: contractorBookingRequests.assignedContractorId, scheduledDate: contractorBookingRequests.scheduledDate, slot: contractorBookingRequests.scheduledSlot, durationDays: contractorBookingRequests.durationDays, status: contractorBookingRequests.status, assignmentStatus: contractorBookingRequests.assignmentStatus })
+        .from(contractorBookingRequests).where(and(gte(contractorBookingRequests.scheduledDate, addDays(monday, -14)), lt(contractorBookingRequests.scheduledDate, weekEnd), or(eq(contractorBookingRequests.contractorId, id), eq(contractorBookingRequests.assignedContractorId, id)))),
     ]);
 
     const weeklyPatterns = patternRows.map((p) => ({ dayOfWeek: p.dayOfWeek ?? 0, startTime: p.startTime ?? null, endTime: p.endTime ?? null, isActive: !!p.isActive }));
     const overrides = overrideRows.map((o) => ({ date: format(new Date(o.date as any), 'yyyy-MM-dd'), isAvailable: !!o.isAvailable, startTime: o.startTime ?? null, endTime: o.endTime ?? null }));
+    // Multi-day bookings are ONE row (durationDays=N) — expand across the span
+    // (query reaches back 14 days so spans starting pre-window still block).
     const bookings = bookingRows
       .filter((b) => ((b.status && BOOKED_SLOT_STATUSES.has(b.status)) || (b.assignmentStatus && BOOKED_SLOT_ASSIGNMENT.has(b.assignmentStatus))) && b.scheduledDate && (b.assignedContractorId ?? b.contractorId) === id)
-      .map((b) => ({ date: format(new Date(b.scheduledDate as any), 'yyyy-MM-dd'), slot: (b.slot ?? null) as SlotType | null }));
+      .flatMap((b) => {
+        const dur = b.durationDays ?? 1;
+        return Array.from({ length: dur }, (_, i) => ({
+          date: format(addDays(new Date(b.scheduledDate as any), i), 'yyyy-MM-dd'),
+          slot: (dur > 1 ? 'full_day' : (b.slot ?? null)) as SlotType | null,
+        }));
+      });
 
     // Raw weekly pattern per weekday (for the editor to initialise from).
     const pattern = [0, 1, 2, 3, 4, 5, 6].map((dow) => {
