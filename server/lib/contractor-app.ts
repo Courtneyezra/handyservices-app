@@ -136,6 +136,93 @@ export function canCoexist(
   return { ok: true };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-day BLOCK placement (rocks, not liquid).
+//
+// A multi-day job's only decision is its START date — it consumes N whole
+// days from there. Blocks place BEFORE fillers (most-constrained-first) and
+// never coexist with other work. SPAN RULE: N consecutive CALENDAR days, each
+// fully open — this matches reserveSlot's current behaviour exactly, so a
+// locked block can't 409. When the span rule changes to working-day walks
+// (see the picker/engine reconciliation task), swap the walk in THIS function
+// only. See docs/contractor-platform/04-contractor-app.md.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface BlockGridDay {
+  date: string; // YYYY-MM-DD, contiguous daily sequence
+  am: 'off' | 'open' | 'booked';
+  pm: 'off' | 'open' | 'booked';
+}
+
+export interface BlockStartOption {
+  startDate: string;
+  spanDates: string[];
+  score: number;
+  reasons: string[];
+}
+
+const BLOCK_W = {
+  soonest: 20,      // blocks have the worst runway math — early placement wins
+  soonestDecay: 2,
+  compaction: 15,   // backs onto existing booked work (chained days, no stripes)
+  orphan: -10,      // stranding a single open day the packer can barely use
+};
+
+/**
+ * Rank feasible start dates for an N-day block on a resolved grid.
+ * Feasible = N consecutive calendar days, all fully open, start ≤ deadline.
+ */
+export function blockStartCandidates(input: {
+  requiredDays: number;
+  deadline: string | null;
+  days: BlockGridDay[];
+  today: string;
+}): BlockStartOption[] {
+  const { requiredDays, deadline, days, today } = input;
+  if (requiredDays < 2 || days.length === 0) return [];
+
+  const fullyOpen = (d: BlockGridDay) => d.am === 'open' && d.pm === 'open';
+  const hasBooking = (d: BlockGridDay | undefined) => !!d && (d.am === 'booked' || d.pm === 'booked');
+
+  const feasible: Array<{ startIdx: number; spanDates: string[] }> = [];
+  for (let i = 0; i < days.length - requiredDays + 1; i++) {
+    if (days[i].date < today) continue;
+    if (deadline && days[i].date > deadline) break;
+    const span = days.slice(i, i + requiredDays);
+    if (span.every(fullyOpen)) feasible.push({ startIdx: i, spanDates: span.map((d) => d.date) });
+  }
+  if (feasible.length === 0) return [];
+
+  const firstStart = feasible[0].spanDates[0];
+  const options = feasible.map(({ startIdx, spanDates }) => {
+    let score = 0;
+    const reasons: string[] = [];
+
+    // Soonest — decays per day after the earliest feasible start.
+    const daysAfterFirst = Math.max(0, Math.round((new Date(`${spanDates[0]}T00:00:00`).getTime() - new Date(`${firstStart}T00:00:00`).getTime()) / 86400000));
+    score += Math.max(0, BLOCK_W.soonest - BLOCK_W.soonestDecay * daysAfterFirst);
+    if (daysAfterFirst === 0) reasons.push('earliest possible start');
+
+    // Compaction — the block chains onto booked work.
+    const before = days[startIdx - 1];
+    const after = days[startIdx + spanDates.length];
+    if (hasBooking(before) || hasBooking(after)) {
+      score += BLOCK_W.compaction;
+      reasons.push('backs onto booked work');
+    }
+
+    // Residual quality — penalise stranding single open days at either edge.
+    const strandedBefore = before && fullyOpen(before) && !(days[startIdx - 2] && fullyOpen(days[startIdx - 2]));
+    const strandedAfter = after && fullyOpen(after) && !(days[startIdx + spanDates.length + 1] && fullyOpen(days[startIdx + spanDates.length + 1]));
+    if (strandedBefore) score += BLOCK_W.orphan;
+    if (strandedAfter) score += BLOCK_W.orphan;
+
+    return { startDate: spanDates[0], spanDates, score, reasons };
+  });
+
+  return options.sort((a, b) => b.score - a.score || a.startDate.localeCompare(b.startDate));
+}
+
 /** Trim a job description for the pipeline card (whole words, ellipsis). */
 export function trimDescription(desc: string | null | undefined, max = 90): string | null {
   if (!desc) return null;

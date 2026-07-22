@@ -32,7 +32,7 @@ import {
 import { timeRangeCoversSlot, SLOT_CAPACITY_MIN, type SlotType } from '../shared/slot-times';
 import { totalScheduleMinutes, computeBookingDurationDays, expandSpanDates } from '../shared/schedule-composition';
 import { resolveWeek, type DayAvailability } from './lib/contractor-week';
-import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, type DayMode, type DayLoadBooking } from './lib/contractor-app';
+import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, blockStartCandidates, type DayMode, type DayLoadBooking } from './lib/contractor-app';
 import { scoreFlexPlacements, type PlacementCandidate } from './lib/contractor-flex-score';
 import { reserveSlot, confirmBooking } from './booking-engine';
 
@@ -370,6 +370,13 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
           .slice(0, 3).map((s) => ({ date: s.date, slot: s.slot, reasons: s.reasons, packed: packedByKey.get(`${s.date}|${s.slot}`) || undefined }));
       }
 
+      // Blocks (multi-day): the only decision is the START date — ranked runs
+      // of N consecutive fully-open days (matches reserveSlot's span rule).
+      const blockStarts = multiDay
+        ? blockStartCandidates({ requiredDays, deadline, days, today }).slice(0, 3)
+            .map((b) => ({ startDate: b.startDate, endDate: b.spanDates[b.spanDates.length - 1], reasons: b.reasons }))
+        : [];
+
       return {
         quoteId: f.id,
         postcodeArea: area,
@@ -377,8 +384,10 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
         valuePence: f.basePrice ?? null,
         deadline,
         multiDay,
+        requiredDays,
         needsFullDay,
         suggestions,
+        blockStarts,
       };
     });
 
@@ -462,6 +471,57 @@ router.post('/:token/flex/:quoteId/place', async (req: Request, res: Response) =
   } catch (err: any) {
     console.error('[ContractorApp] self-place failed:', err?.message);
     res.status(500).json({ error: 'Failed to place the job' });
+  }
+});
+
+// POST /:token/flex/:quoteId/place-block { startDate } → book a MULTI-DAY job
+// starting that day. Blocks own their days (no coexist/sharing): the start is
+// re-validated against a fresh grid (N consecutive fully-open days — same rule
+// as reserveSlot, which then spans + locks every day atomically).
+router.post('/:token/flex/:quoteId/place-block', async (req: Request, res: Response) => {
+  try {
+    const profile = await findByAppToken(req.params.token);
+    if (!profile) return res.status(404).json({ error: 'Link not recognised' });
+
+    const { startDate } = req.body || {};
+    if (!isIsoDate(startDate)) return res.status(400).json({ error: 'startDate (YYYY-MM-DD) required' });
+    const today = format(new Date(), 'yyyy-MM-dd');
+    if (startDate < today) return res.status(400).json({ error: 'That day is in the past' });
+
+    const quoteRows = await db.select({
+      id: personalizedQuotes.id,
+      leadContractorId: personalizedQuotes.leadContractorId,
+      depositPaidAt: personalizedQuotes.depositPaidAt,
+      withinDays: personalizedQuotes.flexBookingWithinDays,
+      bookedAt: personalizedQuotes.bookedAt,
+      pricingLineItems: personalizedQuotes.pricingLineItems,
+    }).from(personalizedQuotes).where(eq(personalizedQuotes.id, req.params.quoteId)).limit(1);
+    const quote = quoteRows[0];
+    if (!quote || quote.leadContractorId !== profile.id) return res.status(404).json({ error: 'Job not found' });
+    if (!quote.depositPaidAt || !quote.withinDays) return res.status(400).json({ error: 'Not a paid flex job' });
+    if (quote.bookedAt) return res.status(409).json({ error: 'Already has a start day' });
+
+    const deadline = format(addDays(new Date(quote.depositPaidAt as any), quote.withinDays), 'yyyy-MM-dd');
+    if (startDate > deadline) return res.status(400).json({ error: `Must start on or before ${deadline}` });
+
+    const requiredDays = computeBookingDurationDays(((quote.pricingLineItems as any[]) || []), {});
+    if (requiredDays <= 1) return res.status(400).json({ error: 'Single-day job — use the day suggestions instead' });
+
+    const { days } = await loadJobsAndGrid(profile.id);
+    const feasible = blockStartCandidates({ requiredDays, deadline, days, today });
+    if (!feasible.some((b) => b.startDate === startDate)) {
+      return res.status(409).json({ error: `Needs ${requiredDays} open days in a row from that date` });
+    }
+
+    const reserve = await reserveSlot({ quoteId: quote.id, scheduledDate: new Date(`${startDate}T09:00:00`), scheduledSlot: 'full_day', candidateContractorIds: [profile.id] });
+    if (!reserve.success || !reserve.lockId) return res.status(409).json({ error: reserve.error || 'Those days are no longer free' });
+    const confirm = await confirmBooking({ quoteId: quote.id, lockId: reserve.lockId, paymentIntentId: 'flex-self-place' });
+    if (!confirm.success) return res.status(500).json({ error: confirm.error || 'Could not confirm the booking' });
+
+    res.json({ success: true, startDate, requiredDays });
+  } catch (err: any) {
+    console.error('[ContractorApp] place-block failed:', err?.message);
+    res.status(500).json({ error: 'Failed to book the block' });
   }
 });
 

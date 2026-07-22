@@ -69,8 +69,10 @@ interface FlexJob {
   valuePence: number | null;
   deadline: string | null;
   multiDay: boolean;
+  requiredDays: number;
   needsFullDay: boolean;
   suggestions: Array<{ date: string; slot: 'am' | 'pm' | 'full_day'; reasons: string[]; packed?: boolean }>;
+  blockStarts: Array<{ startDate: string; endDate: string; reasons: string[] }>;
 }
 
 interface JobsPayload {
@@ -222,6 +224,30 @@ export default function MyWeekPage() {
       setLockError(e?.message || 'Could not lock the day');
       queryClient.invalidateQueries({ queryKey: ['contractor-app-jobs', token] });
       queryClient.invalidateQueries({ queryKey: ['contractor-app-day-plans', token] });
+    },
+  });
+
+  // Book a multi-day block starting on a chosen day.
+  const blockMutation = useMutation({
+    mutationFn: async ({ quoteId, startDate }: { quoteId: string; startDate: string }) => {
+      const res = await fetch(`/api/contractor-app/${token}/flex/${quoteId}/place-block`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Could not book the block');
+    },
+    onSuccess: () => {
+      setConfirmPlace(null);
+      setPlaceError(null);
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-jobs', token] });
+      queryClient.invalidateQueries({ queryKey: ['contractor-app', token] });
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-day-plans', token] });
+    },
+    onError: (e: any, vars) => {
+      setConfirmPlace(null);
+      setPlaceError({ quoteId: vars.quoteId, message: e?.message || 'Could not book the block' });
+      queryClient.invalidateQueries({ queryKey: ['contractor-app-jobs', token] });
     },
   });
 
@@ -632,7 +658,40 @@ export default function MyWeekPage() {
                           <p className="mt-2 text-[11px] font-semibold text-red-400">{placeError.message}</p>
                         )}
                         {f.multiDay ? (
-                          <p className="mt-3 text-[11px] text-slate-500">Multi-day job — Handy will schedule this with you.</p>
+                          f.blockStarts.length > 0 ? (
+                            <div className="mt-3 space-y-1.5">
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{f.requiredDays}-day job — pick a start</div>
+                              {f.blockStarts.map((b) => {
+                                const key = `${f.quoteId}|block|${b.startDate}`;
+                                const confirming = confirmPlace === key;
+                                return (
+                                  <button
+                                    key={key}
+                                    disabled={blockMutation.isPending}
+                                    onClick={() => (confirming
+                                      ? blockMutation.mutate({ quoteId: f.quoteId, startDate: b.startDate })
+                                      : setConfirmPlace(key))}
+                                    className={`w-full flex items-center gap-2 p-2.5 rounded-lg border text-left transition-all active:scale-[0.99] ${
+                                      confirming ? 'bg-emerald-500 border-emerald-500 text-slate-950' : 'bg-slate-800/70 border-slate-700 text-slate-200'
+                                    }`}
+                                  >
+                                    <span className="text-xs font-bold shrink-0">
+                                      {confirming
+                                        ? (blockMutation.isPending ? 'Booking…' : `Confirm ${format(new Date(b.startDate + 'T00:00:00'), 'EEE d')}–${format(new Date(b.endDate + 'T00:00:00'), 'EEE d')}?`)
+                                        : `Start ${format(new Date(b.startDate + 'T00:00:00'), 'EEE d MMM')} · runs to ${format(new Date(b.endDate + 'T00:00:00'), 'EEE d')}`}
+                                    </span>
+                                    {!confirming && b.reasons.length > 0 && (
+                                      <span className="text-[10px] text-emerald-400/90 truncate">{b.reasons[0]}</span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="mt-3 text-[11px] text-slate-500">
+                              {f.requiredDays}-day job — needs {f.requiredDays} open days in a row before the deadline. Open more days on "Week" or call us.
+                            </p>
+                          )
                         ) : f.suggestions.length === 0 ? (
                           <p className="mt-3 text-[11px] text-slate-500">No open days before the deadline — open a day on "Week" or call us.</p>
                         ) : (

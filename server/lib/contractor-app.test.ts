@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, DAY_PACK_CEILING_MIN } from './contractor-app';
+import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, DAY_PACK_CEILING_MIN, blockStartCandidates, type BlockGridDay } from './contractor-app';
 import { SLOT_TIMES, timeRangeCoversSlot } from '../../shared/slot-times';
 import { resolveWeek } from './contractor-week';
 
@@ -104,6 +104,61 @@ describe('canCoexist — packing guardrails', () => {
 
   it('full-day fillers cannot share a day', () => {
     expect(canCoexist({ minutes: 300, postcodeArea: 'NG16' }, 'full_day', [{ slot: 'am', minutes: 60, postcodeArea: 'NG16' }]).ok).toBe(false);
+  });
+});
+
+describe('blockStartCandidates — multi-day block placement', () => {
+  const day = (date: string, am: BlockGridDay['am'], pm: BlockGridDay['pm']): BlockGridDay => ({ date, am, pm });
+  const open = (date: string) => day(date, 'open', 'open');
+  const booked = (date: string) => day(date, 'booked', 'booked');
+  const off = (date: string) => day(date, 'off', 'off');
+
+  it('finds only runs of N consecutive fully-open days', () => {
+    const days = [open('2026-08-03'), open('2026-08-04'), off('2026-08-05'), open('2026-08-06'), open('2026-08-07')];
+    const out = blockStartCandidates({ requiredDays: 2, deadline: null, days, today: '2026-08-01' });
+    expect(out.map((o) => o.startDate).sort()).toEqual(['2026-08-03', '2026-08-06']);
+    expect(out.find((o) => o.startDate === '2026-08-03')!.spanDates).toEqual(['2026-08-03', '2026-08-04']);
+  });
+
+  it('a half-open day breaks the run', () => {
+    const days = [open('2026-08-03'), day('2026-08-04', 'open', 'booked'), open('2026-08-05')];
+    const out = blockStartCandidates({ requiredDays: 2, deadline: null, days, today: '2026-08-01' });
+    expect(out).toEqual([]);
+  });
+
+  it('respects the deadline on the START date', () => {
+    const days = [open('2026-08-03'), open('2026-08-04'), open('2026-08-05'), open('2026-08-06')];
+    const out = blockStartCandidates({ requiredDays: 2, deadline: '2026-08-04', days, today: '2026-08-01' });
+    expect(out.map((o) => o.startDate).sort()).toEqual(['2026-08-03', '2026-08-04']);
+  });
+
+  it('earliest start is labelled and wins on an empty week', () => {
+    const days = [open('2026-08-03'), open('2026-08-04'), open('2026-08-05'), open('2026-08-06'), open('2026-08-07')];
+    const out = blockStartCandidates({ requiredDays: 3, deadline: null, days, today: '2026-08-01' });
+    expect(out[0].startDate).toBe('2026-08-03');
+    expect(out[0].reasons).toContain('earliest possible start');
+  });
+
+  it('compaction: chaining onto booked work beats an earlier isolated start', () => {
+    // Mon-Tue open but isolated (Wed off); Thu booked; Fri-Sat open chain onto it.
+    const days = [open('2026-08-03'), open('2026-08-04'), off('2026-08-05'), booked('2026-08-06'), open('2026-08-07'), open('2026-08-08')];
+    const out = blockStartCandidates({ requiredDays: 2, deadline: null, days, today: '2026-08-01' });
+    expect(out[0].startDate).toBe('2026-08-07');
+    expect(out[0].reasons).toContain('backs onto booked work');
+  });
+
+  it('penalises stranding a single open day', () => {
+    // 3 open days; a 2-day block starting day2 strands day1 (its previous day is off).
+    const days = [off('2026-08-02'), open('2026-08-03'), open('2026-08-04'), open('2026-08-05'), off('2026-08-06')];
+    const out = blockStartCandidates({ requiredDays: 2, deadline: null, days, today: '2026-08-01' });
+    const first = out.find((o) => o.startDate === '2026-08-03')!;
+    const second = out.find((o) => o.startDate === '2026-08-04')!;
+    expect(first.score).toBeGreaterThan(second.score);
+  });
+
+  it('single-day jobs and empty grids return nothing', () => {
+    expect(blockStartCandidates({ requiredDays: 1, deadline: null, days: [open('2026-08-03')], today: '2026-08-01' })).toEqual([]);
+    expect(blockStartCandidates({ requiredDays: 2, deadline: null, days: [], today: '2026-08-01' })).toEqual([]);
   });
 });
 
