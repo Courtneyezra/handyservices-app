@@ -22,9 +22,33 @@ import { computeLaneBasePence, parsePricingLane } from "./lane-pricing";
 import { resolveOrCreateProperty } from "./properties";
 import { resolveOrCreateClient } from "./clients";
 
-// Real quote validity window — drives expiresAt at creation and the customer
-// page's price-lock countdown. Matches the PDF's "Valid 48 hours".
+// Base quote validity window (small jobs / fallback). Larger quotes get a
+// longer window — see quoteValidityMs.
 export const QUOTE_VALIDITY_MS = 48 * 60 * 60 * 1000;
+
+// Price bands for the validity window, in pence.
+export const QUOTE_VALIDITY_BAND_MID_PENCE = 25_000;   // £250
+export const QUOTE_VALIDITY_BAND_HIGH_PENCE = 100_000; // £1,000
+
+/**
+ * Price-banded validity window (ms), keyed on the quote's price in PENCE.
+ *
+ * Small "book-now" jobs keep a tight 48h lock to preserve urgency. Larger,
+ * considered purchases get a longer window: big quotes have a slower,
+ * multi-person decision process (docs/PRICE-BARRIER-ANALYSIS-2026-07-02.md —
+ * £1k+ close at ~14% vs ~46% under £250), so a flat 48h lock pushes exactly
+ * those high-value customers into the expired reissue flow mid-decision.
+ *
+ *   < £250      → 48h
+ *   £250–£1,000 → 72h
+ *   > £1,000    → 7 days
+ */
+export function quoteValidityMs(pricePence?: number | null): number {
+    const p = typeof pricePence === 'number' && Number.isFinite(pricePence) ? pricePence : 0;
+    if (p >= QUOTE_VALIDITY_BAND_HIGH_PENCE) return 7 * 24 * 60 * 60 * 1000;
+    if (p >= QUOTE_VALIDITY_BAND_MID_PENCE) return 72 * 60 * 60 * 1000;
+    return QUOTE_VALIDITY_MS;
+}
 
 // Define input schema for value pricing
 const valuePricingInputSchema = z.object({
@@ -511,8 +535,8 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
                 : null,
 
             createdAt: new Date(),
-            // Real 48h validity window — anchors the customer page's price-lock timer
-            expiresAt: new Date(Date.now() + QUOTE_VALIDITY_MS),
+            // Price-banded validity window — anchors the customer page's price-lock timer
+            expiresAt: new Date(Date.now() + quoteValidityMs(pricingResult.price)),
         };
 
         // Insert into DB
@@ -2039,14 +2063,13 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/expire', async (req, res) 
     }
 });
 
-// Admin: Regenerate a quote with price increase
-// Note: expiresAt no longer set since quotes don't expire
-quotesRouter.post('/api/admin/personalized-quotes/:id/regenerate', async (req, res) => {
+// Admin: Renew an expired quote — resets the price-lock so the link is live
+// again. Price is UNCHANGED (customer sees the exact same quote they saw
+// before). Bumps regenerationCount for auditing. Window is price-banded.
+quotesRouter.post('/api/admin/personalized-quotes/:id/renew', async (req, res) => {
     try {
         const { id } = req.params;
-        const { percentageIncrease = 5 } = req.body;
 
-        // Get original quote
         const [original] = await db.select().from(personalizedQuotes)
             .where(eq(personalizedQuotes.id, id));
 
@@ -2054,23 +2077,19 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/regenerate', async (req, r
             return res.status(404).json({ error: "Quote not found" });
         }
 
-        const multiplier = 1 + (percentageIncrease / 100);
+        const newExpiresAt = new Date(Date.now() + quoteValidityMs(original.basePrice));
 
-        // Update the quote with new prices (no expiration timer)
         await db.update(personalizedQuotes)
             .set({
-                essentialPrice: original.essentialPrice ? Math.round(original.essentialPrice * multiplier) : null,
-                enhancedPrice: original.enhancedPrice ? Math.round(original.enhancedPrice * multiplier) : null,
-                elitePrice: original.elitePrice ? Math.round(original.elitePrice * multiplier) : null,
-                basePrice: original.basePrice ? Math.round(original.basePrice * multiplier) : null,
+                expiresAt: newExpiresAt,
                 regenerationCount: (original.regenerationCount || 0) + 1,
             })
             .where(eq(personalizedQuotes.id, id));
 
-        res.json({ success: true, regenerated: true });
+        res.json({ success: true, renewed: true, expiresAt: newExpiresAt });
     } catch (error) {
-        console.error("Regenerate quote error:", error);
-        res.status(500).json({ error: "Failed to regenerate quote" });
+        console.error("Renew quote error:", error);
+        res.status(500).json({ error: "Failed to renew quote" });
     }
 });
 
@@ -2487,8 +2506,8 @@ quotesRouter.post('/api/quotes/instant', optionalAuth, async (req, res) => {
                 ? `${(req as any).user.firstName || ''} ${(req as any).user.lastName || ''}`.trim() || null
                 : null,
             createdAt: new Date(),
-            // Real 48h validity window — anchors the customer page's price-lock timer
-            expiresAt: new Date(Date.now() + QUOTE_VALIDITY_MS),
+            // Price-banded validity window — anchors the customer page's price-lock timer
+            expiresAt: new Date(Date.now() + quoteValidityMs(input.totalPricePence)),
         };
 
         await db.insert(personalizedQuotes).values(quoteData);

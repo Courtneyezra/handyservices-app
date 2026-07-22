@@ -75,6 +75,7 @@ export function QuoteTimerProvider({
   durationSeconds = TOTAL_SECONDS,
   quoteKey,
   expiresAt,
+  createdAt,
   viewCount,
 }: {
   children: React.ReactNode;
@@ -86,11 +87,17 @@ export function QuoteTimerProvider({
    */
   quoteKey?: string;
   /**
-   * The quote's REAL server-issued expiry (48h validity window). When set, the
-   * countdown derives from it — same honest number on every open/refresh.
-   * Omitted → falls back to the shared lock anchor / a fresh local countdown.
+   * The quote's REAL server-issued expiry. When set, the countdown derives from
+   * it — same honest number on every open/refresh. Omitted → falls back to the
+   * shared lock anchor / a fresh local countdown.
    */
   expiresAt?: Date | string | null;
+  /**
+   * The quote's creation time. With expiresAt it gives the true validity window
+   * (which is now price-banded — 48h to 7 days), so the progress bar fills over
+   * the real window rather than a hard-coded 48h. Omitted → durationSeconds.
+   */
+  createdAt?: Date | string | null;
   /**
    * Server view count for this quote. First view (<= 1) keeps the urgent
    * pulsing treatment; returning visitors get the calm "PRICE LOCKED" seal.
@@ -103,6 +110,22 @@ export function QuoteTimerProvider({
     return Number.isFinite(ms) ? ms : null;
   }, [expiresAt]);
 
+  const createdMs = useMemo(() => {
+    if (!createdAt) return null;
+    const ms = new Date(createdAt).getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }, [createdAt]);
+
+  // The real validity window: expiry − creation when both are known, else the
+  // passed default. Drives the progress bar so a 7-day quote doesn't sit full
+  // for 5 days before it starts draining.
+  const effectiveDuration = useMemo(() => {
+    if (expiryMs != null && createdMs != null && expiryMs > createdMs) {
+      return Math.round((expiryMs - createdMs) / 1000);
+    }
+    return durationSeconds;
+  }, [expiryMs, createdMs, durationSeconds]);
+
   // Seed the shared clock synchronously (idempotent) so the initial
   // secondsLeft — and any skeleton still ticking — read the real expiry.
   if (quoteKey && expiryMs != null) {
@@ -110,7 +133,7 @@ export function QuoteTimerProvider({
   }
 
   const [secondsLeft, setSecondsLeft] = useState(() =>
-    computeSecondsLeft(expiryMs, quoteKey, durationSeconds),
+    computeSecondsLeft(expiryMs, quoteKey, effectiveDuration),
   );
   const expired = secondsLeft <= 0;
   const calm = (viewCount ?? 0) > 1;
@@ -118,11 +141,11 @@ export function QuoteTimerProvider({
   useEffect(() => {
     if (expired) return;
     const interval = setInterval(
-      () => setSecondsLeft(computeSecondsLeft(expiryMs, quoteKey, durationSeconds)),
+      () => setSecondsLeft(computeSecondsLeft(expiryMs, quoteKey, effectiveDuration)),
       1000,
     );
     return () => clearInterval(interval);
-  }, [expired, quoteKey, expiryMs, durationSeconds]);
+  }, [expired, quoteKey, expiryMs, effectiveDuration]);
 
   const timeDisplay = useMemo(() => formatLockTime(secondsLeft), [secondsLeft]);
 
@@ -131,7 +154,7 @@ export function QuoteTimerProvider({
     [expiryMs],
   );
 
-  const progress = Math.min(1, secondsLeft / durationSeconds);
+  const progress = Math.min(1, secondsLeft / effectiveDuration);
 
   // Colour thresholds scaled to the 48h window: amber for most of the life of
   // the quote, orange inside the final ~6h, red inside the final hour.
@@ -155,7 +178,7 @@ export function QuoteTimerProvider({
 
   const value: QuoteTimerState = {
     secondsLeft,
-    durationSeconds,
+    durationSeconds: effectiveDuration,
     progress,
     expired,
     calm,

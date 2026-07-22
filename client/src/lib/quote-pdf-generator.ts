@@ -1,6 +1,20 @@
 import { jsPDF } from 'jspdf';
 import { format } from 'date-fns';
 
+/** The quote's real validity window in whole hours, from its timestamps
+ * (fallback 48h). Now that the window is price-banded, the PDF must reflect the
+ * actual span rather than a hard-coded 48. */
+export function validityHoursFromQuote(
+  createdAt?: Date | string | null,
+  expiresAt?: Date | string | null,
+): number {
+  if (!createdAt || !expiresAt) return 48;
+  const c = new Date(createdAt).getTime();
+  const e = new Date(expiresAt).getTime();
+  if (!Number.isFinite(c) || !Number.isFinite(e) || e <= c) return 48;
+  return Math.round((e - c) / 3_600_000);
+}
+
 /** One itemised row in the quote breakdown. `pricePence` is the full customer-
  * facing display price for the line (labour + materials + any folded structural
  * share) — i.e. what the customer sees against that job on the quote page. */
@@ -400,7 +414,9 @@ export function buildQuotePdf(data: QuotePDFData, brand?: QuotePdfBrand): jsPDF 
   doc.setFont(FONT, 'bold');
   doc.setFontSize(9);
   doc.setTextColor(...NAVY);
-  doc.text(`Valid ${data.validityHours || 48} hours`, W - M - 6, y + 9, { align: 'right' });
+  const vh = data.validityHours || 48;
+  const validityLabel = vh > 72 ? `Valid ${Math.round(vh / 24)} days` : `Valid ${vh} hours`;
+  doc.text(validityLabel, W - M - 6, y + 9, { align: 'right' });
   y += boxH + 9;
 
   // ── 6b. When suits you? — scheduling choice (lane-eligible quotes only) ──

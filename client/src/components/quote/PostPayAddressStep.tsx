@@ -1,6 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Check, Loader2, MapPin, Star } from 'lucide-react';
+import { Check, Loader2, MapPin, Search, Star } from 'lucide-react';
+import { loadGooglePlacesScript } from '@/components/live-call/AddressInput';
+
+// Dark-themed styling for Google's autocomplete dropdown (this step sits on the
+// #1D2D3D card). Mirrors QuoteAddressInput's palette so the PAC reads native.
+const POSTPAY_PAC_STYLE_ID = 'postpay-pac-style';
+function ensurePostPayPacStyle() {
+  if (document.getElementById(POSTPAY_PAC_STYLE_ID)) return;
+  const el = document.createElement('style');
+  el.id = POSTPAY_PAC_STYLE_ID;
+  el.textContent =
+    `.pac-container{background:#1e293b;border:1px solid rgba(255,255,255,.12);border-radius:10px;margin-top:4px;font-family:inherit;z-index:99999;box-shadow:0 12px 32px rgba(0,0,0,.45)}
+     .pac-item{color:rgba(255,255,255,.85);padding:8px 12px;border-top:1px solid rgba(255,255,255,.06);cursor:pointer}
+     .pac-item:first-child{border-top:none}
+     .pac-item:hover,.pac-item-selected{background:rgba(125,176,14,.18)}
+     .pac-item-query{color:#fff;font-size:14px}.pac-matched{font-weight:600}
+     .pac-icon{filter:invert(1) opacity(.5)}.pac-logo::after{display:none}`;
+  document.head.appendChild(el);
+}
 
 /**
  * PostPayAddressStep — Model A's post-payment address capture.
@@ -42,6 +60,58 @@ export function PostPayAddressStep({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Google Places autocomplete on line 1 — a selection fills line 1 / town /
+  // postcode. If the script has no key or fails to load, the fields stay plain
+  // editable inputs, so manual entry always works as a fallback.
+  const line1Ref = useRef<HTMLInputElement>(null);
+  const acRef = useRef<any>(null);
+  const boundElRef = useRef<HTMLInputElement | null>(null);
+  const [placesReady, setPlacesReady] = useState(false);
+  const [picked, setPicked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadGooglePlacesScript().then((ok) => { if (!cancelled) setPlacesReady(ok); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!placesReady || !line1Ref.current) return;
+    if (boundElRef.current === line1Ref.current) return; // already bound to this input
+    const places = (window as any).google?.maps?.places;
+    if (!places) return;
+    ensurePostPayPacStyle();
+    try {
+      const ac = new places.Autocomplete(line1Ref.current, {
+        componentRestrictions: { country: 'gb' },
+        fields: ['address_components', 'formatted_address'],
+        types: ['address'],
+      });
+      ac.addListener('place_changed', () => {
+        const place = ac.getPlace();
+        const comps = place.address_components as any[] | undefined;
+        if (!comps) return;
+        const get = (t: string) => comps.find((c) => c.types.includes(t));
+        const streetNumber = get('street_number')?.long_name || '';
+        const route = get('route')?.long_name || '';
+        const parsedLine1 = [streetNumber, route].filter(Boolean).join(' ')
+          || (place.formatted_address?.split(',')[0] ?? '');
+        const parsedCity = get('postal_town')?.long_name
+          || get('locality')?.long_name
+          || get('administrative_area_level_2')?.long_name || '';
+        const parsedPostcode = get('postal_code')?.long_name || '';
+        if (parsedLine1) setLine1(parsedLine1);
+        if (parsedCity) setCity(parsedCity);
+        if (parsedPostcode) setPostcode(parsedPostcode);
+        setPicked(true);
+      });
+      acRef.current = ac;
+      boundElRef.current = line1Ref.current;
+    } catch {
+      /* Places unavailable — manual entry still works. */
+    }
+  }, [placesReady, editing, savedAddr]);
 
   // The page hydrates the quote from a localStorage cache and refreshes it
   // async — a saved address can arrive AFTER mount. Adopt it unless the
@@ -183,15 +253,29 @@ export function PostPayAddressStep({
             <div className="space-y-3.5">
               <div>
                 <label htmlFor="pps-line1" className={labelBase}>Address line 1</label>
-                <input
-                  id="pps-line1"
-                  type="text"
-                  value={line1}
-                  onChange={e => setLine1(e.target.value)}
-                  autoComplete="address-line1"
-                  placeholder="e.g. 14 Mapperley Road"
-                  className={inputBase}
-                />
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <input
+                    ref={line1Ref}
+                    id="pps-line1"
+                    type="text"
+                    value={line1}
+                    onChange={e => { setPicked(false); setLine1(e.target.value); }}
+                    autoComplete="off"
+                    placeholder={placesReady ? 'Start typing your address…' : 'e.g. 14 Mapperley Road'}
+                    className={`${inputBase} pl-10 pr-9`}
+                  />
+                  {picked && (
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded-full bg-[#7DB00E]/20">
+                      <Check className="w-3 h-3 text-[#7DB00E]" strokeWidth={3} />
+                    </span>
+                  )}
+                </div>
+                <p className="text-slate-500 text-[11px] mt-1.5">
+                  {placesReady
+                    ? 'Search powered by Google — or type it in manually below.'
+                    : 'Type your address in.'}
+                </p>
               </div>
 
               <div>

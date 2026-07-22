@@ -31,17 +31,26 @@ export interface PostPayDayPickerProps {
 }
 
 const MIN_ALLOWED = 3;
+// A flexible booking means the customer stays flexible — they may cross off a
+// handful of genuine can't-do days, not most of the horizon. Beyond this cap
+// they aren't really flexible and should pick a fixed date instead. Enforced
+// here AND server-side (public-routes date-preferences).
+const MAX_EXCLUDED = 5;
 const HORIZON_DAYS = 21;
 
-/** The picker's working-day horizon (YYYY-MM-DD, tomorrow onward, Sundays
- *  closed). Exported so the paid hub can reconstruct avoided days for the
- *  hero's date block without duplicating the calendar grammar. */
+/** The picker's stable WEEKDAY horizon (YYYY-MM-DD, tomorrow onward, weekends
+ *  excluded). Exported so the paid hub can reconstruct avoided days for the
+ *  hero's date block without duplicating the calendar grammar. Weekends are
+ *  deliberately excluded here — the grid only surfaces a Sat/Sun when a
+ *  contractor actually works it, so weekends are additive there, never part of
+ *  this baseline reconstruction. */
 export function pickerHorizonDates(): string[] {
   const out: string[] = [];
   const start = startOfDay(addDays(new Date(), 1));
   for (let i = 0; i < HORIZON_DAYS; i++) {
     const date = addDays(start, i);
-    if (date.getDay() === 0) continue;
+    const dow = date.getDay();
+    if (dow === 0 || dow === 6) continue; // weekends gated by availability in the grid
     out.push(formatDateStr(date));
   }
   return out;
@@ -72,26 +81,60 @@ export function PostPayDayPicker({ quoteId, initialDates, onSaved, startInEdit =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialDates?.join(',')]);
 
-  // Next 21 days, tomorrow onward, Sundays closed — same grammar as the quote card grid.
+  // Weekend days (Sat/Sun) only appear if a candidate contractor actually works
+  // them — per their Handy OS weekly pattern + date overrides. Weekdays always
+  // show (they're the customer's constraints, applied before dispatch). The
+  // quote-availability endpoint (no month param → next 30 days) resolves the
+  // pool and returns only workable dates. null = not loaded yet → weekends
+  // stay hidden until we know, so we never offer a weekend no one can work.
+  const [weekendWorkable, setWeekendWorkable] = useState<Set<string> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/public/quote/${quoteId}/availability?slot=full_day`);
+        if (!res.ok) throw new Error('availability fetch failed');
+        const data = (await res.json()) as { date: string }[];
+        if (!cancelled) setWeekendWorkable(new Set(data.map(d => d.date)));
+      } catch {
+        // Conservative: leave weekends hidden if we can't confirm availability.
+        if (!cancelled) setWeekendWorkable(new Set());
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [quoteId]);
+
+  // Next 21 days, tomorrow onward. Weekdays always; weekends only when workable.
   const days = useMemo(() => {
     const out: { date: Date; str: string }[] = [];
     const start = startOfDay(addDays(new Date(), 1));
     for (let i = 0; i < HORIZON_DAYS; i++) {
       const date = addDays(start, i);
-      if (date.getDay() === 0) continue; // Sundays closed
-      out.push({ date, str: formatDateStr(date) });
+      const dow = date.getDay();
+      const str = formatDateStr(date);
+      const isWeekend = dow === 0 || dow === 6;
+      if (isWeekend && !weekendWorkable?.has(str)) continue; // weekend only if a contractor works it
+      out.push({ date, str });
     }
     return out;
-  }, []);
+  }, [weekendWorkable]);
 
   const allowedCount = days.length - excluded.size;
-  const canSubmit = allowedCount >= MIN_ALLOWED;
+  const atLimit = excluded.size >= MAX_EXCLUDED;
+  const withinCap = excluded.size <= MAX_EXCLUDED;
+  const canSubmit = allowedCount >= MIN_ALLOWED && withinCap;
 
   const toggle = (str: string) => {
     setExcluded(prev => {
       const next = new Set(prev);
-      if (next.has(str)) next.delete(str);
-      else next.add(str);
+      if (next.has(str)) {
+        next.delete(str);
+        return next;
+      }
+      // Cap reached — ignore further cross-offs (keeps the booking flexible).
+      if (next.size >= MAX_EXCLUDED) return prev;
+      next.add(str);
       return next;
     });
   };
@@ -107,7 +150,9 @@ export function PostPayDayPicker({ quoteId, initialDates, onSaved, startInEdit =
       const res = await fetch(`/api/public/quote/${quoteId}/date-preferences`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dates }),
+        // offeredCount lets the server derive how many days were crossed off
+        // (offered − allowed) and enforce the flex cap authoritatively.
+        body: JSON.stringify({ dates, offeredCount: days.length }),
       });
       if (!res.ok) throw new Error('save failed');
       setSavedDates(dates);
@@ -215,20 +260,27 @@ export function PostPayDayPicker({ quoteId, initialDates, onSaved, startInEdit =
             )}
 
             <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">
-              {excluded.size === 0 ? "Or cross off days that don't work" : 'Crossed off — tap again to undo'}
+              {excluded.size === 0
+                ? `Or cross off up to ${MAX_EXCLUDED} days that don't work`
+                : `Crossed off ${excluded.size}/${MAX_EXCLUDED} — tap again to undo`}
             </p>
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 mb-4">
               {days.map(({ date, str }) => {
                 const isExcluded = excluded.has(str);
+                // At the cap, days not already crossed off can't be added.
+                const blocked = !isExcluded && atLimit;
                 return (
                   <button
                     key={str}
                     type="button"
                     onClick={() => toggle(str)}
+                    disabled={blocked}
                     className={`relative rounded-xl px-1 py-2.5 text-center transition-all border ${
                       isExcluded
                         ? 'bg-red-400/10 border-red-400/40'
-                        : 'bg-white/5 border-white/15 hover:border-red-300/50'
+                        : blocked
+                          ? 'bg-white/5 border-white/10 opacity-40 cursor-not-allowed'
+                          : 'bg-white/5 border-white/15 hover:border-red-300/50'
                     }`}
                   >
                     <div className={`text-[10px] font-semibold uppercase ${isExcluded ? 'text-slate-500' : 'text-slate-400'}`}>
@@ -257,6 +309,12 @@ export function PostPayDayPicker({ quoteId, initialDates, onSaved, startInEdit =
               })}
             </div>
 
+            {atLimit && withinCap && (
+              <p className="text-amber-400/90 text-xs mb-3">
+                That's the most a flexible booking can avoid ({MAX_EXCLUDED} days). Untick one to change it — or if more days don't work, reply to our text and we'll pin an exact date.
+              </p>
+            )}
+
             {saveError && (
               <p className="text-amber-400 text-sm mb-3">{saveError}</p>
             )}
@@ -275,6 +333,8 @@ export function PostPayDayPicker({ quoteId, initialDates, onSaved, startInEdit =
               >
                 {saving ? (
                   <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Saving…</span>
+                ) : !withinCap ? (
+                  `Cross off ${MAX_EXCLUDED} days or fewer`
                 ) : canSubmit ? (
                   `Done — avoiding ${excluded.size} day${excluded.size === 1 ? '' : 's'}`
                 ) : (

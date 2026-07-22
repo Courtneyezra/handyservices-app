@@ -333,15 +333,15 @@ export function QuoteSkeleton({ quoteKey = "quote" }: { quoteKey?: string }) {
                         }
                     `}</style>
 
-                    {/* Price-lock seal — primes the 48-hour price hold before the
-                        quote even paints. Mirrors the live QuoteTimer seal (amber
-                        #F59E0B) so the swap to the real ticking seal reads as
-                        continuous, not a new element appearing. */}
+                    {/* Price-lock seal — primes the price hold before the quote even
+                        paints. Mirrors the live QuoteTimer seal (amber #F59E0B) so the
+                        swap to the real ticking seal reads as continuous, not a new
+                        element appearing. */}
                     <div
                         className="relative inline-flex items-center justify-center mb-4 h-20 w-20 mx-auto"
                         style={{ animation: "seal-breathe 2s ease-in-out infinite", transformOrigin: "center" }}
                         role="img"
-                        aria-label="Price locked for 48 hours"
+                        aria-label="Price locked"
                     >
                         {/* Soft pulsing halo */}
                         <span

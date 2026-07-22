@@ -33,7 +33,7 @@ import { selectContentForQuote } from '../content-library/selector';
 import { trackQuoteCreated } from '../posthog';
 import { calculateMultiLineCost, checkMargin, calculateCostFromWTBP } from '../margin-engine';
 import { incrementExtrasPickCount } from '../quote-extras-catalog';
-import { QUOTE_VALIDITY_MS } from '../quotes';
+import { quoteValidityMs } from '../quotes';
 import { normalizeQuoteImageUrl } from '../quote-image-utils';
 import { uploadQuotePhotoToS3, isS3Configured } from '../s3-media';
 import { geocodePostcode } from '../lib/geocode';
@@ -1964,8 +1964,8 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       matchedContractorRate: null,
 
       createdAt: new Date(),
-      // Real 48h validity window — anchors the customer page's price-lock timer
-      expiresAt: new Date(Date.now() + QUOTE_VALIDITY_MS),
+      // Price-banded validity window — anchors the customer page's price-lock timer
+      expiresAt: new Date(Date.now() + quoteValidityMs(result.finalPricePence)),
     };
 
     if (editingQuote) {

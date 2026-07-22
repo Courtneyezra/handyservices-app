@@ -10,10 +10,10 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Copy, Eye, RefreshCw, Trash2, ExternalLink, Download, CreditCard, Pencil, FileEdit, MessageCircle, Hammer, ShieldCheck, UserCheck } from 'lucide-react';
+import { Copy, Eye, RefreshCw, Trash2, ExternalLink, Download, CreditCard, Pencil, FileEdit, MessageCircle, Hammer, ShieldCheck, UserCheck, Loader2 } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
-import { generateQuotePDF } from '@/lib/quote-pdf-generator';
+import { generateQuotePDF, validityHoursFromQuote } from '@/lib/quote-pdf-generator';
 import { buildQuoteWhatsAppMessage } from '@/lib/whatsapp-quote-message';
 import type { DateAvailability } from '@/hooks/useAvailability';
 
@@ -63,13 +63,14 @@ interface PersonalizedQuote {
 interface QuotesListProps {
     quotes: PersonalizedQuote[];
     onDelete: (id: string) => void;
-    onRegenerate?: (quote: PersonalizedQuote) => void;
+    onRenew?: (quote: PersonalizedQuote) => void;
+    renewingId?: string | null;
     onEdit?: (quote: PersonalizedQuote) => void;
     linkPrefix?: string;
     availableDates?: DateAvailability[];
 }
 
-export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix = '/quote-link/', availableDates = [] }: QuotesListProps) {
+export function QuotesList({ quotes, onDelete, onRenew, renewingId, onEdit, linkPrefix = '/quote-link/', availableDates = [] }: QuotesListProps) {
     const { toast } = useToast();
     const [, setLocation] = useLocation();
 
@@ -295,7 +296,7 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
                                                                 jobDescription: quote.jobDescription || 'As discussed',
                                                                 priceInPence: price,
                                                                 segment: quote.segment || undefined,
-                                                                validityHours: 48,
+                                                                validityHours: validityHoursFromQuote(quote.createdAt, quote.expiresAt),
                                                                 createdAt: new Date(quote.createdAt),
                                                             });
                                                         }}
@@ -360,20 +361,23 @@ export function QuotesList({ quotes, onDelete, onRegenerate, onEdit, linkPrefix 
                                             </TooltipProvider>
                                         )}
 
-                                        {(isExpired || !isBooked) && onRegenerate && (
+                                        {(isExpired || !isBooked) && onRenew && (
                                             <TooltipProvider>
                                                 <Tooltip>
                                                     <TooltipTrigger asChild>
                                                         <Button
                                                             variant="ghost"
                                                             size="icon"
-                                                            className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
-                                                            onClick={() => onRegenerate(quote)}
+                                                            disabled={renewingId === quote.id}
+                                                            className={`h-8 w-8 ${isExpired ? 'text-amber-600 hover:text-amber-700 hover:bg-amber-50' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+                                                            onClick={() => onRenew(quote)}
                                                         >
-                                                            <RefreshCw className="h-4 w-4" />
+                                                            {renewingId === quote.id
+                                                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                                                : <RefreshCw className="h-4 w-4" />}
                                                         </Button>
                                                     </TooltipTrigger>
-                                                    <TooltipContent>Regenerate</TooltipContent>
+                                                    <TooltipContent>{isExpired ? 'Renew — reactivate this expired link (same price)' : 'Renew — reset the 48h link (same price)'}</TooltipContent>
                                                 </Tooltip>
                                             </TooltipProvider>
                                         )}

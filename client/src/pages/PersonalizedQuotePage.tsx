@@ -29,7 +29,7 @@ import { ScopeOfWorks, EstimatorFooter, ExpertSpecSheet } from '@/components/Exp
 import { PaymentToggle } from '@/components/quote/PaymentToggle';
 import { MobilePricingCard, KeyFeature } from '@/components/quote/MobilePricingCard';
 import { getExpertNoteText, getLineItems, getScopeOfWorks } from "@/lib/quote-helpers";
-import { generateQuotePDF, loadQuotePhotos } from "@/lib/quote-pdf-generator";
+import { generateQuotePDF, loadQuotePhotos, validityHoursFromQuote } from "@/lib/quote-pdf-generator";
 import { InstantActionQuote } from '@/components/InstantActionQuote';
 import { UpsellBottomSheet } from '@/components/UpsellBottomSheet';
 import { ExpertAssessmentQuote } from '@/components/ExpertAssessmentQuote';
@@ -2880,6 +2880,17 @@ export default function PersonalizedQuotePage() {
   const [postPayDates, setPostPayDates] = useState<string[] | null>(null);
   // Hub "Change my days" — reopens the picker card below the hero.
   const [editingDays, setEditingDays] = useState(false);
+  // "Dates updated" confirmation shown on the hero after an edit save. Backed by
+  // sessionStorage so it survives the post-save quote refetch (which can remount
+  // this page); the hero clears it once shown so it never re-appears on reload.
+  const datesUpdatedKey = `dates_updated_${typeof window !== 'undefined' ? window.location.pathname : ''}`;
+  const [datesJustUpdated, setDatesJustUpdated] = useState(() => {
+    try { return sessionStorage.getItem(datesUpdatedKey) === '1'; } catch { return false; }
+  });
+  const clearDatesUpdated = useCallback(() => {
+    try { sessionStorage.removeItem(datesUpdatedKey); } catch { /* noop */ }
+    setDatesJustUpdated(false);
+  }, [datesUpdatedKey]);
   const [dayStepDone, setDayStepDone] = useState(() => {
     try { return sessionStorage.getItem(`daystep_done_${window.location.pathname}`) === '1'; } catch { return false; }
   });
@@ -4393,7 +4404,7 @@ export default function PersonalizedQuotePage() {
                         jobDescription: getExpertNoteText(quote as any),
                         priceInPence: quotePrice,
                         segment: quote.segment || undefined,
-                        validityHours: 48,
+                        validityHours: validityHoursFromQuote(quote.createdAt, quote.expiresAt),
                         createdAt: quote.createdAt ? new Date(quote.createdAt) : new Date(),
                         lineItems: pdfLineItems,
                         batchDiscountPence: quote.batchDiscount?.applied ? quote.batchDiscount.savingsPence : undefined,
@@ -4608,7 +4619,7 @@ export default function PersonalizedQuotePage() {
       quote.contextualHeadline?.trim() ||
       (admiralJobTitle ? `Here's your quote for ${admiralJobTitle}` : "Here's your quote");
     return (
-      <QuoteTimerProvider quoteKey={params?.slug || 'quote'} expiresAt={quote.expiresAt} viewCount={quote.viewCount}>
+      <QuoteTimerProvider quoteKey={params?.slug || 'quote'} expiresAt={quote.expiresAt} createdAt={quote.createdAt} viewCount={quote.viewCount}>
         <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
 
           <UpsellBottomSheet
@@ -4731,7 +4742,16 @@ export default function PersonalizedQuotePage() {
       confirmationData?.invoice?.totalAmount || 0,
       paidDepositPence,
     );
-    const paidBalancePence = Math.max(0, paidTotalPence - paidDepositPence);
+    // Balance owed. A "pay in full" payer's deposit IS the 3%-discounted full
+    // amount, so nothing is left — the naive total−paid would show a phantom 3%
+    // balance and mislabel it "Deposit paid". Trust paymentType, then the
+    // invoice's authoritative balanceDue, and only fall back to subtraction.
+    const invoiceBalancePence = confirmationData?.invoice?.balanceDue;
+    const paidBalancePence = (quote as any).paymentType === 'full'
+      ? 0
+      : (typeof invoiceBalancePence === 'number'
+          ? Math.max(0, invoiceBalancePence)
+          : Math.max(0, paidTotalPence - paidDepositPence));
     const paidJobCompleted = !!quote.completedAt || confirmationData?.job?.status === 'completed';
     // Flex bookings: no selectedDate by design — the promise is "done within N
     // days of booking". Anchor the deadline on the payment moment (falls back to
@@ -4768,7 +4788,7 @@ export default function PersonalizedQuotePage() {
       ? pickerHorizonDates().filter(d => !collectedDays.includes(d))
       : [];
     return (
-      <QuoteTimerProvider quoteKey={params?.slug || 'quote'} expiresAt={quote.expiresAt} viewCount={quote.viewCount}>
+      <QuoteTimerProvider quoteKey={params?.slug || 'quote'} expiresAt={quote.expiresAt} createdAt={quote.createdAt} viewCount={quote.viewCount}>
       <div className="min-h-screen bg-slate-50 font-sans selection:bg-[#7DB00E] selection:text-white relative text-slate-900">
 
         {/* Sticky instant-contact header — always-visible bold navy bar pinning
@@ -4865,10 +4885,18 @@ export default function PersonalizedQuotePage() {
                   initialDates={collectedDays ?? undefined}
                   startInEdit={editingDays}
                   onSaved={(dates) => {
+                    const wasEditing = editingDays;
                     setPostPayDates(dates);
-                    // Let the "days set" state land for a beat, then hand back
-                    // to the hub (whose hero shows the same summary).
-                    setTimeout(() => { setEditingDays(false); completeDayStep(); }, 1400);
+                    // Hand straight back to the booked hero — no lingering
+                    // "your days are set" screen. On an edit, flag the hero to
+                    // show a transient "dates updated" confirmation.
+                    setEditingDays(false);
+                    completeDayStep();
+                    if (wasEditing) {
+                      // Persist across the refetch/remount; the hero shows + clears it.
+                      try { sessionStorage.setItem(datesUpdatedKey, '1'); } catch { /* noop */ }
+                      setDatesJustUpdated(true);
+                    }
                   }}
                 />
                 {!editingDays && (
@@ -4947,7 +4975,7 @@ export default function PersonalizedQuotePage() {
                 portalToken={confirmationData?.portalToken ?? undefined}
                 jobCompleted={paidJobCompleted}
                 flexDays={!quote.selectedDate && !paidJobCompleted
-                  ? { avoided: avoidedDays, onChangeDays: () => { setEditingDays(true); window.scrollTo({ top: 0 }); } }
+                  ? { avoided: avoidedDays, justUpdated: datesJustUpdated, onUpdatedDismiss: clearDatesUpdated, onChangeDays: () => { clearDatesUpdated(); setEditingDays(true); window.scrollTo({ top: 0 }); } }
                   : undefined}
               />
               {/* Model A: the hero's date block owns the ENTIRE day state —

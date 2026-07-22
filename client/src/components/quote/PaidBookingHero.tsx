@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Banknote, Check, CalendarDays, CalendarPlus, MessageCircle, Phone, Receipt, Star, Sparkles,
@@ -41,7 +42,7 @@ export interface PaidBookingHeroProps {
    * day state ("within 2 weeks", avoided days, change link) so the hub needs
    * no separate summary card. `avoided` = crossed-off days (YYYY-MM-DD).
    */
-  flexDays?: { avoided: string[]; onChangeDays?: () => void };
+  flexDays?: { avoided: string[]; onChangeDays?: () => void; justUpdated?: boolean; onUpdatedDismiss?: () => void };
 }
 
 /** £12.50 for odd pence, £125 for whole pounds — matches quote-page price idiom. */
@@ -78,6 +79,24 @@ export function PaidBookingHero({
   const deadline = !jobDate ? parseDate(flexDeadline ?? null) : null;
   const deadlineLabel = deadline ? format(deadline, 'EEEE d MMMM') : null;
   const paidInFull = balanceDuePence <= 0;
+  // When a pay-in-full payer took the discount, they paid less than the job
+  // total — surface that saving so the total, paid, and "nothing left" reconcile.
+  const savingPence = paidInFull ? Math.max(0, totalPence - depositPaidPence) : 0;
+
+  // "Dates updated" confirmation after an edit. Timed from when this hero
+  // actually mounts (the picker unmounts on save, then this remounts), so the
+  // post-save refetch can't eat the window before the customer sees it.
+  const [showUpdated, setShowUpdated] = useState(!!flexDays?.justUpdated);
+  const onUpdatedDismiss = flexDays?.onUpdatedDismiss;
+  useEffect(() => {
+    if (!flexDays?.justUpdated) return;
+    setShowUpdated(true);
+    const t = setTimeout(() => {
+      setShowUpdated(false);
+      onUpdatedDismiss?.(); // clear the persisted flag so it won't re-show on reload
+    }, 4000);
+    return () => clearTimeout(t);
+  }, [flexDays?.justUpdated, onUpdatedDismiss]);
 
   // Generate and download an .ics client-side (mirrors BookingConfirmedPage).
   // 9am–12pm placeholder window — the day-before reminder carries the real one.
@@ -182,6 +201,11 @@ END:VCALENDAR`;
               /* Post-payment day collection absorbed here — one block owns the
                  whole "when" story: window, avoided days, confirm promise. */
               <>
+                {showUpdated && (
+                  <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-[#4a7a0e] text-[11px] font-bold shadow-sm">
+                    <Check className="w-3 h-3" strokeWidth={3} /> Dates updated
+                  </div>
+                )}
                 <div className="text-white/85 text-xs mt-1">
                   We'll text your confirmed day at least 2 days ahead.
                 </div>
@@ -251,6 +275,12 @@ END:VCALENDAR`;
             <span className="text-white/60 text-sm">Job total</span>
             <span className="text-white font-bold tabular-nums">{formatMoney(totalPence)}</span>
           </div>
+          {savingPence > 0 && (
+            <div className="flex items-center justify-between px-4 py-2.5">
+              <span className="text-white/60 text-sm">Pay-in-full saving</span>
+              <span className="text-[#a3d65f] font-bold tabular-nums">−{formatMoney(savingPence)}</span>
+            </div>
+          )}
           <div className="flex items-center justify-between px-4 py-2.5">
             <span className="flex items-center gap-1.5 text-white/60 text-sm">
               <span className="w-4 h-4 rounded-full bg-[#7DB00E] flex items-center justify-center">

@@ -12,7 +12,7 @@ import {
 import { Copy, Eye, Phone, RefreshCw, X, Download, CreditCard, Pencil, FileEdit, MessageCircle, Hammer, ShieldCheck, UserCheck, Receipt, CheckSquare, CheckCircle, MoreHorizontal, Loader2, AlertCircle } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
-import { generateQuotePDF } from '@/lib/quote-pdf-generator';
+import { generateQuotePDF, validityHoursFromQuote } from '@/lib/quote-pdf-generator';
 import { buildQuoteWhatsAppMessage } from '@/lib/whatsapp-quote-message';
 import type { DateAvailability } from '@/hooks/useAvailability';
 
@@ -65,7 +65,8 @@ interface PersonalizedQuote {
 interface QuoteCardProps {
     quote: PersonalizedQuote;
     onDelete: (id: string) => void;
-    onRegenerate: (quote: PersonalizedQuote) => void;
+    onRenew: (quote: PersonalizedQuote) => void;
+    renewingId?: string | null;
     onEdit?: (quote: PersonalizedQuote) => void;
     onPreview?: (quote: PersonalizedQuote) => void;
     onGenerateInvoice?: (quote: PersonalizedQuote) => void;
@@ -75,7 +76,7 @@ interface QuoteCardProps {
     availableDates?: DateAvailability[];
 }
 
-export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, onGenerateInvoice, onMarkComplete, isGeneratingInvoice, isMarkingComplete, availableDates = [] }: QuoteCardProps) {
+export function QuoteCard({ quote, onDelete, onRenew, renewingId, onEdit, onPreview, onGenerateInvoice, onMarkComplete, isGeneratingInvoice, isMarkingComplete, availableDates = [] }: QuoteCardProps) {
     const { toast } = useToast();
     const [, setLocation] = useLocation();
 
@@ -416,8 +417,14 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, on
                                     </DropdownMenuItem>
                                 )}
                                 {(isExpired || !isBooked) && (
-                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onRegenerate(quote); }}>
-                                        <RefreshCw className="h-4 w-4 mr-2" /> Regenerate
+                                    <DropdownMenuItem
+                                        disabled={renewingId === quote.id}
+                                        onClick={(e) => { e.stopPropagation(); onRenew(quote); }}
+                                    >
+                                        {renewingId === quote.id
+                                            ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                            : <RefreshCw className="h-4 w-4 mr-2" />}
+                                        {isExpired ? 'Renew (reactivate link)' : 'Renew (reset 48h)'}
                                     </DropdownMenuItem>
                                 )}
                                 <DropdownMenuItem
@@ -431,7 +438,7 @@ export function QuoteCard({ quote, onDelete, onRegenerate, onEdit, onPreview, on
                                             jobDescription: quote.jobDescription || 'As discussed',
                                             priceInPence: displayPrice,
                                             segment: quote.segment || undefined,
-                                            validityHours: 48,
+                                            validityHours: validityHoursFromQuote(quote.createdAt, quote.expiresAt),
                                             createdAt: new Date(quote.createdAt),
                                         });
                                     }}

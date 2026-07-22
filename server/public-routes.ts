@@ -454,6 +454,7 @@ router.post('/quote/:quoteId/date-preferences', async (req: Request, res: Respon
     try {
         const { quoteId } = req.params;
         const dates = req.body?.dates;
+        const offeredCount = req.body?.offeredCount;
 
         // Upper bound = full 21-day exclusion-picker horizon (18 working days)
         // with slack — "All days work for me" submits every working day.
@@ -467,6 +468,21 @@ router.post('/quote/:quoteId/date-preferences', async (req: Request, res: Respon
             }
             if (d < today) {
                 return res.status(400).json({ error: `date in the past: ${d}` });
+            }
+        }
+
+        // Flex cap — a flexible booking may cross off at most MAX_EXCLUDED days.
+        // dates = the ALLOWED set (complement of crossed-off), so crossed-off =
+        // offeredCount − allowed. Enforced here as well as in the client picker.
+        const MAX_EXCLUDED = 5;
+        const uniqueAllowed = new Set(dates as string[]).size;
+        if (typeof offeredCount === 'number' && Number.isFinite(offeredCount)) {
+            const crossedOff = offeredCount - uniqueAllowed;
+            if (crossedOff > MAX_EXCLUDED) {
+                return res.status(400).json({
+                    error: `A flexible booking can cross off at most ${MAX_EXCLUDED} days.`,
+                    maxExcluded: MAX_EXCLUDED,
+                });
             }
         }
 

@@ -154,7 +154,7 @@ export default function BookingVisitsPage() {
                         quotes={visitQuotes as any}
                         onDelete={(id) => handleDelete(id)}
                         linkPrefix="/visit-link/"
-                    // No onRegenerate passed for visits
+                    // No onRenew passed for visits
                     />
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

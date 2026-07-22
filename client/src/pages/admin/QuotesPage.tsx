@@ -15,7 +15,6 @@ const REVIEW_LINK_SUFFIX = `\n\n⭐ Enjoyed the work? A quick Google review mean
 
 import { QuoteCard } from './components/QuoteCard';
 import { QuotesList } from './components/QuotesList';
-import { RegenerateQuoteDialog } from './components/RegenerateQuoteDialog';
 import { EditQuoteDialog } from './components/EditQuoteDialog';
 import { QuotePreviewModal } from '@/components/quote/QuotePreviewModal';
 import type { PreviewQuote } from '@/components/quote/QuotePreviewModal';
@@ -64,9 +63,7 @@ export default function QuotesPage() {
     const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
     const [filterMode, setFilterMode] = useState<FilterMode>('all');
 
-    // Dialog State
-    const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false);
-    const [selectedQuoteForRegen, setSelectedQuoteForRegen] = useState<PersonalizedQuote | null>(null);
+    const [renewingId, setRenewingId] = useState<string | null>(null);
 
     // Edit Dialog State
     const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -192,9 +189,31 @@ export default function QuotesPage() {
         } catch (err) { console.error(err); }
     };
 
-    const handleOpenRegenerate = (quote: PersonalizedQuote) => {
-        setSelectedQuoteForRegen(quote);
-        setRegenerateDialogOpen(true);
+    const handleRenew = async (quote: PersonalizedQuote) => {
+        setRenewingId(quote.id);
+        try {
+            const res = await fetch(`/api/admin/personalized-quotes/${quote.id}/renew`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            if (!res.ok) throw new Error('Failed to renew');
+
+            await queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
+            refetchQuotes();
+            toast({
+                title: 'Quote Renewed',
+                description: `${quote.customerName}'s quote link is live again for 48 hours — same price.`,
+            });
+        } catch (error) {
+            console.error(error);
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: 'Failed to renew quote.',
+            });
+        } finally {
+            setRenewingId(null);
+        }
     };
 
     const handleOpenEdit = (quote: PersonalizedQuote) => {
@@ -222,33 +241,6 @@ export default function QuotesPage() {
     const handleEditSaved = () => {
         queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
         refetchQuotes();
-    };
-
-    const confirmRegenerate = async (percentageIncrease: number) => {
-        if (!selectedQuoteForRegen) return;
-
-        try {
-            const res = await fetch(`/api/admin/personalized-quotes/${selectedQuoteForRegen.id}/regenerate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ percentageIncrease })
-            });
-
-            if (!res.ok) throw new Error('Failed to regenerate');
-
-            await queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
-            toast({
-                title: 'Quote Regenerated',
-                description: `Created new version with ${percentageIncrease}% uplift.`
-            });
-        } catch (error) {
-            console.error(error);
-            toast({
-                variant: 'destructive',
-                title: 'Error',
-                description: 'Failed to regenerate quote.'
-            });
-        }
     };
 
     // Temporary ToggleGroup implementation using Buttons since @/components/ui/toggle-group is missing
@@ -432,7 +424,8 @@ export default function QuotesPage() {
                                     <QuotesList
                                         quotes={displayQuotes as any}
                                         onDelete={handleDelete}
-                                        onRegenerate={handleOpenRegenerate as any}
+                                        onRenew={handleRenew as any}
+                                        renewingId={renewingId}
                                         onEdit={handleOpenEdit as any}
                                         onPreview={handleOpenPreview as any}
                                         availableDates={availableDates}
@@ -444,7 +437,8 @@ export default function QuotesPage() {
                                                 key={quote.id}
                                                 quote={quote as any}
                                                 onDelete={handleDelete}
-                                                onRegenerate={handleOpenRegenerate as any}
+                                                onRenew={handleRenew as any}
+                                                renewingId={renewingId}
                                                 onEdit={handleOpenEdit as any}
                                                 onPreview={handleOpenPreview as any}
                                                 onGenerateInvoice={handleGenerateInvoice as any}
@@ -462,12 +456,6 @@ export default function QuotesPage() {
                 )}
             </div>
 
-            <RegenerateQuoteDialog
-                open={regenerateDialogOpen}
-                onOpenChange={setRegenerateDialogOpen}
-                onConfirm={confirmRegenerate}
-                quoteCustomerName={selectedQuoteForRegen?.customerName || ''}
-            />
 
             {selectedQuoteForEdit && (
                 <EditQuoteDialog
