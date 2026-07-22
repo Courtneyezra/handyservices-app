@@ -126,6 +126,38 @@ assignments + locks + quote).
 WhatsApp — keep Handy-branded); the ~48h-runway "unplaced flex" alert to Ben
 is not built yet.
 
+## Multi-job days v1 — anchor + filler packing (BUILT 22 Jul, commit b95f007)
+
+Books multiple jobs into one day without a route solver. **Dated customer
+bookings = anchors** (one per slot, protected — their window is a paid
+promise). **Flex jobs = fillers** packed around anchors:
+
+- `reserveSlot`/`confirmBooking` gain `allowSlotSharing` — set ONLY by the
+  flex place paths. Relaxes the binary one-booking-per-slot block; the
+  engine's existing capacity gates (slot fit + `computeDayItinerary` with
+  real geocoded inter-job travel, 8h cap) still police every placement.
+- **Guardrails** (`canCoexist`, pure, 8 tests): packing requires a
+  same-outward-code job already on the day; max **3 stops/day**; day ceiling
+  **85% of cap** (408min incl. 20min/hop) — deliberate slack, reliability-
+  per-promise over utilisation; half-slot window ceiling (240min) so the
+  arrival-window promise stays keepable; full-day jobs never pack.
+- Suggester emits packed candidates (tagged **2ND JOB** in the app);
+  ranking naturally prefers completing the other half of an anchored day
+  over sharing the same window. Grid shows **×N** on packed days.
+- Both AM jobs carry the same honest 9–1 window; run order is fixed
+  morning-of (en-route timing = later phase).
+
+Verified live 22 Jul: anchored a 90-min NG16 job on an open morning; a
+60-min NG16 job then suggested `30 PM (completes day) > 30 AM packed > 31`,
+packed successfully into the same AM window (`bookedCountByDate: 2`); a DE7
+filler was refused ("packing requires a job in the same postcode area").
+Synthetic rows scrubbed.
+
+**v2 (not built):** customer picker offers partially-loaded days for small
+dated jobs (public blast radius — after v1 proves out). **v3:** within-day
+run-order optimization + en-route pings. Watch promise-kept rate weekly
+once packed days exist in the wild.
+
 ## Next (in order)
 
 1. **Flex-runway alert** — flex job unplaced with <48h to deadline → alert
