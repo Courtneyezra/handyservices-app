@@ -155,7 +155,6 @@ export default function MyWeekPage() {
   const [confirmPlace, setConfirmPlace] = useState<string | null>(null); // `${quoteId}|${date}|${slot}`
   const [placeError, setPlaceError] = useState<{ quoteId: string; message: string } | null>(null);
   const [planGoal, setPlanGoal] = useState<DayPlanGoal>('earnings');
-  const [planOpen, setPlanOpen] = useState(false);
   const [confirmLock, setConfirmLock] = useState<string | null>(null); // plan date
   const [lockError, setLockError] = useState<string | null>(null);
 
@@ -200,7 +199,7 @@ export default function MyWeekPage() {
       if (!res.ok) throw new Error('load failed');
       return res.json();
     },
-    enabled: !!token && planOpen && flexCount >= 1,
+    enabled: !!token && tab === 'jobs' && flexCount >= 1,
   });
 
   const lockMutation = useMutation({
@@ -359,6 +358,18 @@ export default function MyWeekPage() {
       }
     }
     const packBy = new Map((dayPlans?.plans ?? []).filter((p) => p.placements.length > 0).map((p) => [p.date, p]));
+    // Fallback ghosts: jobs the day-pack optimiser skipped (e.g. outside its
+    // travel radius) but the per-job suggester can place — their TOP suggestion
+    // renders on its day so "ready to add" money is always visible somewhere.
+    const packedQuoteIds = new Set((dayPlans?.plans ?? []).flatMap((p) => p.placements.map((pl) => pl.quoteId)));
+    const suggestedBy = new Map<string, Array<{ f: FlexJob; s: FlexJob['suggestions'][0] }>>();
+    for (const f of jobs.flex) {
+      if (f.multiDay || f.suggestions.length === 0 || packedQuoteIds.has(f.quoteId)) continue;
+      const s = f.suggestions[0];
+      const list = suggestedBy.get(s.date) ?? [];
+      list.push({ f, s });
+      suggestedBy.set(s.date, list);
+    }
     const blockBy = new Map<string, { f: FlexJob; start: FlexJob['blockStarts'][0] }>();
     const blockSpanBy = new Map<string, { f: FlexJob; idx: number }>();
     for (const f of jobs.flex) {
@@ -372,7 +383,7 @@ export default function MyWeekPage() {
     }
     return Array.from({ length: 28 }, (_, i) => {
       const date = format(addDaysFn(new Date(data.today + 'T00:00:00'), i), 'yyyy-MM-dd');
-      return { date, g: gridBy.get(date), booked: bookedBy.get(date) ?? [], pack: packBy.get(date), block: blockBy.get(date), blockSpan: blockSpanBy.get(date) };
+      return { date, g: gridBy.get(date), booked: bookedBy.get(date) ?? [], pack: packBy.get(date), suggested: packBy.has(date) ? undefined : suggestedBy.get(date), block: blockBy.get(date), blockSpan: blockSpanBy.get(date) };
     });
   }, [data, jobs, dayPlans]);
 
@@ -448,7 +459,7 @@ export default function MyWeekPage() {
           {tab === 'quotes'
             ? 'Live quotes going out with your name and photo on them.'
             : tab === 'jobs'
-              ? 'Paid work: booked days, plus flexible jobs waiting for you to pick a day.'
+              ? 'Your plan: booked days, jobs grouped onto days, and the money waiting.'
               : 'Tap a day to open or close it. Customers can only book days you open.'}
         </p>
 
@@ -472,7 +483,7 @@ export default function MyWeekPage() {
             )}
             {jobs.flex.length > 0 && (
               <button
-                onClick={() => setPlanOpen(true)}
+                onClick={() => setTab('jobs')}
                 className="mt-3 w-full py-2.5 rounded-xl bg-emerald-500 text-slate-950 text-sm font-bold active:scale-[0.99] transition-all"
               >
                 Plan my week →
@@ -638,29 +649,213 @@ export default function MyWeekPage() {
           <div>
             {!jobs && <div className="h-24 bg-slate-900 rounded-xl animate-pulse" />}
 
-            {/* Planner entry — composition lives in the Plan sheet now
-              * (the old "Build my days" panel folded into it; the cards
-              * below stay as the per-job manual path). */}
-            {jobs && jobs.flex.length > 0 && (
-              <button
-                onClick={() => setPlanOpen(true)}
-                className="w-full mb-5 p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-2.5 text-left active:scale-[0.99] transition-all"
-              >
-                <CalendarDays size={16} className="text-emerald-400 shrink-0" />
-                <span className="flex-1 text-xs font-semibold text-emerald-300">
-                  {readyPence > 0
-                    ? `£${Math.round(readyPence / 100).toLocaleString()} ready to add — group your jobs into days`
-                    : 'Group your jobs into days'}
-                </span>
-                <span className="text-emerald-400 text-xs font-bold">Plan my week →</span>
-              </button>
+            {/* THE PLANNER IS THE PAGE (spec: 05-week-planner-ui.md).
+              * Payslip → goals → coaching → week-broken day-rows with
+              * per-day/per-block optimization inline. Unscheduled jobs
+              * (zero options) surface in their own section below. */}
+            {jobs && (
+              <>
+                <div className="mb-3 p-4 rounded-2xl bg-slate-900/70 border border-slate-800">
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <span className="text-2xl font-bold">£{Math.round(bookedPence / 100).toLocaleString()}</span>
+                    <span className="text-xs text-slate-400 font-semibold">booked</span>
+                    {readyPence > 0 && (
+                      <>
+                        <span className="text-2xl font-bold text-emerald-400">+£{Math.round(readyPence / 100).toLocaleString()}</span>
+                        <span className="text-xs text-emerald-400/80 font-semibold">ready to add</span>
+                      </>
+                    )}
+                  </div>
+                  {stuckPence > 0 && (
+                    <div className="mt-1 text-[11px] font-semibold text-amber-400">
+                      £{Math.round(stuckPence / 100).toLocaleString()} waiting — open days to take it
+                    </div>
+                  )}
+                </div>
+
+                {flexCount >= 1 && (
+                  <div className="flex gap-1.5 mb-3">
+                    {([
+                      { key: 'earnings' as const, label: 'Best week £' },
+                      { key: 'fewest_days' as const, label: 'Fewest days' },
+                      { key: 'soonest' as const, label: 'Done soonest' },
+                    ]).map((g) => (
+                      <button key={g.key} onClick={() => { setPlanGoal(g.key); setConfirmLock(null); }}
+                        className={`flex-1 py-2 rounded-xl text-[11px] font-bold border transition-all ${planGoal === g.key ? 'bg-emerald-500 text-slate-950 border-emerald-500' : 'bg-slate-900/60 text-slate-400 border-slate-800'}`}>
+                        {g.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {plansLoading && <div className="mb-3 h-10 bg-slate-900 rounded-xl animate-pulse" />}
+
+                {stuck.length > 0 && (
+                  <div className="mb-3 p-3 rounded-xl bg-slate-900/50 border border-amber-500/25">
+                    {stuck.map((f) => (
+                      <div key={f.quoteId} className="flex items-start gap-2 py-0.5">
+                        <Sparkles size={13} className="text-amber-400 shrink-0 mt-0.5" />
+                        <span className="text-[11px] text-amber-300/90 leading-snug">
+                          £{Math.round((f.valuePence ?? 0) / 100)} {f.jobDescription ? `— ${f.jobDescription.slice(0, 40)}` : ''} needs {f.multiDay ? `${f.requiredDays} open days in a row` : 'an open day'}{f.deadline ? ` by ${format(new Date(f.deadline + 'T00:00:00'), 'EEE d MMM')}` : ''} — open days below to take it.
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {lockError && <p className="mb-2 text-[11px] font-semibold text-red-400">{lockError}</p>}
+                {placeError && <p className="mb-2 text-[11px] font-semibold text-red-400">{placeError.message}</p>}
+
+                <div className="space-y-2 mb-7">
+                  {planRows.map((row, rowIdx) => {
+                    // Proposed block span-days are ghosts (not yet booked) — only real bookings are 'busy'.
+                    const state = row.booked.length > 0 ? 'busy' : row.block || row.blockSpan || row.pack || row.suggested ? 'ghost' : row.g && (row.g.am === 'open' || row.g.pm === 'open') ? 'open' : 'off';
+                    const dateObj = new Date(row.date + 'T00:00:00');
+                    const showWeekBreak = rowIdx === 0 || dateObj.getDay() === 1;
+                    let weekLabel = '';
+                    if (showWeekBreak && data) {
+                      const thisMonday = startOfWeek(new Date(data.today + 'T00:00:00'), { weekStartsOn: 1 }).getTime();
+                      const rowMonday = startOfWeek(dateObj, { weekStartsOn: 1 });
+                      const weeksAhead = Math.round((rowMonday.getTime() - thisMonday) / (7 * 86400000));
+                      weekLabel = weeksAhead === 0 ? 'This week' : weeksAhead === 1 ? 'Next week' : `Week of ${format(rowMonday, 'd MMM')}`;
+                    }
+                    return (
+                      <Fragment key={row.date}>
+                      {showWeekBreak && (
+                        <div className={`flex items-center gap-2 ${rowIdx === 0 ? '' : 'pt-3'}`}>
+                          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 shrink-0">{weekLabel}</span>
+                          <span className="flex-1 h-px bg-slate-800" />
+                        </div>
+                      )}
+                      <div className="flex gap-2.5">
+                        <div className={`w-14 shrink-0 rounded-xl border flex flex-col items-center justify-center py-2 ${
+                          state === 'busy' ? 'bg-blue-500/15 border-blue-500/30'
+                          : state === 'ghost' ? 'border-emerald-500/50 border-dashed bg-emerald-500/5'
+                          : state === 'open' ? 'bg-slate-900/60 border-emerald-500/30'
+                          : 'bg-slate-900/40 border-slate-800/50'
+                        }`}>
+                          <span className="text-[10px] font-bold uppercase text-slate-400">{format(new Date(row.date + 'T00:00:00'), 'EEE')}</span>
+                          <span className="text-base font-bold">{format(new Date(row.date + 'T00:00:00'), 'd')}</span>
+                        </div>
+
+                        <div className="flex-1 min-w-0 space-y-1.5">
+                          {row.booked.map((b, i) => (
+                            <div key={i} className="p-3 rounded-xl bg-blue-500/15 border border-blue-500/30">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-bold text-blue-300 truncate">{b.label}</span>
+                                <span className="text-sm font-bold text-blue-200 shrink-0 flex items-center gap-1.5">£{Math.round(b.valuePence / 100)} <Lock size={10} /></span>
+                              </div>
+                              <span className="text-[10px] text-blue-400/70 font-semibold">{b.tag} · booked</span>
+                            </div>
+                          ))}
+
+                          {row.blockSpan && (
+                            <div className="min-h-[34px] rounded-xl border border-dashed bg-emerald-500/5 border-emerald-500/25 flex items-center px-3">
+                              <span className="text-[10px] text-slate-500 font-semibold">↑ day {row.blockSpan.idx + 1} of {row.blockSpan.f.requiredDays}</span>
+                            </div>
+                          )}
+
+                          {row.block && (() => {
+                            const key = `${row.block.f.quoteId}|block|${row.block.start.startDate}`;
+                            const confirming = confirmPlace === key;
+                            return (
+                              <div className="p-3 rounded-xl border border-dashed bg-emerald-500/8 border-emerald-500/40">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-bold text-emerald-300 truncate">{row.block.f.jobDescription || 'Multi-day job'}</span>
+                                  <span className="text-sm font-bold text-emerald-300 shrink-0">£{Math.round((row.block.f.valuePence ?? 0) / 100)}</span>
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">
+                                  runs {format(new Date(row.block.start.startDate + 'T00:00:00'), 'EEE d')} → {format(new Date(row.block.start.endDate + 'T00:00:00'), 'EEE d')}
+                                  {row.block.f.deadline ? ` · start by ${format(new Date(row.block.f.deadline + 'T00:00:00'), 'EEE d MMM')}` : ''}
+                                </div>
+                                <button
+                                  disabled={blockMutation.isPending}
+                                  onClick={() => (confirming ? blockMutation.mutate({ quoteId: row.block!.f.quoteId, startDate: row.block!.start.startDate }) : setConfirmPlace(key))}
+                                  className={`mt-2 w-full py-2 rounded-lg text-xs font-bold transition-all ${confirming ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-200'}`}>
+                                  {confirming ? (blockMutation.isPending ? 'Booking…' : `Confirm — book ${format(new Date(row.block.start.startDate + 'T00:00:00'), 'EEE d')} → ${format(new Date(row.block.start.endDate + 'T00:00:00'), 'EEE d')}?`) : `Lock this block · ${row.block.f.requiredDays} days`}
+                                </button>
+                              </div>
+                            );
+                          })()}
+
+                          {row.pack && (() => {
+                            const confirming = confirmLock === row.pack.date;
+                            return (
+                              <div className="p-3 rounded-xl border border-dashed bg-emerald-500/8 border-emerald-500/40">
+                                {row.pack.jobs.filter((j) => !j.fixed).map((j) => (
+                                  <div key={j.quoteId} className="flex items-center justify-between gap-2 py-0.5">
+                                    <span className="text-xs font-bold text-emerald-300 truncate">{(j.slot === 'am' ? 'AM' : j.slot === 'pm' ? 'PM' : 'DAY')} · {j.jobDescription || j.customerName}</span>
+                                    <span className="text-sm font-bold text-emerald-300 shrink-0">£{Math.round(j.valuePence / 100)}</span>
+                                  </div>
+                                ))}
+                                <div className="text-[10px] text-slate-500 mt-0.5">{row.pack.rationale}</div>
+                                <button
+                                  disabled={lockMutation.isPending}
+                                  onClick={() => (confirming ? lockMutation.mutate(row.pack!.placements) : setConfirmLock(row.pack!.date))}
+                                  className={`mt-2 w-full py-2 rounded-lg text-xs font-bold transition-all ${confirming ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-200'}`}>
+                                  {confirming ? (lockMutation.isPending ? 'Booking…' : `Confirm — book ${format(new Date(row.pack.date + 'T00:00:00'), 'EEE d')}?`) : `Lock this day · £${Math.round(row.pack.totalPence / 100)}`}
+                                </button>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Suggested ghosts — placeable jobs the pack optimiser skipped */}
+                          {row.suggested && row.suggested.map(({ f, s }) => {
+                            const key = `${f.quoteId}|${s.date}|${s.slot}`;
+                            const confirming = confirmPlace === key;
+                            const slotLabel = s.slot === 'am' ? 'AM' : s.slot === 'pm' ? 'PM' : 'DAY';
+                            return (
+                              <div key={key} className="p-3 rounded-xl border border-dashed bg-emerald-500/8 border-emerald-500/40">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-bold text-emerald-300 truncate">{slotLabel} · {f.jobDescription || 'Job'}</span>
+                                  <span className="text-sm font-bold text-emerald-300 shrink-0">£{Math.round((f.valuePence ?? 0) / 100)}</span>
+                                </div>
+                                {s.reasons.length > 0 && <div className="text-[10px] text-slate-500 mt-0.5">{s.reasons[0]}{f.deadline ? ` · needs a day by ${format(new Date(f.deadline + 'T00:00:00'), 'EEE d MMM')}` : ''}</div>}
+                                <button
+                                  disabled={placeMutation.isPending}
+                                  onClick={() => (confirming ? placeMutation.mutate({ quoteId: f.quoteId, date: s.date, slot: s.slot }) : setConfirmPlace(key))}
+                                  className={`mt-2 w-full py-2 rounded-lg text-xs font-bold transition-all ${confirming ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-200'}`}>
+                                  {confirming ? (placeMutation.isPending ? 'Booking…' : `Confirm — book ${format(new Date(s.date + 'T00:00:00'), 'EEE d')}?`) : `Lock this day · £${Math.round((f.valuePence ?? 0) / 100)}`}
+                                </button>
+                              </div>
+                            );
+                          })}
+
+                          {row.booked.length === 0 && !row.block && !row.blockSpan && !row.pack && !row.suggested && (
+                            state === 'open' ? (
+                              <div className="min-h-[34px] h-full rounded-xl bg-slate-900/40 border border-emerald-500/20 flex items-center px-3">
+                                <span className="text-[10px] text-emerald-400/60 font-semibold">open · nothing fits yet</span>
+                              </div>
+                            ) : (
+                              <div className="min-h-[34px] h-full rounded-xl bg-slate-900/30 border border-slate-800/40 flex items-center justify-between px-3">
+                                <span className="text-[10px] text-slate-600 font-semibold">off</span>
+                                {stuck.length > 0 && (
+                                  <button
+                                    disabled={dayMutation.isPending}
+                                    onClick={() => dayMutation.mutate({ date: row.date, mode: 'full' })}
+                                    className="text-[10px] font-bold text-slate-300 bg-slate-800 rounded-md px-2 py-1 flex items-center gap-1 active:scale-95 transition-all">
+                                    <CalendarPlus size={11} /> Open this day
+                                  </button>
+                                )}
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </div>
+                      </Fragment>
+                    );
+                  })}
+                </div>
+              </>
             )}
 
-            {jobs && jobs.flex.length > 0 && (
+            {/* Unscheduled — jobs with ZERO current options (placeable jobs
+              * live in their day-rows above). The per-job card keeps the
+              * manual chips path in case options appear between renders. */}
+            {jobs && stuck.length > 0 && (
               <div className="mb-6">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-400 mb-2">Needs a day — pick one</div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-400 mb-2">Unscheduled — open days to fit these</div>
                 <div className="space-y-3">
-                  {jobs.flex.map((f) => {
+                  {stuck.map((f) => {
                     const overdue = f.deadline ? f.deadline < (data?.today ?? '') : false;
                     return (
                       <div key={f.quoteId} className="p-4 bg-slate-900/60 border border-amber-500/25 rounded-xl">
@@ -757,34 +952,6 @@ export default function MyWeekPage() {
               </div>
             )}
 
-            {jobs && (
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2">Booked</div>
-                {jobs.booked.length === 0 ? (
-                  <div className="p-6 text-center bg-slate-900/60 border border-slate-800/60 rounded-2xl">
-                    <Briefcase size={20} className="mx-auto text-slate-600 mb-2" />
-                    <div className="text-sm font-bold text-slate-300">Nothing booked yet</div>
-                    <p className="text-xs text-slate-500 mt-1">Booked jobs land here with the customer's details.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {jobs.booked.map((b) => (
-                      <div key={b.id} className="p-3.5 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-sm font-bold text-blue-300">
-                            {format(new Date(b.date + 'T00:00:00'), 'EEE d MMM')} · {(b.durationDays ?? 1) > 1 ? `${b.durationDays} days` : b.slot === 'am' ? '9am–1pm' : b.slot === 'pm' ? '2pm–6pm' : '9am–6pm'}
-                          </div>
-                          <div className="text-xs text-slate-400 mt-0.5 truncate">
-                            {b.customerName}{b.postcodeArea ? ` · ${b.postcodeArea}` : ''}{b.jobDescription ? ` — ${b.jobDescription}` : ''}
-                          </div>
-                        </div>
-                        {b.valuePence != null && <div className="text-base font-bold text-blue-200 shrink-0">£{Math.round(b.valuePence / 100)}</div>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         )}
 
@@ -835,197 +1002,6 @@ export default function MyWeekPage() {
           })}
         </div>
       </nav>
-
-      {/* Plan my week — full-screen sheet (spec: 05-week-planner-ui.md).
-        * Composed client-side over the existing real queries; per-day and
-        * per-block locks reuse the existing place paths. */}
-      <AnimatePresence>
-        {planOpen && (
-          <motion.div
-            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 260 }}
-            className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto"
-          >
-            <div className="max-w-md mx-auto px-4 pt-5 pb-16">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-xl font-bold">Plan my week</h2>
-                <button onClick={() => setPlanOpen(false)} className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400" aria-label="Close planner"><X size={16} /></button>
-              </div>
-
-              {/* Payslip inside the sheet */}
-              <div className="mb-3 p-4 rounded-2xl bg-slate-900/70 border border-slate-800">
-                <div className="flex items-baseline gap-2 flex-wrap">
-                  <span className="text-2xl font-bold">£{Math.round(bookedPence / 100).toLocaleString()}</span>
-                  <span className="text-xs text-slate-400 font-semibold">booked</span>
-                  {readyPence > 0 && (
-                    <>
-                      <span className="text-2xl font-bold text-emerald-400">+£{Math.round(readyPence / 100).toLocaleString()}</span>
-                      <span className="text-xs text-emerald-400/80 font-semibold">ready to add</span>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Goal pills */}
-              <div className="flex gap-1.5 mb-3">
-                {([
-                  { key: 'earnings' as const, label: 'Best week £' },
-                  { key: 'fewest_days' as const, label: 'Fewest days' },
-                  { key: 'soonest' as const, label: 'Done soonest' },
-                ]).map((g) => (
-                  <button key={g.key} onClick={() => { setPlanGoal(g.key); setConfirmLock(null); }}
-                    className={`flex-1 py-2 rounded-xl text-[11px] font-bold border transition-all ${planGoal === g.key ? 'bg-emerald-500 text-slate-950 border-emerald-500' : 'bg-slate-900/60 text-slate-400 border-slate-800'}`}>
-                    {g.label}
-                  </button>
-                ))}
-              </div>
-
-              {plansLoading && <div className="mb-3 h-10 bg-slate-900 rounded-xl animate-pulse" />}
-
-              {/* Coaching — what opening days would unlock */}
-              {stuck.length > 0 && (
-                <div className="mb-3 p-3 rounded-xl bg-slate-900/50 border border-amber-500/25">
-                  {stuck.map((f) => (
-                    <div key={f.quoteId} className="flex items-start gap-2 py-0.5">
-                      <Sparkles size={13} className="text-amber-400 shrink-0 mt-0.5" />
-                      <span className="text-[11px] text-amber-300/90 leading-snug">
-                        £{Math.round((f.valuePence ?? 0) / 100)} {f.jobDescription ? `— ${f.jobDescription.slice(0, 40)}` : ''} needs {f.multiDay ? `${f.requiredDays} open days in a row` : 'an open day'}{f.deadline ? ` by ${format(new Date(f.deadline + 'T00:00:00'), 'EEE d MMM')}` : ''} — open days below to take it.
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {lockError && <p className="mb-2 text-[11px] font-semibold text-red-400">{lockError}</p>}
-              {placeError && <p className="mb-2 text-[11px] font-semibold text-red-400">{placeError.message}</p>}
-
-              {/* Day rows — the planning horizon, broken by week */}
-              <div className="space-y-2">
-                {planRows.map((row, rowIdx) => {
-                  // Proposed block span-days are ghosts (not yet booked) — only real bookings are 'busy'.
-                  const state = row.booked.length > 0 ? 'busy' : row.block || row.blockSpan || row.pack ? 'ghost' : row.g && (row.g.am === 'open' || row.g.pm === 'open') ? 'open' : 'off';
-                  const dateObj = new Date(row.date + 'T00:00:00');
-                  const showWeekBreak = rowIdx === 0 || dateObj.getDay() === 1;
-                  let weekLabel = '';
-                  if (showWeekBreak && data) {
-                    const thisMonday = startOfWeek(new Date(data.today + 'T00:00:00'), { weekStartsOn: 1 }).getTime();
-                    const rowMonday = startOfWeek(dateObj, { weekStartsOn: 1 });
-                    const weeksAhead = Math.round((rowMonday.getTime() - thisMonday) / (7 * 86400000));
-                    weekLabel = weeksAhead === 0 ? 'This week' : weeksAhead === 1 ? 'Next week' : `Week of ${format(rowMonday, 'd MMM')}`;
-                  }
-                  return (
-                    <Fragment key={row.date}>
-                    {showWeekBreak && (
-                      <div className={`flex items-center gap-2 ${rowIdx === 0 ? '' : 'pt-3'}`}>
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 shrink-0">{weekLabel}</span>
-                        <span className="flex-1 h-px bg-slate-800" />
-                      </div>
-                    )}
-                    <div className="flex gap-2.5">
-                      <div className={`w-14 shrink-0 rounded-xl border flex flex-col items-center justify-center py-2 ${
-                        state === 'busy' ? 'bg-blue-500/15 border-blue-500/30'
-                        : state === 'ghost' ? 'border-emerald-500/50 border-dashed bg-emerald-500/5'
-                        : state === 'open' ? 'bg-slate-900/60 border-emerald-500/30'
-                        : 'bg-slate-900/40 border-slate-800/50'
-                      }`}>
-                        <span className="text-[10px] font-bold uppercase text-slate-400">{format(new Date(row.date + 'T00:00:00'), 'EEE')}</span>
-                        <span className="text-base font-bold">{format(new Date(row.date + 'T00:00:00'), 'd')}</span>
-                      </div>
-
-                      <div className="flex-1 min-w-0 space-y-1.5">
-                        {/* Booked work (incl. span days) */}
-                        {row.booked.map((b, i) => (
-                          <div key={i} className="p-3 rounded-xl bg-blue-500/15 border border-blue-500/30">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-bold text-blue-300 truncate">{b.label}</span>
-                              <span className="text-sm font-bold text-blue-200 shrink-0 flex items-center gap-1.5">£{Math.round(b.valuePence / 100)} <Lock size={10} /></span>
-                            </div>
-                            <span className="text-[10px] text-blue-400/70 font-semibold">{b.tag} · booked</span>
-                          </div>
-                        ))}
-
-                        {/* Block span shading (days 2..N of a proposed block) */}
-                        {row.blockSpan && (
-                          <div className="min-h-[34px] rounded-xl border border-dashed bg-emerald-500/5 border-emerald-500/25 flex items-center px-3">
-                            <span className="text-[10px] text-slate-500 font-semibold">↑ day {row.blockSpan.idx + 1} of {row.blockSpan.f.requiredDays}</span>
-                          </div>
-                        )}
-
-                        {/* Block proposal (start day) */}
-                        {row.block && (() => {
-                          const key = `${row.block.f.quoteId}|block|${row.block.start.startDate}`;
-                          const confirming = confirmPlace === key;
-                          return (
-                            <div className="p-3 rounded-xl border border-dashed bg-emerald-500/8 border-emerald-500/40">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-bold text-emerald-300 truncate">{row.block.f.jobDescription || 'Multi-day job'}</span>
-                                <span className="text-sm font-bold text-emerald-300 shrink-0">£{Math.round((row.block.f.valuePence ?? 0) / 100)}</span>
-                              </div>
-                              <div className="text-[10px] text-slate-400 mt-0.5">
-                                runs {format(new Date(row.block.start.startDate + 'T00:00:00'), 'EEE d')} → {format(new Date(row.block.start.endDate + 'T00:00:00'), 'EEE d')}
-                                {row.block.f.deadline ? ` · start by ${format(new Date(row.block.f.deadline + 'T00:00:00'), 'EEE d MMM')}` : ''}
-                              </div>
-                              <button
-                                disabled={blockMutation.isPending}
-                                onClick={() => (confirming ? blockMutation.mutate({ quoteId: row.block!.f.quoteId, startDate: row.block!.start.startDate }) : setConfirmPlace(key))}
-                                className={`mt-2 w-full py-2 rounded-lg text-xs font-bold transition-all ${confirming ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-200'}`}>
-                                {confirming ? (blockMutation.isPending ? 'Booking…' : `Confirm — book ${format(new Date(row.block.start.startDate + 'T00:00:00'), 'EEE d')} → ${format(new Date(row.block.start.endDate + 'T00:00:00'), 'EEE d')}?`) : `Lock this block · ${row.block.f.requiredDays} days`}
-                              </button>
-                            </div>
-                          );
-                        })()}
-
-                        {/* Day-pack proposal */}
-                        {row.pack && (() => {
-                          const confirming = confirmLock === row.pack.date;
-                          return (
-                            <div className="p-3 rounded-xl border border-dashed bg-emerald-500/8 border-emerald-500/40">
-                              {row.pack.jobs.filter((j) => !j.fixed).map((j) => (
-                                <div key={j.quoteId} className="flex items-center justify-between gap-2 py-0.5">
-                                  <span className="text-xs font-bold text-emerald-300 truncate">{(j.slot === 'am' ? 'AM' : j.slot === 'pm' ? 'PM' : 'DAY')} · {j.jobDescription || j.customerName}</span>
-                                  <span className="text-sm font-bold text-emerald-300 shrink-0">£{Math.round(j.valuePence / 100)}</span>
-                                </div>
-                              ))}
-                              <div className="text-[10px] text-slate-500 mt-0.5">{row.pack.rationale}</div>
-                              <button
-                                disabled={lockMutation.isPending}
-                                onClick={() => (confirming ? lockMutation.mutate(row.pack!.placements) : setConfirmLock(row.pack!.date))}
-                                className={`mt-2 w-full py-2 rounded-lg text-xs font-bold transition-all ${confirming ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-200'}`}>
-                                {confirming ? (lockMutation.isPending ? 'Booking…' : `Confirm — book ${format(new Date(row.pack.date + 'T00:00:00'), 'EEE d')}?`) : `Lock this day · £${Math.round(row.pack.totalPence / 100)}`}
-                              </button>
-                            </div>
-                          );
-                        })()}
-
-                        {/* Open but nothing proposed / off day */}
-                        {row.booked.length === 0 && !row.block && !row.blockSpan && !row.pack && (
-                          state === 'open' ? (
-                            <div className="min-h-[34px] h-full rounded-xl bg-slate-900/40 border border-emerald-500/20 flex items-center px-3">
-                              <span className="text-[10px] text-emerald-400/60 font-semibold">open · nothing fits yet</span>
-                            </div>
-                          ) : (
-                            <div className="min-h-[34px] h-full rounded-xl bg-slate-900/30 border border-slate-800/40 flex items-center justify-between px-3">
-                              <span className="text-[10px] text-slate-600 font-semibold">off</span>
-                              {stuck.length > 0 && (
-                                <button
-                                  disabled={dayMutation.isPending}
-                                  onClick={() => dayMutation.mutate({ date: row.date, mode: 'full' })}
-                                  className="text-[10px] font-bold text-slate-300 bg-slate-800 rounded-md px-2 py-1 flex items-center gap-1 active:scale-95 transition-all">
-                                  <CalendarPlus size={11} /> Open this day
-                                </button>
-                              )}
-                            </div>
-                          )
-                        )}
-                      </div>
-                    </div>
-                    </Fragment>
-                  );
-                })}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Day bottom sheet */}
       <AnimatePresence>
