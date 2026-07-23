@@ -37,7 +37,9 @@ interface Task {
     category?: string;
     hours: number;
     payPence: number;
-    payMethod: "floor" | "share";
+    payMethod: "floor" | "share" | "visit_minimum";
+    /** Raw materials budget (supplier cost, no markup) spendable on our card */
+    materialsBudgetPence?: number;
     description: string;
     warning?: string;
     materials: string[];
@@ -85,6 +87,13 @@ interface JobSheetData {
         refundReason: string | null;
     } | null;
     broadcastCount: number;
+    /** Expiring launch bonus for this contractor — shown as a separate line */
+    onboardingBoost: {
+        percent: number;
+        jobsRemaining: number;
+        bonusPence: number;
+        totalWithBoostPence: number;
+    } | null;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -407,7 +416,7 @@ export default function ContractorJobSheet() {
         );
     }
 
-    const { link, dispatch, bond, broadcastCount } = data;
+    const { link, dispatch, bond, broadcastCount, onboardingBoost } = data;
     const isLockedTaken = link.status === "locked_taken";
     const isAccepted = link.status === "accepted";
     const isDeclined = link.status === "declined";
@@ -454,7 +463,7 @@ export default function ContractorJobSheet() {
         if (isDeclined) return { mode: "declined" };
         if (!allWarningsAcked) return { mode: "warnings", remaining: totalWarnings - ackedCount };
         if (bondNeeded) return { mode: "bond", amountPence: dispatch.bondAmountPence || 0 };
-        return { mode: "accept", payPence: dispatch.totalContractorPayPence };
+        return { mode: "accept", payPence: onboardingBoost ? onboardingBoost.totalWithBoostPence : dispatch.totalContractorPayPence };
     })();
 
     function ctaClick() {
@@ -536,13 +545,18 @@ export default function ContractorJobSheet() {
                                 {dispatch.subtitle?.split(",")[0]?.trim() || dispatch.postcode} · #{dispatch.shortRef}
                             </p>
 
-                            {/* Big price anchor */}
+                            {/* Big price anchor — boosted total when a launch bonus applies */}
                             <p className="text-5xl sm:text-6xl font-semibold text-[#F5A623] tabular-nums tracking-tight leading-none drop-shadow-[0_2px_12px_rgba(245,166,35,0.25)]">
-                                {fmt(dispatch.totalContractorPayPence)}
+                                {fmt(onboardingBoost ? onboardingBoost.totalWithBoostPence : dispatch.totalContractorPayPence)}
                             </p>
                             <p className="text-[12px] uppercase tracking-[0.08em] text-white/65 mt-2 font-medium">
                                 Net pay · {tasks.length} task{tasks.length !== 1 ? "s" : ""}
                             </p>
+                            {onboardingBoost && (
+                                <p className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-bold text-[#7DB00E] bg-[#7DB00E]/15 border border-[#7DB00E]/30 rounded-full px-2.5 py-1">
+                                    ★ includes +{fmt(onboardingBoost.bonusPence)} launch bonus ({onboardingBoost.percent}% · {onboardingBoost.jobsRemaining} boost job{onboardingBoost.jobsRemaining !== 1 ? "s" : ""} left)
+                                </p>
+                            )}
 
                             {/* Contractor-flavoured summary — replaces the customer-marketing title */}
                             {dispatch.proposalSummary && (
@@ -562,9 +576,15 @@ export default function ContractorJobSheet() {
                                         {s.count} {tierLabel(s.tier)}
                                     </span>
                                 ))}
-                                <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-[#7DB00E]/15 text-[#7DB00E] px-2.5 py-1 rounded-full border border-[#7DB00E]/30">
-                                    <Package className="h-3 w-3" /> Materials supplied
-                                </span>
+                                {(() => {
+                                    const matBudget = tasks.reduce((s, t) => s + (t.materialsBudgetPence || 0), 0);
+                                    return (
+                                        <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-[#7DB00E]/15 text-[#7DB00E] px-2.5 py-1 rounded-full border border-[#7DB00E]/30">
+                                            <Package className="h-3 w-3" />
+                                            {matBudget > 0 ? `${fmt(matBudget)} materials budget on our card` : 'Materials supplied'}
+                                        </span>
+                                    );
+                                })()}
                                 {dispatch.bondRequired && dispatch.bondAmountPence && (
                                     <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-[#F5A623]/15 text-[#F5A623] px-2.5 py-1 rounded-full border border-[#F5A623]/30">
                                         <ShieldCheck className="h-3 w-3" /> {fmt(dispatch.bondAmountPence)} bond
@@ -680,7 +700,7 @@ export default function ContractorJobSheet() {
                                     >
                                         <span className={`w-2 h-2 rounded-full ${tierDot(t.tier)} shrink-0`} aria-label={tierLabel(t.tier)} />
                                         <span className="text-[13px] font-mono text-[#8B92A0] shrink-0 w-5 tabular-nums">{t.num}.</span>
-                                        <span className="text-[14px] font-medium text-[#0E1116] flex-1 truncate">{t.title}</span>
+                                        <span className="text-[14px] font-medium text-[#0E1116] flex-1 break-words leading-snug">{t.title}</span>
                                         {hasWarning && (
                                             <span className={`shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full ${isAcked ? "bg-[#3B7A3F]/10 text-[#3B7A3F]" : "bg-amber-100 text-amber-700"}`} title={isAcked ? "Acknowledged" : "Warning unread"}>
                                                 {isAcked ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
@@ -709,7 +729,7 @@ export default function ContractorJobSheet() {
                                                                 {t.category.replace(/_/g, " ")}
                                                             </span>
                                                         )}
-                                                        <span className="text-[#8B92A0]">· {t.hours} hrs · {t.payMethod === "floor" ? "£/hr floor" : "rev share"}</span>
+                                                        <span className="text-[#8B92A0]">· {t.hours} hrs · {t.payMethod === "floor" ? "£/hr floor" : t.payMethod === "visit_minimum" ? "visit minimum" : "rev share"}</span>
                                                     </div>
                                                     <p className="text-[14px] leading-relaxed text-[#5C6470]">{t.description}</p>
 
@@ -732,7 +752,9 @@ export default function ContractorJobSheet() {
                                                     )}
 
                                                     <div>
-                                                        <p className="text-[11px] uppercase tracking-[0.08em] text-[#8B92A0] font-semibold mb-1.5">Materials supplied</p>
+                                                        <p className="text-[11px] uppercase tracking-[0.08em] text-[#8B92A0] font-semibold mb-1.5">
+                                                            Materials supplied{(t.materialsBudgetPence || 0) > 0 ? ` · ${fmt(t.materialsBudgetPence!)} budget on our card` : ''}
+                                                        </p>
                                                         <div className="flex flex-wrap gap-1.5">
                                                             {t.materials.map((m, i) => (
                                                                 <span key={i} className="text-[12px] bg-[#F1F3F6] text-[#5C6470] px-2 py-1 rounded-md">{m}</span>
@@ -782,7 +804,7 @@ export default function ContractorJobSheet() {
                             </p>
                             <BondTimeline
                                 amountPence={dispatch.bondAmountPence || 0}
-                                payPence={dispatch.totalContractorPayPence}
+                                payPence={onboardingBoost ? onboardingBoost.totalWithBoostPence : dispatch.totalContractorPayPence}
                                 scheduledDate={dispatch.scheduledDate}
                             />
                         </div>
@@ -875,7 +897,10 @@ export default function ContractorJobSheet() {
                     <div className="max-w-[680px] mx-auto px-4 py-3 flex items-center gap-3">
                         <div className="flex-1 min-w-0">
                             <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#8B92A0] leading-none">Net pay</p>
-                            <p className="text-[20px] font-semibold tabular-nums text-[#0E1116] leading-tight mt-0.5">{fmt(dispatch.totalContractorPayPence)}</p>
+                            <p className="text-[20px] font-semibold tabular-nums text-[#0E1116] leading-tight mt-0.5">
+                                {fmt(onboardingBoost ? onboardingBoost.totalWithBoostPence : dispatch.totalContractorPayPence)}
+                                {onboardingBoost && <span className="ml-1.5 text-[11px] font-bold text-[#7DB00E] align-middle">incl. bonus</span>}
+                            </p>
                         </div>
                         <button
                             onClick={ctaClick}
@@ -1013,7 +1038,7 @@ export default function ContractorJobSheet() {
                 <BondPaymentSheet
                     token={token!}
                     amountPence={dispatch.bondAmountPence}
-                    payPence={dispatch.totalContractorPayPence}
+                    payPence={onboardingBoost ? onboardingBoost.totalWithBoostPence : dispatch.totalContractorPayPence}
                     scheduledDate={dispatch.scheduledDate}
                     onClose={() => setShowBondSheet(false)}
                     onPaid={() => { setShowBondSheet(false); refetch(); }}

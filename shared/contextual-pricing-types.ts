@@ -419,6 +419,12 @@ export interface LineItemV2 {
    * duration. Defaults to timeEstimateMinutes when reading legacy rows.
    */
   scheduleMinutes: number;
+  /**
+   * Named materials for this line (e.g. ["18mm plywood 8x4", "40mm screws"]).
+   * Feeds the contractor's material budget allocation on dispatch — the cost
+   * figure alone can't tell them what to buy. Optional; legacy rows omit it.
+   */
+  materialsList?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -663,6 +669,12 @@ export interface MarginPreview {
   perLineMargin: MarginPreviewLine[];
   uncoveredCategories: string[];
   flags: string[];
+  /**
+   * Materials (with markup) excluded from the revenue-share calc — the share
+   * is on LABOUR ONLY (company funds materials; contractor doesn't take a %
+   * of them). Shown as a pass-through so customer totals still reconcile.
+   */
+  materialsPassThroughPence?: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -28,6 +28,11 @@ export interface PostPayDayPickerProps {
   onSaved?: (dates: string[]) => void;
   /** Open straight into the cross-off grid (hub "Change days" flow). */
   startInEdit?: boolean;
+  /** Quote skin — the contractor/team fronting this quote. Defaults to Craig. */
+  skinName?: string;
+  skinAvatarUrl?: string;
+  /** Possessive for copy ("Craig's" / "the team's"). */
+  skinPossessive?: string;
 }
 
 const MIN_ALLOWED = 3;
@@ -56,7 +61,15 @@ export function pickerHorizonDates(): string[] {
   return out;
 }
 
-export function PostPayDayPicker({ quoteId, initialDates, onSaved, startInEdit = false }: PostPayDayPickerProps) {
+export function PostPayDayPicker({
+  quoteId,
+  initialDates,
+  onSaved,
+  startInEdit = false,
+  skinName = 'Craig',
+  skinAvatarUrl = '/assets/avatars/craig-avatar-1.webp',
+  skinPossessive = "Craig's",
+}: PostPayDayPickerProps) {
   // startInEdit (hub "Change days" flow): open straight into the grid with
   // the previously-avoided days pre-crossed instead of the summary state.
   const [excluded, setExcluded] = useState<Set<string>>(() => {
@@ -181,15 +194,15 @@ export function PostPayDayPicker({ quoteId, initialDates, onSaved, startInEdit =
       className="bg-[#1D2D3D] rounded-3xl overflow-hidden shadow-2xl"
     >
       <div className="px-5 py-6 sm:px-8 sm:py-7">
-        {/* Craig letterhead — the person the days are being matched against */}
+        {/* Skin letterhead — the person the days are being matched against */}
         <div className="flex items-center gap-3 mb-4 pb-4 border-b border-white/10">
           <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#7DB00E] shrink-0">
-            <img src="/assets/avatars/craig-avatar-1.webp" alt="Craig, your assigned handyman" className="w-full h-full object-cover" />
+            <img src={skinAvatarUrl} alt={`${skinName}, your assigned handyman`} className="w-full h-full object-cover" />
           </div>
           <div className="min-w-0 text-left">
             <div className="text-slate-400 text-[11px] uppercase tracking-wider font-semibold">Your assigned handyman</div>
             <div className="text-white font-bold leading-tight">
-              Craig <span className="text-[#7DB00E] text-sm font-normal">from HandyServices</span>
+              {skinName} <span className="text-[#7DB00E] text-sm font-normal">from HandyServices</span>
             </div>
             <p className="flex items-center gap-1 text-[11px] text-slate-300 mt-0.5">
               <Star className="w-3 h-3 text-amber-400 fill-amber-400 shrink-0" />
@@ -222,7 +235,7 @@ export function PostPayDayPicker({ quoteId, initialDates, onSaved, startInEdit =
               </>
             )}
             <p className="text-slate-300 text-sm leading-relaxed">
-              We'll fit you into Craig's route{savedExcluded.length > 0 ? ' on any other day' : ''} and
+              We'll fit you into {skinPossessive} route{savedExcluded.length > 0 ? ' on any other day' : ''} and
               text your confirmed day at least 2 days ahead.
             </p>
             <button

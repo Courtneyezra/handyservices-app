@@ -184,6 +184,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: Library, label: "SKU Library", href: "/admin/sku-library" },
                                 { icon: Sparkles, label: "Extras Library", href: "/admin/extras" },
                                 { icon: PoundSterling, label: "WTBP Rates", href: "/admin/wtbp-rates" },
+                                { icon: PoundSterling, label: "Pricing Loop", href: "/admin/pricing-loop" },
+                                { icon: Wrench, label: "How We Work", href: "/admin/how-we-work" },
                             ]
                         },
                         {

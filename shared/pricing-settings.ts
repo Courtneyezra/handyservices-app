@@ -285,18 +285,28 @@ export const DEFAULT_PRICING_SETTINGS: PricingSettings = {
             // saving without anchoring the price. The headline *star* span gets
             // the hand-drawn underline. The full fixed price lands on the quote.
             eyebrow: "one quick choice",
-            headline: "Slot into Craig's diary? *You save {savings}*.",
+            // "busy" earns its place: it primes the packed-route story the map
+            // below acts out — his day is full, and that's why the saving exists.
+            headline: "Slot into Craig's busy diary? *You save {savings}*.",
             // Subhead removed — the first benefit ("We slot you into Craig's diary")
             // carries the mechanism, and dropping it keeps the offer to one mobile
             // viewport with no scroll.
+            // Punchy all-gain trio (23 Jul): one line each, parallel rhythm —
+            // speed guaranteed, control kept, money saved. The REASON-WHY now
+            // lives in the headline ("busy diary") + the route map acting it
+            // out, so the bullets can just be the no-brainer. Long clauses
+            // (2-days-ahead text promise) surface later in the day picker.
             benefits: [
-              { icon: "check", text: "We slot you into Craig's diary — booked within 2 weeks" },
-              { icon: "check", text: "You just cross off any days that don't work" },
-              { icon: "check", text: "Same fixed price — the saving's for the flexibility" },
+              { icon: "calendar", text: "Done within 2 weeks — guaranteed" },
+              { icon: "check", text: "Cross off any days that don't work" },
+              { icon: "wallet", text: "{savings} off — same job, same guarantee" },
             ],
             acceptLabel: "Slot me in — save {savings}",
             declineLabel: "I need a specific day",
-            finePrint: "You'll see your full fixed price on the next screen.",
+            // Reversibility stated in the FINE PRINT deliberately: it lowers
+            // accept-anxiety (the #1 decline driver on a "one quick choice"
+            // framing) without cheapening the accept moment up in the headline.
+            finePrint: "You'll see your full fixed price next — and you can still switch to an exact day there.",
             flexWithinDays: 14,
           },
         ],

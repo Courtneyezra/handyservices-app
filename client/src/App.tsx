@@ -102,6 +102,8 @@ const CareersAdmin = lazy(() => import("@/pages/admin/CareersAdmin"));
 const BusinessModelDashboard = lazy(() => import("@/pages/admin/BusinessModelDashboard"));
 const DisputesPage = lazy(() => import("@/pages/admin/DisputesPage"));
 const WTBPRateCardPage = lazy(() => import("@/pages/admin/WTBPRateCardPage"));
+const PricingLoopPage = lazy(() => import("@/pages/admin/PricingLoopPage"));
+const HowWeWorkPage = lazy(() => import("@/pages/admin/HowWeWorkPage"));
 const LandingPageRender = lazy(() => import("@/pages/LandingPageRender"));
 import SmartBanner from "@/components/SmartBanner";
 
@@ -148,6 +150,7 @@ const SeasonalMenu = lazy(() => import("@/pages/SeasonalMenu"));
 const CareersPage = lazy(() => import("@/pages/CareersPage"));
 const PartnerPage = lazy(() => import("@/pages/PartnerPage"));
 const JoinPage = lazy(() => import("@/pages/JoinPage"));
+const ContractorRecruitingPage = lazy(() => import("@/pages/ContractorsPage"));
 const CancellationPolicy = lazy(() => import("@/pages/CancellationPolicy"));
 
 // Client Portal Pages (public, token-based access)
@@ -309,6 +312,10 @@ function Router() {
                 <Route path="/careers" component={CareersPage} />
                 <Route path="/partner" component={PartnerPage} />
                 <Route path="/join" component={JoinPage} />
+                <Route path="/contractors" component={ContractorRecruitingPage} />
+                {/* Legacy recruiting URLs → merged page with the right pill */}
+                <Route path="/empty-days"><Redirect to="/contractors?type=solo" /></Route>
+                <Route path="/crews"><Redirect to="/contractors?type=crew" /></Route>
                 <Route path="/cancellation-policy" component={CancellationPolicy} />
                 <Route path="/l/:slug" component={LandingPageRender} />
 
@@ -975,6 +982,20 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <WTBPRateCardPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/pricing-loop">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <PricingLoopPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/how-we-work">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <HowWeWorkPage />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

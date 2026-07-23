@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Joe — Your Jobs Today · Sidney Road</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: #eef0f5; color: #14182b; line-height: 1.6; font-size: 21px; }
+  .wrap { max-width: 820px; margin: 0 auto; background: white; }
+  .header { background: #1a2238; color: white; padding: 22px 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .header .logo { display: flex; align-items: center; gap: 14px; }
+  .header .logo-icon { width: 54px; height: 54px; object-fit: contain; display: block; }
+  .header .brand { font-size: 26px; font-weight: 800; }
+  .header .reviews { font-size: 15px; color: #c8cbd6; }
+  .header .phone-label { font-size: 14px; color: #c8cbd6; text-transform: uppercase; letter-spacing: 1px; }
+  .header .phone { font-weight: 800; font-size: 22px; }
+  .ribbon { background: #f6a623; color: #1a2238; padding: 14px 32px; font-weight: 800; text-align: center; letter-spacing: 1px; font-size: 18px; }
+  .body { padding: 32px; }
+  h1 { margin: 0 0 6px 0; font-size: 44px; line-height: 1.1; }
+  .lead-note { font-size: 21px; color: #2a3258; font-weight: 700; margin-bottom: 24px; }
+  .cust { background: #1a2238; color: white; border-radius: 14px; padding: 18px 24px; margin-bottom: 24px; }
+  .cust .addr { font-size: 23px; font-weight: 800; line-height: 1.25; }
+  .cust .line { font-size: 19px; color: #d3d6e2; margin-top: 8px; }
+  .cust .line .lbl { color: #9aa0bd; }
+  .cust .line .val { color: white; font-weight: 700; }
+  .task { display: flex; gap: 22px; padding: 24px 0; border-bottom: 2px solid #eef0f5; }
+  .task:last-child { border-bottom: none; }
+  .task-num { flex: 0 0 auto; width: 58px; height: 58px; border-radius: 50%; background: #1a2238; color: white; font-size: 28px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  .task-main { flex: 1; }
+  .task-title { font-weight: 800; font-size: 26px; line-height: 1.25; }
+  .task-desc { color: #2a3258; font-size: 21px; margin-top: 8px; }
+  .task-list { margin: 10px 0 0 0; padding-left: 26px; font-size: 20px; color: #2a3258; }
+  .task-list li { margin: 4px 0; }
+  .task-warn { background: #fff5e0; border: 2px solid #f6a623; border-radius: 10px; padding: 14px 18px; margin-top: 14px; font-size: 20px; }
+  .task-warn strong { display: block; margin-bottom: 4px; }
+  .stop-box { background: #fdecec; border: 3px solid #d64545; border-radius: 12px; padding: 20px 24px; margin-top: 28px; font-size: 21px; }
+  .stop-box strong { display: block; font-size: 24px; margin-bottom: 8px; color: #a92c2c; }
+  .stop-box ul { margin: 8px 0 0 0; padding-left: 26px; }
+  .stop-box li { margin: 5px 0; }
+  .safe-box { background: #fff5e0; border: 3px solid #f6a623; border-radius: 12px; padding: 20px 24px; margin-top: 24px; font-size: 21px; }
+  .safe-box strong { display: block; font-size: 24px; margin-bottom: 8px; }
+  .safe-box p { margin: 0 0 12px 0; }
+  .safe-box p:last-child { margin-bottom: 0; }
+  @media print { body { background: white; } .wrap { box-shadow: none; max-width: none; } .task, .task-warn, .stop-box, .safe-box, .cust { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="logo">
+      <img class="logo-icon" src="logo.png" alt="Handy Services logo">
+      <div>
+        <div class="brand">Handy Services</div>
+        <div class="reviews">4.9 from 300+ Reviews</div>
+      </div>
+    </div>
+    <div>
+      <div class="phone-label">Ops / Ben</div>
+      <div class="phone">07449 501 762</div>
+    </div>
+  </div>
+  <div class="ribbon">🔧 JOE · OUTSIDE PAINTING &amp; WALL PREP</div>
+
+  <div class="body">
+    <h1>Joe — Your Jobs Today</h1>
+    <div class="lead-note">You're on your own today. Do the jobs below — the outside painting and getting the walls ready inside. The skilled work is booked for another day (see the red box). If you're ever not sure — ring Ben.</div>
+
+    <div class="cust">
+      <div class="addr">30 Sidney Road,<br>Beeston NG9 1AN</div>
+      <div class="line"><span class="lbl">Customer:</span> <span class="val">Alicia</span> &nbsp;·&nbsp; <span class="val">07912 850254</span></div>
+      <div class="line"><span class="lbl">Materials:</span> <span class="val">We supply — collect them first (step 1)</span></div>
+    </div>
+
+    <div class="task">
+      <div class="task-num">1</div>
+      <div class="task-main">
+        <div class="task-title">Collect the materials first</div>
+        <div class="task-desc">Pick up what you need before you go to the job:</div>
+        <ul class="task-list">
+          <li>Shed/timber paint + fence paint</li>
+          <li>Brushes, rollers &amp; a roller tray</li>
+          <li>Dust sheets &amp; masking tape</li>
+          <li>Filler, caulk, filling knife, sandpaper</li>
+        </ul>
+        <div class="task-warn"><strong>⚠ Check with Ben first</strong> Ring Ben (or check WhatsApp) for exactly what to buy and which shop to collect from before you set off. We're paying — keep the receipt.</div>
+      </div>
+    </div>
+
+    <div class="task">
+      <div class="task-num">2</div>
+      <div class="task-main">
+        <div class="task-title">When you arrive</div>
+        <div class="task-desc">Say hello to Alicia. Tell her you're painting the shed and fence outside and getting the inside walls ready today. Check you've got everything before you start.</div>
+      </div>
+    </div>
+
+    <div class="task">
+      <div class="task-num">3</div>
+      <div class="task-main">
+        <div class="task-title">Paint the shed</div>
+        <div class="task-desc">Brush off dirt and any loose flaky paint, sand the rough bits, then paint. Two coats — let the first coat dry before the second. Keep the edges neat and cover the ground below.</div>
+        <div class="task-warn"><strong>⚠ Only if it's dry</strong> Don't paint outside if it's raining or about to rain — the paint won't take. If the weather's bad, do the inside wall prep (step 5) instead and come back to the shed.</div>
+      </div>
+    </div>
+
+    <div class="task">
+      <div class="task-num">4</div>
+      <div class="task-main">
+        <div class="task-title">Paint the 4 fence panels</div>
+        <div class="task-desc">Same as the shed — brush them down, then even coats of fence paint across all 4 panels. Put a dust sheet down to protect the ground and any plants.</div>
+      </div>
+    </div>
+
+    <div class="task">
+      <div class="task-num">5</div>
+      <div class="task-main">
+        <div class="task-title">Get the inside walls ready for painting</div>
+        <div class="task-desc">Fill the cracks in the walls, let the filler dry, then sand it smooth. Caulk any gaps. This gets the walls ready so painting can start on another day.</div>
+        <div class="task-warn"><strong>⚠ Two rules inside</strong> 1. Do NOT touch the areas below the bay windows — those need plastering first. 2. Do NOT start painting inside yet — today is prep only.</div>
+      </div>
+    </div>
+
+    <div class="task">
+      <div class="task-num">6</div>
+      <div class="task-main">
+        <div class="task-title">Tidy up at the end</div>
+        <div class="task-desc">Clean your brushes and rollers. Fold the dust sheets. Stack the kit neatly to one side. Leave the house and garden clean and safe for Alicia.</div>
+      </div>
+    </div>
+
+    <div class="stop-box">
+      <strong>🚫 NOT your jobs — leave these alone</strong>
+      A skilled tradesman is booked for these another day. Do not attempt them:
+      <ul>
+        <li>Repointing the front of the house / any high-up ladder work</li>
+        <li>The outside crack repair (mortar)</li>
+        <li>Plastering below the bay windows</li>
+        <li>The 10 ceiling &amp; wall lights (electrics)</li>
+        <li>Fitting the 2 carpets</li>
+      </ul>
+      If Alicia asks about any of these, tell her they're booked in for a skilled visit.
+    </div>
+
+    <div class="safe-box">
+      <strong>⚠ Stay safe</strong>
+      <p><strong style="display:inline;font-size:22px;">1.</strong> Wear a dust mask when you're sanding.</p>
+      <p><strong style="display:inline;font-size:22px;">2.</strong> Only use a low step-ladder for the shed and fence. NO high-level ladder work — that's the skilled repointing job, not yours.</p>
+      <p><strong style="display:inline;font-size:22px;">3.</strong> Take photos before and after each job.</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

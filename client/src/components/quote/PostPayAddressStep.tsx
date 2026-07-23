@@ -39,6 +39,9 @@ export interface PostPayAddressStepProps {
   initialSaved?: { line1: string; line2?: string; city: string; postcode: string; accessNotes?: string };
   /** Fired after a successful save with the composed address. */
   onSaved: (addr: { line1: string; line2?: string; city: string; postcode: string; accessNotes?: string }) => void;
+  /** Quote skin — the contractor/team fronting this quote. Defaults to Craig. */
+  skinName?: string;
+  skinAvatarUrl?: string;
 }
 
 type SavedAddress = { line1: string; line2?: string; city: string; postcode: string; accessNotes?: string };
@@ -49,6 +52,8 @@ export function PostPayAddressStep({
   initialLine1,
   initialSaved,
   onSaved,
+  skinName = 'Craig',
+  skinAvatarUrl = '/assets/avatars/craig-avatar-1.webp',
 }: PostPayAddressStepProps) {
   const [line1, setLine1] = useState(initialSaved?.line1 ?? initialLine1 ?? '');
   const [line2, setLine2] = useState(initialSaved?.line2 ?? '');
@@ -192,15 +197,15 @@ export function PostPayAddressStep({
       className="bg-[#1D2D3D] rounded-3xl overflow-hidden shadow-2xl"
     >
       <div className="px-5 py-6 sm:px-8 sm:py-7">
-        {/* Craig letterhead — the person turning up at this address */}
+        {/* Skin letterhead — the person turning up at this address */}
         <div className="flex items-center gap-3 mb-4 pb-4 border-b border-white/10">
           <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-[#7DB00E] shrink-0">
-            <img src="/assets/avatars/craig-avatar-1.webp" alt="Craig, your assigned handyman" className="w-full h-full object-cover" />
+            <img src={skinAvatarUrl} alt={`${skinName}, your assigned handyman`} className="w-full h-full object-cover" />
           </div>
           <div className="min-w-0 text-left">
             <div className="text-slate-400 text-[11px] uppercase tracking-wider font-semibold">Your assigned handyman</div>
             <div className="text-white font-bold leading-tight">
-              Craig <span className="text-[#7DB00E] text-sm font-normal">from HandyServices</span>
+              {skinName} <span className="text-[#7DB00E] text-sm font-normal">from HandyServices</span>
             </div>
             <p className="flex items-center gap-1 text-[11px] text-slate-300 mt-0.5">
               <Star className="w-3 h-3 text-amber-400 fill-amber-400 shrink-0" />
@@ -247,7 +252,7 @@ export function PostPayAddressStep({
               Where's the job?
             </h3>
             <p className="text-slate-400 text-xs leading-snug mb-4">
-              So Craig knows exactly where to come.
+              So {skinName} knows exactly where to come.
             </p>
 
             <div className="space-y-3.5">
@@ -355,7 +360,7 @@ export function PostPayAddressStep({
               )}
             </button>
             <p className="text-slate-400 text-xs text-center mt-2.5">
-              We only share this with Craig for your job — and text your confirmed day at least 2 days ahead.
+              We only share this with {skinName} for your job — and text your confirmed day at least 2 days ahead.
             </p>
           </div>
         )}

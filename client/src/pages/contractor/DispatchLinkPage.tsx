@@ -21,6 +21,7 @@ import {
     Check, X, AlertCircle, MapPin, Loader2, Lock, Hammer, Search, ImageIcon,
     ChevronDown, ShieldCheck, Package, Clock, Zap, Droplet, ArrowUpFromLine,
     Play, Maximize2, MousePointerClick, UserCheck, CreditCard, Trophy, Star,
+    Phone,
 } from "lucide-react";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
@@ -35,6 +36,8 @@ interface PublicDispatch {
     tasks: Array<{
         num: number; title: string; tier: string; category?: string; hours: number; payPence: number;
         description?: string; warning?: string; materials?: string[]; mediaUrls?: string[];
+        /** Raw materials budget (supplier cost, no markup) spendable on our card */
+        materialsBudgetPence?: number;
     }>;
     totalHours: number;
     totalContractorPayPence: number;
@@ -44,6 +47,9 @@ interface PublicDispatch {
     mediaUrls: string[];
     proposalSummary: string | null;
     preferredDates: { date: string; timeSlot: 'am' | 'pm' | 'full_day' | 'flexible' }[] | null;
+    /** Times the pay has been bumped while unclaimed (surge-lite) */
+    escalationCount: number;
+    originalContractorPayPence: number | null;
 }
 
 interface OpenDispatchData {
@@ -344,16 +350,33 @@ export default function DispatchLinkPage() {
                                 Your pay · {dispatch.tasks.length} task{dispatch.tasks.length !== 1 ? "s" : ""}
                             </p>
 
-                            {dispatch.proposalSummary && (
-                                <p className="mt-5 text-[15px] sm:text-[16px] font-semibold leading-snug text-white">
-                                    {dispatch.proposalSummary}
+                            {/* Pay bumped while unclaimed — urgency + transparency */}
+                            {dispatch.escalationCount > 0 && dispatch.originalContractorPayPence && (
+                                <p className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-bold text-[#F5A623] bg-[#F5A623]/15 border border-[#F5A623]/30 rounded-full px-2.5 py-1">
+                                    ↑ pay bumped from {fmt(dispatch.originalContractorPayPence)} — still open
                                 </p>
                             )}
 
-                            {/* Materials supplied — single line, no pills above */}
-                            <p className="mt-4 inline-flex items-center gap-2 text-[14px] sm:text-[15px] font-semibold text-[#7DB00E]">
-                                <Package className="h-4 w-4 sm:h-[18px] sm:w-[18px]" /> Materials supplied by Handy
-                            </p>
+                            {/* The job headline — the quote's contextual headline, not a
+                                comma-joined task list (the scope list below enumerates tasks). */}
+                            <h2 className="mt-5 text-[22px] sm:text-[26px] font-bold leading-tight text-white">
+                                {dispatch.title}
+                            </h2>
+
+                            {/* Materials supplied — single line, no pills above. Shows the
+                                raw materials BUDGET (supplier cost, no markup) when present:
+                                the spend the contractor gets on our trade card. */}
+                            {(() => {
+                                const matBudget = dispatch.tasks.reduce((s, t) => s + (t.materialsBudgetPence || 0), 0);
+                                return (
+                                    <p className="mt-4 inline-flex items-center gap-2 text-[14px] sm:text-[15px] font-semibold text-[#7DB00E]">
+                                        <Package className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+                                        {matBudget > 0
+                                            ? `${fmt(matBudget)} materials budget on our card`
+                                            : 'Materials supplied by Handy'}
+                                    </p>
+                                );
+                            })()}
 
                             {dispatch.preferredDates && dispatch.preferredDates.length > 0 &&
                                 renderContractorScheduling(dispatch.preferredDates)}
@@ -363,7 +386,7 @@ export default function DispatchLinkPage() {
                                     <MapPin className="h-4 w-4 text-[#F5A623] shrink-0 mt-0.5" />
                                     <span className="text-white/85">
                                         <span className="inline-block bg-white/10 text-white px-2 py-0.5 rounded-md text-[12px] font-medium tabular-nums">{dispatch.postcode}</span>
-                                        <span className="text-white/50 text-[12px] ml-2">full address unlocks on bond</span>
+                                        <span className="text-white/50 text-[12px] ml-2">full address shared when you take the job</span>
                                     </span>
                                 </div>
                             </div>
@@ -371,59 +394,80 @@ export default function DispatchLinkPage() {
                     </div>
                 </motion.div>
 
-                {/* Photos & video walkthrough — between hero and scope */}
+                {/* Walkthrough media — videos FIRST in their own section (a video
+                    walk-round is the highest-signal item for pricing a job by eye),
+                    then the photo strip. */}
                 {dispatch.mediaUrls && dispatch.mediaUrls.length > 0 && (() => {
-                    const videoCount = dispatch.mediaUrls.filter(isVideo).length;
-                    const photoCount = dispatch.mediaUrls.length - videoCount;
+                    const videos = dispatch.mediaUrls.filter(isVideo);
+                    const photos = dispatch.mediaUrls.filter((u) => !isVideo(u));
                     return (
-                        <motion.div {...fadeInUp}>
-                            <div className="flex items-baseline justify-between mb-2.5">
-                                <h2 className="text-[11px] uppercase tracking-[0.1em] font-semibold text-[#5C6470]">
-                                    Walkthrough
-                                </h2>
-                                <span className="text-[11px] text-[#8B92A0] tabular-nums">
-                                    {photoCount > 0 && `${photoCount} photo${photoCount !== 1 ? "s" : ""}`}
-                                    {photoCount > 0 && videoCount > 0 && " · "}
-                                    {videoCount > 0 && `${videoCount} video${videoCount !== 1 ? "s" : ""}`}
-                                </span>
-                            </div>
-                            <div className="-mx-4 px-4">
-                                <div className="flex gap-2.5 overflow-x-auto snap-x snap-mandatory pb-2">
-                                    {dispatch.mediaUrls.map((u, i) => {
-                                        const video = isVideo(u);
-                                        return (
-                                            <button
-                                                key={i}
-                                                onClick={() => setLightboxUrl(u)}
-                                                className="relative shrink-0 w-[78%] sm:w-[60%] aspect-[4/3] rounded-xl overflow-hidden bg-[#E6E8EC] snap-start hover:opacity-95 transition-opacity"
-                                            >
-                                                {video ? (
-                                                    <>
-                                                        <img
-                                                            src={posterFor(u)}
-                                                            alt=""
-                                                            className="w-full h-full object-cover"
-                                                            onError={(e) => {
-                                                                // No poster available — hide the broken image and let the
-                                                                // dark card background show through behind the play badge.
-                                                                (e.currentTarget as HTMLImageElement).style.display = "none";
-                                                            }}
-                                                        />
-                                                        <div className="absolute inset-0 flex items-center justify-center bg-[#0E1116]/15">
-                                                            <div className="bg-[#F5A623] rounded-full p-3 shadow-lg">
-                                                                <Play className="h-5 w-5 text-[#0E1116] fill-[#0E1116]" />
-                                                            </div>
+                        <>
+                            {videos.length > 0 && (
+                                <motion.div {...fadeInUp}>
+                                    <div className="flex items-baseline justify-between mb-2.5">
+                                        <h2 className="text-[11px] uppercase tracking-[0.1em] font-semibold text-[#5C6470]">
+                                            Video walkthrough
+                                        </h2>
+                                        <span className="text-[11px] text-[#8B92A0] tabular-nums">
+                                            {videos.length} video{videos.length !== 1 ? "s" : ""}
+                                        </span>
+                                    </div>
+                                    <div className="-mx-4 px-4">
+                                        <div className="flex gap-2.5 overflow-x-auto snap-x snap-mandatory pb-2">
+                                            {videos.map((u, i) => (
+                                                <button
+                                                    key={i}
+                                                    onClick={() => setLightboxUrl(u)}
+                                                    className="relative shrink-0 w-[86%] sm:w-[70%] aspect-video rounded-xl overflow-hidden bg-[#0E1116] snap-start hover:opacity-95 transition-opacity"
+                                                >
+                                                    <video
+                                                        src={`${u}#t=0.5`}
+                                                        muted
+                                                        playsInline
+                                                        preload="metadata"
+                                                        className="w-full h-full object-cover pointer-events-none"
+                                                    />
+                                                    <div className="absolute inset-0 flex items-center justify-center bg-[#0E1116]/20">
+                                                        <div className="bg-[#F5A623] rounded-full p-3.5 shadow-lg">
+                                                            <Play className="h-6 w-6 text-[#0E1116] fill-[#0E1116]" />
                                                         </div>
-                                                    </>
-                                                ) : (
-                                                    <img src={u} alt="" className="w-full h-full object-cover" />
-                                                )}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        </motion.div>
+                                                    </div>
+                                                    <span className="absolute bottom-2 left-2 text-[11px] font-bold text-white bg-[#0E1116]/60 px-2 py-0.5 rounded-md">
+                                                        Walk-round {videos.length > 1 ? i + 1 : ""}
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            )}
+
+                            {photos.length > 0 && (
+                                <motion.div {...fadeInUp}>
+                                    <div className="flex items-baseline justify-between mb-2.5">
+                                        <h2 className="text-[11px] uppercase tracking-[0.1em] font-semibold text-[#5C6470]">
+                                            Photos
+                                        </h2>
+                                        <span className="text-[11px] text-[#8B92A0] tabular-nums">
+                                            {photos.length} photo{photos.length !== 1 ? "s" : ""}
+                                        </span>
+                                    </div>
+                                    <div className="-mx-4 px-4">
+                                        <div className="flex gap-2.5 overflow-x-auto snap-x snap-mandatory pb-2">
+                                            {photos.map((u, i) => (
+                                                <button
+                                                    key={i}
+                                                    onClick={() => setLightboxUrl(u)}
+                                                    className="relative shrink-0 w-[78%] sm:w-[60%] aspect-[4/3] rounded-xl overflow-hidden bg-[#E6E8EC] snap-start hover:opacity-95 transition-opacity"
+                                                >
+                                                    <img src={u} alt="" className="w-full h-full object-cover" loading="lazy" />
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            )}
+                        </>
                     );
                 })()}
 
@@ -441,7 +485,7 @@ export default function DispatchLinkPage() {
                                     >
                                         <span className={`w-2 h-2 rounded-full ${tierDot(t.tier)} shrink-0`} />
                                         <span className="text-[13px] font-mono text-[#8B92A0] shrink-0 w-5 tabular-nums">{t.num}.</span>
-                                        <span className="text-[14px] font-medium text-[#0E1116] flex-1 truncate">{t.title}</span>
+                                        <span className="text-[14px] font-medium text-[#0E1116] flex-1 break-words leading-snug">{t.title}</span>
                                         {t.warning && <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />}
                                         <span className="text-[14px] font-semibold tabular-nums text-[#0E1116] shrink-0 w-[64px] text-right">{fmt(t.payPence)}</span>
                                         <ChevronDown className={`h-4 w-4 text-[#8B92A0] shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />
@@ -479,7 +523,9 @@ export default function DispatchLinkPage() {
                                                     )}
                                                     {t.materials && t.materials.length > 0 && (
                                                         <div>
-                                                            <p className="text-[11px] uppercase tracking-[0.08em] text-[#8B92A0] font-semibold mb-1.5">Materials supplied</p>
+                                                            <p className="text-[11px] uppercase tracking-[0.08em] text-[#8B92A0] font-semibold mb-1.5">
+                                                                Materials supplied{(t.materialsBudgetPence || 0) > 0 ? ` · ${fmt(t.materialsBudgetPence!)} budget on our card` : ''}
+                                                            </p>
                                                             <div className="flex flex-wrap gap-1.5">
                                                                 {t.materials.map((m, i) => (
                                                                     <span key={i} className="text-[12px] bg-[#F1F3F6] text-[#5C6470] px-2 py-1 rounded-md">{m}</span>
@@ -503,10 +549,10 @@ export default function DispatchLinkPage() {
                     <div className="bg-white rounded-2xl border border-[#E6E8EC] p-5">
                         <div className="grid grid-cols-4 gap-3">
                             {[
-                                { icon: MousePointerClick, label: "Tap to claim", num: 1 },
-                                { icon: UserCheck, label: "Pick yourself", num: 2 },
-                                { icon: CreditCard, label: `Pay £${((dispatch.bondAmountPence || 0) / 100).toFixed(0)} bond`, num: 3 },
-                                { icon: Trophy, label: "First locks it", num: 4 },
+                                { icon: Phone, label: "Call Ben", num: 1 },
+                                { icon: UserCheck, label: "Agree the dates", num: 2 },
+                                { icon: Hammer, label: "Do the job", num: 3 },
+                                { icon: CreditCard, label: "Paid next day", num: 4 },
                             ].map(({ icon: Icon, label, num }) => (
                                 <div key={num} className="text-center">
                                     <div className="relative mx-auto w-12 h-12 rounded-xl bg-[#3B7A3F]/[0.08] flex items-center justify-center mb-2">
@@ -587,15 +633,17 @@ export default function DispatchLinkPage() {
                             <p className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#8B92A0] leading-none">You earn</p>
                             <p className="text-[20px] font-semibold tabular-nums text-[#0E1116] leading-tight mt-0.5">{fmt(dispatch.totalContractorPayPence)}</p>
                         </div>
-                        <button
-                            onClick={() => setShowPicker(true)}
-                            className="px-5 py-3 rounded-xl font-semibold text-[14px] bg-[#3B7A3F] hover:bg-[#2F6133] text-white transition-all active:scale-[0.97] shadow-md shadow-[#3B7A3F]/20 inline-flex items-center gap-2"
+                        {/* Talk-first flow: no self-serve bond lock — contractors
+                            call/message Ben on WhatsApp to take the job. */}
+                        <a
+                            href={`https://wa.me/447449501762?text=${encodeURIComponent(`Hi Ben — about the ${dispatch.title} job (#${dispatch.shortRef}, ${fmt(dispatch.totalContractorPayPence)}). I'm interested.`)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-5 py-3 rounded-xl font-semibold text-[14px] bg-[#25D366] hover:bg-[#1EBE5B] text-white transition-all active:scale-[0.97] shadow-md shadow-[#25D366]/25 inline-flex items-center gap-2"
                         >
-                            <Hammer className="h-4 w-4" />
-                            {dispatch.bondRequired && dispatch.bondAmountPence
-                                ? `Lock for ${fmt(dispatch.bondAmountPence)}`
-                                : "I'm taking this"}
-                        </button>
+                            <Phone className="h-4 w-4" />
+                            Call Ben — take this job
+                        </a>
                     </div>
                 </div>
             </div>

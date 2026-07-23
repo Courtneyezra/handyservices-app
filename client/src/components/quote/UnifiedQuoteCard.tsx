@@ -288,6 +288,8 @@ type CustomerType = 'homeowner' | 'oap_homeowner' | 'landlord' | 'property_manag
 interface UnifiedQuoteCardProps {
   segment: string;
   basePrice: number; // in pence
+  /** Possessive of the quote skin's name for copy ("Craig's" / "the team's"). */
+  skinPossessive?: string;
   customerName: string;
   customerEmail?: string;
   quoteId?: string;
@@ -582,6 +584,7 @@ function InlineExpressInner({ amountPence, customerEmail, onConfirmWith, onAvail
 export function UnifiedQuoteCard({
   segment,
   basePrice,
+  skinPossessive = "Craig's",
   customerName,
   customerEmail,
   quoteId,
@@ -1359,6 +1362,48 @@ export function UnifiedQuoteCard({
   const deferredKey = activeDeferredLineIds.slice().sort().join(',');
   // Customer-facing total of what's actually being booked this visit.
   const effectiveTotalPence = hasDeferrals ? splitActiveTotalPence : total;
+
+  // ── Animated hero price ────────────────────────────────────────────────
+  // The price MOVES instead of explaining itself: on first load with flex
+  // selected it counts DOWN from the exact-day counterfactual (total +
+  // setDatePremium) to the flex price — the £36 saving shown, not told. Any
+  // later selection change (flex ↔ exact day) rolls the number up/down live.
+  // Ease-out so the movement reads instantly; skipped under reduced motion.
+  const heroPriceStartPence =
+    useFlexBooking && setDatePremium > 0 ? effectiveTotalPence + setDatePremium : effectiveTotalPence;
+  const [animatedTotalPence, setAnimatedTotalPence] = useState(heroPriceStartPence);
+  const heroPriceRef = useRef({ shown: heroPriceStartPence, mounted: false });
+  useEffect(() => {
+    const reduce = typeof window !== 'undefined'
+      && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const from = heroPriceRef.current.shown;
+    const to = effectiveTotalPence;
+    if (from === to) return;
+    if (reduce) {
+      heroPriceRef.current.shown = to;
+      setAnimatedTotalPence(to);
+      return;
+    }
+    // First run holds the counterfactual on screen a beat so the eye lands
+    // on it before the drop; subsequent changes roll immediately.
+    const delay = heroPriceRef.current.mounted ? 0 : 700;
+    heroPriceRef.current.mounted = true;
+    let raf = 0;
+    const timer = setTimeout(() => {
+      const start = performance.now();
+      const dur = 850;
+      const tick = (now: number) => {
+        const p = Math.min(1, (now - start) / dur);
+        const eased = 1 - Math.pow(1 - p, 3);
+        const value = Math.round(from + (to - from) * eased);
+        heroPriceRef.current.shown = value;
+        setAnimatedTotalPence(value);
+        if (p < 1) raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+    }, delay);
+    return () => { clearTimeout(timer); cancelAnimationFrame(raf); };
+  }, [effectiveTotalPence]);
   // Split-aware "charge now" / "balance" used by the booking-confirmation payloads
   // so the confirmation reflects what was actually charged for the kept scope.
   const effectiveChargeNowPence = payFull
@@ -1910,8 +1955,12 @@ export function UnifiedQuoteCard({
                   transition={{ duration: 0.2 }}
                   className="inline-block"
                 >
-                  <span className={`text-5xl font-black ${isDarkTheme ? 'text-white' : 'text-[#7DB00E]'}`}>
-                    £{Math.round(effectiveTotalPence / 100)}
+                  {/* Animated hero price — counts down from the exact-day
+                      counterfactual to the flex price on load (the £36 saving
+                      SHOWN, not told), and rolls up/down live when the
+                      flex ↔ exact-day selection changes. */}
+                  <span className={`text-5xl font-black tabular-nums ${isDarkTheme ? 'text-white' : 'text-[#7DB00E]'}`}>
+                    £{Math.round(animatedTotalPence / 100)}
                   </span>
                   <div className="text-xs mt-1 leading-snug">
                     <span className={`font-bold ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>All-in fixed price.</span>{' '}
@@ -2222,39 +2271,10 @@ export function UnifiedQuoteCard({
             </div>
           )}
 
-          {/* Contact card — chat or call Ben directly (reduces decision anxiety).
-              Uses the same translucent dark fill as the "included as standard" tiles
-              (bg-white/5 + border-white/10) so it blends into the dark card instead of
-              floating as a solid white panel; text is light for contrast on the dark
-              fill. Header + subtitle are left-aligned (override the inherited
-              text-center) and forced onto a single line each (whitespace-nowrap); the
-              buttons are sized down to free room for the subtitle to fit. */}
-          <div className="mt-4 rounded-2xl bg-white/5 border border-white/10 p-3.5 flex items-center justify-between gap-2">
-            <div className="min-w-0 text-left">
-              <p className="text-[14px] font-bold text-white leading-tight whitespace-nowrap">Still have questions?</p>
-              <p className="text-[11px] text-slate-400 leading-snug mt-0.5 whitespace-nowrap">Connect with {BRAND.lead} for answers.</p>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <a
-                href={`https://wa.me/447508744402?text=${encodeURIComponent(`Hi, I have a question about my quote${shortSlug ? ` (${shortSlug})` : ''}`)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={`Message ${BRAND.lead} on WhatsApp`}
-                className="w-9 h-9 rounded-full bg-[#7DB00E] text-white flex items-center justify-center shadow-sm transition-colors hover:bg-[#6a9a0c]"
-              >
-                <MessageCircle className="w-4 h-4" />
-              </a>
-              <a
-                href="https://call.whatsapp.com/voice/2yJRisb6ailWZArVFCDqVm"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={`Call ${BRAND.lead} on WhatsApp`}
-                className="w-9 h-9 rounded-full bg-white/10 text-[#a3d65f] flex items-center justify-center transition-colors hover:bg-white/20"
-              >
-                <Phone className="w-4 h-4" />
-              </a>
-            </div>
-          </div>
+          {/* "Still have questions?" contact card removed (23 Jul) — it sat
+              between the total and the "When suits you?" scheduling choice,
+              pushing the scheduling decision below the fold. The page-level
+              chat header (Ben, top bar) remains the contact route. */}
 
         </div>
 
@@ -2508,7 +2528,7 @@ export function UnifiedQuoteCard({
                   <p className={`text-[10.5px] leading-snug mt-1 ${isDarkTheme ? 'text-slate-400' : 'text-slate-500'}`}>
                     {isBusiness
                       ? `Done within ${FLEX_WINDOW_DAYS} days — backup engineer booked, so your date never slips`
-                      : `We fit you into Craig's diary — you pick any days to avoid after booking`}
+                      : `We fit you into ${skinPossessive} diary — you pick any days to avoid after booking`}
                   </p>
                   {/* Model A expectation guard: nobody pays blind. Flex is a
                       DEADLINE promise (we choose the day within the window), so
@@ -3442,6 +3462,26 @@ export function UnifiedQuoteCard({
                   };
                   return (
                   <div className="max-w-lg mx-auto space-y-1.5">
+                    {/* Scheduling echo — the commitment being purchased, visible at
+                        the decision point. Without it a customer can wallet-pay
+                        without ever seeing "When suits you?" and get the flex
+                        default blind. One slim line; works above BOTH the wallet
+                        button and the yellow CTA. "Change" jumps to the section. */}
+                    <button
+                      type="button"
+                      onClick={() => dateSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                      className="w-full flex items-center justify-center gap-1.5 text-[12px] font-semibold text-slate-600 leading-none pt-0.5"
+                    >
+                      <Calendar className="w-3.5 h-3.5 text-[#5a8209] shrink-0" />
+                      <span className="truncate">
+                        {useFlexBooking
+                          ? `Flexible — done within ${isBusiness ? `${FLEX_WINDOW_DAYS} days` : `${Math.round(HOMEOWNER_FLEX_DAYS / 7)} weeks`}`
+                          : selectedDate
+                            ? `Your day: ${format(selectedDate, 'EEE d MMM')}`
+                            : 'No day picked yet'}
+                      </span>
+                      <span className="text-[#5a8209] underline underline-offset-2 shrink-0">Change</span>
+                    </button>
                     <div className="flex items-center gap-3">
                       {/* Amount — left, anchored */}
                       <div className="shrink-0 text-left leading-none">

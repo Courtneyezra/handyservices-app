@@ -29,6 +29,9 @@ import { ScopeOfWorks, EstimatorFooter, ExpertSpecSheet } from '@/components/Exp
 import { PaymentToggle } from '@/components/quote/PaymentToggle';
 import { MobilePricingCard, KeyFeature } from '@/components/quote/MobilePricingCard';
 import { getExpertNoteText, getLineItems, getScopeOfWorks } from "@/lib/quote-helpers";
+import { resolveQuoteSkin, skinToMatchedHandymen, skinAssetKey, type ServerQuoteSkin, type QuoteSkin } from "@/lib/quote-skin";
+import { buildOfferPriceContext, renderOfferCopy } from "@/lib/quote-offers";
+import { AtHomeOfferBody } from "@/components/quote/offer-templates/AtHomeOffer";
 import { generateQuotePDF, loadQuotePhotos, validityHoursFromQuote } from "@/lib/quote-pdf-generator";
 import { InstantActionQuote } from '@/components/InstantActionQuote';
 import { UpsellBottomSheet } from '@/components/UpsellBottomSheet';
@@ -619,6 +622,11 @@ export interface PersonalizedQuote {
     customerDescription: string;
     shape: string;
   }>;
+
+  // Crew & quote skin (Jul 2026) — selected at generation, resolved server-side
+  // from skinContractorId/skinTeamId. Null ⇒ default brand skin (Craig).
+  crewType?: 'solo' | 'team' | null;
+  skin?: ServerQuoteSkin | null;
 }
 
 // Client Type Skins Configuration
@@ -1459,22 +1467,25 @@ function getHeroImage(quote: PersonalizedQuote): string {
   const isFencing = /fence|fencing|fence panel|decking|gate|garden/.test(jobDesc);
   const isGuttering = /gutter|downpipe|fascia|soffit/.test(jobDesc);
 
-  // Person-led brand: the hero shows CRAIG (the assigned handyman) doing the job,
-  // not a generic stock tradesman — one consistent face from loading → offer →
-  // quote. All `craig-*` shots are the craig-tech character; the door/plumbing/
-  // elderly fallbacks were already Craig-ified (commit c41016b).
+  // Person-led brand: the hero shows the quote's SKIN (the assigned handyman)
+  // doing the job, not a generic stock tradesman — one consistent face from
+  // loading → offer → quote. Skins with a complete job-scene set (see
+  // SKINNED_HERO_SETS) resolve to their own imagery; anything else falls back
+  // to the Craig brand set.
   if (isElderly || isLandlord) return '/assets/quote-images/older-person-door.webp';
 
+  const skinKey = skinAssetKey(resolveQuoteSkin(quote.skin)) ?? 'craig';
+
   // Job-type imagery — order most-specific first.
-  if (isGuttering) return '/assets/quote-images/craig-gutter.webp';
-  if (isFencing) return '/assets/quote-images/craig-fence.webp';
-  if (isTvMount) return '/assets/quote-images/craig-tv-mount.webp';
-  if (isTiling) return '/assets/quote-images/craig-tiling.webp';
-  if (isFlatpack) return '/assets/quote-images/craig-flatpack.webp';
-  if (isElectrical) return '/assets/quote-images/craig-light.webp';
+  if (isGuttering) return `/assets/quote-images/${skinKey}-gutter.webp`;
+  if (isFencing) return `/assets/quote-images/${skinKey}-fence.webp`;
+  if (isTvMount) return `/assets/quote-images/${skinKey}-tv-mount.webp`;
+  if (isTiling) return `/assets/quote-images/${skinKey}-tiling.webp`;
+  if (isFlatpack) return `/assets/quote-images/${skinKey}-flatpack.webp`;
+  if (isElectrical) return `/assets/quote-images/${skinKey}-light.webp`;
   if (isPlumbing) return '/assets/quote-images/plumber-smile.webp';
-  if (isBathroomSeal) return '/assets/quote-images/craig-bathroom.webp';
-  if (isPainting) return '/assets/quote-images/craig-painting.webp';
+  if (isBathroomSeal) return `/assets/quote-images/${skinKey}-bathroom.webp`;
+  if (isPainting) return `/assets/quote-images/${skinKey}-painting.webp`;
   return '/assets/quote-images/door-greeting.webp';
 }
 
@@ -1822,10 +1833,17 @@ const ValueGuarantee = ({ quote, config }: { quote: PersonalizedQuote, config: a
 
   // For contextual quotes, override mainTitle based on customerType from vaContext
   if (isContextualGuarantee) {
-    // Guarantee is a TRUST moment (not job-specific), so anchor it with Craig —
-    // the same assigned handyman shown throughout — rather than the generic
-    // job-type stock the fallback would otherwise pick.
-    content.image = '/assets/quote-images/craig-guarantee.webp';
+    // Guarantee is a TRUST moment (not job-specific), so anchor it with the
+    // quote's skin — the same face shown throughout. Skins with a full asset
+    // set use their own guarantee shot; other skinned quotes fall back to
+    // their banner; the default brand skin keeps Craig.
+    const guaranteeSkin = resolveQuoteSkin(quote.skin);
+    const guaranteeKey = skinAssetKey(guaranteeSkin);
+    content.image = guaranteeKey
+      ? `/assets/quote-images/${guaranteeKey}-guarantee.webp`
+      : (!guaranteeSkin.isDefault && guaranteeSkin.bannerUrl)
+        ? guaranteeSkin.bannerUrl
+        : '/assets/quote-images/craig-guarantee.webp';
     const vaCtx = ((quote as any).contextSignals?.vaContext || '').toLowerCase();
     const isLandlord = /landlord|rental|tenant|buy.to.let|btl|letting/.test(vaCtx);
     const isProfessional = /property manager|portfolio|prop mgr|managing agent|professional|busy exec|corporate|office|business|company|commercial|shop/.test(vaCtx);
@@ -3338,7 +3356,26 @@ export default function PersonalizedQuotePage() {
   //     opened it before, so we paint the page immediately from cache (no loader)
   //     AND skip the offer interstitial — both are first-impression devices a
   //     returning visitor has already seen. First visits (no cache) are untouched.
+  // ── ?theatre — design/demo replay switch ───────────────────────────────
+  // Forces the FULL first-visit flow (loading theatre → offer → quote) on
+  // every load, ignoring the seen-flag/cache/viewCount skips. Lets us watch
+  // and iterate the loading beat without resetting server counters, and demo
+  // the full journey on any quote. Never set on links customers receive.
+  //   ?theatre=1         — replay the full flow every load
+  //   ?theatre=checklist — freeze mid-checklist (design iteration w/ HMR)
+  //   ?theatre=reveal    — freeze on the handyman reveal beat
+  const [theatreMode] = useState<'replay' | 'checklist' | 'reveal' | null>(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get('theatre');
+      if (v === '1') return 'replay';
+      if (v === 'checklist' || v === 'reveal') return v;
+      return null;
+    } catch { return null; }
+  });
+  const forceTheatre = theatreMode !== null;
+
   const [flowPhase, setFlowPhase] = useState<'preparing' | 'offer' | 'quote'>(() => {
+    if (forceTheatre) return 'preparing';
     if (isPreview) return 'quote';
     if (readCachedQuote(params?.slug)) return 'quote';
     return 'preparing';
@@ -3378,19 +3415,25 @@ export default function PersonalizedQuotePage() {
   // synchronously; the viewCount/paid signals arrive once the quote loads and
   // flip this true on the effect's re-run.
   const skipPreparingTheatre =
-    seenQuoteBefore ||
-    !!(quote && (((quote.viewCount ?? 0) > 1) || quote.depositPaidAt || quote.bookedAt));
+    !forceTheatre &&
+    (seenQuoteBefore ||
+      !!(quote && (((quote.viewCount ?? 0) > 1) || quote.depositPaidAt || quote.bookedAt)));
+
+  // Quote skin — the contractor/team identity fronting every stage of this
+  // page (loading reveal, guarantee, profile, day-picker copy). Defaults to
+  // the Craig brand skin when nothing was selected at generation.
+  const quoteSkin: QuoteSkin = useMemo(() => resolveQuoteSkin(quote?.skin), [quote?.skin]);
 
   const skeletonStartRef = useRef<number>(Date.now());
   useEffect(() => {
     if (isLoading || !quote) return;
     let cancelled = false;
-    // Long enough for a FIRST-TIME visitor to watch the price-lock seal tick
-    // down a few seconds and read the "No surprises, no hidden fees" line
-    // before content swaps in. On a repeat/paid open (skipPreparingTheatre)
-    // this minimum is dropped to 0 — the branded loader only stays up as long
-    // as assets genuinely need, so reopens don't re-sit through the wait.
-    const MIN_DISPLAY_MS = skipPreparingTheatre ? 0 : 4000;
+    // Long enough for a FIRST-TIME visitor to read the freshness checklist
+    // before content swaps in — trimmed alongside the honest-copy pass (a
+    // verification beat shouldn't dawdle like creation theatre did). On a
+    // repeat/paid open (skipPreparingTheatre) this minimum is dropped to 0 —
+    // the branded loader only stays up as long as assets genuinely need.
+    const MIN_DISPLAY_MS = skipPreparingTheatre ? 0 : 3200;
     const HARD_TIMEOUT_MS = 4500;
 
     const run = async () => {
@@ -3416,6 +3459,9 @@ export default function PersonalizedQuotePage() {
           || (quote as any).matchedContractor?.profileImageUrl
           || (quote as any).matchedContractorProfileImageUrl;
         if (contractorImg) urls.add(contractorImg);
+        // Skinned quotes paint the skin avatar in the loading reveal — preload
+        // it so the "Meet your handyman" beat never pops in a blank face.
+        if (quote.skin?.avatarUrl) urls.add(quote.skin.avatarUrl);
 
         if (urls.size > 0) {
           await Promise.all([...urls].map((u) => new Promise<void>((resolve) => {
@@ -4102,6 +4148,47 @@ export default function PersonalizedQuotePage() {
         ready={!isLoading && assetsReady && !!quote}
         pricingSettings={pricingSettings}
         customerName={quote?.customerName}
+        postcode={quote?.postcode}
+        // The "Meet your handyman" reveal — cast from the quote's skin
+        // (selected at generation; team quotes reveal the members). Falls
+        // back to the Craig default inside the helper.
+        matchedHandymen={quote ? skinToMatchedHandymen(quoteSkin) : undefined}
+        holdBeat={theatreMode === 'checklist' || theatreMode === 'reveal' ? theatreMode : undefined}
+        // ONE-PAGE offer: for at_home offers the orbit's resolved header slides
+        // up and this body rises in beneath it on the SAME screen — no separate
+        // offer stage. Accept/decline advance straight to the quote.
+        offerNode={(() => {
+          if (!quote || !selectedOffer) return undefined;
+          if ((selectedOffer.template ?? 'dark_hero') !== 'at_home') return undefined;
+          const alreadyPaid = !!(quote.depositPaidAt || quote.bookedAt) || justPaid;
+          const homeowner = deriveOfferCustomerType((quote as any)?.contextSignals) === 'homeowner';
+          if (alreadyPaid || !(offerVariant || homeowner)) return undefined;
+          const stagePrice = quote.finalPricePence || quote.basePrice || 0;
+          if (!stagePrice) return undefined;
+          const ctx = buildOfferPriceContext(selectedOffer, stagePrice);
+          const renderCopy = (t?: string) => {
+            let out = renderOfferCopy(t, ctx);
+            if (quoteSkin.name !== 'Craig') {
+              out = out.replace(/Craig's/g, `${quoteSkin.name}'s`).replace(/Craig/g, quoteSkin.name);
+            }
+            return out;
+          };
+          const seal = () => {
+            try { localStorage.setItem(`hs_quote_seen_${params?.slug}`, '1'); } catch { /* noop */ }
+          };
+          return (
+            <AtHomeOfferBody
+              compact
+              leftAligned
+              offer={selectedOffer}
+              render={renderCopy}
+              firstName={quote.customerName?.trim().split(/\s+/)[0]}
+              onAccept={() => { seal(); trackOfferEvent('accept'); setAcceptedFlexOffer(true); setFlowPhase('quote'); }}
+              onDecline={() => { seal(); trackOfferEvent('decline'); setAcceptedFlexOffer(false); setFlowPhase('quote'); }}
+            />
+          );
+        })()}
+        onOfferShown={() => trackOfferEvent('impression')}
         // First open only: the checklist theatre builds anticipation once, then
         // becomes friction (median 7 opens; paid customers watch "locking in
         // your fixed price" for a price they already paid). viewCount arrives
@@ -4205,6 +4292,7 @@ export default function PersonalizedQuotePage() {
         offer={selectedOffer}
         basePricePence={quotePrice}
         customerName={quote.customerName}
+        skin={{ name: quoteSkin.name, avatarUrl: quoteSkin.avatarUrl, rating: quoteSkin.rating, jobsLabel: quoteSkin.jobsLabel }}
         onAccept={() => { trackOfferEvent('accept'); setAcceptedFlexOffer(true); setFlowPhase('quote'); }}
         onDecline={() => { trackOfferEvent('decline'); setAcceptedFlexOffer(false); setFlowPhase('quote'); }}
       />
@@ -4396,6 +4484,7 @@ export default function PersonalizedQuotePage() {
                     <UnifiedQuoteCard
                       segment={quote.segment || 'UNKNOWN'}
                       basePrice={quotePrice}
+                      skinPossessive={quoteSkin.possessive}
                       customerName={quote.customerName}
                       customerEmail={quote.email || undefined}
                       bookingModes={isContextualQuote && quote.bookingModes ? quote.bookingModes : undefined}
@@ -5006,7 +5095,7 @@ export default function PersonalizedQuotePage() {
                 {editingDays ? (
                   <div className="text-center pt-2">
                     <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Change your days</h2>
-                    <p className="text-[13px] text-slate-600 mt-1">Update the days Craig should avoid.</p>
+                    <p className="text-[13px] text-slate-600 mt-1">Update the days {quoteSkin.name} should avoid.</p>
                   </div>
                 ) : (
                   /* Compact one-line payment confirmation — mobile-first: the
@@ -5023,7 +5112,7 @@ export default function PersonalizedQuotePage() {
                     </motion.span>
                     <p className="text-left leading-tight">
                       <span className="block text-lg font-extrabold text-slate-900 tracking-tight">Payment received</span>
-                      <span className="block text-[13px] text-slate-600">You're in Craig's queue, {quote.customerName.split(' ')[0]}. One last&nbsp;thing&nbsp;—</span>
+                      <span className="block text-[13px] text-slate-600">You're in {quoteSkin.possessive} queue, {quote.customerName.split(' ')[0]}. One last&nbsp;thing&nbsp;—</span>
                     </p>
                   </div>
                 )}
@@ -5032,6 +5121,9 @@ export default function PersonalizedQuotePage() {
                   quoteId={quote.id}
                   initialDates={collectedDays ?? undefined}
                   startInEdit={editingDays}
+                  skinName={quoteSkin.name}
+                  skinAvatarUrl={quoteSkin.avatarUrl}
+                  skinPossessive={quoteSkin.possessive}
                   onSaved={(dates) => {
                     const wasEditing = editingDays;
                     setPostPayDates(dates);
@@ -5080,12 +5172,14 @@ export default function PersonalizedQuotePage() {
               <div className="w-full max-w-lg mx-auto space-y-3">
                 <div className="text-center pt-1">
                   <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">Almost done, {quote.customerName.split(' ')[0]}</h2>
-                  <p className="text-[13px] text-slate-600 mt-1">Just the address so Craig knows where to come.</p>
+                  <p className="text-[13px] text-slate-600 mt-1">Just the address so {quoteSkin.name} knows where to come.</p>
                 </div>
                 <PostPayAddressStep
                   quoteId={quote.id}
                   initialPostcode={quote.postcode || undefined}
                   initialSaved={postPayAddress ?? undefined}
+                  skinName={quoteSkin.name}
+                  skinAvatarUrl={quoteSkin.avatarUrl}
                   onSaved={(addr) => {
                     setPostPayAddress(addr);
                     setTimeout(completeAddressStep, 1200);
@@ -5137,11 +5231,13 @@ export default function PersonalizedQuotePage() {
                   <ContractorProfile
                     onDark
                     compact
-                    name={(quote as any).leadContractor?.name || 'Craig'}
-                    headshotUrl={(quote as any).leadContractor?.imageUrl || '/assets/avatars/craig-avatar-1.webp'}
+                    name={!quoteSkin.isDefault ? quoteSkin.name : ((quote as any).leadContractor?.name || 'Craig')}
+                    headshotUrl={!quoteSkin.isDefault ? quoteSkin.avatarUrl : ((quote as any).leadContractor?.imageUrl || '/assets/avatars/craig-avatar-1.webp')}
                     rating={(quote as any).leadContractor?.rating ?? 4.9}
                     jobsCount={(quote as any).leadContractor?.jobsCount ?? 214}
-                    bio={(quote as any).leadContractor?.bio || "Craig's got your job. Over a decade putting things right in people's homes — tidy, on time, and back to sort it if anything's not perfect."}
+                    bio={!quoteSkin.isDefault
+                      ? (quoteSkin.bio || `${quoteSkin.possessive} got your job — tidy, on time, and back to sort it if anything's not perfect.`)
+                      : ((quote as any).leadContractor?.bio || "Craig's got your job. Over a decade putting things right in people's homes — tidy, on time, and back to sort it if anything's not perfect.")}
                     badges={(quote as any).leadContractor?.badges?.length ? (quote as any).leadContractor.badges : ['DBS-checked', '£2M insured', '12-month guarantee']}
                   />
                 </div>
@@ -5182,34 +5278,52 @@ export default function PersonalizedQuotePage() {
             landing trust at the decision moment. The company proof (guarantee,
             social proof, comparison) then reinforces below. Homeowner
             contextual quotes only.
-            TODO(C5): hardcoded Craig with PLACEHOLDER bio/review + AI-generated
-            work gallery — swap for real handyman_profiles content and wire from
-            the assigned-contractor record once seat selection exists. */}
+            Skin-driven (Jul 2026): renders the quote's selected skin from
+            handyman_profiles/contractor_teams. The DEFAULT (Craig) skin still
+            carries PLACEHOLDER bio/review + AI work gallery — replace with real
+            content on Craig's profile row, then the fallbacks can go. */}
         {['homeowner', 'oap_homeowner'].includes(deriveOfferCustomerType((quote as any).contextSignals)) && (
           /* Same dark navy as the ValueGuarantee section (#1D2D3D) so the two dark beats read as one system, not a one-off. */
           <SectionWrapper className="bg-[#1D2D3D] py-16 lg:py-24">
             <ContractorProfile
               onDark
-              name="Craig"
-              headshotUrl="/assets/avatars/craig-avatar-1.webp"
-              bannerUrl="/assets/quote-images/craig-banner.webp"
+              name={quoteSkin.name}
+              headshotUrl={quoteSkin.avatarUrl}
+              bannerUrl={quoteSkin.isDefault
+                ? '/assets/quote-images/craig-banner.webp'
+                : (quoteSkin.bannerUrl ?? undefined)}
               rating={4.9}
               jobsCount={214}
-              bio="Over a decade putting homes right — tidy, on time, and back to sort it if anything's not perfect."
+              bio={quoteSkin.isDefault
+                ? 'Over a decade putting homes right — tidy, on time, and back to sort it if anything\'s not perfect.'
+                : (quoteSkin.bio || 'Putting homes right — tidy, on time, and back to sort it if anything\'s not perfect.')}
               badges={['DBS-checked', '£2M insured', '12-month guarantee']}
-              work={[
-                { url: '/assets/quote-images/craig-bathroom.webp', label: 'Bathroom reseal' },
-                { url: '/assets/quote-images/craig-tiling.webp', label: 'Tiling' },
-                { url: '/assets/quote-images/craig-fence.webp', label: 'Fence repair' },
-                { url: '/assets/quote-images/craig-light.webp', label: 'Light fitting' },
-                { url: '/assets/quote-images/craig-flatpack.webp', label: 'Flat-pack build' },
-                { url: '/assets/quote-images/craig-gutter.webp', label: 'Gutter clear' },
-              ]}
-              review={{
-                text: "Craig was brilliant — turned up when he said, got through everything on my list, and left the place spotless.",
-                author: 'Mark D.',
-                location: 'West Bridgford',
-              }}
+              work={(() => {
+                // Skins with a full job-scene set get the standard 6-shot
+                // gallery in their own imagery; others fall back to their
+                // profile media gallery (or no gallery at all).
+                const workKey = skinAssetKey(quoteSkin);
+                if (workKey) {
+                  return [
+                    { url: `/assets/quote-images/${workKey}-bathroom.webp`, label: 'Bathroom reseal' },
+                    { url: `/assets/quote-images/${workKey}-tiling.webp`, label: 'Tiling' },
+                    { url: `/assets/quote-images/${workKey}-fence.webp`, label: 'Fence repair' },
+                    { url: `/assets/quote-images/${workKey}-light.webp`, label: 'Light fitting' },
+                    { url: `/assets/quote-images/${workKey}-flatpack.webp`, label: 'Flat-pack build' },
+                    { url: `/assets/quote-images/${workKey}-gutter.webp`, label: 'Gutter clear' },
+                  ];
+                }
+                return quoteSkin.gallery.length > 0
+                  ? quoteSkin.gallery.slice(0, 6).map((url) => ({ url, label: '' }))
+                  : undefined;
+              })()}
+              review={quoteSkin.isDefault
+                ? {
+                    text: "Craig was brilliant — turned up when he said, got through everything on my list, and left the place spotless.",
+                    author: 'Mark D.',
+                    location: 'West Bridgford',
+                  }
+                : undefined}
             />
           </SectionWrapper>
         )}

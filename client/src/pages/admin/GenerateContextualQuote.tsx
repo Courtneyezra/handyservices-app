@@ -727,6 +727,7 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
   const totalHours = data.perLineMargin.reduce((s, l) => s + l.hours, 0);
   const effectiveAvgHourly = totalHours > 0 ? Math.round(totalContractorPay / totalHours) : 0;
   const hasFloor = data.perLineMargin.some(l => l.payMethod === 'floor');
+  const hasVisitMin = data.perLineMargin.some(l => l.payMethod === 'visit_minimum');
 
   // Per-tier rollup for the chip strip
   const tierGroups: Record<string, { pay: number; hours: number; lines: number }> = {};
@@ -784,7 +785,8 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
                         {line.tier ? (
                           <>
                             {TIER_LABELS[line.tier]} {line.revenueSharePercent}%
-                            {line.payMethod === 'floor' && <span className="text-orange-400 ml-0.5" title="Hourly floor exceeded share">↑</span>}
+                            {line.payMethod === 'floor' && <span className="text-red-400 ml-0.5" title="Hourly floor beat rev share — re-price this line">↑</span>}
+                            {line.payMethod === 'visit_minimum' && <span className="text-orange-400 ml-0.5" title="Topped up to per-visit minimum (travel cover)">▲</span>}
                           </>
                         ) : '—'}
                       </td>
@@ -830,7 +832,8 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
                   {hasRevShare && line.tier && (
                     <span className={`text-[10px] font-medium ${tierColor}`}>
                       {TIER_LABELS[line.tier]} {line.revenueSharePercent}%
-                      {line.payMethod === 'floor' && <span className="text-orange-400 ml-0.5">↑</span>}
+                      {line.payMethod === 'floor' && <span className="text-red-400 ml-0.5">↑</span>}
+                      {line.payMethod === 'visit_minimum' && <span className="text-orange-400 ml-0.5">▲</span>}
                     </span>
                   )}
                 </div>
@@ -885,11 +888,27 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
           </div>
         )}
 
-        {/* Floor explanation */}
+        {/* Floor = under-priced quote → prompt a re-price, not just a pay note */}
         {hasFloor && (
+          <div className="rounded-md px-3 py-2 border bg-red-500/10 border-red-500/20">
+            <p className="text-[11px] text-red-300">
+              <span className="font-medium">Re-price needed</span> — customer price is too low for the estimated time on some lines (hourly floor beat the rev share). Raise the price or shorten scope; the floor is a safety net, not a subsidy.
+            </p>
+          </div>
+        )}
+
+        {/* Materials pass-through — company-funded, excluded from the share */}
+        {(data.materialsPassThroughPence ?? 0) > 0 && (
+          <p className="text-[11px] text-muted-foreground">
+            Materials {p2p(data.materialsPassThroughPence!)} are company-funded pass-through — contractor share is on labour only.
+          </p>
+        )}
+
+        {/* Visit minimum top-up (short job — travel/deadtime cover) */}
+        {hasVisitMin && (
           <div className="rounded-md px-3 py-2 border bg-orange-500/10 border-orange-500/20">
             <p className="text-[11px] text-orange-300">
-              <span className="font-medium">Floor active</span> — min hourly exceeded share on some lines, contractor pay raised to floor.
+              <span className="font-medium">Visit minimum applied</span> — short job topped up to the per-visit minimum (£40–60 by tier) so travel isn't unpaid. Consider bundling nearby small jobs.
             </p>
           </div>
         )}
@@ -901,7 +920,8 @@ function MarginPreviewPanel({ data }: { data: MarginPreview }) {
             <span className={`${TIER_COLORS.skilled}`}>Skill 50%</span>
             <span className={`${TIER_COLORS.general}`}>Gen 45%</span>
             <span className={`${TIER_COLORS.outdoor}`}>Out 45%</span>
-            <span className="text-orange-400">↑ floor</span>
+            <span className="text-red-400">↑ floor (re-price)</span>
+            <span className="text-orange-400">▲ visit min</span>
           </div>
         )}
 
@@ -1403,6 +1423,19 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
   // ── Contractor assignment ──
   const [selectedContractorId, setSelectedContractorId] = useState<string | null>(null);
 
+  // ── Crew & quote skin (Jul 2026) ──
+  // crewType picks the fulfilment pool (solo vs team); the skin ids pick whose
+  // face fronts the customer quote page. Null skin = default brand skin (Craig).
+  const [crewType, setCrewType] = useState<'solo' | 'team'>('solo');
+  const [skinContractorId, setSkinContractorId] = useState<string | null>(null);
+  const [skinTeamId, setSkinTeamId] = useState<string | null>(null);
+
+  // ── Materials & equipment logistics (Jul 2026) ──
+  // Longest supplier lead time (days) gates the earliest bookable date.
+  const [materialLeadTimeDays, setMaterialLeadTimeDays] = useState<string>('');
+  // Comma-separated hire kit names, e.g. "Tower scaffold, Carpet cleaner".
+  const [hireEquipmentText, setHireEquipmentText] = useState('');
+
   // ── Call card selection ──
   const [selectedCallerId, setSelectedCallerId] = useState<string | null>(null);
 
@@ -1747,6 +1780,17 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
         if (Array.isArray(quote.availableDates)) setAvailableDates(quote.availableDates);
         if (Array.isArray(quote.customerPhotoUrls)) setCustomerPhotos(quote.customerPhotoUrls);
 
+        // Crew & skin + logistics carry through on edit.
+        if (quote.crewType === 'team') setCrewType('team');
+        if (quote.skinContractorId) setSkinContractorId(quote.skinContractorId);
+        if (quote.skinTeamId) setSkinTeamId(quote.skinTeamId);
+        if (typeof quote.materialLeadTimeDays === 'number') {
+          setMaterialLeadTimeDays(String(quote.materialLeadTimeDays));
+        }
+        if (Array.isArray(quote.hireEquipment) && quote.hireEquipment.length > 0) {
+          setHireEquipmentText(quote.hireEquipment.map((h: any) => h?.name).filter(Boolean).join(', '));
+        }
+
         if (quote.jobDescription) setJobDescription(quote.jobDescription);
 
         // Load the ACTUAL saved line items — preserve structure and any per-line
@@ -1858,6 +1902,25 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
         headers: getAuthHeaders(),
       });
       if (!res.ok) throw new Error('Failed to fetch contractors');
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  // Contractor teams for the Team crew/skin picker
+  const { data: contractorTeamsList } = useQuery<{
+    id: string;
+    name: string;
+    displayName: string;
+    profileImageUrl: string | null;
+    members: { contractorId: string; name: string; role: string | null }[];
+  }[]>({
+    queryKey: ['pricing-contractor-teams'],
+    queryFn: async () => {
+      const res = await fetch('/api/pricing/contractor-teams', {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error('Failed to fetch teams');
       return res.json();
     },
     staleTime: 60_000,
@@ -2037,6 +2100,22 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
             ? { sourceChannel: 'whatsapp' as const }
             : {}),
           contractorId: selectedContractorId || undefined,
+          // Crew & skin — solo/team pool + whose face fronts the quote page
+          crewType,
+          skinContractorId: skinContractorId || undefined,
+          skinTeamId: crewType === 'team' ? (skinTeamId || undefined) : undefined,
+          // Materials & equipment logistics
+          materialLeadTimeDays:
+            materialLeadTimeDays !== '' && Number.isFinite(Number(materialLeadTimeDays))
+              ? Math.max(0, Math.round(Number(materialLeadTimeDays)))
+              : undefined,
+          hireEquipment: hireEquipmentText.trim()
+            ? hireEquipmentText
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean)
+                .map((name) => ({ name }))
+            : undefined,
           createdBy: adminUser?.id || undefined,
           createdByName: adminUser?.name || adminUser?.email || undefined,
           availableDates,
@@ -2732,6 +2811,11 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
     setLinkedCall(null);
     setUnlinkedPhone(null);
     setSelectedContractorId(null);
+    setCrewType('solo');
+    setSkinContractorId(null);
+    setSkinTeamId(null);
+    setMaterialLeadTimeDays('');
+    setHireEquipmentText('');
     setCustomerType('');
     setAvailableDates([]);
     setDatePickerMonth(new Date());
@@ -4164,6 +4248,127 @@ export default function GenerateContextualQuote({ editSlug: editSlugProp, onClos
               coordinates={coordinates}
               requiredDays={liveRequiredDays}
             />
+
+            {/* ─── Section 5b: Crew & quote skin ─── */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Users className="w-4 h-4" />
+                  Crew &amp; quote skin
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Solo or team decides the fulfilment pool. The skin decides whose face and name
+                  front the customer's quote page — leave unset for the default (Craig).
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Solo / Team toggle */}
+                <div className="flex gap-2">
+                  {(['solo', 'team'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setCrewType(mode)}
+                      className={`flex-1 rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${
+                        crewType === mode
+                          ? 'border-handy-navy bg-handy-navy text-white'
+                          : 'border-handy-grid bg-white text-handy-navy/70 hover:border-handy-navy/40'
+                      }`}
+                    >
+                      {mode === 'solo' ? 'Solo' : 'Team'}
+                    </button>
+                  ))}
+                </div>
+
+                {crewType === 'team' ? (
+                  (contractorTeamsList?.length ?? 0) > 0 ? (
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Team</Label>
+                      <Select
+                        value={skinTeamId ?? 'none'}
+                        onValueChange={(v) => setSkinTeamId(v === 'none' ? null : v)}
+                      >
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Pick a team" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No team selected</SelectItem>
+                          {contractorTeamsList!.map((t) => (
+                            <SelectItem key={t.id} value={t.id}>
+                              {t.displayName} ({t.members.length} member{t.members.length === 1 ? '' : 's'})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      No teams set up yet — the quote is marked as a team job, and the page shows the
+                      default skin until a team is created.
+                    </p>
+                  )
+                ) : (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Quote skin (contractor)</Label>
+                    <Select
+                      value={skinContractorId ?? 'default'}
+                      onValueChange={(v) => setSkinContractorId(v === 'default' ? null : v)}
+                    >
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Default (Craig)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Default (Craig)</SelectItem>
+                        {(contractors ?? []).map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                            {c.city ? ` · ${c.city}` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Materials & equipment logistics */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-handy-grid">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="material-lead-time" className="text-xs">
+                      Material lead time (days)
+                    </Label>
+                    <Input
+                      id="material-lead-time"
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={90}
+                      placeholder="0 = off the shelf"
+                      value={materialLeadTimeDays}
+                      onChange={(e) => setMaterialLeadTimeDays(e.target.value)}
+                      className="h-9"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Longest supplier wait — gates the earliest date offered.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="hire-equipment" className="text-xs">
+                      Hire equipment
+                    </Label>
+                    <Input
+                      id="hire-equipment"
+                      placeholder="e.g. Tower scaffold, Carpet cleaner"
+                      value={hireEquipmentText}
+                      onChange={(e) => setHireEquipmentText(e.target.value)}
+                      className="h-9"
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Comma-separated. Hire availability gates dates + feeds cost.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
 
             {/* ─── Decomposed pricing (admin eval) — per-quote only, never live ─── */}

@@ -15,7 +15,8 @@ import { nanoid } from 'nanoid';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
-import { eq, gte, and, sql, desc } from 'drizzle-orm';
+import crypto from 'crypto';
+import { eq, gte, and, sql, desc, inArray } from 'drizzle-orm';
 import { getAnthropic } from '../anthropic';
 import { generateContextualPrice } from './engine';
 import { generateMultiLinePrice } from './multi-line-engine';
@@ -27,7 +28,7 @@ import { buildQuoteMessage, defaultStyleForCustomerType, type MessageStyleId } f
 import { matchLineToSku } from './sku-matcher';
 import { getSkuByCode } from './sku-resolver';
 import { db } from '../db';
-import { personalizedQuotes, leads, calls, quotePlatformImages, quotePlatformHeadlines, handymanProfiles, handymanSkills, users } from '@shared/schema';
+import { personalizedQuotes, leads, calls, quotePlatformImages, quotePlatformHeadlines, handymanProfiles, handymanSkills, users, contractorTeams, contractorTeamMembers } from '@shared/schema';
 import { normalizePhoneNumber } from '../phone-utils';
 import { selectContentForQuote } from '../content-library/selector';
 import { trackQuoteCreated } from '../posthog';
@@ -949,11 +950,15 @@ router.post('/api/pricing/multi-quote', async (req, res) => {
         ? 1 - (result.batchDiscount.discountPercent / 100)
         : 1;
 
+      // LABOUR ONLY — the revenue share must not include materials (company
+      // funds materials; paying a % of them was a £69/job leak, fixed Jul 2026).
       const wtbpLines = result.lineItems.map((l) => ({
         categorySlug: l.category,
-        pricePence: Math.round(l.guardedPricePence * discountFactor) + (l.materialsWithMarginPence || 0),
+        pricePence: Math.round(l.guardedPricePence * discountFactor),
         timeEstimateMinutes: l.timeEstimateMinutes || 60,
       }));
+      const materialsPassThroughPence = result.lineItems.reduce(
+        (s, l) => s + (l.materialsWithMarginPence || 0), 0);
 
       if (wtbpLines.length > 0) {
         const wtbpResult = await calculateCostFromWTBP(wtbpLines);
@@ -992,6 +997,7 @@ router.post('/api/pricing/multi-quote', async (req, res) => {
           perLineMargin,
           uncoveredCategories: uncovered,
           flags,
+          materialsPassThroughPence,
         };
       }
     } catch (err) {
@@ -1212,6 +1218,90 @@ router.get('/api/pricing/contractors', async (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Contractor Teams — list for the builder's Team skin/crew picker, plus a
+// minimal create endpoint so teams can be set up without a dedicated admin UI.
+// ---------------------------------------------------------------------------
+
+router.get('/api/pricing/contractor-teams', async (_req, res) => {
+  try {
+    const teams = await db.select().from(contractorTeams)
+      .where(eq(contractorTeams.isActive, true))
+      .orderBy(contractorTeams.name);
+    const members = teams.length
+      ? await db.select({
+          teamId: contractorTeamMembers.teamId,
+          contractorId: contractorTeamMembers.contractorId,
+          role: contractorTeamMembers.role,
+          firstName: users.firstName,
+          profileImageUrl: handymanProfiles.profileImageUrl,
+        })
+          .from(contractorTeamMembers)
+          .innerJoin(handymanProfiles, eq(contractorTeamMembers.contractorId, handymanProfiles.id))
+          .leftJoin(users, eq(handymanProfiles.userId, users.id))
+          .where(inArray(contractorTeamMembers.teamId, teams.map((t) => t.id)))
+      : [];
+    return res.json(teams.map((t) => ({
+      id: t.id,
+      name: t.name,
+      displayName: t.displayName || t.name,
+      profileImageUrl: t.profileImageUrl,
+      members: members
+        .filter((m) => m.teamId === t.id)
+        .map((m) => ({
+          contractorId: m.contractorId,
+          name: m.firstName || 'Member',
+          role: m.role,
+          profileImageUrl: m.profileImageUrl,
+        })),
+    })));
+  } catch (err) {
+    console.error('[pricing/contractor-teams] Error:', err);
+    return res.status(500).json({ error: 'Failed to fetch teams' });
+  }
+});
+
+const createTeamSchema = z.object({
+  name: z.string().min(1).max(100),
+  displayName: z.string().max(100).optional(),
+  leadContractorId: z.string().optional(),
+  memberContractorIds: z.array(z.string()).min(1).max(10),
+  bio: z.string().max(1000).optional(),
+  profileImageUrl: z.string().optional(),
+  heroImageUrl: z.string().optional(),
+});
+
+router.post('/api/pricing/contractor-teams', async (req, res) => {
+  try {
+    const input = createTeamSchema.parse(req.body);
+    const teamId = crypto.randomUUID();
+    await db.insert(contractorTeams).values({
+      id: teamId,
+      name: input.name,
+      displayName: input.displayName || null,
+      leadContractorId: input.leadContractorId || null,
+      bio: input.bio || null,
+      profileImageUrl: input.profileImageUrl || null,
+      heroImageUrl: input.heroImageUrl || null,
+    });
+    await db.insert(contractorTeamMembers).values(
+      input.memberContractorIds.map((contractorId) => ({
+        id: crypto.randomUUID(),
+        teamId,
+        contractorId,
+        role: contractorId === input.leadContractorId ? 'lead' : 'member',
+      })),
+    );
+    return res.json({ id: teamId });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid team payload', details: err.errors });
+    }
+    console.error('[pricing/contractor-teams] Create error:', err);
+    return res.status(500).json({ error: 'Failed to create team' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/pricing/create-contextual-quote
 // ---------------------------------------------------------------------------
 
@@ -1283,6 +1373,12 @@ const contextualQuoteInputSchema = z.object({
          */
         priceOverridePence: z.number().min(0).optional(),
         timeOverrideMinutes: z.number().positive().optional(),
+        /**
+         * Named materials for this line (what to actually buy, not just the
+         * cost). Merged onto the stored line item so dispatch can allocate a
+         * real material budget. MUST be in the schema or zod strips it.
+         */
+        materialsList: z.array(z.string().max(200)).max(30).optional(),
       }),
     )
     .min(1, 'At least one line item is required'),
@@ -1353,6 +1449,33 @@ const contextualQuoteInputSchema = z.object({
 
   // Contractor assignment (optional — shows their profile on the quote page)
   contractorId: z.string().optional(),
+
+  // ── Crew & skin selection (Jul 2026) ──────────────────────────────────
+  // crewType picks the fulfilment pool (solo contractor vs team); the skin
+  // ids pick whose face/imagery fronts the customer quote page. All optional
+  // — omitted means solo + default brand skin (Craig).
+  crewType: z.enum(['solo', 'team']).optional(),
+  skinContractorId: z.string().optional(),
+  skinTeamId: z.string().optional(),
+
+  // ── Materials & equipment logistics (Jul 2026) ────────────────────────
+  // Longest supplier lead time (days) across the job's materials — gates the
+  // earliest bookable date offered to the customer.
+  materialLeadTimeDays: z.number().int().min(0).max(90).optional(),
+  // Plant/tool hire needed: availability gates dates, cost feeds margin.
+  hireEquipment: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(120),
+        days: z.number().int().positive().optional(),
+        costPence: z.number().int().nonnegative().optional(),
+        notes: z.string().max(300).optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
+  // Customer-supplied job videos (companion to customerPhotoUrls)
+  customerVideoUrls: z.array(z.string()).max(5).optional(),
 
   // Vestigial — Phase A locked the customer date pool to live contractor
   // availability, so admins no longer need to hand-pick dates. Kept optional
@@ -1734,11 +1857,15 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
           ? 1 - (result.batchDiscount.discountPercent / 100)
           : 1;
 
+        // LABOUR ONLY — share must not include materials (company funds them;
+        // paying a % of materials was a £69/job leak, fixed Jul 2026).
         const wtbpLines = result.lineItems.map((l) => ({
           categorySlug: l.category,
-          pricePence: Math.round(l.guardedPricePence * discountFactor) + (l.materialsWithMarginPence || 0),
+          pricePence: Math.round(l.guardedPricePence * discountFactor),
           timeEstimateMinutes: l.timeEstimateMinutes || 60,
         }));
+        const materialsPassThroughPence = result.lineItems.reduce(
+          (s, l) => s + (l.materialsWithMarginPence || 0), 0);
         const wtbpResult = await calculateCostFromWTBP(wtbpLines);
 
         const totalCustomer = wtbpResult.perLineMargin.reduce((s, l) => s + l.customerPricePence, 0);
@@ -1757,6 +1884,7 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
           perLineMargin: wtbpResult.perLineMargin,
           uncoveredCategories: wtbpResult.uncoveredCategories,
           flags,
+          materialsPassThroughPence,
         };
 
         if (marginResult.flags.length > 0) {
@@ -1892,6 +2020,26 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       // Contractor assignment — shows their profile on the customer quote page
       contractorId: input.contractorId || null,
 
+      // Crew & skin selection — solo/team pool + whose face fronts the quote.
+      // Falls back to the contractorId pick so an operator choosing a
+      // contractor profile gets that skin without a second selection.
+      crewType: input.crewType || 'solo',
+      skinContractorId: input.skinContractorId || input.contractorId || null,
+      skinTeamId: input.skinTeamId || null,
+
+      // Customer type as a first-class column (also mirrored in contextSignals
+      // below for legacy readers)
+      customerType: input.customerType || null,
+
+      // Materials & equipment logistics
+      materialLeadTimeDays: input.materialLeadTimeDays ?? null,
+      hireEquipment:
+        input.hireEquipment && input.hireEquipment.length > 0 ? input.hireEquipment : null,
+      customerVideoUrls:
+        input.customerVideoUrls && input.customerVideoUrls.length > 0
+          ? input.customerVideoUrls
+          : null,
+
       // Contextual messaging fields
       contextualHeadline: result.messaging.contextualHeadline,
       contextualMessage: result.messaging.contextualMessage,
@@ -1905,8 +2053,15 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       requiresHumanReview: result.messaging.requiresHumanReview,
       reviewReason: result.messaging.reviewReason || null,
 
-      // Full pricing data for admin/debugging
-      pricingLineItems: result.lineItems,
+      // Full pricing data for admin/debugging. Named materials from the input
+      // lines are merged onto the engine's result lines (matched by lineId) so
+      // the stored line items carry WHAT to buy, not just the cost figure.
+      pricingLineItems: result.lineItems.map((li) => {
+        const inputLine = input.lines.find((l) => l.id === li.lineId);
+        return inputLine?.materialsList && inputLine.materialsList.length > 0
+          ? { ...li, materialsList: inputLine.materialsList }
+          : li;
+      }),
       pricingLayerBreakdown: result,
       batchDiscountPercent: result.batchDiscount.discountPercent,
 
@@ -1962,6 +2117,26 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       // matchedContractorId/Rate intentionally NOT saved — contractors are assigned post-payment via dispatch pool
       matchedContractorId: null,
       matchedContractorRate: null,
+
+      // Persist the per-line margin + coverage the preview already computed
+      // (previously calculated then discarded — columns existed but were never
+      // written). Powers margin analytics + the "can we actually staff this
+      // quote" audit without recomputing.
+      perLineMargin: marginPreviewData?.perLineMargin ?? null,
+      uncoveredCategories:
+        marginPreviewData?.uncoveredCategories && marginPreviewData.uncoveredCategories.length > 0
+          ? marginPreviewData.uncoveredCategories
+          : null,
+      matchFlags:
+        marginPreviewData?.flags && marginPreviewData.flags.length > 0
+          ? marginPreviewData.flags
+          : null,
+      matchCoveragePercent: (() => {
+        const total = new Set(jobCategories as string[]).size;
+        if (!total || !marginPreviewData) return null;
+        const uncovered = new Set(marginPreviewData.uncoveredCategories ?? []).size;
+        return Math.round(((total - uncovered) / total) * 100);
+      })(),
 
       createdAt: new Date(),
       // Price-banded validity window — anchors the customer page's price-lock timer

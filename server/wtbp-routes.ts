@@ -200,4 +200,20 @@ router.get('/api/wtbp-rate-card/current', async (_req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/admin/pricing-loop?days=60 — two-sided pricing loop review
+// (observe + suggest only; see docs/TWO-SIDED-PRICING-LOOP-2026-07.md)
+// ---------------------------------------------------------------------------
+
+router.get('/api/admin/pricing-loop', async (req, res) => {
+  try {
+    const days = Math.min(365, Math.max(7, Number(req.query.days) || 60));
+    const { buildPricingLoopReview } = await import('./pricing-loop');
+    return res.json(await buildPricingLoopReview(days));
+  } catch (err: any) {
+    console.error('Failed to build pricing loop review:', err);
+    return res.status(500).json({ error: 'Failed to build review' });
+  }
+});
+
 export default router;

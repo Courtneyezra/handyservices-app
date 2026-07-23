@@ -32,7 +32,7 @@ interface DraftTask {
     tier: string;
     hours: number;
     payPence: number;
-    payMethod: "floor" | "share";
+    payMethod: "floor" | "share" | "visit_minimum";
     warning?: string;
     materials: string[];
 }
@@ -70,6 +70,11 @@ interface DraftResponse {
         totalContractorPayPence: number;
         customerRevenuePence: number;
         platformKeepsPence: number;
+        leadUpliftPence?: number;
+        leadUpliftPercent?: number;
+        materialsPassThroughPence?: number;
+        materialsBudgetPence?: number;
+        mediaUrls?: string[];
         tasks: DraftTask[];
         skippedLines: number;
     };
@@ -360,11 +365,15 @@ export default function AdminGenerateDispatch() {
         }
     }, []);
 
+    // Multi-person managed job → site lead earns a coordination uplift.
+    // Changing it refetches the draft so all totals come from the engine.
+    const [leadUplift, setLeadUplift] = useState(false);
+
     // Fetch the draft
     const { data, isLoading, isError, error } = useQuery<DraftResponse>({
-        queryKey: ["dispatch-draft", quoteId],
+        queryKey: ["dispatch-draft", quoteId, leadUplift],
         queryFn: async () => {
-            const r = await fetch(`/api/admin/dispatch/draft-from-quote/${quoteId}`);
+            const r = await fetch(`/api/admin/dispatch/draft-from-quote/${quoteId}${leadUplift ? '?leadUplift=1' : ''}`);
             if (!r.ok) {
                 const body = await r.json().catch(() => ({}));
                 throw new Error(body.error || `Draft fetch failed (${r.status})`);
@@ -400,15 +409,19 @@ export default function AdminGenerateDispatch() {
         }
     }, [createdLink]);
 
-    // Hydrate state once draft arrives
+    // Hydrate state once draft arrives — once per quote, NOT on every refetch.
+    // The lead-uplift toggle refetches the draft (totals change, tasks don't);
+    // re-hydrating then would wipe the admin's title/task edits.
+    const hydratedForQuoteRef = useRef<string | null>(null);
     useEffect(() => {
-        if (!data) return;
+        if (!data || hydratedForQuoteRef.current === quoteId) return;
+        hydratedForQuoteRef.current = quoteId ?? null;
         setTitle(data.draft.title);
         setScheduledDate(fmtDateInput(data.draft.scheduledDate));
         setTasks(data.draft.tasks.map((t) => ({ ...t, materials: [...(t.materials || [])] })));
         setBondRequired(data.draft.bondRequired);
         setBondPounds(Math.round((data.draft.bondAmountPence || 0) / 100));
-    }, [data]);
+    }, [data, quoteId]);
 
     // ─── Derived totals (sourced from engine; not editable) ──────────────
     const totalHours = data?.draft.totalHours ?? 0;
@@ -633,6 +646,8 @@ export default function AdminGenerateDispatch() {
                 bondAmountPence: bondRequired ? bondPence : 0,
                 scheduledDate: scheduledDate || null,
                 createdBy: "admin",
+                // Customer's quote-upload photos flow onto the dispatch brief
+                mediaUrls: data?.draft.mediaUrls || [],
             };
 
             const dispatchResp = await dispatchMutation.mutateAsync(body);
@@ -807,9 +822,29 @@ export default function AdminGenerateDispatch() {
             <div className="bg-muted/30 border rounded-lg p-3 mb-6 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
                 <span><span className="text-muted-foreground">Hours:</span> <span className="font-semibold">{totalHours}h</span></span>
                 <span><span className="text-muted-foreground">Contractor pay:</span> <span className="font-semibold text-green-400">{fmt(totalContractorPayPence)}</span></span>
+                {(data?.draft.leadUpliftPence ?? 0) > 0 && (
+                    <span><span className="text-muted-foreground">incl. lead uplift:</span> <span className="font-semibold text-amber-400">{fmt(data!.draft.leadUpliftPence!)} ({data!.draft.leadUpliftPercent}%)</span></span>
+                )}
+                {(data?.draft.materialsPassThroughPence ?? 0) > 0 && (
+                    <span><span className="text-muted-foreground">Materials (company-funded, not in share):</span> <span className="font-semibold">{fmt(data!.draft.materialsPassThroughPence!)}</span></span>
+                )}
                 <span><span className="text-muted-foreground">Customer revenue:</span> <span className="font-semibold">{fmt(customerRevenuePence)}</span></span>
-                <span><span className="text-muted-foreground">Platform keeps:</span> <span className="font-semibold text-blue-400">{fmt(platformKeepsPence)}</span></span>
+                <span><span className="text-muted-foreground">Platform keeps (labour):</span> <span className="font-semibold text-blue-400">{fmt(platformKeepsPence)}</span></span>
             </div>
+
+            {/* Managed-job lead uplift toggle — refetches engine totals */}
+            <label className="flex items-start gap-2 mb-6 text-xs cursor-pointer select-none">
+                <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={leadUplift}
+                    onChange={(e) => setLeadUplift(e.target.checked)}
+                />
+                <span>
+                    <span className="font-medium">Multi-person managed job</span>
+                    <span className="text-muted-foreground"> — site lead coordinates a crew on this job; adds a lead uplift on top of base pay (comes out of platform margin).</span>
+                </span>
+            </label>
 
             {/* Tasks */}
             <div className="mb-6">

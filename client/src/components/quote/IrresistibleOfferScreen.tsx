@@ -37,6 +37,8 @@ interface IrresistibleOfferScreenProps {
   /** The quote's base (flexible-lane) price in pence — drives all £ tokens. */
   basePricePence: number;
   customerName?: string;
+  /** Quote skin — the contractor/team fronting this quote. Defaults to Craig. */
+  skin?: { name: string; avatarUrl: string; rating: string; jobsLabel?: string };
   onAccept: () => void;
   onDecline: () => void;
 }
@@ -45,11 +47,21 @@ export function IrresistibleOfferScreen({
   offer,
   basePricePence,
   customerName,
+  skin,
   onAccept,
   onDecline,
 }: IrresistibleOfferScreenProps) {
   const ctx = buildOfferPriceContext(offer, basePricePence);
-  const render = (t: string | undefined) => renderOfferCopy(t, ctx);
+  // Offer copy is admin-authored with the default skin's name ("Craig") written
+  // literally. When the quote carries a different skin, swap the name so the
+  // copy matches the face on screen. No-op for the default skin.
+  const render = (t: string | undefined) => {
+    let out = renderOfferCopy(t, ctx);
+    if (skin && skin.name !== 'Craig') {
+      out = out.replace(/Craig's/g, `${skin.name}'s`).replace(/Craig/g, skin.name);
+    }
+    return out;
+  };
   const Template = TEMPLATES[offer.template ?? 'dark_hero'] ?? DarkHeroOffer;
 
   return (
@@ -58,6 +70,7 @@ export function IrresistibleOfferScreen({
       ctx={ctx}
       render={render}
       customerName={customerName}
+      skin={skin}
       onAccept={onAccept}
       onDecline={onDecline}
     />

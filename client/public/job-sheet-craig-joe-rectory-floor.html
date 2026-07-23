@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Job Sheet · Craig &amp; Joe · Rectory Floor Restoration</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; background: #eef0f5; color: #14182b; line-height: 1.6; font-size: 19px; }
+  .wrap { max-width: 820px; margin: 0 auto; background: white; }
+
+  .header { background: #1a2238; color: white; padding: 22px 32px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .header .logo { display: flex; align-items: center; gap: 14px; }
+  .header .logo-icon { width: 48px; height: 48px; border-radius: 50%; background: white; display: flex; align-items: center; justify-content: center; font-size: 26px; }
+  .header .brand { font-size: 26px; font-weight: 800; }
+  .header .reviews { font-size: 15px; color: #c8cbd6; }
+  .header .phone-label { font-size: 14px; color: #c8cbd6; text-transform: uppercase; letter-spacing: 1px; }
+  .header .phone { font-weight: 800; font-size: 22px; }
+  .ribbon { background: #f6a623; color: #1a2238; padding: 14px 32px; font-weight: 800; text-align: center; letter-spacing: 1px; font-size: 17px; }
+
+  .body { padding: 32px; }
+  h1 { margin: 0 0 8px 0; font-size: 36px; line-height: 1.15; }
+  .meta { color: #2a3258; font-size: 20px; font-weight: 600; margin-bottom: 24px; }
+  .meta .big { font-size: 22px; font-weight: 800; }
+
+  /* Customer block */
+  .cust { background: #1a2238; color: white; border-radius: 14px; padding: 22px 26px; margin-bottom: 26px; }
+  .cust .addr { font-size: 25px; font-weight: 800; line-height: 1.25; }
+  .cust .line { font-size: 19px; color: #d3d6e2; margin-top: 8px; }
+  .cust .line .lbl { color: #9aa0bd; }
+  .cust .line .val { color: white; font-weight: 700; }
+
+  /* Roles */
+  .roles { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 26px; }
+  .role { flex: 1 1 260px; border-radius: 12px; padding: 18px 20px; font-size: 17px; }
+  .role.lead { background: #fff5e0; border: 3px solid #f6a623; }
+  .role.lab { background: #f0f2f8; border: 3px solid #b9c0d8; }
+  .role strong { display: block; font-size: 20px; margin-bottom: 6px; }
+
+  h2 { font-size: 27px; margin: 40px 0 0 0; padding-bottom: 10px; border-bottom: 4px solid #f6a623; }
+
+  /* Steps (morning logistics) */
+  .step { border: 3px solid #1a2238; border-radius: 14px; margin: 22px 0; overflow: hidden; }
+  .step.logi { border-color: #b9c0d8; }
+  .step-head { background: #1a2238; color: white; padding: 14px 22px; display: flex; align-items: center; gap: 14px; }
+  .step.logi .step-head { background: #56608a; }
+  .step-num { flex: 0 0 auto; width: 42px; height: 42px; border-radius: 50%; background: #f6a623; color: #1a2238; font-size: 22px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  .step-title { font-size: 21px; font-weight: 800; line-height: 1.2; }
+  .step-sub { font-size: 15px; color: #d3d6e2; margin-top: 2px; }
+  .step-body { padding: 16px 22px; font-size: 18px; }
+  .step-body p { margin: 0 0 10px 0; }
+
+  .warn { background: #fff5e0; border: 2px solid #f6a623; border-radius: 10px; padding: 12px 16px; margin-top: 12px; font-size: 17px; }
+  .warn strong { display: block; margin-bottom: 3px; }
+
+  /* Shopping list */
+  ul.shop { list-style: none; padding: 0; margin: 14px 0 0 0; }
+  ul.shop li { display: flex; align-items: baseline; gap: 12px; padding: 12px 16px; font-size: 17px; border-radius: 10px; margin-bottom: 6px; background: #f5f6fa; }
+  ul.shop li .qty { flex: 0 0 auto; min-width: 74px; font-weight: 800; color: #1a2238; }
+  ul.shop li .name { flex: 1; }
+  ul.shop li .name small { display: block; color: #56608a; font-size: 15px; font-weight: 600; margin-top: 1px; }
+
+  /* Plan sequence */
+  ol.seq { margin: 14px 0 0 0; padding-left: 0; list-style: none; counter-reset: seq; }
+  ol.seq li { counter-increment: seq; display: flex; gap: 14px; padding: 10px 0; font-size: 18px; border-bottom: 2px solid #eef0f5; align-items: baseline; }
+  ol.seq li::before { content: counter(seq); flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; background: #1a2238; color: white; font-weight: 800; font-size: 17px; display: flex; align-items: center; justify-content: center; }
+  ol.seq li:last-child { border-bottom: none; }
+
+  .daybox { border: 3px solid #1a2238; border-radius: 14px; margin: 22px 0; overflow: hidden; }
+  .daybox .day-head { background: #f6a623; color: #1a2238; font-weight: 800; font-size: 20px; padding: 12px 22px; }
+  .daybox .day-body { padding: 16px 22px; font-size: 18px; }
+  .daybox .day-body p { margin: 0 0 10px 0; }
+
+  .note-box { background: #f0f2f8; border-left: 8px solid #1a2238; border-radius: 10px; padding: 20px 24px; margin-top: 24px; font-size: 18px; }
+  .note-box strong { display: block; margin-bottom: 6px; font-size: 20px; }
+  .note-box.warn2 { background: #fff5e0; border-left-color: #f6a623; }
+
+  .rooms { background: #f5f6fa; border: 2px dashed #b9c0d8; border-radius: 10px; padding: 16px 20px; margin-top: 14px; font-size: 18px; }
+  .rooms .rline { border-bottom: 2px solid #d7dbe8; padding: 10px 0 4px; font-weight: 700; color: #56608a; }
+
+  /* Materials reference table */
+  table.mtable { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 15.5px; }
+  table.mtable th { background: #1a2238; color: white; text-align: left; padding: 10px 12px; font-size: 15px; }
+  table.mtable td { padding: 10px 12px; border-bottom: 1px solid #e2e6f0; vertical-align: top; color: #2a3258; line-height: 1.45; }
+  table.mtable td.item { font-weight: 800; color: #14182b; width: 27%; }
+  table.mtable td.what { width: 33%; }
+  table.mtable tr.cat td { background: #f6a623; color: #1a2238; font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: 0.6px; padding: 8px 12px; }
+
+  @media print {
+    body { background: white; font-size: 17px; }
+    .wrap { box-shadow: none; max-width: none; }
+    .step, .warn, .note-box, .daybox, .role, .cust, ul.shop li { break-inside: avoid; }
+    .step-head, .day-head { break-after: avoid; }
+    h2 { break-after: avoid; }
+    table.mtable tr { break-inside: avoid; }
+    table.mtable thead { display: table-header-group; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="logo">
+      <div class="logo-icon">🤚</div>
+      <div>
+        <div class="brand">Handy Services</div>
+        <div class="reviews">4.9 from 300+ Reviews</div>
+      </div>
+    </div>
+    <div>
+      <div class="phone-label">Ops / Ben</div>
+      <div class="phone">07449 501 762</div>
+    </div>
+  </div>
+  <div class="ribbon">JOB SHEET · CRAIG (LEAD) + JOE · FLOOR RESTORATION · 2 DAYS</div>
+
+  <div class="body">
+    <h1>Wood Floor Restoration — The Rectory</h1>
+    <div class="meta">
+      Lead: <span class="big">Craig</span> &nbsp;·&nbsp; Labourer: <span class="big">Joe</span><br>
+      Days: <span class="big">2</span> &nbsp;·&nbsp; Day 1: <span class="big">____________</span> &nbsp;·&nbsp; Day 2: <span class="big">____________</span>
+    </div>
+
+    <div class="cust">
+      <div class="addr">The Rectory, Church Lane,<br>Averham NG23 5RB</div>
+      <div class="line"><span class="lbl">Customer:</span> <span class="val">Nicola Huthwaite</span></div>
+      <div class="line"><span class="lbl">Phone:</span> <span class="val">07738 255001</span></div>
+      <div class="line"><span class="lbl">The job:</span> <span class="val">Punch nails &amp; prep · sand to fine finish · edges &amp; corners · repair damage · patch boards with reclaimed timber · 2 coats wood oil</span></div>
+      <div class="line"><span class="lbl">Follow-on:</span> <span class="val">Clean limestone slabs with diamond abrasive discs — same property, if time permits (concurrent or after)</span></div>
+    </div>
+
+    <div class="roles">
+      <div class="role lead">
+        <strong>👑 Craig — lead</strong>
+        Runs the job and the customer. Machine sanding, board repairs, reclaimed patching, oiling. Sets the plan each morning and checks Joe's work before moving on.
+      </div>
+      <div class="role lab">
+        <strong>🔧 Joe — labourer</strong>
+        Works to Craig's instruction: furniture moving, protection, nail punching, vacuuming between grits, edge prep, fetching &amp; carrying, end-of-day clean-up.
+      </div>
+    </div>
+
+    <!-- BEFORE THE JOB -->
+    <h2>Before you get there (in this order)</h2>
+
+    <div class="step logi">
+      <div class="step-head">
+        <div class="step-num">1</div>
+        <div>
+          <div class="step-title">Advanced Tool Hire — Basford, Nottingham</div>
+          <div class="step-sub">Collect the hire kit · 2-day hire</div>
+        </div>
+      </div>
+      <div class="step-body">
+        <ul class="shop">
+          <li><span class="qty">1</span><span class="name">Floor (drum/belt) sander</span></li>
+          <li><span class="qty">1</span><span class="name">Floor edge sander</span></li>
+          <li><span class="qty">Plenty</span><span class="name">Sanding sheets/discs for BOTH machines<small>Grits 24/40 (rough cut), 60/80 (medium), 100/120 (fine finish) — take MORE than you think for both machines. Running out mid-floor kills the day.</small></span></li>
+          <li><span class="qty">Plenty</span><span class="name">Dust bags for both machines<small>Spares on spares — they fill fast on old boards</small></span></li>
+        </ul>
+        <div class="warn"><strong>⚠ At the counter</strong> Check both machines start, check the drum is clean (a nicked drum gouges boards), and confirm the return time on Day 2. Ask for a quick demo of the belt change if unfamiliar with the model.</div>
+      </div>
+    </div>
+
+    <div class="step logi">
+      <div class="step-head">
+        <div class="step-num">2</div>
+        <div>
+          <div class="step-title">Screwfix — purchase list</div>
+          <div class="step-sub">Recommended kit for this job</div>
+        </div>
+      </div>
+      <div class="step-body">
+        <ul class="shop">
+          <li><span class="qty">1 box</span><span class="name">FFP3 dust masks<small>Old floor dust is nasty — FFP3, not FFP1/2. Both of you, all day.</small></span></li>
+          <li><span class="qty">2</span><span class="name">Ear defenders + safety glasses (pairs)<small>Drum sander is loud for hours</small></span></li>
+          <li><span class="qty">2</span><span class="name">Knee pads (pairs)<small>Edges, corners and filling = hours on knees</small></span></li>
+          <li><span class="qty">1 set</span><span class="name">Nail punch set + claw hammer<small>Every nail head below board surface before the drum touches the floor</small></span></li>
+          <li><span class="qty">2</span><span class="name">Two-part high-performance wood filler + filling knives<small>e.g. Ronseal High Performance — mix with fine sanding dust for colour-matched gap fill</small></span></li>
+          <li><span class="qty">1 roll each</span><span class="name">Polythene sheeting + low-tack masking tape + masking film<small>Seal doorways, cover fireplace/fittings — dust travels everywhere</small></span></li>
+          <li><span class="qty">3+</span><span class="name">Heavy cotton dust sheets<small>Furniture and anything that can't leave the room</small></span></li>
+          <li><span class="qty">1</span><span class="name">Heavy-duty 13A extension reel + spare 13A fuses<small>Drum sanders pop fuses — spares save a dead afternoon</small></span></li>
+          <li><span class="qty">1</span><span class="name">Corner/detail scraper + assorted sandpaper sheets (40/80/120)<small>For the corners the edge sander can't reach</small></span></li>
+          <li><span class="qty">2.5L per ~30m²</span><span class="name">Hard-wax floor oil — Osmo Polyx-Oil or nearest equivalent<small>⚠ Screwfix may not stock Osmo — Toolstation/decorators' merchant carry it. CONFIRM colour/sheen with Nicola BEFORE buying. 1L ≈ 24m² per coat.</small></span></li>
+          <li><span class="qty">1 each</span><span class="name">Floor oil applicator/short-pile roller + tray + edge brush<small>Plus lint-free cloths and white spirit for clean-up</small></span></li>
+          <li><span class="qty">2</span><span class="name">Tack cloths / microfibre pack<small>Full dust wipe before any oil goes down</small></span></li>
+          <li><span class="qty">2 pk</span><span class="name">Nitrile gloves</span></li>
+        </ul>
+        <div class="warn"><strong>⚠ NOT from Screwfix</strong> Reclaimed floorboards for the patch repairs — Craig sources from a reclamation yard after measuring up on site (match board width, thickness and era). Measure first, buy second.</div>
+      </div>
+    </div>
+
+    <div class="step logi">
+      <div class="step-head">
+        <div class="step-num">3</div>
+        <div>
+          <div class="step-title">Workwear pickup — NG23 5JJ (Mum's)</div>
+          <div class="step-sub">On the way — it's minutes from the job</div>
+        </div>
+      </div>
+      <div class="step-body">
+        <p>Collect the t-shirts and caps. <strong>Both wearing them before you knock on the door</strong> — first impression at this job matters.</p>
+      </div>
+    </div>
+
+    <!-- MATERIALS REFERENCE -->
+    <h2>Materials — what each is &amp; where it's used</h2>
+    <p style="margin:12px 0 0; font-size:16px; color:#56608a;">Sanding abrasives + dust bags come from Advanced Tool Hire (not Screwfix); reclaimed boards from a reclamation yard after measuring on site.</p>
+    <table class="mtable">
+      <thead>
+        <tr><th>Item</th><th>What it is</th><th>Where it's used</th></tr>
+      </thead>
+      <tbody>
+        <tr class="cat"><td colspan="3">PPE &amp; Safety</td></tr>
+        <tr><td class="item">FFP3 dust masks</td><td class="what">Highest-grade disposable respirator for fine dust</td><td>Both of you, all day, during all sanding. FFP3 — not FFP1/2.</td></tr>
+        <tr><td class="item">Ear defenders (×2)</td><td class="what">Over-ear hearing protection</td><td>Whenever the drum sander runs — it's loud for hours.</td></tr>
+        <tr><td class="item">Safety glasses (×2)</td><td class="what">Impact eye protection</td><td>Sanding, nail punching and filling — grit and heads fly.</td></tr>
+        <tr><td class="item">Knee pads (×2)</td><td class="what">Gel/foam knee protection</td><td>Edge sanding, corners, filling and oiling — hours kneeling.</td></tr>
+        <tr><td class="item">Nitrile gloves</td><td class="what">Disposable chemical gloves</td><td>Filling and oiling stages — keeps filler and oil off skin.</td></tr>
+
+        <tr class="cat"><td colspan="3">Preparation &amp; Protection — Stage 1, each room</td></tr>
+        <tr><td class="item">Polythene dust sheet roll</td><td class="what">Thin plastic sheeting on a roll</td><td>Seal doorways/openings; cover fireplace, radiators and fitted units before sanding.</td></tr>
+        <tr><td class="item">Low-tack masking tape 48mm</td><td class="what">Gentle-adhesive tape</td><td>Hold the polythene up; mask skirting/thresholds without pulling paint.</td></tr>
+        <tr><td class="item">Masking film (tape + sheet)</td><td class="what">Pre-taped plastic film</td><td>Fast dust-sealing of windows and built-ins.</td></tr>
+        <tr><td class="item">Cotton dust sheets 12×9 (×3)</td><td class="what">Heavy woven drop cloths</td><td>Cover furniture that stays in the room; protect the hallway and adjacent floors.</td></tr>
+
+        <tr class="cat"><td colspan="3">Repair &amp; Fill</td></tr>
+        <tr><td class="item">Nail punch set</td><td class="what">Tapered steel punches</td><td>Drive every proud nail head below the surface <strong>before</strong> sanding — one nail shreds a belt.</td></tr>
+        <tr><td class="item">Claw hammer (if not in van)</td><td class="what">Standard hammer</td><td>Drives the punches; refix any loose boards.</td></tr>
+        <tr><td class="item">Two-part wood filler (Ronseal HP)</td><td class="what">Resin + hardener filler that takes oil</td><td>Fill gaps/splits/holes after the medium pass. Mix with fine floor dust for a colour match.</td></tr>
+        <tr><td class="item">Filling knives</td><td class="what">Flexible flat blades</td><td>Press filler into gaps and strike off flush.</td></tr>
+
+        <tr class="cat"><td colspan="3">Sanding</td></tr>
+        <tr><td class="item">Sanding belts/discs + dust bags</td><td class="what">Abrasives for the drum + edge sanders</td><td>⚠ From Advanced Tool Hire, NOT Screwfix. Grits 24/40 → 60/80 → 100/120. Take plenty for both machines.</td></tr>
+        <tr><td class="item">Assorted sandpaper 40/80/120</td><td class="what">Hand abrasive sheets</td><td>Corners and tight spots the edge sander can't reach; feathering repairs.</td></tr>
+        <tr><td class="item">Detail / corner scraper</td><td class="what">Sharp hand scraper</td><td>Internal corners and against skirting where no machine fits.</td></tr>
+
+        <tr class="cat"><td colspan="3">Power &amp; Consumables</td></tr>
+        <tr><td class="item">Extension reel 25m 13A</td><td class="what">Heavy-duty cable reel</td><td>Feed the sanders from a safe socket, room to room — no daisy-chaining.</td></tr>
+        <tr><td class="item">13A plug fuses (spares)</td><td class="what">Spare cartridge fuses</td><td>Drum sanders pop fuses on start-up — spares save a dead afternoon.</td></tr>
+
+        <tr class="cat"><td colspan="3">Finish — Oiling (Stages 9–10)</td></tr>
+        <tr><td class="item">Liberon 2.5L Clear Matt Hard Wax Oil</td><td class="what">Water-based oil/wax floor finish, 8 hr recoat</td><td>The finish coat. Confirm <strong>matt vs satin with Nicola</strong> first. Two thin coats, with the grain.</td></tr>
+        <tr><td class="item">Microfibre mini roller (4mm) + frame + tray</td><td class="what">Short-pile lint-free roller</td><td>Lay the oil on the main floor field. <strong>Microfibre, not foam</strong> — foam froths the oil.</td></tr>
+        <tr><td class="item">2" brush</td><td class="what">Cutting-in brush</td><td>Oil the edges, corners and against skirting where the roller won't reach.</td></tr>
+        <tr><td class="item">Tack cloths / microfibre cloths</td><td class="what">Lint-free wipes</td><td>Full dust wipe before oiling; wipe back excess/pooled oil after each coat.</td></tr>
+        <tr><td class="item">White spirit 750ml</td><td class="what">Solvent</td><td>Tool/spill clean-up — and soaking used oily rags safely (see fire note).</td></tr>
+
+        <tr class="cat"><td colspan="3">Not from Screwfix</td></tr>
+        <tr><td class="item">Reclaimed floorboards</td><td class="what">Salvaged period boards</td><td>Craig measures the damaged/patched boards on site, then sources from a reclamation yard — match width, thickness and era.</td></tr>
+        <tr><td class="item">Diamond-tipped abrasive discs/pads</td><td class="what">Abrasives for cutting/cleaning stone</td><td>Follow-on limestone slab clean. Confirm grit + a suitable machine with Ben before the day (hire or supplied) — labour only, so not a customer-supplied item.</td></tr>
+      </tbody>
+    </table>
+
+    <!-- ARRIVAL -->
+    <h2>Arrival — Craig leads the customer conversation</h2>
+    <div class="note-box warn2">
+      <strong>🗣 The doorstep brief (Craig, before any kit comes off the van)</strong>
+      Walk the rooms with Nicola and cover, in order:<br>
+      1. <b>The plan</b> — how we'll tackle it: living room first (her request), then the other rooms in the agreed order; prep → sand → repair → oil.<br>
+      2. <b>Expectations</b> — dust is controlled but not zero; rooms out of action while oil cures; where furniture is going. Offer to move furniture if it hasn't been done.<br>
+      3. <b>Timeframe</b> — 2 days on the floors; each room needs its second oil coat ~12 hrs after the first, and light foot traffic only for 24 hrs after oiling.<br>
+      4. <b>The next section</b> — the limestone slab clean (diamond abrasive discs) is quoted and paid; it runs after — or alongside where it doesn't fight the floor work. Agree with her when suits.<br>
+      5. <b>Oil colour/sheen</b> — confirm her choice before the oil is bought/opened.
+    </div>
+
+    <!-- THE PLAN -->
+    <h2>The plan — room by room, living room first</h2>
+    <p style="margin:14px 0 0; font-size:18px;">Craig owns the order below. The trick on a 2-day job: <strong>finish-and-oil rooms in sequence</strong> (not all-sand-then-all-oil) so first coats dry overnight and second coats go on next morning while you sand the next room.</p>
+
+    <div class="rooms">
+      <strong style="font-size:18px;">Room order (Craig fills in on Day 1 walk-round):</strong>
+      <div class="rline">1. Living room (customer's priority)</div>
+      <div class="rline">2.</div>
+      <div class="rline">3.</div>
+      <div class="rline">4.</div>
+    </div>
+
+    <p style="margin:18px 0 0; font-size:18px; font-weight:700;">Per room, in this order:</p>
+    <ol class="seq">
+      <li>Clear the room — move furniture (offer made), cover what stays with dust sheets, seal doorways/fireplace with polythene &amp; tape. <em>Prep is the job — take the time.</em></li>
+      <li>Punch every nail head below the surface (Joe, checked by Craig). One missed nail shreds a £40 sanding belt.</li>
+      <li>Board repairs first — Craig measures damaged/patched boards, sources reclaimed timber to match, fits and secures. Repairs go in BEFORE fine sanding so they blend.</li>
+      <li>Rough cut — drum sander 24/40 grit, with the grain (diagonal only if boards are cupped). Joe on vacuum &amp; bag changes.</li>
+      <li>Medium pass — 60/80. Edge sander round the perimeter to match.</li>
+      <li>Fill — gaps and minor damage with two-part filler mixed with fine sanding dust for colour.</li>
+      <li>Fine finish — 100/120 drum + edges. Corners by hand/scraper. Craig checks the whole floor on his knees in raking light.</li>
+      <li>Dust down — full vacuum, tack-cloth wipe, let dust settle, wipe again.</li>
+      <li>Oil coat 1 — thin and even, with the grain, work to the exit. NO traffic after.</li>
+      <li>Oil coat 2 — next morning (~12 hrs later), same method. Advise Nicola: light use after 24 hrs, rugs back after a week.</li>
+    </ol>
+
+    <div class="daybox">
+      <div class="day-head">Day 1 — target</div>
+      <div class="day-body">
+        <p>Living room fully through the sequence with <strong>coat 1 of oil on before you leave</strong>. Next room prepped (cleared, protected, nails punched) ready to sand first thing. Patch-repair timber measured — and sourced same day if the yard's open.</p>
+      </div>
+    </div>
+    <div class="daybox">
+      <div class="day-head">Day 2 — target</div>
+      <div class="day-body">
+        <p>Living room coat 2 first thing (Joe masks/preps while Craig oils). Remaining rooms through the sequence. Final room's coat 1 by late afternoon. <strong>Flag to Ben early if a return visit is needed for the last coat 2</strong> — don't rush oil, it shows forever. Return the hire kit before Advanced closes.</p>
+      </div>
+    </div>
+
+    <div class="warn"><strong>⚠ If the sums don't work</strong> ~33 hrs is quoted; two of you across two days is ~32. If Day 1 runs behind (deep board damage, more rooms than expected), Craig messages Ben by Day 1 lunchtime — we'd rather book a third morning than botch the finish. That's our call to make early, not a doorstep apology on Day 2.</div>
+
+    <!-- FOLLOW-ON JOB -->
+    <h2>Follow-on job — limestone slabs (same property)</h2>
+    <div class="daybox">
+      <div class="day-head">If time permits — concurrent or after the floors</div>
+      <div class="day-body">
+        <p><strong>The job:</strong> clean Nicola's limestone slabs using specialist <strong>diamond-tipped abrasive discs</strong> — the right approach for a delicate stone surface. Quoted &amp; paid, ~1 hr for the quoted area (confirm the full extent with her on site). Labour only.</p>
+        <p><strong>When:</strong> runs <strong>after</strong> the floors, or <strong>alongside</strong> them ONLY if the slabs are in a different area, well away from any freshly-oiled boards. <strong>Grinding dust must never land on wet oil</strong> — if there's any doubt, do it after the oil has cured. Craig's call on the day.</p>
+        <p><strong>Method:</strong> work the diamond discs across the stone to cut back staining / etching / old sealer to a clean, even finish. Keep the dust down (wet-work where you can), protect the pointing/grout between the slabs, then rinse and leave clean and dry.</p>
+        <div class="warn"><strong>⚠ Kit — sort before the day</strong> Confirm with Ben you've got the right diamond discs/pads (grit) and a machine to run them — add it to the Advanced Tool Hire / Screwfix trip. Don't turn up without it.</div>
+      </div>
+    </div>
+
+    <!-- END OF DAY -->
+    <h2>End of every day — non-negotiable</h2>
+    <div class="note-box">
+      <strong>🧹 Leave it like a showroom</strong>
+      Equipment stacked neatly to one side · floors vacuumed · dust sheets folded · walkways clear and safe · oily areas taped off with a polite note · bins bagged and out. Nicola should be able to walk through her house without touching our kit.
+    </div>
+    <div class="warn"><strong>🔥 Oily rags self-combust — no exceptions</strong> Any cloth with oil on it: lay flat outside to dry or soak in water in a sealed metal container. NEVER balled up in a bag, the van, or her bin. This is how houses burn down.</div>
+
+    <!-- PHOTOS -->
+    <div class="note-box">
+      <strong>📸 Photo checklist</strong>
+      Every room BEFORE anything moves · protection in place · punched/prepped floor · reclaimed patches fitted · after each sanding stage · filled gaps · after coat 1 · finished floor in good light · limestone slabs before &amp; after (if done). These photos sell the next job — take more than feels necessary.
+    </div>
+
+    <div class="note-box warn2">
+      <strong>Before you set off</strong>
+      Confirm hire booking at Advanced (2 days) · confirm oil colour with Nicola (or buy after Day-1 walk-round) · ring Nicola with arrival time · both in t-shirts &amp; caps before the door.
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

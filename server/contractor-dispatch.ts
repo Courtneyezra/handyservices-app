@@ -30,7 +30,7 @@ import crypto from 'crypto';
 import Stripe from 'stripe';
 import { S3Client, PutObjectCommand, GetObjectCommand, ObjectCannedACL } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { calculateMultiLineRevenueShare } from './revenue-share-tiers';
+import { calculateMultiLineRevenueShare, calculateLeadUplift, LEAD_UPLIFT_PERCENT, calculateOnboardingBoostPence } from './revenue-share-tiers';
 import type { JobCategory } from '../shared/contextual-pricing-types';
 
 // ─── Stripe lazy init ───────────────────────────────────────────────────────
@@ -249,6 +249,9 @@ async function privacyGated(dispatch: any, linkStatus: string) {
     mediaUrls: signedTopLevel,
     proposalSummary: dispatch.proposalSummary || null,
     preferredDates: dispatch.preferredDates || null,
+    // Pay escalation — shown as urgency ("price bumped, still open"):
+    escalationCount: dispatch.escalationCount || 0,
+    originalContractorPayPence: dispatch.originalContractorPayPence || null,
     // Never expose customerRevenuePence / platformKeepsPence / etc.
   };
 }
@@ -456,6 +459,24 @@ contractorDispatchRouter.get('/api/contractor-job/:token', async (req, res) => {
       .where(eq(contractorJobLinks.dispatchId, dispatch.id));
     const broadcastCount = peerLinks.length;
 
+    // Launch bonus — per-contractor expiring boost, shown as a separate line.
+    let onboardingBoost: { percent: number; jobsRemaining: number; bonusPence: number; totalWithBoostPence: number } | null = null;
+    if (link.contractorId) {
+      const [profile] = await db.select({
+        boostPercent: handymanProfiles.onboardingBoostPercent,
+        boostJobs: handymanProfiles.onboardingBoostJobsRemaining,
+      }).from(handymanProfiles).where(eq(handymanProfiles.id, link.contractorId));
+      if (profile?.boostPercent && (profile.boostJobs || 0) > 0) {
+        const bonusPence = calculateOnboardingBoostPence(dispatch.totalContractorPayPence, profile.boostPercent);
+        onboardingBoost = {
+          percent: profile.boostPercent,
+          jobsRemaining: profile.boostJobs!,
+          bonusPence,
+          totalWithBoostPence: dispatch.totalContractorPayPence + bonusPence,
+        };
+      }
+    }
+
     res.json({
       link: {
         id: link.id,
@@ -477,6 +498,7 @@ contractorDispatchRouter.get('/api/contractor-job/:token', async (req, res) => {
         refundReason: bond.refundReason,
       } : null,
       broadcastCount,
+      onboardingBoost,
     });
   } catch (err) {
     console.error('[ContractorDispatch] GET error:', err);
@@ -739,9 +761,26 @@ contractorDispatchRouter.post('/api/contractor-job/:token/accept', async (req, r
       return res.status(409).json({ error: 'Job was just taken by another contractor' });
     }
 
+    // Launch bonus: consume one boost job and record the applied bonus on the
+    // link (durable for payout reconciliation; dispatch base pay never mutates).
+    let boostAppliedPence: number | null = null;
+    if (link.contractorId) {
+      const [profile] = await db.select({
+        boostPercent: handymanProfiles.onboardingBoostPercent,
+        boostJobs: handymanProfiles.onboardingBoostJobsRemaining,
+      }).from(handymanProfiles).where(eq(handymanProfiles.id, link.contractorId));
+      if (profile?.boostPercent && (profile.boostJobs || 0) > 0) {
+        boostAppliedPence = calculateOnboardingBoostPence(dispatch.totalContractorPayPence, profile.boostPercent);
+        await db.update(handymanProfiles)
+          .set({ onboardingBoostJobsRemaining: profile.boostJobs! - 1 })
+          .where(eq(handymanProfiles.id, link.contractorId));
+        console.log(`[ContractorDispatch] Launch bonus applied: +£${(boostAppliedPence / 100).toFixed(2)} (${profile.boostPercent}%) for ${link.contractorName}, ${profile.boostJobs! - 1} boost jobs left`);
+      }
+    }
+
     // Mark this link as accepted
     await db.update(contractorJobLinks)
-      .set({ status: 'accepted', acceptedAt: now, updatedAt: now })
+      .set({ status: 'accepted', acceptedAt: now, updatedAt: now, boostAppliedPence })
       .where(eq(contractorJobLinks.id, link.id));
 
     // Mark all OTHER links as locked_taken
@@ -1333,6 +1372,7 @@ contractorDispatchRouter.post('/api/admin/dispatch', async (req, res) => {
       bondRequired, bondAmountPence,
       scheduledDate,
       createdBy,
+      mediaUrls,
     } = req.body;
 
     if (!title || !postcode || !customerFirstName || !Array.isArray(tasks)) {
@@ -1386,6 +1426,7 @@ contractorDispatchRouter.post('/api/admin/dispatch', async (req, res) => {
       scheduledDate: scheduledDate ? new Date(scheduledDate) : null,
       proposalSummary,
       preferredDates,
+      mediaUrls: Array.isArray(mediaUrls) && mediaUrls.length > 0 ? mediaUrls : null,
       createdBy: createdBy || null,
     }).returning();
 
@@ -1583,6 +1624,7 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
       description?: string;
       guardedPricePence?: number;
       materialsWithMarginPence?: number;
+      materialsCostPence?: number;
       timeEstimateMinutes?: number;
     }>) || [];
 
@@ -1637,23 +1679,29 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
     // Only truly empty lines (no description AND no price) are skipped.
     const skippedLines = lineItems.filter((l) => !l.description && !l.guardedPricePence).length;
 
-    // Run engine with batch-discount applied to labour (matches CLI script)
+    // Run engine with batch-discount applied to labour (matches CLI script).
+    // LABOUR ONLY — the share must not include materials (company funds them;
+    // paying contractors a % of materials was a £69/job leak, fixed Jul 2026).
     const discountFactor = quote.batchDiscountPercent ? 1 - Number(quote.batchDiscountPercent) / 100 : 1;
     const engineLines = validLines.map((l) => ({
       categorySlug: l.category as JobCategory,
-      pricePence: Math.round((l.guardedPricePence || 0) * discountFactor) + (l.materialsWithMarginPence || 0),
+      pricePence: Math.round((l.guardedPricePence || 0) * discountFactor),
       timeEstimateMinutes: l.timeEstimateMinutes || 60,
     }));
+    const materialsPassThroughPence = validLines.reduce(
+      (s, l) => s + (l.materialsWithMarginPence || 0), 0);
 
     const revShare = engineLines.length > 0
       ? calculateMultiLineRevenueShare(engineLines)
       : { totalContractorPay: 0, totalPlatformKeeps: 0, totalCustomerPrice: 0, overallMarginPercent: 0, lines: [], flags: [] };
 
-    // Build tasks
+    // Build tasks. Title = the FULL line description (contractors need to see
+    // exactly what each item is — the UI wraps long titles rather than
+    // truncating them).
     const tasks = revShare.lines.map((line, i) => {
       const original = validLines[i];
       const cat = line.categorySlug as JobCategory;
-      const titleRaw = (original.description || cat).split(/[—.,;]/)[0].slice(0, 70).trim();
+      const titleRaw = (original.description || cat).slice(0, 140).trim();
       return {
         num: i + 1,
         title: titleRaw,
@@ -1663,12 +1711,22 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
         hours: Number(line.hours.toFixed(2)),
         payPence: line.contractorPayPence,
         payMethod: line.payMethod,
+        // Raw materials budget (supplier cost, NO markup) — what the
+        // contractor can actually spend on our card for this line.
+        materialsBudgetPence: original.materialsCostPence || 0,
         ...(WARNINGS_BY_CATEGORY[cat] ? { warning: WARNINGS_BY_CATEGORY[cat] as string } : {}),
         materials: MATERIALS_BY_CATEGORY[cat] || ['Standard kit', 'Specifics confirmed on arrival'],
       };
     });
+    const materialsBudgetPence = validLines.reduce((s, l) => s + (l.materialsCostPence || 0), 0);
 
-    const totalContractorPay = revShare.totalContractorPay;
+    // Lead uplift — opt-in via ?leadUplift=1 for multi-person/managed jobs.
+    // Paid to the site lead for coordinating a crew; comes out of platform
+    // margin, not spread across task lines (tasks stay the base job pay).
+    const leadUplift = req.query.leadUplift === '1' || req.query.leadUplift === 'true';
+    const leadUpliftPence = leadUplift ? calculateLeadUplift(revShare.totalContractorPay) : 0;
+
+    const totalContractorPay = revShare.totalContractorPay + leadUpliftPence;
     const totalCustomer = revShare.totalCustomerPrice;
     const totalHours = revShare.lines.reduce((s, l) => s + l.hours, 0);
     const platformKeeps = totalCustomer - totalContractorPay;
@@ -1679,8 +1737,34 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
     if (bondPence > 4000) bondPence = 4000;
     bondPence = Math.round(bondPence / 500) * 500;
 
-    // Title + subtitle defaults
-    const titleBase = (quote.contextualHeadline || `${tasks.length}-task job`).trim();
+    // Title: CONTRACTOR-facing headline (trade mix + scale), NOT the quote's
+    // customer-facing contextualHeadline — a team reads "12-day block —
+    // painting, plastering, general repairs", not "Your Home Refreshed".
+    const CATEGORY_SHORT: Record<string, string> = {
+      electrical_minor: 'electrics', plumbing_minor: 'plumbing', bathroom_fitting: 'bathroom fit',
+      kitchen_fitting: 'kitchen fit', carpentry: 'carpentry', tiling: 'tiling', plastering: 'plastering',
+      lock_change: 'locks', door_fitting: 'doors', general_fixing: 'general repairs', shelving: 'shelving',
+      flat_pack: 'flat pack', curtain_blinds: 'blinds', painting: 'painting', silicone_sealant: 'sealant',
+      tv_mounting: 'TV mounting', furniture_repair: 'furniture repair', garden_maintenance: 'garden',
+      waste_removal: 'waste removal', pressure_washing: 'pressure washing', guttering: 'guttering',
+      fencing: 'fencing', flooring: 'flooring', other: 'general work',
+    };
+    const payByCat = new Map<string, number>();
+    for (const line of revShare.lines) {
+      payByCat.set(line.categorySlug, (payByCat.get(line.categorySlug) || 0) + line.contractorPayPence);
+    }
+    const topCats = [...payByCat.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([c]) => CATEGORY_SHORT[c] || c.replace(/_/g, ' '))
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .slice(0, 3);
+    // NO time/duration in the headline — engine hour estimates run hot, and a
+    // crew dividing the job price by an inflated day count reads it as a bad
+    // day rate. The pay is per job; trades + task count tell the story.
+    const trades = topCats.join(', ');
+    const titleBase = topCats.length > 0
+      ? trades.charAt(0).toUpperCase() + trades.slice(1)
+      : (quote.contextualHeadline || `${tasks.length}-task job`).trim();
     const subtitle = quote.address?.split(',').slice(-2, -1)[0]?.trim() || quote.postcode?.split(' ')[0] || null;
 
     const customerName = (quote.customerName || '').trim();
@@ -1732,6 +1816,17 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
         totalContractorPayPence: totalContractorPay,
         customerRevenuePence: quote.selectedTierPricePence || totalCustomer,
         platformKeepsPence: platformKeeps,
+        leadUpliftPence,
+        leadUpliftPercent: leadUplift ? LEAD_UPLIFT_PERCENT : 0,
+        // Materials are a company-funded pass-through, NOT part of the share —
+        // surfaced so the admin sees why customer £ ≠ labour £ + platform £.
+        materialsPassThroughPence,
+        // Raw materials budget (no markup) — the spend the contractor gets on
+        // our card. Markup is our margin, never part of their budget.
+        materialsBudgetPence,
+        // Customer's uploaded photos — attach to the dispatch so contractors
+        // see the actual property/work before accepting.
+        mediaUrls: (quote.customerPhotoUrls as string[] | null) || [],
         tasks,
         skippedLines,
       },

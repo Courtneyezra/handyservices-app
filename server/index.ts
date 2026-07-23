@@ -241,6 +241,19 @@ setInterval(async () => {
         if (dunning.reminded > 0 || dunning.escalated > 0) {
             console.log(`[Invoice Cron] Dunning: ${dunning.reminded} reminders sent, ${dunning.escalated} escalated`);
         }
+
+        // 3. Completion sweep — stamp completedAt on jobs whose paid invoice
+        // or passed scheduled date proves the work happened. Ops never drives
+        // the manual completion endpoints, so this is the completion leg of
+        // the delivery funnel (weekly volume report / §5 floor depend on it).
+        const { sweepCompletions } = await import('./completion-sync');
+        await sweepCompletions();
+
+        // 4. Pay escalation — unclaimed dispatches bump +5% every 48h (max 3,
+        // margin-guarded). The granular WTBP optimiser: finds each job's
+        // clearing price and feeds the tier dial on /admin/pricing-loop.
+        const { escalateStaleDispatches } = await import('./dispatch-escalation');
+        await escalateStaleDispatches();
     } catch (err) {
         console.error('[Invoice Cron] Error in invoice processing:', err);
     }
@@ -430,10 +443,18 @@ app.use(partnerRouter); // Partner/area licensee enquiries
 // ── Contractor Partner Applications (/join page) ────────────────────────────
 app.post('/api/join/apply', async (req, res) => {
   try {
-    const { name, phone, trades, area, daysPerWeek, message } = req.body;
+    const { name, phone, trades, area, daysPerWeek, message, referredBy } = req.body;
     if (!name || !phone) {
       return res.status(400).json({ error: 'Name and phone are required' });
     }
+    const tradesList = Array.isArray(trades) ? trades.join(', ') : '';
+    const referrer = typeof referredBy === 'string' ? referredBy.trim() : '';
+    // Fold the referrer into the stored message so warm referrals are traceable
+    // (no dedicated column — keeps this migration-free).
+    const storedMessage = [
+      referrer ? `Referred by: ${referrer}` : '',
+      message || '',
+    ].filter(Boolean).join('\n\n');
     // Store in partnerEnquiries table
     const { db: database } = await import('./db');
     const { partnerEnquiries } = await import('@shared/schema');
@@ -443,10 +464,29 @@ app.post('/api/join/apply', async (req, res) => {
       phone,
       territoryInterest: area ? `contractor-${area}` : 'contractor-application',
       investmentBudget: daysPerWeek || '',
-      currentSituation: Array.isArray(trades) ? trades.join(', ') : '',
-      message: message || '',
+      currentSituation: tradesList,
+      message: storedMessage,
     });
-    console.log(`[Join] Contractor application: ${name} — ${area || 'no area'} — ${phone}`);
+    console.log(`[Join] Contractor application: ${name} — ${area || 'no area'} — ${phone}${referrer ? ` — ref: ${referrer}` : ''}`);
+
+    // Phone push alert (Pushover) — a warm referral should never sit unseen.
+    try {
+      const { notifyWebformLead } = await import('./pushover');
+      const detailLines = [
+        [tradesList, area].filter(Boolean).join(' · '),
+        daysPerWeek ? `Wants ${daysPerWeek}` : '',
+        referrer ? `Referred by: ${referrer}` : '',
+      ].filter(Boolean);
+      await notifyWebformLead({
+        name,
+        phoneNumber: phone,
+        source: 'Contractor /join',
+        details: detailLines.join('\n'),
+      });
+    } catch (notifyErr) {
+      console.warn('[Join] Pushover alert failed:', notifyErr);
+    }
+
     res.json({ success: true });
   } catch (err) {
     console.error('[Join] Application error:', err);

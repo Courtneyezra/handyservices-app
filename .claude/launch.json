@@ -24,6 +24,20 @@
       "autoPort": true
     },
     {
+      "name": "deployed-preview",
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "cd /Users/courtneebonnick/v6-switchboard-deployed && export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" && npm run dev"],
+      "port": 57520,
+      "autoPort": true
+    },
+    {
+      "name": "contractor-platform",
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "cd /Users/courtneebonnick/v6-switchboard-contractor && export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" && npm run dev"],
+      "port": 5062,
+      "autoPort": true
+    },
+    {
       "name": "booking-lab",
       "runtimeExecutable": "/bin/bash",
       "runtimeArgs": ["-c", "export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" && npx vite --port 5199 --strictPort"],

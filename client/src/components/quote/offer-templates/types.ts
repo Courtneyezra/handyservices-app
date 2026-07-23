@@ -16,6 +16,8 @@ export interface OfferTemplateProps {
   /** Fills copy tokens from `ctx`. */
   render: (t: string | undefined) => string;
   customerName?: string;
+  /** Quote skin — the contractor/team fronting this quote. Defaults to Craig. */
+  skin?: { name: string; avatarUrl: string; rating: string; jobsLabel?: string };
   onAccept: () => void;
   onDecline: () => void;
 }

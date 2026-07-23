@@ -489,6 +489,12 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     hourlyRate: integer("hourly_rate").default(50), // Standard hourly rate in pounds
     dayRate: integer("day_rate"), // FIXED daily cost in PENCE (nullable → fall back to goal.defaultDayRatePence). True-margin economics: a contractor-day costs this in full regardless of job count.
     calendarSyncToken: text("calendar_sync_token"),
+    // Launch bonus (two-sided pricing loop, Phase 2): explicit expiring
+    // onboarding boost — "+X% on your first N jobs". Rendered as a SEPARATE
+    // bonus line on job offers (never blended into the base rate) and
+    // decremented on accept. See docs/TWO-SIDED-PRICING-LOOP-2026-07.md.
+    onboardingBoostPercent: integer("onboarding_boost_percent"),
+    onboardingBoostJobsRemaining: integer("onboarding_boost_jobs_remaining"),
 
     // Public Profile Fields
     slug: varchar("slug", { length: 100 }).unique(),
@@ -523,8 +529,18 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     partnerStatus: varchar("partner_status", { length: 30 }).default('not_started'), // Partner application status
     partnerActivatedAt: timestamp("partner_activated_at"), // When they became a partner
 
+    // ── Fulfilment fundamentals (Jul 2026 — quote skin + solo/team) ──────
+    // Vehicle determines what materials/equipment they can carry (feeds
+    // matching + the notebook's "vehicle size" logic).
+    vehicleType: varchar("vehicle_type", { length: 20 }), // 'none' | 'car' | 'small_van' | 'large_van' | 'pickup'
+    // Contractor-level performance score (0-100). Column stub — the scoring
+    // formula lands later; allocation logic should treat null as "unscored".
+    performanceScore: integer("performance_score"),
+
     // Contractor platform — DELIVERY tier (feat/contractor-platform).
     // Distinct from subscriptionTier above (freemium/marketing). Do NOT overload.
+    // Canonical delivery-lane classification — supersedes the short-lived
+    // contractor_type column from the skin work (merged 23 Jul).
     deliveryTier: varchar("delivery_tier", { length: 20 }).notNull().default('adhoc'), // 'partner' | 'core' | 'adhoc'
     deliveryPriority: integer("delivery_priority"), // routing order within a tier — lower = picked first (Craig = 1); null = unranked
 
@@ -581,6 +597,52 @@ export const handymanAvailability = pgTable("handyman_availability", {
 export const handymanAvailabilityRelations = relations(handymanAvailability, ({ one }) => ({
     handyman: one(handymanProfiles, {
         fields: [handymanAvailability.handymanId],
+        references: [handymanProfiles.id],
+    }),
+}));
+
+// ── Contractor Teams (Jul 2026 — solo/team fulfilment) ─────────────────────
+// A team is a named crew of contractors that can be quoted/booked as a unit.
+// Team skills = union of member skills; team size = member count; team score =
+// derived from member performanceScores. The team can also front a quote as a
+// skin (crewType='team' + skinTeamId on personalized_quotes).
+export const contractorTeams = pgTable("contractor_teams", {
+    id: varchar("id").primaryKey().notNull(),
+    name: varchar("name", { length: 100 }).notNull(),          // internal name, e.g. "Craig + Joe"
+    displayName: varchar("display_name", { length: 100 }),      // customer-facing, e.g. "Craig's Team"
+    leadContractorId: varchar("lead_contractor_id").references(() => handymanProfiles.id),
+    profileImageUrl: text("profile_image_url"),                 // team avatar for quote skins
+    heroImageUrl: text("hero_image_url"),                       // team banner for quote skins
+    bio: text("bio"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const contractorTeamMembers = pgTable("contractor_team_members", {
+    id: varchar("id").primaryKey().notNull(),
+    teamId: varchar("team_id").references(() => contractorTeams.id).notNull(),
+    contractorId: varchar("contractor_id").references(() => handymanProfiles.id).notNull(),
+    role: varchar("role", { length: 20 }).default('member'),    // 'lead' | 'member'
+    createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+    index("idx_team_members_team").on(table.teamId),
+]);
+
+export const contractorTeamRelations = relations(contractorTeams, ({ one, many }) => ({
+    lead: one(handymanProfiles, {
+        fields: [contractorTeams.leadContractorId],
+        references: [handymanProfiles.id],
+    }),
+    members: many(contractorTeamMembers),
+}));
+
+export const contractorTeamMemberRelations = relations(contractorTeamMembers, ({ one }) => ({
+    team: one(contractorTeams, {
+        fields: [contractorTeamMembers.teamId],
+        references: [contractorTeams.id],
+    }),
+    contractor: one(handymanProfiles, {
+        fields: [contractorTeamMembers.contractorId],
         references: [handymanProfiles.id],
     }),
 }));
@@ -1000,6 +1062,29 @@ export const personalizedQuotes = pgTable("personalized_quotes", {
 
     // Revocation
     revokedAt: timestamp("revoked_at"),
+
+    // ── Crew & skin selection (set at quote generation) ──────────────────
+    // crewType decides which contractor pool fulfils the job (solo vs team)
+    // and which face fronts the quote. The skin ids point at the contractor/
+    // team whose imagery + name the customer page renders; when both are null
+    // the page falls back to the default brand skin (Craig).
+    crewType: varchar("crew_type", { length: 10 }).default('solo'), // 'solo' | 'team'
+    skinContractorId: varchar("skin_contractor_id"), // handyman_profiles.id fronting the quote
+    skinTeamId: varchar("skin_team_id"),             // contractor_teams.id when crewType='team'
+
+    // Customer type promoted to a first-class column (also kept inside
+    // contextSignals for legacy readers). Queryable for analytics/segmenting.
+    customerType: varchar("customer_type", { length: 30 }), // homeowner | oap_homeowner | landlord | property_manager | tenant | business | letting_agent
+
+    // ── Materials & equipment logistics ──────────────────────────────────
+    // Longest supplier lead time across the job's materials — gates the
+    // earliest date the customer picker should offer.
+    materialLeadTimeDays: integer("material_lead_time_days"),
+    // Plant/tool hire needed for the job: [{ name, days?, costPence?, notes? }].
+    // Hire availability gates dates and feeds job cost.
+    hireEquipment: jsonb("hire_equipment").$type<{ name: string; days?: number; costPence?: number; notes?: string }[]>(),
+    // Customer-supplied job videos (companion to customerPhotoUrls)
+    customerVideoUrls: jsonb("customer_video_urls").$type<string[]>(),
 
     // ── Time-affecting context (Phase 4b) ────────────────────────────────
     // Cross-cutting variables that multiply or buffer per-line work time.
@@ -3011,6 +3096,12 @@ export const jobDispatches = pgTable('job_dispatches', {
   // Contractor-flavoured 1-liner shown on the brief hero (e.g. "Tap swap, splashback re-grout, cupboard hinge + 1 more")
   // Snapshotted at dispatch creation from the linked quote so the brief is self-contained.
   proposalSummary: text('proposal_summary'),
+  // Per-job pay escalation (surge-lite): unclaimed dispatches auto-bump +5% of
+  // the ORIGINAL pay every 48h, max 3 bumps, margin-guarded. Each bump is a
+  // supply-side data point (base rate ran light for this tier).
+  originalContractorPayPence: integer('original_contractor_pay_pence'),
+  escalationCount: integer('escalation_count').default(0),
+  lastEscalatedAt: timestamp('last_escalated_at'),
   // Customer's preferred dates from the contextual quote — array of { date, timeSlot } objects.
   // Snapshotted from personalized_quotes.date_time_preferences.
   preferredDates: jsonb('preferred_dates'),
@@ -3045,6 +3136,9 @@ export const contractorJobLinks = pgTable('contractor_job_links', {
   // Each warning ack: { taskNum, warningText, ackedAt }
   warningsAcknowledged: jsonb('warnings_acknowledged').default([]).notNull(),
   responseMessage: text('response_message'), // decline reason or question text
+  // Launch bonus actually applied at accept (pence) — durable record for
+  // payout reconciliation; base dispatch pay is never mutated.
+  boostAppliedPence: integer('boost_applied_pence'),
   viewedAt: timestamp('viewed_at'),
   acceptedAt: timestamp('accepted_at'),
   declinedAt: timestamp('declined_at'),

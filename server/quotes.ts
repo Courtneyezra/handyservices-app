@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "./db";
 import { notifyQuoteViewed } from "./pushover";
-import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, serviceCatalog, segmentEnum, invoices, invoiceTokens, contractorJobs, contentClaims, contentGuarantees, contentTestimonials, contentHassleItems, contentImages, jobDispatches, dispatchBonds, users } from "@shared/schema";
+import { personalizedQuotes, leads, insertPersonalizedQuoteSchema, handymanProfiles, productizedServices, serviceCatalog, segmentEnum, invoices, invoiceTokens, contractorJobs, contentClaims, contentGuarantees, contentTestimonials, contentHassleItems, contentImages, jobDispatches, dispatchBonds, users, contractorTeams, contractorTeamMembers } from "@shared/schema";
 import { eq, desc, inArray, or } from "drizzle-orm";
 import crypto from 'crypto';
 import { z } from "zod";
@@ -883,6 +883,97 @@ quotesRouter.get('/api/personalized-quotes/:slug/payment-status', async (req, re
 });
 
 // Get Quote by Slug
+/**
+ * Quote skin — the contractor/team identity fronting the customer quote page
+ * (loading reveal, "meet your handyman" profile, day-picker copy, letterhead).
+ * Resolved from skinTeamId / skinContractorId (falling back to the legacy
+ * contractorId pick). Returns null when nothing is selected or the referenced
+ * row is missing — the client then falls back to its default brand skin (Craig).
+ */
+export type QuoteSkinPayload = {
+    kind: 'contractor' | 'team';
+    name: string;                 // customer-facing first name / team display name
+    fullName: string | null;
+    avatarUrl: string | null;
+    bannerUrl: string | null;
+    bio: string | null;
+    gallery: string[];            // image URLs from the media gallery
+    teamSize?: number;
+    members?: { name: string; avatarUrl: string | null }[];
+};
+
+async function resolveQuoteSkin(quote: {
+    skinTeamId?: string | null;
+    skinContractorId?: string | null;
+    contractorId?: string | null;
+}): Promise<QuoteSkinPayload | null> {
+    try {
+        if (quote.skinTeamId) {
+            const [team] = await db.select().from(contractorTeams)
+                .where(eq(contractorTeams.id, quote.skinTeamId)).limit(1);
+            if (team) {
+                const memberRows = await db.select({
+                    role: contractorTeamMembers.role,
+                    firstName: users.firstName,
+                    businessName: handymanProfiles.businessName,
+                    profileImageUrl: handymanProfiles.profileImageUrl,
+                }).from(contractorTeamMembers)
+                    .innerJoin(handymanProfiles, eq(contractorTeamMembers.contractorId, handymanProfiles.id))
+                    .leftJoin(users, eq(handymanProfiles.userId, users.id))
+                    .where(eq(contractorTeamMembers.teamId, team.id));
+                return {
+                    kind: 'team',
+                    name: team.displayName || team.name,
+                    fullName: team.name,
+                    avatarUrl: team.profileImageUrl,
+                    bannerUrl: team.heroImageUrl,
+                    bio: team.bio,
+                    gallery: [],
+                    teamSize: memberRows.length,
+                    members: memberRows.map((m) => ({
+                        name: m.firstName || m.businessName || 'Team member',
+                        avatarUrl: m.profileImageUrl,
+                    })),
+                };
+            }
+        }
+        const contractorId = quote.skinContractorId || quote.contractorId;
+        if (contractorId) {
+            const [row] = await db.select({
+                firstName: users.firstName,
+                lastName: users.lastName,
+                businessName: handymanProfiles.businessName,
+                bio: handymanProfiles.bio,
+                profileImageUrl: handymanProfiles.profileImageUrl,
+                heroImageUrl: handymanProfiles.heroImageUrl,
+                mediaGallery: handymanProfiles.mediaGallery,
+            }).from(handymanProfiles)
+                .leftJoin(users, eq(handymanProfiles.userId, users.id))
+                .where(eq(handymanProfiles.id, contractorId)).limit(1);
+            if (row) {
+                const gallery = Array.isArray(row.mediaGallery)
+                    ? (row.mediaGallery as { type?: string; url?: string }[])
+                        .filter((g) => g?.url && (!g.type || g.type === 'image'))
+                        .map((g) => g.url as string)
+                    : [];
+                return {
+                    kind: 'contractor',
+                    name: row.firstName || row.businessName || 'Your handyman',
+                    fullName: [row.firstName, row.lastName].filter(Boolean).join(' ') || row.businessName,
+                    avatarUrl: row.profileImageUrl,
+                    bannerUrl: row.heroImageUrl,
+                    bio: row.bio,
+                    gallery,
+                };
+            }
+        }
+    } catch (skinError) {
+        console.warn('[Quote GET] skin resolution failed (non-blocking):',
+            skinError instanceof Error ? skinError.message : skinError);
+    }
+    return null;
+}
+
 quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
     try {
         const { slug } = req.params;
@@ -1154,10 +1245,7 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
         // Effective expiry — legacy rows predate expiresAt being set at creation,
         // so fall back to createdAt + 48h. The client price-lock timer always
         // receives a real anchor, never null.
-        const effectiveExpiresAt = quote.expiresAt
-            ?? (quote.createdAt
-                ? new Date(new Date(quote.createdAt).getTime() + QUOTE_VALIDITY_MS)
-                : new Date(Date.now() + QUOTE_VALIDITY_MS));
+        const effectiveExpiresAt = new Date(effectiveExpiryMs(quote));
 
         // Contractor platform: attach the SOFT lead's REAL profile so the quote
         // skin (name/photo/bio/rating/badges) reflects the actual assigned
@@ -1224,6 +1312,7 @@ quotesRouter.get('/api/personalized-quotes/:slug', async (req, res) => {
                 price: quote.elitePrice,
             },
             contractor: contractorDetails,
+            skin: await resolveQuoteSkin(quote as any),
             availability: {
                 hasContractors: matchingContractors.length > 0,
                 availableDates: availableDates,
