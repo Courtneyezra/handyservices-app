@@ -129,8 +129,8 @@ import slideHero from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_176459975075
 import promoHandyman from "@assets/123d3462-a11d-42b8-9fad-fdb2d6f29b11_1764600237774.webp";
 // City-specific local maps (used in the SEO intro block on /v2 vs /v2/derby).
 // Kept as legacy fallback imports; AnimatedMap now drives the SEO block.
-import nottinghamMap from "@/assets/nottingham_map.png";
-import derbyMap from "@/assets/derby_map.png";
+import nottinghamMap from "@/assets/nottingham_map.webp";
+import derbyMap from "@/assets/derby_map.webp";
 import {
     registerSuperProperties as posthogRegister,
     trackEvent as posthogTrack,

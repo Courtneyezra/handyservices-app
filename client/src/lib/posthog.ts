@@ -1,38 +1,56 @@
 
 import posthog from 'posthog-js';
 
+// Public marketing/landing routes where LCP matters most and there's no funnel
+// worth full session replay yet. On these we skip the expensive session
+// recording + heatmap machinery (both add main-thread work and network at
+// startup). Quote/checkout/admin routes keep the full instrumentation.
+const isLandingRoute = () => {
+    const p = typeof window !== 'undefined' ? window.location.pathname : '';
+    return p === '/' || p === '/v2' || p.startsWith('/v2/') || p === '/derby' || p === '/landing';
+};
+
 export const initPostHog = () => {
-    if (import.meta.env.VITE_POSTHOG_API_KEY) {
-        posthog.init(import.meta.env.VITE_POSTHOG_API_KEY, {
-            api_host: import.meta.env.VITE_POSTHOG_HOST || 'https://app.posthog.com',
-            person_profiles: 'identified_only',
-            capture_pageview: false, // We manually capture pageviews for better control
-
-            // --- Heatmaps ---
-            enable_heatmaps: true,
-
-            // --- Session Recording ---
-            // Records mouse movement, clicks, scrolls, DOM changes
-            // Gives you full session replays in PostHog
-            disable_session_recording: false,
-            session_recording: {
-                // Mask all text inputs by default (GDPR safe)
-                maskAllInputs: true,
-            },
-
-            // --- Autocapture ---
-            // Automatically tracks clicks, form submissions, page leaves
-            // Powers click heatmaps + rage click detection
-            autocapture: true,
-            capture_pageleave: true,
-
-            // --- Scroll depth ---
-            // Automatically captures $pageview scroll depth events
-            capture_dead_clicks: true,
-        });
-    } else {
+    if (!import.meta.env.VITE_POSTHOG_API_KEY) {
         console.warn("PostHog not initialized: Missing API Key");
+        return;
     }
+
+    // Init stays synchronous so the manual capturePageView() that landing pages
+    // fire on mount is never dropped (posthog-js discards events sent before
+    // init). We instead cut the heavy *runtime* machinery on landing routes:
+    // session recording (rrweb) and heatmaps are the biggest startup cost, and
+    // there's no replay-worth funnel on a marketing page.
+    const landing = isLandingRoute();
+
+    posthog.init(import.meta.env.VITE_POSTHOG_API_KEY, {
+        api_host: import.meta.env.VITE_POSTHOG_HOST || 'https://app.posthog.com',
+        person_profiles: 'identified_only',
+        capture_pageview: false, // We manually capture pageviews for better control
+
+        // --- Heatmaps --- (off on landing to save startup cost)
+        enable_heatmaps: !landing,
+
+        // --- Session Recording ---
+        // Records mouse movement, clicks, scrolls, DOM changes. The rrweb
+        // recorder is the heaviest startup cost, so it's disabled on landing
+        // routes and kept on funnel (quote/checkout) pages.
+        disable_session_recording: landing,
+        session_recording: {
+            // Mask all text inputs by default (GDPR safe)
+            maskAllInputs: true,
+        },
+
+        // --- Autocapture ---
+        // Automatically tracks clicks, form submissions, page leaves
+        // Powers click heatmaps + rage click detection
+        autocapture: true,
+        capture_pageleave: true,
+
+        // --- Scroll depth ---
+        // Automatically captures $pageview scroll depth events
+        capture_dead_clicks: !landing,
+    });
 };
 
 /**

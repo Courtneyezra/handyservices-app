@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useLayoutEffect } from "react";
 import { MapPin, Star, Truck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import derbyMapImage from "../assets/derby_map.png";
-import nottinghamMapImage from "../assets/nottingham_map.png";
+import derbyMapImage from "../assets/derby_map.webp";
+import nottinghamMapImage from "../assets/nottingham_map.webp";
 
 interface ReviewPoint {
     id: string;

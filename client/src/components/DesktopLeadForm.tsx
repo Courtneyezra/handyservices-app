@@ -9,9 +9,19 @@ import { Loader2, ArrowRight } from "lucide-react";
 
 import Autocomplete from "react-google-autocomplete";
 
+// Shared classes so the pre-activation plain input and the Google Autocomplete
+// input are pixel-identical — the user never sees a swap.
+const POSTCODE_INPUT_CLASS =
+    "flex h-12 w-full rounded-xl border border-slate-700 bg-slate-800/50 px-3 py-2 text-lg text-white ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+
 export function DesktopLeadForm() {
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
+    // Google Places (react-google-autocomplete) injects the ~1.3MB Maps JS the
+    // instant the <Autocomplete> mounts. On a landing page nobody has typed an
+    // address yet, so we render a plain input and only upgrade to the real
+    // autocomplete on first focus — keeping the script off the critical path.
+    const [placesActive, setPlacesActive] = useState(false);
     const [formData, setFormData] = useState({
         jobDescription: "",
         postcode: "",
@@ -111,27 +121,40 @@ export function DesktopLeadForm() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                    <Autocomplete
-                        apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY}
-                        onPlaceSelected={(place) => {
-                            if (place.address_components) {
-                                // Try to extract postcode specifically
-                                const postcodeComp = place.address_components.find((c: any) => c.types.includes('postal_code'));
-                                const postcode = postcodeComp ? postcodeComp.long_name : place.formatted_address;
-                                setFormData({ ...formData, postcode: postcode || "" });
-                            } else if (place.formatted_address) {
-                                setFormData({ ...formData, postcode: place.formatted_address });
-                            }
-                        }}
-                        options={{
-                            componentRestrictions: { country: "gb" },
-                            types: ["postal_code"], // Restrict to postcodes
-                        }}
-                        defaultValue={formData.postcode}
-                        placeholder="Postcode / Address"
-                        className="flex h-12 w-full rounded-xl border border-slate-700 bg-slate-800/50 px-3 py-2 text-lg text-white ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                        onChange={(e: any) => setFormData({ ...formData, postcode: e.target.value })}
-                    />
+                    {placesActive ? (
+                        <Autocomplete
+                            apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY}
+                            autoFocus
+                            onPlaceSelected={(place) => {
+                                if (place.address_components) {
+                                    // Try to extract postcode specifically
+                                    const postcodeComp = place.address_components.find((c: any) => c.types.includes('postal_code'));
+                                    const postcode = postcodeComp ? postcodeComp.long_name : place.formatted_address;
+                                    setFormData({ ...formData, postcode: postcode || "" });
+                                } else if (place.formatted_address) {
+                                    setFormData({ ...formData, postcode: place.formatted_address });
+                                }
+                            }}
+                            options={{
+                                componentRestrictions: { country: "gb" },
+                                types: ["postal_code"], // Restrict to postcodes
+                            }}
+                            defaultValue={formData.postcode}
+                            placeholder="Postcode / Address"
+                            className={POSTCODE_INPUT_CLASS}
+                            onChange={(e: any) => setFormData({ ...formData, postcode: e.target.value })}
+                        />
+                    ) : (
+                        // Plain input until first focus — no Maps script loaded yet.
+                        <input
+                            type="text"
+                            placeholder="Postcode / Address"
+                            className={POSTCODE_INPUT_CLASS}
+                            value={formData.postcode}
+                            onFocus={() => setPlacesActive(true)}
+                            onChange={(e) => setFormData({ ...formData, postcode: e.target.value })}
+                        />
+                    )}
                     <Input
                         placeholder="Phone Number"
                         type="tel"
