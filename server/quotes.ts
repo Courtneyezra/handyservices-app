@@ -902,12 +902,39 @@ export type QuoteSkinPayload = {
     members?: { name: string; avatarUrl: string | null }[];
 };
 
+/**
+ * Built-in static skins — generated contractor asset sets (avatar + banner +
+ * job scenes) that front a quote WITHOUT a handyman_profiles DB row, so they
+ * never leak into assignment/dispatch. Selected in the admin builder as
+ * skinContractorId = "static:<key>". The <key> must match a SKINNED_HERO_SETS
+ * entry (client/src/lib/quote-skin.ts) so the job-scene set resolves.
+ */
+const STATIC_SKINS: Record<string, { name: string; avatarUrl: string; bannerUrl: string }> = {
+    emile: { name: 'Emile', avatarUrl: '/assets/avatars/emile-avatar-1.webp', bannerUrl: '/assets/quote-images/emile-banner.webp' },
+    courtnee: { name: 'Courtnee', avatarUrl: '/assets/avatars/courtnee-avatar-1.webp', bannerUrl: '/assets/quote-images/courtnee-banner.webp' },
+    neil: { name: 'Neil', avatarUrl: '/assets/avatars/neil-avatar-1.webp', bannerUrl: '/assets/quote-images/neil-banner.webp' },
+};
+
 async function resolveQuoteSkin(quote: {
     skinTeamId?: string | null;
     skinContractorId?: string | null;
     contractorId?: string | null;
 }): Promise<QuoteSkinPayload | null> {
     try {
+        if (quote.skinContractorId?.startsWith('static:')) {
+            const s = STATIC_SKINS[quote.skinContractorId.slice('static:'.length)];
+            if (s) {
+                return {
+                    kind: 'contractor',
+                    name: s.name,
+                    fullName: s.name,
+                    avatarUrl: s.avatarUrl,
+                    bannerUrl: s.bannerUrl,
+                    bio: null,
+                    gallery: [],
+                };
+            }
+        }
         if (quote.skinTeamId) {
             const [team] = await db.select().from(contractorTeams)
                 .where(eq(contractorTeams.id, quote.skinTeamId)).limit(1);
