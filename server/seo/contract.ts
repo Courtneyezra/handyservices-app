@@ -98,7 +98,15 @@ export const SEO_SERVICES: SeoServiceRef[] = [
     { slug: 'landscaping', label: 'Garden & Landscaping', deliverability: 'core' },
     { slug: 'pressure-washing', label: 'Pressure Washing', deliverability: 'core' },
     { slug: 'decking', label: 'Decking', deliverability: 'core' },
+    // Widened universe (24 Jul full-trade sweep) — new core service pages
+    { slug: 'fitted-wardrobes', label: 'Fitted Wardrobes', deliverability: 'core' },
+    { slug: 'flooring', label: 'Flooring', deliverability: 'core' },
+    { slug: 'artificial-grass', label: 'Artificial Grass', deliverability: 'core' },
+    { slug: 'garage-door', label: 'Garage Door Repair', deliverability: 'core' },
+    { slug: 'roof-cleaning', label: 'Roof Cleaning', deliverability: 'core' },
+    { slug: 'loft-boarding', label: 'Loft Boarding', deliverability: 'core' },
     // Regulated / vetted-pool fork — kept out of T3 by default, T2 only when explicitly published
+    { slug: 'ev-charger', label: 'EV Charger Installation', deliverability: 'sub' },
     { slug: 'roofer', label: 'Roofing', deliverability: 'sub' },
     { slug: 'locksmith', label: 'Locksmith', deliverability: 'sub' },
     { slug: 'plumber', label: 'Plumbing', deliverability: 'sub' },
