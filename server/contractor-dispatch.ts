@@ -1637,14 +1637,19 @@ contractorDispatchRouter.get('/api/admin/dispatch/draft-from-quote/:quoteId', as
     // Only truly empty lines (no description AND no price) are skipped.
     const skippedLines = lineItems.filter((l) => !l.description && !l.guardedPricePence).length;
 
-    // Run engine with batch-discount applied to labour (matches CLI script)
+    // Run engine with batch-discount applied to labour (matches CLI script).
+    // LABOUR-ONLY: materials pass through — the contractor never earns on them
+    // (previously materialsWithMarginPence was added into the share base, which
+    // over-offered the pool; removed so dispatch matches the booking payout).
     const discountFactor = quote.batchDiscountPercent ? 1 - Number(quote.batchDiscountPercent) / 100 : 1;
     const engineLines = validLines.map((l) => ({
       categorySlug: l.category as JobCategory,
-      pricePence: Math.round((l.guardedPricePence || 0) * discountFactor) + (l.materialsWithMarginPence || 0),
+      pricePence: Math.round((l.guardedPricePence || 0) * discountFactor),
       timeEstimateMinutes: l.timeEstimateMinutes || 60,
     }));
 
+    // Dispatch offers the AD-HOC pool (uplift 0). A tier-specific offer would
+    // pass deliveryTierUplift(tier) here — the same engine either way.
     const revShare = engineLines.length > 0
       ? calculateMultiLineRevenueShare(engineLines)
       : { totalContractorPay: 0, totalPlatformKeeps: 0, totalCustomerPrice: 0, overallMarginPercent: 0, lines: [], flags: [] };

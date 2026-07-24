@@ -15,6 +15,7 @@ import {
 } from '../shared/schema';
 import { eq, and, lt, gte, lte, or, inArray, isNull } from 'drizzle-orm';
 import { planToAssignments } from './lib/quote-team';
+import { computeContractorPay } from './lib/contractor-pay';
 import { v4 as uuidv4 } from 'uuid';
 import { timeRangeCoversSlot as canonicalTimeRangeCoversSlot, type SlotType as CanonicalSlotType } from '../shared/slot-times';
 import { findBestContractorForJob } from './auto-assignment-engine';
@@ -294,30 +295,31 @@ export async function reserveSlot(params: {
 
     // Compose honest schedule minutes from line items + quote context.
     // (Pricing reads timeEstimateMinutes directly; this is for scheduling only.)
-    const { composeScheduleMinutes, computeRequiredDays } = await import('../shared/schedule-composition');
+    const { composeScheduleMinutes, computeRequiredDays, collectSpanDates, expandSpanDates, addDaysToDateStr, maxSpanDays } = await import('../shared/schedule-composition');
     const lines: any[] = Array.isArray(quoteRow?.lines) ? (quoteRow!.lines as any[]) : [];
     const scheduleBreakdown = composeScheduleMinutes(lines, quoteContext);
     const jobDurationMinutes = scheduleBreakdown.totalMinutes;
 
-    // Phase 24c — multi-day jobs span N consecutive working days from a
-    // single contractor. For N=1 the behaviour matches the legacy single-day
-    // path exactly. For N >= 2 we treat the booking as full_day on EACH day
-    // in the span, atomically check + lock every day, and persist the span as
-    // a single booking row + single lock row with `durationDays = N`.
+    // Phase 24c/24e — multi-day jobs span the contractor's next N AVAILABLE
+    // days from the start date (weekends/days off are SKIPPED, not required —
+    // the same collectSpanDates rule the customer picker offers start dates
+    // with, so an offered Friday start books Fri + Mon, never 409s on Sat).
+    // For N=1 the behaviour matches the legacy single-day path exactly. For
+    // N >= 2 we treat the booking as full_day on EACH day in the span,
+    // atomically check + lock every day, and persist ONE lock row with
+    // `durationDays = N` plus the actual dates in `scheduledDates`.
     const durationDays = computeRequiredDays(jobDurationMinutes);
     const effectiveSlot: SlotType = durationDays > 1 ? 'full_day' : scheduledSlot;
-    const spanDates: Date[] = [];
-    for (let i = 0; i < durationDays; i++) {
-        const d = new Date(scheduledDate);
-        d.setUTCDate(d.getUTCDate() + i);
-        spanDates.push(d);
-    }
+    const startDateStr = scheduledDate.toISOString().slice(0, 10);
+    // Calendar window the span may occupy. Single-day jobs never skip — the
+    // requested day is the only day considered, exactly as before.
+    const spanWindowDays = durationDays > 1 ? maxSpanDays(durationDays) : 1;
     // Distribute work evenly across the span (last day takes the remainder).
     // Used by the per-day itinerary check so each day's load is realistic.
     const perDayWork = durationDays > 0 ? Math.ceil(jobDurationMinutes / durationDays) : jobDurationMinutes;
     const slotCapacity = SLOT_CAPACITY_MIN[effectiveSlot];
     if (durationDays > 1) {
-        console.log(`[BookingEngine] multi-day reservation: ${durationDays} days starting ${scheduledDate.toISOString().slice(0,10)}, ${perDayWork}min/day`);
+        console.log(`[BookingEngine] multi-day reservation: ${durationDays} working days starting ${startDateStr} (window ${spanWindowDays}d), ${perDayWork}min/day`);
     }
 
     // ─── Phase 6 — Score candidates by travel cost ──────────────────────
@@ -363,25 +365,21 @@ export async function reserveSlot(params: {
                 // String version of contractorId for tables that use varchar
                 const contractorIdStr = String(contractorId);
 
-                // Per-day availability + conflict + capacity gate.
-                // For single-day jobs spanDates.length === 1 → same behaviour as before.
-                // For multi-day jobs we must clear EVERY day in the span; any
-                // failure on any day eliminates the contractor.
-                let candidateOk = true;
-                for (let dayIdx = 0; dayIdx < spanDates.length; dayIdx++) {
-                    const dayDate = spanDates[dayIdx];
-
-                    // Availability for this day (multi-day always uses full_day)
-                    const isAvailable = await isContractorAvailableForSlot(tx, contractorIdStr, dayDate, effectiveSlot);
-                    if (!isAvailable) { candidateOk = false; break; }
-
-                    // Existing accepted bookings on this day. For single-day we
-                    // honour partial-slot conflicts (AM vs PM); for multi-day
-                    // any existing booking on the day blocks the whole day.
-                    const existingBookings = await tx.select({
+                // Fetch this candidate's accepted bookings + active locks ONCE
+                // over the whole calendar window the span could occupy, looking
+                // back 14 days so a multi-day span that STARTS earlier but
+                // covers a day in our window is caught too (the old per-day
+                // eq(scheduledDate) check missed those).
+                const windowStart = new Date(scheduledDate);
+                windowStart.setUTCDate(windowStart.getUTCDate() - 14);
+                const windowEnd = new Date(scheduledDate);
+                windowEnd.setUTCDate(windowEnd.getUTCDate() + spanWindowDays);
+                const [windowBookings, windowLocks] = await Promise.all([
+                    tx.select({
                         id: contractorBookingRequests.id,
                         scheduledSlot: contractorBookingRequests.scheduledSlot,
                         durationDays: contractorBookingRequests.durationDays,
+                        scheduledDates: contractorBookingRequests.scheduledDates,
                         scheduledDate: contractorBookingRequests.scheduledDate,
                     })
                         .from(contractorBookingRequests)
@@ -390,35 +388,75 @@ export async function reserveSlot(params: {
                                 eq(contractorBookingRequests.contractorId, contractorIdStr),
                                 eq(contractorBookingRequests.assignedContractorId, contractorIdStr),
                             ),
-                            eq(contractorBookingRequests.scheduledDate, dayDate),
+                            gte(contractorBookingRequests.scheduledDate, windowStart),
+                            lt(contractorBookingRequests.scheduledDate, windowEnd),
                             eq(contractorBookingRequests.status, 'accepted'),
-                        ));
-                    const bookingBlocked = durationDays > 1
-                        ? existingBookings.length > 0
-                        : allowSlotSharing
-                            // Packing mode: existing single-day bookings don't block —
-                            // capacity gates (slot fit + day itinerary) police the day.
-                            // Multi-day spans still block: those days are fully owned.
-                            ? existingBookings.some((b) => (b.durationDays ?? 1) > 1)
-                            : existingBookings.some((b) => b.scheduledSlot && conflictingSlots.includes(b.scheduledSlot as SlotType));
-                    if (bookingBlocked) { candidateOk = false; break; }
-
-                    // Active locks on this day (any quote, including our own).
-                    const existingLocks = await tx.select({
+                        )),
+                    tx.select({
                         id: bookingSlotLocks.id,
                         scheduledSlot: bookingSlotLocks.scheduledSlot,
                         durationDays: bookingSlotLocks.durationDays,
+                        scheduledDates: bookingSlotLocks.scheduledDates,
+                        scheduledDate: bookingSlotLocks.scheduledDate,
                     })
                         .from(bookingSlotLocks)
                         .where(and(
                             eq(bookingSlotLocks.contractorId, contractorId),
-                            eq(bookingSlotLocks.scheduledDate, dayDate),
+                            gte(bookingSlotLocks.scheduledDate, windowStart),
+                            lt(bookingSlotLocks.scheduledDate, windowEnd),
                             gte(bookingSlotLocks.expiresAt, new Date()),
-                        ));
+                        )),
+                ]);
+                // Expand each row into the dates it occupies (actual span
+                // dates when stored; consecutive fallback for legacy rows).
+                const bookingsByDate = new Map<string, Array<{ slot: string | null; multi: boolean }>>();
+                for (const b of windowBookings) {
+                    if (!b.scheduledDate) continue;
+                    for (const ds of expandSpanDates(b.scheduledDate, b.durationDays, b.scheduledDates)) {
+                        const list = bookingsByDate.get(ds) ?? [];
+                        list.push({ slot: b.scheduledSlot, multi: (b.durationDays ?? 1) > 1 });
+                        bookingsByDate.set(ds, list);
+                    }
+                }
+                const locksByDate = new Map<string, Array<{ slot: string }>>();
+                for (const l of windowLocks) {
+                    for (const ds of expandSpanDates(l.scheduledDate, l.durationDays, l.scheduledDates)) {
+                        const list = locksByDate.get(ds) ?? [];
+                        list.push({ slot: l.scheduledSlot });
+                        locksByDate.set(ds, list);
+                    }
+                }
+
+                // Full per-day gate: availability + conflicts + capacity.
+                // In the multi-day walk a failing day is SKIPPED (it's simply
+                // not one of the contractor's next N available days); for
+                // single-day jobs the requested day failing kills the candidate.
+                const dayOk = async (ds: string): Promise<boolean> => {
+                    const dayDate = new Date(`${ds}T00:00:00.000Z`);
+
+                    // Availability for this day (multi-day always uses full_day)
+                    if (!(await isContractorAvailableForSlot(tx, contractorIdStr, dayDate, effectiveSlot))) return false;
+
+                    // Existing accepted bookings on this day. For single-day we
+                    // honour partial-slot conflicts (AM vs PM); for multi-day
+                    // any existing booking on the day blocks the whole day.
+                    const dayBookings = bookingsByDate.get(ds) ?? [];
+                    const bookingBlocked = durationDays > 1
+                        ? dayBookings.length > 0
+                        : allowSlotSharing
+                            // Packing mode: existing single-day bookings don't block —
+                            // capacity gates (slot fit + day itinerary) police the day.
+                            // Multi-day spans still block: those days are fully owned.
+                            ? dayBookings.some((b) => b.multi)
+                            : dayBookings.some((b) => b.slot && conflictingSlots.includes(b.slot as SlotType));
+                    if (bookingBlocked) return false;
+
+                    // Active locks on this day (any quote, including our own).
+                    const dayLocks = locksByDate.get(ds) ?? [];
                     const lockBlocked = durationDays > 1
-                        ? existingLocks.length > 0
-                        : existingLocks.some((l) => conflictingSlots.includes(l.scheduledSlot as SlotType));
-                    if (lockBlocked) { candidateOk = false; break; }
+                        ? dayLocks.length > 0
+                        : dayLocks.some((l) => conflictingSlots.includes(l.slot as SlotType));
+                    if (lockBlocked) return false;
 
                     // Travel-aware capacity checks for this day.
                     if (perDayWork > 0 && customerCoords) {
@@ -437,9 +475,8 @@ export async function reserveSlot(params: {
                                 const required = perDayWork + travel.minutes;
                                 // (a) slot fit — per-day work + travel ≤ slot cap
                                 if (required > slotCapacity) {
-                                    console.log(`[BookingEngine] Skip ${contractorIdStr} day ${dayDate.toISOString().slice(0,10)} (slot fit): ${perDayWork}min/day + ${travel.minutes}min travel = ${required} > ${slotCapacity} ${effectiveSlot} cap`);
-                                    candidateOk = false;
-                                    break;
+                                    console.log(`[BookingEngine] Skip ${contractorIdStr} day ${ds} (slot fit): ${perDayWork}min/day + ${travel.minutes}min travel = ${required} > ${slotCapacity} ${effectiveSlot} cap`);
+                                    return false;
                                 }
                             }
                         }
@@ -459,21 +496,39 @@ export async function reserveSlot(params: {
                                 },
                             });
                             if (!itinerary.fitsCapacity) {
-                                console.log(`[BookingEngine] Skip ${contractorIdStr} day ${dayDate.toISOString().slice(0,10)} (day fit): ${itinerary.totals.countedMinutes}min counted > ${itinerary.capCapacityMinutes}min cap`);
-                                candidateOk = false;
-                                break;
+                                console.log(`[BookingEngine] Skip ${contractorIdStr} day ${ds} (day fit): ${itinerary.totals.countedMinutes}min counted > ${itinerary.capCapacityMinutes}min cap`);
+                                return false;
                             }
                         } catch (e) {
                             console.warn('[BookingEngine] day itinerary check threw — proceeding anyway:', e instanceof Error ? e.message : e);
                         }
                     }
-                } // end per-day loop
 
-                if (!candidateOk) continue; // Try next contractor
+                    return true;
+                };
+
+                // The span must START on a day that passes every gate.
+                if (!(await dayOk(startDateStr))) continue; // Try next contractor
+
+                // Walk forward evaluating days in the same order collectSpanDates
+                // inspects them, stopping once enough available days are found —
+                // then let collectSpanDates derive the span from the evaluated
+                // cache so engine and picker share ONE walking rule.
+                const spanOkByDate = new Map<string, boolean>([[startDateStr, true]]);
+                let collected = 1;
+                for (let k = 1; k < spanWindowDays && collected < durationDays; k++) {
+                    const ds = addDaysToDateStr(startDateStr, k);
+                    const ok = await dayOk(ds);
+                    spanOkByDate.set(ds, ok);
+                    if (ok) collected++;
+                }
+                const spanDates = collectSpanDates(startDateStr, durationDays, (ds) => spanOkByDate.get(ds) === true);
+                if (!spanDates) continue; // Not enough available days in the window — try next contractor
 
                 // All days in the span passed. Insert ONE lock row with
-                // durationDays = N — anchors the whole span. confirmBooking
-                // will read it back and create one booking spanning N days.
+                // durationDays = N + the actual dates — anchors the whole span.
+                // confirmBooking reads it back and creates one booking spanning
+                // those same dates.
                 const expiresAt = new Date(Date.now() + 20 * 60 * 1000);
 
                 const [inserted] = await tx.insert(bookingSlotLocks)
@@ -483,9 +538,13 @@ export async function reserveSlot(params: {
                         scheduledDate,
                         scheduledSlot: effectiveSlot,
                         durationDays,
+                        scheduledDates: spanDates,
                         expiresAt,
                     })
                     .returning();
+                if (durationDays > 1) {
+                    console.log(`[BookingEngine] multi-day span locked for ${contractorIdStr}: ${spanDates.join(', ')}`);
+                }
 
                 // Fetch contractor name for display
                 let contractorName: string | undefined;
@@ -611,32 +670,52 @@ export async function confirmBooking(params: {
             const conflictingSlots = getConflictingSlots(lock.scheduledSlot as SlotType);
             const durationDays = lock.durationDays ?? 1;
 
+            // Phase 24e — the ACTUAL dates the span occupies (may skip a
+            // weekend). Written by reserveSlot; legacy locks fall back to
+            // consecutive-day expansion.
+            const { expandSpanDates } = await import('../shared/schedule-composition');
+            const spanDateStrs = expandSpanDates(lock.scheduledDate, durationDays, lock.scheduledDates);
+            const spanDateSet = new Set(spanDateStrs);
+
             // c. Double-check no conflicting booking was created on ANY day of
             // the span (belt and suspenders against races between reserve+pay).
-            for (let i = 0; i < durationDays; i++) {
-                const checkDate = new Date(lock.scheduledDate);
-                checkDate.setUTCDate(checkDate.getUTCDate() + i);
-                const existingBookings = await tx.select({
-                    id: contractorBookingRequests.id,
-                    scheduledSlot: contractorBookingRequests.scheduledSlot,
-                })
-                    .from(contractorBookingRequests)
-                    .where(and(
-                        or(
-                            eq(contractorBookingRequests.contractorId, contractorIdStr),
-                            eq(contractorBookingRequests.assignedContractorId, contractorIdStr),
-                        ),
-                        eq(contractorBookingRequests.scheduledDate, checkDate),
-                        eq(contractorBookingRequests.status, 'accepted'),
-                    ));
-                const hasConflict = durationDays > 1
-                    ? existingBookings.length > 0
+            // Fetch once over the span's window, looking back 14 days so a
+            // multi-day booking that starts earlier but spans onto our days is
+            // caught, then compare against each booking's own occupied dates.
+            const raceWindowStart = new Date(`${spanDateStrs[0]}T00:00:00.000Z`);
+            raceWindowStart.setUTCDate(raceWindowStart.getUTCDate() - 14);
+            const raceWindowEnd = new Date(`${spanDateStrs[spanDateStrs.length - 1]}T00:00:00.000Z`);
+            raceWindowEnd.setUTCDate(raceWindowEnd.getUTCDate() + 1);
+            const existingBookings = await tx.select({
+                id: contractorBookingRequests.id,
+                scheduledSlot: contractorBookingRequests.scheduledSlot,
+                scheduledDate: contractorBookingRequests.scheduledDate,
+                durationDays: contractorBookingRequests.durationDays,
+                scheduledDates: contractorBookingRequests.scheduledDates,
+            })
+                .from(contractorBookingRequests)
+                .where(and(
+                    or(
+                        eq(contractorBookingRequests.contractorId, contractorIdStr),
+                        eq(contractorBookingRequests.assignedContractorId, contractorIdStr),
+                    ),
+                    gte(contractorBookingRequests.scheduledDate, raceWindowStart),
+                    lt(contractorBookingRequests.scheduledDate, raceWindowEnd),
+                    eq(contractorBookingRequests.status, 'accepted'),
+                ));
+            for (const b of existingBookings) {
+                if (!b.scheduledDate) continue;
+                const overlap = expandSpanDates(b.scheduledDate, b.durationDays, b.scheduledDates)
+                    .find((d) => spanDateSet.has(d));
+                if (!overlap) continue;
+                const conflicts = durationDays > 1
+                    ? true // multi-day span fully owns its days
                     : allowSlotSharing
-                        ? false // packing mode — capacity was gated at reserve time
-                        : existingBookings.some((b) => b.scheduledSlot && conflictingSlots.includes(b.scheduledSlot as SlotType));
-                if (hasConflict) {
+                        ? (b.durationDays ?? 1) > 1 // packing mode — capacity was gated at reserve time; multi-day spans still block
+                        : !!b.scheduledSlot && conflictingSlots.includes(b.scheduledSlot as SlotType);
+                if (conflicts) {
                     await tx.delete(bookingSlotLocks).where(eq(bookingSlotLocks.id, lockId));
-                    return { success: false, error: `A conflicting booking was created on ${checkDate.toISOString().slice(0,10)} while payment was processing` };
+                    return { success: false, error: `A conflicting booking was created on ${overlap} while payment was processing` };
                 }
             }
 
@@ -689,10 +768,11 @@ export async function confirmBooking(params: {
                     status: 'accepted',
                     scheduledDate: lock.scheduledDate,
                     scheduledSlot: lock.scheduledSlot as 'am' | 'pm' | 'full_day',
-                    // Phase 24c — span the booking across N consecutive days
-                    // (single value persisted; the matrix + fit endpoints walk
-                    // the dates by reading start + durationDays).
+                    // Phase 24c/24e — span the booking across its N working
+                    // days. scheduledDates carries the ACTUAL occupied dates
+                    // (may skip a weekend); readers expand via expandSpanDates.
                     durationDays,
+                    scheduledDates: spanDateStrs,
                     assignmentStatus: 'accepted',
                     assignedAt: new Date(),
                     acceptedAt: new Date(),
@@ -706,10 +786,29 @@ export async function confirmBooking(params: {
             // offers them on WhatsApp (offered_via='manual') and marks them
             // accepted once the specialist confirms. Covered categories fall back
             // to the quote's line-item categories when the plan is absent.
-            const fallbackCats = Array.from(new Set(((quote.pricingLineItems as any[]) || []).map((li: any) => li.categorySlug || li.category).filter(Boolean)));
+            const payLines = (quote.pricingLineItems as any[]) || [];
+            const fallbackCats = Array.from(new Set(payLines.map((li: any) => li.categorySlug || li.category).filter(Boolean)));
             const assignmentSpecs = planToAssignments(quote.teamPlan as any, contractorIdStr, fallbackCats);
+
+            // Delivery tier per assigned contractor drives the Core +5 uplift.
+            const assignContractorIds = Array.from(new Set(assignmentSpecs.map((s) => s.contractorId)));
+            const tierRows = assignContractorIds.length
+                ? await tx.select({ id: handymanProfiles.id, tier: handymanProfiles.deliveryTier })
+                    .from(handymanProfiles).where(inArray(handymanProfiles.id, assignContractorIds))
+                : [];
+            const tierById = new Map(tierRows.map((t: any) => [t.id, t.tier]));
+
             for (const spec of assignmentSpecs) {
                 const isLead = spec.role === 'lead';
+                // Snapshot the contractor's pay for THIS assignment's covered lines
+                // (a solo lead covers all lines; a composed specialist covers its
+                // residual categories). Immutable once written — a later dial
+                // change never rewrites booked pay. See lib/contractor-pay.ts.
+                const covered = spec.coveredCategories.length ? new Set(spec.coveredCategories) : null;
+                const linesForSpec = covered
+                    ? payLines.filter((li: any) => covered.has(li.categorySlug || li.category))
+                    : payLines;
+                const pay = computeContractorPay(linesForSpec, tierById.get(spec.contractorId));
                 await tx.insert(bookingAssignments).values({
                     id: uuidv4(),
                     bookingId,
@@ -717,6 +816,7 @@ export async function confirmBooking(params: {
                     role: spec.role,
                     coveredCategories: spec.coveredCategories.length ? spec.coveredCategories : undefined,
                     status: isLead ? 'accepted' : 'assigned',
+                    payoutPence: pay.totalPayPence,
                     scheduledDate: lock.scheduledDate,
                     scheduledSlot: lock.scheduledSlot as 'am' | 'pm' | 'full_day',
                     offeredVia: isLead ? 'auto' : 'manual',
@@ -900,6 +1000,7 @@ export async function assignFromPool(params: {
                 scheduledSlot: contractorBookingRequests.scheduledSlot,
                 scheduledDate: contractorBookingRequests.scheduledDate,
                 durationDays: contractorBookingRequests.durationDays,
+                scheduledDates: contractorBookingRequests.scheduledDates,
             })
                 .from(contractorBookingRequests)
                 .where(and(
@@ -911,15 +1012,15 @@ export async function assignFromPool(params: {
                     gte(contractorBookingRequests.scheduledDate, lookback),
                     lt(contractorBookingRequests.scheduledDate, nextDay),
                 ));
-            const targetMs = scheduledDate.getTime();
+            const { expandSpanDates } = await import('../shared/schedule-composition');
             const hasConflict = existingBookings.some((b) => {
                 if (!b.scheduledDate) return false;
-                const start = new Date(b.scheduledDate); start.setUTCHours(0, 0, 0, 0);
-                const span = b.durationDays ?? 1;
-                const coversTarget = targetMs >= start.getTime() && targetMs <= start.getTime() + (span - 1) * 86_400_000;
+                // Expand to the booking's ACTUAL occupied dates (a multi-day
+                // span may skip a weekend); legacy rows expand consecutively.
+                const coversTarget = expandSpanDates(b.scheduledDate, b.durationDays, b.scheduledDates).includes(date);
                 if (!coversTarget) return false;
                 // A multi-day booking occupies the whole target day; otherwise check slot overlap.
-                return span > 1 || (!!b.scheduledSlot && conflictingSlots.includes(b.scheduledSlot as SlotType));
+                return (b.durationDays ?? 1) > 1 || (!!b.scheduledSlot && conflictingSlots.includes(b.scheduledSlot as SlotType));
             });
             if (hasConflict) {
                 return { success: false, error: `Contractor already has an accepted booking covering ${date} ${slot.toUpperCase()}` };

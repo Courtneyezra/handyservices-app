@@ -152,18 +152,29 @@ export interface RevenueShareResult {
  * @param customerPricePence - Customer-facing labour price in pence (BEFORE materials)
  * @param timeEstimateMinutes - Estimated job duration
  */
+/**
+ * Delivery-tier share uplift (percentage POINTS added to the base tier share).
+ * Loyalty layer: Core contractors earn +5 pts on every job vs the ad-hoc pool.
+ * Distinct from the freemium subscriptionTier — this is delivery_tier.
+ */
+export function deliveryTierUplift(deliveryTier: string | null | undefined): number {
+  return deliveryTier === 'core' ? 5 : 0; // partner handled later as an overlay
+}
+
 export function calculateRevenueShare(
   categorySlug: JobCategory,
   customerPricePence: number,
   timeEstimateMinutes: number,
+  sharePctUplift: number = 0,
 ): RevenueShareResult {
   const tier = CATEGORY_TIER_MAP[categorySlug] || CATEGORY_TIER_MAP.other;
   const config = TIER_CONFIG[tier];
 
   const hours = timeEstimateMinutes / 60;
 
-  // Revenue share: customer price × contractor %
-  const revenueSharePence = Math.round(customerPricePence * (config.revenueSharePercent / 100));
+  // Revenue share: customer LABOUR price × (tier % + delivery-tier uplift).
+  const effectiveSharePercent = config.revenueSharePercent + sharePctUplift;
+  const revenueSharePence = Math.round(customerPricePence * (effectiveSharePercent / 100));
 
   // Floor: minimum hourly × hours
   const floorPence = Math.round(config.minHourlyPence * hours);
@@ -181,7 +192,7 @@ export function calculateRevenueShare(
   return {
     categorySlug,
     tier,
-    revenueSharePercent: config.revenueSharePercent,
+    revenueSharePercent: effectiveSharePercent,
     minHourlyPence: config.minHourlyPence,
     customerPricePence,
     timeEstimateMinutes,
@@ -197,9 +208,11 @@ export function calculateRevenueShare(
 
 /**
  * Calculate contractor pay for a multi-line quote.
+ * `sharePctUplift` adds delivery-tier loyalty points (Core +5) to every line.
  */
 export function calculateMultiLineRevenueShare(
   lineItems: Array<{ categorySlug: JobCategory; pricePence: number; timeEstimateMinutes: number }>,
+  sharePctUplift: number = 0,
 ): {
   totalContractorPay: number;
   totalPlatformKeeps: number;
@@ -219,6 +232,7 @@ export function calculateMultiLineRevenueShare(
       item.categorySlug,
       item.pricePence,
       item.timeEstimateMinutes,
+      sharePctUplift,
     );
     lines.push(result);
     totalContractorPay += result.contractorPayPence;
