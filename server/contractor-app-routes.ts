@@ -27,10 +27,12 @@ import {
   handymanAvailability,
   contractorAvailabilityDates,
   contractorBookingRequests,
+  bookingAssignments,
   personalizedQuotes,
 } from '../shared/schema';
 import { timeRangeCoversSlot, SLOT_CAPACITY_MIN, type SlotType } from '../shared/slot-times';
 import { totalScheduleMinutes, computeBookingDurationDays, expandSpanDates } from '../shared/schedule-composition';
+import { computeContractorPay } from './lib/contractor-pay';
 import { resolveWeek, type DayAvailability } from './lib/contractor-week';
 import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, blockStartCandidates, type DayMode, type DayLoadBooking } from './lib/contractor-app';
 import { scoreFlexPlacements, type PlacementCandidate } from './lib/contractor-flex-score';
@@ -51,6 +53,7 @@ async function findByAppToken(token: string) {
       profileImageUrl: handymanProfiles.profileImageUrl,
       heroImageUrl: handymanProfiles.heroImageUrl,
       lastAvailabilityRefresh: handymanProfiles.lastAvailabilityRefresh,
+      deliveryTier: handymanProfiles.deliveryTier,
     })
     .from(handymanProfiles)
     .where(eq(handymanProfiles.appToken, token))
@@ -232,11 +235,19 @@ async function loadJobsAndGrid(profileId: string) {
     b.scheduledDate && (b.assignedContractorId ?? b.contractorId) === profileId);
 
   const quoteIds = [...new Set(booked.map((b) => b.quoteId).filter(Boolean))] as string[];
-  const quoteRows = quoteIds.length
-    ? await db.select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName, postcode: personalizedQuotes.postcode, jobDescription: personalizedQuotes.jobDescription, basePrice: personalizedQuotes.basePrice, pricingLineItems: personalizedQuotes.pricingLineItems })
-        .from(personalizedQuotes).where(inArray(personalizedQuotes.id, quoteIds))
-    : [];
+  const bookingIds = booked.map((b) => b.id);
+  const [quoteRows, payoutRows] = await Promise.all([
+    quoteIds.length
+      ? db.select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName, postcode: personalizedQuotes.postcode, jobDescription: personalizedQuotes.jobDescription, basePrice: personalizedQuotes.basePrice, pricingLineItems: personalizedQuotes.pricingLineItems })
+          .from(personalizedQuotes).where(inArray(personalizedQuotes.id, quoteIds))
+      : Promise.resolve([]),
+    bookingIds.length
+      ? db.select({ bookingId: bookingAssignments.bookingId, payoutPence: bookingAssignments.payoutPence })
+          .from(bookingAssignments).where(and(inArray(bookingAssignments.bookingId, bookingIds), eq(bookingAssignments.contractorId, profileId)))
+      : Promise.resolve([]),
+  ]);
   const quoteById = new Map(quoteRows.map((q) => [q.id, q]));
+  const payoutByBooking = new Map(payoutRows.map((p: any) => [p.bookingId, p.payoutPence]));
 
   // Multi-day bookings are ONE row → expand each booking across its ACTUAL
   // span dates (may skip a weekend; legacy rows expand consecutively). Span
@@ -296,6 +307,8 @@ async function loadJobsAndGrid(profileId: string) {
         postcodeArea: outwardPostcode(q?.postcode),
         jobDescription: trimDescription(q?.jobDescription),
         valuePence: q?.basePrice ?? null,
+        // His snapshotted pay for this booking (Model C + tier uplift).
+        payoutPence: payoutByBooking.get(b.id) ?? null,
         // Composed work minutes — drives the packing ceilings (canCoexist).
         minutes: totalScheduleMinutes(((q?.pricingLineItems as any[]) || []), {}),
       };
@@ -377,11 +390,16 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
             .map((b) => ({ startDate: b.startDate, endDate: b.spanDates[b.spanDates.length - 1], reasons: b.reasons }))
         : [];
 
+      // His estimated pay for this job (Model C + his tier) — the same engine
+      // the booking will snapshot, so the estimate matches the eventual payout.
+      const payoutPence = computeContractorPay((f.pricingLineItems as any[]) || [], profile.deliveryTier).totalPayPence;
+
       return {
         quoteId: f.id,
         postcodeArea: area,
         jobDescription: trimDescription(f.jobDescription),
         valuePence: f.basePrice ?? null,
+        payoutPence,
         deadline,
         multiDay,
         requiredDays,
@@ -597,6 +615,9 @@ router.get('/:token/day-plans', async (req: Request, res: Response) => {
       return slot === 'full_day' ? g.am === 'open' && g.pm === 'open' : g[slot] === 'open';
     };
 
+    // His pay per pool job (Model C + tier), so the pack shows HIS money.
+    const payoutByQuote = new Map(singleDayRows.map((r) => [r.id, computeContractorPay((r.pricingLineItems as any[]) || [], profile.deliveryTier).totalPayPence]));
+
     const plans = result.groups
       .filter((g) => g.contractorId === profile.id)
       .filter((g) => g.members.filter((m) => !m.fixed).every((m) => slotOpen(g.date, m.slot as SlotType)))
@@ -604,7 +625,8 @@ router.get('/:token/day-plans', async (req: Request, res: Response) => {
       .map((g) => ({
         date: g.date,
         rationale: g.rationale,
-        totalPence: g.totalValue,
+        // The day's ADDED pay = sum of the non-fixed (placeable) members' pay.
+        totalPence: g.members.filter((m) => !m.fixed).reduce((s, m) => s + (payoutByQuote.get(m.quoteId) ?? 0), 0),
         committedCount: g.committedCount ?? 0,
         jobs: g.members.map((m) => ({
           quoteId: m.quoteId,
@@ -614,6 +636,7 @@ router.get('/:token/day-plans', async (req: Request, res: Response) => {
           postcodeArea: outwardPostcode(m.postcode ?? null),
           jobDescription: trimDescription(m.jobDescription ?? null),
           valuePence: m.valuePence,
+          payoutPence: payoutByQuote.get(m.quoteId) ?? null,
         })),
         // What lock-day actually places (anchors are already booked).
         // Full-day-needing jobs are coerced to full_day so locks can't 409

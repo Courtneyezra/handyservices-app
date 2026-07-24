@@ -61,6 +61,7 @@ interface BookedJob {
   postcodeArea: string | null;
   jobDescription: string | null;
   valuePence: number | null;
+  payoutPence: number | null;
 }
 
 interface FlexJob {
@@ -68,6 +69,7 @@ interface FlexJob {
   postcodeArea: string | null;
   jobDescription: string | null;
   valuePence: number | null;
+  payoutPence: number | null;
   deadline: string | null;
   multiDay: boolean;
   requiredDays: number;
@@ -88,7 +90,7 @@ interface DayPlan {
   rationale: string;
   totalPence: number;
   committedCount: number;
-  jobs: Array<{ quoteId: string; fixed: boolean; slot: string; customerName: string; postcodeArea: string | null; jobDescription: string | null; valuePence: number }>;
+  jobs: Array<{ quoteId: string; fixed: boolean; slot: string; customerName: string; postcodeArea: string | null; jobDescription: string | null; valuePence: number; payoutPence: number | null }>;
   placements: Array<{ quoteId: string; date: string; slot: string }>;
 }
 
@@ -334,16 +336,17 @@ export default function MyWeekPage() {
   });
 
   // ── Week planner composition (client-side over existing queries) ──
-  const bookedPence = jobs?.booked.reduce((s, b) => s + (b.valuePence ?? 0), 0) ?? 0;
+  // All money shown is HIS pay (Model C + tier), not the customer price.
+  const bookedPence = jobs?.booked.reduce((s, b) => s + (b.payoutPence ?? 0), 0) ?? 0;
   const hasOptions = (f: FlexJob) => (f.multiDay ? f.blockStarts.length : f.suggestions.length) > 0;
-  const readyPence = jobs?.flex.reduce((s, f) => s + (hasOptions(f) ? (f.valuePence ?? 0) : 0), 0) ?? 0;
+  const readyPence = jobs?.flex.reduce((s, f) => s + (hasOptions(f) ? (f.payoutPence ?? 0) : 0), 0) ?? 0;
   const stuck = jobs?.flex.filter((f) => !hasOptions(f)) ?? [];
-  const stuckPence = stuck.reduce((s, f) => s + (f.valuePence ?? 0), 0);
+  const stuckPence = stuck.reduce((s, f) => s + (f.payoutPence ?? 0), 0);
 
   const planRows = useMemo(() => {
     if (!data || !jobs) return [];
     const gridBy = new Map(data.days.map((d) => [d.date, d]));
-    const bookedBy = new Map<string, Array<{ label: string; valuePence: number; tag: string }>>();
+    const bookedBy = new Map<string, Array<{ label: string; payoutPence: number; tag: string }>>();
     for (const b of jobs.booked) {
       const dur = b.durationDays ?? 1;
       for (let i = 0; i < dur; i++) {
@@ -351,7 +354,9 @@ export default function MyWeekPage() {
         const list = bookedBy.get(dt) ?? [];
         list.push({
           label: `${b.customerName.trim()}${b.jobDescription ? ' — ' + b.jobDescription : ''}`,
-          valuePence: b.valuePence ?? 0,
+          // His pay shown once (on day 1) so a multi-day span doesn't visually
+          // multiply the figure; later span days show the tag only.
+          payoutPence: i === 0 ? (b.payoutPence ?? 0) : 0,
           tag: dur > 1 ? `Day ${i + 1} of ${dur}` : b.slot === 'am' ? '9am–1pm' : b.slot === 'pm' ? '2pm–6pm' : '9am–6pm',
         });
         bookedBy.set(dt, list);
@@ -466,9 +471,10 @@ export default function MyWeekPage() {
               : 'Tap a day to open or close it. Customers can only book days you open.'}
         </p>
 
-        {/* Payslip — the week as money (spec: 05-week-planner-ui.md) */}
+        {/* Payslip — the week as HIS money (spec: 05-week-planner-ui.md) */}
         {tab === 'week' && jobs && (bookedPence > 0 || (jobs.flex.length ?? 0) > 0) && (
           <div className="mb-4 p-4 rounded-2xl bg-slate-900/70 border border-slate-800">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Your pay</div>
             <div className="flex items-baseline gap-2 flex-wrap">
               <span className="text-2xl font-bold">£{Math.round(bookedPence / 100).toLocaleString()}</span>
               <span className="text-xs text-slate-400 font-semibold">booked</span>
@@ -659,6 +665,7 @@ export default function MyWeekPage() {
             {jobs && (
               <>
                 <div className="mb-3 p-4 rounded-2xl bg-slate-900/70 border border-slate-800">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Your pay</div>
                   <div className="flex items-baseline gap-2 flex-wrap">
                     <span className="text-2xl font-bold">£{Math.round(bookedPence / 100).toLocaleString()}</span>
                     <span className="text-xs text-slate-400 font-semibold">booked</span>
@@ -699,7 +706,7 @@ export default function MyWeekPage() {
                       <div key={f.quoteId} className="flex items-start gap-2 py-0.5">
                         <Sparkles size={13} className="text-amber-400 shrink-0 mt-0.5" />
                         <span className="text-[11px] text-amber-300/90 leading-snug">
-                          £{Math.round((f.valuePence ?? 0) / 100)} {f.jobDescription ? `— ${f.jobDescription.slice(0, 40)}` : ''} needs {f.multiDay ? `${f.requiredDays} open days in a row` : 'an open day'}{f.deadline ? ` by ${format(new Date(f.deadline + 'T00:00:00'), 'EEE d MMM')}` : ''} — open days below to take it.
+                          £{Math.round((f.payoutPence ?? 0) / 100)} {f.jobDescription ? `— ${f.jobDescription.slice(0, 40)}` : ''} needs {f.multiDay ? `${f.requiredDays} open days in a row` : 'an open day'}{f.deadline ? ` by ${format(new Date(f.deadline + 'T00:00:00'), 'EEE d MMM')}` : ''} — open days below to take it.
                         </span>
                       </div>
                     ))}
@@ -745,9 +752,9 @@ export default function MyWeekPage() {
                             <div key={i} className="p-3 rounded-xl bg-blue-500/15 border border-blue-500/30">
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-xs font-bold text-blue-300 truncate">{b.label}</span>
-                                <span className="text-sm font-bold text-blue-200 shrink-0 flex items-center gap-1.5">£{Math.round(b.valuePence / 100)} <Lock size={10} /></span>
+                                {b.payoutPence > 0 && <span className="text-sm font-bold text-blue-200 shrink-0 flex items-center gap-1.5">£{Math.round(b.payoutPence / 100)} <Lock size={10} /></span>}
                               </div>
-                              <span className="text-[10px] text-blue-400/70 font-semibold">{b.tag} · booked</span>
+                              <span className="text-[10px] text-blue-400/70 font-semibold">{b.tag} · booked{b.payoutPence > 0 ? ' · you earn' : ''}</span>
                             </div>
                           ))}
 
@@ -764,7 +771,7 @@ export default function MyWeekPage() {
                               <div className="p-3 rounded-xl border border-dashed bg-emerald-500/8 border-emerald-500/40">
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="text-xs font-bold text-emerald-300 truncate">{row.block.f.jobDescription || 'Multi-day job'}</span>
-                                  <span className="text-sm font-bold text-emerald-300 shrink-0">£{Math.round((row.block.f.valuePence ?? 0) / 100)}</span>
+                                  <span className="text-sm font-bold text-emerald-300 shrink-0">£{Math.round((row.block.f.payoutPence ?? 0) / 100)}</span>
                                 </div>
                                 <div className="text-[10px] text-slate-400 mt-0.5">
                                   runs {format(new Date(row.block.start.startDate + 'T00:00:00'), 'EEE d')} → {format(new Date(row.block.start.endDate + 'T00:00:00'), 'EEE d')}
@@ -787,7 +794,7 @@ export default function MyWeekPage() {
                                 {row.pack.jobs.filter((j) => !j.fixed).map((j) => (
                                   <div key={j.quoteId} className="flex items-center justify-between gap-2 py-0.5">
                                     <span className="text-xs font-bold text-emerald-300 truncate">{(j.slot === 'am' ? 'AM' : j.slot === 'pm' ? 'PM' : 'DAY')} · {j.jobDescription || j.customerName}</span>
-                                    <span className="text-sm font-bold text-emerald-300 shrink-0">£{Math.round(j.valuePence / 100)}</span>
+                                    <span className="text-sm font-bold text-emerald-300 shrink-0">£{Math.round((j.payoutPence ?? 0) / 100)}</span>
                                   </div>
                                 ))}
                                 <div className="text-[10px] text-slate-500 mt-0.5">{row.pack.rationale}</div>
@@ -810,14 +817,14 @@ export default function MyWeekPage() {
                               <div key={key} className="p-3 rounded-xl border border-dashed bg-emerald-500/8 border-emerald-500/40">
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="text-xs font-bold text-emerald-300 truncate">{slotLabel} · {f.jobDescription || 'Job'}</span>
-                                  <span className="text-sm font-bold text-emerald-300 shrink-0">£{Math.round((f.valuePence ?? 0) / 100)}</span>
+                                  <span className="text-sm font-bold text-emerald-300 shrink-0">£{Math.round((f.payoutPence ?? 0) / 100)}</span>
                                 </div>
                                 {s.reasons.length > 0 && <div className="text-[10px] text-slate-500 mt-0.5">{s.reasons[0]}{f.deadline ? ` · needs a day by ${format(new Date(f.deadline + 'T00:00:00'), 'EEE d MMM')}` : ''}</div>}
                                 <button
                                   disabled={placeMutation.isPending}
                                   onClick={() => (confirming ? placeMutation.mutate({ quoteId: f.quoteId, date: s.date, slot: s.slot }) : setConfirmPlace(key))}
                                   className={`mt-2 w-full py-2 rounded-lg text-xs font-bold transition-all ${confirming ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-200'}`}>
-                                  {confirming ? (placeMutation.isPending ? 'Booking…' : `Confirm — book ${format(new Date(s.date + 'T00:00:00'), 'EEE d')}?`) : `Lock this day · £${Math.round((f.valuePence ?? 0) / 100)}`}
+                                  {confirming ? (placeMutation.isPending ? 'Booking…' : `Confirm — book ${format(new Date(s.date + 'T00:00:00'), 'EEE d')}?`) : `Lock this day · £${Math.round((f.payoutPence ?? 0) / 100)}`}
                                 </button>
                               </div>
                             );
@@ -874,7 +881,7 @@ export default function MyWeekPage() {
                             </div>
                             {f.jobDescription && <p className="text-xs text-slate-300 mt-1.5 leading-snug">{f.jobDescription}</p>}
                           </div>
-                          {f.valuePence != null && <div className="text-lg font-bold text-white shrink-0">£{Math.round(f.valuePence / 100)}</div>}
+                          {f.payoutPence != null && <div className="text-lg font-bold text-white shrink-0">£{Math.round(f.payoutPence / 100)}</div>}
                         </div>
 
                         {placeError?.quoteId === f.quoteId && (
