@@ -51,6 +51,9 @@ const STEP_MS = 900;     // custom-steps (visit flow) checklist dwell fallback
 const POOL_AVATARS = [
   '/assets/avatars/craig-avatar-1.webp',
   '/assets/avatars/bezent-avatar-1.webp',
+  '/assets/avatars/emile-avatar-1.webp',
+  '/assets/avatars/courtnee-avatar-1.webp',
+  '/assets/avatars/neil-avatar-1.webp',
 ];
 const POOL_INITIALS = ['J', 'A', 'K'];
 
