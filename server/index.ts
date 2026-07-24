@@ -97,6 +97,7 @@ import { careersRouter } from './careers-routes'; // Recruitment pipeline
 import { partnerRouter } from './partner-routes'; // Partner/area licensee enquiries
 import businessModelRouter from './business-model-routes'; // Business Model Forecast Dashboard
 import seoRouter from './seo-routes'; // SEO domination: keyword universe, rank tracking, GMB
+import seoPagesRouter from './seo-pages-routes'; // SEO server-rendered landing pages (T1/T2/T3) + sitemap/robots
 import dailyPlannerRouter from './daily-planner-routes'; // Dispatch Daily Planner
 import { slotOfferAdminRouter, slotOfferPublicRouter } from './slot-offer-routes'; // Customer slot-offer confirmation
 import dispatchMapRouter from './dispatch-map-routes'; // Dispatch Map (spatial overview)
@@ -496,6 +497,10 @@ app.post('/api/join/apply', async (req, res) => {
 });
 app.use(businessModelRouter); // Business Model Forecast Dashboard
 app.use(seoRouter); // SEO domination: /api/admin/seo/* (overview, keywords, gmb)
+// SEO server-rendered landing pages: /sitemap.xml, /robots.txt, /:city, /:city/:service, /:city/:service/:suburb.
+// Every dynamic route falls through (next()) unless :city is a known SEO city, so it never swallows SPA/API/asset paths.
+// Mounted after the /api routers and before the Vite/SPA catch-all in startServer().
+app.use(seoPagesRouter);
 app.use('/api/admin/daily-planner', requireAdmin, dailyPlannerRouter); // Dispatch Daily Planner
 app.use('/api/admin/daily-planner', requireAdmin, slotOfferAdminRouter); // Customer slot-offer (dispatcher-facing)
 app.use('/api/slot-offer', slotOfferPublicRouter); // Customer slot-offer (PUBLIC — token is the credential)

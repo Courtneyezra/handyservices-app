@@ -1,8 +1,9 @@
 // ROUTE: register <Route path="/admin/seo" component={SeoDashboard}/> in the client router (grep for where other /admin/* routes are registered)
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Search,
   Layers,
@@ -15,6 +16,7 @@ import {
   MapPin,
   TrendingUp,
   ArrowUpDown,
+  ExternalLink,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -156,6 +158,24 @@ type SortKey = "keyword" | "city" | "trade" | "deliverability" | "avgMonthlySear
 export default function SeoDashboard() {
   const [sortKey, setSortKey] = useState<SortKey>("priorityScore");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const queryClient = useQueryClient();
+
+  const publishMutation = useMutation({
+    mutationFn: async (vars: { id: number; pagePublished?: boolean; bookingEnabled?: boolean }) => {
+      const { id, ...body } = vars;
+      const res = await fetch(`/api/admin/seo/keywords/${id}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Failed to update publish gates");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["seo-keywords"] });
+      queryClient.invalidateQueries({ queryKey: ["seo-overview"] });
+    },
+  });
 
   const { data: overview, isLoading: overviewLoading } = useQuery<SeoOverview>({
     queryKey: ["seo-overview"],
@@ -322,6 +342,9 @@ export default function SeoDashboard() {
                     <th className="px-3 py-2 text-center font-semibold text-slate-600">Organic</th>
                     <th className="px-3 py-2 text-center font-semibold text-slate-600">Local pack</th>
                     <th className="px-3 py-2 text-center font-semibold text-slate-600">AI cited</th>
+                    <th className="px-3 py-2 text-center font-semibold text-slate-600">Published</th>
+                    <th className="px-3 py-2 text-center font-semibold text-slate-600">Booking</th>
+                    <th className="px-3 py-2 text-center font-semibold text-slate-600">Page</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -339,11 +362,37 @@ export default function SeoDashboard() {
                       <td className="px-3 py-2 text-center"><PositionCell rank={k.rankings["google_organic"]} /></td>
                       <td className="px-3 py-2 text-center"><PositionCell rank={k.rankings["google_pack"]} /></td>
                       <td className="px-3 py-2 text-center"><CitedCell rank={k.rankings["ai_overview"] || k.rankings["chatgpt"] || k.rankings["perplexity"]} /></td>
+                      <td className="px-3 py-2 text-center">
+                        <Switch
+                          checked={k.pagePublished}
+                          disabled={publishMutation.isPending}
+                          onCheckedChange={(checked) => publishMutation.mutate({ id: k.id, pagePublished: checked })}
+                          aria-label="Toggle page published"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <Switch
+                          checked={k.bookingEnabled}
+                          disabled={publishMutation.isPending}
+                          onCheckedChange={(checked) => publishMutation.mutate({ id: k.id, bookingEnabled: checked })}
+                          aria-label="Toggle booking enabled"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <a
+                          href={`/${k.city}/${k.trade}`}
+                          target="_blank"
+                          rel="noopener"
+                          className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-900"
+                        >
+                          View <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </td>
                     </tr>
                   ))}
                   {sortedKeywords.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="px-3 py-8 text-center text-slate-400">No keyword targets yet.</td>
+                      <td colSpan={12} className="px-3 py-8 text-center text-slate-400">No keyword targets yet.</td>
                     </tr>
                   )}
                 </tbody>

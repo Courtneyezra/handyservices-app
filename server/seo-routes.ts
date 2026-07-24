@@ -124,6 +124,42 @@ router.get("/api/admin/seo/keywords", requireAdmin, async (_req, res) => {
   }
 });
 
+// ── POST /api/admin/seo/keywords/:id/publish ─────────────────────────────────
+// Flip a keyword target's publish gates: pagePublished (page is live) and/or
+// bookingEnabled (fulfilment gate open). Only the provided fields are updated.
+// "RANK != FULFIL": publish the page when built, enable booking only when the
+// pool can field it.
+router.post("/api/admin/seo/keywords/:id/publish", requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: "Invalid keyword target id" });
+    }
+
+    const { pagePublished, bookingEnabled } = req.body ?? {};
+    const updates: { pagePublished?: boolean; bookingEnabled?: boolean; updatedAt: Date } = {
+      updatedAt: new Date(),
+    };
+    if (typeof pagePublished === "boolean") updates.pagePublished = pagePublished;
+    if (typeof bookingEnabled === "boolean") updates.bookingEnabled = bookingEnabled;
+
+    const [updated] = await db
+      .update(keywordTargets)
+      .set(updates)
+      .where(eq(keywordTargets.id, id))
+      .returning();
+
+    if (!updated) {
+      return res.status(404).json({ error: "Keyword target not found" });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    console.error("[SEO] Error updating publish gates:", error);
+    res.status(500).json({ error: "Failed to update publish gates" });
+  }
+});
+
 // ── GET /api/admin/seo/gmb ───────────────────────────────────────────────────
 // Latest gmbMetrics row per location.
 router.get("/api/admin/seo/gmb", requireAdmin, async (_req, res) => {
