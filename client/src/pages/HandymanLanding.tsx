@@ -40,6 +40,7 @@ const WHATSAPP_MESSAGE = encodeURIComponent("I'm interested in Handy Services");
 const PHONE_NUMBER = "+447449501762";
 
 import { LandingHeader } from "@/components/LandingHeader";
+import { CONTRACTOR_ROSTER } from "@/lib/contractor-roster";
 
 
 
@@ -49,10 +50,9 @@ function TeamSection() {
     // add to `team` as more core techs are onboarded.
     // ⚠️ Ratings / job counts are PLACEHOLDERS pending real profile data (C5).
     // Joe is shown with role + rating only (no fabricated job count).
-    const team = [
-        { name: "Craig", role: "Lead handyman", img: "/assets/quote-images/craig-banner.webp", meta: "4.9 · 214 jobs completed" },
-        { name: "Joe", role: "Handyman & carpenter", img: "/assets/quote-images/joe-estimator.webp", meta: "4.9 · vetted, DBS-checked" },
-    ];
+    const team = CONTRACTOR_ROSTER.map((c) => ({
+        name: c.name, role: c.role, img: c.portraitUrl, meta: c.meta,
+    }));
     const recentWork = [
         { url: "/assets/quote-images/craig-bathroom.webp", label: "Bathroom reseal" },
         { url: "/assets/quote-images/craig-tiling.webp", label: "Tiling" },

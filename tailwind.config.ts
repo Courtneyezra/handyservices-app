@@ -125,12 +125,25 @@ export default {
                     "0%":   { opacity: "0", transform: "translate(-50%, 8px)" },
                     "100%": { opacity: "1", transform: "translate(-50%, 0)" },
                 },
+                // Landing hero "meet your handymen" cluster: faces pop in on load
+                // (staggered via per-avatar animation-delay), green dot breathes.
+                "avatar-pop": {
+                    "0%":   { opacity: "0", transform: "scale(0.8) translateY(6px)" },
+                    "100%": { opacity: "1", transform: "scale(1) translateY(0)" },
+                },
+                "avatar-live": {
+                    "0%, 100%": { boxShadow: "0 0 0 0 rgba(34,197,94,0.55)" },
+                    "70%":      { boxShadow: "0 0 0 8px rgba(34,197,94,0)" },
+                },
             },
             animation: {
                 "cart-bump": "cart-bump 450ms cubic-bezier(0.34, 1.56, 0.64, 1)",
                 "cart-add-pulse": "cart-add-pulse 320ms ease-out",
                 "success-ring": "success-ring 900ms ease-out forwards",
                 "rescue-fade-in": "rescue-fade-in 320ms ease-out",
+                // `both` fill so the 0% (hidden) state applies during the stagger delay.
+                "avatar-pop": "avatar-pop 550ms cubic-bezier(0.34, 1.56, 0.64, 1) both",
+                "avatar-live": "avatar-live 2s ease-in-out infinite 0.6s",
             },
         },
     },

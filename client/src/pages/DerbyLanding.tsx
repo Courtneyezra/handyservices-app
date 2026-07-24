@@ -4,6 +4,7 @@ import { WistiaFacade } from "@/components/quote/WistiaFacade";
 import { Button } from "@/components/ui/button";
 import { SiWhatsapp, SiGoogle } from "react-icons/si";
 import { IntakeHero } from "@/components/IntakeHero";
+import { CONTRACTOR_ROSTER } from "@/lib/contractor-roster";
 import { GoogleReviewsSection } from "@/components/GoogleReviewsSection";
 import { StickyCTA } from "@/components/StickyCTA";
 import { ChatHandymanPopup } from "@/components/ChatHandymanPopup";
@@ -39,10 +40,9 @@ function TeamSection() {
     // Person-led brand: the SAME real handymen the quote assigns — one consistent
     // cast across the whole journey, and the same team that serves Derby.
     // ⚠️ Ratings / job counts are PLACEHOLDERS pending real profile data (C5).
-    const team = [
-        { name: "Craig", role: "Lead handyman", img: "/assets/quote-images/craig-banner.webp", meta: "4.9 · 214 jobs completed" },
-        { name: "Joe", role: "Handyman & carpenter", img: "/assets/quote-images/joe-estimator.webp", meta: "4.9 · vetted, DBS-checked" },
-    ];
+    const team = CONTRACTOR_ROSTER.map((c) => ({
+        name: c.name, role: c.role, img: c.portraitUrl, meta: c.meta,
+    }));
     const recentWork = [
         { url: "/assets/quote-images/craig-bathroom.webp", label: "Bathroom reseal" },
         { url: "/assets/quote-images/craig-tiling.webp", label: "Tiling" },

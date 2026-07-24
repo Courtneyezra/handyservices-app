@@ -2,6 +2,7 @@ import { MessageCircle, CheckCircle, Clock, Shield, Phone, Gift, Star, Users } f
 import { SiGoogle, SiWhatsapp } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { DesktopLeadForm } from "@/components/DesktopLeadForm";
+import { CONTRACTOR_ROSTER } from "@/lib/contractor-roster";
 import defaultHeroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
 
 interface IntakeHeroProps {
@@ -77,16 +78,19 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                   team section features. One consistent, real cast. */}
               <div className="lg:hidden flex flex-col items-center mb-6">
                 <div className="relative flex items-center -space-x-5">
-                  <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-amber-400 shadow-lg shadow-amber-400/30 relative z-20">
-                    <img src="/assets/avatars/craig-avatar-1.webp" alt="Craig, your Nottingham handyman" className="w-full h-full object-cover" loading="eager" />
-                  </div>
-                  <div className="w-20 h-20 rounded-full overflow-hidden border-[3px] border-slate-900 shadow-lg relative z-10">
-                    <img src="/assets/quote-images/joe-estimator.webp" alt="Joe, your Nottingham handyman" className="w-full h-full object-cover" loading="eager" />
-                  </div>
-                  <span className="absolute -bottom-0.5 left-16 w-4 h-4 rounded-full bg-green-500 ring-2 ring-slate-900 z-30" aria-hidden="true" />
+                  {CONTRACTOR_ROSTER.slice(0, 4).map((c, i) => (
+                    <div
+                      key={c.key}
+                      className={`w-20 h-20 rounded-full overflow-hidden border-[3px] shadow-lg relative animate-avatar-pop motion-reduce:animate-none ${i === 0 ? "border-amber-400 shadow-amber-400/30" : "border-slate-900"}`}
+                      style={{ zIndex: 20 - i * 2, animationDelay: `${0.05 + i * 0.08}s` }}
+                    >
+                      <img src={c.avatarUrl} alt={`${c.name}, your Nottingham handyman`} className="w-full h-full object-cover" loading="eager" />
+                    </div>
+                  ))}
+                  <span className="absolute -bottom-0.5 left-16 w-4 h-4 rounded-full bg-green-500 border-2 border-slate-900 z-30 animate-avatar-live motion-reduce:animate-none" aria-hidden="true" />
                 </div>
                 <p className="mt-3 text-white/90 text-sm text-center">
-                  <span className="font-bold text-white">Craig, Joe</span> &amp; the local team
+                  <span className="font-bold text-white">{CONTRACTOR_ROSTER.slice(0, 3).map((c) => c.name).join(", ")}</span> &amp; the local team
                 </p>
               </div>
 
