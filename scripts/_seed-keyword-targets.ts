@@ -76,6 +76,32 @@ const DATA: Row[] = [
     { city: 'derby', trade: 'plumber', keyword: 'emergency plumber derby', intent: 'emergency', deliverability: 'sub', vol: 210, comp: 'MEDIUM' },
     { city: 'derby', trade: 'electrician', keyword: 'electrician derby', intent: 'trade_service', deliverability: 'sub', vol: 880, comp: 'MEDIUM' },
     { city: 'derby', trade: 'electrician', keyword: 'emergency electrician derby', intent: 'emergency', deliverability: 'sub', vol: 70, comp: 'MEDIUM' },
+
+    // ---- Widened universe (full trade sweep, 24 Jul) — tracked now, pages TBD ----
+    // New viable service clusters beyond the original 16. Synonym variants clustered
+    // to the head term (e.g. artificial grass ~320, not summed across synonyms).
+    // Nottingham
+    { city: 'nottingham', trade: 'fitted-wardrobes', keyword: 'fitted wardrobes nottingham', intent: 'trade_service', deliverability: 'core', vol: 320, comp: 'MEDIUM' },
+    { city: 'nottingham', trade: 'fitted-wardrobes', keyword: 'sliding wardrobes nottingham', intent: 'trade_service', deliverability: 'core', vol: 320, comp: 'MEDIUM' },
+    { city: 'nottingham', trade: 'flooring', keyword: 'carpet fitters nottingham', intent: 'trade_service', deliverability: 'core', vol: 320, comp: 'MEDIUM' },
+    { city: 'nottingham', trade: 'flooring', keyword: 'lvt flooring nottingham', intent: 'trade_service', deliverability: 'core', vol: 110, comp: 'HIGH' },
+    { city: 'nottingham', trade: 'flooring', keyword: 'floor fitter nottingham', intent: 'trade_service', deliverability: 'core', vol: 50, comp: 'HIGH' },
+    { city: 'nottingham', trade: 'artificial-grass', keyword: 'artificial grass nottingham', intent: 'trade_service', deliverability: 'core', vol: 320, comp: 'HIGH' },
+    { city: 'nottingham', trade: 'garage-door', keyword: 'garage door repair nottingham', intent: 'trade_service', deliverability: 'core', vol: 210, comp: 'HIGH' },
+    { city: 'nottingham', trade: 'roof-cleaning', keyword: 'roof cleaning nottingham', intent: 'trade_service', deliverability: 'core', vol: 170, comp: 'HIGH' },
+    { city: 'nottingham', trade: 'loft-boarding', keyword: 'loft boarding nottingham', intent: 'trade_service', deliverability: 'core', vol: 140, comp: 'HIGH' },
+    { city: 'nottingham', trade: 'plasterer', keyword: 'rendering nottingham', intent: 'trade_service', deliverability: 'core', vol: 110, comp: 'MEDIUM' },
+    { city: 'nottingham', trade: 'ev-charger', keyword: 'ev charger installation nottingham', intent: 'trade_service', deliverability: 'sub', vol: 90, comp: 'MEDIUM' },
+    { city: 'nottingham', trade: 'landscaping', keyword: 'garden clearance nottingham', intent: 'trade_service', deliverability: 'core', vol: 90, comp: 'HIGH' },
+    { city: 'nottingham', trade: 'property-maintenance', keyword: 'facilities management nottingham', intent: 'upmarket', deliverability: 'core', vol: 70, comp: 'LOW' },
+    { city: 'nottingham', trade: 'pressure-washing', keyword: 'jet washing nottingham', intent: 'trade_service', deliverability: 'core', vol: 50, comp: 'MEDIUM' },
+    { city: 'nottingham', trade: 'landscaping', keyword: 'hedge trimming nottingham', intent: 'trade_service', deliverability: 'core', vol: 40, comp: 'HIGH' },
+    // Derby
+    { city: 'derby', trade: 'plasterer', keyword: 'plastering derby', intent: 'trade_service', deliverability: 'core', vol: 480, comp: 'HIGH' },
+    { city: 'derby', trade: 'carpenter', keyword: 'carpenter derby', intent: 'trade_service', deliverability: 'core', vol: 170, comp: 'MEDIUM' },
+    { city: 'derby', trade: 'gutter-cleaning', keyword: 'guttering repairs derby', intent: 'trade_service', deliverability: 'core', vol: 110, comp: 'HIGH' },
+    { city: 'derby', trade: 'landscaping', keyword: 'garden clearance derby', intent: 'trade_service', deliverability: 'core', vol: 70, comp: 'HIGH' },
+    { city: 'derby', trade: 'pressure-washing', keyword: 'jet washing derby', intent: 'trade_service', deliverability: 'core', vol: 30, comp: 'MEDIUM' },
 ];
 
 // intent -> page tier in the 5-tier architecture
