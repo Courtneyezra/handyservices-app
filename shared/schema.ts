@@ -3355,3 +3355,151 @@ export type InsertContractorCommitment = typeof contractorCommitments.$inferInse
 export const insertBookingAssignmentSchema = createInsertSchema(bookingAssignments);
 export type BookingAssignment = typeof bookingAssignments.$inferSelect;
 export type InsertBookingAssignment = typeof bookingAssignments.$inferInsert;
+
+// =====================================================================
+// SEO / AI-Search domination system (Nottingham/Derby, cloneable per-city)
+// See docs blueprint. Core principle: RANK != FULFIL — tracking is always
+// on; publishing a page and enabling its booking CTA are gated per-trade
+// on real delivery capacity (trackRankings vs pagePublished vs bookingEnabled).
+// =====================================================================
+
+// Where a keyword can rank / be cited
+export const seoEngineEnum = pgEnum('seo_engine', [
+    'google_organic',   // classic 10-blue-links
+    'google_pack',      // local map pack (different ranking system)
+    'ai_overview',      // Google AI Overviews
+    'chatgpt',          // cited in ChatGPT answer
+    'perplexity',       // cited in Perplexity answer
+    'gemini',           // cited in Gemini answer
+]);
+
+// Search intent — drives page type and whether we target at all
+export const seoIntentEnum = pgEnum('seo_intent', [
+    'service_head',       // "handyman nottingham" — umbrella head
+    'trade_service',      // "gutter cleaning nottingham" — the SEO engine
+    'trade_supply',       // "fence panels nottingham" — DIY/product, usually SKIP
+    'upmarket',           // "property maintenance nottingham" — high LTV
+    'emergency',          // "emergency plumber nottingham" — urgent, gated on capacity
+    'brand_competitor',   // "ag fencing derby" — competitor brand, SKIP
+    'informational',      // "cost of X in nottingham" — AEO/answer content
+]);
+
+// Who fulfils the work — decoupled from whether we rank
+export const seoDeliverabilityEnum = pgEnum('seo_deliverability', [
+    'core',          // Handy delivers directly (painter, gutter, fencing, etc.)
+    'sub',           // vetted-pool fork (roofer, locksmith, plumber, electrician)
+    'out_of_scope',  // will not fulfil
+]);
+
+export const seoCompetitionEnum = pgEnum('seo_competition', ['LOW', 'MEDIUM', 'HIGH', 'UNKNOWN']);
+
+// Page tier in the 5-tier architecture (maps intent -> page type)
+export const seoTierEnum = pgEnum('seo_tier', [
+    'T1_city_hub',
+    'T2_service_city',
+    'T3_job_suburb',      // programmatic
+    'T4_segment',
+    'T5_emergency',
+]);
+
+// The keyword universe — seeded once from the Apify keyword pull, tracked forever.
+export const keywordTargets = pgTable("keyword_targets", {
+    id: serial("id").primaryKey(),
+    city: text("city").notNull(),                 // e.g. "nottingham", "derby"
+    trade: text("trade").notNull(),               // e.g. "gutter-cleaning", "handyman"
+    keyword: text("keyword").notNull(),           // the exact geo query
+    intent: seoIntentEnum("intent").notNull(),
+    tier: seoTierEnum("tier"),                     // nullable until architecture-mapped
+    deliverability: seoDeliverabilityEnum("deliverability").notNull(),
+
+    // Demand data (from Google Keyword Planner via Apify)
+    avgMonthlySearches: integer("avg_monthly_searches").default(0).notNull(),
+    competition: seoCompetitionEnum("competition").default('UNKNOWN').notNull(),
+    cpcLowMicros: integer("cpc_low_micros"),      // top-of-page bid, low (micros)
+    cpcHighMicros: integer("cpc_high_micros"),    // top-of-page bid, high (micros)
+    priorityScore: integer("priority_score"),     // computed: volume x intent x deliverability
+
+    // Funnel gates — RANK != FULFIL. Track always; publish + book only when ready.
+    trackRankings: boolean("track_rankings").default(true).notNull(),
+    pagePublished: boolean("page_published").default(false).notNull(),  // page generator reads this
+    bookingEnabled: boolean("booking_enabled").default(false).notNull(),// booking CTA / fulfil gate
+
+    targetUrl: text("target_url"),                // the page this maps to, once built
+    source: text("source").default('google_keyword_planner').notNull(),
+    notes: text("notes"),
+
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+    uniqueIndex("idx_keyword_targets_city_keyword").on(table.city, table.keyword),
+    index("idx_keyword_targets_city_trade").on(table.city, table.trade),
+    index("idx_keyword_targets_deliverability").on(table.deliverability),
+]);
+
+// Time-series of where each keyword ranks / is cited, per engine. Cron-populated.
+export const rankSnapshots = pgTable("rank_snapshots", {
+    id: serial("id").primaryKey(),
+    keywordTargetId: integer("keyword_target_id").references(() => keywordTargets.id, { onDelete: 'cascade' }).notNull(),
+    engine: seoEngineEnum("engine").notNull(),
+    position: integer("position"),               // null = not found / not ranking
+    url: text("url"),                            // ranking/cited URL
+    rankedFeature: text("ranked_feature"),       // e.g. "featured_snippet", "local_pack_3"
+    cited: boolean("cited").default(false).notNull(), // AI engines: were we named/cited
+    rawMeta: jsonb("raw_meta"),                  // full SERP/citation payload for audit
+    capturedAt: timestamp("captured_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_rank_snapshots_keyword").on(table.keywordTargetId),
+    index("idx_rank_snapshots_captured").on(table.capturedAt),
+    index("idx_rank_snapshots_keyword_engine").on(table.keywordTargetId, table.engine),
+]);
+
+// Google Business Profile performance per location — the Local Pack signal + reviews.
+export const gmbMetrics = pgTable("gmb_metrics", {
+    id: serial("id").primaryKey(),
+    location: text("location").notNull(),        // e.g. "nottingham"
+    profileId: text("profile_id"),               // Google Business Profile location id
+    searchViews: integer("search_views").default(0).notNull(),
+    mapsViews: integer("maps_views").default(0).notNull(),
+    calls: integer("calls").default(0).notNull(),
+    directionRequests: integer("direction_requests").default(0).notNull(),
+    websiteClicks: integer("website_clicks").default(0).notNull(),
+    bookings: integer("bookings").default(0).notNull(),
+    reviewCount: integer("review_count").default(0).notNull(),
+    avgRatingTenths: integer("avg_rating_tenths"),   // 49 = 4.9 stars (integer convention)
+    capturedAt: timestamp("captured_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_gmb_metrics_location").on(table.location),
+    index("idx_gmb_metrics_captured").on(table.capturedAt),
+]);
+
+// Closes the loop: ties an inbound lead to the keyword/page that produced it,
+// so rankings connect to deposit_paid_at revenue, not vanity positions.
+// Kept as its own table (additive, non-invasive to the hot leads table).
+export const seoLeadAttributions = pgTable("seo_lead_attributions", {
+    id: serial("id").primaryKey(),
+    leadId: varchar("lead_id").references(() => leads.id, { onDelete: 'cascade' }).notNull(),
+    keywordTargetId: integer("keyword_target_id").references(() => keywordTargets.id, { onDelete: 'set null' }),
+    landingUrl: text("landing_url"),
+    rawKeyword: text("raw_keyword"),             // query as captured (may pre-date a target row)
+    engine: seoEngineEnum("engine"),             // which surface referred them
+    capturedAt: timestamp("captured_at").defaultNow().notNull(),
+}, (table) => [
+    index("idx_seo_lead_attr_lead").on(table.leadId),
+    index("idx_seo_lead_attr_keyword").on(table.keywordTargetId),
+]);
+
+export const insertKeywordTargetSchema = createInsertSchema(keywordTargets);
+export type KeywordTarget = typeof keywordTargets.$inferSelect;
+export type InsertKeywordTarget = typeof keywordTargets.$inferInsert;
+
+export const insertRankSnapshotSchema = createInsertSchema(rankSnapshots);
+export type RankSnapshot = typeof rankSnapshots.$inferSelect;
+export type InsertRankSnapshot = typeof rankSnapshots.$inferInsert;
+
+export const insertGmbMetricSchema = createInsertSchema(gmbMetrics);
+export type GmbMetric = typeof gmbMetrics.$inferSelect;
+export type InsertGmbMetric = typeof gmbMetrics.$inferInsert;
+
+export const insertSeoLeadAttributionSchema = createInsertSchema(seoLeadAttributions);
+export type SeoLeadAttribution = typeof seoLeadAttributions.$inferSelect;
+export type InsertSeoLeadAttribution = typeof seoLeadAttributions.$inferInsert;

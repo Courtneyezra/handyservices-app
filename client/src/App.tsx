@@ -100,6 +100,7 @@ const PipelinePage = lazy(() => import("@/pages/admin/PipelinePage"));
 const VATrainingCenter = lazy(() => import("@/pages/admin/VATrainingCenter"));
 const CareersAdmin = lazy(() => import("@/pages/admin/CareersAdmin"));
 const BusinessModelDashboard = lazy(() => import("@/pages/admin/BusinessModelDashboard"));
+const SeoDashboard = lazy(() => import("@/pages/admin/SeoDashboard"));
 const DisputesPage = lazy(() => import("@/pages/admin/DisputesPage"));
 const WTBPRateCardPage = lazy(() => import("@/pages/admin/WTBPRateCardPage"));
 const PricingLoopPage = lazy(() => import("@/pages/admin/PricingLoopPage"));
@@ -968,6 +969,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <BusinessModelDashboard />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/seo">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <SeoDashboard />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

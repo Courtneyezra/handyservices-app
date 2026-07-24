@@ -96,6 +96,7 @@ import deflectionMetricsRouter from './routes/deflection-metrics'; // Troublesho
 import { careersRouter } from './careers-routes'; // Recruitment pipeline
 import { partnerRouter } from './partner-routes'; // Partner/area licensee enquiries
 import businessModelRouter from './business-model-routes'; // Business Model Forecast Dashboard
+import seoRouter from './seo-routes'; // SEO domination: keyword universe, rank tracking, GMB
 import dailyPlannerRouter from './daily-planner-routes'; // Dispatch Daily Planner
 import { slotOfferAdminRouter, slotOfferPublicRouter } from './slot-offer-routes'; // Customer slot-offer confirmation
 import dispatchMapRouter from './dispatch-map-routes'; // Dispatch Map (spatial overview)
@@ -494,6 +495,7 @@ app.post('/api/join/apply', async (req, res) => {
   }
 });
 app.use(businessModelRouter); // Business Model Forecast Dashboard
+app.use(seoRouter); // SEO domination: /api/admin/seo/* (overview, keywords, gmb)
 app.use('/api/admin/daily-planner', requireAdmin, dailyPlannerRouter); // Dispatch Daily Planner
 app.use('/api/admin/daily-planner', requireAdmin, slotOfferAdminRouter); // Customer slot-offer (dispatcher-facing)
 app.use('/api/slot-offer', slotOfferPublicRouter); // Customer slot-offer (PUBLIC — token is the credential)
