@@ -39,6 +39,8 @@ const PHONE_NUMBER = "+447449501762";
 
 import { LandingHeader } from "@/components/LandingHeader";
 import { GoogleReviewsBadge } from "@/components/LandingShared";
+import { JsonLd } from "@/components/seo/JsonLd";
+import { localBusinessSchema, serviceSchema } from "@/lib/seo-schema";
 
 
 
@@ -666,6 +668,8 @@ export default function PropertyManagerLanding() {
 
     return (
         <div className="min-h-screen bg-slate-50 font-poppins text-slate-900 font-medium">
+            <JsonLd data={localBusinessSchema({ city: 'Nottingham' })} />
+            <JsonLd data={serviceSchema({ trade: 'Property Maintenance', city: 'Nottingham' })} />
             <LandingHeader onConversion={trackConversion} />
             <IntakeHero
                 location="Nottingham"

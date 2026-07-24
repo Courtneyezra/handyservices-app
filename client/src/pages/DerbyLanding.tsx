@@ -13,6 +13,8 @@ import { PropertyManagerView } from "@/components/PropertyManagerView";
 import { BusinessView } from "@/components/BusinessView";
 import { HassleComparisonSection } from "@/components/HassleComparisonSection";
 import { LandingHeader } from "@/components/LandingHeader";
+import { JsonLd } from "@/components/seo/JsonLd";
+import { localBusinessSchema, serviceSchema } from "@/lib/seo-schema";
 
 import heroImage from "@assets/f7550ab2-8282-4cf6-b2af-83496eef2eee_1764599750751.webp";
 import realJobToilet from "@assets/c33e343a-3b9d-4d85-97cb-a0752ea3e80d_1764687156907.webp";
@@ -712,6 +714,8 @@ export default function DerbyLanding({
 
     return (
         <div className="min-h-screen bg-slate-50 font-poppins text-slate-900 font-medium">
+            <JsonLd data={localBusinessSchema({ city: 'Derby' })} />
+            <JsonLd data={serviceSchema({ trade: 'Handyman', city: 'Derby' })} />
             <LandingHeader onConversion={trackConversionWithEvent} />
 
             {/* Shared Background Container for Hero + Map */}

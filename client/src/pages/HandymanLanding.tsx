@@ -40,6 +40,8 @@ const WHATSAPP_MESSAGE = encodeURIComponent("I'm interested in Handy Services");
 const PHONE_NUMBER = "+447449501762";
 
 import { LandingHeader } from "@/components/LandingHeader";
+import { JsonLd } from "@/components/seo/JsonLd";
+import { localBusinessSchema, serviceSchema } from "@/lib/seo-schema";
 
 
 
@@ -801,6 +803,8 @@ export default function HandymanLanding({
 
     return (
         <div className="min-h-screen bg-slate-50 font-poppins text-slate-900 font-medium">
+            <JsonLd data={localBusinessSchema({ city: 'Nottingham' })} />
+            <JsonLd data={serviceSchema({ trade: 'Handyman', city: 'Nottingham' })} />
             <LandingHeader onConversion={trackConversionWithEvent} />
 
             {/* Shared Background Container for Hero + Map */}

@@ -22,6 +22,8 @@ import { SiWhatsapp } from "react-icons/si";
 import { GoogleReviewsSection } from "@/components/GoogleReviewsSection";
 import { StickyCTA } from "@/components/StickyCTA";
 import { LandingHeader } from "@/components/LandingHeader";
+import { JsonLd } from "@/components/seo/JsonLd";
+import { localBusinessSchema, serviceSchema, faqSchema } from "@/lib/seo-schema";
 
 const WHATSAPP_NUMBER = "+447508744402";
 const WHATSAPP_MESSAGE = encodeURIComponent(
@@ -533,6 +535,9 @@ export default function CleaningLanding() {
 
   return (
     <div className="min-h-screen bg-slate-900">
+      <JsonLd data={localBusinessSchema({ city: 'Nottingham' })} />
+      <JsonLd data={serviceSchema({ trade: 'Pressure Washing', city: 'Nottingham' })} />
+      <JsonLd data={faqSchema(FAQ_ITEMS)} />
       <LandingHeader />
       <HeroSection />
       <TrustStrip />
