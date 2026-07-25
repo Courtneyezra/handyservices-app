@@ -9,16 +9,14 @@
 // this router never swallows SPA / asset / API routes.
 
 import { Router } from "express";
-import { db } from "./db";
-import { keywordTargets } from "@shared/schema";
-import { eq } from "drizzle-orm";
-import { SEO_CITIES, SEO_SERVICES } from "./seo/contract";
+import { SEO_CITIES } from "./seo/contract";
 import {
     renderCityHub,
     renderServiceCity,
     renderJobSuburb,
     renderSitemapXml,
 } from "./seo/render";
+import { ROLLOUT, getPublishedTrades } from "./seo/rollout";
 
 const router = Router();
 
@@ -26,27 +24,15 @@ const router = Router();
 const SEO_CITY_SLUGS = new Set(SEO_CITIES.map((c) => c.slug));
 
 // ── /sitemap.xml ──────────────────────────────────────────────────────────
+// Lists T1 hubs + published T2 pages only. Suburb (T3) pages are excluded
+// while they ship noindex (ROLLOUT.T3_INDEXABLE) — a noindex URL must not
+// appear in the sitemap.
 router.get("/sitemap.xml", async (_req, res) => {
-    let publishedSlugs: string[] = [];
-    try {
-        const rows = await db
-            .selectDistinct({ trade: keywordTargets.trade })
-            .from(keywordTargets)
-            .where(eq(keywordTargets.pagePublished, true));
-        publishedSlugs = rows.map((r) => r.trade).filter(Boolean);
-    } catch (err) {
-        console.error("[SEO] sitemap: keywordTargets query failed, falling back to core services:", err);
-    }
-
-    // Never emit an empty sitemap (dev / empty DB) — fall back to all core services.
-    if (publishedSlugs.length === 0) {
-        publishedSlugs = SEO_SERVICES
-            .filter((s) => s.deliverability === "core")
-            .map((s) => s.slug);
-    }
-
+    const published = await getPublishedTrades();
     res.setHeader("Content-Type", "application/xml");
-    res.send(renderSitemapXml(publishedSlugs));
+    res.send(
+        renderSitemapXml([...published], { includeSuburbs: ROLLOUT.T3_INDEXABLE }),
+    );
 });
 
 // ── /robots.txt ───────────────────────────────────────────────────────────
@@ -65,17 +51,25 @@ router.get("/robots.txt", (_req, res) => {
 });
 
 // ── T3: /:city/:service/:suburb ─────────────────────────────────────────────
+// Served during rollout as noindex,follow (crawlable for link equity, not
+// indexed) until suburb pages carry unique local content — see ROLLOUT.
 router.get("/:city/:service/:suburb", (req, res, next) => {
     if (!SEO_CITY_SLUGS.has(req.params.city)) return next();
-    const result = renderJobSuburb(req.params.city, req.params.service, req.params.suburb);
+    const result = renderJobSuburb(req.params.city, req.params.service, req.params.suburb, {
+        indexable: ROLLOUT.T3_INDEXABLE,
+    });
     res.status(result.status).setHeader("Content-Type", "text/html");
     res.send(result.html);
 });
 
 // ── T2: /:city/:service ─────────────────────────────────────────────────────
-router.get("/:city/:service", (req, res, next) => {
+// Indexable only when the trade is published (per-trade stagger control).
+router.get("/:city/:service", async (req, res, next) => {
     if (!SEO_CITY_SLUGS.has(req.params.city)) return next();
-    const result = renderServiceCity(req.params.city, req.params.service);
+    const published = await getPublishedTrades();
+    const result = renderServiceCity(req.params.city, req.params.service, {
+        indexable: published.has(req.params.service),
+    });
     res.status(result.status).setHeader("Content-Type", "text/html");
     res.send(result.html);
 });

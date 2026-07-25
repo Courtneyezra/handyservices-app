@@ -570,6 +570,8 @@ function finalize(
         ctaHref?: string;
         waHref?: string;
         reviewCount?: number;
+        /** Rollout gate: when true, force noindex regardless of content depth. */
+        forceNoindex?: boolean;
     },
     faqCount: number,
 ): RenderResult {
@@ -579,6 +581,7 @@ function finalize(
         words < SEO_THIN_CONTENT.minVisibleWords ||
         faqCount < SEO_THIN_CONTENT.minFaqItems ||
         links < SEO_THIN_CONTENT.minInternalLinks;
+    const noindex = thin || parts.forceNoindex === true;
 
     // Point the in-body "Get a free quote" buttons (hero + CTA band) at the
     // context-carrying quote URL, in one place.
@@ -594,14 +597,14 @@ function finalize(
         ogTags: parts.ogTags,
         jsonLdBlocks: parts.jsonLdBlocks,
         bodyHtml,
-        noindex: thin,
+        noindex,
         imageUrl: parts.imageUrl,
         ctaHref: parts.ctaHref,
         waHref: parts.waHref,
         reviewCount: parts.reviewCount,
     });
 
-    return { html, status: 200, noindexed: thin };
+    return { html, status: 200, noindexed: noindex };
 }
 
 // ---- T1: city hub -------------------------------------------------------
@@ -697,7 +700,11 @@ export function renderCityHub(citySlug: string): RenderResult {
 
 // ---- T2: service x city -------------------------------------------------
 
-export function renderServiceCity(citySlug: string, serviceSlug: string): RenderResult {
+export function renderServiceCity(
+    citySlug: string,
+    serviceSlug: string,
+    opts?: { indexable?: boolean },
+): RenderResult {
     const city = content.getCity(citySlug);
     const service = content.getService(serviceSlug);
     if (!city || !service) return notFound();
@@ -798,6 +805,8 @@ export function renderServiceCity(citySlug: string, serviceSlug: string): Render
             ctaHref: quoteHref(citySlug, serviceSlug),
             waHref: waLink(city.name, service.label, canonical),
             reviewCount: city.reviewCount,
+            // Rollout gate: T2 is indexable only when its trade is published.
+            forceNoindex: opts?.indexable === false,
         },
         faq.length,
     );
@@ -809,6 +818,7 @@ export function renderJobSuburb(
     citySlug: string,
     serviceSlug: string,
     suburbSlug: string,
+    opts?: { indexable?: boolean },
 ): RenderResult {
     const city = content.getCity(citySlug);
     const service = content.getService(serviceSlug);
@@ -917,6 +927,8 @@ export function renderJobSuburb(
             ctaHref: quoteHref(citySlug, serviceSlug, suburbSlug),
             waHref: waLink(suburb.name, service.label, canonical),
             reviewCount: city.reviewCount,
+            // Rollout gate: suburb pages ship as noindex,follow until enriched.
+            forceNoindex: opts?.indexable === false,
         },
         faq.length,
     );
@@ -924,9 +936,13 @@ export function renderJobSuburb(
 
 // ---- sitemap ------------------------------------------------------------
 
-export function renderSitemapXml(publishedServiceSlugs?: string[]): string {
+export function renderSitemapXml(
+    publishedServiceSlugs?: string[],
+    opts?: { includeSuburbs?: boolean },
+): string {
     const cities = content.listCities();
     const coreServices = content.listServices({ deliverability: 'core' });
+    const includeSuburbs = opts?.includeSuburbs === true;
 
     const allowService = (slug: string): boolean =>
         !publishedServiceSlugs || publishedServiceSlugs.includes(slug);
@@ -945,9 +961,12 @@ export function renderSitemapXml(publishedServiceSlugs?: string[]): string {
             if (!allowService(service.slug)) continue;
             // T2 service x city
             push(absUrl(`${city.slug}/${service.slug}`));
-            // T3 service x city x suburb
-            for (const sub of suburbs) {
-                push(absUrl(`${city.slug}/${service.slug}/${sub.slug}`));
+            // T3 service x city x suburb — only when suburb pages are indexable
+            // (they ship noindex during rollout, so are kept out of the sitemap).
+            if (includeSuburbs) {
+                for (const sub of suburbs) {
+                    push(absUrl(`${city.slug}/${service.slug}/${sub.slug}`));
+                }
             }
         }
     }
