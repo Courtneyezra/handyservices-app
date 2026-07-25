@@ -8,12 +8,12 @@
  * immediately bookable. Craig is the template; a teams variant forks on
  * provider.type. See docs/contractor-platform/04-contractor-app.md.
  */
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useRoute } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin } from 'lucide-react';
+import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin, Play, ChevronLeft } from 'lucide-react';
 import { addDays as addDaysFn, startOfWeek } from 'date-fns';
 
 // ── Types (mirror server/contractor-app-routes.ts) ────────────────────────────
@@ -202,6 +202,7 @@ const flexToDetail = (f: FlexJob): JobDetail => ({
   payLines: f.payLines,
 });
 const TIER_LABEL: Record<string, string> = { specialist: 'Specialist', skilled: 'Skilled', general: 'General', outdoor: 'Outdoor' };
+const isVideo = (url: string) => /\.(mp4|mov|webm|m4v|ogg)(\?|$)/i.test(url);
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -220,6 +221,7 @@ export default function MyWeekPage() {
   const [confirmLock, setConfirmLock] = useState<string | null>(null); // plan date
   const [lockError, setLockError] = useState<string | null>(null);
   const [jobDetail, setJobDetail] = useState<JobDetail | null>(null);
+  const [lightbox, setLightbox] = useState<{ urls: string[]; index: number } | null>(null);
 
   const { data, isLoading, isError } = useQuery<AppPayload>({
     queryKey: ['contractor-app', token],
@@ -501,6 +503,18 @@ export default function MyWeekPage() {
     const next = NEXT_PATTERN_MODE[patternMode(p)];
     return { ...p, am: next === 'am' || next === 'full', pm: next === 'pm' || next === 'full' };
   }
+
+  // Close the lightbox on Escape / hardware back.
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightbox(null);
+      if (e.key === 'ArrowLeft') setLightbox((lb) => (lb ? { ...lb, index: (lb.index - 1 + lb.urls.length) % lb.urls.length } : lb));
+      if (e.key === 'ArrowRight') setLightbox((lb) => (lb ? { ...lb, index: (lb.index + 1) % lb.urls.length } : lb));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lightbox]);
 
   // ── Render ──
 
@@ -1375,12 +1389,21 @@ export default function MyWeekPage() {
                 {/* Photos from the quote */}
                 {jobDetail.photoUrls && jobDetail.photoUrls.length > 0 && (
                   <div className="mb-4 -mx-1">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 px-1">Photos</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 px-1">Photos &amp; videos · {jobDetail.photoUrls.length}</div>
                     <div className="flex gap-2 overflow-x-auto px-1 pb-1">
                       {jobDetail.photoUrls.map((url, i) => (
-                        <a key={i} href={url} target="_blank" rel="noreferrer" className="shrink-0">
-                          <img src={url} alt="" className="w-24 h-24 rounded-xl object-cover border border-slate-700" />
-                        </a>
+                        <button key={i} onClick={() => setLightbox({ urls: jobDetail.photoUrls!, index: i })} className="relative shrink-0 active:scale-95 transition-transform">
+                          {isVideo(url) ? (
+                            <>
+                              <video src={url} className="w-24 h-24 rounded-xl object-cover border border-slate-700 bg-slate-800" muted playsInline preload="metadata" />
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <div className="w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center"><Play size={16} className="text-white fill-white ml-0.5" /></div>
+                              </div>
+                            </>
+                          ) : (
+                            <img src={url} alt="" loading="lazy" className="w-24 h-24 rounded-xl object-cover border border-slate-700" />
+                          )}
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -1429,6 +1452,68 @@ export default function MyWeekPage() {
             </motion.div>
           </motion.div>
         )}
+      </AnimatePresence>
+
+      {/* Media lightbox — photos & videos, full screen */}
+      <AnimatePresence>
+        {lightbox && (() => {
+          const url = lightbox.urls[lightbox.index];
+          const many = lightbox.urls.length > 1;
+          const go = (d: number) => setLightbox((lb) => (lb ? { ...lb, index: (lb.index + d + lb.urls.length) % lb.urls.length } : lb));
+          return (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[70] flex items-center justify-center bg-black/95"
+              onClick={() => setLightbox(null)}
+            >
+              {/* Close */}
+              <button
+                onClick={(e) => { e.stopPropagation(); setLightbox(null); }}
+                className="absolute top-4 right-4 z-10 w-11 h-11 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center text-white active:scale-90 transition-transform"
+                aria-label="Close"
+              ><X size={22} /></button>
+
+              {/* Counter */}
+              {many && (
+                <div className="absolute top-5 left-1/2 -translate-x-1/2 z-10 text-xs font-semibold text-white/80 bg-white/10 backdrop-blur-sm px-3 py-1 rounded-full">
+                  {lightbox.index + 1} / {lightbox.urls.length}
+                </div>
+              )}
+
+              {/* Media */}
+              <motion.div
+                key={lightbox.index}
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.18 }}
+                className="max-w-[92vw] max-h-[82vh] flex items-center justify-center"
+                onClick={(e) => e.stopPropagation()}
+                drag={many ? 'x' : false}
+                dragConstraints={{ left: 0, right: 0 }}
+                dragElastic={0.2}
+                onDragEnd={(_, info) => { if (info.offset.x < -80) go(1); else if (info.offset.x > 80) go(-1); }}
+              >
+                {isVideo(url) ? (
+                  <video src={url} controls autoPlay playsInline className="max-w-[92vw] max-h-[82vh] rounded-xl" />
+                ) : (
+                  <img src={url} alt="" className="max-w-[92vw] max-h-[82vh] rounded-xl object-contain select-none" draggable={false} />
+                )}
+              </motion.div>
+
+              {/* Prev / next */}
+              {many && (
+                <>
+                  <button onClick={(e) => { e.stopPropagation(); go(-1); }} className="absolute left-2 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center text-white active:scale-90 transition-transform" aria-label="Previous"><ChevronLeft size={24} /></button>
+                  <button onClick={(e) => { e.stopPropagation(); go(1); }} className="absolute right-2 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center text-white active:scale-90 transition-transform" aria-label="Next"><ChevronRight size={24} /></button>
+                </>
+              )}
+
+              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 text-[11px] text-white/40">Tap outside or press Esc to close</div>
+            </motion.div>
+          );
+        })()}
       </AnimatePresence>
 
       {/* Day bottom sheet */}
