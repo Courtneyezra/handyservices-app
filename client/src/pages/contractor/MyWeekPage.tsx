@@ -13,7 +13,7 @@ import { useRoute } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star } from 'lucide-react';
+import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin } from 'lucide-react';
 import { addDays as addDaysFn, startOfWeek } from 'date-fns';
 
 // ── Types (mirror server/contractor-app-routes.ts) ────────────────────────────
@@ -71,6 +71,8 @@ interface BookedJob {
   postcodeArea: string | null;
   jobDescription: string | null;
   fullDescription: string | null;
+  mapQuery: string | null;
+  photoUrls: string[] | null;
   valuePence: number | null;
   payoutPence: number | null;
   materialsAllowancePence: number | null;
@@ -82,6 +84,8 @@ interface FlexJob {
   postcodeArea: string | null;
   jobDescription: string | null;
   fullDescription: string | null;
+  mapQuery: string | null;
+  photoUrls: string[] | null;
   valuePence: number | null;
   payoutPence: number | null;
   materialsAllowancePence: number | null;
@@ -167,6 +171,8 @@ interface JobDetail {
   whenLabel: string | null;
   status: 'booked' | 'flex';
   fullDescription: string | null;
+  mapQuery: string | null;
+  photoUrls: string[] | null;
   payoutPence: number | null;
   materialsAllowancePence: number | null;
   payLines: PayLine[] | null;
@@ -177,6 +183,8 @@ const bookedToDetail = (b: BookedJob): JobDetail => ({
   whenLabel: `${format(new Date(b.date + 'T00:00:00'), 'EEE d MMM')}${(b.durationDays ?? 1) > 1 ? ` · ${b.durationDays} days` : b.slot === 'am' ? ' · 9am–1pm' : b.slot === 'pm' ? ' · 2pm–6pm' : ' · 9am–6pm'}`,
   status: 'booked',
   fullDescription: b.fullDescription,
+  mapQuery: b.mapQuery,
+  photoUrls: b.photoUrls,
   payoutPence: b.payoutPence,
   materialsAllowancePence: b.materialsAllowancePence,
   payLines: b.payLines,
@@ -187,6 +195,8 @@ const flexToDetail = (f: FlexJob): JobDetail => ({
   whenLabel: f.deadline ? `needs a day by ${format(new Date(f.deadline + 'T00:00:00'), 'EEE d MMM')}` : null,
   status: 'flex',
   fullDescription: f.fullDescription,
+  mapQuery: f.mapQuery,
+  photoUrls: f.photoUrls,
   payoutPence: f.payoutPence,
   materialsAllowancePence: f.materialsAllowancePence,
   payLines: f.payLines,
@@ -1318,13 +1328,14 @@ export default function MyWeekPage() {
             <motion.div
               initial={{ y: 100, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 100, opacity: 0 }}
               transition={{ type: 'spring', damping: 26, stiffness: 280 }}
-              className="w-full max-w-md mx-2 mb-4 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-h-[85vh] overflow-y-auto"
+              className="w-full max-w-md mx-2 mb-4 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-h-[88vh] flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="p-5">
+              {/* Fixed header — same frame for every job, big or small. */}
+              <div className="p-5 pb-3 border-b border-slate-800">
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="min-w-0">
-                    <div className="text-lg font-bold leading-tight">{jobDetail.title}</div>
+                    <div className="text-lg font-bold leading-tight truncate">{jobDetail.title}</div>
                     <div className="text-xs text-slate-400 mt-0.5">
                       {jobDetail.area ? jobDetail.area : ''}{jobDetail.area && jobDetail.whenLabel ? ' · ' : ''}{jobDetail.whenLabel}
                     </div>
@@ -1332,51 +1343,87 @@ export default function MyWeekPage() {
                   <button onClick={() => setJobDetail(null)} className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 shrink-0" aria-label="Close"><X size={16} /></button>
                 </div>
 
-                {/* Money block */}
-                <div className="grid grid-cols-2 gap-2 mb-4">
-                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/80">You earn</div>
-                    <div className="text-xl font-bold text-emerald-300">£{Math.round((jobDetail.payoutPence ?? 0) / 100)}</div>
+                {/* Directions */}
+                {jobDetail.mapQuery && (
+                  <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(jobDetail.mapQuery)}`} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-2.5 p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/25 active:scale-[0.99] transition-transform">
+                    <div className="w-9 h-9 rounded-lg bg-blue-500/20 flex items-center justify-center shrink-0"><MapPin size={16} className="text-blue-300" /></div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-blue-200">Get directions</div>
+                      <div className="text-[10px] text-slate-400 truncate">{jobDetail.mapQuery}</div>
+                    </div>
+                    <ChevronRight size={16} className="text-blue-400/60" />
+                  </a>
+                )}
+
+                {/* Money summary — one compact row */}
+                <div className="flex items-center gap-2 mt-3">
+                  <div className="flex-1 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
+                    <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-400/80">You earn</div>
+                    <div className="text-lg font-black text-emerald-300 leading-none mt-0.5">£{Math.round((jobDetail.payoutPence ?? 0) / 100)}</div>
                   </div>
-                  <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Materials budget</div>
-                    <div className="text-xl font-bold text-slate-200">£{Math.round((jobDetail.materialsAllowancePence ?? 0) / 100)}</div>
-                    <div className="text-[9px] text-slate-500 mt-0.5">you source · Handy card</div>
+                  <div className="flex-1 p-2.5 rounded-xl bg-slate-800/60 border border-slate-700">
+                    <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Materials · your card</div>
+                    <div className="text-lg font-black text-slate-200 leading-none mt-0.5">£{Math.round((jobDetail.materialsAllowancePence ?? 0) / 100)}</div>
                   </div>
                 </div>
+              </div>
 
-                {jobDetail.status === 'booked' && (jobDetail.materialsAllowancePence ?? 0) > 0 && (
-                  <div className="mb-4 p-3 rounded-xl bg-slate-800/40 border border-slate-700/60 text-[11px] text-slate-400 leading-snug">
-                    You source and plan the materials, plant hire and any extra (Handy-vetted) help on your Handy card. Keep it within budget — Handy keeps the receipts.
+              {/* Scroll region — the ONLY variable-height part, so 1-task and
+                * 20-task jobs share an identical frame. */}
+              <div className="p-5 pt-4 overflow-y-auto">
+                {/* Photos from the quote */}
+                {jobDetail.photoUrls && jobDetail.photoUrls.length > 0 && (
+                  <div className="mb-4 -mx-1">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 px-1">Photos</div>
+                    <div className="flex gap-2 overflow-x-auto px-1 pb-1">
+                      {jobDetail.photoUrls.map((url, i) => (
+                        <a key={i} href={url} target="_blank" rel="noreferrer" className="shrink-0">
+                          <img src={url} alt="" className="w-24 h-24 rounded-xl object-cover border border-slate-700" />
+                        </a>
+                      ))}
+                    </div>
                   </div>
                 )}
 
-                {jobDetail.fullDescription && (
-                  <div className="mb-4">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">The job</div>
-                    <p className="text-xs text-slate-300 leading-relaxed">{jobDetail.fullDescription}</p>
-                  </div>
-                )}
-
-                {jobDetail.payLines && jobDetail.payLines.length > 0 && (
+                {/* THE WORK — job scope + pay in one list (each line is a task) */}
+                {jobDetail.payLines && jobDetail.payLines.length > 0 ? (
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Pay breakdown</div>
-                    <div className="space-y-1">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">The work · {jobDetail.payLines.length} task{jobDetail.payLines.length === 1 ? '' : 's'}</span>
+                      <span className="text-[9px] text-slate-600 font-semibold">pay · materials</span>
+                    </div>
+                    <div className="space-y-1.5">
                       {jobDetail.payLines.map((ln, i) => (
-                        <div key={i} className="flex items-center gap-2 text-[11px] py-1 border-b border-slate-800/60 last:border-0">
-                          <span className="text-slate-300 truncate flex-1">{ln.description || ln.category}</span>
-                          <span className="text-[9px] text-slate-500 shrink-0">{TIER_LABEL[ln.tier] ?? ln.tier}{ln.method === 'floor' ? ' · floor' : ''}</span>
-                          <span className="text-emerald-300 font-bold shrink-0 w-12 text-right">£{Math.round(ln.payPence / 100)}</span>
-                          {ln.materialsPence > 0 && <span className="text-slate-400 font-semibold shrink-0 w-12 text-right">+£{Math.round(ln.materialsPence / 100)}</span>}
+                        <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-800/40 border border-slate-800">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold text-slate-200 leading-snug">{ln.description || ln.category}</div>
+                            <div className="text-[9px] text-slate-500 font-semibold mt-0.5">{TIER_LABEL[ln.tier] ?? ln.tier}{ln.method === 'floor' ? ' · min rate' : ''}</div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-sm font-bold text-emerald-300">£{Math.round(ln.payPence / 100)}</div>
+                            {ln.materialsPence > 0 && <div className="text-[10px] text-slate-400 font-semibold">£{Math.round(ln.materialsPence / 100)} mat.</div>}
+                          </div>
                         </div>
                       ))}
                     </div>
-                    <div className="flex items-center gap-2 text-xs font-bold mt-2 pt-1">
-                      <span className="flex-1 text-slate-300">Total</span>
-                      <span className="text-emerald-300 w-12 text-right">£{Math.round((jobDetail.payoutPence ?? 0) / 100)}</span>
-                      {(jobDetail.materialsAllowancePence ?? 0) > 0 && <span className="text-slate-400 w-12 text-right">+£{Math.round((jobDetail.materialsAllowancePence ?? 0) / 100)}</span>}
+                    <div className="flex items-center gap-2 text-sm font-black mt-3 pt-3 border-t border-slate-800">
+                      <span className="flex-1 text-white">Total</span>
+                      <span className="text-emerald-300">£{Math.round((jobDetail.payoutPence ?? 0) / 100)}</span>
+                      {(jobDetail.materialsAllowancePence ?? 0) > 0 && <span className="text-slate-400 text-xs">+ £{Math.round((jobDetail.materialsAllowancePence ?? 0) / 100)} mat.</span>}
                     </div>
                   </div>
+                ) : jobDetail.fullDescription ? (
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">The work</div>
+                    <p className="text-xs text-slate-300 leading-relaxed">{jobDetail.fullDescription}</p>
+                  </div>
+                ) : null}
+
+                {(jobDetail.materialsAllowancePence ?? 0) > 0 && (
+                  <p className="mt-4 text-[10px] text-slate-500 leading-snug">
+                    You source materials, plant hire and any extra (Handy-vetted) help on your Handy card, within budget. Handy keeps the receipts.
+                  </p>
                 )}
               </div>
             </motion.div>

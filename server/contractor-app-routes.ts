@@ -290,7 +290,7 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
   const bookingIds = booked.map((b) => b.id);
   const [quoteRows, payoutRows] = await Promise.all([
     quoteIds.length
-      ? db.select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName, postcode: personalizedQuotes.postcode, jobDescription: personalizedQuotes.jobDescription, basePrice: personalizedQuotes.basePrice, pricingLineItems: personalizedQuotes.pricingLineItems })
+      ? db.select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName, postcode: personalizedQuotes.postcode, address: personalizedQuotes.address, photoUrls: personalizedQuotes.customerPhotoUrls, jobDescription: personalizedQuotes.jobDescription, basePrice: personalizedQuotes.basePrice, pricingLineItems: personalizedQuotes.pricingLineItems })
           .from(personalizedQuotes).where(inArray(personalizedQuotes.id, quoteIds))
       : Promise.resolve([]),
     bookingIds.length
@@ -359,6 +359,9 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
         postcodeArea: outwardPostcode(q?.postcode),
         jobDescription: trimDescription(q?.jobDescription),
         fullDescription: q?.jobDescription ?? null,
+        // Post-deposit: full address + photos available for the job sheet.
+        mapQuery: (q?.address || q?.postcode) ?? null,
+        photoUrls: (q?.photoUrls as string[] | null) ?? null,
         valuePence: q?.basePrice ?? null,
         // His snapshotted pay for this booking (Model C + tier uplift).
         payoutPence: payoutByBooking.get(b.id) ?? null,
@@ -384,6 +387,8 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
       db.select({
         id: personalizedQuotes.id,
         postcode: personalizedQuotes.postcode,
+        address: personalizedQuotes.address,
+        photoUrls: personalizedQuotes.customerPhotoUrls,
         jobDescription: personalizedQuotes.jobDescription,
         basePrice: personalizedQuotes.basePrice,
         depositPaidAt: personalizedQuotes.depositPaidAt,
@@ -455,6 +460,8 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
         postcodeArea: area,
         jobDescription: trimDescription(f.jobDescription),
         fullDescription: f.jobDescription ?? null,
+        mapQuery: (f.address || f.postcode) ?? null,
+        photoUrls: (f.photoUrls as string[] | null) ?? null,
         valuePence: f.basePrice ?? null,
         payoutPence: pay.totalPayPence,
         materialsAllowancePence: pay.totalMaterialsPence,
