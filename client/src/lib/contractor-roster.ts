@@ -26,10 +26,10 @@ export interface RosterContractor {
 export const CONTRACTOR_ROSTER: RosterContractor[] = [
   { key: 'craig', name: 'Craig', role: 'Lead handyman', avatarUrl: '/assets/avatars/craig-avatar-1.webp', portraitUrl: '/assets/quote-images/craig-banner.webp', meta: '4.9 · 214 jobs completed' },
   { key: 'joe', name: 'Joe', role: 'Handyman & carpenter', avatarUrl: '/assets/quote-images/joe-estimator.webp', portraitUrl: '/assets/quote-images/joe-estimator.webp', meta: '4.9 · vetted, DBS-checked' },
-  { key: 'emile', name: 'Emile', role: 'General handyman', avatarUrl: '/assets/avatars/emile-avatar-1.webp', portraitUrl: '/assets/quote-images/emile-banner.webp', meta: 'Vetted · DBS-checked' },
-  { key: 'courtnee', name: 'Courtnee', role: 'Plumber · multi-skilled', avatarUrl: '/assets/avatars/courtnee-avatar-1.webp', portraitUrl: '/assets/quote-images/courtnee-banner.webp', meta: 'Vetted · DBS-checked' },
-  { key: 'neil', name: 'Neil', role: 'General handyman', avatarUrl: '/assets/avatars/neil-avatar-1.webp', portraitUrl: '/assets/quote-images/neil-banner.webp', meta: 'Vetted · DBS-checked' },
-  { key: 'bezent', name: 'Bezent', role: 'General handyman', avatarUrl: '/assets/avatars/bezent-avatar-1.webp', portraitUrl: '/assets/quote-images/bezent-banner.webp', meta: 'Vetted · DBS-checked' },
+  { key: 'emile', name: 'Emile', role: 'General handyman', avatarUrl: '/assets/avatars/emile-avatar-1.webp', portraitUrl: '/assets/quote-images/emile-banner.webp', meta: 'DBS-checked · £2M insured' },
+  { key: 'courtnee', name: 'Courtnee', role: 'Plumber · multi-skilled', avatarUrl: '/assets/avatars/courtnee-avatar-1.webp', portraitUrl: '/assets/quote-images/courtnee-banner.webp', meta: 'Vetted · 90-day guarantee' },
+  { key: 'neil', name: 'Neil', role: 'General handyman', avatarUrl: '/assets/avatars/neil-avatar-1.webp', portraitUrl: '/assets/quote-images/neil-banner.webp', meta: '£2M insured · guaranteed work' },
+  { key: 'bezent', name: 'Bezent', role: 'General handyman', avatarUrl: '/assets/avatars/bezent-avatar-1.webp', portraitUrl: '/assets/quote-images/bezent-banner.webp', meta: 'DBS-checked · fully vetted' },
 ];
 
 /** Round avatar URLs in roster order — feeds the loading-theatre orbit pool. */
