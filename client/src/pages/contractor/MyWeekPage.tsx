@@ -52,6 +52,16 @@ interface PipelinePayload {
   quotes: PipelineQuote[];
 }
 
+interface PayLine {
+  category: string;
+  description: string | null;
+  tier: string;
+  labourPence: number;
+  payPence: number;
+  materialsPence: number;
+  method: 'share' | 'floor';
+}
+
 interface BookedJob {
   id: string;
   date: string;
@@ -60,16 +70,22 @@ interface BookedJob {
   customerName: string;
   postcodeArea: string | null;
   jobDescription: string | null;
+  fullDescription: string | null;
   valuePence: number | null;
   payoutPence: number | null;
+  materialsAllowancePence: number | null;
+  payLines: PayLine[] | null;
 }
 
 interface FlexJob {
   quoteId: string;
   postcodeArea: string | null;
   jobDescription: string | null;
+  fullDescription: string | null;
   valuePence: number | null;
   payoutPence: number | null;
+  materialsAllowancePence: number | null;
+  payLines: PayLine[] | null;
   deadline: string | null;
   multiDay: boolean;
   requiredDays: number;
@@ -144,6 +160,39 @@ const MODE_STYLE: Record<DayMode, { bg: string; label: string; labelColor: strin
 
 const WEEK_TITLES = ['This week', 'Next week'];
 
+// Normalised shape the job-detail modal renders (booked or flex).
+interface JobDetail {
+  title: string;
+  area: string | null;
+  whenLabel: string | null;
+  status: 'booked' | 'flex';
+  fullDescription: string | null;
+  payoutPence: number | null;
+  materialsAllowancePence: number | null;
+  payLines: PayLine[] | null;
+}
+const bookedToDetail = (b: BookedJob): JobDetail => ({
+  title: b.customerName.trim(),
+  area: b.postcodeArea,
+  whenLabel: `${format(new Date(b.date + 'T00:00:00'), 'EEE d MMM')}${(b.durationDays ?? 1) > 1 ? ` · ${b.durationDays} days` : b.slot === 'am' ? ' · 9am–1pm' : b.slot === 'pm' ? ' · 2pm–6pm' : ' · 9am–6pm'}`,
+  status: 'booked',
+  fullDescription: b.fullDescription,
+  payoutPence: b.payoutPence,
+  materialsAllowancePence: b.materialsAllowancePence,
+  payLines: b.payLines,
+});
+const flexToDetail = (f: FlexJob): JobDetail => ({
+  title: f.jobDescription?.split(/[—,.]/)[0]?.trim() || 'Job',
+  area: f.postcodeArea,
+  whenLabel: f.deadline ? `needs a day by ${format(new Date(f.deadline + 'T00:00:00'), 'EEE d MMM')}` : null,
+  status: 'flex',
+  fullDescription: f.fullDescription,
+  payoutPence: f.payoutPence,
+  materialsAllowancePence: f.materialsAllowancePence,
+  payLines: f.payLines,
+});
+const TIER_LABEL: Record<string, string> = { specialist: 'Specialist', skilled: 'Skilled', general: 'General', outdoor: 'Outdoor' };
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function MyWeekPage() {
@@ -159,6 +208,7 @@ export default function MyWeekPage() {
   const [planGoal, setPlanGoal] = useState<DayPlanGoal>('earnings');
   const [confirmLock, setConfirmLock] = useState<string | null>(null); // plan date
   const [lockError, setLockError] = useState<string | null>(null);
+  const [jobDetail, setJobDetail] = useState<JobDetail | null>(null);
 
   const { data, isLoading, isError } = useQuery<AppPayload>({
     queryKey: ['contractor-app', token],
@@ -346,18 +396,20 @@ export default function MyWeekPage() {
   const planRows = useMemo(() => {
     if (!data || !jobs) return [];
     const gridBy = new Map(data.days.map((d) => [d.date, d]));
-    const bookedBy = new Map<string, Array<{ label: string; payoutPence: number; tag: string }>>();
+    const bookedBy = new Map<string, Array<{ job: BookedJob; payoutPence: number; materialsPence: number; tag: string; firstDay: boolean }>>();
     for (const b of jobs.booked) {
       const dur = b.durationDays ?? 1;
       for (let i = 0; i < dur; i++) {
         const dt = format(addDaysFn(new Date(b.date + 'T00:00:00'), i), 'yyyy-MM-dd');
         const list = bookedBy.get(dt) ?? [];
         list.push({
-          label: `${b.customerName.trim()}${b.jobDescription ? ' — ' + b.jobDescription : ''}`,
+          job: b,
           // His pay shown once (on day 1) so a multi-day span doesn't visually
           // multiply the figure; later span days show the tag only.
           payoutPence: i === 0 ? (b.payoutPence ?? 0) : 0,
+          materialsPence: i === 0 ? (b.materialsAllowancePence ?? 0) : 0,
           tag: dur > 1 ? `Day ${i + 1} of ${dur}` : b.slot === 'am' ? '9am–1pm' : b.slot === 'pm' ? '2pm–6pm' : '9am–6pm',
+          firstDay: i === 0,
         });
         bookedBy.set(dt, list);
       }
@@ -749,13 +801,23 @@ export default function MyWeekPage() {
 
                         <div className="flex-1 min-w-0 space-y-1.5">
                           {row.booked.map((b, i) => (
-                            <div key={i} className="p-3 rounded-xl bg-blue-500/15 border border-blue-500/30">
+                            <button key={i} onClick={() => setJobDetail(bookedToDetail(b.job))}
+                              className="w-full text-left p-3 rounded-xl bg-blue-500/15 border border-blue-500/30 active:scale-[0.99] transition-transform">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-bold text-blue-300 truncate">{b.label}</span>
-                                {b.payoutPence > 0 && <span className="text-sm font-bold text-blue-200 shrink-0 flex items-center gap-1.5">£{Math.round(b.payoutPence / 100)} <Lock size={10} /></span>}
+                                <span className="text-xs font-bold text-blue-300 truncate">
+                                  {b.job.customerName.trim()}{b.job.postcodeArea ? ` · ${b.job.postcodeArea}` : ''}
+                                </span>
+                                <Lock size={11} className="text-blue-400 shrink-0" />
                               </div>
-                              <span className="text-[10px] text-blue-400/70 font-semibold">{b.tag} · booked{b.payoutPence > 0 ? ' · you earn' : ''}</span>
-                            </div>
+                              {b.firstDay ? (
+                                <div className="flex items-baseline gap-1.5 mt-1">
+                                  <span className="text-base font-bold text-blue-100">£{Math.round(b.payoutPence / 100)}</span>
+                                  <span className="text-[10px] text-blue-400/70 font-semibold">you earn</span>
+                                  {b.materialsPence > 0 && <span className="text-[10px] text-slate-400 font-semibold">· £{Math.round(b.materialsPence / 100)} materials</span>}
+                                </div>
+                              ) : null}
+                              <div className="text-[10px] text-blue-400/60 font-semibold mt-0.5">{b.tag} · tap for details ›</div>
+                            </button>
                           ))}
 
                           {row.blockSpan && (
@@ -869,7 +931,7 @@ export default function MyWeekPage() {
                     const overdue = f.deadline ? f.deadline < (data?.today ?? '') : false;
                     return (
                       <div key={f.quoteId} className="p-4 bg-slate-900/60 border border-amber-500/25 rounded-xl">
-                        <div className="flex items-start justify-between gap-3">
+                        <button onClick={() => setJobDetail(flexToDetail(f))} className="w-full text-left flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               {f.postcodeArea && <span className="text-[10px] font-bold tracking-wider text-slate-400 bg-slate-800 rounded px-1.5 py-0.5">{f.postcodeArea}</span>}
@@ -879,10 +941,15 @@ export default function MyWeekPage() {
                                 </span>
                               )}
                             </div>
-                            {f.jobDescription && <p className="text-xs text-slate-300 mt-1.5 leading-snug">{f.jobDescription}</p>}
+                            {f.jobDescription && <p className="text-xs text-slate-300 mt-1.5 leading-snug line-clamp-2">{f.jobDescription}</p>}
+                            <div className="text-[10px] text-slate-500 font-semibold mt-1">tap for details ›</div>
                           </div>
-                          {f.payoutPence != null && <div className="text-lg font-bold text-white shrink-0">£{Math.round(f.payoutPence / 100)}</div>}
-                        </div>
+                          <div className="shrink-0 text-right">
+                            {f.payoutPence != null && <div className="text-lg font-bold text-white">£{Math.round(f.payoutPence / 100)}</div>}
+                            <div className="text-[9px] text-slate-500 font-semibold">you earn</div>
+                            {(f.materialsAllowancePence ?? 0) > 0 && <div className="text-[10px] text-slate-400 font-semibold mt-0.5">£{Math.round((f.materialsAllowancePence ?? 0) / 100)} mat.</div>}
+                          </div>
+                        </button>
 
                         {placeError?.quoteId === f.quoteId && (
                           <p className="mt-2 text-[11px] font-semibold text-red-400">{placeError.message}</p>
@@ -1012,6 +1079,77 @@ export default function MyWeekPage() {
           })}
         </div>
       </nav>
+
+      {/* Job-detail modal — the card summary opens the full job here. */}
+      <AnimatePresence>
+        {jobDetail && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setJobDetail(null)}
+          >
+            <motion.div
+              initial={{ y: 100, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 100, opacity: 0 }}
+              transition={{ type: 'spring', damping: 26, stiffness: 280 }}
+              className="w-full max-w-md mx-2 mb-4 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl max-h-[85vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-5">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="min-w-0">
+                    <div className="text-lg font-bold leading-tight">{jobDetail.title}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">
+                      {jobDetail.area ? jobDetail.area : ''}{jobDetail.area && jobDetail.whenLabel ? ' · ' : ''}{jobDetail.whenLabel}
+                    </div>
+                  </div>
+                  <button onClick={() => setJobDetail(null)} className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 shrink-0" aria-label="Close"><X size={16} /></button>
+                </div>
+
+                {/* Money block */}
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/80">You earn</div>
+                    <div className="text-xl font-bold text-emerald-300">£{Math.round((jobDetail.payoutPence ?? 0) / 100)}</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Materials</div>
+                    <div className="text-xl font-bold text-slate-200">£{Math.round((jobDetail.materialsAllowancePence ?? 0) / 100)}</div>
+                    <div className="text-[9px] text-slate-500 mt-0.5">supplied by Handy</div>
+                  </div>
+                </div>
+
+                {jobDetail.fullDescription && (
+                  <div className="mb-4">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">The job</div>
+                    <p className="text-xs text-slate-300 leading-relaxed">{jobDetail.fullDescription}</p>
+                  </div>
+                )}
+
+                {jobDetail.payLines && jobDetail.payLines.length > 0 && (
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Pay breakdown</div>
+                    <div className="space-y-1">
+                      {jobDetail.payLines.map((ln, i) => (
+                        <div key={i} className="flex items-center gap-2 text-[11px] py-1 border-b border-slate-800/60 last:border-0">
+                          <span className="text-slate-300 truncate flex-1">{ln.description || ln.category}</span>
+                          <span className="text-[9px] text-slate-500 shrink-0">{TIER_LABEL[ln.tier] ?? ln.tier}{ln.method === 'floor' ? ' · floor' : ''}</span>
+                          <span className="text-emerald-300 font-bold shrink-0 w-12 text-right">£{Math.round(ln.payPence / 100)}</span>
+                          {ln.materialsPence > 0 && <span className="text-slate-400 font-semibold shrink-0 w-12 text-right">+£{Math.round(ln.materialsPence / 100)}</span>}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs font-bold mt-2 pt-1">
+                      <span className="flex-1 text-slate-300">Total</span>
+                      <span className="text-emerald-300 w-12 text-right">£{Math.round((jobDetail.payoutPence ?? 0) / 100)}</span>
+                      {(jobDetail.materialsAllowancePence ?? 0) > 0 && <span className="text-slate-400 w-12 text-right">+£{Math.round((jobDetail.materialsAllowancePence ?? 0) / 100)}</span>}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Day bottom sheet */}
       <AnimatePresence>

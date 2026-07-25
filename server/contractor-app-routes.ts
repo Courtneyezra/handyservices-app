@@ -205,8 +205,10 @@ function scheduleContext(q: any) {
   };
 }
 
-/** Shared load: his booked jobs (with quote info) + resolved open grid. */
-async function loadJobsAndGrid(profileId: string) {
+/** Shared load: his booked jobs (with quote info) + resolved open grid.
+ *  When `deliveryTier` is passed, booked jobs are enriched with the pay
+ *  breakdown (labour + materials allowance + per-line) for the modal. */
+async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const end = addDays(todayStart, JOBS_HORIZON_DAYS);
@@ -306,9 +308,13 @@ async function loadJobsAndGrid(profileId: string) {
         customerName: q?.customerName ?? 'Customer',
         postcodeArea: outwardPostcode(q?.postcode),
         jobDescription: trimDescription(q?.jobDescription),
+        fullDescription: q?.jobDescription ?? null,
         valuePence: q?.basePrice ?? null,
         // His snapshotted pay for this booking (Model C + tier uplift).
         payoutPence: payoutByBooking.get(b.id) ?? null,
+        // Materials allowance (cost) + per-line breakdown for the modal.
+        materialsAllowancePence: deliveryTier ? computeContractorPay((q?.pricingLineItems as any[]) || [], deliveryTier).totalMaterialsPence : null,
+        payLines: deliveryTier ? computeContractorPay((q?.pricingLineItems as any[]) || [], deliveryTier).lines : null,
         // Composed work minutes — drives the packing ceilings (canCoexist).
         minutes: totalScheduleMinutes(((q?.pricingLineItems as any[]) || []), {}),
       };
@@ -324,7 +330,7 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
     if (!profile) return res.status(404).json({ error: 'Link not recognised' });
 
     const [{ bookedOut, days, spanByDate }, flexRows] = await Promise.all([
-      loadJobsAndGrid(profile.id),
+      loadJobsAndGrid(profile.id, profile.deliveryTier),
       db.select({
         id: personalizedQuotes.id,
         postcode: personalizedQuotes.postcode,
@@ -392,14 +398,17 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
 
       // His estimated pay for this job (Model C + his tier) — the same engine
       // the booking will snapshot, so the estimate matches the eventual payout.
-      const payoutPence = computeContractorPay((f.pricingLineItems as any[]) || [], profile.deliveryTier).totalPayPence;
+      const pay = computeContractorPay((f.pricingLineItems as any[]) || [], profile.deliveryTier);
 
       return {
         quoteId: f.id,
         postcodeArea: area,
         jobDescription: trimDescription(f.jobDescription),
+        fullDescription: f.jobDescription ?? null,
         valuePence: f.basePrice ?? null,
-        payoutPence,
+        payoutPence: pay.totalPayPence,
+        materialsAllowancePence: pay.totalMaterialsPence,
+        payLines: pay.lines,
         deadline,
         multiDay,
         requiredDays,

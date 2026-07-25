@@ -19,8 +19,12 @@ import type { JobCategory } from '../../shared/contextual-pricing-types';
 
 export interface PayLineInput {
   category?: string | null;
+  description?: string | null;
   /** Customer-facing LABOUR price for the line, in pence (excl. materials). */
   guardedPricePence?: number | null;
+  /** Materials at COST — the contractor's spend/allowance (Handy keeps the
+   *  markup, which lives in materialsWithMarginPence). Never part of pay. */
+  materialsCostPence?: number | null;
   timeEstimateMinutes?: number | null;
   scheduleMinutes?: number | null;
   verifiedMinutes?: number | null;
@@ -29,15 +33,19 @@ export interface PayLineInput {
 export interface ContractorPaySnapshot {
   totalPayPence: number;
   totalLabourPence: number;
+  /** Σ materials at cost — the allowance, NOT income. */
+  totalMaterialsPence: number;
   deliveryTier: string;
   sharePctUplift: number;
   /** Effective share of labour, for display ("55% of labour"). */
   effectiveSharePercent: number;
   lines: Array<{
     category: string;
+    description: string | null;
     tier: string;
     labourPence: number;
     payPence: number;
+    materialsPence: number;
     method: 'share' | 'floor';
   }>;
   flags: string[];
@@ -64,17 +72,23 @@ export function computeContractorPay(
     ? Math.round((r.totalContractorPay / r.totalCustomerPrice) * 100)
     : 0;
 
+  const materialsByIdx = (lines || []).map((l) => Math.max(0, Math.round(l.materialsCostPence || 0)));
+  const totalMaterialsPence = materialsByIdx.reduce((s, m) => s + m, 0);
+
   return {
     totalPayPence: r.totalContractorPay,
     totalLabourPence: r.totalCustomerPrice,
+    totalMaterialsPence,
     deliveryTier: deliveryTier || 'adhoc',
     sharePctUplift: uplift,
     effectiveSharePercent,
-    lines: r.lines.map((ln) => ({
+    lines: r.lines.map((ln, i) => ({
       category: ln.categorySlug,
+      description: (lines?.[i]?.description) ?? null,
       tier: ln.tier,
       labourPence: ln.customerPricePence,
       payPence: ln.contractorPayPence,
+      materialsPence: materialsByIdx[i] ?? 0,
       method: ln.payMethod,
     })),
     flags: r.flags,
