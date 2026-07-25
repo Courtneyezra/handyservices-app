@@ -52,6 +52,9 @@ export interface SeoServiceContent extends SeoServiceRef {
     benefits: string[];      // 3-6 bullet points
     faq: { q: string; a: string }[]; // 3-5 Q&A, used for FAQPage schema + visible
     priceFrom?: string;      // "£89" — optional "from" anchor
+    /** Concrete example job types for this trade (NO invented prices) — shown as chips in
+     *  the pricing block. Makes pricing tangible + gives AI job-type coverage. */
+    priceExamples?: string[];
 }
 
 // ---- Module interfaces (implemented by ./content and ./render) ----------

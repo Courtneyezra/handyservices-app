@@ -566,5 +566,38 @@ const SERVICES: SeoServiceContent[] = [
     },
 ];
 
+/**
+ * Concrete example job types per trade — makes the pricing block tangible and
+ * gives AI answer engines job-type coverage. These are common trade jobs (NOT
+ * invented prices): the exact £-figure is always the customer's fixed quote.
+ */
+const PRICE_EXAMPLES: Record<string, string[]> = {
+    handyman: ['TV wall-mounting', 'Flat-pack assembly', 'Shelves & curtain poles', 'Door & lock adjustments', 'Sealing & grouting', 'Picture & mirror hanging'],
+    'painter-decorator': ['Single room repaint', 'Whole-house redecoration', 'Feature walls', 'Wallpaper hanging', 'Exterior masonry & woodwork', 'Ceiling stain-blocking'],
+    'gutter-cleaning': ['Terraced & semi gutters', 'Detached & 3-storey', 'Downpipe unblocking', 'Conservatory gutters', 'Fascia & soffit wash'],
+    fencing: ['Panel replacement', 'Full fence installation', 'Gate hanging', 'Post replacement', 'Storm-damage repair'],
+    plasterer: ['Skim a single wall', 'Re-skim a full room', 'Ceiling repair', 'Patching after damp', 'Dot-and-dab plasterboard'],
+    'kitchen-fitting': ['Full kitchen installation', 'Worktop replacement', 'Unit & cabinet fitting', 'Appliance integration', 'Splashback tiling'],
+    carpenter: ['Bespoke shelving', 'Internal door hanging', 'Skirting & architrave', 'Stud walls', 'Loft hatch & storage'],
+    tiler: ['Bathroom wall tiling', 'Kitchen splashbacks', 'Floor tiling', 'Re-grouting & sealing', 'Wet-room tanking'],
+    'bathroom-fitting': ['Full bathroom refit', 'Shower installation', 'Suite replacement', 'Over-bath showers', 'Walk-in / accessible bathrooms'],
+    landscaping: ['Garden clearance', 'Turfing & planting', 'Patio laying', 'Sleeper beds & borders', 'Full garden redesign'],
+    'pressure-washing': ['Driveway cleaning', 'Patio & paving', 'Decking wash', 'Paths & steps', 'Render & wall cleaning'],
+    decking: ['New deck build', 'Deck replacement', 'Balustrade & steps', 'Deck clean & re-oil', 'Raised / multi-level decks'],
+    'fitted-wardrobes': ['Sliding-door wardrobes', 'Alcove wardrobes', 'Hinged fitted units', 'Loft & eaves storage', 'Dressing-room fit-out'],
+    flooring: ['Laminate flooring', 'LVT / vinyl plank', 'Engineered wood', 'Carpet fitting', 'Subfloor levelling'],
+    'artificial-grass': ['Lawn replacement', 'Small garden install', 'Balcony & roof terrace', 'Pet-friendly turf', 'Putting greens'],
+    'garage-door': ['Up-and-over repair', 'Roller door installation', 'Spring & cable replacement', 'Remote & motor fitting', 'Full door replacement'],
+    'roof-cleaning': ['Moss removal', 'Roof softwash', 'Gutter & fascia clean', 'Ridge & tile check', 'Biocide treatment'],
+    'loft-boarding': ['Loft boarding for storage', 'Raised floor over insulation', 'Loft hatch & ladder', 'Lighting & storage combo', 'Full loft-out'],
+    'ev-charger': ['7kW home charger', 'Consumer-unit upgrade', 'Cable run & mounting', 'Tethered or untethered', 'Smart-charger setup'],
+    roofer: ['Slipped-tile repair', 'Flat-roof replacement', 'Ridge re-bedding', 'Chimney flashing', 'Full re-roof'],
+    locksmith: ['Lock replacement', 'Lockout entry', 'uPVC mechanism repair', 'Snap-safe upgrades', 'Key-alike installs'],
+    plumber: ['Tap & mixer replacement', 'Leak repair', 'Toilet & cistern fixes', 'Radiator swaps', 'Outside taps'],
+    electrician: ['Sockets & switches', 'Consumer-unit upgrade', 'Downlight installation', 'Fault finding', 'EICR & testing'],
+};
+
 /** Indexed for O(1) lookup by the content API. */
-export const SEO_SERVICE_CONTENT: SeoServiceContent[] = SERVICES;
+export const SEO_SERVICE_CONTENT: SeoServiceContent[] = SERVICES.map((s) =>
+    PRICE_EXAMPLES[s.slug] ? { ...s, priceExamples: PRICE_EXAMPLES[s.slug] } : s,
+);

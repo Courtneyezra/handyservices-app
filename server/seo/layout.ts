@@ -216,6 +216,11 @@ section.block h2{font-size:clamp(24px,3.2vw,34px);line-height:1.12;letter-spacin
 .pricing .incl ul li .ic svg{width:15px;height:15px;stroke:var(--green);fill:none;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
 .pricing .affects{margin:18px 0 0;padding:13px 16px;background:var(--amber-050);border:1px solid #f4d79a;border-radius:12px;color:var(--ink);font-size:14.5px}
 .pricing .affects b{color:var(--navy)}
+/* example job types under the pricing grid — tangible + AI-friendly, no prices */
+.jobex{margin-top:20px}
+.jobex-h{margin:0 0 12px;font-weight:700;color:var(--slate);font-size:15px}
+.jobchips{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:9px}
+.jobchips li{background:#fff;border:1px solid var(--line);border-radius:999px;padding:8px 15px;font-size:14px;font-weight:600;color:var(--navy);box-shadow:var(--shadow)}
 
 /* ---- reviews (3-up) ---- */
 .reviews{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:6px}

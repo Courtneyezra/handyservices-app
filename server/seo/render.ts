@@ -189,6 +189,22 @@ function benefitsCards(
     ].join('\n');
 }
 
+/**
+ * Two universal, objection-killing FAQs appended to every service page. They
+ * cover the questions that convert (speed + is-it-really-fixed) without
+ * duplicating the trade-specific FAQs, and are answer-shaped for AI engines.
+ * {service}/{place} tokens are substituted per page so each renders uniquely.
+ */
+const UNIVERSAL_FAQS: { q: string; a: string }[] = [
+    { q: 'How quickly can you start {service} in {place}?', a: 'Most {place} jobs are booked within a few days, and urgent work is often same-week. Tell us your ideal date when you enquire and we\'ll confirm the soonest slot — with a text before we\'re on our way.' },
+    { q: 'Is the quote free, and is the price really fixed?', a: 'Yes to both. Quotes are free with no obligation, and the price is fixed and agreed in writing before any work starts — no call-out charge and no hourly-rate surprises.' },
+];
+
+/** Trade-specific FAQs + the two universal ones — used for both the visible block and the schema. */
+function pageFaqs(service: SeoServiceContent): { q: string; a: string }[] {
+    return [...service.faq, ...UNIVERSAL_FAQS];
+}
+
 /** FAQ -> styled Q&A blocks. */
 function faqBlocks(
     faq: { q: string; a: string }[],
@@ -282,6 +298,20 @@ function pricingSection(
                 `                            <li>${CHECK_ICON}<span>${escapeHtml(subst(b, v))}</span></li>`,
         )
         .join('\n');
+    // Concrete example job types (no invented prices) — makes pricing tangible + AI-friendly.
+    const examples =
+        service.priceExamples && service.priceExamples.length
+            ? [
+                  '                <div class="jobex">',
+                  `                    <p class="jobex-h">Common ${escapeHtml(label)} jobs we quote in ${escapeHtml(placeName)}:</p>`,
+                  '                    <ul class="jobchips">',
+                  ...service.priceExamples.map(
+                      (j) => `                        <li>${escapeHtml(subst(j, v))}</li>`,
+                  ),
+                  '                    </ul>',
+                  '                </div>',
+              ].join('\n')
+            : '';
     return [
         '        <section class="block soft">',
         '            <div class="container">',
@@ -304,9 +334,10 @@ function pricingSection(
         `                        <p class="affects"><b>What affects the price:</b> the size of the property, ease of access, and the condition and scope of the ${escapeHtml(label)} work. We factor it all into one fixed quote.</p>`,
         '                    </div>',
         '                </div>',
+        examples,
         '            </div>',
         '        </section>',
-    ].join('\n');
+    ].filter(Boolean).join('\n');
 }
 
 /**
@@ -720,15 +751,21 @@ export function renderServiceCity(citySlug: string, serviceSlug: string): Render
         'linkgrid',
     );
 
+    const faq = pageFaqs(service);
     const bodyHtml = [
         hero,
         introSection,
         howItWorksSection(),
         benefitsCards(service.benefits, v),
         pricingSection(service, city.name, v),
+        // Mid-page CTA — catch the visitor the moment the price convinces them.
+        ctaBlock(
+            `Ready for a fixed ${service.label.toLowerCase()} price in ${city.name}?`,
+            'Send a photo and a few details — most quotes come back the same day, with no obligation.',
+        ),
         reviewsSection(city.name, city.reviewCount, city.reviewsUrl ?? SEO_BRAND.reviewsUrl),
         socialProofBand(city.name, city.reviewCount, city.reviewsUrl ?? SEO_BRAND.reviewsUrl),
-        faqBlocks(service.faq, v),
+        faqBlocks(faq, v),
         suburbMesh,
         siblingMesh,
         ctaBlock(
@@ -742,7 +779,7 @@ export function renderServiceCity(citySlug: string, serviceSlug: string): Render
     const jsonLdBlocks = [
         localBusinessLd(city),
         serviceLd(`${service.label} in ${city.name}`, city.name, intro),
-        faqLd(service.faq, v),
+        faqLd(faq, v),
         breadcrumbLd([
             { name: SEO_BRAND.name, url: SEO_BRAND.url },
             { name: city.name, url: absUrl(citySlug) },
@@ -762,7 +799,7 @@ export function renderServiceCity(citySlug: string, serviceSlug: string): Render
             waHref: waLink(city.name, service.label, canonical),
             reviewCount: city.reviewCount,
         },
-        service.faq.length,
+        faq.length,
     );
 }
 
@@ -832,15 +869,21 @@ export function renderJobSuburb(
         'linkgrid',
     );
 
+    const faq = pageFaqs(service);
     const bodyHtml = [
         hero,
         localised,
         howItWorksSection(),
         benefitsCards(service.benefits, v),
         pricingSection(service, suburb.name, v),
+        // Mid-page CTA — catch the visitor the moment the price convinces them.
+        ctaBlock(
+            `Ready for a fixed ${service.label.toLowerCase()} price in ${suburb.name}?`,
+            'Send a photo and a few details — most quotes come back the same day, with no obligation.',
+        ),
         reviewsSection(suburb.name, city.reviewCount, city.reviewsUrl ?? SEO_BRAND.reviewsUrl),
         socialProofBand(suburb.name, city.reviewCount, city.reviewsUrl ?? SEO_BRAND.reviewsUrl),
-        faqBlocks(service.faq, v),
+        faqBlocks(faq, v),
         nearbyMesh,
         otherServicesMesh,
         ctaBlock(
@@ -854,7 +897,7 @@ export function renderJobSuburb(
     const jsonLdBlocks = [
         localBusinessLd(city, suburb.name),
         serviceLd(`${service.label} in ${suburb.name}`, `${suburb.name}, ${city.name}`, intro),
-        faqLd(service.faq, v),
+        faqLd(faq, v),
         breadcrumbLd([
             { name: SEO_BRAND.name, url: SEO_BRAND.url },
             { name: city.name, url: absUrl(citySlug) },
@@ -875,7 +918,7 @@ export function renderJobSuburb(
             waHref: waLink(suburb.name, service.label, canonical),
             reviewCount: city.reviewCount,
         },
-        service.faq.length,
+        faq.length,
     );
 }
 
