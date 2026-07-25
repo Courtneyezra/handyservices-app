@@ -73,17 +73,18 @@ function TeamSection() {
                     </p>
                 </div>
 
-                {/* The handymen — portrait cards, one per core tech */}
-                <div className="grid sm:grid-cols-2 gap-5 lg:gap-8 mb-10 lg:mb-14 max-w-3xl mx-auto">
+                {/* The handymen — horizontal swipe carousel (compact; the next
+                    card peeks on mobile to signal there's more to scroll). */}
+                <div className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4 mb-8 lg:mb-12 -mx-4 px-4 lg:mx-0 lg:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                     {team.map((m) => (
-                        <div key={m.name} className="relative rounded-3xl overflow-hidden shadow-2xl aspect-[4/5]">
+                        <div key={m.name} className="snap-center shrink-0 w-[68%] sm:w-[240px] relative rounded-3xl overflow-hidden shadow-2xl aspect-[4/5]">
                             <img src={m.img} alt={`${m.name}, your Nottingham handyman`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                             <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/10 to-transparent" />
-                            <div className="absolute bottom-0 left-0 right-0 p-5">
-                                <div className="text-white text-2xl font-extrabold leading-none">{m.name}</div>
-                                <div className="text-amber-400 font-semibold text-sm mt-1">{m.role} · HandyServices</div>
-                                <div className="flex items-center gap-1.5 mt-2 text-white/90 text-sm">
-                                    <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                            <div className="absolute bottom-0 left-0 right-0 p-4">
+                                <div className="text-white text-xl font-extrabold leading-none">{m.name}</div>
+                                <div className="text-amber-400 font-semibold text-xs mt-1">{m.role} · HandyServices</div>
+                                <div className="flex items-center gap-1.5 mt-1.5 text-white/90 text-xs">
+                                    <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                                     <span className="text-white/80">{m.meta}</span>
                                 </div>
                             </div>
