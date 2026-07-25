@@ -1318,11 +1318,17 @@ export default function MyWeekPage() {
                     <div className="text-xl font-bold text-emerald-300">£{Math.round((jobDetail.payoutPence ?? 0) / 100)}</div>
                   </div>
                   <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Materials</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Materials budget</div>
                     <div className="text-xl font-bold text-slate-200">£{Math.round((jobDetail.materialsAllowancePence ?? 0) / 100)}</div>
-                    <div className="text-[9px] text-slate-500 mt-0.5">supplied by Handy</div>
+                    <div className="text-[9px] text-slate-500 mt-0.5">you source · Handy card</div>
                   </div>
                 </div>
+
+                {jobDetail.status === 'booked' && (jobDetail.materialsAllowancePence ?? 0) > 0 && (
+                  <div className="mb-4 p-3 rounded-xl bg-slate-800/40 border border-slate-700/60 text-[11px] text-slate-400 leading-snug">
+                    You source and plan the materials, plant hire and any extra (Handy-vetted) help on your Handy card. Keep it within budget — Handy keeps the receipts.
+                  </div>
+                )}
 
                 {jobDetail.fullDescription && (
                   <div className="mb-4">
