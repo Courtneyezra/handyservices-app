@@ -162,6 +162,7 @@ const ContractorJobSheet = lazy(() => import("@/pages/contractor/ContractorJobSh
 const DispatchLinkPage = lazy(() => import("@/pages/contractor/DispatchLinkPage"));
 const MyWeekPage = lazy(() => import("@/pages/contractor/MyWeekPage")); // availability app (tokenised)
 const WeekPlannerPreview = lazy(() => import("@/pages/contractor/WeekPlannerPreview")); // design mock, frontend-only
+const ScorecardPreview = lazy(() => import("@/pages/contractor/ScorecardPreview")); // design mock, frontend-only
 const DispatchPreviewPage = lazy(() => import("@/pages/contractor/DispatchPreviewPage"));
 const AdminDispatchDashboard = lazy(() => import("@/pages/admin/AdminDispatchDashboard"));
 const AdminGenerateDispatch = lazy(() => import("@/pages/admin/AdminGenerateDispatch"));
@@ -385,6 +386,10 @@ function Router() {
                   * Spec: docs/contractor-platform/05-week-planner-ui.md. */}
                 <Route path="/labs/week-planner">
                     <WeekPlannerPreview />
+                </Route>
+                {/* Scorecard + win-moment design mock — frontend-only. */}
+                <Route path="/labs/scorecard">
+                    <ScorecardPreview />
                 </Route>
                 {/* Day-pack preview — frontend-only test page, no backend.
                   * Shareable URL to validate the day-pack offer UX with a real
