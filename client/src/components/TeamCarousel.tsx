@@ -4,11 +4,12 @@ import { CONTRACTOR_ROSTER } from "@/lib/contractor-roster";
 
 /**
  * "Meet your handymen" carousel — the shared team strip used by every city
- * landing (Nottingham, Derby, …). Horizontal scroll-snap with a gentle
- * auto-advance that:
- *   - pauses while the visitor is hovering/touching/scrolling it,
- *   - loops back to the start at the end,
- *   - is fully disabled under prefers-reduced-motion.
+ * landing (Nottingham, Derby, …). Horizontal scroll-snap that:
+ *   - can be dragged/swiped with a mouse (touch swipes natively),
+ *   - auto-rotates one card every ~3.2s and loops at the end,
+ *   - pauses auto-rotate only while the visitor is actively dragging/scrolling
+ *     it (not on mere hover, so it keeps moving on desktop),
+ *   - disables auto-rotate under prefers-reduced-motion (drag still works).
  *
  * `city` only personalises the image alt text.
  */
@@ -18,28 +19,50 @@ export function TeamCarousel({ city }: { city: string }) {
   useEffect(() => {
     const el = trackRef.current;
     if (!el) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
+    // ── Mouse drag-to-swipe (touch already scrolls natively) ──────────────
+    let dragging = false;
+    let startX = 0;
+    let startScroll = 0;
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") return; // let touch use native momentum scroll
+      dragging = true;
+      startX = e.clientX;
+      startScroll = el.scrollLeft;
+      try { el.setPointerCapture(e.pointerId); } catch { /* no-op */ }
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!dragging) return;
+      el.scrollLeft = startScroll - (e.clientX - startX);
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      try { el.releasePointerCapture(e.pointerId); } catch { /* no-op */ }
+    };
+    el.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
+
+    // ── Auto-rotate — pause only during ACTIVE interaction, not on hover ──
     let paused = false;
     let resumeTimer: ReturnType<typeof setTimeout> | undefined;
-    const pause = () => {
-      paused = true;
-      if (resumeTimer) clearTimeout(resumeTimer);
-    };
-    // Resume a few seconds after the visitor stops interacting.
+    const pause = () => { paused = true; if (resumeTimer) clearTimeout(resumeTimer); };
     const resumeSoon = () => {
       if (resumeTimer) clearTimeout(resumeTimer);
       resumeTimer = setTimeout(() => { paused = false; }, 4000);
     };
-
-    el.addEventListener("pointerenter", pause);
+    const onWheel = () => { pause(); resumeSoon(); };
     el.addEventListener("pointerdown", pause);
-    el.addEventListener("pointerleave", resumeSoon);
+    el.addEventListener("pointerup", resumeSoon);
     el.addEventListener("touchstart", pause, { passive: true });
     el.addEventListener("touchend", resumeSoon, { passive: true });
+    el.addEventListener("wheel", onWheel, { passive: true });
 
-    const id = setInterval(() => {
-      if (paused) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const id = reduce ? undefined : setInterval(() => {
+      if (paused || dragging) return;
       const card = el.firstElementChild as HTMLElement | null;
       if (!card) return;
       const step = card.offsetWidth + 16; // card width + gap-4
@@ -48,20 +71,24 @@ export function TeamCarousel({ city }: { city: string }) {
     }, 3200);
 
     return () => {
-      clearInterval(id);
+      if (id) clearInterval(id);
       if (resumeTimer) clearTimeout(resumeTimer);
-      el.removeEventListener("pointerenter", pause);
+      el.removeEventListener("pointerdown", onDown);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("pointercancel", onUp);
       el.removeEventListener("pointerdown", pause);
-      el.removeEventListener("pointerleave", resumeSoon);
+      el.removeEventListener("pointerup", resumeSoon);
       el.removeEventListener("touchstart", pause);
       el.removeEventListener("touchend", resumeSoon);
+      el.removeEventListener("wheel", onWheel);
     };
   }, []);
 
   return (
     <div
       ref={trackRef}
-      className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4 mb-8 lg:mb-12 -mx-4 px-4 lg:mx-0 lg:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="flex gap-4 overflow-x-auto snap-x snap-proximity pb-4 mb-8 lg:mb-12 -mx-4 px-4 lg:mx-0 lg:px-0 cursor-grab active:cursor-grabbing select-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {CONTRACTOR_ROSTER.map((m) => (
         <div key={m.key} className="snap-center shrink-0 w-[68%] sm:w-[240px] relative rounded-3xl overflow-hidden shadow-2xl aspect-[4/5]">
