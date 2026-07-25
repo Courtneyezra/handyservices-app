@@ -134,6 +134,56 @@ router.get('/:token', async (req: Request, res: Response) => {
   }
 });
 
+// GET /:token/scorecard → his real career stats (pay booked vs completed,
+// jobs, tier ladder, week fill). Only tracks what's true — rating/on-time/
+// streak wait for the completion + review systems, flagged not-yet-tracked.
+router.get('/:token/scorecard', async (req: Request, res: Response) => {
+  try {
+    const profile = await findByAppToken(req.params.token);
+    if (!profile) return res.status(404).json({ error: 'Link not recognised' });
+
+    const rows = await db.select({ payout: bookingAssignments.payoutPence, scheduledDate: contractorBookingRequests.scheduledDate, status: bookingAssignments.status })
+      .from(bookingAssignments)
+      .innerJoin(contractorBookingRequests, eq(contractorBookingRequests.id, bookingAssignments.bookingId))
+      .where(eq(bookingAssignments.contractorId, profile.id));
+
+    const now = new Date();
+    const todayStr = format(now, 'yyyy-MM-dd');
+    const monthStart = format(new Date(now.getFullYear(), now.getMonth(), 1), 'yyyy-MM-dd');
+    const weekStartStr = format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd');
+
+    let allTime = 0, month = 0, week = 0, completedPence = 0, bookedPence = 0, jobsCompleted = 0, jobsBooked = 0;
+    for (const r of rows) {
+      const pay = r.payout ?? 0;
+      const d = r.scheduledDate ? format(new Date(r.scheduledDate as any), 'yyyy-MM-dd') : todayStr;
+      const done = r.status === 'completed' || d < todayStr;
+      allTime += pay;
+      if (d >= monthStart) month += pay;
+      if (d >= weekStartStr) week += pay;
+      if (done) { completedPence += pay; jobsCompleted++; } else { bookedPence += pay; jobsBooked++; }
+    }
+
+    // Week fill from the resolved grid (this week).
+    const { days } = await loadJobsAndGrid(profile.id);
+    const weekEndStr = format(addDays(startOfWeek(now, { weekStartsOn: 1 }), 6), 'yyyy-MM-dd');
+    const weekDays = days.filter((d) => d.date >= weekStartStr && d.date <= weekEndStr);
+    const weekOpen = weekDays.filter((d) => d.am === 'open' || d.pm === 'open' || d.am === 'booked' || d.pm === 'booked').length;
+    const weekBooked = weekDays.filter((d) => d.am === 'booked' || d.pm === 'booked').length;
+
+    res.json({
+      tier: profile.deliveryTier || 'adhoc',
+      allTimePence: allTime, monthPence: month, weekPence: week,
+      completedPence, bookedPence, jobsCompleted, jobsBooked,
+      weekOpen, weekBooked,
+      // Not yet tracked — surfaced honestly rather than faked.
+      ratingTracked: false, onTimeTracked: false,
+    });
+  } catch (err: any) {
+    console.error('[ContractorApp] scorecard failed:', err?.message);
+    res.status(500).json({ error: 'Failed to load scorecard' });
+  }
+});
+
 // GET /:token/pipeline → quotes skinned to this contractor (soft lead, unpaid).
 // Privacy-gated like dispatch links: outward postcode + trimmed description
 // only — no customer name/address/contact before a deposit is paid.

@@ -202,7 +202,8 @@ export default function MyWeekPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [patternDraft, setPatternDraft] = useState<PatternDay[] | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
-  const [tab, setTab] = useState<'home' | 'week' | 'quotes' | 'jobs'>('home');
+  const [tab, setTab] = useState<'home' | 'week' | 'quotes' | 'jobs' | 'profile'>('home');
+  const [scoreRange, setScoreRange] = useState<'week' | 'month' | 'all'>('month');
   const [confirmPlace, setConfirmPlace] = useState<string | null>(null); // `${quoteId}|${date}|${slot}`
   const [placeError, setPlaceError] = useState<{ quoteId: string; message: string } | null>(null);
   const [planGoal, setPlanGoal] = useState<DayPlanGoal>('earnings');
@@ -218,6 +219,21 @@ export default function MyWeekPage() {
       return res.json();
     },
     enabled: !!token,
+  });
+
+  // Scorecard — his real career stats (pay booked/completed, jobs, tier).
+  const { data: score } = useQuery<{
+    tier: string; allTimePence: number; monthPence: number; weekPence: number;
+    completedPence: number; bookedPence: number; jobsCompleted: number; jobsBooked: number;
+    weekOpen: number; weekBooked: number; ratingTracked: boolean; onTimeTracked: boolean;
+  }>({
+    queryKey: ['contractor-app-scorecard', token],
+    queryFn: async () => {
+      const res = await fetch(`/api/contractor-app/${token}/scorecard`);
+      if (!res.ok) throw new Error('load failed');
+      return res.json();
+    },
+    enabled: !!token && tab === 'profile',
   });
 
   // Pipeline — quotes wearing this contractor's skin (fed by the same token).
@@ -507,7 +523,7 @@ export default function MyWeekPage() {
           )}
           <div>
             <h1 className="text-xl font-bold leading-tight">
-              {isLoading ? 'Loading…' : tab === 'home' ? `Hi, ${data?.provider.firstName}` : `${data?.provider.firstName}'s week`}
+              {isLoading ? 'Loading…' : tab === 'home' ? `Hi, ${data?.provider.firstName}` : tab === 'profile' ? `${data?.provider.firstName}'s stats` : `${data?.provider.firstName}'s week`}
             </h1>
             <div className="flex items-center gap-3 text-[11px]">
               {openCount > 0 && <span className="text-emerald-400 font-semibold">{openCount} days open</span>}
@@ -518,6 +534,8 @@ export default function MyWeekPage() {
         <p className="text-xs text-slate-500 mb-4 mt-2">
           {tab === 'home'
             ? 'Your week at a glance — what you’ve earned and what needs a day.'
+            : tab === 'profile'
+            ? 'Your career with Handy — earnings, jobs and your tier.'
             : tab === 'quotes'
             ? 'Live quotes going out with your name and photo on them.'
             : tab === 'jobs'
@@ -1124,6 +1142,101 @@ export default function MyWeekPage() {
           </div>
         )}
 
+        {/* ── PROFILE / scorecard — his real career, quality beside money ── */}
+        {tab === 'profile' && score && (() => {
+          const rangePence = scoreRange === 'week' ? score.weekPence : scoreRange === 'month' ? score.monthPence : score.allTimePence;
+          const rangeLabel = scoreRange === 'week' ? 'this week' : scoreRange === 'month' ? 'this month' : 'all-time';
+          const isCore = score.tier === 'core';
+          return (
+            <div className="space-y-3">
+              {/* Tier badge */}
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-[10px] font-black uppercase tracking-wider ${isCore ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-slate-800 border-slate-700 text-slate-300'}`}>
+                  {score.tier} contractor
+                </span>
+              </div>
+
+              {/* Earnings hero */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-500/15 to-slate-900/40 border border-emerald-500/25">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-300/70 mb-1">Earned with Handy · {rangeLabel}</div>
+                <div className="text-4xl font-black">£{Math.round(rangePence / 100).toLocaleString()}</div>
+                <div className="flex gap-1.5 mt-3">
+                  {(['week', 'month', 'all'] as const).map((r) => (
+                    <button key={r} onClick={() => setScoreRange(r)} className={`px-3 py-1 rounded-lg text-[11px] font-bold ${scoreRange === r ? 'bg-emerald-400 text-emerald-950' : 'bg-slate-800 text-slate-400'}`}>
+                      {r === 'all' ? 'All-time' : r === 'week' ? 'This week' : 'This month'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Completed vs booked split */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
+                  <div className="text-lg font-black text-white">£{Math.round(score.completedPence / 100).toLocaleString()}</div>
+                  <div className="text-[10px] text-slate-500 font-semibold">completed · {score.jobsCompleted} job{score.jobsCompleted === 1 ? '' : 's'}</div>
+                </div>
+                <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/25">
+                  <div className="text-lg font-black text-blue-300">£{Math.round(score.bookedPence / 100).toLocaleString()}</div>
+                  <div className="text-[10px] text-blue-400/70 font-semibold">booked · {score.jobsBooked} job{score.jobsBooked === 1 ? '' : 's'}</div>
+                </div>
+              </div>
+
+              {/* Quality — honest about what isn't tracked yet */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-center">
+                  <div className="text-2xl font-black text-white">{score.jobsCompleted + score.jobsBooked}</div>
+                  <div className="text-[10px] text-slate-500 font-semibold mt-0.5">total jobs</div>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-900/40 border border-slate-800/60 text-center">
+                  <div className="text-lg font-black text-slate-600 flex items-center justify-center h-7"><Star size={16} /></div>
+                  <div className="text-[9px] text-slate-600 font-semibold mt-0.5">rating soon</div>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-900/40 border border-slate-800/60 text-center">
+                  <div className="text-lg font-black text-slate-600 flex items-center justify-center h-7"><Flame size={16} /></div>
+                  <div className="text-[9px] text-slate-600 font-semibold mt-0.5">streak soon</div>
+                </div>
+              </div>
+
+              {/* Week fill */}
+              {score.weekOpen > 0 && (
+                <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
+                  <div className="text-xs font-bold mb-2">This week</div>
+                  <div className="flex gap-1">
+                    {Array.from({ length: score.weekOpen }, (_, i) => (
+                      <div key={i} className={`flex-1 h-2.5 rounded-full ${i < score.weekBooked ? 'bg-emerald-400' : 'bg-slate-700'}`} />
+                    ))}
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-semibold mt-2">{score.weekBooked} of {score.weekOpen} open days booked</div>
+                </div>
+              )}
+
+              {/* Tier ladder */}
+              <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
+                <div className="text-xs font-bold mb-3">Your tier</div>
+                <div className="flex items-center gap-1 mb-3">
+                  {[{ k: 'adhoc', l: 'Ad-hoc', s: '45–55%' }, { k: 'core', l: 'Core', s: '+5%' }, { k: 'partner', l: 'Partner', s: 'equity' }].map((t, i) => {
+                    const idx = ['adhoc', 'core', 'partner'].indexOf(score.tier);
+                    const passed = i <= idx;
+                    return (
+                      <div key={t.k} className="flex-1">
+                        <div className={`h-1.5 rounded-full ${passed ? 'bg-emerald-400' : 'bg-slate-700'}`} />
+                        <div className={`text-[10px] font-bold mt-1 ${t.k === score.tier ? 'text-emerald-300' : passed ? 'text-slate-300' : 'text-slate-600'}`}>{t.l}</div>
+                        <div className="text-[9px] text-slate-600">{t.s}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="text-[11px] text-slate-400 leading-snug">
+                  {isCore
+                    ? <>You're <span className="text-emerald-300 font-bold">Core</span> — +5% on every job and first pick of the week.</>
+                    : <>Complete clean jobs to reach <span className="text-emerald-300 font-bold">Core</span> — +5% pay and first pick.</>}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+        {tab === 'profile' && !score && <div className="h-40 bg-slate-900 rounded-2xl animate-pulse" />}
+
         {/* Freshness footer */}
         {tab === 'week' && data?.provider.lastAvailabilityRefresh && (
           <div className="mt-5 text-center text-[10px] text-slate-600">
@@ -1136,12 +1249,13 @@ export default function MyWeekPage() {
       {/* Bottom nav — the app frame. Week + Quotes live; Jobs + Profile land
         * in later phases (kept visible so the destination is legible). */}
       <nav className="fixed bottom-0 inset-x-0 z-40 bg-slate-950/90 backdrop-blur-md border-t border-slate-800/80 pb-[env(safe-area-inset-bottom)]">
-        <div className="max-w-md mx-auto grid grid-cols-4">
+        <div className="max-w-md mx-auto grid grid-cols-5">
           {([
             { key: 'home' as const, label: 'Home', icon: Home, live: true, badge: 0 },
             { key: 'week' as const, label: 'Week', icon: CalendarDays, live: true, badge: 0 },
             { key: 'jobs' as const, label: 'Jobs', icon: Briefcase, live: true, badge: jobs?.flex.length ?? 0 },
             { key: 'quotes' as const, label: 'Quotes', icon: FileText, live: true, badge: pipeline?.liveCount ?? 0 },
+            { key: 'profile' as const, label: 'Stats', icon: UserRound, live: true, badge: 0 },
           ]).map((item) => {
             const active = item.live && tab === item.key;
             return (
@@ -1149,7 +1263,7 @@ export default function MyWeekPage() {
                 key={item.key}
                 disabled={!item.live}
                 aria-label={item.live ? item.label : `${item.label} — coming soon`}
-                onClick={() => item.live && setTab(item.key as 'home' | 'week' | 'quotes' | 'jobs')}
+                onClick={() => item.live && setTab(item.key as 'home' | 'week' | 'quotes' | 'jobs' | 'profile')}
                 className={`relative flex flex-col items-center gap-1 py-2.5 transition-colors ${
                   active ? 'text-white' : item.live ? 'text-slate-500 active:text-slate-300' : 'text-slate-700'
                 }`}
