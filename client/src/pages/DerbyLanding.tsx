@@ -4,7 +4,7 @@ import { WistiaFacade } from "@/components/quote/WistiaFacade";
 import { Button } from "@/components/ui/button";
 import { SiWhatsapp, SiGoogle } from "react-icons/si";
 import { IntakeHero } from "@/components/IntakeHero";
-import { CONTRACTOR_ROSTER } from "@/lib/contractor-roster";
+import { TeamCarousel } from "@/components/TeamCarousel";
 import { usePageSeo } from "@/hooks/usePageSeo";
 import { GoogleReviewsSection } from "@/components/GoogleReviewsSection";
 import { StickyCTA } from "@/components/StickyCTA";
@@ -37,12 +37,8 @@ const PHONE_NUMBER = "+447449501762";
 
 
 function TeamSection() {
-    // Person-led brand: the SAME real handymen the quote assigns — one consistent
-    // cast across the whole journey, and the same team that serves Derby.
-    // ⚠️ Ratings / job counts are PLACEHOLDERS pending real profile data (C5).
-    const team = CONTRACTOR_ROSTER.map((c) => ({
-        name: c.name, role: c.role, img: c.portraitUrl, meta: c.meta,
-    }));
+    // Person-led brand: the SAME real handymen the quote assigns, from the
+    // shared contractor roster (rendered by TeamCarousel / contractor-roster.ts).
     const recentWork = [
         { url: "/assets/quote-images/craig-bathroom.webp", label: "Bathroom reseal" },
         { url: "/assets/quote-images/craig-tiling.webp", label: "Tiling" },
@@ -63,24 +59,8 @@ function TeamSection() {
                     </p>
                 </div>
 
-                {/* The handymen — horizontal swipe carousel (compact; the next
-                    card peeks on mobile to signal there's more to scroll). */}
-                <div className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4 mb-8 lg:mb-12 -mx-4 px-4 lg:mx-0 lg:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                    {team.map((m) => (
-                        <div key={m.name} className="snap-center shrink-0 w-[68%] sm:w-[240px] relative rounded-3xl overflow-hidden shadow-2xl aspect-[4/5]">
-                            <img src={m.img} alt={`${m.name}, your Derby handyman`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
-                            <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/10 to-transparent" />
-                            <div className="absolute bottom-0 left-0 right-0 p-4">
-                                <div className="text-white text-xl font-extrabold leading-none">{m.name}</div>
-                                <div className="text-amber-400 font-semibold text-xs mt-1">{m.role} · HandyServices</div>
-                                <div className="flex items-center gap-1.5 mt-1.5 text-white/90 text-xs">
-                                    <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-                                    <span className="text-white/80">{m.meta}</span>
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
+                {/* The handymen — shared auto-advancing swipe carousel. */}
+                <TeamCarousel city="Derby" />
 
                 {/* Shared trust + recent work */}
                 <div className="max-w-4xl mx-auto">
