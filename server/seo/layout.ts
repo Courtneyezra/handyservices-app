@@ -130,6 +130,10 @@ header.site .container{gap:12px}
   header.site a.brand .wordmark{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   header.site .brand-logo{width:30px;height:30px}
   header.site a.book{padding:9px 15px;font-size:13.5px}
+  /* Keep each hero trust item on one line (no mid-phrase break like "130+ / Google reviews"); trim size so it still fits to 320px.
+     Scoped under .hero so it beats the later base .trust-hero rule at equal specificity. */
+  .hero .trust-hero{font-size:13px;gap:8px 14px}
+  .hero .trust-hero li{white-space:nowrap}
 }
 @media(max-width:380px){
   header.site a.book{font-size:0}
