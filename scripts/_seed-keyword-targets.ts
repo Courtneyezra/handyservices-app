@@ -7,10 +7,20 @@
  *   npx tsx scripts/_seed-keyword-targets.ts
  *
  * Decision (24 Jul 2026): seed BOTH lanes — core (deliver now) AND the
- * regulated sub/pool trades — all with trackRankings=true. But every row
- * lands with pagePublished=false and bookingEnabled=false: RANK != FULFIL.
- * Flip pagePublished when a page ships; flip bookingEnabled only when the
- * pool can actually field that trade same-day.
+ * regulated sub/pool trades — all with trackRankings=true. bookingEnabled=false
+ * everywhere: RANK != FULFIL — flip it only when the pool can field that trade
+ * same-day.
+ *
+ * Publish policy (25 Jul 2026, driven by real Keyword Planner volumes —
+ * docs/SEO-KEYWORD-VOLUMES-2026-07.md): a fresh seed publishes ONLY Wave 1 —
+ * the six highest-demand core trades (each 850–1,110 searches/mo). Everything
+ * else lands pagePublished=false. This makes the rollout gate (server/seo/
+ * rollout.ts) index exactly the Wave-1 T2 pages on day one; add Waves 2/3 by
+ * toggling pagePublished in /admin/seo as delivery keeps up.
+ *
+ * NOTE: re-running the seed does NOT touch pagePublished on existing rows (see
+ * onConflictDoUpdate below) — manual admin toggles always win. Wave-1 defaults
+ * apply on the initial insert only.
  */
 import { db } from '../server/db';
 import { keywordTargets, type InsertKeywordTarget } from '../shared/schema';
@@ -38,7 +48,7 @@ const DATA: Row[] = [
     { city: 'nottingham', trade: 'carpenter', keyword: 'carpenter nottingham', intent: 'trade_service', deliverability: 'core', vol: 260, comp: 'MEDIUM' },
     { city: 'nottingham', trade: 'tiler', keyword: 'tiler nottingham', intent: 'trade_service', deliverability: 'core', vol: 170, comp: 'MEDIUM' },
     { city: 'nottingham', trade: 'bathroom-fitting', keyword: 'bathroom fitter nottingham', intent: 'trade_service', deliverability: 'core', vol: 90, comp: 'MEDIUM' },
-    { city: 'nottingham', trade: 'landscaping', keyword: 'landscaping nottingham', intent: 'trade_service', deliverability: 'core', vol: 720, comp: 'HIGH' },
+    { city: 'nottingham', trade: 'landscaping', keyword: 'landscaping nottingham', intent: 'trade_service', deliverability: 'core', vol: 590, comp: 'HIGH' },
     { city: 'nottingham', trade: 'landscaping', keyword: 'turfing nottingham', intent: 'trade_service', deliverability: 'core', vol: 320, comp: 'HIGH' },
     { city: 'nottingham', trade: 'landscaping', keyword: 'garden maintenance nottingham', intent: 'trade_service', deliverability: 'core', vol: 70, comp: 'HIGH' },
     { city: 'nottingham', trade: 'pressure-washing', keyword: 'pressure washing nottingham', intent: 'trade_service', deliverability: 'core', vol: 90, comp: 'HIGH' },
@@ -53,7 +63,7 @@ const DATA: Row[] = [
     { city: 'nottingham', trade: 'locksmith', keyword: 'emergency locksmith nottingham', intent: 'emergency', deliverability: 'sub', vol: 140, comp: 'MEDIUM' },
     { city: 'nottingham', trade: 'plumber', keyword: 'plumber nottingham', intent: 'trade_service', deliverability: 'sub', vol: 1300, comp: 'HIGH' },
     { city: 'nottingham', trade: 'plumber', keyword: 'emergency plumber nottingham', intent: 'emergency', deliverability: 'sub', vol: 390, comp: 'HIGH' },
-    { city: 'nottingham', trade: 'electrician', keyword: 'electrician nottingham', intent: 'trade_service', deliverability: 'sub', vol: 1300, comp: 'MEDIUM' },
+    { city: 'nottingham', trade: 'electrician', keyword: 'electrician nottingham', intent: 'trade_service', deliverability: 'sub', vol: 1000, comp: 'MEDIUM' },
     { city: 'nottingham', trade: 'electrician', keyword: 'emergency electrician nottingham', intent: 'emergency', deliverability: 'sub', vol: 140, comp: 'HIGH' },
     // ---- Derby · core ----
     { city: 'derby', trade: 'handyman', keyword: 'handyman derby', intent: 'service_head', deliverability: 'core', vol: 480, comp: 'MEDIUM' },
@@ -119,6 +129,13 @@ const TIER: Record<string, InsertKeywordTarget['tier']> = {
 const INTENT_W: Record<string, number> = { emergency: 1.4, upmarket: 1.3, service_head: 1.1, trade_service: 1.0, informational: 0.6, trade_supply: 0.3, brand_competitor: 0.1 };
 const DELIV_W: Record<string, number> = { core: 1.0, sub: 0.7, out_of_scope: 0.0 };
 
+// Wave 1 = the six highest-demand core trades (850–1,110/mo each). A fresh seed
+// publishes exactly these; their T2 pages go live + enter the sitemap on day one.
+// Trade slugs MUST match SEO_SERVICES slugs so the rollout gate resolves them.
+const WAVE1_PUBLISHED = new Set<string>([
+    'fencing', 'plasterer', 'landscaping', 'painter-decorator', 'handyman', 'gutter-cleaning',
+]);
+
 async function main() {
     let inserted = 0;
     for (const r of DATA) {
@@ -128,8 +145,8 @@ async function main() {
             intent: r.intent, tier: TIER[r.intent], deliverability: r.deliverability,
             avgMonthlySearches: r.vol, competition: r.comp,
             priorityScore,
-            trackRankings: true,        // track everything from day one
-            pagePublished: false,       // nothing built yet
+            trackRankings: true,                          // track everything from day one
+            pagePublished: WAVE1_PUBLISHED.has(r.trade),  // Wave 1 live on fresh seed; rest via /admin/seo
             bookingEnabled: false,      // gated on real pool capacity — RANK != FULFIL
             source: 'google_keyword_planner',
         };
@@ -152,11 +169,16 @@ async function main() {
     // Summary
     const coreVol = DATA.filter(d => d.deliverability === 'core').reduce((s, d) => s + d.vol, 0);
     const subVol = DATA.filter(d => d.deliverability === 'sub').reduce((s, d) => s + d.vol, 0);
+    const wave1Trades = [...WAVE1_PUBLISHED];
+    const wave1Vol = DATA.filter(d => WAVE1_PUBLISHED.has(d.trade)).reduce((s, d) => s + d.vol, 0);
     console.log(`Seeded/updated ${inserted} keyword targets.`);
     console.log(`  Core (deliver now) demand:      ${coreVol.toLocaleString()} searches/mo`);
     console.log(`  Sub  (vetted-pool fork) demand: ${subVol.toLocaleString()} searches/mo`);
     console.log(`  Total tracked universe:         ${(coreVol + subVol).toLocaleString()} searches/mo`);
-    console.log(`  All rows: trackRankings=true, pagePublished=false, bookingEnabled=false.`);
+    console.log(`  PUBLISHED on fresh seed — Wave 1 (${wave1Trades.length} trades, ${wave1Vol.toLocaleString()}/mo):`);
+    console.log(`    ${wave1Trades.join(', ')}`);
+    console.log(`  All rows: trackRankings=true, bookingEnabled=false. Non-Wave-1 pagePublished=false.`);
+    console.log(`  Re-runs preserve existing pagePublished (admin toggles win).`);
     process.exit(0);
 }
 
