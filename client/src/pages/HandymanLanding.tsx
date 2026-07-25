@@ -168,7 +168,7 @@ function PainPointsSection() {
                             browsers that don't honour aspect-ratio (iOS Safari), which
                             was hiding the embed entirely on phones. */}
                         <div className="relative aspect-square min-h-[340px] lg:aspect-auto lg:min-h-[460px] bg-slate-900">
-                            <WistiaFacade mediaId="n3dh959arn" aspect="1" posterUrl="/assets/at-work/work-sander.webp" />
+                            <WistiaFacade mediaId="n3dh959arn" aspect="1" posterUrl="/assets/at-work/joe-latest-job.webp" />
                         </div>
                         {/* Case-study copy */}
                         <div className="p-7 sm:p-10 lg:p-12 flex flex-col justify-center">
