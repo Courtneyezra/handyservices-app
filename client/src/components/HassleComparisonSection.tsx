@@ -28,32 +28,32 @@ export function HassleComparisonSection({ segment, maxItems = 4 }: HassleCompari
         </div>
 
         {/* Column headers */}
-        <div className="grid grid-cols-2 gap-2.5 md:gap-4 mb-3">
-          <div className="text-center text-[11px] md:text-sm font-bold uppercase tracking-wider text-slate-400">
+        <div className="grid grid-cols-2 gap-2 md:gap-4 mb-2 md:mb-3">
+          <div className="text-center text-[10px] md:text-sm font-bold uppercase tracking-wider text-slate-400">
             The usual handyman
           </div>
-          <div className="text-center text-[11px] md:text-sm font-bold uppercase tracking-wider text-[#5f8209]">
+          <div className="text-center text-[10px] md:text-sm font-bold uppercase tracking-wider text-[#5f8209]">
             With Handy Services
           </div>
         </div>
 
-        <div className="space-y-2.5 md:space-y-3">
+        <div className="space-y-2 md:space-y-3">
           {comparisons.map((item) => (
-            <div key={item.id} className="grid grid-cols-2 gap-2.5 md:gap-4 items-stretch">
+            <div key={item.id} className="grid grid-cols-2 gap-2 md:gap-4 items-stretch">
               {/* Without us — muted block */}
-              <div className="bg-slate-100 rounded-2xl px-4 py-4 md:px-6 md:py-5 flex items-center gap-3 md:gap-3.5">
-                <span className="w-6 h-6 rounded-full bg-slate-300/80 flex items-center justify-center shrink-0">
-                  <X className="w-3.5 h-3.5 text-slate-500" strokeWidth={3} />
+              <div className="bg-slate-100 rounded-xl md:rounded-2xl px-2.5 py-2.5 md:px-6 md:py-5 flex items-center gap-1.5 md:gap-3.5">
+                <span className="w-5 h-5 md:w-6 md:h-6 rounded-full bg-slate-300/80 flex items-center justify-center shrink-0">
+                  <X className="w-3 h-3 md:w-3.5 md:h-3.5 text-slate-500" strokeWidth={3} />
                 </span>
-                <span className="text-slate-500 text-sm md:text-base leading-snug">{item.withoutUs}</span>
+                <span className="text-slate-500 text-[11px] md:text-base leading-snug">{item.withoutUs}</span>
               </div>
 
               {/* With us — solid bright-green block */}
-              <div className="bg-gradient-to-br from-[#7DB00E] to-[#6a9a0c] rounded-2xl px-4 py-4 md:px-6 md:py-5 flex items-center gap-3 md:gap-3.5 shadow-lg shadow-[#7DB00E]/25">
-                <span className="w-6 h-6 rounded-full bg-white flex items-center justify-center shrink-0">
-                  <Check className="w-3.5 h-3.5 text-[#5f8209]" strokeWidth={3.5} />
+              <div className="bg-gradient-to-br from-[#7DB00E] to-[#6a9a0c] rounded-xl md:rounded-2xl px-2.5 py-2.5 md:px-6 md:py-5 flex items-center gap-1.5 md:gap-3.5 shadow-lg shadow-[#7DB00E]/25">
+                <span className="w-5 h-5 md:w-6 md:h-6 rounded-full bg-white flex items-center justify-center shrink-0">
+                  <Check className="w-3 h-3 md:w-3.5 md:h-3.5 text-[#5f8209]" strokeWidth={3.5} />
                 </span>
-                <span className="text-white font-semibold text-sm md:text-base leading-snug">{item.withUs}</span>
+                <span className="text-white font-semibold text-[11px] md:text-base leading-snug">{item.withUs}</span>
               </div>
             </div>
           ))}
