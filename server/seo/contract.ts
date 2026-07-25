@@ -117,7 +117,8 @@ export const SEO_SERVICES: SeoServiceRef[] = [
 export const SEO_BRAND = {
     name: 'Handy Services',
     url: 'https://www.handyservices.app',
-    telephone: '',                       // TODO: set public booking number
+    telephone: '+447449501762',          // public booking line (matches app StickyCTA)
+    whatsapp: '447508744402',            // Ben's WhatsApp (matches WhatsAppEscape WHATSAPP_NUMBER)
     ratingValue: '4.9',
     reviewCount: '127',
     insured: '£2M insured',

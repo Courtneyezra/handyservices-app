@@ -22,10 +22,18 @@ export function DesktopLeadForm() {
     // address yet, so we render a plain input and only upgrade to the real
     // autocomplete on first focus — keeping the script off the critical path.
     const [placesActive, setPlacesActive] = useState(false);
-    const [formData, setFormData] = useState({
-        jobDescription: "",
-        postcode: "",
-        phone: ""
+    const [formData, setFormData] = useState(() => {
+        // Pre-fill the job description when arriving from an SEO landing page
+        // (e.g. ?service=gutter-cleaning&city=nottingham) so search traffic lands ready to go.
+        let jobDescription = "";
+        if (typeof window !== "undefined") {
+            const params = new URLSearchParams(window.location.search);
+            const svc = params.get("service");
+            const city = params.get("city");
+            const pretty = (s: string) => s.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+            if (svc) jobDescription = city ? `${pretty(svc)} in ${pretty(city)}` : pretty(svc);
+        }
+        return { jobDescription, postcode: "", phone: "" };
     });
     const { toast } = useToast();
 

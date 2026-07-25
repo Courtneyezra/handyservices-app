@@ -66,6 +66,16 @@ export interface LayoutParts {
     bodyHtml: string;
     /** When true, emit robots noindex,follow. */
     noindex?: boolean;
+    /**
+     * Absolute URL of the page's hero/social image. When present, emits
+     * og:image + twitter:image (summary_large_image) so shared links preview
+     * with the trade photo. City hub passes the "handyman" hero.
+     */
+    imageUrl?: string;
+    /** Quote CTA URL for header / sticky bar. Defaults to "/". */
+    ctaHref?: string;
+    /** Contextual WhatsApp URL for the Ben sticky. Defaults to the generic message. */
+    waHref?: string;
 }
 
 const INLINE_STYLE = `
@@ -89,11 +99,28 @@ img{max-width:100%;display:block}
 /* ---- header ---- */
 header.site{position:sticky;top:0;z-index:40;background:rgba(255,255,255,.92);backdrop-filter:saturate(1.4) blur(8px);border-bottom:1px solid var(--line)}
 header.site .container{display:flex;align-items:center;justify-content:space-between;padding-top:14px;padding-bottom:14px}
-header.site a.brand{color:var(--navy);font-weight:800;font-size:20px;letter-spacing:-.01em}
+header.site a.brand{color:var(--navy);font-weight:800;font-size:20px;letter-spacing:-.01em;display:inline-flex;align-items:center;gap:10px}
+.brand-logo{width:34px;height:34px;display:block;flex:none}
+.fbrand{display:inline-flex;align-items:center;gap:9px}
+.futil{font-size:13px;opacity:.65}
+.futil a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+.futil a:hover{opacity:.85}
 header.site a.brand:hover{text-decoration:none}
 header.site .brand .dot{color:var(--amber)}
-header.site a.book{background:var(--amber);color:var(--navy);padding:10px 18px;border-radius:999px;font-weight:700;font-size:15px;box-shadow:var(--shadow)}
+header.site a.book{background:var(--amber);color:var(--navy);padding:10px 18px;border-radius:999px;font-weight:700;font-size:15px;box-shadow:var(--shadow);white-space:nowrap;flex:none}
 header.site a.book:hover{text-decoration:none;background:var(--amber-600)}
+header.site .container{gap:12px}
+@media(max-width:560px){
+  header.site .container{padding-top:11px;padding-bottom:11px}
+  header.site a.brand{font-size:17px;gap:8px;min-width:0}
+  header.site a.brand .wordmark{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  header.site .brand-logo{width:30px;height:30px}
+  header.site a.book{padding:9px 15px;font-size:13.5px}
+}
+@media(max-width:380px){
+  header.site a.book{font-size:0}
+  header.site a.book::before{content:"Get a quote";font-size:13.5px}
+}
 
 /* ---- buttons ---- */
 .btn{display:inline-flex;align-items:center;gap:8px;font-weight:800;border-radius:999px;padding:15px 30px;font-size:17px;line-height:1;transition:transform .12s ease}
@@ -129,8 +156,10 @@ header.site a.book:hover{text-decoration:none;background:var(--amber-600)}
 .hero-full .hero-inner{position:relative;z-index:2;padding:72px 20px;max-width:640px}
 
 /* ---- section scaffolding ---- */
-section.block{padding:52px 0}
+section.block{padding:56px 0}
+section.block.soft{background:var(--soft);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 section.block h2{font-size:clamp(24px,3.2vw,34px);line-height:1.12;letter-spacing:-.01em;color:var(--navy);margin:0 0 8px;font-weight:800}
+.kicker{display:inline-block;color:var(--amber-600);font-weight:800;text-transform:uppercase;letter-spacing:.13em;font-size:12.5px;margin:0 0 10px}
 .section-lead{color:var(--slate);font-size:18px;margin:0 0 26px;max-width:60ch}
 .prose p{color:var(--slate);margin:0 0 1em;max-width:70ch}
 .prose a{color:var(--navy);font-weight:700;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--amber)}
@@ -143,6 +172,42 @@ section.block h2{font-size:clamp(24px,3.2vw,34px);line-height:1.12;letter-spacin
 .cards li .ic{flex:0 0 auto;width:30px;height:30px;border-radius:50%;background:rgba(22,163,74,.12);display:inline-flex;align-items:center;justify-content:center;margin-top:1px}
 .cards li .ic svg{width:17px;height:17px;stroke:var(--green);fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
 .cards li span.txt{font-weight:600;color:var(--ink)}
+
+/* ---- how it works (4 steps) ---- */
+.steps{list-style:none;margin:6px 0 0;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+.steps li{position:relative;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:26px 22px 24px;box-shadow:var(--shadow)}
+.steps li .n{position:relative;width:48px;height:48px;border-radius:50%;background:var(--navy);color:var(--amber);font-weight:800;font-size:20px;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 8px 18px -8px rgba(27,42,74,.6)}
+.steps li .n::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2px solid rgba(245,166,35,.28)}
+.steps li h3{margin:16px 0 7px;font-size:17.5px;color:var(--navy);font-weight:800;letter-spacing:-.01em}
+.steps li p{margin:0;color:var(--slate);font-size:14.5px;line-height:1.55}
+.steps li:not(:last-child)::before{content:"";position:absolute;top:48px;right:-11px;width:22px;height:2px;background:linear-gradient(90deg,var(--amber),transparent);z-index:1}
+
+/* ---- pricing block ---- */
+.pricing{display:grid;grid-template-columns:.82fr 1.18fr;gap:22px;align-items:stretch;margin-top:6px}
+.pricing .anchor{background:linear-gradient(150deg,var(--navy),var(--navy-3));color:#fff;border-radius:var(--radius-lg);padding:30px 28px;box-shadow:var(--shadow-lg);display:flex;flex-direction:column;justify-content:center;position:relative;overflow:hidden}
+.pricing .anchor::before{content:"";position:absolute;inset:0;background:radial-gradient(420px 200px at 90% 120%,rgba(245,166,35,.22),transparent 60%)}
+.pricing .anchor .rel{position:relative}
+.pricing .anchor .from{color:var(--amber);font-weight:800;text-transform:uppercase;letter-spacing:.12em;font-size:13px}
+.pricing .anchor .amt{font-size:clamp(44px,6vw,60px);font-weight:800;line-height:1;margin:6px 0 10px;color:#fff;letter-spacing:-.02em}
+.pricing .anchor .note{color:rgba(255,255,255,.78);font-size:14.5px;margin:0}
+.pricing .incl{background:#fff;border:1px solid var(--line);border-radius:var(--radius-lg);padding:26px 26px 24px;box-shadow:var(--shadow)}
+.pricing .incl h3{margin:0 0 14px;font-size:16px;color:var(--navy);font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+.pricing .incl ul{list-style:none;margin:0;padding:0;display:grid;gap:11px}
+.pricing .incl ul li{display:flex;gap:11px;align-items:flex-start;color:var(--ink);font-weight:600;font-size:15.5px}
+.pricing .incl ul li .ic{flex:0 0 auto;width:26px;height:26px;border-radius:50%;background:rgba(22,163,74,.12);display:inline-flex;align-items:center;justify-content:center;margin-top:1px}
+.pricing .incl ul li .ic svg{width:15px;height:15px;stroke:var(--green);fill:none;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.pricing .affects{margin:18px 0 0;padding:13px 16px;background:var(--amber-050);border:1px solid #f4d79a;border-radius:12px;color:var(--ink);font-size:14.5px}
+.pricing .affects b{color:var(--navy)}
+
+/* ---- reviews (3-up) ---- */
+.reviews{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:6px}
+.reviews .rev{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:24px 22px;box-shadow:var(--shadow);display:flex;flex-direction:column}
+.reviews .rev .rstars{color:var(--star);letter-spacing:2px;font-size:16px;margin-bottom:12px}
+.reviews .rev blockquote{margin:0 0 16px;color:var(--ink);font-size:16px;line-height:1.55;font-weight:500;flex:1}
+.reviews .rev .who{display:flex;align-items:center;gap:11px}
+.reviews .rev .who .av{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--navy),var(--navy-2));color:var(--amber);font-weight:800;font-size:15px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+.reviews .rev .who .nm{font-weight:800;color:var(--navy);font-size:15px;line-height:1.2}
+.reviews .rev .who .loc{color:var(--muted);font-size:13px}
 
 /* ---- FAQ ---- */
 .faq{display:grid;gap:14px;margin:0}
@@ -176,7 +241,7 @@ section.block h2{font-size:clamp(24px,3.2vw,34px);line-height:1.12;letter-spacin
 .cta{background:linear-gradient(135deg,var(--navy),var(--navy-2));color:#fff;border-radius:var(--radius-lg);padding:44px 28px;text-align:center;box-shadow:var(--shadow-lg);position:relative;overflow:hidden}
 .cta::before{content:"";position:absolute;inset:0;background:radial-gradient(600px 260px at 15% -20%,rgba(245,166,35,.2),transparent 60%)}
 .cta .in{position:relative}
-.cta h2{color:#fff;margin:0 0 10px;font-size:clamp(24px,3.4vw,34px);font-weight:800}
+.cta .in h2{color:#fff;margin:0 0 10px;font-size:clamp(24px,3.4vw,34px);font-weight:800}
 .cta p{color:rgba(255,255,255,.82);margin:0 0 22px;max-width:52ch;margin-left:auto;margin-right:auto}
 
 /* ---- footer ---- */
@@ -189,6 +254,17 @@ footer.site a{color:var(--slate);font-weight:600}
 
 /* ---- sticky mobile CTA ---- */
 .mcta{display:none}
+.ben-fab{position:fixed;right:18px;bottom:20px;z-index:70;display:inline-flex;align-items:center;gap:11px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:8px 18px 8px 8px;box-shadow:0 14px 34px -10px rgba(15,23,42,.4);color:var(--navy);transition:transform .15s,box-shadow .15s}
+.ben-fab:hover{text-decoration:none;transform:translateY(-1px);box-shadow:0 18px 40px -10px rgba(15,23,42,.5)}
+.ben-fab:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+.ben-fab .av{position:relative;width:44px;height:44px;flex:none}
+.ben-fab .av img{width:44px;height:44px;border-radius:50%;object-fit:cover;display:block;border:2px solid #25D366}
+.ben-fab .av .wa{position:absolute;right:-2px;bottom:-2px;width:19px;height:19px;background:#25D366;border-radius:50%;border:2px solid #fff;display:flex;align-items:center;justify-content:center}
+.ben-fab .av .wa svg{width:11px;height:11px;fill:#fff}
+.ben-fab .lab{display:flex;flex-direction:column;line-height:1.2}
+.ben-fab .lab b{font-size:14px;font-weight:800}
+.ben-fab .lab small{font-size:11px;color:var(--muted);font-weight:600}
+@media(max-width:760px){.ben-fab{bottom:88px;right:12px;padding:6px}.ben-fab .lab{display:none}}
 @media (max-width:760px){
   .hero-split .hero-inner{grid-template-columns:1fr;gap:26px;padding:40px 20px 46px}
   .hero-split.var-c .hero-copy{order:1}
@@ -196,12 +272,17 @@ footer.site a{color:var(--slate);font-weight:600}
   .hero-img{aspect-ratio:16/10}
   .proof .in{grid-template-columns:1fr;gap:18px}
   .proof .score{border-right:0;border-bottom:1px solid rgba(255,255,255,.16);padding-right:0;padding-bottom:16px;display:flex;align-items:center;justify-content:center;gap:16px}
+  .steps{grid-template-columns:repeat(2,1fr);gap:14px}
+  .steps li:not(:last-child)::before{display:none}
+  .pricing{grid-template-columns:1fr}
+  .reviews{grid-template-columns:1fr}
   section.block{padding:40px 0}
   body{padding-bottom:78px}
   .mcta{display:block;position:fixed;left:0;right:0;bottom:0;z-index:60;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom))}
   .mcta a{display:flex;align-items:center;justify-content:center;background:var(--amber);color:var(--navy);font-weight:800;border-radius:999px;padding:15px;font-size:17px;box-shadow:0 10px 24px -8px rgba(245,166,35,.65)}
   .mcta a:hover{text-decoration:none}
 }
+@media (max-width:440px){.steps{grid-template-columns:1fr}}
 @media (max-width:400px){.hero .lede{font-size:16px}}
 `.trim();
 
@@ -219,7 +300,13 @@ export function renderLayout(parts: LayoutParts): string {
         jsonLdBlocks = [],
         bodyHtml,
         noindex = false,
+        imageUrl,
+        ctaHref = '/',
+        waHref,
     } = parts;
+
+    const bookHref = escapeHtml(ctaHref);
+    const benWa = escapeHtml(waHref || 'https://wa.me/447508744402?text=Hi%2C%20I%20have%20a%20question%20about%20your%20handyman%20service');
 
     const robots = noindex
         ? '\n    <meta name="robots" content="noindex,follow">'
@@ -239,8 +326,19 @@ export function renderLayout(parts: LayoutParts): string {
         )
         .join('\n');
 
+    const imageHtml = imageUrl
+        ? [
+              `    <meta property="og:image" content="${escapeHtml(imageUrl)}">`,
+              `    <meta property="og:image:alt" content="${escapeHtml(title)}">`,
+              '    <meta name="twitter:card" content="summary_large_image">',
+              `    <meta name="twitter:title" content="${escapeHtml(title)}">`,
+              `    <meta name="twitter:description" content="${escapeHtml(metaDescription)}">`,
+              `    <meta name="twitter:image" content="${escapeHtml(imageUrl)}">`,
+          ].join('\n')
+        : '';
+
     const brand = escapeHtml(SEO_BRAND.name);
-    const brandMark = `Handy<span class="dot">.</span>Services`;
+    const brandMark = `<img class="brand-logo" src="/logo.webp" alt="" width="34" height="34" decoding="async"><span class="wordmark">Handy<span class="dot">.</span>Services</span>`;
     const year = new Date().getFullYear();
 
     return `<!doctype html>
@@ -249,15 +347,19 @@ export function renderLayout(parts: LayoutParts): string {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#1B2A4A">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <title>${escapeHtml(title)}</title>
     <meta name="description" content="${escapeHtml(metaDescription)}">
     <link rel="canonical" href="${escapeHtml(canonicalUrl)}">${robots}
+    <link rel="alternate" type="text/plain" title="llms.txt" href="/llms.txt">
     <meta property="og:site_name" content="${brand}">
     <meta property="og:type" content="website">
     <meta property="og:title" content="${escapeHtml(title)}">
     <meta property="og:description" content="${escapeHtml(metaDescription)}">
     <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
-${ogHtml}
+${ogHtml}${imageHtml ? `\n${imageHtml}` : ''}
     <style>${INLINE_STYLE}</style>
 ${ldHtml}
 </head>
@@ -265,7 +367,7 @@ ${ldHtml}
     <header class="site">
         <div class="container">
             <a class="brand" href="${escapeHtml(SEO_BRAND.url)}">${brandMark}</a>
-            <a class="book" href="/">Get a free quote</a>
+            <a class="book" href="${bookHref}">Get a free quote</a>
         </div>
     </header>
     <main>
@@ -273,12 +375,17 @@ ${bodyHtml}
     </main>
     <footer class="site">
         <div class="container">
-            <p class="fbrand">Handy<span class="dot">.</span>Services</p>
+            <p class="fbrand">${brandMark}</p>
             <p><strong style="color:var(--slate)">${escapeHtml(SEO_BRAND.insured)}</strong> &middot; ${escapeHtml(SEO_BRAND.ratingValue)}&#9733; from ${escapeHtml(SEO_BRAND.reviewCount)} Google reviews &middot; Fixed quotes, no call-out charge.</p>
-            <p>&copy; ${year} ${brand}. Serving Nottingham, Derby &amp; the East Midlands. <a href="/">Get a free quote</a></p>
+            <p>&copy; ${year} ${brand}. Serving Nottingham, Derby &amp; the East Midlands. <a href="${bookHref}">Get a free quote</a></p>
+            <p class="futil"><a href="/sitemap.xml">Sitemap</a> &middot; <a href="/llms.txt">llms.txt</a> &middot; <a href="/robots.txt">robots.txt</a></p>
         </div>
     </footer>
-    <div class="mcta"><a href="/">Get a free quote</a></div>
+    <div class="mcta"><a href="${bookHref}">Get a free quote</a></div>
+    <a class="ben-fab" href="${benWa}" target="_blank" rel="noopener" aria-label="Message Ben on WhatsApp">
+        <span class="av"><img src="/assets/quote-images/ben-estimator.webp" alt="" width="44" height="44" decoding="async"><span class="wa"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.46 1.32 4.97L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2zm5.8 14.03c-.24.68-1.42 1.31-1.95 1.35-.5.05-.98.24-3.3-.69-2.79-1.1-4.55-3.96-4.69-4.14-.14-.18-1.13-1.5-1.13-2.86 0-1.36.71-2.03.96-2.31.24-.27.53-.34.71-.34.18 0 .35 0 .5.01.16.01.38-.06.59.45.24.58.82 2 .89 2.14.07.14.12.31.02.49-.09.18-.14.29-.28.45-.14.16-.29.35-.42.47-.14.14-.28.28-.12.55.16.27.71 1.17 1.53 1.9 1.05.94 1.94 1.23 2.21 1.37.27.14.43.12.59-.07.16-.18.68-.79.86-1.06.18-.27.36-.22.59-.14.24.09 1.51.71 1.77.84.27.14.44.2.5.31.07.11.07.63-.17 1.31z"/></svg></span></span>
+        <span class="lab"><b>Chat to Ben</b><small>Questions? Tap to message</small></span>
+    </a>
 </body>
 </html>`;
 }

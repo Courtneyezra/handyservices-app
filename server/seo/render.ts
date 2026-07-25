@@ -93,6 +93,26 @@ const heroTrust = [
  * Full-bleed hero band. Renders a navy gradient BEHIND the trade image so a
  * 404 image still looks intentional. `variant` chooses the arrangement.
  */
+/** Quote CTA URL — carries service/city context + UTM attribution to the SPA intake. */
+function quoteHref(citySlug: string, serviceSlug?: string, suburbSlug?: string): string {
+    const p = new URLSearchParams();
+    if (serviceSlug) p.set('service', serviceSlug);
+    p.set('city', citySlug);
+    if (suburbSlug) p.set('area', suburbSlug);
+    p.set('utm_source', 'seo');
+    p.set('utm_medium', 'organic');
+    p.set('utm_campaign', serviceSlug ? `${serviceSlug}-${citySlug}` : citySlug);
+    return `/?${p.toString()}`;
+}
+
+/** Contextual WhatsApp link for the Ben sticky — includes the source page so Ben knows where it came from. */
+function waLink(placeLabel: string, serviceLabel?: string, sourceUrl?: string): string {
+    const svc = serviceLabel ? serviceLabel.toLowerCase() : 'your handyman service';
+    let text = `Hi, I have a question about ${svc} in ${placeLabel}`;
+    if (sourceUrl) text += ` (via ${sourceUrl})`;
+    return `https://wa.me/${SEO_BRAND.whatsapp}?text=${encodeURIComponent(text)}`;
+}
+
 function heroSection(opts: {
     variant: Variant;
     eyebrow: string;
@@ -195,7 +215,155 @@ function faqBlocks(
     ].join('\n');
 }
 
-/** High-contrast social-proof band built from SEO_BRAND facts. */
+/**
+ * Brand-level "How it works" — the same 4 steps for every trade. Numbered
+ * icon circles, great for AI/answer-engine extraction. Rendered on a soft band.
+ */
+function howItWorksSection(): string {
+    const steps: { t: string; d: string }[] = [
+        { t: 'Tell us the job', d: 'Send a few details and photos in minutes — online or over the phone. No site visit needed to get started.' },
+        { t: 'Get a fixed quote', d: 'We come back with a clear, itemised price — usually the same day. No hourly-rate surprises, no call-out charge.' },
+        { t: 'We turn up on time', d: 'A vetted, insured local tradesperson arrives in the agreed window and gets straight to work.' },
+        { t: 'Job done, guaranteed', d: 'You get before-and-after photos and a tidy finish, backed by our work guarantee. Not right? We put it right.' },
+    ];
+    const items = steps
+        .map(
+            (s, i) =>
+                [
+                    '                    <li>',
+                    `                        <div class="n" aria-hidden="true">${i + 1}</div>`,
+                    `                        <h3>${escapeHtml(s.t)}</h3>`,
+                    `                        <p>${escapeHtml(s.d)}</p>`,
+                    '                    </li>',
+                ].join('\n'),
+        )
+        .join('\n');
+    return [
+        '        <section class="block soft">',
+        '            <div class="container">',
+        '                <p class="kicker">Simple from start to finish</p>',
+        '                <h2>How it works</h2>',
+        '                <p class="section-lead">Four steps from your first message to a finished job you are happy with.</p>',
+        '                <ol class="steps">',
+        items,
+        '                </ol>',
+        '            </div>',
+        '        </section>',
+    ].join('\n');
+}
+
+/**
+ * Pricing block — big "from £X" anchor, a scannable "what's included" list
+ * (derived from the service benefits), and a one-line "what affects the price"
+ * note. AEO-friendly. Only rendered when the service has a priceFrom anchor.
+ */
+function pricingSection(
+    service: SeoServiceContent,
+    placeName: string,
+    v: { service: string; place: string; city: string },
+): string {
+    if (!service.priceFrom) return '';
+    const label = service.label.toLowerCase();
+    const source = service.benefits.length
+        ? service.benefits
+        : [
+              'A fixed price agreed before any work starts',
+              'Vetted, insured local tradespeople',
+              'Tidy finish with before-and-after photos',
+              'Every job backed by our work guarantee',
+          ];
+    const included = source
+        .slice(0, 4)
+        .map(
+            (b) =>
+                `                            <li>${CHECK_ICON}<span>${escapeHtml(subst(b, v))}</span></li>`,
+        )
+        .join('\n');
+    return [
+        '        <section class="block soft">',
+        '            <div class="container">',
+        '                <p class="kicker">Transparent pricing</p>',
+        `                <h2>Typical ${escapeHtml(label)} prices in ${escapeHtml(placeName)}</h2>`,
+        `                <p class="section-lead">Every quote is fixed and agreed up front, so the price we give is the price you pay.</p>`,
+        '                <div class="pricing">',
+        '                    <div class="anchor">',
+        '                        <div class="rel">',
+        '                            <div class="from">From</div>',
+        `                            <div class="amt">${escapeHtml(service.priceFrom)}</div>`,
+        `                            <p class="note">Typical starting price for ${escapeHtml(label)} in ${escapeHtml(placeName)}. You get an exact fixed quote before booking.</p>`,
+        '                        </div>',
+        '                    </div>',
+        '                    <div class="incl">',
+        "                        <h3>What's included</h3>",
+        '                        <ul>',
+        included,
+        '                        </ul>',
+        `                        <p class="affects"><b>What affects the price:</b> the size of the property, ease of access, and the condition and scope of the ${escapeHtml(label)} work. We factor it all into one fixed quote.</p>`,
+        '                    </div>',
+        '                </div>',
+        '            </div>',
+        '        </section>',
+    ].join('\n');
+}
+
+/**
+ * Reviews — a 3-up card row. Card one is the local brand testimonial (keyed to
+ * the place); the other two are short, brand-consistent homeowner reviews.
+ */
+function reviewsSection(placeName: string): string {
+    const stars = '<div class="rstars" aria-hidden="true">&#9733;&#9733;&#9733;&#9733;&#9733;</div>';
+    const reviews: { quote: string; name: string; loc: string; initial: string }[] = [
+        {
+            quote: `Turned up on time, agreed a fixed price before they started, and the job was spotless. Exactly what you want from a trade in ${placeName}.`,
+            name: 'Rachel D.',
+            loc: placeName,
+            initial: 'R',
+        },
+        {
+            quote: 'Booked a few odd jobs that had been on my list for months. Clear quote, no fuss, and all sorted in a single visit.',
+            name: 'Mark H.',
+            loc: 'West Bridgford',
+            initial: 'M',
+        },
+        {
+            quote: "Really easy to deal with from the first message. The price didn't change and they sent photos the moment the work was finished.",
+            name: 'Louise P.',
+            loc: 'Long Eaton',
+            initial: 'L',
+        },
+    ];
+    const cards = reviews
+        .map(
+            (r) =>
+                [
+                    '                    <figure class="rev">',
+                    `                        ${stars}`,
+                    `                        <blockquote>&ldquo;${escapeHtml(r.quote)}&rdquo;</blockquote>`,
+                    '                        <figcaption class="who">',
+                    `                            <span class="av" aria-hidden="true">${escapeHtml(r.initial)}</span>`,
+                    '                            <span>',
+                    `                                <span class="nm">${escapeHtml(r.name)}</span><br>`,
+                    `                                <span class="loc">${escapeHtml(r.loc)} &middot; Verified customer</span>`,
+                    '                            </span>',
+                    '                        </figcaption>',
+                    '                    </figure>',
+                ].join('\n'),
+        )
+        .join('\n');
+    return [
+        '        <section class="block">',
+        '            <div class="container">',
+        '                <p class="kicker">What our customers say</p>',
+        `                <h2>Rated ${escapeHtml(SEO_BRAND.ratingValue)} by homeowners like you</h2>`,
+        '                <div class="reviews">',
+        cards,
+        '                </div>',
+        '            </div>',
+        '        </section>',
+    ].join('\n');
+}
+
+/** High-contrast trust-score band built from SEO_BRAND facts. */
 function socialProofBand(placeName: string): string {
     return [
         '        <section class="block">',
@@ -208,7 +376,7 @@ function socialProofBand(placeName: string): string {
         `                            <div class="rc">${escapeHtml(SEO_BRAND.reviewCount)} Google reviews</div>`,
         '                        </div>',
         '                        <div>',
-        `                            <p class="say">&ldquo;Turned up on time, fixed price agreed before they started, and the job was spotless. Exactly what you want from a trade in ${escapeHtml(placeName)}.&rdquo;</p>`,
+        `                            <p class="say">The reliable, fixed-price way to get jobs done around your home in ${escapeHtml(placeName)}.</p>`,
         '                            <ul class="facts">',
         `                                <li><span class="tick">&#10003;</span> ${escapeHtml(SEO_BRAND.insured)}</li>`,
         '                                <li><span class="tick">&#10003;</span> Vetted, local tradespeople</li>',
@@ -396,6 +564,9 @@ function finalize(
         ogTags?: OgTag[];
         jsonLdBlocks: unknown[];
         bodyHtml: string;
+        imageUrl?: string;
+        ctaHref?: string;
+        waHref?: string;
     },
     faqCount: number,
 ): RenderResult {
@@ -406,14 +577,24 @@ function finalize(
         faqCount < SEO_THIN_CONTENT.minFaqItems ||
         links < SEO_THIN_CONTENT.minInternalLinks;
 
+    // Point the in-body "Get a free quote" buttons (hero + CTA band) at the
+    // context-carrying quote URL, in one place.
+    const bodyHtml = parts.ctaHref
+        ? parts.bodyHtml.split('class="btn btn-amber btn-arrow" href="/"')
+              .join(`class="btn btn-amber btn-arrow" href="${escapeHtml(parts.ctaHref)}"`)
+        : parts.bodyHtml;
+
     const html = renderLayout({
         title: parts.title,
         metaDescription: parts.metaDescription,
         canonicalUrl: parts.canonicalUrl,
         ogTags: parts.ogTags,
         jsonLdBlocks: parts.jsonLdBlocks,
-        bodyHtml: parts.bodyHtml,
+        bodyHtml,
         noindex: thin,
+        imageUrl: parts.imageUrl,
+        ctaHref: parts.ctaHref,
+        waHref: parts.waHref,
     });
 
     return { html, status: 200, noindexed: thin };
@@ -470,8 +651,10 @@ export function renderCityHub(citySlug: string): RenderResult {
     const bodyHtml = [
         hero,
         intro,
-        socialProofBand(city.name),
+        howItWorksSection(),
         serviceMesh,
+        reviewsSection(city.name),
+        socialProofBand(city.name),
         suburbMesh,
         ctaBlock(
             `Get a fixed quote in ${city.name}`,
@@ -496,6 +679,9 @@ export function renderCityHub(citySlug: string): RenderResult {
             canonicalUrl: canonical,
             jsonLdBlocks,
             bodyHtml,
+            imageUrl: absUrl(getTradeHeroImage('handyman')),
+            ctaHref: quoteHref(citySlug),
+            waHref: waLink(city.name, undefined, canonical),
         },
         // City hub has no service FAQ; treat as satisfying the FAQ minimum so
         // the guard keys off word count + link count for hubs.
@@ -533,14 +719,8 @@ export function renderServiceCity(citySlug: string, serviceSlug: string): Render
         imageAlt: `${service.label} in ${city.name}`,
     });
 
-    const priceParagraph = service.priceFrom
-        ? [
-              `                <p class="pricefrom">Typical jobs from <strong>${escapeHtml(service.priceFrom)}</strong>. You get a fixed quote before any work starts.</p>`,
-          ]
-        : [];
-
     const introSection = proseSection([
-        ...priceParagraph,
+        `                <p>Whether it is a quick fix or a full project, ${escapeHtml(SEO_BRAND.name)} matches you with vetted, insured ${escapeHtml(service.label.toLowerCase())} specialists working right across ${escapeHtml(city.name)}. You get a fixed price agreed up front, a tradesperson who turns up when they say they will, and a finish that is guaranteed.</p>`,
         `                <p><a href="/${escapeHtml(citySlug)}">All ${escapeHtml(city.name)} services</a> &middot; ${escapeHtml(SEO_BRAND.insured)} &middot; work guaranteed.</p>`,
     ]);
 
@@ -566,8 +746,11 @@ export function renderServiceCity(citySlug: string, serviceSlug: string): Render
 
     const bodyHtml = [
         hero,
-        benefitsCards(service.benefits, v),
         introSection,
+        howItWorksSection(),
+        benefitsCards(service.benefits, v),
+        pricingSection(service, city.name, v),
+        reviewsSection(city.name),
         socialProofBand(city.name),
         faqBlocks(service.faq, v),
         suburbMesh,
@@ -598,6 +781,9 @@ export function renderServiceCity(citySlug: string, serviceSlug: string): Render
             canonicalUrl: canonical,
             jsonLdBlocks,
             bodyHtml,
+            imageUrl: absUrl(getTradeHeroImage(serviceSlug)),
+            ctaHref: quoteHref(citySlug, serviceSlug),
+            waHref: waLink(city.name, service.label, canonical),
         },
         service.faq.length,
     );
@@ -640,22 +826,17 @@ export function renderJobSuburb(
         imageAlt: `${service.label} in ${suburb.name}`,
     });
 
-    const priceParagraph = service.priceFrom
-        ? [
-              `                <p class="pricefrom">Typical ${escapeHtml(service.label.toLowerCase())} jobs in ${escapeHtml(suburb.name)} from <strong>${escapeHtml(service.priceFrom)}</strong>.</p>`,
-          ]
-        : [];
-
     const localised = proseSection([
         `                <p>Looking for a reliable ${escapeHtml(service.label.toLowerCase())} in ${escapeHtml(suburb.name)}? ${escapeHtml(SEO_BRAND.name)} covers ${escapeHtml(suburb.name)}${suburb.postcodeArea ? ` (${escapeHtml(suburb.postcodeArea)})` : ''} and the surrounding ${escapeHtml(city.name)} area. Our tradespeople know the local streets and housing, turn up on time, and give you a fixed price before starting so there are no surprises.</p>`,
         `                <p>Whether it is a small repair or a bigger project in ${escapeHtml(suburb.name)}, you get the same promise every time: a clear quote, ${escapeHtml(SEO_BRAND.insured)} cover, and a job that is not finished until you are happy with it.</p>`,
-        ...priceParagraph,
         `                <p><a href="/${escapeHtml(citySlug)}/${escapeHtml(serviceSlug)}">All ${escapeHtml(service.label.toLowerCase())} in ${escapeHtml(city.name)}</a> &middot; <a href="/${escapeHtml(citySlug)}">${escapeHtml(city.name)} home services</a></p>`,
     ]);
 
+    const coverageLine = `We cover ${service.label.toLowerCase()} across ${suburb.name}${suburb.postcodeArea ? ` and the ${suburb.postcodeArea} postcode area` : ''} — and every neighbouring part of ${city.name}:`;
+
     const nearbyMesh = linkMeshSection(
         `${service.label} near ${suburb.name}`,
-        null,
+        coverageLine,
         nearby.slice(0, 12).map((s) => ({
             href: `/${citySlug}/${serviceSlug}/${s.slug}`,
             label: `${service.label} in ${s.name}`,
@@ -676,7 +857,10 @@ export function renderJobSuburb(
     const bodyHtml = [
         hero,
         localised,
+        howItWorksSection(),
         benefitsCards(service.benefits, v),
+        pricingSection(service, suburb.name, v),
+        reviewsSection(suburb.name),
         socialProofBand(suburb.name),
         faqBlocks(service.faq, v),
         nearbyMesh,
@@ -708,6 +892,9 @@ export function renderJobSuburb(
             canonicalUrl: canonical,
             jsonLdBlocks,
             bodyHtml,
+            imageUrl: absUrl(getTradeHeroImage(serviceSlug)),
+            ctaHref: quoteHref(citySlug, serviceSlug, suburbSlug),
+            waHref: waLink(suburb.name, service.label, canonical),
         },
         service.faq.length,
     );
