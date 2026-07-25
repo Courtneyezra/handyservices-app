@@ -161,8 +161,10 @@ export function IntakeHero({ location, headline, subhead, ctaText, mobileCtaText
                 );
               })()}
 
-              <p className="text-xl text-slate-200 font-medium mb-10 max-w-xl mx-auto lg:mx-0 drop-shadow-md">
-                {subhead ? subhead.replace("{{location}}", location) : "Call or WhatsApp for an instant fixed-price quote"}
+              <p className="text-xl text-slate-200 font-medium mb-10 max-w-xl mx-auto lg:mx-0 drop-shadow-md [text-wrap:balance]">
+                {/* Non-breaking hyphen keeps "fixed-price" intact so it wraps at a
+                    space instead of orphaning "fixed-" on mobile. */}
+                {(subhead ? subhead.replace("{{location}}", location) : "Call or WhatsApp for an instant fixed-price quote").replace(/fixed-price/gi, "fixed‑price")}
               </p>
 
               {/* Primary Actions: Call & WhatsApp (Mobile Only) */}

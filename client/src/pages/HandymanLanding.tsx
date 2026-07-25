@@ -29,7 +29,6 @@ import realJobBlinds from "@assets/528c52d4-f8ff-4e5b-9853-b68263a62c2f_17646945
 import beforeImage from "@assets/74cb4082-17d2-48b1-bd98-bf51f85bc7a5_(1)_1764694445995.webp";
 import afterImage from "@assets/cb5e8951-9d46-4023-9909-510a89d3da60_1764693845208.webp";
 import payIn3Image from "@assets/6e08e13d-d1a3-4a91-a4cc-814b057b341d_1764693900670.webp";
-import { useLandingPage } from "@/hooks/useLandingPage";
 import {
     registerSuperProperties as posthogRegister,
     trackEvent as posthogTrack,
@@ -744,7 +743,6 @@ export default function HandymanLanding({
     headline,
     subhead,
 }: HandymanLandingProps) {
-    const { variant, isLoading, trackConversion } = useLandingPage("landing");
     const [showSticky, setShowSticky] = useState(false);
     const [activeSegment, setActiveSegment] = useState<'residential' | 'property-manager' | 'business'>('residential');
     const contentRef = useRef<HTMLDivElement>(null);
@@ -777,7 +775,6 @@ export default function HandymanLanding({
             city: LANDING_CITY,
             source: source || "unknown",
         });
-        trackConversion(source);
     };
 
     const handleSegmentChange = (segment: 'residential' | 'property-manager' | 'business') => {
@@ -802,9 +799,9 @@ export default function HandymanLanding({
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
-    // Use variant content from admin, then props, then defaults (multi-tier format with ||)
-    const finalHeadline = variant?.content?.heroHeadline || headline || "{{location}}||Handyman Service||Next-day slots • Fast & reliable";
-    const finalSubhead = variant?.content?.heroSubhead || subhead || "Call or WhatsApp for an instant fixed-price quote";
+    // Static hero content (A/B variant system removed — a new test will be built).
+    const finalHeadline = headline || "{{location}}||Handyman Service||Next-day slots • Fast & reliable";
+    const finalSubhead = subhead || "Call or WhatsApp for an instant fixed-price quote";
 
     return (
         <div className="min-h-screen bg-slate-50 font-poppins text-slate-900 font-medium">
@@ -831,9 +828,9 @@ export default function HandymanLanding({
                         location="Nottingham"
                         headline={finalHeadline}
                         subhead={finalSubhead}
-                        ctaText={variant?.content?.ctaText || "Get Instant Quote"}
-                        mobileCtaText={variant?.content?.mobileCtaText || "Call Now"}
-                        desktopCtaText={variant?.content?.desktopCtaText || "Get a Price"}
+                        ctaText="Get Instant Quote"
+                        mobileCtaText="Call Now"
+                        desktopCtaText="Get a Price"
                         bannerReviews
                         onConversion={trackConversionWithEvent}
                         transparentBg={true}
