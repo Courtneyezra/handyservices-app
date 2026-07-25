@@ -80,12 +80,12 @@ const trustStrip = [
     '            </div>',
 ].join('\n');
 
-function ctaBlock(headline: string, sub: string): string {
+function ctaBlock(headline: string, sub: string, citySlug: string): string {
     return [
         '            <div class="cta">',
         `                <h2>${escapeHtml(headline)}</h2>`,
         `                <p>${escapeHtml(sub)}</p>`,
-        '                <a class="btn" href="/">Get your free quote</a>',
+        `                <a class="btn" href="/${escapeHtml(citySlug)}">Get your free quote</a>`,
         '            </div>',
     ].join('\n');
 }
@@ -275,6 +275,7 @@ export function renderCityHub(citySlug: string): RenderResult {
         ctaBlock(
             `Get a fixed quote in ${city.name}`,
             'Tell us about your job and we will send a clear, no-obligation price. Most quotes back the same day.',
+            city.slug,
         ),
     ]
         .filter(Boolean)
@@ -366,6 +367,7 @@ export function renderServiceCity(citySlug: string, serviceSlug: string): Render
         ctaBlock(
             `Book ${service.label.toLowerCase()} in ${city.name}`,
             'Send us the details and we will come back with a clear fixed price, usually the same day.',
+            citySlug,
         ),
     ]
         .filter(Boolean)
@@ -474,6 +476,7 @@ export function renderJobSuburb(
         ctaBlock(
             `Book ${service.label.toLowerCase()} in ${suburb.name}`,
             `Tell us about your job in ${suburb.name} and we will send a fixed quote, usually the same day.`,
+            citySlug,
         ),
     ]
         .filter(Boolean)

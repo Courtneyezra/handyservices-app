@@ -41,6 +41,7 @@ const PHONE_NUMBER = "+447449501762";
 
 import { LandingHeader } from "@/components/LandingHeader";
 import { CONTRACTOR_ROSTER } from "@/lib/contractor-roster";
+import { usePageSeo } from "@/hooks/usePageSeo";
 
 
 
@@ -747,6 +748,12 @@ export default function HandymanLanding({
     const [showSticky, setShowSticky] = useState(false);
     const [activeSegment, setActiveSegment] = useState<'residential' | 'property-manager' | 'business'>('residential');
     const contentRef = useRef<HTMLDivElement>(null);
+
+    usePageSeo({
+        title: "Handyman in Nottingham | Handy Services",
+        description: "Trusted handyman, painting, gutter cleaning and home improvements across Nottingham. £2M insured, 4.9★ rated. Get a free fixed quote.",
+        canonical: "https://www.handyservices.app/nottingham",
+    });
 
     // PostHog split-test instrumentation. `variant` / `city` are registered
     // as super-properties so every subsequent capture on this page is

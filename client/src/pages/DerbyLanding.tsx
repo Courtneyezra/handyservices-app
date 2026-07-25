@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { SiWhatsapp, SiGoogle } from "react-icons/si";
 import { IntakeHero } from "@/components/IntakeHero";
 import { CONTRACTOR_ROSTER } from "@/lib/contractor-roster";
+import { usePageSeo } from "@/hooks/usePageSeo";
 import { GoogleReviewsSection } from "@/components/GoogleReviewsSection";
 import { StickyCTA } from "@/components/StickyCTA";
 import { ChatHandymanPopup } from "@/components/ChatHandymanPopup";
@@ -661,6 +662,12 @@ export default function DerbyLanding({
     const [showSticky, setShowSticky] = useState(false);
     const [activeSegment, setActiveSegment] = useState<'residential' | 'property-manager' | 'business'>('residential');
     const contentRef = useRef<HTMLDivElement>(null);
+
+    usePageSeo({
+        title: "Handyman in Derby | Handy Services",
+        description: "Trusted handyman, painting, gutter cleaning and home improvements across Derby, Derbyshire. £2M insured, 4.9★ rated. Get a free fixed quote.",
+        canonical: "https://www.handyservices.app/derby",
+    });
 
     // PostHog split-test instrumentation. Tagged as the Derby control for
     // comparison against /v2/derby treatment in PostHog funnel dashboards.
