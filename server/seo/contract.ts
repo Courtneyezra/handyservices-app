@@ -23,6 +23,10 @@ export interface SeoCity {
     region: string;      // "East Midlands"
     lat: number;
     lng: number;
+    /** City-specific Google review count (separate GBP profile per city). Displayed as "N+". */
+    reviewCount: number;
+    /** Optional per-city Google reviews URL; falls back to SEO_BRAND.reviewsUrl. */
+    reviewsUrl?: string;
 }
 
 export interface SeoSuburb {
@@ -80,8 +84,8 @@ export interface SeoRenderApi {
 // ---- Authoritative constants (single source of truth) -------------------
 
 export const SEO_CITIES: SeoCity[] = [
-    { slug: 'nottingham', name: 'Nottingham', county: 'Nottinghamshire', region: 'East Midlands', lat: 52.9548, lng: -1.1581 },
-    { slug: 'derby', name: 'Derby', county: 'Derbyshire', region: 'East Midlands', lat: 52.9225, lng: -1.4746 },
+    { slug: 'nottingham', name: 'Nottingham', county: 'Nottinghamshire', region: 'East Midlands', lat: 52.9548, lng: -1.1581, reviewCount: 130 },
+    { slug: 'derby', name: 'Derby', county: 'Derbyshire', region: 'East Midlands', lat: 52.9225, lng: -1.4746, reviewCount: 300 },
 ];
 
 /** Core = safe to publish T2/T3 now. Sub = gated behind pool capacity (T2 only, when pagePublished). */
@@ -119,6 +123,7 @@ export const SEO_BRAND = {
     url: 'https://www.handyservices.app',
     telephone: '+447449501762',          // public booking line (matches app StickyCTA)
     whatsapp: '447508744402',            // Ben's WhatsApp (matches WhatsAppEscape WHATSAPP_NUMBER)
+    reviewsUrl: 'https://g.page/r/CaTBbeu5MahxEBM/review', // real Google Business reviews (from app)
     ratingValue: '4.9',
     reviewCount: '127',
     insured: '£2M insured',

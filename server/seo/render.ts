@@ -80,14 +80,16 @@ function pickVariant(slug: string): Variant {
 const CHECK_ICON =
     '<span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg></span>';
 
-/** Hero trust strip (on navy): stars + rating, insured, fixed quotes. */
-const heroTrust = [
-    '                    <ul class="trust-hero">',
-    `                        <li><span class="stars" aria-hidden="true">&#9733;&#9733;&#9733;&#9733;&#9733;</span> <b>${escapeHtml(SEO_BRAND.ratingValue)}</b> from ${escapeHtml(SEO_BRAND.reviewCount)} Google reviews</li>`,
-    `                        <li>${escapeHtml(SEO_BRAND.insured)}</li>`,
-    '                        <li>Fixed quotes</li>',
-    '                    </ul>',
-].join('\n');
+/** Hero trust strip (on navy): stars + rating, insured, fixed quotes. City-specific review count. */
+function heroTrust(reviewCount: number): string {
+    return [
+        '                    <ul class="trust-hero">',
+        `                        <li><span class="stars" aria-hidden="true">&#9733;&#9733;&#9733;&#9733;&#9733;</span> <b>${escapeHtml(SEO_BRAND.ratingValue)}</b> from ${reviewCount}+ Google reviews</li>`,
+        `                        <li>${escapeHtml(SEO_BRAND.insured)}</li>`,
+        '                        <li>Fixed quotes</li>',
+        '                    </ul>',
+    ].join('\n');
+}
 
 /**
  * Full-bleed hero band. Renders a navy gradient BEHIND the trade image so a
@@ -120,8 +122,9 @@ function heroSection(opts: {
     intro: string;
     imageSrc: string;
     imageAlt: string;
+    reviewCount: number;
 }): string {
-    const { variant, eyebrow, h1, intro, imageSrc, imageAlt } = opts;
+    const { variant, eyebrow, h1, intro, imageSrc, imageAlt, reviewCount } = opts;
     const img = escapeHtml(imageSrc);
     const alt = escapeHtml(imageAlt);
     const copy = [
@@ -129,7 +132,7 @@ function heroSection(opts: {
         `                    <h1>${escapeHtml(h1)}</h1>`,
         `                    <p class="lede">${escapeHtml(intro)}</p>`,
         '                    <a class="btn btn-amber btn-arrow" href="/">Get a free quote</a>',
-        heroTrust,
+        heroTrust(reviewCount),
     ].join('\n');
 
     if (variant === 'b') {
@@ -307,56 +310,26 @@ function pricingSection(
 }
 
 /**
- * Reviews — a 3-up card row. Card one is the local brand testimonial (keyed to
- * the place); the other two are short, brand-consistent homeowner reviews.
+ * Reviews — honest social proof. We do NOT invent testimonials; this shows the
+ * real aggregate rating and links straight to the live Google reviews.
  */
-function reviewsSection(placeName: string): string {
-    const stars = '<div class="rstars" aria-hidden="true">&#9733;&#9733;&#9733;&#9733;&#9733;</div>';
-    const reviews: { quote: string; name: string; loc: string; initial: string }[] = [
-        {
-            quote: `Turned up on time, agreed a fixed price before they started, and the job was spotless. Exactly what you want from a trade in ${placeName}.`,
-            name: 'Rachel D.',
-            loc: placeName,
-            initial: 'R',
-        },
-        {
-            quote: 'Booked a few odd jobs that had been on my list for months. Clear quote, no fuss, and all sorted in a single visit.',
-            name: 'Mark H.',
-            loc: 'West Bridgford',
-            initial: 'M',
-        },
-        {
-            quote: "Really easy to deal with from the first message. The price didn't change and they sent photos the moment the work was finished.",
-            name: 'Louise P.',
-            loc: 'Long Eaton',
-            initial: 'L',
-        },
-    ];
-    const cards = reviews
-        .map(
-            (r) =>
-                [
-                    '                    <figure class="rev">',
-                    `                        ${stars}`,
-                    `                        <blockquote>&ldquo;${escapeHtml(r.quote)}&rdquo;</blockquote>`,
-                    '                        <figcaption class="who">',
-                    `                            <span class="av" aria-hidden="true">${escapeHtml(r.initial)}</span>`,
-                    '                            <span>',
-                    `                                <span class="nm">${escapeHtml(r.name)}</span><br>`,
-                    `                                <span class="loc">${escapeHtml(r.loc)} &middot; Verified customer</span>`,
-                    '                            </span>',
-                    '                        </figcaption>',
-                    '                    </figure>',
-                ].join('\n'),
-        )
-        .join('\n');
+function reviewsSection(placeName: string, reviewCount: number, reviewsUrl: string): string {
+    const url = escapeHtml(reviewsUrl);
     return [
         '        <section class="block">',
         '            <div class="container">',
-        '                <p class="kicker">What our customers say</p>',
-        `                <h2>Rated ${escapeHtml(SEO_BRAND.ratingValue)} by homeowners like you</h2>`,
-        '                <div class="reviews">',
-        cards,
+        '                <div class="grev">',
+        '                    <div class="grev-badge">',
+        '                        <div class="rstars" aria-hidden="true">&#9733;&#9733;&#9733;&#9733;&#9733;</div>',
+        `                        <div class="grev-num">${escapeHtml(SEO_BRAND.ratingValue)} / 5</div>`,
+        `                        <div class="grev-count">${reviewCount}+ Google reviews</div>`,
+        '                    </div>',
+        '                    <div class="grev-copy">',
+        '                        <p class="kicker">What our customers say</p>',
+        '                        <h2>Real reviews, not marketing</h2>',
+        `                        <p>We don't write our own testimonials. See exactly what homeowners across ${escapeHtml(placeName)} and the wider area say about ${escapeHtml(SEO_BRAND.name)} — straight from Google.</p>`,
+        `                        <a class="grev-btn" href="${url}" target="_blank" rel="noopener">Read our Google reviews</a>`,
+        '                    </div>',
         '                </div>',
         '            </div>',
         '        </section>',
@@ -364,7 +337,7 @@ function reviewsSection(placeName: string): string {
 }
 
 /** High-contrast trust-score band built from SEO_BRAND facts. */
-function socialProofBand(placeName: string): string {
+function socialProofBand(placeName: string, reviewCount: number, reviewsUrl: string): string {
     return [
         '        <section class="block">',
         '            <div class="container">',
@@ -373,7 +346,7 @@ function socialProofBand(placeName: string): string {
         '                        <div class="score">',
         `                            <div class="num">${escapeHtml(SEO_BRAND.ratingValue)}</div>`,
         '                            <div class="stars" aria-hidden="true">&#9733;&#9733;&#9733;&#9733;&#9733;</div>',
-        `                            <div class="rc">${escapeHtml(SEO_BRAND.reviewCount)} Google reviews</div>`,
+        `                            <a class="rc" href="${escapeHtml(reviewsUrl)}" target="_blank" rel="noopener">${reviewCount}+ Google reviews &rsaquo;</a>`,
         '                        </div>',
         '                        <div>',
         `                            <p class="say">The reliable, fixed-price way to get jobs done around your home in ${escapeHtml(placeName)}.</p>`,
@@ -483,7 +456,7 @@ function localBusinessLd(city: SeoCity, placeName?: string): Record<string, unkn
         aggregateRating: {
             '@type': 'AggregateRating',
             ratingValue: SEO_BRAND.ratingValue,
-            reviewCount: SEO_BRAND.reviewCount,
+            reviewCount: String(city.reviewCount),
         },
         ...(SEO_BRAND.sameAs.length ? { sameAs: SEO_BRAND.sameAs } : {}),
     };
@@ -567,6 +540,7 @@ function finalize(
         imageUrl?: string;
         ctaHref?: string;
         waHref?: string;
+        reviewCount?: number;
     },
     faqCount: number,
 ): RenderResult {
@@ -595,6 +569,7 @@ function finalize(
         imageUrl: parts.imageUrl,
         ctaHref: parts.ctaHref,
         waHref: parts.waHref,
+        reviewCount: parts.reviewCount,
     });
 
     return { html, status: 200, noindexed: thin };
@@ -621,6 +596,7 @@ export function renderCityHub(citySlug: string): RenderResult {
         intro: `Reliable local tradespeople for every job around your home in ${city.name} and across ${city.county}. One call, fixed quote, work guaranteed.`,
         imageSrc: getTradeHeroImage('handyman'),
         imageAlt: `Handyman services in ${city.name}`,
+        reviewCount: city.reviewCount,
     });
 
     const intro = proseSection([
@@ -653,8 +629,8 @@ export function renderCityHub(citySlug: string): RenderResult {
         intro,
         howItWorksSection(),
         serviceMesh,
-        reviewsSection(city.name),
-        socialProofBand(city.name),
+        reviewsSection(city.name, city.reviewCount, city.reviewsUrl ?? SEO_BRAND.reviewsUrl),
+        socialProofBand(city.name, city.reviewCount, city.reviewsUrl ?? SEO_BRAND.reviewsUrl),
         suburbMesh,
         ctaBlock(
             `Get a fixed quote in ${city.name}`,
@@ -682,6 +658,7 @@ export function renderCityHub(citySlug: string): RenderResult {
             imageUrl: absUrl(getTradeHeroImage('handyman')),
             ctaHref: quoteHref(citySlug),
             waHref: waLink(city.name, undefined, canonical),
+            reviewCount: city.reviewCount,
         },
         // City hub has no service FAQ; treat as satisfying the FAQ minimum so
         // the guard keys off word count + link count for hubs.
@@ -717,6 +694,7 @@ export function renderServiceCity(citySlug: string, serviceSlug: string): Render
         intro,
         imageSrc: getTradeHeroImage(serviceSlug),
         imageAlt: `${service.label} in ${city.name}`,
+        reviewCount: city.reviewCount,
     });
 
     const introSection = proseSection([
@@ -750,8 +728,8 @@ export function renderServiceCity(citySlug: string, serviceSlug: string): Render
         howItWorksSection(),
         benefitsCards(service.benefits, v),
         pricingSection(service, city.name, v),
-        reviewsSection(city.name),
-        socialProofBand(city.name),
+        reviewsSection(city.name, city.reviewCount, city.reviewsUrl ?? SEO_BRAND.reviewsUrl),
+        socialProofBand(city.name, city.reviewCount, city.reviewsUrl ?? SEO_BRAND.reviewsUrl),
         faqBlocks(service.faq, v),
         suburbMesh,
         siblingMesh,
@@ -784,6 +762,7 @@ export function renderServiceCity(citySlug: string, serviceSlug: string): Render
             imageUrl: absUrl(getTradeHeroImage(serviceSlug)),
             ctaHref: quoteHref(citySlug, serviceSlug),
             waHref: waLink(city.name, service.label, canonical),
+            reviewCount: city.reviewCount,
         },
         service.faq.length,
     );
@@ -824,6 +803,7 @@ export function renderJobSuburb(
         intro,
         imageSrc: getTradeHeroImage(serviceSlug),
         imageAlt: `${service.label} in ${suburb.name}`,
+        reviewCount: city.reviewCount,
     });
 
     const localised = proseSection([
@@ -860,8 +840,8 @@ export function renderJobSuburb(
         howItWorksSection(),
         benefitsCards(service.benefits, v),
         pricingSection(service, suburb.name, v),
-        reviewsSection(suburb.name),
-        socialProofBand(suburb.name),
+        reviewsSection(suburb.name, city.reviewCount, city.reviewsUrl ?? SEO_BRAND.reviewsUrl),
+        socialProofBand(suburb.name, city.reviewCount, city.reviewsUrl ?? SEO_BRAND.reviewsUrl),
         faqBlocks(service.faq, v),
         nearbyMesh,
         otherServicesMesh,
@@ -895,6 +875,7 @@ export function renderJobSuburb(
             imageUrl: absUrl(getTradeHeroImage(serviceSlug)),
             ctaHref: quoteHref(citySlug, serviceSlug, suburbSlug),
             waHref: waLink(suburb.name, service.label, canonical),
+            reviewCount: city.reviewCount,
         },
         service.faq.length,
     );

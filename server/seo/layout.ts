@@ -76,6 +76,8 @@ export interface LayoutParts {
     ctaHref?: string;
     /** Contextual WhatsApp URL for the Ben sticky. Defaults to the generic message. */
     waHref?: string;
+    /** City-specific Google review count for the footer trust line; displayed as "N+". */
+    reviewCount?: number;
 }
 
 const INLINE_STYLE = `
@@ -102,6 +104,18 @@ header.site .container{display:flex;align-items:center;justify-content:space-bet
 header.site a.brand{color:var(--navy);font-weight:800;font-size:20px;letter-spacing:-.01em;display:inline-flex;align-items:center;gap:10px}
 .brand-logo{width:34px;height:34px;display:block;flex:none}
 .fbrand{display:inline-flex;align-items:center;gap:9px}
+.grev{display:grid;grid-template-columns:auto 1fr;gap:30px;align-items:center;background:var(--soft);border:1px solid var(--line);border-radius:var(--radius-lg);padding:30px}
+.grev-badge{text-align:center;padding:0 14px;border-right:1px solid var(--line)}
+.grev .rstars{color:var(--amber);font-size:22px;letter-spacing:2px}
+.grev-num{font-size:40px;font-weight:800;color:var(--navy);line-height:1;margin-top:6px}
+.grev-count{font-size:13px;color:var(--muted);margin-top:6px}
+.grev-copy h2{margin:.05em 0 .3em}
+.grev-btn{display:inline-flex;align-items:center;gap:8px;margin-top:14px;background:#fff;border:1.5px solid var(--navy);color:var(--navy);font-weight:800;border-radius:999px;padding:11px 22px}
+.grev-btn:hover{text-decoration:none;background:var(--navy);color:#fff}
+.grev-btn:focus-visible{outline:3px solid var(--amber);outline-offset:2px}
+.proof a.rc{color:inherit;text-decoration:none;border-bottom:1px dotted currentColor}
+.proof a.rc:hover{text-decoration:none;opacity:.85}
+@media(max-width:640px){.grev{grid-template-columns:1fr;text-align:center}.grev-badge{border-right:none;border-bottom:1px solid var(--line);padding:0 0 18px}}
 .futil{font-size:13px;opacity:.65}
 .futil a{color:inherit;text-decoration:underline;text-underline-offset:2px}
 .futil a:hover{opacity:.85}
@@ -303,7 +317,9 @@ export function renderLayout(parts: LayoutParts): string {
         imageUrl,
         ctaHref = '/',
         waHref,
+        reviewCount,
     } = parts;
+    const footerReviews = reviewCount != null ? `${reviewCount}+` : escapeHtml(SEO_BRAND.reviewCount);
 
     const bookHref = escapeHtml(ctaHref);
     const benWa = escapeHtml(waHref || 'https://wa.me/447508744402?text=Hi%2C%20I%20have%20a%20question%20about%20your%20handyman%20service');
@@ -376,7 +392,7 @@ ${bodyHtml}
     <footer class="site">
         <div class="container">
             <p class="fbrand">${brandMark}</p>
-            <p><strong style="color:var(--slate)">${escapeHtml(SEO_BRAND.insured)}</strong> &middot; ${escapeHtml(SEO_BRAND.ratingValue)}&#9733; from ${escapeHtml(SEO_BRAND.reviewCount)} Google reviews &middot; Fixed quotes, no call-out charge.</p>
+            <p><strong style="color:var(--slate)">${escapeHtml(SEO_BRAND.insured)}</strong> &middot; ${escapeHtml(SEO_BRAND.ratingValue)}&#9733; from ${footerReviews} Google reviews &middot; Fixed quotes, no call-out charge.</p>
             <p>&copy; ${year} ${brand}. Serving Nottingham, Derby &amp; the East Midlands. <a href="${bookHref}">Get a free quote</a></p>
             <p class="futil"><a href="/sitemap.xml">Sitemap</a> &middot; <a href="/llms.txt">llms.txt</a> &middot; <a href="/robots.txt">robots.txt</a></p>
         </div>
