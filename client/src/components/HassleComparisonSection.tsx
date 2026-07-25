@@ -41,19 +41,19 @@ export function HassleComparisonSection({ segment, maxItems = 4 }: HassleCompari
           {comparisons.map((item) => (
             <div key={item.id} className="grid grid-cols-2 gap-2.5 md:gap-4 items-stretch">
               {/* Without us — muted block */}
-              <div className="bg-slate-100 rounded-2xl p-4 md:p-5 flex items-start gap-2.5 md:gap-3">
-                <span className="w-6 h-6 rounded-full bg-slate-300/80 flex items-center justify-center shrink-0 mt-0.5">
+              <div className="bg-slate-100 rounded-2xl px-4 py-4 md:px-6 md:py-5 flex items-center gap-3 md:gap-3.5">
+                <span className="w-6 h-6 rounded-full bg-slate-300/80 flex items-center justify-center shrink-0">
                   <X className="w-3.5 h-3.5 text-slate-500" strokeWidth={3} />
                 </span>
-                <span className="text-slate-500 text-[13px] md:text-base leading-snug">{item.withoutUs}</span>
+                <span className="text-slate-500 text-sm md:text-base leading-snug">{item.withoutUs}</span>
               </div>
 
               {/* With us — solid bright-green block */}
-              <div className="bg-gradient-to-br from-[#7DB00E] to-[#6a9a0c] rounded-2xl p-4 md:p-5 flex items-start gap-2.5 md:gap-3 shadow-lg shadow-[#7DB00E]/25">
-                <span className="w-6 h-6 rounded-full bg-white flex items-center justify-center shrink-0 mt-0.5">
+              <div className="bg-gradient-to-br from-[#7DB00E] to-[#6a9a0c] rounded-2xl px-4 py-4 md:px-6 md:py-5 flex items-center gap-3 md:gap-3.5 shadow-lg shadow-[#7DB00E]/25">
+                <span className="w-6 h-6 rounded-full bg-white flex items-center justify-center shrink-0">
                   <Check className="w-3.5 h-3.5 text-[#5f8209]" strokeWidth={3.5} />
                 </span>
-                <span className="text-white font-semibold text-[13px] md:text-base leading-snug">{item.withUs}</span>
+                <span className="text-white font-semibold text-sm md:text-base leading-snug">{item.withUs}</span>
               </div>
             </div>
           ))}
