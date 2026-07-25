@@ -69,8 +69,7 @@ export function TeamCarousel({ city }: { city: string }) {
           <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/10 to-transparent" />
           <div className="absolute bottom-0 left-0 right-0 p-4">
             <div className="text-white text-xl font-extrabold leading-none">{m.name}</div>
-            <div className="text-amber-400 font-semibold text-xs mt-1">{m.role} · HandyServices</div>
-            <div className="flex items-center gap-1.5 mt-1.5 text-white/90 text-xs">
+            <div className="flex items-center gap-1.5 mt-2 text-white/90 text-xs">
               <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
               <span className="text-white/80">{m.meta}</span>
             </div>
