@@ -863,15 +863,36 @@ export default function MyWeekPage() {
                 {plansLoading && <div className="mb-3 h-10 bg-slate-900 rounded-xl animate-pulse" />}
 
                 {stuck.length > 0 && (
-                  <div className="mb-3 p-3 rounded-xl bg-slate-900/50 border border-amber-500/25">
-                    {stuck.map((f) => (
-                      <div key={f.quoteId} className="flex items-start gap-2 py-0.5">
-                        <Sparkles size={13} className="text-amber-400 shrink-0 mt-0.5" />
-                        <span className="text-[11px] text-amber-300/90 leading-snug">
-                          £{Math.round((f.payoutPence ?? 0) / 100)} {f.jobDescription ? `— ${f.jobDescription.slice(0, 40)}` : ''} needs {f.multiDay ? `${f.requiredDays} open days in a row` : 'an open day'}{f.deadline ? ` by ${format(new Date(f.deadline + 'T00:00:00'), 'EEE d MMM')}` : ''} — open days below to take it.
-                        </span>
-                      </div>
-                    ))}
+                  <div className="mb-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Sparkles size={13} className="text-amber-400" />
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400">Open a day to fit these</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {stuck.map((f) => {
+                        const overdue = f.deadline ? f.deadline < (data?.today ?? '') : false;
+                        return (
+                          <div key={f.quoteId} className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-900/50 border border-amber-500/25">
+                            <div className="shrink-0 text-center w-12">
+                              <div className="text-base font-black text-white leading-none">£{Math.round((f.payoutPence ?? 0) / 100)}</div>
+                              <div className="text-[8px] text-slate-500 font-semibold mt-0.5">you earn</div>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-semibold text-slate-200 truncate">{f.jobDescription?.split(/[—,.]/)[0]?.trim() || 'Job'}</div>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                {f.postcodeArea && <span className="text-[9px] font-bold tracking-wider text-slate-400 bg-slate-800 rounded px-1 py-px">{f.postcodeArea}</span>}
+                                <span className="text-[10px] text-slate-500">{f.multiDay ? `${f.requiredDays} days in a row` : 'needs a day'}</span>
+                              </div>
+                            </div>
+                            {f.deadline && (
+                              <span className={`shrink-0 text-[9px] font-bold px-2 py-1 rounded-full ${overdue ? 'bg-red-500/15 text-red-400 border border-red-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'}`}>
+                                {overdue ? 'Overdue' : `by ${format(new Date(f.deadline + 'T00:00:00'), 'EEE d')}`}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
                 {lockError && <p className="mb-2 text-[11px] font-semibold text-red-400">{lockError}</p>}
