@@ -13,7 +13,7 @@ import { useRoute } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles } from 'lucide-react';
+import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star } from 'lucide-react';
 import { addDays as addDaysFn, startOfWeek } from 'date-fns';
 
 // ── Types (mirror server/contractor-app-routes.ts) ────────────────────────────
@@ -202,7 +202,7 @@ export default function MyWeekPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [patternDraft, setPatternDraft] = useState<PatternDay[] | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
-  const [tab, setTab] = useState<'week' | 'quotes' | 'jobs'>('week');
+  const [tab, setTab] = useState<'home' | 'week' | 'quotes' | 'jobs'>('home');
   const [confirmPlace, setConfirmPlace] = useState<string | null>(null); // `${quoteId}|${date}|${slot}`
   const [placeError, setPlaceError] = useState<{ quoteId: string; message: string } | null>(null);
   const [planGoal, setPlanGoal] = useState<DayPlanGoal>('earnings');
@@ -507,7 +507,7 @@ export default function MyWeekPage() {
           )}
           <div>
             <h1 className="text-xl font-bold leading-tight">
-              {isLoading ? 'Your week' : `${data?.provider.firstName}'s week`}
+              {isLoading ? 'Loading…' : tab === 'home' ? `Hi, ${data?.provider.firstName}` : `${data?.provider.firstName}'s week`}
             </h1>
             <div className="flex items-center gap-3 text-[11px]">
               {openCount > 0 && <span className="text-emerald-400 font-semibold">{openCount} days open</span>}
@@ -516,12 +516,104 @@ export default function MyWeekPage() {
           </div>
         </div>
         <p className="text-xs text-slate-500 mb-4 mt-2">
-          {tab === 'quotes'
+          {tab === 'home'
+            ? 'Your week at a glance — what you’ve earned and what needs a day.'
+            : tab === 'quotes'
             ? 'Live quotes going out with your name and photo on them.'
             : tab === 'jobs'
               ? 'Your plan: booked days, jobs grouped onto days, and the money waiting.'
               : 'Tap a day to open or close it. Customers can only book days you open.'}
         </p>
+
+        {/* ── HOME dashboard — the cockpit Craig opens to ── */}
+        {tab === 'home' && jobs && data && (() => {
+          const today = data.today;
+          const overdue = jobs.flex.filter((f) => f.deadline && f.deadline < today);
+          const nextBooked = jobs.booked.find((b) => b.date >= today);
+          const doNow = overdue.length > 0
+            ? { tone: 'red', title: `${overdue.length} job${overdue.length > 1 ? 's' : ''} past its promised date`, body: 'Call Handy to sort a new day with the customer.', cta: null }
+            : stuck.length > 0
+            ? { tone: 'amber', title: `£${Math.round(stuckPence / 100).toLocaleString()} waiting on an open day`, body: `${stuck[0].jobDescription?.slice(0, 40) ?? 'A job'}${stuck[0].deadline ? ` · by ${format(new Date(stuck[0].deadline + 'T00:00:00'), 'EEE d MMM')}` : ''}`, cta: { label: 'Open days →', to: 'week' as const } }
+            : readyPence > 0
+            ? { tone: 'emerald', title: `£${Math.round(readyPence / 100).toLocaleString()} ready to book`, body: 'Group your jobs into days and lock them in.', cta: { label: 'Plan my week →', to: 'jobs' as const } }
+            : openCount === 0
+            ? { tone: 'amber', title: 'No open days this week', body: 'Open days so customers can book you.', cta: { label: 'Open days →', to: 'week' as const } }
+            : { tone: 'emerald', title: 'You’re all set', body: `${bookedCount} day${bookedCount === 1 ? '' : 's'} booked this week. Keep your calendar fresh.`, cta: { label: 'View week →', to: 'week' as const } };
+          const toneCls = doNow.tone === 'red' ? 'bg-red-500/10 border-red-500/30' : doNow.tone === 'amber' ? 'bg-amber-500/10 border-amber-500/30' : 'bg-emerald-500/10 border-emerald-500/30';
+          const toneText = doNow.tone === 'red' ? 'text-red-300' : doNow.tone === 'amber' ? 'text-amber-300' : 'text-emerald-300';
+          return (
+            <div className="space-y-3">
+              {/* Pay hero */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-500/15 to-slate-900/40 border border-emerald-500/25">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-300/70 mb-1">Your pay · this week</div>
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="text-3xl font-black">£{Math.round(bookedPence / 100).toLocaleString()}</span>
+                  <span className="text-xs text-slate-400 font-semibold">booked</span>
+                  {readyPence > 0 && <span className="text-lg font-bold text-emerald-400">+£{Math.round(readyPence / 100).toLocaleString()} ready</span>}
+                </div>
+              </div>
+
+              {/* Do this now */}
+              <div className={`p-4 rounded-2xl border ${toneCls}`}>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Do this now</div>
+                <div className={`text-sm font-bold ${toneText}`}>{doNow.title}</div>
+                <div className="text-xs text-slate-400 mt-0.5 leading-snug">{doNow.body}</div>
+                {doNow.cta && (
+                  <button onClick={() => setTab(doNow.cta!.to)} className="mt-3 w-full py-2.5 rounded-xl bg-white text-slate-950 text-sm font-bold active:scale-[0.99] transition-transform">
+                    {doNow.cta.label}
+                  </button>
+                )}
+              </div>
+
+              {/* Next job */}
+              {nextBooked && (
+                <button onClick={() => setJobDetail(bookedToDetail(nextBooked))} className="w-full text-left p-4 rounded-2xl bg-blue-500/10 border border-blue-500/25 flex items-center gap-3 active:scale-[0.99] transition-transform">
+                  <div className="w-11 h-11 rounded-xl bg-blue-500/20 flex flex-col items-center justify-center shrink-0">
+                    <span className="text-[9px] font-bold uppercase text-blue-300">{format(new Date(nextBooked.date + 'T00:00:00'), 'EEE')}</span>
+                    <span className="text-base font-black text-blue-200 leading-none">{format(new Date(nextBooked.date + 'T00:00:00'), 'd')}</span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-blue-400/70">Next job</div>
+                    <div className="text-sm font-bold text-blue-200 truncate">{nextBooked.customerName}{nextBooked.postcodeArea ? ` · ${nextBooked.postcodeArea}` : ''}</div>
+                    <div className="text-xs text-slate-400">£{Math.round((nextBooked.payoutPence ?? 0) / 100)} you earn</div>
+                  </div>
+                  <ChevronRight size={18} className="text-blue-400/60 shrink-0" />
+                </button>
+              )}
+
+              {/* Week strip */}
+              <button onClick={() => setTab('week')} className="w-full p-4 rounded-2xl bg-slate-900/60 border border-slate-800 active:scale-[0.99] transition-transform">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">This week</span>
+                  <span className="text-[11px] font-bold text-slate-400 flex items-center gap-0.5">Open & plan <ChevronRight size={13} /></span>
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {data.days.slice(0, 7).map((d) => {
+                    const booked = d.am === 'booked' || d.pm === 'booked';
+                    const open = d.am === 'open' || d.pm === 'open';
+                    return (
+                      <div key={d.date} className="text-center">
+                        <div className="text-[9px] font-bold uppercase text-slate-500">{format(new Date(d.date + 'T00:00:00'), 'EEEEE')}</div>
+                        <div className={`mt-0.5 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold ${booked ? 'bg-blue-500/25 text-blue-200' : open ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800/60 text-slate-600'}`}>
+                          {format(new Date(d.date + 'T00:00:00'), 'd')}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </button>
+
+              {/* Live-quotes pulse */}
+              {(pipeline?.liveCount ?? 0) > 0 && (
+                <button onClick={() => setTab('quotes')} className="w-full p-3.5 rounded-2xl bg-slate-900/60 border border-emerald-500/25 flex items-center gap-2.5 text-left active:scale-[0.99] transition-transform">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                  <span className="flex-1 text-xs font-semibold text-emerald-300">{pipeline!.liveCount} live quote{pipeline!.liveCount === 1 ? '' : 's'} showing your days to customers</span>
+                  <ChevronRight size={16} className="text-emerald-400/60" />
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Payslip — the week as HIS money (spec: 05-week-planner-ui.md) */}
         {tab === 'week' && jobs && (bookedPence > 0 || (jobs.flex.length ?? 0) > 0) && (
@@ -1046,10 +1138,10 @@ export default function MyWeekPage() {
       <nav className="fixed bottom-0 inset-x-0 z-40 bg-slate-950/90 backdrop-blur-md border-t border-slate-800/80 pb-[env(safe-area-inset-bottom)]">
         <div className="max-w-md mx-auto grid grid-cols-4">
           {([
+            { key: 'home' as const, label: 'Home', icon: Home, live: true, badge: 0 },
             { key: 'week' as const, label: 'Week', icon: CalendarDays, live: true, badge: 0 },
-            { key: 'quotes' as const, label: 'Quotes', icon: FileText, live: true, badge: pipeline?.liveCount ?? 0 },
             { key: 'jobs' as const, label: 'Jobs', icon: Briefcase, live: true, badge: jobs?.flex.length ?? 0 },
-            { key: 'profile' as const, label: 'Profile', icon: UserRound, live: false, badge: 0 },
+            { key: 'quotes' as const, label: 'Quotes', icon: FileText, live: true, badge: pipeline?.liveCount ?? 0 },
           ]).map((item) => {
             const active = item.live && tab === item.key;
             return (
@@ -1057,7 +1149,7 @@ export default function MyWeekPage() {
                 key={item.key}
                 disabled={!item.live}
                 aria-label={item.live ? item.label : `${item.label} — coming soon`}
-                onClick={() => item.live && setTab(item.key as 'week' | 'quotes' | 'jobs')}
+                onClick={() => item.live && setTab(item.key as 'home' | 'week' | 'quotes' | 'jobs')}
                 className={`relative flex flex-col items-center gap-1 py-2.5 transition-colors ${
                   active ? 'text-white' : item.live ? 'text-slate-500 active:text-slate-300' : 'text-slate-700'
                 }`}
