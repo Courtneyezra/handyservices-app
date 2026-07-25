@@ -85,7 +85,9 @@ export interface SeoRenderApi {
 
 export const SEO_CITIES: SeoCity[] = [
     { slug: 'nottingham', name: 'Nottingham', county: 'Nottinghamshire', region: 'East Midlands', lat: 52.9548, lng: -1.1581, reviewCount: 130 },
-    { slug: 'derby', name: 'Derby', county: 'Derbyshire', region: 'East Midlands', lat: 52.9225, lng: -1.4746, reviewCount: 300 },
+    // Derby's own GBP is "Homefix Handyman" (separate brand). These pages are Handy Services,
+    // so they show the Handy Services brand review count (130), not Homefix's — honest + policy-safe.
+    { slug: 'derby', name: 'Derby', county: 'Derbyshire', region: 'East Midlands', lat: 52.9225, lng: -1.4746, reviewCount: 130 },
 ];
 
 /** Core = safe to publish T2/T3 now. Sub = gated behind pool capacity (T2 only, when pagePublished). */
@@ -123,13 +125,15 @@ export const SEO_BRAND = {
     url: 'https://www.handyservices.app',
     telephone: '+447449501762',          // public booking line (matches app StickyCTA)
     whatsapp: '447508744402',            // Ben's WhatsApp (matches WhatsAppEscape WHATSAPP_NUMBER)
-    reviewsUrl: 'https://g.page/r/CaTBbeu5MahxEBM/review', // real Google Business reviews (from app)
+    reviewsUrl: 'https://g.page/r/CaTBbeu5MahxEBM/review', // real Handy Services Google Business reviews (Nottingham GBP)
     ratingValue: '4.9',
-    reviewCount: '127',
+    reviewCount: '130',
     insured: '£2M insured',
     priceRange: '££',
     logo: 'https://www.handyservices.app/logo.png',
-    sameAs: [] as string[],
+    // Entity-fusion signal: the site IS the Handy Services Google Business Profile.
+    // (Derby's "Homefix Handyman" GBP is a separate brand — deliberately NOT linked.)
+    sameAs: ['https://g.page/r/CaTBbeu5MahxEBM'] as string[],
 } as const;
 
 /** Thin-content guard: a rendered page must clear these to be indexable. */

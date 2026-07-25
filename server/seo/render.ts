@@ -453,11 +453,9 @@ function localBusinessLd(city: SeoCity, placeName?: string): Record<string, unkn
             longitude: city.lng,
         },
         areaServed,
-        aggregateRating: {
-            '@type': 'AggregateRating',
-            ratingValue: SEO_BRAND.ratingValue,
-            reviewCount: String(city.reviewCount),
-        },
+        // No aggregateRating: Google disallows self-serving review markup for a
+        // business on its own site (reviews live on Google, not on-page). The
+        // visible star badge + "Read our Google reviews" link carry the proof.
         ...(SEO_BRAND.sameAs.length ? { sameAs: SEO_BRAND.sameAs } : {}),
     };
 }
