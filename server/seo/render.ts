@@ -952,6 +952,12 @@ export function renderSitemapXml(
         urls.push(`    <url><loc>${escapeHtml(loc)}</loc></url>`);
     };
 
+    // Standard marketing landing pages (the React app's core pages). Listed so
+    // Google discovers them too — the SEO city/service pages are additive to these.
+    // NB: '' = homepage; /derby is emitted below as a city hub, so not repeated here.
+    const STANDARD_PAGES = ['', 'property-managers', 'businesses', 'cleaning'];
+    for (const p of STANDARD_PAGES) push(absUrl(p));
+
     for (const city of cities) {
         // T1 city hub
         push(absUrl(city.slug));
