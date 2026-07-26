@@ -28,15 +28,29 @@ or `/mcp`). Everything below is prepped so generation is a clean batch once conn
 6. **Exclusions** — "no text, no letters, no watermark, no extra logos".
 7. **Output** — ~2752×1536, export **WebP** (~150–400KB) to `seo-heroes/{trade}.webp`.
 
-## Two-pass pipeline (per image) — the proven method
-1. **Scene pass:** `generate_image`, model `nano_banana_2`, with the person's reference element
-   `<<<element_id>>>` + the scene prompt (navy polo, trade action, UK setting, realism cues,
-   **clean chest — no logo yet**).
-2. **Logo pass (image-to-image):** `generate_image` `nano_banana_2`, `medias=[{value:<scene job_id>,
-   role:image},{value:<logo media_id>, role:image}]`, prompt: *"Add the circular hand logo from the
-   second image as a small embroidered badge on the upper LEFT chest of the polo, following the
-   fabric folds and lighting; keep everything else identical."*
+## Pipeline — the EMBROIDERY method (validated 26 Jul on Craig/fencing)
+Feeding the flat logo vector into the composite makes it look like a decal pasted on top.
+The fix: composite an already-**embroidered** version of the logo, at high fidelity.
+
+0. **One-time embroidered-patch asset (reuse for ALL 23):** `generate_image` model
+   `nano_banana_pro`, `resolution:2k`, `aspect_ratio:1:1`, `medias=[{value:<logo media_id>,
+   role:image}]`, prompt = render the logo as REAL machine embroidery (satin/fill-stitch thread
+   texture, slightly raised, fabric puckering, on navy polo weave, macro, "NOT a flat print/vector/
+   sticker"). → **patch job_id `70178753-0e71-405a-ac53-88bb43f69966`** (regenerate if expired).
+1. **Scene pass:** `generate_image` model `nano_banana_2`, `aspect_ratio:16:9`, person reference
+   element `<<<element_id>>>` + scene prompt (navy polo NOT royal, trade action, UK setting, realism
+   cues, torso turned to camera, **clean chest — no logo yet**).
+2. **Composite pass:** `generate_image` model `nano_banana_pro`, `resolution:2k`, `medias=[{value:
+   <scene job_id>, role:image},{value:<PATCH job_id 70178753>, role:image}]`, prompt: *"Keep the
+   first image identical; take the EMBROIDERED badge from the second image and place it on the upper
+   LEFT breast (normal polo position, level with armpit, NOT the shoulder), ~5cm wide, conforming to
+   the fabric folds/curvature and scene light with a subtle contact shadow, keep the satin-stitch
+   thread texture — genuinely stitched in, not a flat sticker."*
 3. Download → convert to WebP → overwrite `seo-heroes/{trade}.webp`.
+
+Notes: `nano_banana_pro` (higher fidelity, 2k) is what makes the stitch texture read; the scene pass
+can stay on the faster model. ~1.5 credits/1k gen, more at 2k. Craig/fencing exemplars: scene
+`c2309a4d…`, final `ccd0c0d2…`.
 
 ## First steps when Higgsfield reconnects (IDs from memory may be stale)
 - `show_reference_elements` — reuse or recreate person elements. If missing, create one per team
